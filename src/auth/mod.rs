@@ -11,7 +11,7 @@
 mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod built_in;
-use built_in::BuiltIn;
+pub(crate) use built_in::BuiltIn;
 pub use built_in::TRUSTED_APP_ID;
 mod jwt;
 mod policy;
@@ -731,7 +731,7 @@ impl Registry {
             let mut registry = Self::parse(&read_identities(source)?)?;
             let signer = signer.settle(|| registry.declares(test_signer::ID));
             match signer {
-                TestSigner::Enabled => registry.add_test_signer()?,
+                TestSigner::Enabled => registry.add_test_signer(projects)?,
                 TestSigner::Disabled => {}
             }
             // A named principal must be registered, which the principal checks after loading
@@ -923,10 +923,11 @@ impl Registry {
     }
 
     /// Adds the built-in test signer's public key. An entry the document declares with its ID
-    /// keeps its tokens, project roles and ACL entity; otherwise the signer exists without project
-    /// roles, so only bucket or object grants authorize it.
-    fn add_test_signer(&mut self) -> Result<(), RegistryError> {
-        self.add_built_in(BuiltIn::TestSigner, &BTreeSet::new())?;
+    /// keeps its tokens, project roles and ACL entity; otherwise the signer holds
+    /// `roles/storage.objectUser` in `projects`, and elsewhere only bucket or object grants
+    /// authorize it.
+    fn add_test_signer(&mut self, projects: &BTreeSet<String>) -> Result<(), RegistryError> {
+        self.add_built_in(BuiltIn::TestSigner, projects)?;
         self.signing_keys
             .add(test_signer::ID, test_signer::public_key());
         Ok(())
@@ -1174,6 +1175,12 @@ impl Auth {
     pub fn trusted_principal(&self) -> Option<&str> {
         let registry = self.registry()?;
         registry.identities.get(registry.trusted?).map(Identity::id)
+    }
+
+    /// Whether the identity document declares `id`, as opposed to gcs-mimic adding it.
+    pub(crate) fn declares(&self, id: &str) -> bool {
+        self.registry()
+            .is_some_and(|registry| registry.declares(id))
     }
 
     /// Whether V4 verification also accepts a canonical host without the request's port, after
@@ -2151,7 +2158,7 @@ mod tests {
             br#"{"identities":[{"id":"app@example.invalid","tokens":["app-token"],"project_roles":{"p":["roles/storage.objectAdmin"]}},{"id":"other@example.invalid","tokens":["other-token"]}]}"#,
         )
         .unwrap();
-        registry.add_test_signer().unwrap();
+        registry.add_test_signer(&BTreeSet::new()).unwrap();
         let mut auth = Auth::strict(registry);
         let trusted = ListenerRole::Trusted;
         // Until a principal is named the trusted listener grants nothing more than the public one.

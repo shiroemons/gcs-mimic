@@ -6,7 +6,7 @@ use super::{
     Setting, Settings,
 };
 use crate::auth::{
-    Auth, AuthMode, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
+    Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
     TrustedPrincipalError, signature::SignedHostPort, test_signer,
 };
 use std::{borrow::Cow, collections::BTreeSet};
@@ -270,13 +270,19 @@ impl ConfigurationReport {
         let (registry, implicit_projects) = match profile {
             AuthProfile::Strict {
                 identities,
+                verification,
                 trusted,
-                ..
             } => {
-                // Only implicit roles need the buckets document, so nothing else reads it here.
-                let projects = match trusted {
-                    TrustedCaller::BuiltIn => self.config.implicit_projects(),
-                    TrustedCaller::Anonymous | TrustedCaller::Named(_) => BTreeSet::new(),
+                // Only a built-in identity's implicit roles need the buckets document, so nothing
+                // else reads it here.
+                let projects = match (trusted, verification.test_signer) {
+                    (TrustedCaller::BuiltIn, _)
+                    | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
+                    | (_, TestSignerChoice::WhenDeclared) => self.config.implicit_projects(),
+                    (
+                        TrustedCaller::Anonymous | TrustedCaller::Named(_),
+                        TestSignerChoice::Fixed(TestSigner::Disabled),
+                    ) => BTreeSet::new(),
                 };
                 (Some(identities.form()), projects)
             }
@@ -288,7 +294,7 @@ impl ConfigurationReport {
             Ok(mut auth) => {
                 if let Some(form) = registry {
                     let registry = DocumentKind::Identities.setting(form);
-                    self.warn_strict_test_signer(&auth, registry);
+                    self.warn_strict_test_signer(&auth, registry, &implicit_projects);
                     self.resolve_principals(&mut auth, registry);
                 }
                 auth
@@ -305,13 +311,32 @@ impl ConfigurationReport {
     }
 
     /// Strict mode has the built-in signer only on request, from `test_signer=enabled` or from
-    /// an entry for its ID in `registry`; say what that exposes, at the setting that asked.
-    fn warn_strict_test_signer(&mut self, auth: &Auth, registry: Setting) {
+    /// an entry for its ID in `registry`; say what that exposes, at the setting that asked,
+    /// including the implicit role in `projects` when no entry replaces it.
+    fn warn_strict_test_signer(
+        &mut self,
+        auth: &Auth,
+        registry: Setting,
+        projects: &BTreeSet<String>,
+    ) {
         match auth.test_signer() {
             TestSigner::Enabled => {}
             TestSigner::Disabled => return,
         }
         let id = test_signer::ID;
+        let implicit = if auth.declares(id) {
+            String::new()
+        } else {
+            format!(
+                " It holds {} in {}, so it can read and write objects there.",
+                BuiltIn::TestSigner.role().unwrap_or_default(),
+                projects
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
         let (setting, cause, remedy) = match self.config.test_signer {
             Some(_) => (
                 Setting::TestSigner,
@@ -332,7 +357,7 @@ impl ConfigurationReport {
                 input.source,
                 &input.key,
                 format!(
-                    "{cause}: the private key of {id} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it. Use it only for local tests{remedy}."
+                    "{cause}: the private key of {id} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it.{implicit} Use it only for local tests{remedy}."
                 ),
             ));
         }

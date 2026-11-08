@@ -46,8 +46,12 @@ pub fn service_account_json() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{OBJECTS_GET, Registry, RegistryError};
+    use crate::auth::{
+        BUCKETS_CREATE, BUCKETS_SET_IAM, BUCKETS_UPDATE, OBJECTS_CREATE, OBJECTS_DELETE,
+        OBJECTS_GET, OBJECTS_LIST, OBJECTS_SET_IAM, OBJECTS_UPDATE, Registry, RegistryError,
+    };
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     fn registry(identities: serde_json::Value) -> Registry {
         Registry::parse(json!({ "identities": identities }).to_string().as_bytes()).unwrap()
@@ -56,7 +60,7 @@ mod tests {
     #[test]
     fn an_undeclared_signer_exists_without_project_roles_or_tokens() {
         let mut registry = registry(json!([{"id":"admin@example.invalid","tokens":["admin"]}]));
-        registry.add_test_signer().unwrap();
+        registry.add_test_signer(&BTreeSet::new()).unwrap();
         assert_eq!(registry.declared, 1);
         assert_eq!(registry.len(), 2);
         let signer = registry.identity(ID).unwrap();
@@ -69,6 +73,37 @@ mod tests {
         assert_eq!(registry.tokens.len(), 1);
     }
 
+    /// The published key gets the least role that covers signed reads and writes: no IAM or ACL
+    /// administration, and nothing outside the implicit projects.
+    #[test]
+    fn an_undeclared_signer_reads_and_writes_objects_in_the_implicit_projects_only() {
+        let mut registry = registry(json!([{"id":"admin@example.invalid","tokens":["admin"]}]));
+        let projects = ["local-project", "project-a"].map(str::to_owned).into();
+        registry.add_test_signer(&projects).unwrap();
+        let signer = registry.identity(ID).unwrap();
+        for project in ["local-project", "project-a"] {
+            for permission in [
+                OBJECTS_GET,
+                OBJECTS_CREATE,
+                OBJECTS_DELETE,
+                OBJECTS_LIST,
+                OBJECTS_UPDATE,
+            ] {
+                assert!(signer.allows(permission, project), "{project}");
+            }
+            for permission in [
+                BUCKETS_CREATE,
+                BUCKETS_SET_IAM,
+                OBJECTS_SET_IAM,
+                BUCKETS_UPDATE,
+            ] {
+                assert!(!signer.allows(permission, project), "{project}");
+            }
+        }
+        assert!(!signer.allows(OBJECTS_GET, "other-project"));
+        assert!(registry.tokens.values().all(|index| *index != 1));
+    }
+
     #[test]
     fn a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key() {
         let mut registry = registry(json!([{
@@ -78,10 +113,14 @@ mod tests {
             "acl_entity": "user-signer-alias@example.invalid",
             "project_roles": {"local": ["roles/storage.objectViewer"]}
         }]));
-        registry.add_test_signer().unwrap();
+        // The declared entry replaces the implicit role, wherever it would have applied.
+        let projects = ["local", "project-a"].map(str::to_owned).into();
+        registry.add_test_signer(&projects).unwrap();
         assert_eq!((registry.declared, registry.len()), (1, 1));
         let signer = registry.identity(ID).unwrap();
         assert!(signer.allows(OBJECTS_GET, "local"));
+        assert!(!signer.allows(OBJECTS_CREATE, "local"));
+        assert!(!signer.allows(OBJECTS_GET, "project-a"));
         assert_eq!(
             signer.acl_entity().as_deref(),
             Some("user-signer-alias@example.invalid")
@@ -97,7 +136,7 @@ mod tests {
             json!({"id":"test-signer@GCS-MIMIC.INVALID","tokens":[]}),
         ] {
             let mut registry = registry(json!([identity]));
-            let error = registry.add_test_signer().unwrap_err();
+            let error = registry.add_test_signer(&BTreeSet::new()).unwrap_err();
             assert!(matches!(error, RegistryError::Invalid { entry: None, .. }));
             assert!(
                 error.to_string().contains("test_signer=disabled"),

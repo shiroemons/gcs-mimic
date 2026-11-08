@@ -173,9 +173,9 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 固定したローカル署名鍵を使い、対応する公開鍵・ID・権限を登録します。
 起動ごとに生成した未登録の鍵ではstrict認証できません。
 鍵を登録する代わりに、[組み込みのテスト署名者（英語）](../en/signed-urls.md#built-in-test-signer)も使えます。
-ID文書に`test-signer@gcs-mimic.invalid`をプロジェクトロール付きで宣言すると、strictでも有効になります。
-宣言しない場合は、エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動し、そのIDにバケットのIAMで権限を付けます
-（strictではそれ以外は無効で、有効にすると起動時に警告が出ます）。
+エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動すると、バケット文書が挙げたprojectと`seed_project`では、権限を付けなくてもオブジェクトを読み書きできます。
+ID文書に`test-signer@gcs-mimic.invalid`をプロジェクトロール付きで宣言しても有効になり、その場合はロールを自分で選べます
+（strictではそれ以外は無効で、有効にすると起動時に警告が出ます）。ほかのprojectのバケットには、そのIDにバケットのIAMで権限を付けます。
 `client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの鍵にします。
 秘密鍵は公開されていて誰でもこのIDで認証できるため、ローカルのテストだけで使います。
 鍵はエミュレーター自身から取り出せるため、リポジトリのチェックアウトは不要です。

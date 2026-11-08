@@ -362,9 +362,18 @@ would promise a verification that never happens. The identity document is
   then exists with the built-in public key.
   If the identity document declares `test-signer@gcs-mimic.invalid`, that entry
   supplies its tokens, project roles and ACL entity, and the built-in key is
-  added to its `public_keys`. Otherwise it has no project roles, so a bucket or
-  object grant such as `user:test-signer@gcs-mimic.invalid` authorizes it; a
-  signature it makes without a grant gets 403 `AccessDenied`. V4 and V2 RSA
+  added to its `public_keys`: an explicit declaration replaces every implicit
+  grant. Otherwise it holds `roles/storage.objectUser` in the effective
+  `seed_project` and in every project the buckets document (`buckets_file` or
+  `buckets`) names, and the warning says so. That is the least predefined role
+  that covers signed GET and PUT, overwrites and what Rails also does (delete,
+  list and metadata updates), and it administers no IAM policy or ACL, which
+  matters because anyone can sign with the published key. An object it writes
+  records it as owner, so with fine-grained ACLs it may still edit that object's
+  own ACL, as an owner may in Cloud Storage; uniform bucket-level access removes
+  that. In other projects a bucket or object grant such as
+  `user:test-signer@gcs-mimic.invalid` authorizes it, and a signature it makes
+  without one gets 403 `AccessDenied`. V4 and V2 RSA
   signed URLs and self-signed service-account JWTs from it verify like those of
   any registered identity with public keys. An identity entry whose ACL
   alias or natural user entity names the signer fails startup unless it
@@ -459,9 +468,11 @@ gcs_emulator:
     private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
 ```
 
-In strict mode, declare the signer with project roles in the identity document,
-which enables it, or start the server with `GCS_MIMIC_TEST_SIGNER=enabled` and
-grant `user:test-signer@gcs-mimic.invalid` on the bucket.
+In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`: the
+signer then reads and writes objects in the buckets document's projects and
+`seed_project`, and a bucket elsewhere needs a grant for
+`user:test-signer@gcs-mimic.invalid`. To choose its roles yourself, declare the
+signer with project roles in the identity document, which also enables it.
 
 ## Legacy V2 HMAC and header signatures
 

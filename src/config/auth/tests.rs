@@ -163,6 +163,9 @@ fn strict_mode_settles_the_test_signer_from_the_identity_document() {
                         ] {
                             assert!(fix.contains(expected), "{fix}");
                         }
+                        // Only the implicit role is worth naming; a declared entry has its own.
+                        let implicit = "It holds roles/storage.objectUser in local-project, so it can read and write objects there.";
+                        assert_eq!(fix.contains(implicit), !declared, "{fix}");
                         if explicit.is_none() {
                             let setting = flag.trim_start_matches("--").replace('-', "_");
                             assert!(

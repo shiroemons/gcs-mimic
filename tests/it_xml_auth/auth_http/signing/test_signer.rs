@@ -294,6 +294,123 @@ fn a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_settin
     }
 }
 
+/// Without an entry for its ID an enabled signer holds `roles/storage.objectUser` in the setup's
+/// projects: signed reads and writes work there, while IAM and ACL changes stay out of reach of
+/// the published key, and other projects still need a grant.
+#[test]
+fn an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_nothing() {
+    let config = TestDir::new();
+    let data = TestDir::new();
+    let path = common::process::write_identities(&config.0, &registry());
+    let buckets =
+        json!({"version":1,"project":"project-a","buckets":[{"name":"signer-bucket"}]}).to_string();
+    let args = [
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        path.to_str().unwrap(),
+        "--test-signer",
+        "enabled",
+        "--buckets",
+        &buckets,
+    ];
+    let (mut server, ready) = Server::start_with_stderr(&data, &args, Stdio::piped());
+    assert_eq!(ready["test_signer"], "enabled");
+    let signed = |method: Method, path: &str| {
+        sign(
+            &server,
+            &method,
+            path,
+            test_signer::ID,
+            SystemTime::now(),
+            HeaderMap::new(),
+        )
+    };
+    send(
+        &server,
+        "PUT",
+        &signed(Method::PUT, "/signer-bucket/signed.txt"),
+        "",
+    )
+    .success();
+    send(
+        &server,
+        "GET",
+        &signed(Method::GET, "/signer-bucket/signed.txt"),
+        "",
+    )
+    .success();
+    send(
+        &server,
+        "PUT",
+        &signed(Method::PUT, "/signer-bucket/signed.txt"),
+        "",
+    )
+    .success();
+    let json = "Content-Type: application/json\r\n";
+    let bearer = format!("{}{json}", jwt::bearer(test_signer::ID));
+    server
+        .get(
+            &jwt::bearer(test_signer::ID),
+            "/storage/v1/b/signer-bucket/o",
+        )
+        .success();
+    server
+        .request(
+            "PUT",
+            "/storage/v1/b/signer-bucket/iam",
+            &bearer,
+            br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
+        )
+        .forbidden();
+    // The role grants no ACL administration. An object the signer writes records it as OWNER,
+    // which, as in Cloud Storage's fine-grained ACLs, lets it edit that object's own ACL only.
+    server
+        .upload(ADMIN, "signer-bucket", "admin.txt", b"admin bytes")
+        .success();
+    for path in [
+        "/storage/v1/b/signer-bucket/acl",
+        "/storage/v1/b/signer-bucket/o/admin.txt/acl",
+    ] {
+        server
+            .request(
+                "POST",
+                path,
+                &bearer,
+                br#"{"entity":"allUsers","role":"READER"}"#,
+            )
+            .forbidden();
+    }
+    // The seeded iam-bucket is in project-a too; a project the setup does not name needs a grant.
+    server
+        .create_bucket(ADMIN, "project-b", "other-bucket")
+        .success();
+    error(
+        &send(
+            &server,
+            "PUT",
+            &signed(Method::PUT, "/other-bucket/denied.txt"),
+            "",
+        ),
+        403,
+        "AccessDenied",
+    );
+    let warnings: Vec<_> = stderr_events(&mut server)
+        .into_iter()
+        .filter(|event| event["event"] == "diagnostics" && event["level"] == "warn")
+        .flat_map(|event| event["diagnostics"].as_array().unwrap().clone())
+        .filter(|diagnostic| diagnostic["key"] == "--test-signer")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let message = warnings[0]["fix"].as_str().unwrap();
+    assert!(
+        message.contains(
+            "It holds roles/storage.objectUser in local-project, project-a, so it can read and write objects there."
+        ),
+        "{message}"
+    );
+}
+
 #[test]
 fn a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode() {
     let (_config, _data, server, _ready) =

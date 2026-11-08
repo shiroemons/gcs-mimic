@@ -189,11 +189,13 @@ key, register its public key and identity, and use the same non-Google universe
 in both settings. A fresh unregistered key
 generated at each boot cannot authenticate to that strict registry. Instead of
 registering a key, you can use the
-[built-in test signer](signed-urls.md#built-in-test-signer): declare
+[built-in test signer](signed-urls.md#built-in-test-signer): start the emulator
+with `GCS_MIMIC_TEST_SIGNER=enabled`, and the signer reads and writes objects in
+the buckets document's projects and `seed_project` without a grant, or declare
 `test-signer@gcs-mimic.invalid` with project roles in the identity document,
-which enables it in strict mode, or start the emulator with
-`GCS_MIMIC_TEST_SIGNER=enabled` and grant that identity bucket IAM (strict mode
-leaves it disabled otherwise and warns at startup when it is enabled). Set
+which also enables it (strict mode leaves it disabled otherwise and warns at
+startup when it is enabled). A bucket in another project needs bucket IAM for
+it. Set
 `client_email` to `test-signer@gcs-mimic.invalid` and `private_key` to the
 published key. Save the key from the emulator itself, which needs no
 repository checkout:

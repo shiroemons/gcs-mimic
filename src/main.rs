@@ -117,7 +117,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
   --identities JSON            none (the --identity-file registry itself, with the same format and limits; not with --identity-file)
   --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
-  --test-signer MODE           enabled with permissive --signed-urls verify or when strict identities declare its id, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
+  --test-signer MODE           enabled with permissive --signed-urls verify or when strict identities declare its id, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; undeclared in strict mode it holds roles/storage.objectUser in the buckets document's projects and seed_project; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "51d169264b8ebd1f682c95d54d194c5b2c7624f87823b60905a8e28659e71efa"
+            "45ea7d2f270c7d52fadc5a20a759ccd82f1599151bc6189fcf9a9f81a7a93a0f"
         );
     }
 

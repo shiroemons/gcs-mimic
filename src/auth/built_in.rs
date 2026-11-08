@@ -32,10 +32,13 @@ impl BuiltIn {
 
     /// The predefined role the identity holds in each implicit project when the identity
     /// document does not declare it. The application's own servers manage their buckets, as a
-    /// deployed service account with `roles/storage.admin` would.
-    fn role(self) -> Option<&'static str> {
+    /// deployed service account with `roles/storage.admin` would. The test signer's key is
+    /// public, so it gets the least role that covers signed GET and PUT, overwrites and what
+    /// Rails also does (delete, list and metadata updates): `objectUser` administers no IAM
+    /// policy or ACL.
+    pub(crate) fn role(self) -> Option<&'static str> {
         match self {
-            Self::TestSigner => None,
+            Self::TestSigner => Some("roles/storage.objectUser"),
             Self::TrustedApp => Some("roles/storage.admin"),
         }
     }

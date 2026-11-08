@@ -193,6 +193,12 @@ explicit declaration always wins. Its authority is only as private as the port:
 keep the trusted listener off published ports. The ready event reports the
 effective `trusted_principal`.
 
+The built-in test signer `test-signer@gcs-mimic.invalid`, when enabled and not
+declared, holds `roles/storage.objectUser` in the same projects. That role reads
+and writes objects, including what Rails does, but administers no IAM policy or
+ACL, because anyone can sign with the published key; see
+[signed URLs](../signed-urls.md#built-in-test-signer).
+
 ### Errors
 
 | Condition | Status | Body |
