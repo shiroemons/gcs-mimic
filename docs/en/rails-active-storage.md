@@ -41,7 +41,7 @@ the service sets `cache_control`; without it, those uploads fail CORS. Rails
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -201,7 +201,7 @@ its own:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       # The host port equals the container port, so one URL works on both sides.
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
@@ -224,7 +224,7 @@ Set `GCS_MIMIC_PORT`, for example in a worktree's `.env` file, when port 4443
 is taken; Compose substitutes it in the file. Other services on the Compose
 network then reach the emulator at `http://gcs:${GCS_MIMIC_PORT:-4443}` too.
 When the Rails port also changes per worktree, the CORS origin in the bucket
-document must follow it. With a release newer than 0.13.0, write the document
+document must follow it. With 0.14.0 or later, write the document
 inline in `GCS_MIMIC_BUCKETS` instead of `GCS_MIMIC_BUCKETS_FILE`, so that
 Compose substitutes the port there as well, as in
 `"origin": ["http://localhost:${RAILS_PORT:-3000}"]` with a variable of your
@@ -249,7 +249,7 @@ bucket. Right after startup the port can answer with an empty reply, which
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:
@@ -274,8 +274,8 @@ permissive profile accepts. Strict mode authorizes every request as Cloud
 Storage does: a browser that requests a private object without a signed URL
 gets 401, and Rails needs a key that the emulator knows. Give Rails the key of
 the built-in test signer `test-signer@gcs-mimic.invalid`, which ships with
-gcs-mimic, so nothing has to be generated or registered. This needs a release
-newer than 0.13.0.
+gcs-mimic, so nothing has to be generated or registered. This needs 0.14.0 or
+later.
 
 Add two settings to the `gcs` service of step 1 or step 4:
 
@@ -410,7 +410,7 @@ docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
   | jq -r .private_key > config/gcs-mimic-test-signer.pem
 ```
 
-Use a tag newer than 0.13.0, which lacks the command, and read the file as in
+Use 0.14.0 or later, because 0.13.0 lacks the command, and read the file as in
 the [signer's `storage.yml` example](signed-urls.md#built-in-test-signer). Its
 private key is public, so anyone can authenticate as it; use it only for local
 tests. The same

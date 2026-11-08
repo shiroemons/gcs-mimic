@@ -4,7 +4,7 @@
 
 The file shows wiring: which address each service uses, with which credentials, and why. It does not list every setting. The dictionary of every setting is the settings table in [native binary and configuration](../../docs/en/native-binary.md#native-binary-and-configuration), with each default, and the [configuration reference](../../docs/en/fake-gcs-server-configuration.md) maps fake-gcs-server's options to those settings. Every line in compose.yaml either connects two services or departs from a default, so a line you do not find there is a default you can look up.
 
-This example needs a gcs-mimic release newer than 0.13.0, like the recipe. Until one is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
+This example needs gcs-mimic 0.14.0 or later, like the recipe. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
 
 ## Start it
 

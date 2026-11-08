@@ -8,7 +8,7 @@
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
-公開イメージの例は0.13.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
+公開イメージの例は0.14.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
 機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
 
 ## GitHubで確認した利用例と移行時の違い
@@ -107,7 +107,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -154,7 +154,7 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 
 バケットの文書はComposeファイルの中にも書けるので、別の`buckets.json`は要りません。
 `GCS_MIMIC_BUCKETS_FILE`と`buckets.json`のマウントの代わりに、サービスのenvironmentへ`GCS_MIMIC_BUCKETS`として書きます。2つの設定は同時に使えません。
-これが推奨の形で、0.13.0より新しいリリースが必要です。
+これが推奨の形で、0.14.0以降が必要です。
 
 ```yaml
 services:
@@ -280,7 +280,7 @@ strictの署名URLは最終的に利用者がアクセスするURLで署名し�
 コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各行の意味と、レシピが前提にしている既定値はレシピのREADMEで説明しています。
 permissiveの`verify`は、strictモードをまだ使えない構成のための途中段階にすぎません。
 不正な署名は拒否しますが、検証に通ったリクエストも署名のないリクエストもすべて許可するので、非公開バケットが非公開のままかは確認できません。
-表の2行目と3行目の構成には、0.13.0より新しいリリースが必要です。
+表の2行目と3行目の構成には、0.14.0以降が必要です。
 2つのプロファイルとfake-gcs-serverの挙動は、[Dockerで使う](container-usage.md#fake-gcs-serverとの違い構成別)で項目ごとに比べています。
 
 ### アプリのサーバーを変えずにstrictモードにする

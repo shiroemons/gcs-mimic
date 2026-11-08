@@ -7,7 +7,7 @@ Each client directory runs the same workflow against gcs-mimic with an official 
 Start the emulator once and run any example against it:
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 -p 127.0.0.1:4444:4444 -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444 ghcr.io/shiroemons/gcs-mimic:0.13.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 -p 127.0.0.1:4444:4444 -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444 ghcr.io/shiroemons/gcs-mimic:0.14.0
 ```
 
 Only the Rust example needs the gRPC listener on port 4444; the others use HTTP on port 4443 alone.
@@ -30,7 +30,7 @@ Each directory's README lists its requirements. Run an example with `./run.sh` (
 
 ## Production-like access
 
-Both need a gcs-mimic release newer than 0.13.0.
+Both need gcs-mimic 0.14.0 or later.
 
 | Example | What it is |
 | --- | --- |

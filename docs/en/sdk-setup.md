@@ -137,8 +137,8 @@ test READMEs.
   `bucketBoundHostname`. See the [signed URL guide](signed-urls.md) and each
   SDK's test README.
 - These examples use the default permissive profile, which accepts any
-  request and, by default, any signed URL without checking it. In releases
-  newer than 0.13.0, `GCS_MIMIC_SIGNED_URLS=verify` checks signatures while
+  request and, by default, any signed URL without checking it. Since 0.14.0,
+  `GCS_MIMIC_SIGNED_URLS=verify` checks signatures while
   every request stays allowed. For production-like access, where private
   buckets stay private and these anonymous clients keep working on your
   servers through a trusted listener, see the

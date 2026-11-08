@@ -24,7 +24,7 @@ Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのま
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.13.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.14.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -36,7 +36,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.13.0`
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.14.0`
 - `GCS_MIMIC_SCHEME=http`を外すと、組み込みの開発用証明書でHTTPSになります。[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
 ## Docker Compose
@@ -44,7 +44,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -94,7 +94,7 @@ resumableアップロードのURLなど、エミュレーターが返すリン�
 
 Goのサーバーは`STORAGE_EMULATOR_HOST: gcs:4444`を設定します。
 Railsは`gcs-mimic test-signer credentials`が出力する署名者の鍵を使います。[Rails Active Storage](rails-active-storage.md#6-strictで本番に近い確認をする)を参照してください。
-貼り付けるブロックと各部分の説明は[strictのローカル構成（英語）](../../examples/strict-local/README.md)にあります。0.13.0より新しいリリースが必要です。
+貼り付けるブロックと各部分の説明は[strictのローカル構成（英語）](../../examples/strict-local/README.md)にあります。0.14.0以降が必要です。
 すべてのリクエストを受け付けたまま署名だけを検査する方法は、[どの構成を使うか](container-usage.md#どの構成を使うか)を参照してください。
 
 ## 初期ファイルを読み込む
@@ -180,7 +180,7 @@ gcs_emulator:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.13.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.14.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
@@ -188,7 +188,7 @@ gcs_emulator:
 +    - gcs-data:/var/lib/gcs-mimic
 ```
 
-旧設定は、起動時に`GCS_MIMIC_*`の名前付きで警告されます。都合のよいときに名前を変えてください。0.13.0の例外と違いは次のとおりです。
+旧設定は、起動時に`GCS_MIMIC_*`の名前付きで警告されます。都合のよいときに名前を変えてください。0.14.0の例外と違いは次のとおりです。
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
@@ -229,9 +229,9 @@ GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 | `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444` |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
 
-`GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.13.0より新しいリリースが必要です。
+`GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.14.0以降が必要です。
 0.13.0までは、`GCS_MIMIC_CORS_FALLBACK`の既定はどちらのモードでも`none`です。
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help`ですべての設定を確認できます。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`ですべての設定を確認できます。
 
 ## 機能の概要
 
@@ -288,7 +288,7 @@ n/aはSDKに公開APIがないケースで、そのSDKの分母から除きま�
 - [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
 - [ボトルネックの探し方](performance-investigation.md)と[性能調査の結果・採否（英語）](../en/evidence/read-optimization-summary.md)
-- [0.13.0のリリースノート（英語）](../en/releases/0.13.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.14.0のリリースノート（英語）](../en/releases/0.14.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)
 

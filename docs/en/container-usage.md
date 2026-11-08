@@ -1,6 +1,6 @@
 # Use the Docker image
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.13.0` is published for `linux/amd64` and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same image digest as `shiroemons/gcs-mimic:0.13.0`, so either name works in the commands below. Pin this exact version in CI. To test unreleased source instead, build a local image from a checkout and use its tag in the commands below:
+The image `ghcr.io/shiroemons/gcs-mimic:0.14.0` is published for `linux/amd64` and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same image digest as `shiroemons/gcs-mimic:0.14.0`, so either name works in the commands below. Pin this exact version in CI. To test unreleased source instead, build a local image from a checkout and use its tag in the commands below:
 
 ```sh
 docker build -t gcs-mimic:local .
@@ -10,7 +10,7 @@ The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-
 replaces a fake-gcs-server service with the published image and initializes
 empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 
-The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves HTTPS with a built-in development certificate, and `-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help`.
+The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves HTTPS with a built-in development certificate, and `-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`.
 
 ## Docker run
 
@@ -19,7 +19,7 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.13.0
+  ghcr.io/shiroemons/gcs-mimic:0.14.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -102,8 +102,8 @@ defaults it relies on. The [full application example](../../examples/full-stack/
 shows how a Go API, a Rails app and a frontend connect to it. Permissive `verify`
 is only a step for setups that cannot use strict mode yet: it rejects a bad
 signature, but it grants every verified and every unsigned request, so it cannot
-show that a private bucket stays private. The last two rows need a release newer
-than 0.13.0.
+show that a private bucket stays private. The last two rows need 0.14.0 or
+later.
 
 ### How the setups differ from fake-gcs-server
 
@@ -150,7 +150,7 @@ Mount it read-only at `/data`:
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.13.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.14.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -315,7 +315,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data \
   -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.13.0
+  ghcr.io/shiroemons/gcs-mimic:0.14.0
 ```
 
 See the [synchronization contract](slices/directory-synchronization.md) for the

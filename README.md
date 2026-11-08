@@ -33,7 +33,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.13.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.14.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -47,7 +47,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
   is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.13.0`.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.14.0`.
 - Without `GCS_MIMIC_SCHEME=http`, the emulator serves HTTPS with a built-in
   development certificate; see [local HTTPS](docs/en/local-https.md).
 
@@ -56,7 +56,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -115,8 +115,8 @@ preparing: no certificate, no key and no service account.
 Go servers then set `STORAGE_EMULATOR_HOST: gcs:4444`. Rails reads the signer's
 key from `gcs-mimic test-signer credentials`; see
 [Rails Active Storage](docs/en/rails-active-storage.md#6-production-like-checks-in-strict-mode).
-The recipe has the block to paste and explains each part. This needs a release
-newer than 0.13.0. To check signatures only, while every request stays allowed,
+The recipe has the block to paste and explains each part. This needs 0.14.0 or
+later. To check signatures only, while every request stays allowed,
 see [which setup do I need](docs/en/container-usage.md#which-setup-do-i-need).
 
 ## Preload files
@@ -263,9 +263,9 @@ signer and CI.
 | `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
 `GCS_MIMIC_BUCKETS`, `GCS_MIMIC_IDENTITIES`, `GCS_MIMIC_TRUSTED_LISTEN`,
-`GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_SIGNED_URLS` need a release newer than
-0.13.0. Up to 0.13.0, `GCS_MIMIC_CORS_FALLBACK` defaults to `none` in both
-modes. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help` lists every
+`GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_SIGNED_URLS` need 0.14.0 or later. Up
+to 0.13.0, `GCS_MIMIC_CORS_FALLBACK` defaults to `none` in both
+modes. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` lists every
 option.
 
 ## Features at a glance
@@ -323,7 +323,7 @@ case the SDK has no public API for; it is excluded from that SDK's denominator.
 
 ## Migrating from fake-gcs-server
 
-For the scoped container workflow, change the image (for example from `fsouza/fake-gcs-server:1.56.1`) and mount a separate data volume at `/var/lib/gcs-mimic` instead of `/storage`; most `command:` flags, `FAKE_GCS_*` variables and the `./data:/data` mount keep working, and each old setting is logged as a warning with its `GCS_MIMIC_*` name. This is not a blanket drop-in replacement claim. The **0.13.0** image has these differences:
+For the scoped container workflow, change the image (for example from `fsouza/fake-gcs-server:1.56.1`) and mount a separate data volume at `/var/lib/gcs-mimic` instead of `/storage`; most `command:` flags, `FAKE_GCS_*` variables and the `./data:/data` mount keep working, and each old setting is logged as a warning with its `GCS_MIMIC_*` name. This is not a blanket drop-in replacement claim. The **0.14.0** image has these differences:
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
@@ -349,7 +349,7 @@ Since 0.8.0, gcs-mimic also has scoped RAM storage, local Pub/Sub delivery, HTTP
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.13.0 release notes](docs/en/releases/0.13.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.14.0 release notes](docs/en/releases/0.14.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 
 ## License
 

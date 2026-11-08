@@ -16,7 +16,7 @@ Nothing needs preparing:
 
 Rails always needs that file, even when it signs no URLs: it signs its own token with the key in its credentials.
 
-This recipe needs a gcs-mimic release newer than 0.13.0. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`, and with `auth_mode=strict requires identity_file`. Until such a release is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
+This recipe needs gcs-mimic 0.14.0 or later. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`, and with `auth_mode=strict requires identity_file`. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
 
 The [full application example](../full-stack/README.md) shows a Go API, a Rails app and a frontend connected to this service.
 
@@ -30,7 +30,7 @@ services:
   # Production-like local Cloud Storage from gcs-mimic's examples/strict-local recipe.
   # Local development and tests only: the built-in test signer's private key is public.
   gcs:
-    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.13.0}
+    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.14.0}
     ports:
       # Browsers use the main listener. Never publish the trusted port 4444: anything
       # that reaches it acts as trusted-app@gcs-mimic.invalid without credentials.
@@ -251,7 +251,7 @@ The JSON is part of the service's environment, so a changed value makes Compose 
 | The browser reports a CORS error | The page's origin is not `http://localhost:${FRONTEND_PORT:-3000}`, or the request sets a header the bucket's `responseHeader` does not list | Set `FRONTEND_PORT` or list the header, then run `docker compose up -d`. |
 | Rails in a container: images do not load and direct uploads fail with `Error storing ... Status: 0` | Rails handed the browser URLs on a name only containers resolve, such as `gcs` | Use the [container variant](#rails-in-a-container). |
 | Compose reports `invalid interpolation format` for `GCS_MIMIC_BUCKETS` | The JSON holds a literal `$` | Write it as `$$`. |
-| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. Until one is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`. |
+| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use 0.14.0 or later, as compose.yaml does unless `GCS_MIMIC_IMAGE` selects another image. |
 
 ## What is verified
 

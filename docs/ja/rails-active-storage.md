@@ -39,7 +39,7 @@ Rails 8.1.4.1は`x-goog-content-length-range`も送るため、これも許可�
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -176,7 +176,7 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       # The host port equals the container port, so one URL works on both sides.
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
@@ -198,7 +198,7 @@ services:
 4443番が使用中なら、ワークツリーの`.env`などで`GCS_MIMIC_PORT`を設定します。Composeがファイル内で置き換えます。
 Composeネットワーク上のほかのサービスも、`http://gcs:${GCS_MIMIC_PORT:-4443}`でエミュレーターに届きます。
 Railsのポートもワークツリーごとに変わる場合は、バケット文書のCORSのoriginもそれに合わせる必要があります。
-0.13.0より新しいリリースでは、`GCS_MIMIC_BUCKETS_FILE`の代わりに`GCS_MIMIC_BUCKETS`へ文書をインラインで書くと、Composeがそこでもポートを置き換えます。
+0.14.0以降では、`GCS_MIMIC_BUCKETS_FILE`の代わりに`GCS_MIMIC_BUCKETS`へ文書をインラインで書くと、Composeがそこでもポートを置き換えます。
 例えば、自分で決めた変数を使って`"origin": ["http://localhost:${RAILS_PORT:-3000}"]`と書きます。
 インラインの文書は、このような変更を次の起動時に既存のバケットにも反映します。
 
@@ -218,7 +218,7 @@ config.active_storage.resolve_model_to_route = :rails_storage_proxy
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:
@@ -240,7 +240,7 @@ steps:
 手順2の項目は起動時に生成した鍵で署名するため、既定のpermissiveプロファイルでしか受け付けられません。
 strictはCloud Storageと同じようにすべてのリクエストを認可します。署名付きURLなしで非公開オブジェクトを要求したブラウザーは401を受け取り、Railsにはエミュレーターが知っている鍵が必要です。
 Railsには、gcs-mimicに同梱している組み込みのテスト署名者`test-signer@gcs-mimic.invalid`の鍵を渡します。鍵の生成も登録も不要です。
-0.13.0より新しいリリースが必要です。
+0.14.0以降が必要です。
 
 手順1または手順4の`gcs`サービスに、設定を2つ足します。
 
@@ -346,7 +346,7 @@ docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
   | jq -r .private_key > config/gcs-mimic-test-signer.pem
 ```
 
-0.13.0にはこのコマンドがないため、それより新しいタグを使います。
+0.13.0にはこのコマンドがないため、0.14.0以降のタグを使います。
 ファイルは[署名者の`storage.yml`の例（英語）](../en/signed-urls.md#built-in-test-signer)のように読み込みます。
 同じ認証情報を使えば、permissiveでも`GCS_MIMIC_SIGNED_URLS=verify`でRailsの署名付きURLを検証できます。
 起動時に生成した鍵はエミュレーターが知らないため、そのURLは`InvalidAccessKeyId`で失敗します。

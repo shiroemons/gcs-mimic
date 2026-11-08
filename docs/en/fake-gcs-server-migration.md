@@ -2,7 +2,7 @@
 
 [日本語](../ja/fake-gcs-server-migration.md)
 
-Published container examples below use **0.13.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
+Published container examples below use **0.14.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
 
 ## Replace a fake-gcs-server Compose service
 
@@ -129,7 +129,7 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -180,7 +180,7 @@ The bucket document can live in the Compose file itself, so no separate
 `buckets.json` is needed. Write it into the service's environment as
 `GCS_MIMIC_BUCKETS`, in place of `GCS_MIMIC_BUCKETS_FILE` and the `buckets.json`
 mount; the two settings cannot be combined. This is the recommended form, and
-it needs a release newer than 0.13.0:
+it needs 0.14.0 or later:
 
 ```yaml
 services:
@@ -316,8 +316,8 @@ up: the container smoke test runs that exact block with the image, and its READM
 explains each line and the defaults it relies on. Permissive `verify` is only a
 step for setups that cannot use strict mode yet: it rejects a bad signature, but
 it grants every verified and every unsigned request, so it cannot show that a
-private bucket stays private. The last two rows need a release newer than
-0.13.0. [Container usage](container-usage.md#how-the-setups-differ-from-fake-gcs-server)
+private bucket stays private. The last two rows need 0.14.0 or later.
+[Container usage](container-usage.md#how-the-setups-differ-from-fake-gcs-server)
 compares the two profiles with fake-gcs-server behavior by behavior.
 
 ### Strict mode without changing application servers
