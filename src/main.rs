@@ -109,7 +109,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --identity-file PATH         none (strict-mode JSON identity registry, at most 16 MiB)
-  --test-signer MODE           enabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; local tests only)
+  --test-signer MODE           enabled when permissive, disabled when strict (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -999,7 +999,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "8bce17ac1fafa809e6089e715f3262e07f060460067b40d70d5a62dc75d2c35a"
+            "45c6d4ab3f28050660536ca938e4e54c26559574d3392dbce4166025c12dc2ea"
         );
     }
 

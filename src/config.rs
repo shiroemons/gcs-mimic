@@ -245,8 +245,9 @@ pub struct Config {
     pub cors_fallback: CorsFallback,
     /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
     pub identity_file: Option<PathBuf>,
-    /// Whether the built-in test signer, whose private key is published, exists.
-    pub test_signer: TestSigner,
+    /// The explicit `test_signer` setting; [`Config::effective_test_signer`] applies the
+    /// profile's default.
+    pub test_signer: Option<TestSigner>,
 }
 
 impl Default for Config {
@@ -319,13 +320,18 @@ impl Default for Config {
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
             identity_file: None,
-            test_signer: TestSigner::Enabled,
+            test_signer: None,
         }
     }
 }
 
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
+
+    /// Whether the built-in test signer exists, after the profile's default.
+    pub fn effective_test_signer(&self) -> TestSigner {
+        TestSigner::resolve(self.test_signer, self.auth_mode)
+    }
 
     pub fn healthcheck_url(&self) -> String {
         let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
@@ -824,7 +830,7 @@ fn apply_access_setting(
         Setting::IdentityFile => {
             config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
         }
-        Setting::TestSigner => config.test_signer = value.parse()?,
+        Setting::TestSigner => config.test_signer = Some(value.parse()?),
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -1229,6 +1235,7 @@ impl ConfigurationReport {
 
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
+        self.warn_strict_test_signer(settings);
         let config = &self.config;
         if let Some(input) = settings.get("admin_principal")
             && !self.invalid.contains("admin_principal")
@@ -1264,6 +1271,24 @@ impl ConfigurationReport {
                 self.invalid.insert("identity_file".into());
             }
             _ => {}
+        }
+    }
+
+    /// Strict mode authenticates the built-in signer only on request; say what that exposes.
+    fn warn_strict_test_signer(&mut self, settings: &Settings) {
+        if self.config.auth_mode == AuthMode::Strict
+            && self.config.effective_test_signer() == TestSigner::Enabled
+            && self.valid(&["auth_mode", "test_signer"])
+            && let Some(input) = settings.get(Setting::TestSigner.as_str())
+        {
+            self.diagnostics.warnings.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                format!(
+                    "test_signer=enabled in strict mode: the private key of {} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it. Use it only for local tests.",
+                    crate::auth::test_signer::ID
+                ),
+            ));
         }
     }
 
@@ -1660,7 +1685,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signer_defaults_to_enabled_with_precedence() {
+    fn test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"test_signer":"disabled"}"#).unwrap();
@@ -1671,14 +1696,51 @@ mod tests {
             &env,
             &["--test-signer", "disabled"],
             [
-                TestSigner::Enabled,
-                TestSigner::Disabled,
-                TestSigner::Enabled,
-                TestSigner::Disabled,
+                None,
+                Some(TestSigner::Disabled),
+                Some(TestSigner::Enabled),
+                Some(TestSigner::Disabled),
             ],
             Config::load,
             |config| config.test_signer,
         );
+        let empty = BTreeMap::new();
+        let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
+        for (args, explicit, effective) in [
+            (&[][..], None, TestSigner::Enabled),
+            (&[][..], Some("disabled"), TestSigner::Disabled),
+            (&strict[..], None, TestSigner::Disabled),
+            (&strict[..], Some("disabled"), TestSigner::Disabled),
+            (&strict[..], Some("enabled"), TestSigner::Enabled),
+        ] {
+            let mut args = args.to_vec();
+            args.extend(
+                explicit
+                    .map(|value| ["--test-signer".into(), value.into()])
+                    .into_iter()
+                    .flatten(),
+            );
+            let report = Config::preflight(&args, &empty);
+            assert!(!report.diagnostics.is_err(), "{args:?}");
+            assert_eq!(report.config.effective_test_signer(), effective, "{args:?}");
+            let warnings: Vec<_> = report
+                .diagnostics
+                .warnings
+                .iter()
+                .filter(|warning| warning.key == "--test-signer")
+                .collect();
+            if args.contains(&"strict".to_owned()) && effective == TestSigner::Enabled {
+                assert_eq!(warnings.len(), 1, "{args:?}");
+                assert!(warnings[0].fix.contains("allAuthenticatedUsers"));
+                assert!(
+                    warnings[0]
+                        .fix
+                        .contains("test-signer@gcs-mimic.invalid is published")
+                );
+            } else {
+                assert!(warnings.is_empty(), "{args:?}: {warnings:?}");
+            }
+        }
         assert_rejected(
             "test_signer",
             &["", "true", "Disabled", "off"],

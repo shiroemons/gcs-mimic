@@ -84,9 +84,56 @@ fn cli_signed(server: &Server, object: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+/// The identity file entry the declared cases add for the signer's ID.
+fn declared_signer() -> Value {
+    json!({"id": test_signer::ID, "tokens": ["signer-token"],
+        "project_roles": {"project-a": ["roles/storage.objectViewer"]}})
+}
+
+/// A strict server whose `iam-bucket` holds `object`, optionally declaring the signer's ID.
+fn strict(declared: bool, options: &[&str], stderr: Stdio) -> (TestDir, TestDir, Server, Value) {
+    let config = TestDir::new();
+    let data = TestDir::new();
+    let mut identities = registry();
+    if declared {
+        identities["identities"]
+            .as_array_mut()
+            .unwrap()
+            .push(declared_signer());
+    }
+    let path = common::process::write_identities(&config.0, &identities);
+    let mut args = vec![
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        path.to_str().unwrap(),
+    ];
+    args.extend_from_slice(options);
+    let (server, ready) = Server::start_with_stderr(&data, &args, stderr);
+    server
+        .create_bucket(ADMIN, "project-a", "iam-bucket")
+        .success();
+    server
+        .upload(ADMIN, "iam-bucket", "object", b"hello world")
+        .success();
+    (config, data, server, ready)
+}
+
+fn grant_signer(server: &Server) {
+    iam::set(
+        server,
+        ADMIN,
+        &json!({"bindings":[iam::binding("roles/storage.objectViewer", "user:test-signer@gcs-mimic.invalid")]}),
+    )
+    .success();
+}
+
 #[test]
-fn an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant() {
-    let (_config, _data, server) = fixture();
+fn an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns() {
+    let (_config, _data, mut server, ready) =
+        strict(false, &["--test-signer", "enabled"], Stdio::piped());
+    assert_eq!(ready["test_signer"], "enabled");
+    assert_eq!(ready["identities"], 6);
     let urls = [
         v4(&server, "/iam-bucket/object"),
         v2(&server, "/iam-bucket/object"),
@@ -95,12 +142,7 @@ fn an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant() {
     for url in &urls {
         error(&send(&server, "GET", url, ""), 403, "AccessDenied");
     }
-    iam::set(
-        &server,
-        ADMIN,
-        &json!({"bindings":[iam::binding("roles/storage.objectViewer", "user:test-signer@gcs-mimic.invalid")]}),
-    )
-    .success();
+    grant_signer(&server);
     for url in &urls {
         assert_eq!(send(&server, "GET", url, "").success().body, b"hello world");
     }
@@ -110,41 +152,38 @@ fn an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant() {
         403,
         "SignatureDoesNotMatch",
     );
+    let warnings: Vec<_> = stderr_events(&mut server)
+        .into_iter()
+        .filter(|event| event["event"] == "diagnostics" && event["level"] == "warn")
+        .flat_map(|event| event["diagnostics"].as_array().unwrap().clone())
+        .filter(|diagnostic| diagnostic["key"] == "--test-signer")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let message = warnings[0]["fix"].as_str().unwrap();
+    for expected in [
+        "test-signer@gcs-mimic.invalid is published",
+        "anyone can authenticate",
+        "allAuthenticatedUsers",
+        "only for local tests",
+    ] {
+        assert!(message.contains(expected), "{message}");
+    }
 }
 
 #[test]
-fn a_declared_built_in_signer_keeps_its_tokens_and_project_roles() {
-    let config = TestDir::new();
-    let data = TestDir::new();
-    let mut identities = registry();
-    identities["identities"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"id": test_signer::ID, "tokens": ["signer-token"],
-            "project_roles": {"project-a": ["roles/storage.objectViewer"]}}));
-    let path = common::process::write_identities(&config.0, &identities);
-    let (server, ready) = Server::start(
-        &data,
-        &[
-            "--auth-mode",
-            "strict",
-            "--identity-file",
-            path.to_str().unwrap(),
-        ],
-    );
+fn an_enabled_declared_signer_keeps_its_tokens_and_project_roles() {
+    let (_config, _data, server, ready) =
+        strict(true, &["--test-signer", "enabled"], Stdio::null());
     assert_eq!(ready["identities"], 7);
     assert_eq!(ready["test_signer"], "enabled");
-    server
-        .create_bucket(ADMIN, "project-a", "iam-bucket")
-        .success();
-    server
-        .upload(ADMIN, "iam-bucket", "object", b"declared")
-        .success();
     for url in [
         cli_signed(&server, "object"),
         v2(&server, "/iam-bucket/object"),
     ] {
-        assert_eq!(send(&server, "GET", &url, "").success().body, b"declared");
+        assert_eq!(
+            send(&server, "GET", &url, "").success().body,
+            b"hello world"
+        );
     }
     let token = "Authorization: Bearer signer-token\r\n";
     assert_eq!(
@@ -152,68 +191,49 @@ fn a_declared_built_in_signer_keeps_its_tokens_and_project_roles() {
             .get(token, "/storage/v1/b/iam-bucket/o/object?alt=media")
             .success()
             .body,
-        b"declared"
+        b"hello world"
     );
     server
         .upload(token, "iam-bucket", "denied", b"no")
         .forbidden();
 }
 
+/// Strict mode leaves the signer out unless enabled, and never attaches the published key to an
+/// entry that merely uses its ID.
 #[test]
-fn a_disabled_built_in_signer_is_an_unknown_signer() {
-    let config = TestDir::new();
-    let data = TestDir::new();
-    let path = common::process::write_identities(&config.0, &registry());
-    let (server, ready) = Server::start(
-        &data,
-        &[
-            "--auth-mode",
-            "strict",
-            "--identity-file",
-            path.to_str().unwrap(),
-            "--test-signer",
-            "disabled",
-        ],
-    );
-    assert_eq!(ready["test_signer"], "disabled");
-    server
-        .create_bucket(ADMIN, "project-a", "iam-bucket")
-        .success();
-    server
-        .upload(ADMIN, "iam-bucket", "object", b"hello world")
-        .success();
-    iam::set(
-        &server,
-        ADMIN,
-        &json!({"bindings":[iam::binding("roles/storage.objectViewer", "user:test-signer@gcs-mimic.invalid")]}),
-    )
-    .success();
-    for url in [
-        v4(&server, "/iam-bucket/object"),
-        v2(&server, "/iam-bucket/object"),
-        cli_signed(&server, "object"),
-    ] {
-        error(&send(&server, "GET", &url, ""), 403, "InvalidAccessKeyId");
+fn strict_mode_has_no_built_in_signer_by_default_or_when_disabled() {
+    for declared in [false, true] {
+        for options in [&[][..], &["--test-signer", "disabled"]] {
+            let (_config, _data, server, ready) = strict(declared, options, Stdio::inherit());
+            assert_eq!(ready["test_signer"], "disabled");
+            assert_eq!(ready["identities"], if declared { 7 } else { 6 });
+            grant_signer(&server);
+            for url in [
+                v4(&server, "/iam-bucket/object"),
+                v2(&server, "/iam-bucket/object"),
+                cli_signed(&server, "object"),
+            ] {
+                error(&send(&server, "GET", &url, ""), 403, "InvalidAccessKeyId");
+            }
+            let path = "/storage/v1/b/iam-bucket/o/object?alt=media";
+            server
+                .get(&jwt::bearer(test_signer::ID), path)
+                .invalid_credentials();
+            if declared {
+                let token = "Authorization: Bearer signer-token\r\n";
+                assert_eq!(server.get(token, path).success().body, b"hello world");
+            }
+        }
     }
-    server
-        .get(
-            &jwt::bearer(test_signer::ID),
-            "/storage/v1/b/iam-bucket/o/object?alt=media",
-        )
-        .invalid_credentials();
 }
 
 #[test]
-fn a_self_signed_jwt_from_the_built_in_signer_authenticates_in_strict_mode() {
-    let (_config, _data, server) = fixture();
+fn a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode() {
+    let (_config, _data, server, _ready) =
+        strict(false, &["--test-signer", "enabled"], Stdio::null());
     let path = "/storage/v1/b/iam-bucket/o/object?alt=media";
     let bearer = jwt::bearer(test_signer::ID);
     server.get(&bearer, path).forbidden();
-    iam::set(
-        &server,
-        ADMIN,
-        &json!({"bindings":[iam::binding("roles/storage.objectViewer", "user:test-signer@gcs-mimic.invalid")]}),
-    )
-    .success();
+    grant_signer(&server);
     assert_eq!(server.get(&bearer, path).success().body, b"hello world");
 }

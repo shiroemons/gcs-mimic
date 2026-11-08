@@ -205,14 +205,26 @@ crate::config::string_enum! {
 }
 
 crate::config::string_enum! {
-    /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so a
-    /// deployment that must not accept it disables it.
+    no_default
+    /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
+    /// the default depends on the profile; see [`TestSigner::resolve`].
     pub enum TestSigner {
-        #[default]
         Enabled => "enabled",
         Disabled => "disabled",
     }
     "test_signer must be enabled or disabled"
+}
+
+impl TestSigner {
+    /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
+    /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
+    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there.
+    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
+        configured.unwrap_or(match mode {
+            AuthMode::Permissive => Self::Enabled,
+            AuthMode::Strict => Self::Disabled,
+        })
+    }
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
@@ -823,13 +835,14 @@ impl Auth {
     }
 
     /// The profile a validated configuration selects, with its identity file read once and the
-    /// built-in test signer added unless `test_signer=disabled`.
+    /// built-in test signer added when the configuration enables it.
     pub fn load(config: &crate::config::Config) -> Result<Self, RegistryError> {
         match (config.auth_mode, config.identity_file.as_deref()) {
             (AuthMode::Strict, Some(path)) => {
                 let mut registry = Registry::load(path)?;
-                if config.test_signer == TestSigner::Enabled {
-                    registry.add_test_signer()?;
+                match config.effective_test_signer() {
+                    TestSigner::Enabled => registry.add_test_signer()?,
+                    TestSigner::Disabled => {}
                 }
                 Ok(Self::strict(registry))
             }

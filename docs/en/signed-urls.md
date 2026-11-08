@@ -304,29 +304,46 @@ the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
 > identity. Use it only for local tests, never on a shared or exposed server,
 > and never as a Google credential.
 
-The server knows one identity without an identity file entry,
-`test-signer@gcs-mimic.invalid`, whose public key is
-`fixtures/signing/test-only-public.pem`. Apps and tests can sign URLs with it
-instead of generating and registering a key. `test_signer` (CLI
-`--test-signer`, environment `GCS_MIMIC_TEST_SIGNER`, JSON `test_signer`)
-selects `enabled` (the default) or `disabled`; the ready event reports it as
-`"test_signer"`.
+The built-in test signer is the identity `test-signer@gcs-mimic.invalid`,
+whose public key is `fixtures/signing/test-only-public.pem`. Apps and tests can
+sign URLs with it instead of generating and registering a key. `test_signer`
+(CLI `--test-signer`, environment `GCS_MIMIC_TEST_SIGNER`, JSON `test_signer`)
+is `enabled` or `disabled`. Its default depends on the authentication profile,
+and the ready event reports the effective value as `"test_signer"`:
 
-- **Strict mode**: the identity always exists with the built-in public key. If
-  the identity file declares `test-signer@gcs-mimic.invalid`, that entry
+| Profile | Default | Why |
+| --- | --- | --- |
+| `permissive` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
+| `strict` | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
+
+An explicit `disabled` is honored in both profiles.
+
+- **Strict mode with `test_signer=enabled`**: startup emits one warning before
+  readiness that the signer's private key is published, so anyone can
+  authenticate as that identity and reach `allAuthenticatedUsers` grants and
+  anything granted to it. The identity then exists with the built-in public key.
+  If the identity file declares `test-signer@gcs-mimic.invalid`, that entry
   supplies its tokens, project roles and ACL entity, and the built-in key is
   added to its `public_keys`. Otherwise it has no project roles, so a bucket or
   object grant such as `user:test-signer@gcs-mimic.invalid` authorizes it; a
   signature it makes without a grant gets 403 `AccessDenied`. V4 and V2 RSA
   signed URLs and self-signed service-account JWTs from it verify like those of
-  any registered identity with public keys. The ready event's `identities`
-  counts only the identity file's entries. An identity file entry whose ACL
+  any registered identity with public keys. An identity file entry whose ACL
   alias or natural user entity names the signer fails startup unless it
   declares the signer itself.
-- **Disabled**: the identity does not exist unless the identity file declares
-  it, and then only with the file's own keys. Its signatures fail with 403
-  `InvalidAccessKeyId` and its JWTs with 401.
+- **Strict mode by default or with `test_signer=disabled`**: there is no
+  built-in signer. An identity file entry with its ID is an ordinary identity
+  with only the file's own keys. Signatures made with the published key fail
+  with 403 `InvalidAccessKeyId` and its JWTs with 401.
 - **Permissive mode** ignores signatures, so the setting changes nothing there.
+
+The ready event's `identities` counts only the identity file's entries. To use
+the signer with strict mode, enable it explicitly:
+
+```sh
+GCS_MIMIC_AUTH_MODE=strict GCS_MIMIC_IDENTITY_FILE=identities.json \
+  GCS_MIMIC_TEST_SIGNER=enabled gcs-mimic serve
+```
 
 `gcs-mimic url sign` signs as the built-in signer when both `--signer` and
 `--private-key` are omitted; giving only one of them is an error:
@@ -392,8 +409,9 @@ gcs_emulator:
     private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
 ```
 
-In strict mode, grant `user:test-signer@gcs-mimic.invalid` on the bucket or
-declare the signer with project roles in the identity file.
+In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, then
+grant `user:test-signer@gcs-mimic.invalid` on the bucket or declare the signer
+with project roles in the identity file.
 
 ## Legacy V2 HMAC and header signatures
 
