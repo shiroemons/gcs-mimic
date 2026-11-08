@@ -97,14 +97,8 @@ case "$scheme" in
   *) echo 'GCS_MIMIC_SDK_SCHEME must be http or https' >&2; exit 1 ;;
 esac
 
-# Each server starts without the harness's own GCS_MIMIC_ variables, which it would read as settings.
-server_env=(env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS
-  -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE
-  -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_GRPC_ENDPOINT -u GCS_MIMIC_STRICT_GRPC_ENDPOINT
-  -u GCS_MIMIC_LOCAL_STRICT_ENDPOINT -u GCS_MIMIC_TRUSTED_ENDPOINT
-  -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS
-  -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME
-  -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT -u GCS_MIMIC_BINARY)
+# Each server starts without any variable it would read as a setting; flags configure it.
+source scripts/server-env.sh
 
 # Waits until the server's ready event names its listen address and its readiness probe answers.
 # Arguments: PID, log name, listen address, origin, required ready-event auth_mode (empty for any).
@@ -140,6 +134,7 @@ start_server() {
   origin="$scheme://$address"
   grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
+  set_server_env
   "${server_env[@]}" \
     "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
@@ -163,6 +158,7 @@ start_local_strict_server() {
   address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
   origin="$scheme://$address"
+  set_server_env
   "${server_env[@]}" \
     "$server" serve --scheme "$scheme" --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
     --auth-mode strict --test-signer enabled --signed-host-port lenient \

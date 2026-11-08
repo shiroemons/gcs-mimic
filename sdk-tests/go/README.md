@@ -114,7 +114,11 @@ a permissive server for `GCS_MIMIC_ENDPOINT`, a strict server
 suite only. For each server it checks the bound port in the ready
 JSON log (the strict servers must also report `"auth_mode":"strict"`), probes
 `/_internal/ready`, then runs vet and uncached verbose tests. The server must
-support `serve --listen IP:PORT --data-dir PATH` and the strict options. A trap
+support `serve --listen IP:PORT --data-dir PATH` and the strict options. Flags
+configure every server: each starts without the exported `GCS_MIMIC_*` and
+`FAKE_GCS_*` variables and `PUBSUB_EMULATOR_HOST` (`scripts/server-env.sh`), so
+settings exported for another setup, such as the strict local recipe, do not
+reach it. A trap
 stops every server, propagates a server failure status, reports every failure log
 and deletes only this run's temporary directory.
 

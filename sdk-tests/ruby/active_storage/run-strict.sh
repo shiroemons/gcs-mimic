@@ -3,6 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../../.."
 root=$PWD
+source scripts/server-env.sh
 binary=${GCS_MIMIC_BINARY:-$root/target/debug/gcs-mimic}
 if [[ ! -x $binary ]]; then echo 'Build the final emulator with cargo build --locked first' >&2; exit 1; fi
 (cd sdk-tests/ruby/active_storage && BUNDLE_FROZEN=true bundle check)
@@ -33,10 +34,8 @@ run_variant() {
   local name=$1 service=$2 origin= address attempt server_status=0
   shift 2
   log="$work/$name-server.log"
-  env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_BINARY -u GCS_MIMIC_API_BASE_URL -u GCS_MIMIC_PUBLIC_BASE_URL \
-    -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY \
-    -u GCS_MIMIC_IDENTITY_FILE -u GCS_MIMIC_IDENTITIES -u GCS_MIMIC_BUCKETS_FILE -u GCS_MIMIC_BUCKETS \
-    -u GCS_MIMIC_TEST_SIGNER -u GCS_MIMIC_TRUSTED_LISTEN -u GCS_MIMIC_TRUSTED_PRINCIPAL \
+  set_server_env
+  "${server_env[@]}" \
     "$binary" serve --scheme http --listen 127.0.0.1:0 --compat-profile native \
     --auth-mode strict --data-dir "$work/$name-data" "$@" \
     >"$log" 2>&1 &
