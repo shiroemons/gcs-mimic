@@ -100,22 +100,79 @@ bucket also needs an `allUsers` `iamPolicy`, as in the
 [strict local recipe](../../examples/strict-local/README.md).
 
 1. **Recommended: the `EmulatorGcs` adapter.** Copy the adapter as described in
-   [step 6](#6-production-like-checks-in-strict-mode), add a `public_url` method
-   to it, and select `service: EmulatorGcs` only in the local `storage.yml`
-   entry. Production keeps `service: GCS` and its own URLs.
+   [step 6](#6-production-like-checks-in-strict-mode). The supplied file
+   already contains this `public_url` method, which names `public_endpoint`, the
+   browser origin, instead of Google:
 
    ```ruby
-   # PLACEHOLDER: the verified public_url method for EmulatorGcs and its storage.yml entry.
+   # In lib/active_storage/service/emulator_gcs_service.rb, which also requires "erb".
+   private
+
+     # The SDK names storage.googleapis.com in every public URL whatever the endpoint is; a public
+     # bucket serves the same path on the final origin.
+     def public_url(key, **)
+       path = key.split("/", -1).map { |segment| ERB::Util.url_encode(segment) }.join("/")
+       "#{@public_endpoint.to_s.delete_suffix('/')}/#{bucket.name}/#{path}"
+     end
    ```
+
+   Select it with `public: true` only in the local `storage.yml` entry.
+   Production keeps `service: GCS` and its own URLs:
+
+   ```yaml
+   gcs_emulator_public:
+     service: EmulatorGcs
+     public: true
+     public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", "http://localhost:4443") %>
+     # project, bucket, endpoint, universe_domain and credentials as in step 6
+   ```
+
+   It affects only the entries that select it, so no production entry can
+   change, and `public_endpoint` also covers a browser origin that differs from
+   the address Rails uses.
 
 2. **Alternative: an initializer.** To keep the stock `service: GCS` locally
-   too, prepend a `public_url` override to `ActiveStorage::Service::GCSService`
-   in `config/initializers`, applied only when `GCS_EMULATOR_ENDPOINT` is set.
-   Production does not set it and keeps the stock URLs.
+   too, add this file as `config/initializers/active_storage_gcs_emulator.rb`.
+   It applies only when `Rails.env.local?` (development and test), and only to a
+   service whose `storage.yml` entry sets `endpoint`, such as the emulator
+   entry. Production entries set none and keep the stock URLs:
 
    ```ruby
-   # PLACEHOLDER: the verified config/initializers patch.
+   # frozen_string_literal: true
+
+   # Active Storage builds the URLs of a public: true GCS service with the SDK, which always names
+   # storage.googleapis.com. In development and test, a service whose storage.yml entry sets an
+   # endpoint, such as the gcs-mimic entry, names that endpoint instead. Entries without an endpoint,
+   # such as production's, keep the stock URL.
+   if Rails.env.local?
+     require "active_storage/service/gcs_service"
+     require "erb"
+
+     module GcsEmulatorPublicUrl
+       private
+
+       def public_url(key, **)
+         endpoint = config[:endpoint]
+         return super if endpoint.blank?
+
+         path = key.split("/", -1).map { |segment| ERB::Util.url_encode(segment) }.join("/")
+         "#{endpoint.delete_suffix('/')}/#{bucket.name}/#{path}"
+       end
+     end
+
+     ActiveStorage::Service::GCSService.prepend(GcsEmulatorPublicUrl)
+   end
    ```
+
+   It uses the entry's `endpoint` as the browser address, which fits setups
+   where Rails and the browser use one URL, such as `localhost:4443` or
+   `gcs.localhost` in Compose. When the two addresses differ, use the adapter.
+
+Both rely on the private `public_url(key, **)` hook of Rails 8.1.4.1, and the
+strict suite runs both: the stock case still names `storage.googleapis.com`,
+and each workaround gives the exact emulator URL, which an anonymous request
+reads from an `allUsers` bucket. `resolve_model_to_route =
+:rails_storage_proxy` is not a fix for this: `blob.url` still names Google.
 
 ## 3. Select the entry per environment
 

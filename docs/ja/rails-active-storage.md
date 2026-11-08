@@ -87,19 +87,70 @@ google-cloud-storage 1.62.1はこのURLを`endpoint`にかかわらず常に`htt
 次のどちらの回避策でも、このURLをエミュレーターに向け、本番には影響しません。
 strictでは、[strictのローカル構成（英語）](../../examples/strict-local/README.md)のように、バケットに`allUsers`の`iamPolicy`も必要です。
 
-1. **推奨: `EmulatorGcs`アダプター。** [手順6](#6-strictで本番に近い確認をする)のとおりアダプターをコピーし、`public_url`メソッドを足します。
-   `service: EmulatorGcs`はローカルの`storage.yml`の項目だけで選びます。本番は`service: GCS`と本来のURLのままです。
+1. **推奨: `EmulatorGcs`アダプター。** [手順6](#6-strictで本番に近い確認をする)のとおりアダプターをコピーします。
+   配布しているファイルには、次の`public_url`メソッドがすでに入っています。Googleの代わりに、ブラウザーのオリジンである`public_endpoint`を使います。
 
    ```ruby
-   # PLACEHOLDER: the verified public_url method for EmulatorGcs and its storage.yml entry.
+   # In lib/active_storage/service/emulator_gcs_service.rb, which also requires "erb".
+   private
+
+     # The SDK names storage.googleapis.com in every public URL whatever the endpoint is; a public
+     # bucket serves the same path on the final origin.
+     def public_url(key, **)
+       path = key.split("/", -1).map { |segment| ERB::Util.url_encode(segment) }.join("/")
+       "#{@public_endpoint.to_s.delete_suffix('/')}/#{bucket.name}/#{path}"
+     end
    ```
 
-2. **別の方法: initializer。** ローカルでも標準の`service: GCS`を使う場合は、`config/initializers`で`ActiveStorage::Service::GCSService`に`public_url`の上書きをprependします。
-   `GCS_EMULATOR_ENDPOINT`を設定したときだけ適用します。本番はこれを設定しないため、標準のURLのままです。
+   ローカルの`storage.yml`の項目だけで、`public: true`を付けて選びます。本番は`service: GCS`と本来のURLのままです。
+
+   ```yaml
+   gcs_emulator_public:
+     service: EmulatorGcs
+     public: true
+     public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", "http://localhost:4443") %>
+     # project, bucket, endpoint, universe_domain and credentials as in step 6
+   ```
+
+   選んだ項目にだけ効くので、本番の項目が変わることはありません。`public_endpoint`を使うので、Railsが使うアドレスとブラウザーのオリジンが違う場合にも対応できます。
+
+2. **別の方法: initializer。** ローカルでも標準の`service: GCS`を使う場合は、次のファイルを`config/initializers/active_storage_gcs_emulator.rb`として追加します。
+   `Rails.env.local?`（developmentとtest）のときだけ、しかも`storage.yml`の項目に`endpoint`を書いたサービス（エミュレーター用の項目など）にだけ効きます。本番の項目には`endpoint`がないので、標準のURLのままです。
 
    ```ruby
-   # PLACEHOLDER: the verified config/initializers patch.
+   # frozen_string_literal: true
+
+   # Active Storage builds the URLs of a public: true GCS service with the SDK, which always names
+   # storage.googleapis.com. In development and test, a service whose storage.yml entry sets an
+   # endpoint, such as the gcs-mimic entry, names that endpoint instead. Entries without an endpoint,
+   # such as production's, keep the stock URL.
+   if Rails.env.local?
+     require "active_storage/service/gcs_service"
+     require "erb"
+
+     module GcsEmulatorPublicUrl
+       private
+
+       def public_url(key, **)
+         endpoint = config[:endpoint]
+         return super if endpoint.blank?
+
+         path = key.split("/", -1).map { |segment| ERB::Util.url_encode(segment) }.join("/")
+         "#{endpoint.delete_suffix('/')}/#{bucket.name}/#{path}"
+       end
+     end
+
+     ActiveStorage::Service::GCSService.prepend(GcsEmulatorPublicUrl)
+   end
    ```
+
+   項目の`endpoint`をブラウザーのアドレスとして使うので、Railsとブラウザーが同じURLを使う構成（`localhost:4443`や、Composeでの`gcs.localhost`）に向いています。2つのアドレスが違う場合はアダプターを使います。
+
+どちらも、Rails 8.1.4.1のprivateな`public_url(key, **)`を前提にしています。
+strictのテストは両方を実行しています。
+標準のままでは`storage.googleapis.com`を指すこと、どちらの回避策でもエミュレーターの正確なURLになり、`allUsers`のバケットから認証なしで読めることを確かめています。
+`resolve_model_to_route = :rails_storage_proxy`は、この問題の解決策にはなりません。
+`blob.url`はGoogleを指したままです。
 
 ## 3. 環境ごとに項目を選ぶ
 
