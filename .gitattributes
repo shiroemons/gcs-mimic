@@ -1,2 +1,5 @@
 # Compose progress lines retain their original trailing spaces in this raw transcript.
 docs/en/evidence/local-tls-pre-push.txt whitespace=-blank-at-eol
+# The binary embeds these keys and certificates and prints some of them, such as the test
+# signer's credentials file, so a CRLF checkout must not change the bytes it ships.
+*.pem text eol=lf
