@@ -38,6 +38,8 @@ mod post;
 
 mod resumable;
 
+mod test_signer;
+
 fn sign(
     server: &Server,
     method: &Method,

@@ -14,6 +14,8 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src
 COPY src ./src
+# The built-in test signer embeds the published test key pair from its one repository copy.
+COPY fixtures/signing/test-only-private.pem fixtures/signing/test-only-public.pem ./fixtures/signing/
 COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
 COPY LICENSE-MIT LICENSE-APACHE ./
 COPY distribution/notices ./distribution/notices

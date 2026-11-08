@@ -64,6 +64,7 @@ super::string_enum! {
         CompatProfile => "compat_profile",
         CorsFallback => "cors_fallback",
         IdentityFile => "identity_file",
+        TestSigner => "test_signer",
         PubsubEmulatorHost => "pubsub_emulator_host",
         EventPubsubProjectId => "event_pubsub_project_id",
         EventPubsubTopic => "event_pubsub_topic",
@@ -134,6 +135,7 @@ impl Setting {
             | Self::CompatProfile
             | Self::CorsFallback
             | Self::IdentityFile
+            | Self::TestSigner
             | Self::PubsubEmulatorHost
             | Self::EventPubsubProjectId
             | Self::EventPubsubTopic

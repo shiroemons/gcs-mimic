@@ -9,6 +9,8 @@
 !compatibility/
 !compatibility/upstream/
 !compatibility/upstream/json-schemas.json
+!fixtures/signing/test-only-private.pem
+!fixtures/signing/test-only-public.pem
 !xtask/
 !xtask/Cargo.toml
 !xtask/src/

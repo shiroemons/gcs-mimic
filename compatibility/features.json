@@ -47000,11 +47000,37 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair (test_signer=enabled by default): strict mode knows it without an identity file entry and without project roles, a declared entry keeps its own grants and gains the built-in key, and url sign uses it when both --signer and --private-key are omitted. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {
+          "id": "DESIGN-045-TEST-SIGNER",
+          "description": "Strict V4 and V2 RSA signed URLs and self-signed JWTs from the built-in test-signer@gcs-mimic.invalid verify with the embedded published key. Without an identity file entry it has no project roles, so its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity and gains the built-in key; an alias naming it fails startup; the ready event reports test_signer and counts only file identities. test_signer=disabled makes its signatures 403 InvalidAccessKeyId and its JWT 401.",
+          "result": "PASS",
+          "test_ids": [
+            "an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant",
+            "a_declared_built_in_signer_keeps_its_tokens_and_project_roles",
+            "a_disabled_built_in_signer_is_an_unknown_signer",
+            "a_self_signed_jwt_from_the_built_in_signer_authenticates_in_strict_mode",
+            "auth::test_signer::tests::an_undeclared_signer_exists_without_project_roles_or_tokens",
+            "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
+            "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
+            "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
+            "config::tests::test_signer_defaults_to_enabled_with_precedence"
+          ]
+        },
+        {
+          "id": "DESIGN-045-DEFAULT-SIGNER",
+          "description": "url sign without --signer and --private-key signs as the built-in test signer, producing the same URL as an explicit signature with the published key, and the server verifies it; either credential alone fails with a diagnostic.",
+          "result": "PASS",
+          "test_ids": [
+            "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
+            "an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant",
+            "a_declared_built_in_signer_keeps_its_tokens_and_project_roles"
+          ]
+        },
         {
           "id": "DESIGN-045-URL",
           "description": "CLI output verifies for final HTTPS host:port, encoded object and repeated headers. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
@@ -47063,9 +47089,53 @@
         "signing_cli_urls_verify_through_the_live_xml_route",
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
-        "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
+        "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs",
+        "an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant",
+        "a_declared_built_in_signer_keeps_its_tokens_and_project_roles",
+        "a_disabled_built_in_signer_is_an_unknown_signer",
+        "a_self_signed_jwt_from_the_built_in_signer_authenticates_in_strict_mode",
+        "auth::test_signer::tests::an_undeclared_signer_exists_without_project_roles_or_tokens",
+        "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
+        "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
+        "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
+        "config::tests::test_signer_defaults_to_enabled_with_precedence",
+        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test it_xml_auth signing::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "an_undeclared_built_in_signer_verifies_v4_and_v2_but_needs_a_bucket_grant",
+            "a_declared_built_in_signer_keeps_its_tokens_and_project_roles",
+            "a_disabled_built_in_signer_is_an_unknown_signer",
+            "a_self_signed_jwt_from_the_built_in_signer_authenticates_in_strict_mode"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib test_signer",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "auth::test_signer::tests::an_undeclared_signer_exists_without_project_roles_or_tokens",
+            "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
+            "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
+            "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
+            "config::tests::test_signer_defaults_to_enabled_with_precedence"
+          ]
+        },
+        {
+          "command": "cargo test --locked --bin gcs-mimic",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
+          ]
+        },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --test it_xml_auth signing_cli_urls_verify_through_the_live_xml_route",
           "result": "PASS",
@@ -47189,7 +47259,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "DESIGN-046",

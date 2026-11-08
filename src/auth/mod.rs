@@ -22,6 +22,7 @@ pub(crate) fn valid_project_id(project: &str) -> bool {
 }
 pub(crate) mod roles;
 pub mod signature;
+pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
@@ -201,6 +202,17 @@ crate::config::string_enum! {
         Strict => "strict",
     }
     "auth_mode must be permissive or strict"
+}
+
+crate::config::string_enum! {
+    /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so a
+    /// deployment that must not accept it disables it.
+    pub enum TestSigner {
+        #[default]
+        Enabled => "enabled",
+        Disabled => "disabled",
+    }
+    "test_signer must be enabled or disabled"
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
@@ -495,6 +507,8 @@ impl std::error::Error for RegistryError {
 #[derive(Debug)]
 pub struct Registry {
     identities: Vec<Identity>,
+    /// Identities the file declares; the ready event counts these, not the built-in signer.
+    declared: usize,
     /// Authentication resolves a signer per request, so it must not walk the identities.
     ids: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
@@ -617,6 +631,7 @@ impl Registry {
         }
         acl_identity::validate_aliases(&identities)?;
         Ok(Self {
+            declared: identities.len(),
             identities,
             ids,
             tokens,
@@ -625,6 +640,38 @@ impl Registry {
         })
     }
 
+    /// Adds the built-in test signer's public key. An entry the file declares with its ID keeps
+    /// its tokens, project roles and ACL entity; otherwise the signer exists without project
+    /// roles, so only bucket or object grants authorize it.
+    fn add_test_signer(&mut self) -> Result<(), RegistryError> {
+        let id = test_signer::ID;
+        if !self.ids.contains_key(id) {
+            self.ids.insert(id.to_owned(), self.identities.len());
+            self.identities.push(Identity {
+                id: id.to_owned(),
+                acl_entity: None,
+                projects: Arc::default(),
+            });
+            // The file's own aliases were already validated, so a collision involves this signer.
+            acl_identity::validate_aliases(&self.identities).map_err(|_| RegistryError::Invalid {
+                entry: None,
+                reason: format!(
+                    "another identity's id or acl_entity names the built-in test signer {id}; declare {id} itself or set test_signer=disabled"
+                ),
+            })?;
+        }
+        let keys = self.signing_keys.remove(id);
+        self.signing_keys.insert(
+            id.to_owned(),
+            keys.iter()
+                .flat_map(|keys| keys.iter().cloned())
+                .chain([test_signer::public_key()])
+                .collect(),
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.identities.len()
     }
@@ -775,6 +822,29 @@ impl Auth {
         }
     }
 
+    /// The profile a validated configuration selects, with its identity file read once and the
+    /// built-in test signer added unless `test_signer=disabled`.
+    pub fn load(config: &crate::config::Config) -> Result<Self, RegistryError> {
+        match (config.auth_mode, config.identity_file.as_deref()) {
+            (AuthMode::Strict, Some(path)) => {
+                let mut registry = Registry::load(path)?;
+                if config.test_signer == TestSigner::Enabled {
+                    registry.add_test_signer()?;
+                }
+                Ok(Self::strict(registry))
+            }
+            (AuthMode::Strict, None) => Err(RegistryError::Invalid {
+                entry: None,
+                reason: "auth_mode=strict requires identity_file".into(),
+            }),
+            (AuthMode::Permissive, Some(_)) => Err(RegistryError::Invalid {
+                entry: None,
+                reason: "identity_file requires auth_mode=strict".into(),
+            }),
+            (AuthMode::Permissive, None) => Ok(Self::permissive()),
+        }
+    }
+
     /// Reserve half the runtime's blocking slots for cryptography; other work shares the pool.
     pub fn with_verifier_budget(mut self, max_blocking_threads: usize) -> Self {
         self.verifiers = signature::Verifiers::for_blocking_threads(max_blocking_threads);
@@ -800,8 +870,9 @@ impl Auth {
         }
     }
 
+    /// The identities the identity file declares; the built-in test signer is not counted.
     pub fn identity_count(&self) -> Option<usize> {
-        self.registry.as_ref().map(Registry::len)
+        self.registry.as_ref().map(|registry| registry.declared)
     }
 
     pub fn principals(&self) -> Option<&[Identity]> {

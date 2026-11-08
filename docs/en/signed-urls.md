@@ -296,6 +296,105 @@ for a matching body; no object is changed. To bind SHA256 locally, use
 the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
 the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
 
+## Built-in test signer
+
+> **Warning:** the built-in test signer's private key is public. It is
+> committed to this repository as `fixtures/signing/test-only-private.pem` and
+> embedded in every gcs-mimic binary and image, so anyone can sign as this
+> identity. Use it only for local tests, never on a shared or exposed server,
+> and never as a Google credential.
+
+The server knows one identity without an identity file entry,
+`test-signer@gcs-mimic.invalid`, whose public key is
+`fixtures/signing/test-only-public.pem`. Apps and tests can sign URLs with it
+instead of generating and registering a key. `test_signer` (CLI
+`--test-signer`, environment `GCS_MIMIC_TEST_SIGNER`, JSON `test_signer`)
+selects `enabled` (the default) or `disabled`; the ready event reports it as
+`"test_signer"`.
+
+- **Strict mode**: the identity always exists with the built-in public key. If
+  the identity file declares `test-signer@gcs-mimic.invalid`, that entry
+  supplies its tokens, project roles and ACL entity, and the built-in key is
+  added to its `public_keys`. Otherwise it has no project roles, so a bucket or
+  object grant such as `user:test-signer@gcs-mimic.invalid` authorizes it; a
+  signature it makes without a grant gets 403 `AccessDenied`. V4 and V2 RSA
+  signed URLs and self-signed service-account JWTs from it verify like those of
+  any registered identity with public keys. The ready event's `identities`
+  counts only the identity file's entries. An identity file entry whose ACL
+  alias or natural user entity names the signer fails startup unless it
+  declares the signer itself.
+- **Disabled**: the identity does not exist unless the identity file declares
+  it, and then only with the file's own keys. Its signatures fail with 403
+  `InvalidAccessKeyId` and its JWTs with 401.
+- **Permissive mode** ignores signatures, so the setting changes nothing there.
+
+`gcs-mimic url sign` signs as the built-in signer when both `--signer` and
+`--private-key` are omitted; giving only one of them is an error:
+
+```sh
+gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
+  --object my-object --method GET --expires 15m
+```
+
+Apps that read a service-account key file can use a file built from the
+published key. This uses the non-Google universe from the
+[Rails guide](rails-active-storage.md#2-add-an-emulator-entry-to-configstorageyml),
+which keeps Google auth libraries from requesting tokens from Google:
+
+```sh
+jq -n --rawfile key fixtures/signing/test-only-private.pem '{
+  type: "service_account", project_id: "local-project",
+  client_email: "test-signer@gcs-mimic.invalid", private_key: $key,
+  universe_domain: "gcs-emulator.invalid"
+}' > test-signer.json
+```
+
+Go signs with the same key through `SignedURLOptions`:
+
+```go
+key, err := os.ReadFile("fixtures/signing/test-only-private.pem")
+if err != nil {
+    return err
+}
+url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOptions{
+    Scheme:         storage.SigningSchemeV4,
+    GoogleAccessID: "test-signer@gcs-mimic.invalid",
+    PrivateKey:     key,
+    Method:         "GET",
+    Expires:        time.Now().Add(15 * time.Minute),
+    Hostname:       "localhost:4443",
+    Insecure:       true,
+})
+```
+
+Go storage drops a non-default port from the Host it signs, so a URL for
+`localhost:4443` does not match the request's `Host: localhost:4443` and fails
+with 403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
+`gcs-mimic url sign`, or set the separate setting `signed_host_port=lenient`,
+which tolerates the missing port.
+
+Rails Active Storage takes the same credentials in `config/storage.yml`. Copy
+`fixtures/signing/test-only-private.pem` into the app, for example as
+`config/gcs-mimic-test-signer.pem`:
+
+```yaml
+gcs_emulator:
+  service: GCS
+  project: local-project
+  bucket: local-bucket
+  endpoint: http://localhost:4443/
+  universe_domain: gcs-emulator.invalid
+  credentials:
+    type: service_account
+    project_id: local-project
+    client_email: test-signer@gcs-mimic.invalid
+    universe_domain: gcs-emulator.invalid
+    private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
+```
+
+In strict mode, grant `user:test-signer@gcs-mimic.invalid` on the bucket or
+declare the signer with project roles in the identity file.
+
 ## Legacy V2 HMAC and header signatures
 
 Strict XML accepts HMAC V2 query credentials

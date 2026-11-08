@@ -22,7 +22,7 @@ fn encoded(bytes: &[u8]) -> String {
     output
 }
 
-fn bearer(issuer: &str) -> String {
+pub(super) fn bearer(issuer: &str) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

@@ -164,7 +164,7 @@ cd "$(dirname "$0")/.."
 image=$(docker image inspect "$1" --format '{{.Id}}')
 source_sha=$2
 [[ $(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') == "$source_sha" ]] || exit 1
-git diff --quiet "$source_sha" -- src Cargo.toml Cargo.lock rust-toolchain.toml Dockerfile distribution xtask .dockerignore compatibility/upstream/json-schemas.json
+git diff --quiet "$source_sha" -- src Cargo.toml Cargo.lock rust-toolchain.toml Dockerfile distribution xtask .dockerignore compatibility/upstream/json-schemas.json fixtures/signing
 observer_image=$(awk '$1=="FROM" {print $2; exit}' Dockerfile)
 docker image inspect "$observer_image" >/dev/null
 work=$(mktemp -d "${TMPDIR:?}/gcs-mimic-container-resources.XXXXXX")

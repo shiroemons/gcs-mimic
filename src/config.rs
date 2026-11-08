@@ -2,7 +2,7 @@
 
 use crate::config_input::Fix as SettingFix;
 use crate::{
-    auth::AuthMode,
+    auth::{AuthMode, TestSigner},
     bucket::bucket_location,
     config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
@@ -245,6 +245,8 @@ pub struct Config {
     pub cors_fallback: CorsFallback,
     /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
     pub identity_file: Option<PathBuf>,
+    /// Whether the built-in test signer, whose private key is published, exists.
+    pub test_signer: TestSigner,
 }
 
 impl Default for Config {
@@ -317,6 +319,7 @@ impl Default for Config {
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
             identity_file: None,
+            test_signer: TestSigner::Enabled,
         }
     }
 }
@@ -605,7 +608,8 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::AuthMode
         | Setting::CompatProfile
         | Setting::CorsFallback
-        | Setting::IdentityFile => apply_access_setting(config, setting, &value),
+        | Setting::IdentityFile
+        | Setting::TestSigner => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
         | Setting::MaxGrpcStreams
         | Setting::MaxObjectBytes
@@ -820,6 +824,7 @@ fn apply_access_setting(
         Setting::IdentityFile => {
             config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
         }
+        Setting::TestSigner => config.test_signer = value.parse()?,
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -1652,6 +1657,33 @@ mod tests {
         // A bare flag names the accepted value instead of an unrelated example.
         let errors = Config::load(&["--cors-fallback".into()], &empty).unwrap_err();
         assert!(errors.to_string().contains("--cors-fallback allow-all"));
+    }
+
+    #[test]
+    fn test_signer_defaults_to_enabled_with_precedence() {
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"test_signer":"disabled"}"#).unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_TEST_SIGNER".into(), "enabled".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--test-signer", "disabled"],
+            [
+                TestSigner::Enabled,
+                TestSigner::Disabled,
+                TestSigner::Enabled,
+                TestSigner::Disabled,
+            ],
+            Config::load,
+            |config| config.test_signer,
+        );
+        assert_rejected(
+            "test_signer",
+            &["", "true", "Disabled", "off"],
+            "enabled or disabled",
+        );
     }
 
     #[test]

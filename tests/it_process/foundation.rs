@@ -261,6 +261,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "catalog_wait_timeout_ms",
                 "shutdown_timeout_ms",
                 "auth_mode",
+                "test_signer",
                 "seed",
                 "buckets_file",
                 "scheme",
@@ -292,6 +293,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["memory_catalog_max_bytes"], 16 * 1024 * 1024);
         assert_eq!(ready["auth_mode"], "permissive");
         assert!(ready.get("identities").is_none());
+        assert_eq!(ready["test_signer"], "enabled");
         assert_eq!(ready["max_connections"], 1024);
         assert_eq!(ready["max_object_bytes"], 5 * 1024_u64.pow(4));
         assert!((2..=8).contains(&ready["worker_threads"].as_u64().unwrap()));
