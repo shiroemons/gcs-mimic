@@ -107,15 +107,42 @@ GCS_MIMIC_GO_TEST_RUN='TestEmulatorEndpoint|TestBucketLifecycle' bash scripts/sd
 ```
 
 The runner requires Bash, Rust, Go and jq. It builds with the pinned Rust toolchain
-and starts two isolated servers, each with its own loopback port and data directory:
-a permissive server for `GCS_MIMIC_ENDPOINT` and a strict server
+and starts three isolated servers, each with its own loopback port and data directory:
+a permissive server for `GCS_MIMIC_ENDPOINT`, a strict server
 (`--auth-mode strict --identity-file config/identities.json`) for
-`GCS_MIMIC_STRICT_ENDPOINT`. For each server it checks the bound port in the ready
-JSON log (the strict server must also report `"auth_mode":"strict"`), probes
+`GCS_MIMIC_STRICT_ENDPOINT`, and a local-development strict server for the Go
+suite only. For each server it checks the bound port in the ready
+JSON log (the strict servers must also report `"auth_mode":"strict"`), probes
 `/_internal/ready`, then runs vet and uncached verbose tests. The server must
 support `serve --listen IP:PORT --data-dir PATH` and the strict options. A trap
-stops both servers, propagates a server failure status, reports both failure logs
+stops every server, propagates a server failure status, reports every failure log
 and deletes only this run's temporary directory.
+
+The local-development server runs `--test-signer enabled`,
+`--signed-host-port lenient` and `--trusted-listen 127.0.0.1:0` with
+`--trusted-principal local-app@example.invalid`, and has no fixed API base URL, so
+links follow each request's Host. Its identity file grants that application
+identity `roles/storage.admin` and `test-signer@gcs-mimic.invalid`
+`roles/storage.objectUser` on `local-project`. The runner reads the trusted address
+from the ready event, which must also report the principal, the enabled signer and
+the lenient setting, and passes `GCS_MIMIC_LOCAL_STRICT_ENDPOINT` and
+`GCS_MIMIC_TRUSTED_ENDPOINT` to `go test` only; the tests skip without them:
+
+- `TestBuiltInSignerURLsPassUnderLenientHostPort` signs with the key that
+  `gcs-mimic test-signer credentials` prints (`GCS_MIMIC_BINARY`) and the
+  unmodified `storage.SignedURL` for the server's host:port. GET and PUT with a
+  signed Content-Type succeed and record the signer as owner; a tampered query, a
+  changed Content-Type and a method change fail with 403
+  `SignatureDoesNotMatch`. Its `ExactServerNamesTheSetting` subtest sends the same
+  kind of URL to the default exact strict server, which rejects it with the message
+  that names `signed_host_port=lenient`.
+- `TestTrustedListenerServesTheEmulatorHostClient` sets `STORAGE_EMULATOR_HOST` to
+  the trusted listener and sends no credentials. It creates a bucket whose policy
+  grants nothing to `allUsers`, uploads, reads with the SDK's default XML media
+  reads, lists and deletes as the trusted principal, and finishes a three-chunk
+  resumable upload whose Location stays on the trusted listener. JSON metadata,
+  JSON media and XML reads of the same object without credentials on the main
+  listener answer 401.
 
 For an already running emulator:
 

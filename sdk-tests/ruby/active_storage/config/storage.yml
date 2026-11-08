@@ -61,3 +61,20 @@ gcs_emulator_strict_browser:
   service: EmulatorGcs
   public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
+
+# The documented recipe for the built-in test signer of a server started with test_signer=enabled.
+# The key is the one `gcs-mimic test-signer credentials` prints; strict mode registers it itself.
+gcs_emulator_test_signer: &gcs_emulator_test_signer
+  <<: *gcs_emulator_strict
+  credentials:
+    type: service_account
+    project_id: local-project
+    client_email: test-signer@gcs-mimic.invalid
+    universe_domain: gcs-emulator.invalid
+    private_key: <%= File.read(ENV.fetch("GCS_EMULATOR_TEST_SIGNER_KEY")).dump if ENV.key?("GCS_EMULATOR_TEST_SIGNER_KEY") %>
+
+gcs_emulator_test_signer_browser:
+  <<: *gcs_emulator_test_signer
+  service: EmulatorGcs
+  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
+  cache_control: "public, max-age=3600"

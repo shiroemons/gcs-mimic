@@ -89,6 +89,42 @@ cargo xtask compatibility check
 | `process_shutdown_reports_stopped_and_releases_catalog_for_restart` | The default ready key set is unchanged |
 | `help_output_keeps_its_exact_bytes` | The help digest pins the trusted listener option lines |
 
+## Go SDK run
+
+```sh
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh
+```
+
+Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
+v0.311.0 on macOS arm64, HTTP profile. Besides its permissive and strict servers,
+`scripts/sdk-go.sh` starts a strict server for the Go suite only with
+`--trusted-listen 127.0.0.1:0`, `--trusted-principal local-app@example.invalid`,
+`--test-signer enabled` and `--signed-host-port lenient`, and no fixed API base
+URL. Its identity file grants the principal, which has no token,
+`roles/storage.admin` on `local-project`. The runner reads the bound trusted
+address from the ready event, which must also report the principal, and passes
+it to `go test` as `GCS_MIMIC_TRUSTED_ENDPOINT`.
+
+| Check | Result |
+| --- | --- |
+| `go vet ./...` | PASS |
+| `go test -count=1 -v -run . ./...` | PASS: 90 top-level tests passed, 1 skipped (`TestV2RSASignedTransfers`, which needs the HTTPS profile), 0 failed |
+| `TestTrustedListenerServesTheEmulatorHostClient` | PASS |
+
+`TestTrustedListenerServesTheEmulatorHostClient` sets `STORAGE_EMULATOR_HOST`
+to the trusted listener and passes no credentials, so the SDK adds
+`option.WithoutAuthentication`; the suite's guarded HTTP client only confines
+requests to that origin. The client creates a bucket and checks that its IAM
+policy grants nothing to `allUsers` or `allAuthenticatedUsers`, uploads an object
+whose owner is `user-local-app@example.invalid`, reads it through the SDK's
+default XML media reads and lists and deletes objects. A resumable upload with a
+256 KiB chunk size sends three chunks; the Location from its initiation starts
+with the trusted origin and every chunk goes to it, and the finished object's
+owner is the principal. JSON metadata, JSON media and XML reads of the same
+object without credentials on the main listener of the same server answer 401.
+
+## Limits
+
 The listener shares `max_connections` and every timeout because it is served by
 the same accept loop and connection code as the other HTTP listeners; no test
 measures that separately. The browser and Host checks run once per request the
