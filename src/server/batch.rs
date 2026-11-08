@@ -227,8 +227,8 @@ async fn render_part(
         let response = tokio::select! {
             biased;
             response = dispatch(request, ctx) => response,
-            () = super::batch_part_expired(ctx.activity, ctx.config.request_timeout) => {
-                super::batch_part_timeout()
+            expiry = super::batch_part_expired(ctx.activity, ctx.config.request_timeout) => {
+                super::batch_part_timeout(expiry)
             }
         };
         let mut output = Vec::new();
@@ -652,9 +652,10 @@ mod tests {
             );
         }
         assert!(tokio::time::timeout(almost, &mut expired).await.is_err());
-        tokio::time::timeout(Duration::from_millis(2), &mut expired)
+        let expiry = tokio::time::timeout(Duration::from_millis(2), &mut expired)
             .await
             .unwrap();
+        assert_eq!(expiry, super::super::Expiry::Request);
     }
 
     #[tokio::test(start_paused = true)]
@@ -675,9 +676,15 @@ mod tests {
                 .await
                 .is_err()
         );
-        tokio::time::timeout(Duration::from_millis(2), &mut expired)
+        let expiry = tokio::time::timeout(Duration::from_millis(2), &mut expired)
             .await
             .unwrap();
+        assert_eq!(expiry, super::super::Expiry::ObjectRequest);
+        let reply = super::super::batch_part_timeout(expiry);
+        let body = reply.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("object_request_timeout_ms"), "{body}");
+        assert!(!body.contains("raise request_timeout_ms"), "{body}");
     }
 
     #[tokio::test]

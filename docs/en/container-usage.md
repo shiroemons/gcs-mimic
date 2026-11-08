@@ -145,8 +145,9 @@ restart, and edits to seed files apply on the next restart. Seed input is not
 watched. Restart the container, or enable local administration
 (`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener) and use the opt-in
 [reseed endpoint](slices/atomic-seed-reseed.md). A reseed of a tree that breaks a
-configured limit or holds names it cannot import answers 400 and names the problem;
-only work a later attempt can finish answers 503 with `Retry-After: 1`.
+configured limit, holds names it cannot import, or holds files the container user
+(uid 10001) cannot read answers 400 and names the problem; only work a later
+attempt can finish answers 503 with `Retry-After: 1`.
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
@@ -278,6 +279,12 @@ advertised API endpoint. Use `GCS_MIMIC_*` environment variables in Compose or
 for `-public-host`, `-external-url`, `-data` and related settings.
 The [environment reference](fake-gcs-server-configuration.md) covers all 19
 source variables, including Docker entrypoint precedence and missing equivalents.
+
+A client that announces a request body and stops sending it holds its connection
+silently: the default `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` of 0 sets no limit, so
+nothing expires and nothing is logged. To find such a client, set it, for example
+to `30000`; that silent request then fails with JSON 408 `uploadBrokenConnection`
+or XML 400 `RequestTimeout`, and the server logs a `connection_timeout` warning.
 
 Bucket settings belong to each bucket. For example, create a bucket with its
 own CORS rules using the JSON API:

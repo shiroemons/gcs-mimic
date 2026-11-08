@@ -151,35 +151,68 @@ fn obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines() {
     .expect(200);
     assert_eq!(server.get("described").json()["metadata"]["stalled"], "yes");
 
-    mid_body(
-        "POST /storage/v1/b?project=local HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n",
-        r#"{"name":"stalled-bucket"}"#,
+    // A bucket creation spends the request deadline on its catalog write too, so a loaded runner
+    // can answer it 503 after the body arrived. The stall cannot cause that, because `stalled`
+    // proves the server stayed silent through it. Such an attempt is retried under a fresh name,
+    // since its dropped write may still commit.
+    let mut attempts = 0;
+    let mut created_after_stall =
+        |prefix: &str, request: fn(&str) -> (String, String), split: usize| {
+            common::input_fixtures::eventually_some(
+                "a stalled bucket creation answered in time",
+                || {
+                    attempts += 1;
+                    let name = format!("{prefix}-{attempts}");
+                    let (head, body) = request(&name);
+                    let reply = mid_body(&head, &body, split);
+                    (reply.status != 503).then_some((name, reply))
+                },
+            )
+        };
+    let (name, reply) = created_after_stall(
+        "stalled-bucket",
+        |name| {
+            (
+                "POST /storage/v1/b?project=local HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n".to_owned(),
+                format!(r#"{{"name":"{name}"}}"#),
+            )
+        },
         9,
-    )
-    .expect(200);
+    );
+    reply.expect(200);
     server
-        .request("GET", "/storage/v1/b/stalled-bucket", "", b"")
+        .request("GET", &format!("/storage/v1/b/{name}"), "", b"")
         .expect(200);
 
-    mid_body(
-        "PUT /stalled-xml-bucket HTTP/1.1\r\nHost: local\r\nx-goog-project-id: local\r\n",
-        "<CreateBucketConfiguration><StorageClass>NEARLINE</StorageClass></CreateBucketConfiguration>",
+    let (name, reply) = created_after_stall(
+        "stalled-xml-bucket",
+        |name| {
+            (
+                format!("PUT /{name} HTTP/1.1\r\nHost: local\r\nx-goog-project-id: local\r\n"),
+                "<CreateBucketConfiguration><StorageClass>NEARLINE</StorageClass></CreateBucketConfiguration>".to_owned(),
+            )
+        },
         20,
-    )
-    .expect(200);
-    let created = server.request("GET", "/storage/v1/b/stalled-xml-bucket", "", b"");
+    );
+    reply.expect(200);
+    let created = server.request("GET", &format!("/storage/v1/b/{name}"), "", b"");
     assert_eq!(created.json_ok()["storageClass"], "NEARLINE");
 }
 
 /// Body inactivity bounds a silent body on every route. Its expiry is the documented request
-/// timeout of each API: 408 `uploadBrokenConnection` in JSON, 400 `RequestTimeout` in XML.
+/// timeout of each API: 408 `uploadBrokenConnection` in JSON, 400 `RequestTimeout` in XML. Each
+/// expiry also logs a warning, which is how an operator finds such a client.
 #[test]
 fn obj_http_explicit_body_inactivity_answers_silent_resource_bodies() {
     let dir = TestDir::new();
     before_short_deadline(&dir, |setup| {
         setup.upload("name=described", "", b"data").expect(200);
     });
-    let server = start_with(&dir, &["--body-inactivity-timeout-ms", LIMIT]);
+    let mut server = Server::launch(
+        http_command(&dir.0)
+            .args(["--body-inactivity-timeout-ms", LIMIT])
+            .stderr(std::process::Stdio::piped()),
+    );
     let silent = |head: &str| {
         let mut stream = server.stream();
         stream.write_all(head.as_bytes()).unwrap();
@@ -222,6 +255,28 @@ fn obj_http_explicit_body_inactivity_answers_silent_resource_bodies() {
     server
         .request("GET", "/storage/v1/b/silent-xml-bucket", "", b"")
         .json_error(404, "notFound");
+
+    server.stop();
+    let mut stderr = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let warnings = stderr
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|event| {
+            event["event"] == "connection_timeout"
+                && event["level"] == "warn"
+                && event["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("body_inactivity_timeout_ms"))
+        })
+        .count();
+    assert_eq!(warnings, 4, "{stderr}");
 }
 
 /// Every frame of a resource body renews body inactivity, as it does for an upload, so a body

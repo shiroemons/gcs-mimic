@@ -428,6 +428,61 @@ fn reseed_past_a_configured_limit_answers_400_naming_the_setting() {
     }
 }
 
+/// The container runs as uid 10001, so a bind-mounted fixture readable only by its owner fails
+/// on every attempt until its permissions change: a client error, not a retryable 503.
+#[cfg(unix)]
+#[test]
+fn reseed_of_an_unreadable_fixture_answers_400_without_retry_after() {
+    use std::os::unix::fs::PermissionsExt;
+    let (data, source) = (TestDir::new(), TestDir::new());
+    std::fs::create_dir(source.0.join("test-bucket")).unwrap();
+    std::fs::write(source.0.join("test-bucket/value"), b"seed").unwrap();
+    let server = Server::start(
+        &data,
+        &[
+            "--admin-enabled",
+            "true",
+            "--seed-dir",
+            source.0.to_str().unwrap(),
+        ],
+    );
+    let before = server.request("GET", OBJECT, "", b"").json_ok();
+    let locked = source.0.join("test-bucket/locked-fixture");
+    std::fs::write(&locked, b"secret").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // The server runs as this test's user, so the probe sees what the server will.
+    if std::fs::read(&locked).is_ok() {
+        eprintln!("SKIP: a mode 000 file stays readable (for example when running as root)");
+        return;
+    }
+    let rejected = server.request("POST", "/_internal/reseed", "", b"");
+    rejected.json_reason(400, "invalid");
+    assert!(
+        !rejected.headers.contains_key("retry-after"),
+        "{:?}",
+        rejected.headers
+    );
+    let message = rejected.json()["error"]["message"].to_string();
+    assert!(message.contains("cannot read a fixture"), "{message}");
+    assert!(!message.contains("locked-fixture"), "{message}");
+    assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    server
+        .request("POST", "/_internal/reseed", "", b"")
+        .json_ok();
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/locked-fixture?alt=media",
+                "",
+                b""
+            )
+            .body,
+        b"secret"
+    );
+}
+
 #[test]
 fn source_management_methods_bodies_and_authority_are_explicit() {
     let data = TestDir::new();

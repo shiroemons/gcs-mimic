@@ -105,12 +105,56 @@ fn fixture(root: &Path, name: &str, bytes: &[u8]) {
 }
 
 fn fails(command: &mut Command, diagnostic: &str) {
+    let error = startup_failure(command);
+    assert!(error.contains(diagnostic), "{error}");
+}
+
+/// Runs a startup that must fail before readiness and returns its diagnostics.
+fn startup_failure(command: &mut Command) -> String {
     let output = command.output().unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty(), "failure emitted a ready event");
-    let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains(diagnostic), "{error}");
+    String::from_utf8_lossy(&output.stderr).into_owned()
 }
+
+/// A seed that fills a RAM budget names only that budget's setting: neither the other budget nor
+/// a data directory to free, which a memory backend does not have.
+#[test]
+fn a_memory_seed_past_its_budget_names_only_that_budget() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("blob-fixtures");
+    fixture(&seed, "local-bucket/large", &[b'x'; 4096]);
+    let blobs = startup_failure(command(&dir.0.join("data"), Some(&seed)).args([
+        "--backend",
+        "memory",
+        "--memory-max-bytes",
+        "1024",
+    ]));
+    assert!(blobs.contains("storage capacity exhausted"), "{blobs}");
+    assert!(blobs.contains("memory_max_bytes"), "{blobs}");
+    assert!(!blobs.contains("memory_catalog_max_bytes"), "{blobs}");
+    assert!(!blobs.contains("data directory"), "{blobs}");
+
+    // Long names fill the smallest catalog page budget with a few thousand empty objects.
+    let seed = dir.0.join("catalog-fixtures");
+    let padding = "n".repeat(200);
+    for index in 0..CATALOG_FILLING_OBJECTS {
+        fixture(&seed, &format!("local-bucket/{index:05}-{padding}"), b"");
+    }
+    let catalog = startup_failure(command(&dir.0.join("data"), Some(&seed)).args([
+        "--backend",
+        "memory",
+        "--memory-catalog-max-bytes",
+        "1048576",
+    ]));
+    assert!(catalog.contains("storage capacity exhausted"), "{catalog}");
+    assert!(catalog.contains("memory_catalog_max_bytes"), "{catalog}");
+    assert!(!catalog.contains("memory_max_bytes"), "{catalog}");
+    assert!(!catalog.contains("data directory"), "{catalog}");
+}
+
+/// More empty objects with 200-byte names than 1 MiB of catalog pages holds.
+const CATALOG_FILLING_OBJECTS: usize = 4000;
 
 #[test]
 fn seed_configuration_precedence_and_validation() {

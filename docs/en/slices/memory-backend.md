@@ -150,7 +150,8 @@ kept by soft delete keeps its bytes until it expires, or raise `memory_max_bytes
 for object bytes, or raise `memory_catalog_max_bytes` for catalog pages. The
 failure carries which budget it was as a type, not as text, and a disk backend's
 full disk instead names free space in the data directory and soft delete
-retention. Retrying alone does not create capacity;
+retention. A startup seed that fills a budget fails before readiness and names
+only that budget's setting. Retrying alone does not create capacity;
 release data/readers or change the relevant startup budget. Changing a RAM budget
 requires a restart and loses that process's RAM state; it is not a live recovery
 operation. Retry with generation conditions after capacity is available.

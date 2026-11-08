@@ -175,6 +175,33 @@ async fn a_seed_past_the_former_fixed_bucket_limit_imports_and_replays_after_a_r
 
 /// A walk thread that dies drops its sender; the import must not read the closed channel as
 /// the end of the tree and mark a partial seed complete.
+/// An unreadable fixture fails as I/O of reading the tree, as the portable open path reports it,
+/// and not as a storage failure: the fixture's permissions, not the catalog, have to change.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_fixture_fails_as_tree_io_with_its_permission_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_dir, config) = fixture();
+    let locked = config.seed_dir.as_ref().unwrap().join("bucket/a");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&locked).is_ok() {
+        eprintln!("SKIP: a mode 000 file stays readable (for example when running as root)");
+        return;
+    }
+    let catalog = Catalog::open(&config.data_dir).await.unwrap();
+    let failure = import(&catalog, &config, &SystemClock).await.unwrap_err();
+    let mut error = &failure;
+    while let SeedError::Import(source) | SeedError::Entry { source, .. } = error {
+        error = source.as_ref();
+    }
+    assert!(
+        matches!(error, SeedError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied),
+        "{error:?}"
+    );
+    assert!(!seed_complete(&catalog).await);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn a_walk_that_panics_midway_fails_the_seed_and_leaves_it_incomplete() {
     let (_dir, config) = fixture();

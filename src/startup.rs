@@ -564,9 +564,22 @@ fn seed_failure(error: &SeedError) -> String {
         | SeedError::BucketLimit { .. } => {
             return format!("seed import: {error}.");
         }
-        // No entry limit stops a seed before this, and a RAM catalog fills long before a disk does.
-        SeedError::Admin(AdminError::DiskFull(_)) => {
-            return "seed import: disk full; free disk space, or with backend memory raise memory_catalog_max_bytes and memory_max_bytes, before restarting.".into();
+        // No entry limit stops a seed before this. Only the storage that ran out has a remedy:
+        // a disk backend has no RAM budget to raise, and a memory backend no data directory.
+        SeedError::Admin(AdminError::DiskFull(cause)) => {
+            use gcs_mimic::storage::MemoryBudget;
+            return match cause.memory_budget() {
+                None => {
+                    "seed import: storage capacity exhausted; free space in the data directory before restarting."
+                }
+                Some(MemoryBudget::Blobs) => {
+                    "seed import: storage capacity exhausted; restart with a larger memory_max_bytes or a smaller seed tree."
+                }
+                Some(MemoryBudget::Catalog) => {
+                    "seed import: storage capacity exhausted; restart with a larger memory_catalog_max_bytes or a smaller seed tree."
+                }
+            }
+            .into();
         }
         // The walk opens absolute paths; without a depth limit nothing else stops at this length.
         SeedError::Io(error) if error.kind() == io::ErrorKind::InvalidFilename => {
@@ -749,11 +762,17 @@ mod tests {
             seed_failure(&SeedError::Admin(AdminError::Hold)),
             "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry."
         );
-        assert!(
-            seed_failure(&SeedError::Admin(AdminError::DiskFull(
-                io::ErrorKind::StorageFull.into()
-            )))
-            .contains("memory_catalog_max_bytes")
+        // A full disk names the data directory only; the memory budgets are covered end to end,
+        // since only the library can mark which one ran out.
+        let disk_full = seed_failure(&SeedError::Import(Box::new(SeedError::Entry {
+            label: "fixture".into(),
+            source: Box::new(SeedError::Admin(AdminError::DiskFull(
+                io::ErrorKind::StorageFull.into(),
+            ))),
+        })));
+        assert_eq!(
+            disk_full,
+            "seed import: storage capacity exhausted; free space in the data directory before restarting."
         );
         let error = SeedError::Io(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
         let error = SeedError::Import(Box::new(error));
