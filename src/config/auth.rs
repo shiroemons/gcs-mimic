@@ -355,7 +355,7 @@ impl ConfigurationReport {
         } else {
             format!(
                 " It holds {} in {}, so it can read and write objects there.",
-                BuiltIn::TestSigner.role().unwrap_or_default(),
+                BuiltIn::TestSigner.role(),
                 projects
                     .iter()
                     .map(String::as_str)

@@ -39,10 +39,10 @@ impl BuiltIn {
     /// public, so it gets the least role that covers signed GET and PUT, overwrites and what
     /// Rails also does (delete, list and metadata updates): `objectUser` administers no IAM
     /// policy or ACL.
-    pub(crate) fn role(self) -> Option<&'static str> {
+    pub(crate) fn role(self) -> &'static str {
         match self {
-            Self::TestSigner => Some("roles/storage.objectUser"),
-            Self::TrustedApp => Some("roles/storage.admin"),
+            Self::TestSigner => "roles/storage.objectUser",
+            Self::TrustedApp => "roles/storage.admin",
         }
     }
 
@@ -58,13 +58,10 @@ impl BuiltIn {
         )
     }
 
-    /// The implicit grants: the role in every project, or none without a role. They carry the
-    /// role's permissions but no explicit `roles/storage.admin`, so they never open sync controls,
-    /// which the identity document alone can grant.
+    /// The implicit grants: the role in every project. They carry the role's permissions but no
+    /// explicit `roles/storage.admin`, so they never open sync controls, which the identity
+    /// document alone can grant.
     fn grants(self, projects: &BTreeSet<String>) -> BTreeMap<String, ProjectGrant> {
-        let Some(role) = self.role() else {
-            return BTreeMap::new();
-        };
         // The roles above are in the pinned snapshot, which a unit test proves; a role missing
         // from it would grant nothing rather than something else.
         projects
@@ -72,7 +69,7 @@ impl BuiltIn {
             .filter_map(|project| {
                 let mut grant = ProjectGrant::default();
                 grant
-                    .add_role(role, GrantSource::Implicit)
+                    .add_role(self.role(), GrantSource::Implicit)
                     .map(|()| (project.clone(), grant))
             })
             .collect()

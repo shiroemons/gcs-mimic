@@ -19,10 +19,9 @@ fn admin() -> serde_json::Value {
 #[test]
 fn every_implicit_role_is_in_the_pinned_snapshot() {
     for built_in in [BuiltIn::TestSigner, BuiltIn::TrustedApp] {
-        if let Some(role) = built_in.role() {
-            assert!(roles::permissions(role).is_some(), "{role}");
-            assert_eq!(built_in.grants(&projects(&["p"])).len(), 1, "{role}");
-        }
+        let role = built_in.role();
+        assert!(roles::permissions(role).is_some(), "{role}");
+        assert_eq!(built_in.grants(&projects(&["p"])).len(), 1, "{role}");
     }
 }
 
