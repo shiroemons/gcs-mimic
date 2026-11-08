@@ -238,6 +238,9 @@ pub(crate) struct Error {
     message: String,
     /// The optional `Details` element, which Cloud Storage uses to name a missing object.
     details: Option<String>,
+    /// The refused permission behind an `AccessDenied` or `AuthenticationRequired`, logged when
+    /// the response leaves.
+    denied: Option<Box<crate::auth::Denied>>,
 }
 
 /// The XML declaration Cloud Storage writes, with single-quoted pseudo-attributes.
@@ -276,6 +279,7 @@ impl Error {
             code,
             message: message.into(),
             details: None,
+            denied: None,
         }
     }
 
@@ -329,6 +333,9 @@ impl Error {
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
+        if let Some(denied) = &self.denied {
+            denied.log();
+        }
         let mut body = format!("{DECLARATION}<Error>");
         element(&mut body, "Code", self.code.as_str());
         element(&mut body, "Message", &self.message);
@@ -398,7 +405,9 @@ impl From<JsonError> for Error {
             error.message
         };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
-        Self::new(code, message)
+        let mut xml = Self::new(code, message);
+        xml.denied = error.denied;
+        xml
     }
 }
 

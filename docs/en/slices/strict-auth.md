@@ -208,12 +208,48 @@ ACL, because anyone can sign with the published key; see
 
 | Condition | Status | Body |
 | --- | --- | --- |
-| Anonymous caller needs a permission | 401 | `{"error":{"errors":[{"domain":"global","reason":"required","message":"Login Required","locationType":"header","location":"Authorization"}],"code":401,"message":"Login Required"}}` |
+| Anonymous caller needs a project-level permission (`buckets.insert`, `buckets.list`, HMAC keys) | 401 | `{"error":{"errors":[{"domain":"global","reason":"required","message":"Login Required","locationType":"header","location":"Authorization"}],"code":401,"message":"Login Required"}}` |
+| Anonymous caller lacks a bucket or object permission | 401 | Reason `required`, `locationType` `header`, `location` `Authorization`, message `Anonymous caller does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).` |
 | Invalid or unsupported credentials | 401 | Reason `authError`, message `Invalid Credentials`, `locationType` `header`, `location` `Authorization` |
-| Authenticated caller lacks the permission | 403 | `{"error":{"errors":[{"domain":"global","reason":"forbidden","message":"Forbidden"}],"code":403,"message":"Forbidden"}}` |
+| Authenticated caller lacks the permission | 403 | `{"error":{"errors":[{"domain":"global","reason":"forbidden","message":"viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."}],"code":403,"message":"viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist)."}}` |
+
+A denial message names the principal and the refused permission in the form
+`<principal> does not have <permission> access to the <resource>. Permission
+'<permission>' denied on resource (or it may not exist).` The principal is the
+registered identity's `id`: the token holder, the `trusted_principal` on the
+trusted listener, or the signer of a signed request. A caller without
+credentials is `Anonymous caller`. The resource is `Google Cloud project` for
+project-level permissions such as `storage.buckets.create` and
+`storage.buckets.list`, `Google Cloud Storage bucket` for bucket permissions and
+`storage.objects.list`, and `Google Cloud Storage object` for the other object
+permissions. Replacing a live object without `storage.objects.delete` names that
+permission. The message never names the bucket or object, so a denial for a
+missing bucket or object reads exactly like one for an existing resource.
+
+XML requests keep their codes: a registered caller gets 403 `AccessDenied` and
+an anonymous caller 401 `AuthenticationRequired`, each with the same message in
+`Message`. Refusals that no Cloud Storage permission names, such as
+`projects.serviceAccount.get` without a grant in the project or an emulator
+administration route, keep the documented example message `Forbidden`.
+Public access prevention and retention keep their own reasons and messages.
 
 No `WWW-Authenticate` header is sent. Rejected uploads respond before reading the
 body and use the existing early-rejection close behavior; no staging file remains.
+
+### Seeing denials in the log
+
+Start the server with `GCS_MIMIC_LOG_LEVEL=debug` (or `--log-level debug`) to log
+each denied response as one `authorization_denied` event on stderr:
+
+```json
+{"event":"authorization_denied","level":"debug","principal":"viewer@example.invalid","anonymous":false,"permission":"storage.buckets.get","resource":"bucket","bucket":"bucket-a"}
+```
+
+An anonymous denial has `"anonymous":true` and no `principal`; a project-level
+denial has `"resource":"project"` and the `project` instead of the `bucket`. The
+event never contains tokens, signatures, keys or object contents. A check whose
+refusal does not become the response, such as one permission evaluated by
+`testIamPermissions`, logs nothing. At `info` and above nothing is logged.
 
 ### Authorization
 
@@ -326,8 +362,21 @@ it currently returns 404 as an unknown route. Serving it requires the next slice
 
 - The `authError` message and its `locationType`/`location` are local choices; only
   the reason is documented.
-- The 403 message is the documented example `Forbidden`; the real service often
-  returns a longer, undocumented message naming the principal and permission.
+- The status-code reference documents only the short `Forbidden` and
+  `Login Required` examples. The denial message follows Google's
+  [permission error messages](https://docs.cloud.google.com/iam/docs/permission-error-messages)
+  page, which shows `EMAIL_ADDRESS does not have storage.buckets.list access to
+  the Google Cloud project. Permission 'storage.buckets.list' denied on resource
+  (or it may not exist).`, and the
+  [troubleshooting](https://docs.cloud.google.com/storage/docs/troubleshooting)
+  page, which shows `example@email.com doesn't have storage.objects.get access to
+  the Google Cloud Storage object` and mentions `Anonymous caller`. The
+  `Google Cloud Storage bucket` noun, the second sentence on bucket and object
+  denials and the complete anonymous sentence are local choices, as is the 401
+  for anonymous bucket and object denials. A recorded `objects.move` denial
+  named the resource path in its second sentence
+  (`denied on resource '//<host>/projects/_/buckets/<bucket>/objects/<name>'`);
+  the emulator's other denials omit it.
 - No `WWW-Authenticate` header is sent; its presence on the real service is
   undocumented.
 - The missing-bucket rule, the anonymous result for missing buckets, the absence

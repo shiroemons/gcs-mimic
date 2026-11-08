@@ -670,7 +670,7 @@ pub(crate) enum ObjectError {
     Component(Box<ComponentFailure>),
     PublicAccessPrevention,
     /// Publication would replace a live object, but the caller may not delete it.
-    OverwriteForbidden,
+    OverwriteForbidden(Box<crate::auth::Denied>),
     ActiveHold(Box<HeldObject>),
     /// The bucket retention policy or the object's own retain-until time has not passed.
     ObjectRetentionNotMet(Box<RetainedObject>),
@@ -679,7 +679,11 @@ pub(crate) enum ObjectError {
     /// A Locked retention was shortened, removed or unlocked; the override never applies.
     LockedRetention,
     ObjectNotSoftDeleted,
-    /// The bucket's current owning project is not one the caller was authorized for.
+    /// Strict authorization refused a Cloud Storage permission, including when the bucket's
+    /// current owning project is not one the caller was authorized for.
+    Denied(Box<crate::auth::Denied>),
+    /// Refused for a reason no Cloud Storage permission names: an upload session whose bucket
+    /// was recreated, administrative access through upload replay, or a refused sync control.
     Forbidden,
     NotModified,
     ChecksumMismatch,
@@ -715,7 +719,7 @@ impl fmt::Display for ObjectError {
             Self::PublicAccessPrevention => {
                 formatter.write_str("public access prevention is enforced")
             }
-            Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
+            Self::OverwriteForbidden(denied) => write!(formatter, "overwrite forbidden: {denied}"),
             Self::ActiveHold(_) => formatter.write_str("object under active hold"),
             Self::ObjectRetentionNotMet(_) => {
                 formatter.write_str("object retention period has not elapsed")
@@ -727,6 +731,7 @@ impl fmt::Display for ObjectError {
             Self::ObjectNotSoftDeleted => formatter.write_str(
                 "object is not soft deleted; select a generation from softDeleted=true listing",
             ),
+            Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch | Self::HashMismatch(_) => {
@@ -787,6 +792,7 @@ impl ObjectError {
 impl From<crate::bucket::CatalogError> for ObjectError {
     fn from(error: crate::bucket::CatalogError) -> Self {
         match error {
+            crate::bucket::CatalogError::Denied(denied) => Self::Denied(denied),
             crate::bucket::CatalogError::Forbidden => Self::Forbidden,
             crate::bucket::CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
             crate::bucket::CatalogError::Io(kind) => Self::Io(kind),

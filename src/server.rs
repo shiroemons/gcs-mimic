@@ -1628,7 +1628,7 @@ pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
 
 pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
     if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
-        auth::AuthFailure::LoginRequired.into()
+        error.for_anonymous_caller()
     } else {
         error
     }

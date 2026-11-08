@@ -356,8 +356,10 @@ fn iam_permissive_policy_and_cas() {
 #[test]
 fn iam_requires_effective_get_and_set_permissions() {
     let (_config, _data, server) = fixture();
-    server.get("", IAM).login_required();
-    set(&server, "", &json!({})).login_required();
+    server
+        .get("", IAM)
+        .anonymous_denied("storage.buckets.getIamPolicy", "bucket");
+    set(&server, "", &json!({})).anonymous_denied("storage.buckets.setIamPolicy", "bucket");
     server
         .get("Authorization: Bearer unknown\r\n", IAM)
         .invalid_credentials();

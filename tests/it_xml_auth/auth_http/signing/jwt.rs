@@ -76,7 +76,9 @@ fn strict_jwt_bearer_upload_download_and_iam_denial_match_opaque_tokens() {
         .get(&bearer("unknown@example.invalid"), path)
         .invalid_credentials();
     assert_eq!(server.get(ADMIN, path).success().body, b"jwt bytes");
-    server.get("", path).login_required();
+    server
+        .get("", path)
+        .anonymous_denied("storage.objects.get", "object");
     let mut tampered = admin.into_bytes();
     let signature = tampered.iter().rposition(|b| *b == b'.').unwrap() + 1;
     tampered[signature] = if tampered[signature] == b'A' {
@@ -103,7 +105,7 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
     .success();
     server
         .get("", "/storage/v1/b/iam-bucket/o/object?alt=media")
-        .login_required();
+        .anonymous_denied("storage.objects.get", "object");
     assert_eq!(
         server.get(&no_roles, "/iam-bucket/object").success().body,
         b"hello world"

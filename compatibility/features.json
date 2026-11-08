@@ -41769,11 +41769,13 @@
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
-        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/iam/docs/permission-error-messages",
+        "https://docs.cloud.google.com/storage/docs/troubleshooting"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, remaining signing formats and advanced XML operations, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, remaining signing formats and advanced XML operations, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Permission denials keep their statuses, reasons and XML codes and name the principal and the refused permission in the form of the IAM permission-error and Cloud Storage troubleshooting pages (both checked 2026-11-08; see SPEC-017 for the local parts); GCS_MIMIC_LOG_LEVEL=debug logs each refused response as authorization_denied. Contract: docs/en/slices/strict-auth.md (Errors); evidence: docs/en/evidence/permission-denied-messages.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -41823,6 +41825,24 @@
             "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
             "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
             "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden"
+          ]
+        },
+        {
+          "id": "DESIGN-002-DENIAL-MESSAGES",
+          "description": "A refused Cloud Storage permission keeps JSON 403 forbidden and XML 403 AccessDenied, and anonymous bucket/object refusals keep JSON 401 required at the Authorization header and XML 401 AuthenticationRequired; the message names the registered id (token holder, trusted principal or signed-request signer) or Anonymous caller, the permission and the project, bucket or object resource kind in the form '<principal> does not have <permission> access to the <resource>. Permission '<permission>' denied on resource (or it may not exist).'. Project-level anonymous refusals keep Login Required and refusals no Storage permission names keep Forbidden. Missing buckets and objects read like existing ones. Each refused response logs one authorization_denied event with principal, permission, resource kind and bucket or project at debug level only, without credentials; refusals discarded by testIamPermissions log nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::denied::tests::messages_name_the_principal_the_permission_and_the_resource_kind",
+            "auth::denied::tests::the_event_names_the_principal_permission_resource_and_location_only",
+            "json::error::tests::denials_keep_the_forbidden_reason_and_name_the_principal_and_permission",
+            "json::error::tests::an_anonymous_caller_gets_401_required_naming_the_permission_it_lacks",
+            "xml::error_tests::typed_json_errors_keep_the_xml_status_code_and_document",
+            "denials::json_denials_name_the_principal_and_the_refused_permission",
+            "denials::a_denial_for_a_missing_bucket_or_object_reads_like_one_for_an_existing_resource",
+            "denials::xml_denials_keep_their_codes_and_name_the_refused_permission",
+            "denials::denials_are_logged_at_debug_level_only_and_never_carry_credentials",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials"
           ]
         },
         {
@@ -41902,10 +41922,38 @@
         "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
         "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
         "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
-        "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation"
+        "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+        "auth::denied::tests::messages_name_the_principal_the_permission_and_the_resource_kind",
+        "auth::denied::tests::the_event_names_the_principal_permission_resource_and_location_only",
+        "json::error::tests::denials_keep_the_forbidden_reason_and_name_the_principal_and_permission",
+        "json::error::tests::an_anonymous_caller_gets_401_required_naming_the_permission_it_lacks",
+        "xml::error_tests::typed_json_errors_keep_the_xml_status_code_and_document",
+        "denials::json_denials_name_the_principal_and_the_refused_permission",
+        "denials::a_denial_for_a_missing_bucket_or_object_reads_like_one_for_an_existing_resource",
+        "denials::xml_denials_keep_their_codes_and_name_the_refused_permission",
+        "denials::denials_are_logged_at_debug_level_only_and_never_carry_credentials"
       ],
       "verification": [
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::jwt::tests::requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it","auth::tests::compact_grants_preserve_hmac_key_management_permissions"]},
+        {
+          "command": "cargo test --locked --lib -- auth:: json:: xml:: storage:: server:: grpc::; cargo test --locked --test it_xml_auth; cargo test --locked --test it_json; cargo test --locked --test it_objects",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/permission-denied-messages.md",
+          "test_ids": [
+            "auth::denied::tests::messages_name_the_principal_the_permission_and_the_resource_kind",
+            "auth::denied::tests::the_event_names_the_principal_permission_resource_and_location_only",
+            "json::error::tests::denials_keep_the_forbidden_reason_and_name_the_principal_and_permission",
+            "json::error::tests::an_anonymous_caller_gets_401_required_naming_the_permission_it_lacks",
+            "xml::error_tests::typed_json_errors_keep_the_xml_status_code_and_document",
+            "denials::json_denials_name_the_principal_and_the_refused_permission",
+            "denials::a_denial_for_a_missing_bucket_or_object_reads_like_one_for_an_existing_resource",
+            "denials::xml_denials_keep_their_codes_and_name_the_refused_permission",
+            "denials::denials_are_logged_at_debug_level_only_and_never_carry_credentials",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -42056,7 +42104,7 @@
       "known_deviations": [
         "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, remaining signature formats, HMAC, Google IAM signing and broader transport enforcement remain unimplemented.",
         "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
-        "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
+        "SPEC-017: authError message/location, the bucket noun and second sentence of the principal/permission denial message (Google documents the project-level form and an object-level first sentence; a recorded objects.move denial also named the resource path), the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"

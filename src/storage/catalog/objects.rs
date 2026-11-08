@@ -475,11 +475,11 @@ pub(super) use crate::storage::failure::object_unavailable;
 /// Returns the storage class and whether the caller may delete objects, which replacing a
 /// live object also requires. A missing bucket is reported before authorization, matching the
 /// adapter's missing-bucket rule.
-pub(super) fn authorized_bucket(
+pub(super) fn authorized_bucket<'a>(
     connection: &Connection,
-    bucket: &str,
-    access: &BucketAccess,
-) -> Result<(StorageClass, DeletePermission), ObjectError> {
+    bucket: &'a str,
+    access: &'a BucketAccess,
+) -> Result<(StorageClass, DeletePermission<'a>), ObjectError> {
     let (storage_class, project): (StorageClass, String) = sql::row(
         connection,
         "SELECT storage_class, project FROM buckets WHERE name = ?1",
@@ -529,7 +529,7 @@ pub(super) fn selected(
     } else {
         lookup(connection, bucket, name)?
     };
-    if let Some(access) = object_acl {
+    if let Some(check) = object_acl {
         let granted = record
             .as_ref()
             .map(|stored| {
@@ -538,13 +538,13 @@ pub(super) fn selected(
                     bucket,
                     name,
                     stored.record.generation,
-                    access,
+                    check.access,
                 )
             })
             .transpose()?
             .unwrap_or(false);
         if !granted {
-            return Err(ObjectError::Forbidden);
+            return Err(check.refusal());
         }
     }
     let stored = record.ok_or(ObjectError::ObjectNotFound)?;
@@ -552,20 +552,33 @@ pub(super) fn selected(
     Ok(stored)
 }
 
+/// A caller the bucket refused an object permission, whose object ACL may still grant it.
+pub(super) struct ObjectAclCheck<'a> {
+    pub(super) access: &'a BucketAccess,
+    /// The bucket's refusal, which stands when the object ACL grants nothing either.
+    denied: Box<crate::auth::Denied>,
+}
+
+impl ObjectAclCheck<'_> {
+    pub(super) fn refusal(self) -> ObjectError {
+        ObjectError::Denied(self.denied)
+    }
+}
+
 pub(super) fn object_acl_authority<'a>(
     connection: &Connection,
     bucket: &str,
     access: &'a BucketAccess,
-) -> Result<Option<&'a BucketAccess>, ObjectError> {
+) -> Result<Option<ObjectAclCheck<'a>>, ObjectError> {
     match authorized_bucket(connection, bucket, access) {
         Ok(_) => Ok(None),
-        Err(ObjectError::Forbidden)
+        Err(ObjectError::Denied(denied))
             if matches!(
                 access,
                 BucketAccess::Policy { permission, .. } if crate::acl::object_permission(*permission)
             ) =>
         {
-            Ok(Some(access))
+            Ok(Some(ObjectAclCheck { access, denied }))
         }
         Err(error) => Err(error),
     }
@@ -579,10 +592,10 @@ pub(super) fn authorize_generation(
     generation: i64,
     access: &BucketAccess,
 ) -> Result<(), ObjectError> {
-    if let Some(access) = object_acl_authority(connection, bucket, access)?
-        && !super::acl::object_granted(connection, bucket, name, generation, access)?
+    if let Some(check) = object_acl_authority(connection, bucket, access)?
+        && !super::acl::object_granted(connection, bucket, name, generation, check.access)?
     {
-        return Err(ObjectError::Forbidden);
+        return Err(check.refusal());
     }
     Ok(())
 }
@@ -591,7 +604,7 @@ pub(super) fn authorize_generation(
 pub(super) fn check_publication(
     previous: Option<&StoredObject>,
     conditions: ObjectConditions,
-    delete_permission: DeletePermission,
+    delete_permission: DeletePermission<'_>,
     now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {
     check_conditions(
@@ -599,8 +612,10 @@ pub(super) fn check_publication(
         conditions,
         RequestKind::Write,
     )?;
-    if previous.is_some() && delete_permission == DeletePermission::Denied {
-        return Err(ObjectError::OverwriteForbidden);
+    if previous.is_some()
+        && let Some(refusal) = delete_permission.overwrite_refusal()
+    {
+        return Err(refusal);
     }
     // Object retention depends on versioning; publish_in_transaction checks it.
     if let Some(stored) = previous {

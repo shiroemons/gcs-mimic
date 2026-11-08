@@ -256,31 +256,31 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
-            let objects::StoredObject { record, .. } = selected(
+            let selection = selected(
                 &transaction,
                 &bucket,
                 &name,
                 generation,
                 unix_micros(clock.now())?,
-            )
-            .map_err(|error| {
-                if object_acl.is_some() && error == ObjectError::ObjectNotFound {
-                    ObjectError::Forbidden
-                } else {
-                    error
+            );
+            // A caller the bucket refused cannot learn that the generation is missing.
+            let record = match (selection, object_acl) {
+                (Ok(stored), None) => stored.record,
+                (Err(ObjectError::ObjectNotFound), Some(check)) => return Err(check.refusal()),
+                (Err(error), _) => return Err(error),
+                (Ok(stored), Some(check)) => {
+                    if !super::acl::object_granted(
+                        &transaction,
+                        &bucket,
+                        &name,
+                        stored.record.generation,
+                        check.access,
+                    )? {
+                        return Err(check.refusal());
+                    }
+                    stored.record
                 }
-            })?;
-            if let Some(access) = object_acl
-                && !super::acl::object_granted(
-                    &transaction,
-                    &bucket,
-                    &name,
-                    record.generation,
-                    access,
-                )?
-            {
-                return Err(ObjectError::Forbidden);
-            }
+            };
             objects::check_conditions(
                 Some(&record),
                 conditions,

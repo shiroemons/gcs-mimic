@@ -521,6 +521,7 @@ fn target_access(
             generation,
         } => super::objects::authorize_generation(connection, bucket, name, generation, access)
             .map_err(|error| match error {
+                ObjectError::Denied(denied) => CatalogError::Denied(denied),
                 ObjectError::Forbidden => CatalogError::Forbidden,
                 ObjectError::BucketNotFound => CatalogError::NotFound,
                 error => unavailable(error),
@@ -554,7 +555,9 @@ pub(super) fn replace_resource_acl(
         };
         match target_access(connection, target, &row.project, &policy_access) {
             Ok(_) => {}
-            Err(CatalogError::Forbidden) => {
+            // A caller who may only read the ACL can still resend it unchanged; any change
+            // stays refused for the permission that writing it needs.
+            Err(CatalogError::Denied(denied)) => {
                 if let BucketAccess::Policy { permission, .. } = &mut policy_access {
                     *permission = if target.kind() == AclKind::Object {
                         crate::auth::Permission::ObjectsGetIam
@@ -562,7 +565,10 @@ pub(super) fn replace_resource_acl(
                         crate::auth::Permission::BucketsGetIam
                     };
                 }
-                target_access(connection, target, &row.project, &policy_access)?;
+                match target_access(connection, target, &row.project, &policy_access) {
+                    Err(CatalogError::Denied(_)) => return Err(CatalogError::Denied(denied)),
+                    other => other?,
+                }
                 // Preserve full-resource echoes only for callers already allowed to read the ACL.
                 if !row.uniform_access {
                     let mut current = match target {
@@ -587,7 +593,7 @@ pub(super) fn replace_resource_acl(
                         return Ok(());
                     }
                 }
-                return Err(CatalogError::Forbidden);
+                return Err(CatalogError::Denied(denied));
             }
             Err(error) => return Err(error),
         }
@@ -761,7 +767,7 @@ impl Catalog {
             };
             match target_access(&transaction, target, &row.project, &access) {
                 Ok(()) => {}
-                Err(CatalogError::Forbidden) => {
+                Err(CatalogError::Denied(_) | CatalogError::Forbidden) => {
                     let identity = match &access {
                         BucketAccess::Policy { identity, .. } => identity.as_ref(),
                         _ => None,
@@ -942,7 +948,7 @@ impl Catalog {
                     };
                     match check_access(&transaction, bucket, &row.project, &access) {
                         Ok(_) => bucket_projection(&transaction, bucket, &row).map(Some),
-                        Err(CatalogError::Forbidden) => Ok(None),
+                        Err(CatalogError::Denied(_) | CatalogError::Forbidden) => Ok(None),
                         Err(error) => Err(error),
                     }
                 })
@@ -978,7 +984,7 @@ impl Catalog {
             };
             let default = || project_private(&row.project);
             let object_access = access.as_ref().map(|access| super::objects::object_acl_authority(&transaction, &bucket, access))
-                .transpose().map_err(unavailable)?.flatten();
+                .transpose().map_err(unavailable)?.flatten().map(|check| check.access);
             let page = serde_json::to_string(&objects).map_err(unavailable)?;
             let records = transaction.prepare_cached(
                 "SELECT o.generation IS NOT NULL, o.owner, e.entries FROM json_each(?2) j LEFT JOIN objects o ON o.bucket=?1 AND o.name=json_extract(j.value,'$[0]') AND o.generation=json_extract(j.value,'$[1]') LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation ORDER BY j.key"

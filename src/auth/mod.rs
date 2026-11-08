@@ -13,6 +13,8 @@ pub(crate) use acl_identity::validate_local_creator_email;
 mod built_in;
 pub(crate) use built_in::BuiltIn;
 pub use built_in::TRUSTED_APP_ID;
+pub(crate) mod denied;
+pub use denied::Denied;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
@@ -328,13 +330,16 @@ fn strict_only(field: &str) -> String {
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthFailure {
     /// Credentials were presented but are unknown, malformed or of an unsupported kind.
     InvalidCredentials,
     /// An anonymous caller needs a permission.
     LoginRequired,
-    /// An authenticated caller lacks the permission.
+    /// An authenticated caller lacks the named Cloud Storage permission.
+    Denied(Box<Denied>),
+    /// An authenticated caller is refused for a reason no Cloud Storage permission names,
+    /// such as an emulator administration route or project visibility.
     Forbidden,
 }
 
@@ -343,6 +348,7 @@ impl fmt::Display for AuthFailure {
         formatter.write_str(match self {
             Self::InvalidCredentials => "invalid credentials",
             Self::LoginRequired => "login required",
+            Self::Denied(denied) => return denied.fmt(formatter),
             Self::Forbidden => "forbidden",
         })
     }
@@ -564,7 +570,11 @@ impl<'a> Caller<'a> {
         if allowed {
             Ok(())
         } else {
-            Err(AuthFailure::Forbidden)
+            Err(AuthFailure::Denied(Denied::new(
+                Some(identity),
+                permission,
+                denied::Resource::project(project),
+            )))
         }
     }
 }
@@ -602,7 +612,8 @@ pub enum RegistryError {
     Project {
         entry: usize,
         project: String,
-        source: crate::json::JsonError,
+        /// Boxed, so a JSON error does not enlarge every result that carries an identity failure.
+        source: Box<crate::json::JsonError>,
     },
 }
 
@@ -642,7 +653,7 @@ impl std::error::Error for RegistryError {
             Self::Io(error) => Some(error),
             Self::Syntax(error) => Some(error),
             Self::PublicKey { source, .. } => Some(source),
-            Self::Project { source, .. } => Some(source),
+            Self::Project { source, .. } => Some(source.as_ref()),
             Self::TooLarge | Self::Invalid { .. } => None,
         }
     }
@@ -1049,7 +1060,7 @@ fn parse_project_roles(
         crate::json::validate_project(project).map_err(|source| RegistryError::Project {
             entry: index,
             project: project.clone(),
-            source,
+            source: Box::new(source),
         })?;
         let role_values = role_values
             .as_array()
@@ -1602,7 +1613,12 @@ mod tests {
                     .patch_bucket("pap-permissions", update, Default::default(), &access)
                     .await
             };
-            assert_eq!(result, Err(CatalogError::Forbidden));
+            assert_eq!(
+                result,
+                Err(CatalogError::Denied(
+                    access.denied_for(BUCKETS_SET_IAM, "pap-permissions")
+                ))
+            );
             assert_eq!(
                 catalog
                     .get_bucket("pap-permissions", PERMISSIVE)
@@ -1655,7 +1671,12 @@ mod tests {
                         assert_eq!(after.labels["team"], "storage");
                         assert_eq!(after.metageneration, before.metageneration + 1);
                     } else {
-                        assert_eq!(result, Err(CatalogError::Forbidden));
+                        assert_eq!(
+                            result,
+                            Err(CatalogError::Denied(
+                                access.denied_for(BUCKETS_SET_IAM, "pap-permissions")
+                            ))
+                        );
                         assert_eq!(
                             catalog
                                 .get_bucket("pap-permissions", PERMISSIVE)
@@ -1743,7 +1764,13 @@ mod tests {
                             assert_eq!(after.metageneration, before.metageneration + 1);
                             assert_eq!(after.labels["changed"], "yes");
                         } else {
-                            assert_eq!(result, Err(CatalogError::Forbidden));
+                            // Even a caller who may not read the ACL is refused for writing it.
+                            assert_eq!(
+                                result,
+                                Err(CatalogError::Denied(
+                                    access.denied_for(BUCKETS_SET_IAM, "acl-permissions")
+                                ))
+                            );
                             assert_eq!(
                                 catalog
                                     .get_bucket("acl-permissions", PERMISSIVE)
@@ -1985,7 +2012,11 @@ mod tests {
         assert_eq!(caller.authorize(BUCKETS_GET, None), Ok(()));
         assert_eq!(
             caller.authorize(BUCKETS_GET, Some("unlisted-project")),
-            Err(AuthFailure::Forbidden)
+            Err(AuthFailure::Denied(Denied::new(
+                Some(identity),
+                BUCKETS_GET,
+                denied::Resource::project(Some("unlisted-project")),
+            )))
         );
         assert_eq!(
             Caller::Anonymous.authorize(BUCKETS_GET, None),

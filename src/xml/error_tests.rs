@@ -87,7 +87,32 @@ fn xml_codes_preserve_exceptional_statuses_and_spelling() {
 
 #[tokio::test]
 async fn typed_json_errors_keep_the_xml_status_code_and_document() {
+    let denied = |id: Option<&str>| {
+        let identity = id.map(|id| {
+            crate::auth::Identity::from_upload_snapshot(
+                &serde_json::json!({"id": id, "projects": {}}),
+            )
+            .unwrap()
+        });
+        crate::auth::Denied::new(
+            identity.as_ref(),
+            crate::auth::OBJECTS_GET,
+            crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
+        )
+    };
     for (mut json, status, code, message) in [
+        (
+            JsonError::from(CatalogError::Denied(denied(Some("viewer@example.invalid")))),
+            StatusCode::FORBIDDEN,
+            "AccessDenied",
+            "viewer@example.invalid does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
+        ),
+        (
+            JsonError::from(ObjectError::Denied(denied(None))).for_anonymous_caller(),
+            StatusCode::UNAUTHORIZED,
+            "AuthenticationRequired",
+            "Anonymous caller does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
+        ),
         (
             JsonError::from(AuthFailure::LoginRequired),
             StatusCode::UNAUTHORIZED,

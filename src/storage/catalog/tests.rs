@@ -290,7 +290,7 @@ async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         catalog
             .update_bucket("patch-policy", update.clone(), conditions, &access, mode)
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("patch-policy")))
     );
     assert_eq!(
         catalog
@@ -310,7 +310,7 @@ async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         catalog
             .update_bucket("patch-policy", invalid.clone(), conditions, &access, mode)
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("patch-policy")))
     );
     assert_eq!(
         catalog
@@ -330,7 +330,7 @@ async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         catalog
             .update_bucket("patch-policy", update, Default::default(), &access, mode)
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("patch-policy")))
     );
     assert_eq!(
         catalog
@@ -343,7 +343,7 @@ async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         catalog
             .update_bucket("patch-policy", invalid, Default::default(), &access, mode)
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("patch-policy")))
     );
     assert_eq!(
         catalog

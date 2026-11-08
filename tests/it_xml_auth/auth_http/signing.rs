@@ -152,7 +152,17 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         now,
         HeaderMap::new(),
     );
-    error(&send(&server, "GET", &no_roles, ""), 403, "AccessDenied");
+    // A signed URL acts as its signer, so the denial names the signer.
+    crate::common::errors::xml_error_message(
+        &send(&server, "GET", &no_roles, ""),
+        403,
+        "AccessDenied",
+        &crate::common::errors::denial_message(
+            "no-roles@example.invalid",
+            "storage.objects.get",
+            "object",
+        ),
+    );
     iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).success();
     assert_eq!(
         send(&server, "GET", &no_roles, "").success().body,
