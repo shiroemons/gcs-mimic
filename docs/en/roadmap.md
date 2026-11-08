@@ -13,8 +13,11 @@ The [0.13.0 release](releases/0.13.0.md) provides native archives and Linux AMD6
 
 Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming transfers, rewrite/compose/move, version history, holds, bucket/object retention, soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies. JSON ACL resources, notification configurations, HMAC key management and Autoclass settings also exist, with the effect limitations below. Bucket and object PATCH/PUT replace ACLs atomically with other metadata. Media, multipart and copy invocation tokens replay the original response within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects. Storage v2 gRPC includes resumable and appendable writes and ranged reads; legacy Storage v1 serves the twelve inventoried reference RPCs with field limits. Since 0.9.0, `gcloud storage` runs the [example workflow](../../examples/gcloud/README.md), and [examples](../../examples/README.md) cover eight official clients. Since 0.10.0, Rails Active Storage 8.1.4.1 direct uploads work through `x-goog-content-length-range` enforcement, and XML reads evaluate conditional headers. See the [0.13.0 release notes](releases/0.13.0.md), the [0.12.0 release notes](releases/0.12.0.md), the [0.11.0 release notes](releases/0.11.0.md), the [0.10.0 release notes](releases/0.10.0.md), the [0.9.0 release notes](releases/0.9.0.md), the [0.8.0 release notes](releases/0.8.0.md), the [0.5.0 release notes](releases/0.5.0.md) and the [0.4.0 feature scope and limits](releases/0.4.0.md).
 
-Bucket initialization creates missing buckets and preserves API changes.
-Seed files replay on every startup with extension-derived MIME types. Since
+Bucket initialization creates missing buckets with their settings and
+preserves API changes. After 0.13.0, an entry can also give its bucket an
+initial IAM policy, the document can be written inline in `GCS_MIMIC_BUCKETS`,
+and reconcile mode, the default for the inline document, writes edited entries
+to existing buckets. Seed files replay on every startup with extension-derived MIME types. Since
 0.8.0 the replay prepares the complete tree and publishes it atomically; a
 changed protected fixture fails the replay instead of skipping that file.
 Identical objects keep their generation. A sync directory mirrors API changes
@@ -33,9 +36,23 @@ remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integra
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
 with a non-Google universe. Since 0.8.0 it also verifies registered local
 JWTs and supplies final-origin signing adapters; default Google-universe
-OAuth still requires Google and is not a local credential recipe.
+OAuth still requires Google and is not a local credential recipe. After 0.13.0,
+the recipe also runs in strict mode with the built-in test signer's key, which
+needs no registration; the strict Rails suite passes with the signer holding only
+`roles/storage.objectUser`.
 These are not whole-API compatibility claims. See the
 [comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
+
+Production-like local access needs a release newer than 0.13.0. In strict
+mode, a trusted listener gives the application's own servers a port where their
+credential-free clients, such as Go storage with `STORAGE_EMULATOR_HOST`, act
+as one identity, while browsers stay anonymous and reach private buckets only
+through signed URLs. The built-in test signer signs those URLs with a published
+key, `signed_urls=verify` checks signatures in permissive mode as well, and the
+identity and bucket documents can be written inline in `GCS_MIMIC_IDENTITIES`
+and `GCS_MIMIC_BUCKETS`. The [strict local recipe](../../examples/strict-local/README.md)
+combines them in a few settings. These are local extensions, not Cloud Storage
+behavior; DESIGN-101 stays `PARTIAL` until a browser runs against the recipe.
 
 ## Missing capabilities, in priority order
 
@@ -128,7 +145,10 @@ when an edited entry was not applied. Removing a file entry does not delete a
 bucket. Its [version-1 schema and local administrative authority](slices/bucket-initialization.md)
 are implemented, including an `iamPolicy` a new bucket starts with. The opt-in
 `buckets_file_mode=reconcile` applies the fields each entry writes to its
-existing bucket at startup, except its location and owner.
+existing bucket at startup, except its location and owner. The same document
+written inline in `GCS_MIMIC_BUCKETS` defaults to reconcile, because an edit
+there is meant to apply at the next start; reconcile never resets a field that
+an entry stops writing.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,
 missed events and recovery. 0.8.0 includes bounded conflict retention,
