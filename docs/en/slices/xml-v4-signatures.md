@@ -23,9 +23,13 @@ The official Rust stable manifest still identifies 1.99.1, dated 2026-10-15, wit
 
 ## Request and identity boundaries
 
-Permissive mode does not validate V4 credential shape. It retains the historical
-V2 query-shape checks without verifying signatures or expiry; this asymmetry
-preserves the recorded local permissive contract.
+By default (`signed_urls=ignore`), permissive mode does not validate V4
+credential shape. It retains the historical V2 query-shape checks without
+verifying signatures or expiry; this asymmetry preserves the recorded local
+permissive contract. With `signed_urls=verify`, permissive mode verifies V2 and
+V4 signatures, including expiry, exactly as strict mode does, and a verified
+request proceeds without permission checks; see
+[verifying signed requests in permissive mode](../signed-urls.md#verifying-signed-requests-in-permissive-mode).
 
 Google RSA and HMAC use `GOOG4-RSA-SHA256` and `GOOG4-HMAC-SHA256`, Google parameter/date/hash prefixes and `<date>/<location>/storage/goog4_request`. AWS-compatible HMAC uses `AWS4-HMAC-SHA256`, consistently `X-Amz-` parameters and `x-amz-date`/`x-amz-content-sha256`, with `<date>/<location>/s3/aws4_request`. These XML credentials never authenticate JSON, OAuth or bearer requests.
 

@@ -11,7 +11,7 @@ impl Auth {
         signature: &str,
         policy: &str,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
-        let Some(registry) = &self.registry else {
+        let Some(signers) = self.signers() else {
             return Ok(None);
         };
         if policy.len() > 64 * 1024 || signer.len() > 1024 || signer.is_empty() {
@@ -22,7 +22,7 @@ impl Auth {
             v4::Prepared {
                 signer: signer.into(),
                 date: String::new(),
-                algorithm: if registry.signing_keys.contains_key(signer) {
+                algorithm: if signers.keys().contains(signer) {
                     v4::Algorithm::Rsa
                 } else {
                     v4::Algorithm::LegacyHmacSha1
@@ -35,7 +35,6 @@ impl Auth {
             },
         )
         .await
-        .map(Some)
     }
 
     pub(crate) async fn authenticate_policy<'a>(
@@ -47,7 +46,7 @@ impl Auth {
         signature: &str,
         policy: &str,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
-        if self.registry.is_none() {
+        if self.signers().is_none() {
             return Ok(None);
         }
         if policy.len() > 64 * 1024 || credential.len() > 1024 {
@@ -70,6 +69,6 @@ impl Auth {
             portless: None,
             signature: unhex(signature)?,
         };
-        self.verify_prepared(catalog, prepared).await.map(Some)
+        self.verify_prepared(catalog, prepared).await
     }
 }

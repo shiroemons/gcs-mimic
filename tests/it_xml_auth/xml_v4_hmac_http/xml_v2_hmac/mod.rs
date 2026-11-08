@@ -1,6 +1,12 @@
 use super::*;
 
-fn send(server: &Server, method: &str, signed: &Signed, body: &[u8], host: &str) -> Reply {
+pub(super) fn send(
+    server: &Server,
+    method: &str,
+    signed: &Signed,
+    body: &[u8],
+    host: &str,
+) -> Reply {
     let mut stream = TcpStream::connect(&server.address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(15)))
@@ -62,7 +68,7 @@ fn read_response(mut reader: BufReader<TcpStream>, method: &str) -> Reply {
     }
 }
 
-fn base64(bytes: &[u8]) -> String {
+pub(super) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::new();
     for chunk in bytes.chunks(3) {
@@ -80,7 +86,7 @@ fn base64(bytes: &[u8]) -> String {
     output
 }
 
-fn query(key: &Key, method: &str, path: &str, extras: &[(&str, &str)]) -> Signed {
+pub(super) fn query(key: &Key, method: &str, path: &str, extras: &[(&str, &str)]) -> Signed {
     query_resource(key, method, path, path, extras)
 }
 

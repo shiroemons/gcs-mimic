@@ -27,7 +27,7 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 
 | Behavior | Expected result |
 | --- | --- |
-| Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked |
+| Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked. A later opt-in, `signed_urls=verify`, verifies signed XML requests first without adding permission checks; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Profile selection | `--auth-mode` / `GCS_MIMIC_AUTH_MODE` / JSON `auth_mode` follow the existing CLI > environment > file > default precedence; other values fail startup |
 | Profile/registry pairing | `strict` without `identity_file` and `identity_file` with `permissive` fail before the catalog opens or the listener binds |
 | Registry validation | Unknown keys, limits, duplicate IDs/tokens, invalid project IDs, unknown or basic roles and malformed/oversized files fail startup without a partial load; tokens are never echoed |
@@ -246,7 +246,11 @@ it currently returns 404 as an unknown route. Serving it requires the next slice
   routes are not authenticated, so unknown routes keep 404 for every credential.
 - Authentication precedes route syntax validation; an anonymous request with an
   invalid bucket name still receives 400, while an invalid token receives 401.
-- Anonymous callers always need a login because no anonymous grants are modeled.
+- This slice modeled no anonymous grants, so anonymous callers needed a login
+  here. The [public object reads](public-object-reads.md) slice later added
+  `allUsers` grants: strict anonymous requests now match `allUsers` grants
+  (never `allAuthenticatedUsers`), and a JSON request that no grant authorizes
+  still receives 401 `required`.
 - The missing-bucket 404/403 rule is a local information-hiding choice.
 - For an overwrite, generation/metageneration preconditions (412) are evaluated
   before the overwrite permission check (403). A caller without

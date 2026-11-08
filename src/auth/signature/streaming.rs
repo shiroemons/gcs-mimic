@@ -109,7 +109,7 @@ impl Auth {
         uri: &Uri,
         headers: &HeaderMap,
         clock: &dyn Clock,
-    ) -> Result<(Caller<'a>, Streaming), VerificationError> {
+    ) -> Result<(Option<Caller<'a>>, Streaming), VerificationError> {
         let prepared = v4::prepare(method, uri, headers, clock.now())?;
         if prepared.algorithm != verify::Algorithm::AwsHmac
             || headers

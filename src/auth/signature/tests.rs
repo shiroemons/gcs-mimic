@@ -152,6 +152,65 @@ fn v2_signed(
     )
 }
 
+/// The same requests a strict registry verifies, through permissive `signed_urls=verify` keys.
+#[tokio::test]
+async fn permissive_verification_applies_strict_checks_and_returns_no_caller() {
+    let file = json!({"identities":[{"id":SIGNER,"public_keys":[PUBLIC]}]}).to_string();
+    let auth = Auth::verifying_permissive(file.as_bytes());
+    let check = async |url: &str, now: SystemTime| {
+        let uri: Uri = url.parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("host", uri.authority().unwrap().as_str().parse().unwrap());
+        verify_with_auth(&auth, &Method::GET, &uri, &headers, now).await
+    };
+    let now = parse_timestamp(DATE).unwrap();
+    let url = signed(
+        "http://localhost:4443/bucket/object",
+        &Method::GET,
+        HeaderMap::new(),
+    );
+    assert_eq!(check(&url, now).await, Ok(None));
+    assert_eq!(
+        check(&url.replace("/object?", "/other?"), now).await,
+        Err(Failure::Mismatch)
+    );
+    assert_eq!(
+        check(&url, now + Duration::from_secs(60)).await,
+        Err(Failure::Expired)
+    );
+    for (signer, expected) in [
+        (crate::auth::test_signer::ID, Ok(None)),
+        ("unknown@example.invalid", Err(Failure::UnknownSigner)),
+    ] {
+        let url = sign_url(SignUrlRequest {
+            url: "http://localhost:4443/bucket/object",
+            method: &Method::GET,
+            signer,
+            private_key: PRIVATE,
+            expires: 60,
+            now,
+            headers: HeaderMap::new(),
+        })
+        .unwrap();
+        assert_eq!(check(&url, now).await, expected, "{signer}");
+    }
+    let v2_now = UNIX_EPOCH + Duration::from_secs(1000);
+    let v2 = v2_signed("GET", "/bucket/object", "1060", "", "", "");
+    assert_eq!(check(&v2, v2_now).await, Ok(None));
+    assert_eq!(
+        check(&v2, v2_now + Duration::from_secs(60)).await,
+        Err(Failure::Expired)
+    );
+    assert_eq!(
+        check(&v2.replace("/object?", "/other?"), v2_now).await,
+        Err(Failure::Mismatch)
+    );
+    assert_eq!(
+        check("http://localhost/bucket/object?Expires=broken", v2_now).await,
+        Err(Failure::Malformed)
+    );
+}
+
 #[tokio::test]
 async fn v2_multipart_signatures_bind_upload_and_part_subresources() {
     let now = UNIX_EPOCH + Duration::from_secs(1000);

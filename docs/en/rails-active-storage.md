@@ -187,7 +187,18 @@ verifies a registered test service-account public key and applies existing IAM
 permissions; 0.7.0 and earlier reject the token. Keep a stable local signing
 key, register its public key and identity, and use the same non-Google universe
 in both settings. A fresh unregistered key
-generated at each boot cannot authenticate to that strict registry.
+generated at each boot cannot authenticate to that strict registry. Instead of
+registering a key, you can use the
+[built-in test signer](signed-urls.md#built-in-test-signer): start the emulator
+with `GCS_MIMIC_TEST_SIGNER=enabled` (strict mode leaves it disabled by
+default and warns at startup when it is enabled), set `client_email` to
+`test-signer@gcs-mimic.invalid` and `private_key` to the published
+`fixtures/signing/test-only-private.pem`, then grant that identity bucket IAM or
+declare it with project roles in the identity file. Its private key is public,
+so anyone can authenticate as it; use it only for local tests. The same
+credentials let permissive mode check Rails' signed URLs with
+`GCS_MIMIC_SIGNED_URLS=verify`; a key generated at boot is unknown to the
+emulator there, so its URLs fail with `InvalidAccessKeyId`.
 
 Stock GCS service URLs use the scoped V2 flow. For final-origin V4 URLs, including
 `cache_control` direct uploads and distinct Compose/browser origins, explicitly
@@ -205,7 +216,8 @@ Limits of the recipe:
   is generated at each boot and never registered, so with
   `GCS_MIMIC_AUTH_MODE=strict` uploads fail with `401 Invalid Credentials` and
   the emulator log shows one `auth_self_signed_jwt_rejected` warning. Strict
-  mode accepts only the documented registered JWT subset described above.
+  mode accepts only the documented registered JWT subset described above, which
+  includes the built-in test signer only with `GCS_MIMIC_TEST_SIGNER=enabled`.
 - The recipe relies on googleauth signing its own token outside
   `googleapis.com`. Checked with googleauth 1.17.6 and 1.17.7; pin your
   versions and recheck after upgrades.

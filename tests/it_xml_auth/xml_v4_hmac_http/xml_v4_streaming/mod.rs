@@ -22,7 +22,7 @@ fn base64(bytes: &[u8]) -> String {
     output
 }
 
-fn chain(key: &Key, signed: &Signed, chunks: &[&[u8]]) -> Vec<u8> {
+pub(super) fn chain(key: &Key, signed: &Signed, chunks: &[&[u8]]) -> Vec<u8> {
     let date = signed
         .headers
         .lines()
@@ -65,7 +65,7 @@ fn chain(key: &Key, signed: &Signed, chunks: &[&[u8]]) -> Vec<u8> {
     body
 }
 
-fn headers(key: &Key, path: &str, decoded: u64, encoding: Option<&str>) -> Signed {
+pub(super) fn headers(key: &Key, path: &str, decoded: u64, encoding: Option<&str>) -> Signed {
     let length = decoded.to_string();
     let mut extras = vec![
         ("x-amz-content-sha256", MARKER),
@@ -77,7 +77,7 @@ fn headers(key: &Key, path: &str, decoded: u64, encoding: Option<&str>) -> Signe
     sign(key, "PUT", path, true, true, &extras, SystemTime::now())
 }
 
-fn send(
+pub(super) fn send(
     server: &Server,
     signed: &Signed,
     body: &[u8],

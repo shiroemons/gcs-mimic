@@ -267,6 +267,9 @@ JSON APIは固定のCORSルールを使います。CORSを許可しても読み�
 fake-gcs-serverのように、ルールのないバケットのXML・公開URLをどのオリジンからでも読めるようにするには、
 `GCS_MIMIC_CORS_FALLBACK=allow-all`を追加します（[CORSフォールバックの仕様](../en/slices/cors-fallback.md)、英語）。
 
+既定では、署名を検証せずに署名付きURLを受け付けます。permissiveのまま、変更・期限切れ・未知の鍵の署名付きリクエストを拒否するには、
+`GCS_MIMIC_SIGNED_URLS=verify`を追加します（[permissiveでの署名検証](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)、英語）。
+
 ## 初期バケット設定ファイルを使う
 
 ソースから実行する場合、同梱の`config/buckets.json`を読み取り専用で渡せます。

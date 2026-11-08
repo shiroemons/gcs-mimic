@@ -1,5 +1,5 @@
 use gcs_mimic::{
-    auth::{Auth, Registry},
+    auth::Auth,
     clock::{Clock, SystemClock},
     config::Config,
     config_input::{Fix as UrlFix, MAX_CLI_ARGS, UrlStyle, option_pairs},
@@ -51,7 +51,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
-       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -109,7 +109,9 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
-  --identity-file PATH         none (strict-mode JSON identity registry, at most 16 MiB)
+  --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
+  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; permissive verify checks signed XML requests, then grants permissive access)
+  --test-signer MODE           enabled when permissive, disabled when strict (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -146,10 +148,12 @@ is changed.";
 
 const URL_SIGN_HELP: &str =
     "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT|DELETE
-       --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
+       --expires DURATION [--signer ID --private-key PATH] [--header NAME:VALUE]...
        [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
 
 Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
+Without --signer and --private-key it signs as the built-in test-signer@gcs-mimic.invalid,
+whose private key is published: such URLs authenticate nothing outside local tests.
 The base may come from --base-url URL or an explicit --config PATH containing public_base_url.
 Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
@@ -363,11 +367,9 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
     let mut auth = Auth::permissive();
-    if report.valid(&["auth_mode", "identity_file"])
-        && let Some(path) = &report.config.identity_file
-    {
-        match Registry::load(path) {
-            Ok(registry) => auth = Auth::strict(registry),
+    if report.valid(&["auth_mode", "identity_file", "test_signer", "signed_urls"]) {
+        match Auth::load(&report.config) {
+            Ok(loaded) => auth = loaded,
             Err(error) => report.diagnostics.errors.push(Diagnostic::new(
                 DiagnosticSource::Identity,
                 "identity_file",
@@ -606,26 +608,49 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
         .transpose()
         .map_err(|error| error.to_string())?
         .unwrap_or_else(|| SystemClock.now());
-    let key =
-        gcs_mimic::bounded_file::read(std::path::Path::new(required("--private-key")?), 16_384)
-            .map_err(|error| match error {
-                gcs_mimic::bounded_file::ReadError::Limit => {
-                    "Private key exceeds 16 KiB; provide a bounded RSA PEM file."
-                }
-                gcs_mimic::bounded_file::ReadError::Io(_) => {
-                    "Cannot read private key; provide a readable local RSA PEM file."
-                }
-            })?;
+    let (signer, key) = signing_credentials(&options)?;
     gcs_mimic::auth::signature::sign_url(gcs_mimic::auth::signature::SignUrlRequest {
         url: &url,
         method: &method,
-        signer: required("--signer")?,
+        signer,
         private_key: &key,
         expires,
         now,
         headers,
     })
     .map_err(|error| error.to_string().into())
+}
+
+/// The explicit signer and its key file, or the built-in test signer when neither is given. A
+/// signer without its key, or a key without its signer, would sign as someone unintended.
+fn signing_credentials<'a>(
+    options: &BTreeMap<&str, &'a str>,
+) -> Result<(&'a str, std::borrow::Cow<'static, [u8]>), UrlFix> {
+    use gcs_mimic::auth::test_signer;
+    match (options.get("--signer"), options.get("--private-key")) {
+        (None, None) => Ok((
+            test_signer::ID,
+            std::borrow::Cow::Borrowed(test_signer::PRIVATE_KEY_PEM),
+        )),
+        (Some(signer), Some(path)) => {
+            let key = gcs_mimic::bounded_file::read(Path::new(path), 16_384).map_err(|error| {
+                match error {
+                    gcs_mimic::bounded_file::ReadError::Limit => {
+                        "Private key exceeds 16 KiB; provide a bounded RSA PEM file."
+                    }
+                    gcs_mimic::bounded_file::ReadError::Io(_) => {
+                        "Cannot read private key; provide a readable local RSA PEM file."
+                    }
+                }
+            })?;
+            Ok((signer, std::borrow::Cow::Owned(key)))
+        }
+        (Some(_), None) | (None, Some(_)) => Err(format!(
+            "--signer and --private-key must be given together; omit both to sign as the built-in test signer {}\n{URL_SIGN_HELP}",
+            test_signer::ID
+        )
+        .into()),
+    }
 }
 
 fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
@@ -921,6 +946,54 @@ mod tests {
     }
 
     #[test]
+    fn signing_defaults_to_the_built_in_test_signer_only_without_both_credentials() {
+        let base = [
+            "--base-url",
+            "http://localhost:4443",
+            "--bucket",
+            "example-bucket",
+            "--object",
+            "body",
+            "--method",
+            "GET",
+            "--expires",
+            "60",
+            "--timestamp",
+            "20261023T120000Z",
+        ]
+        .map(str::to_owned);
+        let url = url_sign(&base, None).unwrap();
+        assert!(
+            url.contains("X-Goog-Credential=test-signer%40gcs-mimic.invalid%2F20261023%2F"),
+            "{url}"
+        );
+        let mut explicit = base.to_vec();
+        explicit.extend(
+            [
+                "--signer",
+                "test-signer@gcs-mimic.invalid",
+                "--private-key",
+                "fixtures/signing/test-only-private.pem",
+            ]
+            .map(str::to_owned),
+        );
+        // RSA PKCS#1 v1.5 is deterministic, so the same key and input give the same URL.
+        assert_eq!(url_sign(&explicit, None).unwrap(), url);
+        for extra in [
+            ["--signer", "test-signer@gcs-mimic.invalid"],
+            ["--private-key", "fixtures/signing/test-only-private.pem"],
+        ] {
+            let mut args = base.to_vec();
+            args.extend(extra.map(str::to_owned));
+            let error = url_sign(&args, None).unwrap_err().0;
+            assert!(
+                error.starts_with("--signer and --private-key must be given together"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
     fn help_output_keeps_its_exact_bytes() {
         let digest = ring::digest::digest(&ring::digest::SHA256, format!("{HELP}\n").as_bytes());
         let digest = digest
@@ -930,7 +1003,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "7d13aa733dc2945d2c56a98d857885687cd31cd6a50c91eace30cf165bfaa3d3"
+            "8074968fe820071349f455100bece40106c43b2204a2651addaafc6672f1fe09"
         );
     }
 

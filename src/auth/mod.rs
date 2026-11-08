@@ -1,6 +1,7 @@
 //! Transport-independent authentication profiles, local principals and project-role checks.
 //!
-//! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
+//! `permissive` ignores credentials and performs no permission checks; with `signed_urls=verify`
+//! it first verifies signed XML requests as strict mode does. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
 //! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
 //! Selected object generations also evaluate ACL read grants in catalog transactions.
@@ -22,6 +23,9 @@ pub(crate) fn valid_project_id(project: &str) -> bool {
 }
 pub(crate) mod roles;
 pub mod signature;
+mod signing_keys;
+use signing_keys::SigningKeys;
+pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
@@ -201,6 +205,85 @@ crate::config::string_enum! {
         Strict => "strict",
     }
     "auth_mode must be permissive or strict"
+}
+
+crate::config::string_enum! {
+    no_default
+    /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
+    /// the default depends on the profile; see [`TestSigner::resolve`].
+    pub enum TestSigner {
+        Enabled => "enabled",
+        Disabled => "disabled",
+    }
+    "test_signer must be enabled or disabled"
+}
+
+impl TestSigner {
+    /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
+    /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
+    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there.
+    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
+        configured.unwrap_or(match mode {
+            AuthMode::Permissive => Self::Enabled,
+            AuthMode::Strict => Self::Disabled,
+        })
+    }
+}
+
+crate::config::string_enum! {
+    no_default
+    /// How signed XML requests are treated. Strict mode always verifies them, because their
+    /// signer is the caller; permissive mode ignores their credentials unless asked to verify.
+    pub enum SignedUrls {
+        Ignore => "ignore",
+        Verify => "verify",
+    }
+    "signed_urls must be ignore or verify"
+}
+
+impl SignedUrls {
+    /// An explicit setting wins; otherwise strict mode verifies and permissive mode ignores.
+    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
+        configured.unwrap_or(match mode {
+            AuthMode::Permissive => Self::Ignore,
+            AuthMode::Strict => Self::Verify,
+        })
+    }
+}
+
+/// What an identity file supplies, which depends on the profile that loads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IdentityUse {
+    /// Strict mode: principals with tokens, grants, ACL aliases and signing keys.
+    Principals,
+    /// Permissive mode with `signed_urls=verify`: signing keys only, because nothing is
+    /// authorized by identity there.
+    SigningKeys,
+}
+
+impl IdentityUse {
+    /// A declared field this use would otherwise accept and ignore.
+    fn rejected_field(self, entry: &serde_json::Map<String, Value>) -> Option<&'static str> {
+        match self {
+            Self::Principals => None,
+            Self::SigningKeys => ["project_roles", "acl_entity"]
+                .into_iter()
+                .find(|field| entry.contains_key(*field))
+                .or_else(|| {
+                    entry
+                        .get("tokens")
+                        .and_then(Value::as_array)
+                        .is_some_and(|tokens| !tokens.is_empty())
+                        .then_some("tokens")
+                }),
+        }
+    }
+}
+
+fn strict_only(field: &str) -> String {
+    format!(
+        "{field} requires auth_mode=strict; with auth_mode=permissive and signed_urls=verify an identity file supplies only id and public_keys"
+    )
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
@@ -495,24 +578,61 @@ impl std::error::Error for RegistryError {
 #[derive(Debug)]
 pub struct Registry {
     identities: Vec<Identity>,
+    /// Identities the file declares; the ready event counts these, not the built-in signer.
+    declared: usize,
     /// Authentication resolves a signer per request, so it must not walk the identities.
     ids: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
-    signing_keys: HashMap<String, Arc<[signature::PublicKey]>>,
+    signing_keys: SigningKeys,
     public_access_prevention_projects: Vec<String>,
+}
+
+fn read_identity_file(path: &Path) -> Result<Vec<u8>, RegistryError> {
+    crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
+        crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
+        crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
+    })
 }
 
 impl Registry {
     pub fn load(path: &Path) -> Result<Self, RegistryError> {
-        let bytes =
-            crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
-                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
-                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
-            })?;
-        Self::parse(&bytes)
+        Self::parse(&read_identity_file(path)?)
+    }
+
+    /// Strict mode's principals, with the built-in test signer when it is enabled.
+    fn load_principals(path: &Path, signer: TestSigner) -> Result<Self, RegistryError> {
+        let mut registry = Self::load(path)?;
+        match signer {
+            TestSigner::Enabled => registry.add_test_signer()?,
+            TestSigner::Disabled => {}
+        }
+        Ok(registry)
+    }
+
+    /// The keys permissive verification accepts: an optional identity file's and the built-in
+    /// test signer's when it is enabled.
+    fn load_signing_keys(
+        path: Option<&Path>,
+        signer: TestSigner,
+    ) -> Result<SigningKeys, RegistryError> {
+        let mut keys = match path {
+            Some(path) => {
+                Self::parse_for(&read_identity_file(path)?, IdentityUse::SigningKeys)?.signing_keys
+            }
+            None => SigningKeys::default(),
+        };
+        match signer {
+            TestSigner::Enabled => keys.add(test_signer::ID, test_signer::public_key()),
+            TestSigner::Disabled => {}
+        }
+        Ok(keys)
     }
 
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
+        Self::parse_for(bytes, IdentityUse::Principals)
+    }
+
+    fn parse_for(bytes: &[u8], usage: IdentityUse) -> Result<Self, RegistryError> {
         let error = |reason: String| RegistryError::Invalid {
             entry: None,
             reason,
@@ -529,8 +649,11 @@ impl Registry {
         }) {
             return Err(error(format!("unknown field: {key}")));
         }
-        let public_access_prevention_projects =
-            parse_pap_projects(top.get("public_access_prevention_projects"))?;
+        let pap_projects = top.get("public_access_prevention_projects");
+        if usage == IdentityUse::SigningKeys && pap_projects.is_some() {
+            return Err(error(strict_only("public_access_prevention_projects")));
+        }
+        let public_access_prevention_projects = parse_pap_projects(pap_projects)?;
         let entries = top
             .get("identities")
             .ok_or_else(|| error("missing required field: identities".into()))?
@@ -539,92 +662,150 @@ impl Registry {
         if entries.is_empty() {
             return Err(error("identities must contain at least one entry".into()));
         }
-        let mut identities = Vec::with_capacity(entries.len());
-        let mut ids = HashMap::with_capacity(entries.len());
-        let mut tokens = HashMap::new();
-        let mut signing_keys = HashMap::new();
-        for (index, entry) in entries.iter().enumerate() {
-            let error = |reason: String| RegistryError::Invalid {
-                entry: Some(index),
-                reason,
-            };
-            let entry = entry
-                .as_object()
-                .ok_or_else(|| error("must be a JSON object".into()))?;
-            if let Some(key) = entry.keys().find(|key| {
-                !matches!(
-                    key.as_str(),
-                    "id" | "tokens" | "project_roles" | "public_keys" | "acl_entity"
-                )
-            }) {
-                return Err(error(format!("unknown field: {key}")));
-            }
-            let id = entry
-                .get("id")
-                .ok_or_else(|| error("missing required field: id".into()))?
-                .as_str()
-                .ok_or_else(|| error("id must be a string".into()))?;
-            if !valid_principal_id(id) {
-                return Err(error(format!(
-                    "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
-                )));
-            }
-            if id.starts_with(crate::object::owner::RESERVED_ID_PREFIX) {
-                return Err(error(format!(
-                    "id must not start with {}; that namespace is reserved for emulator-internal principals",
-                    crate::object::owner::RESERVED_ID_PREFIX
-                )));
-            }
-            if ids.insert(id.to_owned(), index).is_some() {
-                return Err(error(format!("duplicate id: {id}")));
-            }
-            if let Some(keys) = entry.get("public_keys") {
-                signing_keys.insert(id.to_owned(), parse_public_keys(keys, index)?.into());
-            }
-            let token_values = entry
-                .get("tokens")
-                .ok_or_else(|| error("missing required field: tokens".into()))?
-                .as_array()
-                .ok_or_else(|| error("tokens must be an array".into()))?;
-            for token in token_values {
-                let token = token
-                    .as_str()
-                    .filter(|token| visible_ascii(token, MAX_TOKEN_BYTES))
-                    .ok_or_else(|| {
-                        error(format!(
-                            "each token must be 1..={MAX_TOKEN_BYTES} bytes of visible ASCII"
-                        ))
-                    })?;
-                // Never echo token values into startup errors or logs.
-                if jwt_shaped(token) {
-                    return Err(error(
-                        "tokens must not be JWT-shaped (three dot-separated segments)".into(),
-                    ));
-                }
-                if tokens.insert(token.to_owned(), index).is_some() {
-                    return Err(error("duplicate token".into()));
-                }
-            }
-            let permissions = match entry.get("project_roles") {
-                Some(projects) => parse_project_roles(projects, index)?,
-                None => BTreeMap::new(),
-            };
-            identities.push(Identity {
-                id: id.to_owned(),
-                acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
-                projects: permissions.into(),
-            });
-        }
-        acl_identity::validate_aliases(&identities)?;
-        Ok(Self {
-            identities,
-            ids,
-            tokens,
-            signing_keys,
+        let mut registry = Self {
+            identities: Vec::with_capacity(entries.len()),
+            declared: entries.len(),
+            ids: HashMap::with_capacity(entries.len()),
+            tokens: HashMap::new(),
+            signing_keys: SigningKeys::default(),
             public_access_prevention_projects,
-        })
+        };
+        for (index, entry) in entries.iter().enumerate() {
+            registry.add_entry(entry, index, usage)?;
+        }
+        acl_identity::validate_aliases(&registry.identities)?;
+        Ok(registry)
     }
 
+    /// Adds one `identities` entry after checking it against the fields `usage` accepts.
+    fn add_entry(
+        &mut self,
+        entry: &Value,
+        index: usize,
+        usage: IdentityUse,
+    ) -> Result<(), RegistryError> {
+        let error = |reason: String| RegistryError::Invalid {
+            entry: Some(index),
+            reason,
+        };
+        let entry = entry
+            .as_object()
+            .ok_or_else(|| error("must be a JSON object".into()))?;
+        if let Some(key) = entry.keys().find(|key| {
+            !matches!(
+                key.as_str(),
+                "id" | "tokens" | "project_roles" | "public_keys" | "acl_entity"
+            )
+        }) {
+            return Err(error(format!("unknown field: {key}")));
+        }
+        if let Some(field) = usage.rejected_field(entry) {
+            return Err(error(strict_only(field)));
+        }
+        let id = entry
+            .get("id")
+            .ok_or_else(|| error("missing required field: id".into()))?
+            .as_str()
+            .ok_or_else(|| error("id must be a string".into()))?;
+        if !valid_principal_id(id) {
+            return Err(error(format!(
+                "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
+            )));
+        }
+        if id.starts_with(crate::object::owner::RESERVED_ID_PREFIX) {
+            return Err(error(format!(
+                "id must not start with {}; that namespace is reserved for emulator-internal principals",
+                crate::object::owner::RESERVED_ID_PREFIX
+            )));
+        }
+        if self.ids.insert(id.to_owned(), index).is_some() {
+            return Err(error(format!("duplicate id: {id}")));
+        }
+        match (entry.get("public_keys"), usage) {
+            (Some(keys), _) => self
+                .signing_keys
+                .insert(id, parse_public_keys(keys, index)?),
+            (None, IdentityUse::SigningKeys) => {
+                return Err(error(
+                    "missing required field: public_keys; with auth_mode=permissive an identity file supplies only signing keys".into(),
+                ));
+            }
+            (None, IdentityUse::Principals) => {}
+        }
+        let tokens: &[Value] = match (entry.get("tokens"), usage) {
+            (Some(tokens), _) => tokens
+                .as_array()
+                .ok_or_else(|| error("tokens must be an array".into()))?,
+            (None, IdentityUse::SigningKeys) => &[],
+            (None, IdentityUse::Principals) => {
+                return Err(error("missing required field: tokens".into()));
+            }
+        };
+        self.add_tokens(tokens, index)?;
+        let permissions = match entry.get("project_roles") {
+            Some(projects) => parse_project_roles(projects, index)?,
+            None => BTreeMap::new(),
+        };
+        self.identities.push(Identity {
+            id: id.to_owned(),
+            acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
+            projects: permissions.into(),
+        });
+        Ok(())
+    }
+
+    fn add_tokens(&mut self, tokens: &[Value], index: usize) -> Result<(), RegistryError> {
+        let error = |reason: String| RegistryError::Invalid {
+            entry: Some(index),
+            reason,
+        };
+        for token in tokens {
+            let token = token
+                .as_str()
+                .filter(|token| visible_ascii(token, MAX_TOKEN_BYTES))
+                .ok_or_else(|| {
+                    error(format!(
+                        "each token must be 1..={MAX_TOKEN_BYTES} bytes of visible ASCII"
+                    ))
+                })?;
+            // Never echo token values into startup errors or logs.
+            if jwt_shaped(token) {
+                return Err(error(
+                    "tokens must not be JWT-shaped (three dot-separated segments)".into(),
+                ));
+            }
+            if self.tokens.insert(token.to_owned(), index).is_some() {
+                return Err(error("duplicate token".into()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds the built-in test signer's public key. An entry the file declares with its ID keeps
+    /// its tokens, project roles and ACL entity; otherwise the signer exists without project
+    /// roles, so only bucket or object grants authorize it.
+    fn add_test_signer(&mut self) -> Result<(), RegistryError> {
+        let id = test_signer::ID;
+        if !self.ids.contains_key(id) {
+            self.ids.insert(id.to_owned(), self.identities.len());
+            self.identities.push(Identity {
+                id: id.to_owned(),
+                acl_entity: None,
+                projects: Arc::default(),
+            });
+            // The file's own aliases were already validated, so a collision involves this signer.
+            acl_identity::validate_aliases(&self.identities).map_err(|_| RegistryError::Invalid {
+                entry: None,
+                reason: format!(
+                    "another identity's id or acl_entity names the built-in test signer {id}; declare {id} itself or set test_signer=disabled"
+                ),
+            })?;
+        }
+        self.signing_keys.add(id, test_signer::public_key());
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.identities.len()
     }
@@ -752,10 +933,23 @@ pub(crate) fn valid_principal_id(value: &str) -> bool {
     visible_ascii(value, MAX_ID_BYTES)
 }
 
+/// The active profile and how it treats signed XML requests.
+#[derive(Debug, Default)]
+enum Profile {
+    /// No permission checks, and XML signing credentials are ignored.
+    #[default]
+    Permissive,
+    /// No permission checks, but a signed XML request must verify first (`signed_urls=verify`).
+    /// A verified signature grants nothing an unsigned request lacks.
+    VerifyingPermissive(SigningKeys),
+    /// Registered principals and their grants authorize every request.
+    Strict(Registry),
+}
+
 /// The active authentication profile. The default is permissive.
 #[derive(Debug, Default)]
 pub struct Auth {
-    registry: Option<Registry>,
+    profile: Profile,
     verifiers: signature::Verifiers,
     /// Whether V4 verification also accepts a canonical host without the request's port.
     signed_host_port: signature::SignedHostPort,
@@ -770,11 +964,70 @@ impl Auth {
     }
 
     pub fn strict(registry: Registry) -> Self {
+        Self::with_profile(Profile::Strict(registry))
+    }
+
+    fn with_profile(profile: Profile) -> Self {
         Self {
-            registry: Some(registry),
-            verifiers: Default::default(),
-            signed_host_port: Default::default(),
-            local_creator_entity: None,
+            profile,
+            ..Self::default()
+        }
+    }
+
+    /// The profile a validated configuration selects, with its identity file read once and the
+    /// built-in test signer added when the configuration enables it.
+    pub fn load(config: &crate::config::Config) -> Result<Self, RegistryError> {
+        let invalid = |reason: &str| RegistryError::Invalid {
+            entry: None,
+            reason: reason.into(),
+        };
+        let signer = config.effective_test_signer();
+        let path = config.identity_file.as_deref();
+        let profile = match (config.auth_mode, config.effective_signed_urls(), path) {
+            (AuthMode::Strict, SignedUrls::Verify, Some(path)) => {
+                Profile::Strict(Registry::load_principals(path, signer)?)
+            }
+            (AuthMode::Strict, SignedUrls::Verify, None) => {
+                return Err(invalid("auth_mode=strict requires identity_file"));
+            }
+            (AuthMode::Strict, SignedUrls::Ignore, _) => {
+                return Err(invalid("signed_urls=ignore requires auth_mode=permissive"));
+            }
+            (AuthMode::Permissive, SignedUrls::Verify, path) => {
+                Profile::VerifyingPermissive(Registry::load_signing_keys(path, signer)?)
+            }
+            (AuthMode::Permissive, SignedUrls::Ignore, Some(_)) => {
+                return Err(invalid(
+                    "identity_file requires auth_mode=strict or signed_urls=verify",
+                ));
+            }
+            (AuthMode::Permissive, SignedUrls::Ignore, None) => Profile::Permissive,
+        };
+        Ok(Self::with_profile(profile))
+    }
+
+    /// Permissive verification with an identity file's keys and the built-in test signer.
+    #[cfg(test)]
+    pub(crate) fn verifying_permissive(identity_file: &[u8]) -> Self {
+        let mut keys = Registry::parse_for(identity_file, IdentityUse::SigningKeys)
+            .unwrap()
+            .signing_keys;
+        keys.add(test_signer::ID, test_signer::public_key());
+        Self::with_profile(Profile::VerifyingPermissive(keys))
+    }
+
+    fn registry(&self) -> Option<&Registry> {
+        match &self.profile {
+            Profile::Strict(registry) => Some(registry),
+            Profile::Permissive | Profile::VerifyingPermissive(_) => None,
+        }
+    }
+
+    /// Whether signed XML requests verify before they proceed.
+    pub fn signed_urls(&self) -> SignedUrls {
+        match self.profile {
+            Profile::Permissive => SignedUrls::Ignore,
+            Profile::VerifyingPermissive(_) | Profile::Strict(_) => SignedUrls::Verify,
         }
     }
 
@@ -804,27 +1057,25 @@ impl Auth {
     }
 
     pub fn mode(&self) -> AuthMode {
-        if self.registry.is_some() {
-            AuthMode::Strict
-        } else {
-            AuthMode::Permissive
+        match self.profile {
+            Profile::Permissive | Profile::VerifyingPermissive(_) => AuthMode::Permissive,
+            Profile::Strict(_) => AuthMode::Strict,
         }
     }
 
+    /// The identities the identity file declares; the built-in test signer is not counted.
     pub fn identity_count(&self) -> Option<usize> {
-        self.registry.as_ref().map(Registry::len)
+        self.registry().map(|registry| registry.declared)
     }
 
     pub fn principals(&self) -> Option<&[Identity]> {
-        self.registry
-            .as_ref()
+        self.registry()
             .map(|registry| registry.identities.as_slice())
     }
 
     /// Local simulation of the effective parent organization policy, loaded before readiness.
     pub fn public_access_prevention_projects(&self) -> &[String] {
-        self.registry
-            .as_ref()
+        self.registry()
             .map_or(&[], |registry| &registry.public_access_prevention_projects)
     }
 
@@ -853,7 +1104,7 @@ impl Auth {
         query: Option<&str>,
         clock: &dyn crate::clock::Clock,
     ) -> Result<Option<Caller<'_>>, AuthError> {
-        let Some(registry) = &self.registry else {
+        let Some(registry) = self.registry() else {
             return Ok(None);
         };
         let identity = match Self::presented(registry, headers, query, clock)? {

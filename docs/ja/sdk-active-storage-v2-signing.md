@@ -14,7 +14,7 @@ GOOG1/AWSヘッダー、HEAD、virtual-hostのオブジェクトリソースを�
 | --- | --- | --- |
 | V2-DETECT | PASS | GoogleAccessId・Expires・Signatureの欠落・重複、V4との混在をXML 400で拒否 |
 | V2-EXPIRY | PASS | Unix秒を検証し、strictでは注入クロックで期限を判定、期限切れはXML 400 ExpiredToken |
-| V2-PERMISSIVE | PASS | V4と同様に署名・期限を検証せず、V2の構造とExpiresの数値形式は検証 |
+| V2-PERMISSIVE | PASS | V4と同様に署名・期限を検証せず、V2の構造とExpiresの数値形式は検証。これは既定の`signed_urls=ignore`の動作で、`signed_urls=verify`ではstrictと同じく検証する |
 | V2-STRICT | PASS | 登録済みRSA鍵でSHA256署名を検証、V4と同じ署名者・権限判定 |
 | V2-GET | PASS | Go・Rubyの変更していないpath-style署名GET、パス・メソッド・ヘッダー改ざんの拒否 |
 | V2-PUT | PASS | 署名付きPUT、Content-Type・Content-MD5の一致、既存のストリーミングPUTによる本文MD5検証 |
