@@ -5,10 +5,12 @@
 Verified on **2026-11-08** for DESIGN-101 and the
 [trusted listener section](../container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
 with Rust 1.99.1 on macOS arm64, including the Host rule and response headers
-that keep DNS rebinding pages and cross-origin embeds out. No container,
-Compose, SDK, browser or real-cloud run was performed: the documented Compose
-example and an unmodified Go storage client against the trusted listener remain
-unverified, which keeps the row PARTIAL. gRPC has no trusted listener.
+that keep DNS rebinding pages and cross-origin embeds out. The container smoke
+test also ran the [strict local recipe](../../../examples/strict-local/README.md)
+with the image built from the checkout; see [Container recipe](#container-recipe).
+No SDK, browser or real-cloud run was performed: an unmodified Go storage client
+against the trusted listener and a browser remain unverified, which keeps the row
+PARTIAL. gRPC has no trusted listener.
 
 ## Commands
 
@@ -117,3 +119,44 @@ nosniff` additionally stop a page on another origin from using a response as an
 opaque embed. None of this stops a program that is not a browser: anything that
 reaches the port with an accepted Host, such as its IP address, acts as
 `trusted_principal`, so keeping the port unpublished remains the protection.
+
+## Container recipe
+
+Run on **2026-11-08** on macOS arm64 with Docker Engine 29.9.2 and Docker
+Compose 5.6.1. The script built the image from the checkout for linux/arm64;
+linux/amd64 was not run.
+
+```sh
+bash scripts/smoke-containers.sh linux/arm64
+```
+
+| Scenario | Result |
+| --- | --- |
+| The five earlier scenarios of the script | PASS |
+| `PASS: linux/arm64 strict local recipe: ready with test signer and trusted listener, credential-free trusted reads and writes, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, bucket file reconcile` | PASS |
+
+The scenario starts `examples/strict-local/compose.yaml`, which
+`scripts/check-docs.sh` keeps identical to the block its README shows, with a
+fresh project and a free published port, and checks:
+
+| Step | Behavior |
+| --- | --- |
+| Ready | The test signer warning before readiness; ready reports strict mode, the enabled test signer, `signed_urls` `verify`, `signed_host_port` `lenient`, one entry in `listeners`, `trusted_listen` `0.0.0.0:4444`, `trusted_principal` `app@example.invalid` and two created buckets; only port 4443 is published |
+| Trusted listener | From the pinned curl image on the Compose network, Host `gcs:4444` and no credentials: the bucket list holds both buckets, `app-public` grants `allUsers` `roles/storage.objectViewer` and `app-private` grants `allUsers` nothing; uploads to both buckets succeed and the private object reads back |
+| Main listener | From the host without credentials: the private object answers 401 through JSON and XML; the public object answers 200 through both, and with `Origin: http://localhost:3000` carries that `Access-Control-Allow-Origin` |
+| Signed URLs | `gcs-mimic url sign` inside the container with the built-in signer: a URL for `http://localhost` without the port, as Go storage signs, reads the private object at `localhost:PORT` and logs `signature_host_port_omitted`; a URL for `http://localhost:PORT` reads it; a changed `X-Goog-Expires` gets 403 `SignatureDoesNotMatch`; a signed PUT passes its preflight for `content-type`, answers 200 with `Access-Control-Allow-Origin` and stores the bytes |
+| Trusted refusals | From the peer, `Origin: http://evil.example` gets 403 and `Host: evil.example:4444` gets 421 |
+| Credentials | `docker compose run --rm gcs test-signer credentials` prints JSON whose `client_email` is `test-signer@gcs-mimic.invalid` and whose `private_key` starts with `-----BEGIN PRIVATE KEY-----` |
+| Reconcile | `up --force-recreate` with `FRONTEND_PORT=3001` reports two reconciled buckets; the public object then allows `http://localhost:3001` and no longer `http://localhost:3000` |
+
+All requests are sent with curl, so no browser enforces CORS or meets the
+browser checks, and no Go client runs. While writing the recipe, these were
+observed once by hand with the same Compose version and are not part of the
+script: Compose refuses inline configs in a service with `read_only: true`
+(`cannot create config ... in read-only service gcs`); a plain `up -d` after
+changing `FRONTEND_PORT` kept the running container, and `restart` kept the old
+config content, so only a recreated container reconciled; an application
+compose.yaml that lists the recipe under `include:` started it and reached
+`gcs:4444` from another service; and the 0.13.0 image stops at startup with
+`Unknown setting` for the test signer, signed host port and trusted listener
+settings.
