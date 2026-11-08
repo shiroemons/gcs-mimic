@@ -7,7 +7,7 @@ use super::{
 };
 use crate::auth::{
     Auth, AuthMode, BuiltIn, SignedUrls, TRUSTED_APP_ID, TestSigner, TestSignerChoice,
-    TrustedPrincipalError, signature::SignedHostPort, test_signer,
+    signature::SignedHostPort, test_signer,
 };
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -25,8 +25,8 @@ pub struct Verification {
 pub enum TrustedCaller {
     /// No trusted listener, so every such request is anonymous.
     Anonymous,
-    /// The registered identity that `trusted_principal` names; the principal checks after
-    /// loading confirm that it is registered.
+    /// The registered identity that `trusted_principal` names. Loading resolves it where it
+    /// resolves the built-in one, and configuration reports a name it did not find.
     Named(String),
     /// The built-in application identity, when `trusted_listen` names no principal.
     BuiltIn,
@@ -314,9 +314,9 @@ impl ConfigurationReport {
         // The setting that supplied the identity document, which messages name.
         let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
         match Auth::load(&profile, &implicit_projects) {
-            Ok(mut auth) => {
+            Ok(auth) => {
                 self.warn_strict_test_signer(&auth, registry, &implicit_projects);
-                self.resolve_principals(&mut auth, registry);
+                self.check_principals(&auth, registry);
                 auth
             }
             Err(error) => {
@@ -387,9 +387,9 @@ impl ConfigurationReport {
     }
 
     /// Checks the principals that settings name against the loaded registry, whose document
-    /// `registry` supplied, and makes requests without credentials on the trusted listener act as
-    /// `trusted_principal`.
-    fn resolve_principals(&mut self, auth: &mut Auth, registry: Option<Setting>) {
+    /// `registry` supplied. Loading resolved `trusted_principal` together with the built-in
+    /// application identity, and left a name it did not find unresolved.
+    fn check_principals(&mut self, auth: &Auth, registry: Option<Setting>) {
         let unknown = match registry {
             Some(registry) => format!(
                 "is not an id in {}; use one of its identities",
@@ -410,21 +410,19 @@ impl ConfigurationReport {
                 format!("admin_principal {principal:?} {unknown}."),
             ));
         }
+        // Only strict mode loads a trusted principal; elsewhere validation rejected the setting.
         if self.valid(&[Setting::TrustedPrincipal.as_str()])
             && let Some(principal) = self.config.trusted_principal.as_deref()
+            && auth.principals().is_some()
+            && auth.trusted_principal() != Some(principal)
         {
-            match auth.trust_principal(principal) {
-                Ok(()) => {}
-                // Startup already fails then: the setting was rejected for permissive mode.
-                Err(TrustedPrincipalError::RequiresStrict) => {}
-                Err(TrustedPrincipalError::Unknown) => self.diagnostics.errors.push(Diagnostic::new(
-                    DiagnosticSource::Identity,
-                    Setting::TrustedPrincipal.as_str(),
-                    format!(
-                        "trusted_principal {principal:?} {unknown}, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
-                    ),
-                )),
-            }
+            self.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Identity,
+                Setting::TrustedPrincipal.as_str(),
+                format!(
+                    "trusted_principal {principal:?} {unknown}, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
+                ),
+            ));
         }
     }
 

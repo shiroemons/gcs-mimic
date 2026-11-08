@@ -535,26 +535,6 @@ pub(crate) enum ListenerRole {
     Trusted,
 }
 
-/// Why `trusted_principal` cannot name the identity it was given.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TrustedPrincipalError {
-    /// Only strict mode has registered identities to act as.
-    RequiresStrict,
-    /// No identity has that id: neither the identity file nor the built-in test signer.
-    Unknown,
-}
-
-impl fmt::Display for TrustedPrincipalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::RequiresStrict => "trusted_principal requires auth_mode=strict",
-            Self::Unknown => "trusted_principal is not a registered identity",
-        })
-    }
-}
-
-impl std::error::Error for TrustedPrincipalError {}
-
 /// The resolved strict-mode caller.
 #[derive(Clone, Copy, Debug)]
 pub enum Caller<'a> {
@@ -772,12 +752,7 @@ impl Registry {
                 TestSigner::Enabled => registry.add_test_signer(projects)?,
                 TestSigner::Disabled => {}
             }
-            // A named principal must be registered, which the principal checks after loading
-            // report against the settings; only the built-in one is added here.
-            match trusted {
-                TrustedCaller::BuiltIn => registry.trust_built_in_app(projects)?,
-                TrustedCaller::Anonymous | TrustedCaller::Named(_) => {}
-            }
+            registry.trust(trusted, projects)?;
             Ok((registry, signer))
         };
         load().map_err(|error| IdentityError::new(source, error))
@@ -1299,19 +1274,13 @@ impl Auth {
         self.local_creator_entity.as_deref()
     }
 
-    /// Makes requests without credentials on the trusted listener act as the registered identity
-    /// `id`, which may be the built-in test signer when it is enabled.
-    pub fn trust_principal(&mut self, id: &str) -> Result<(), TrustedPrincipalError> {
+    /// Points the trusted listener at `caller`, as loading a strict profile does.
+    #[cfg(test)]
+    pub(crate) fn trust(&mut self, caller: &TrustedCaller) {
         let Profile::Strict(registry) = &mut self.profile else {
-            return Err(TrustedPrincipalError::RequiresStrict);
+            panic!("only strict mode has a trusted listener");
         };
-        let index = registry
-            .ids
-            .get(id)
-            .copied()
-            .ok_or(TrustedPrincipalError::Unknown)?;
-        registry.trusted = Some(index);
-        Ok(())
+        registry.trust(caller, &BTreeSet::new()).unwrap();
     }
 
     pub fn mode(&self) -> AuthMode {
@@ -2253,11 +2222,14 @@ mod tests {
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(None)
         );
+        // An unknown name stays unresolved, so requests stay anonymous; configuration reports it.
+        auth.trust(&TrustedCaller::Named("missing@example.invalid".into()));
+        assert_eq!(auth.trusted_principal(), None);
         assert_eq!(
-            auth.trust_principal("missing@example.invalid"),
-            Err(TrustedPrincipalError::Unknown)
+            id(auth.authenticate_on(trusted, &headers(&[]), None).await),
+            Ok(None)
         );
-        auth.trust_principal("app@example.invalid").unwrap();
+        auth.trust(&TrustedCaller::Named("app@example.invalid".into()));
         assert_eq!(
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(Some("app@example.invalid".into()))
@@ -2287,14 +2259,10 @@ mod tests {
                 "{values:?} {query:?}"
             );
         }
-        auth.trust_principal(test_signer::ID).unwrap();
+        auth.trust(&TrustedCaller::Named(test_signer::ID.into()));
         assert_eq!(
             id(auth.authenticate_on(trusted, &headers(&[]), None).await),
             Ok(Some(test_signer::ID.into()))
-        );
-        assert_eq!(
-            Auth::permissive().trust_principal("app@example.invalid"),
-            Err(TrustedPrincipalError::RequiresStrict)
         );
     }
 

@@ -7,6 +7,7 @@
 use super::{
     GrantSource, Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer,
 };
+use crate::config::TrustedCaller;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -106,13 +107,22 @@ impl Registry {
         Ok(index)
     }
 
-    /// Makes requests without credentials on the trusted listener act as the built-in
-    /// application identity, with `roles/storage.admin` in `projects` unless it is declared.
-    pub(super) fn trust_built_in_app(
+    /// Makes requests without credentials on the trusted listener act as `caller`: the identity
+    /// that `trusted_principal` names, or the built-in application identity, with
+    /// `roles/storage.admin` in `projects` unless it is declared. Both are resolved here, after
+    /// the built-in test signer exists, so a name may also be that signer. An unknown name stays
+    /// unresolved, which leaves such requests anonymous; configuration reports it against
+    /// `trusted_principal`, and startup fails.
+    pub(super) fn trust(
         &mut self,
+        caller: &TrustedCaller,
         projects: &BTreeSet<String>,
     ) -> Result<(), RegistryError> {
-        self.trusted = Some(self.add_built_in(BuiltIn::TrustedApp, projects)?);
+        self.trusted = match caller {
+            TrustedCaller::Anonymous => None,
+            TrustedCaller::Named(id) => self.ids.get(id).copied(),
+            TrustedCaller::BuiltIn => Some(self.add_built_in(BuiltIn::TrustedApp, projects)?),
+        };
         Ok(())
     }
 

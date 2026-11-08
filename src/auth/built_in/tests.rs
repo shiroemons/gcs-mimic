@@ -33,7 +33,10 @@ fn every_implicit_role_is_in_the_pinned_snapshot() {
 fn the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener() {
     let mut registry = registry(json!([admin()]));
     registry
-        .trust_built_in_app(&projects(&["local-project", "project-a"]))
+        .trust(
+            &TrustedCaller::BuiltIn,
+            &projects(&["local-project", "project-a"]),
+        )
         .unwrap();
     assert_eq!((registry.declared, registry.len()), (1, 2));
     assert!(!registry.declares(TRUSTED_APP_ID));
@@ -72,7 +75,10 @@ fn a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants() {
         "project_roles": {"local-project": ["roles/storage.objectViewer"]}
     }]));
     registry
-        .trust_built_in_app(&projects(&["local-project", "project-a"]))
+        .trust(
+            &TrustedCaller::BuiltIn,
+            &projects(&["local-project", "project-a"]),
+        )
         .unwrap();
     assert_eq!((registry.declared, registry.len()), (2, 2));
     assert!(registry.declares(TRUSTED_APP_ID));
@@ -98,7 +104,7 @@ fn only_a_declared_storage_admin_is_explicit() {
         "project_roles": {"declared-project": ["roles/storage.admin"]}
     }]));
     registry
-        .trust_built_in_app(&projects(&["local-project"]))
+        .trust(&TrustedCaller::BuiltIn, &projects(&["local-project"]))
         .unwrap();
     let app = registry.identity(TRUSTED_APP_ID).unwrap();
     assert!(app.has_explicit_storage_admin("declared-project"));
@@ -119,7 +125,7 @@ fn an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity() {
     ] {
         let mut registry = registry(json!([identity]));
         let error = registry
-            .trust_built_in_app(&projects(&["local-project"]))
+            .trust(&TrustedCaller::BuiltIn, &projects(&["local-project"]))
             .unwrap_err();
         assert!(matches!(error, RegistryError::Invalid { entry: None, .. }));
         assert!(error.to_string().contains("trusted_principal"), "{error}");
