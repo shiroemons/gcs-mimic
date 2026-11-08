@@ -97,10 +97,10 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Malformed,
-    /// The named V4 expiry parameter is present but not a whole number of seconds within
+    /// The V4 expiry parameter is present but not a whole number of seconds within
     /// `1..=MAX_EXPIRES`. Go storage turns a duration under one second into `0`, so the
     /// response names the range instead of a generic parameter error.
-    ExpiresOutOfRange(&'static str),
+    ExpiresOutOfRange(ExpiresParameter),
     UnknownSigner,
     Mismatch,
     /// A V4 signature does not match a request whose Host has an explicit port while
@@ -109,6 +109,22 @@ pub enum Failure {
     MismatchWithHostPort,
     Expired,
     NotYetValid,
+}
+
+/// The V4 query parameter that carries a signature's lifetime in seconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExpiresParameter {
+    Google,
+    Aws,
+}
+
+impl fmt::Display for ExpiresParameter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Google => "X-Goog-Expires",
+            Self::Aws => "X-Amz-Expires",
+        })
+    }
 }
 
 crate::config::string_enum! {

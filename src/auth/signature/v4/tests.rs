@@ -161,7 +161,7 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
         let bad = raw.replace("Expires=60", &format!("Expires={expires}"));
         assert!(matches!(
             prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now),
-            Err(Failure::ExpiresOutOfRange("X-Goog-Expires"))
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google))
         ));
     }
     assert!(matches!(
@@ -186,7 +186,7 @@ fn an_out_of_range_expiry_names_the_parameter_of_its_algorithm() {
     for expires in ["0", "604801", "-1", "abc"] {
         assert!(matches!(
             prepare(&Method::GET, &aws(expires), &headers, now),
-            Err(Failure::ExpiresOutOfRange("X-Amz-Expires"))
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Aws))
         ));
     }
     assert!(matches!(

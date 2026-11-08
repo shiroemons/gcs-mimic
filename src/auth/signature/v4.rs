@@ -34,11 +34,10 @@ impl Algorithm {
         }
     }
 
-    fn expires_parameter(self) -> &'static str {
-        if self == Self::AwsHmac {
-            "X-Amz-Expires"
-        } else {
-            "X-Goog-Expires"
+    fn expires_parameter(self) -> ExpiresParameter {
+        match self {
+            Self::AwsHmac => ExpiresParameter::Aws,
+            Self::Rsa | Self::GoogleHmac | Self::LegacyHmacSha1 => ExpiresParameter::Google,
         }
     }
 }

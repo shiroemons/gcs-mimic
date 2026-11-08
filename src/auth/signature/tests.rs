@@ -785,7 +785,7 @@ async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
         let changed = url.replace("X-Goog-Expires=60", &format!("X-Goog-Expires={expires}"));
         assert_eq!(
             verify(&changed, &Method::GET, HeaderMap::new(), now).await,
-            Err(Failure::ExpiresOutOfRange("X-Goog-Expires")),
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google)),
             "{changed}"
         );
     }
