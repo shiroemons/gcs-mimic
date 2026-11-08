@@ -69,7 +69,8 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 そのために`GCS_MIMIC_API_BASE_URL`を指定する必要はありません。
 公開URLや署名URLは、引き続き受け取るクライアントから到達できるアドレスで作ります。
 Go storageは署名するときに既定以外のポートを落とします。既定のpermissiveのサーバーは署名を検証しないため、`localhost:4443`向けのこうした署名URLもそのまま使えます。
-署名を検証するサーバー（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）では403 `SignatureDoesNotMatch`になるため、ワークツリーごとに別のポートを公開するなど既定のポートを使えない場合は`GCS_MIMIC_SIGNED_HOST_PORT=lenient`を設定します。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
+署名を検証するサーバー（strictモード、または`GCS_MIMIC_SIGNED_URLS=verify`）でも、組み込みのテスト署名者が有効なら`GCS_MIMIC_SIGNED_HOST_PORT`の既定値が`lenient`になるため、こうしたURLを受け付けます。
+それ以外では既定値が`exact`で、403 `SignatureDoesNotMatch`になります。ワークツリーごとに別のポートを公開するなど既定のポートを使えず、ほかの鍵で署名する場合は`lenient`を設定します。署名を検証しない構成で指定すると、効果がないため起動時にエラーになります（[署名URL](../en/signed-urls.md)、英語）。
 
 すべての呼び出し元に同じアドレスを返したいときは、`GCS_MIMIC_API_BASE_URL`で固定します。
 `Forwarded`と`X-Forwarded-*`は無視するので、Hostを書き換えるリバースプロキシでは指定が必要です。
@@ -90,16 +91,42 @@ macOSがlistenキューを`kern.ipc.somaxconn`（既定は128）で打ち切る�
 
 | 目的 | 構成 | 設定 |
 | --- | --- | --- |
-| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認しない | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
-| 署名URLはCloud Storageと同じく確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify`。Go storageが署名したURLには`GCS_MIMIC_SIGNED_HOST_PORT=lenient`も追加 |
-| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード | [strict localレシピ](../../examples/strict-local/README.md)（英語）をそのままコピー |
+| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
+| strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify` |
 
 まずは既定の構成で始めてください。
-署名URLや非公開バケットを本番に近い形で確認したくなったら、strict localレシピをそのまま貼り付けます。
-コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各部分の意味はレシピのREADMEで説明しています。
-permissiveの`verify`は、strictモードをまだ使えないときの途中段階としてだけ使ってください。
+本番に近い形で確認するには、strict localレシピのとおりに信頼済みリスナー付きのstrictモードを使います。
+コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各行の意味と、レシピが前提にしている既定値はレシピのREADMEで説明しています。
+Go API、Railsアプリ、フロントエンドをつなぐ方法は[アプリ全体の例](../../examples/full-stack/README.md)（英語）にあります。
+permissiveの`verify`は、strictモードをまだ使えない構成のための途中段階にすぎません。
 不正な署名は拒否しますが、検証に通ったリクエストも署名のないリクエストもすべて許可するので、非公開バケットが非公開のままかは確認できません。
 表の2行目と3行目の構成には、0.13.0より新しいリリースが必要です。
+
+### fake-gcs-serverとの違い（構成別）
+
+fake-gcs-server 1.56.1との挙動の違いを、[移行手順](fake-gcs-server-migration.md)、[機能比較](feature-comparison.md)、[設定・環境変数の対応](fake-gcs-server-configuration.md)とリリースノートに記録した内容からまとめます。
+「strictと同じ」は、プロファイルによって変わらない挙動です。
+
+| 挙動 | fake-gcs-server 1.56.1 | gcs-mimic permissive（既定） | gcs-mimic strict |
+| --- | --- | --- | --- |
+| 認証 | なし。すべてのリクエストを許可する | なし。認証情報は無視し、すべてのリクエストを許可する | ローカルのID。bearerトークン、自己署名JWT、署名URL、HMAC署名。認証情報のないリクエストは匿名 |
+| IAMとACL | ACLのメタデータ操作はあるが強制しない。バケットIAMのルートはない | 保存して返すが、強制しない | プロジェクトのロールとバケットIAMポリシーの事前定義ロールを強制する。オブジェクトACLの`READER`と`OWNER`は読み取りを許可する |
+| 公開バケットと非公開バケット | 区別しない。どのオブジェクトも誰にでも返す | 区別しない。どのオブジェクトも誰にでも返す | 認証情報のないリクエストは`allUsers`の権限だけを使い、それ以外は401。`allAuthenticatedUsers`には登録済みのIDが必要 |
+| 署名URLの検証 | 署名も有効期限も確認しない | 既定では確認しない。`GCS_MIMIC_SIGNED_URLS=verify`で確認するが、リクエストはすべて許可する | 常に確認する。ホスト、パス、クエリー、メソッド、署名したヘッダー、有効期限。Go storageのようにポートを落としたホストは、テスト署名者が有効なら通る（`signed_host_port`が`lenient`） |
+| CORSの既定 | すべてのルートで同じワイルドカード。`-cors-headers`で許可するリクエストヘッダーを足す | JSON APIは固定の既定。XMLと公開URLは、ルールのないバケットならどのオリジンも許可（`cors_fallback`が`allow-all`）。ルールのあるバケットはそのとおりに適用 | JSON APIは固定の既定。XMLと公開URLはバケットの`cors`ルールだけ（`cors_fallback`が`none`） |
+| バケットの用意 | 初期ファイルのディレクトリ（`-data`）。最上位のディレクトリがバケットになる | strictと同じ | fake-gcs-serverと同じ`/data`の初期ファイルに加え、バケットごとにCORS、バージョニング、IAMポリシー、soft deleteを書けるバケットの文書。編集が既存バケットにも反映される`GCS_MIMIC_BUCKETS`（インライン）か、`GCS_MIMIC_BUCKETS_FILE` |
+| soft delete | なし。削除や上書きで本文を解放する | strictと同じ | fake-gcs-serverと同じく既定では無効。バケットのポリシーか`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`で本文を残し、復元できる |
+| タイムアウト | 19個の環境変数に設定はない | strictと同じ | リクエストの先頭部分の受信に30秒、リクエスト全体に180秒。本文が止まった場合とオブジェクトの転送には上限なし。アイドルの接続は120秒で閉じる。いずれも設定で変えられる |
+| 接続数の上限 | 19個の環境変数に設定はない | strictと同じ | すべての待受の合計で1024接続。超えたクライアントは空きを待つ |
+| オブジェクトサイズとメモリ | `CreateObject`はオブジェクト全体をメモリに読み込む。memory backendはすべての本文をプロセス内に持つ | strictと同じ | 本文は64KiBずつ流すので、メモリはオブジェクトの大きさに比例しない。オブジェクトは5TiBまで（`max_object_bytes`） |
+| 再起動をまたぐresumableセッション | このリポジトリでは比較していない | strictと同じ | セッションと受け取ったバイトはデータボリュームに残り、再起動後も続けられ、7日で期限切れになる。memory backendでは失われる |
+| 返すURL | `-external-url`ですべてのクライアントに同じアドレスを返す | strictと同じ | 各リクエストのHostと接続のスキームに従うので、コンテナとホストがそれぞれ自分のアドレスを受け取る。`GCS_MIMIC_API_BASE_URL`で1つに固定できる |
+| 条件付きリクエスト | アップロードの世代条件だけ。読み取りの`If-Match`と`If-None-Match`は無視する | strictと同じ | オブジェクトとバケットの変更で世代とmetagenerationの条件を書き込みと一体で確認する。読み取りではETagの条件を確認する |
+| `project`を省略したバケット一覧 | 使える | strictと同じ | 400 `required`。`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`では`seed_project`を使う |
+| 信頼済みリスナー | なし | 使えない。すべてのリクエストを許可するので、指定すると起動が止まる | `GCS_MIMIC_TRUSTED_LISTEN`。認証情報のないリクエストを`trusted-app@gcs-mimic.invalid`か`GCS_MIMIC_TRUSTED_PRINCIPAL`として扱う。[下の節](#信頼済みリスナーで非公開バケットを守る)を参照 |
+
+速度や実測したメモリ使用量は比較していません。
 
 ## 初期ファイルを読み込む
 
@@ -284,8 +311,10 @@ curl --fail -H 'Content-Type: application/json' \
 別バケットには別のルールを指定できます。既存ルールの変更には
 `PATCH /storage/v1/b/BUCKET`を使います。バケットCORSはXML用で、
 JSON APIは固定のCORSルールを使います。CORSを許可しても読み取り権限は増えません。
-fake-gcs-serverのように、ルールのないバケットのXML・公開URLをどのオリジンからでも読めるようにするには、
-`GCS_MIMIC_CORS_FALLBACK=allow-all`を追加します（[CORSフォールバックの仕様](../en/slices/cors-fallback.md)、英語）。
+ルールのないバケットについては、permissiveモードでは`GCS_MIMIC_CORS_FALLBACK`の既定値が`allow-all`で、fake-gcs-serverと同じくXML・公開URLをどのオリジンからでも読めます。
+サーバーは、こうしたリクエストをバケットごとに最初の1回だけinfoレベルの`cors_fallback_default`としてログに出します。
+strictモードでは既定値が`none`で、Cloud Storageと同じく、ブラウザーにはバケットの`cors`ルールが必要です。
+ルールのあるバケットは、常にそのルールに従います（[CORSフォールバックの仕様](../en/slices/cors-fallback.md)、英語）。
 
 既定では、署名を検証せずに署名付きURLを受け付けます。permissiveのまま、変更・期限切れ・未知の鍵の署名付きリクエストを拒否するには、
 `GCS_MIMIC_SIGNED_URLS=verify`を追加します（[permissiveでの署名検証](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)、英語）。
@@ -308,8 +337,9 @@ docker compose -f compose.yaml -f compose.http.yaml -f compose.buckets.yaml up -
 curl --fail http://localhost:4443/storage/v1/b/initialized-assets
 ```
 
-別のComposeには、既存のenvironmentへ`GCS_MIMIC_BUCKETS_FILE: /buckets.json`、
-volumesへ`./buckets.json:/buckets.json:ro`を追記します。ファイルは起動前に作ります。
+別のComposeでは、[strict localレシピ](../../examples/strict-local/README.md)（英語）のように文書をサービスのenvironmentへ`GCS_MIMIC_BUCKETS`として直接書くか、
+既存のenvironmentへ`GCS_MIMIC_BUCKETS_FILE: /buckets.json`、volumesへ`./buckets.json:/buckets.json:ro`を追記します。2つの設定は同時に使えません。
+Composeはインラインの値の`${VAR}`を展開するので、`$`そのものは`$$`と書きます。マウントするファイルは起動前に作ります。
 
 ```json
 {"version":1,"project":"local-project","buckets":[
@@ -318,8 +348,8 @@ volumesへ`./buckets.json:/buckets.json:ro`を追記します。ファイルは�
 ]}
 ```
 
-毎回、全件を検証してからseedより先に未作成バケットだけを作り、以後はAPIで変更します。
-再起動時に既存設定を上書きせず、ファイルから項目を消してもバケットを削除しません。
+毎回、全件を検証してからseedより先に未作成バケットだけを作ります。
+バケットファイルでは以後の変更はAPIで行い、再起動時に既存設定を上書きしません。項目を消してもバケットは削除しません。
 APIで削除したバケットは次回起動時に再作成します。既存projectが異なる場合は
 所有者を保ち、stderrで警告し、readyの`project_mismatches`へ件数を出します。
 
@@ -329,7 +359,7 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 既定のlegacyバインディングが必要なら一緒に書きます。公開アクセス防止が公開メンバーを
 拒否する場合は、何も変更せずに起動を止めます。
 
-バケットの作成後に項目を編集すると、次回起動はバケットを保ったまま、まだ異なる
+バケットファイルでバケットの作成後に項目を編集すると、次回起動はバケットを保ったまま、まだ異なる
 フィールドをstderrで警告し、readyの`unapplied`へ件数を出します。Composeを再起動しても
 残るボリュームなどで既存バケットへ反映するには、`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`
 を指定します。各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、変更した
@@ -342,9 +372,11 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 0.13.0から更新した最初の起動でも、項目と異なる既存バケットごとに一度だけ警告します。
 
 選択順は`--buckets-file PATH`、`GCS_MIMIC_BUCKETS_FILE`、サーバーJSONの
-`buckets_file`です。`buckets_file_mode`（`--buckets-file-mode`、
-`GCS_MIMIC_BUCKETS_FILE_MODE`、既定`create`）も同じ順で選び、`buckets_file`なしで
-指定すると起動を止めます。エントリの`project`、ファイルの`project`、`seed_project`
+`buckets_file`です。インラインの文書も`--buckets`、`GCS_MIMIC_BUCKETS`、サーバーJSONの`buckets`の順に選びます。
+`buckets_file_mode`（`--buckets-file-mode`、`GCS_MIMIC_BUCKETS_FILE_MODE`）も同じ順で選び、
+どちらの文書もないのに指定すると起動を止めます。既定値はインラインの`GCS_MIMIC_BUCKETS`では`reconcile`、バケットファイルでは`create`です。
+インラインの値を編集すると、Composeは`docker compose up -d`だけでコンテナを作り直すので、編集がそのまま既存バケットに届きます。
+ready通知は、どちらの形でも`buckets_file`として結果を返します。エントリの`project`、ファイルの`project`、`seed_project`
 （既定`local-project`）の順に所有projectを決めます。
 strictでもローカル管理として初期化し、項目が書いたポリシー以外のAPI権限は付与しません。
 ACL、lifecycle、UBLA、`iam`、`bindings`以外のポリシー項目、未知フィールドは
@@ -363,11 +395,11 @@ strictモードでは、認証情報のないリクエストは匿名になり�
 一方、アプリのサーバーもエミュレーターには認証情報を送らないことが多く（`STORAGE_EMULATOR_HOST`を設定したGo storageや、resumableアップロードを開始するHTTPクライアントなど）、同じく匿名になります。
 信頼済みリスナーはこうしたサーバー専用のポートを用意し、アプリのコードを変えずに済むようにします。
 
-- 信頼済みリスナーで認証情報のないリクエストは、登録済みのIDである`trusted_principal`として扱います。
-  そのうえで、そのIDのトークンを送ったリクエストと同じIAM・ACL・公開アクセス防止の確認を受け、書き込んだオブジェクトの所有者もそのIDになります。
+- 信頼済みリスナーで認証情報のないリクエストは、1つのID（信頼済みプリンシパル）として扱います。`trusted_principal`でほかのIDを指定しない限り、組み込みの`trusted-app@gcs-mimic.invalid`です。
+  そのうえで、そのIDの認証情報を送ったリクエストと同じIAM・ACL・公開アクセス防止の確認を受け、書き込んだオブジェクトの所有者もそのIDになります。
 - 認証情報（bearerトークン、自己署名JWT、署名URLのパラメーター、署名の`Authorization`ヘッダー、POSTポリシー）付きのリクエストは、メインのリスナーとまったく同じく認証します。
-  不正な認証情報はエラーになり、`trusted_principal`には切り替わりません。
-  [Rails Active Storageのレシピ](rails-active-storage.md)は常に自分のトークンを送るので、そのトークンの署名者の登録が引き続き必要です。
+  不正な認証情報はエラーになり、信頼済みプリンシパルには切り替わりません。
+  [Rails Active Storageのレシピ](rails-active-storage.md)は常に自分のトークンを送るので、サーバーがその署名者を知っている必要があります。`GCS_MIMIC_TEST_SIGNER=enabled`の組み込みテスト署名者か、IDの文書に登録した鍵を使います。
 - `Origin`ヘッダーがある、または`Sec-Fetch-Site`が`none`以外のリクエストは、ルーティングの前に403になります。
   サーバー側のクライアントはどちらのヘッダーも送りません。
 - リクエストのHostは、IPリテラル（`127.0.0.1:4444`、`[::1]:4444`）、`localhost`または`.localhost`で終わる名前、Composeのサービス名`gcs`のようなドットのない名前、`trusted_allowed_hosts`に書いた名前のいずれかでなければなりません。
@@ -383,9 +415,13 @@ strictモードでは、認証情報のないリクエストは匿名になり�
   `max_connections`とすべてのタイムアウトは、ほかのリスナーと共有します。
   `GCS_MIMIC_API_BASE_URL`でアドレスを固定しない限り、APIが返すリンクは各リクエストのHostに従うため、`gcs:4444`経由で開始したresumableセッションはそのまま`gcs:4444`で続けられます。
 
-`GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）と`GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）は一緒に設定します。
-片方だけの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDファイルにも`test_signer=enabled`の組み込みテスト署名者にも当たらないIDのいずれかでは、起動が止まります。
-ready通知は、bindした`trusted_listen`と`trusted_principal`を返します。
+`GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）を設定すると開きます。
+`GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）を省略すると、信頼済みプリンシパルは組み込みの`trusted-app@gcs-mimic.invalid`です。
+このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）に出てくるすべてのprojectと、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
+IDの文書（`GCS_MIMIC_IDENTITIES`か`GCS_MIMIC_IDENTITY_FILE`）に`trusted-app@gcs-mimic.invalid`の項目を書くと、そのロールに置き換わります。
+ほかのIDとして扱うには、`GCS_MIMIC_TRUSTED_PRINCIPAL`にIDの文書のIDか、有効にした組み込みテスト署名者を指定します。
+待受なしでのプリンシパルの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDの文書にも有効な組み込みテスト署名者にも当たらないプリンシパルの指定のいずれかでは、起動が止まります。
+ready通知は、bindした`trusted_listen`と、実際に使う`trusted_principal`を返します。
 
 Composeのネットワークエイリアス`storage.compose.internal`やKubernetesのサービス名など、ドットを含む名前でアプリが接続する場合は、その名前を`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`（`--trusted-allowed-hosts`、JSONの`trusted_allowed_hosts`）に書きます。
 ポートやスキームを含まないDNS名をカンマで区切って最大32件指定でき、大文字小文字と末尾のドットは区別しません。`trusted_listen`が必要です。
@@ -401,10 +437,12 @@ Composeのネットワークエイリアス`storage.compose.internal`やKubernet
 `ports:`に載せないことが保護になります。
 
 [strict localレシピ](../../examples/strict-local/README.md)（英語）が完全な例です。
-アプリのcompose.yamlに貼り付ける`gcs`サービスで、アプリのコンテナ向けの信頼済みリスナー、ブラウザー向けに公開したメインのリスナー、Composeに直接書いたIDファイルとバケットファイル、署名URL用の組み込みテスト署名者がそろっています。
-コンテナのスモークテストがこれをイメージで動かしているので、ここの設定を自分で組み合わせず、レシピをそのまま使ってください。
+アプリのcompose.yamlに貼り付ける`gcs`サービスで、アプリのコンテナ向けの信頼済みリスナーと組み込みのID、ブラウザー向けに公開したメインのリスナー、environmentに直接書いたバケット、署名URL用の組み込みテスト署名者がそろっています。
+[アプリ全体の例](../../examples/full-stack/README.md)（英語）では、Go API、Railsアプリ、フロントエンドをこれにつなぎます。
+コンテナのスモークテストがどちらもイメージで動かしているので、ここの設定を自分で組み合わせず、これらを出発点にしてください。
 
 `gcs`はドットのない名前なので、レシピでは`trusted_allowed_hosts`は不要です。
+レシピのRails向けの構成が付けるエイリアス`gcs.localhost`も、`.localhost`の名前なので不要です。
 ドットを含むエイリアスを使う場合は、サービスにネットワークエイリアスを付けて、その名前を書きます。
 
 ```yaml
@@ -421,10 +459,11 @@ services:
       STORAGE_EMULATOR_HOST: storage.compose.internal:4444
 ```
 
-アプリはトークンを送らないので、このIDにトークンは不要です。ロールはアプリに必要なものだけを与えます。
+アプリはトークンを送らないので、組み込みのIDにトークンはありません。
+アプリに必要なロールだけを与えるには、レシピのREADMEのように、IDの文書に`trusted-app@gcs-mimic.invalid`をそのロールで書きます。
 ページは`http://localhost:${GCS_MIMIC_PORT:-4443}`を使います。
 ポリシーで`allUsers`に`roles/storage.objectViewer`を与えたバケットは匿名で読め、非公開のオブジェクトは署名URLがなければ401になります。
-アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDファイルに登録した鍵か組み込みテスト署名者で作ります（[署名URL](../en/signed-urls.md)、英語）。
+アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDの文書に登録した鍵か組み込みテスト署名者で作ります（[署名URL](../en/signed-urls.md)、英語）。
 イメージのhealthcheckはメインのリスナーを確認するので、変更は不要です。
 DESIGN-101はPARTIALです。[検証結果（英語）](../en/evidence/trusted-listener.md)を参照してください。
 

@@ -1,0 +1,28 @@
+# Test-only override for scripts/smoke-containers.sh; an application never needs it. Each
+# application service becomes an idle curl container, and the smoke test makes that service's
+# requests from inside it, with the environment, network and key that compose.yaml gives it.
+services:
+  api:
+    build: !reset null
+    image: ${GCS_SMOKE_PEER_IMAGE:?set by scripts/smoke-containers.sh}
+    command: [sleep, infinity]
+    init: true
+    read_only: true
+    ports: !reset []
+  web:
+    build: !reset null
+    image: ${GCS_SMOKE_PEER_IMAGE:?set by scripts/smoke-containers.sh}
+    command: [sleep, infinity]
+    init: true
+    read_only: true
+    ports: !reset []
+  frontend:
+    build: !reset null
+    image: ${GCS_SMOKE_PEER_IMAGE:?set by scripts/smoke-containers.sh}
+    command: [sleep, infinity]
+    init: true
+    read_only: true
+    ports: !reset []
+secrets:
+  gcs-test-signer:
+    file: ${GCS_SMOKE_TEST_SIGNER_KEY:?set by scripts/smoke-containers.sh}
