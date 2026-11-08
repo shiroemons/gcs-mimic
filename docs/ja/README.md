@@ -90,7 +90,7 @@ resumableアップロードのURLなど、エミュレーターが返すリン�
 - `GCS_MIMIC_AUTH_MODE: strict`
 - `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444`。Composeネットワーク上のサーバーが使うポートです。認証情報のないリクエストは、ここでは組み込みの`trusted-app@gcs-mimic.invalid`として扱います。このポートは公開しません。
 - `GCS_MIMIC_BUCKETS`。バケットをインラインのJSONで書き、公開バケットには`allUsers`の`iamPolicy`を付けます。
-- `GCS_MIMIC_TEST_SIGNER: enabled`。署名付きURLが必要なときだけ指定します。
+- `GCS_MIMIC_TEST_SIGNER: enabled`。署名付きURLと、Railsなど`test-signer credentials`の鍵を使うクライアントに必要です。URLに署名するものも、その認証情報を使うものもないときだけ省けます。
 
 Goのサーバーは`STORAGE_EMULATOR_HOST: gcs:4444`を設定します。
 Railsは`gcs-mimic test-signer credentials`が出力する署名者の鍵を使います。[Rails Active Storage](rails-active-storage.md#6-strictで本番に近い確認をする)を参照してください。

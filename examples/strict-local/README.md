@@ -40,7 +40,8 @@ services:
       GCS_MIMIC_AUTH_MODE: strict
       # Application servers on the Compose network use gcs:4444 without credentials.
       GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
-      # Only for signed URLs: the built-in signer, whose key ships with gcs-mimic.
+      # The built-in signer, whose key ships with gcs-mimic: needed for signed URLs and by
+      # Rails or any client using `test-signer credentials`. Remove it only if nothing does.
       GCS_MIMIC_TEST_SIGNER: enabled
       GCS_MIMIC_BUCKETS: |
         {"version": 1, "project": "local-project", "buckets": [
@@ -93,7 +94,7 @@ Set `FRONTEND_PORT` when your frontend does not run on port 3000, and `GCS_MIMIC
 | `GCS_MIMIC_SCHEME: http` | Plain HTTP, as fake-gcs-server serves it; no client needs a CA. |
 | `GCS_MIMIC_AUTH_MODE: strict` | Every request is authorized by IAM and ACLs. A request without credentials is anonymous and gets only `allUsers` grants. |
 | `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444` | A second, plain HTTP listener for your servers on the Compose network, where a request without credentials acts as the built-in identity `trusted-app@gcs-mimic.invalid`. It binds every interface inside the container so that other containers reach it; leaving it out of `ports:` keeps it off your machine's network. |
-| `GCS_MIMIC_TEST_SIGNER: enabled` | Only for signed URLs: turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key ships with gcs-mimic, so nothing has to generate or register a key. Remove the line if your application signs no URLs. |
+| `GCS_MIMIC_TEST_SIGNER: enabled` | Turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key ships with gcs-mimic, so nothing has to generate or register a key. Signed URLs need it, and so do Rails and any other client that uses the key from `test-signer credentials`: they sign their own token with it, and the server knows that key only while the signer is enabled. Remove the line only when nothing signs URLs or uses those credentials. |
 | `GCS_MIMIC_BUCKETS` | Creates the buckets at startup with their policy and CORS rules. Compose fills in `${FRONTEND_PORT:-3000}` before the server reads the JSON, so write a literal `$` as `$$`. |
 | `ports` | Publishes only the main listener, and only on loopback. |
 | `gcs-data` volume | Keeps buckets and objects across `docker compose down` and `up`. |
