@@ -7,7 +7,8 @@ Verified on **2026-11-08** for DESIGN-101 and the
 with Rust 1.99.1 on macOS arm64, including the Host rule and response headers
 that keep DNS rebinding pages and cross-origin embeds out. The container smoke
 test also ran the [strict local recipe](../../../examples/strict-local/README.md)
-with the image built from the checkout; see [Container recipe](#container-recipe).
+and the [full application example](../../../examples/full-stack/README.md) with
+the image built from the checkout; see [Container recipe](#container-recipe).
 The same day the pinned Go storage client ran unmodified against the trusted
 listener; see [Go SDK run](#go-sdk-run). No browser or real-cloud run was
 performed: a browser remains unverified, which keeps the row PARTIAL. gRPC has
@@ -170,30 +171,62 @@ bash scripts/smoke-containers.sh linux/arm64
 | Scenario | Result |
 | --- | --- |
 | The five earlier scenarios of the script | PASS |
-| `PASS: linux/arm64 strict local recipe: ready with test signer and trusted listener, credential-free trusted reads and writes, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, bucket file reconcile` | PASS |
+| `PASS: linux/arm64 strict local recipe: read-only root, ready with test signer and built-in trusted principal, credential-free trusted reads and writes owned by trusted-app, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, inline bucket edit applied by a plain up` | PASS |
+| `PASS: linux/arm64 full application example on port 22384: test signer key mounted, API credential-free trusted writes owned by trusted-app, Rails anonymous through gcs.localhost (401 private, 200 public), browser public read with CORS, portless, exact and gcs.localhost signed GET, signed PUT with preflight, Rails direct upload preflight, inline bucket edit applied by a plain up` | PASS |
+
+### Strict local recipe
 
 The scenario starts `examples/strict-local/compose.yaml`, which
 `scripts/check-docs.sh` keeps identical to the block its README shows, with a
-fresh project and a free published port, and checks:
+fresh project and a free published port. The file sets only the scheme, strict
+mode, the trusted listener, the test signer and the buckets inline in
+`GCS_MIMIC_BUCKETS`; it names no identity document, trusted principal, host port
+rule or bucket mode. The scenario checks:
 
 | Step | Behavior |
 | --- | --- |
-| Ready | The test signer warning before readiness; ready reports strict mode, the enabled test signer, `signed_urls` `verify`, `signed_host_port` `lenient`, one entry in `listeners`, `trusted_listen` `0.0.0.0:4444`, `trusted_principal` `app@example.invalid` and two created buckets; only port 4443 is published |
-| Trusted listener | From the pinned curl image on the Compose network, Host `gcs:4444` and no credentials: the bucket list holds both buckets, `app-public` grants `allUsers` `roles/storage.objectViewer` and `app-private` grants `allUsers` nothing; uploads to both buckets succeed and the private object reads back |
+| Ready | The container's root is read-only. The test signer warning comes before readiness; ready reports strict mode, the enabled test signer, `signed_urls` `verify`, `signed_host_port` `lenient`, one entry in `listeners`, `trusted_listen` `0.0.0.0:4444`, `trusted_principal` `trusted-app@gcs-mimic.invalid` and two created buckets; only port 4443 is published |
+| Trusted listener | From the pinned curl image on the Compose network, Host `gcs:4444` and no credentials: the bucket list holds both buckets, `app-public` grants `allUsers` `roles/storage.objectViewer` and `app-private` grants `allUsers` nothing; uploads to both buckets succeed, the private object reads back, and its `projection=full` owner is `user-trusted-app@gcs-mimic.invalid` |
 | Main listener | From the host without credentials: the private object answers 401 through JSON and XML; the public object answers 200 through both, and with `Origin: http://localhost:3000` carries that `Access-Control-Allow-Origin` |
 | Signed URLs | `gcs-mimic url sign` inside the container with the built-in signer: a URL for `http://localhost` without the port, as Go storage signs, reads the private object at `localhost:PORT` and logs `signature_host_port_omitted`; a URL for `http://localhost:PORT` reads it; a changed `X-Goog-Expires` gets 403 `SignatureDoesNotMatch`; a signed PUT passes its preflight for `content-type`, answers 200 with `Access-Control-Allow-Origin` and stores the bytes |
 | Trusted refusals | From the peer, `Origin: http://evil.example` gets 403 and `Host: evil.example:4444` gets 421 |
 | Credentials | `docker compose run --rm gcs test-signer credentials` prints JSON whose `client_email` is `test-signer@gcs-mimic.invalid` and whose `private_key` starts with `-----BEGIN PRIVATE KEY-----` |
-| Reconcile | `up --force-recreate` with `FRONTEND_PORT=3001` reports two reconciled buckets; the public object then allows `http://localhost:3001` and no longer `http://localhost:3000` |
+| Reconcile | With `FRONTEND_PORT=3001`, a plain `up --detach --wait` replaces the container (its ID changes) and ready reports two reconciled buckets; the public object then allows `http://localhost:3001` and no longer `http://localhost:3000` |
+
+### Full application example
+
+The scenario starts `examples/full-stack/compose.yaml` with
+`examples/full-stack/compose.smoke.yaml`, which replaces the `api`, `web` and
+`frontend` services with idle containers of the pinned curl image and unpublishes
+their ports. `GCS_MIMIC_PORT` is a free loopback port other than 4443, 22384 in
+this run, so the host and container ports are equal as Rails needs. Requests
+that an application service makes run inside its stand-in through
+`docker compose exec`, with the environment, network and secret the file gives it.
+
+| Step | Behavior |
+| --- | --- |
+| Key | `docker compose run --rm gcs test-signer credentials`, with the example file alone, prints the key file; its `private_key`, given as the `gcs-test-signer` secret, reads back byte for byte at `/run/secrets/gcs-test-signer` in the API and Rails stand-ins |
+| Ready | `gcs` publishes only `127.0.0.1:PORT` to container port PORT and has a read-only root; ready reports strict mode, the enabled test signer, `signed_host_port` `lenient`, one listener on `0.0.0.0:PORT`, `trusted_listen` `0.0.0.0:4444`, `trusted_principal` `trusted-app@gcs-mimic.invalid` and two created buckets |
+| API | Inside the API stand-in, `http://$STORAGE_EMULATOR_HOST` (`gcs:4444`) without credentials uploads and reads back a private object, whose `projection=full` owner is `user-trusted-app@gcs-mimic.invalid`, and uploads `images/logo.png` to `app-public` as `image/png` |
+| Rails | Inside the Rails stand-in, `GCS_EMULATOR_ENDPOINT` `http://gcs.localhost:PORT/`, its host resolved with `getent` through the network alias: the private object answers 401 through JSON and XML, the public image 200 |
+| Browser | From the host, with `localhost` and `gcs.localhost` pinned to 127.0.0.1: the public image with `Origin: http://localhost:3000` returns its bytes and that `Access-Control-Allow-Origin`; the unsigned private object answers 401; URLs signed by `gcs-mimic url sign` for `http://localhost` without the port, for the API's `GCS_BROWSER_HOST` `localhost:PORT`, and for Rails' endpoint `gcs.localhost:PORT` each read the private object; a signed PUT passes its preflight for `content-type`, answers 200 with `Access-Control-Allow-Origin`, and the API stand-in reads the bytes back; a preflight from `http://localhost:3001` listing Active Storage's direct upload headers returns that `Access-Control-Allow-Origin` |
+| Reconcile | With `FRONTEND_PORT=3002`, a plain `up --detach --wait` replaces the `gcs` container, and `api`, whose `FRONTEND_ORIGIN` changed; ready reports two existing and two reconciled buckets; the public image then allows `http://localhost:3002` and no longer `http://localhost:3000`; Rails still reaches the public image through the alias and the uploaded object is still there |
 
 All requests are sent with curl, so no browser enforces CORS or meets the
-browser checks, and no Go client runs. While writing the recipe, these were
-observed once by hand with the same Compose version and are not part of the
-script: Compose refuses inline configs in a service with `read_only: true`
-(`cannot create config ... in read-only service gcs`); a plain `up -d` after
-changing `FRONTEND_PORT` kept the running container, and `restart` kept the old
-config content, so only a recreated container reconciled; an application
-compose.yaml that lists the recipe under `include:` started it and reached
-`gcs:4444` from another service; and the 0.13.0 image stops at startup with
-`Unknown setting` for the test signer, signed host port and trusted listener
-settings.
+browser checks, and no Go client or Rails application runs. curl 8.23.0 answers
+every `*.localhost` name with loopback without asking DNS, so the Rails stand-in
+resolves `gcs.localhost` with `getent`, which the musl resolver of the same image
+sends to Docker's DNS, as Ruby's resolver does.
+
+Observed once by hand and not part of the script: with the recipe's settings
+(`GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER`,
+`GCS_MIMIC_BUCKETS`), the 0.13.0 image stops at startup with `Unknown setting`
+for the last three and `auth_mode=strict requires identity_file`. An earlier
+version of the recipe, which held the identity and bucket files in inline
+Compose `configs`, showed with the same Compose version that Compose refuses such
+configs in a service with `read_only: true` (`cannot create config ... in
+read-only service gcs`), that a plain `up -d` after a `FRONTEND_PORT` change kept
+the running container and `restart` kept the old config content, and that an
+application compose.yaml listing that recipe under `include:` started it and
+reached `gcs:4444` from another service; the current recipe was not run under
+`include:`.
