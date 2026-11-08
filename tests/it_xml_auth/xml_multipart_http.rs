@@ -121,7 +121,15 @@ fn multipart_memory_capacity_failures_are_reported_without_publishing_a_part() {
     );
     reply.status(503);
     assert_eq!(tag(&reply.body, "Code"), "ServiceUnavailable");
-    assert!(tag(&reply.body, "Message").starts_with("Storage capacity exhausted;"));
+    let message = tag(&reply.body, "Message");
+    assert!(
+        message.starts_with("Storage capacity exhausted;"),
+        "{message}"
+    );
+    // Only the budget that ran out is named: no catalog budget and no disk to free.
+    assert!(message.contains("memory_max_bytes"), "{message}");
+    assert!(!message.contains("memory_catalog_max_bytes"), "{message}");
+    assert!(!message.contains("data directory"), "{message}");
     let parts = server.request(
         "GET",
         &format!("/multipart-bucket/value?uploadId={id}"),

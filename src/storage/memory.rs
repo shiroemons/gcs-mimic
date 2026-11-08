@@ -360,7 +360,7 @@ pub(super) use transfer::{Checkpoint, Draft};
 fn exhausted() -> io::Error {
     io::Error::new(
         io::ErrorKind::StorageFull,
-        "RAM blob byte budget exhausted; delete objects or increase memory_max_bytes",
+        super::failure::MemoryExhausted::new(super::failure::MemoryBudget::Blobs),
     )
 }
 
@@ -474,9 +474,11 @@ mod tests {
         let bytes = reader.next_chunk(4).unwrap();
         store.remove("blob").unwrap();
         drop(reader);
+        let full = store.stage().unwrap().write(b"new").unwrap_err();
+        assert_eq!(full.kind(), io::ErrorKind::StorageFull);
         assert_eq!(
-            store.stage().unwrap().write(b"new").unwrap_err().kind(),
-            io::ErrorKind::StorageFull
+            crate::storage::failure::IoCause::from(full).memory_budget(),
+            Some(crate::storage::failure::MemoryBudget::Blobs)
         );
         drop(bytes);
         store.stage().unwrap().write(b"new").unwrap();

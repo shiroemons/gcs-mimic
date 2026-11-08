@@ -19,12 +19,14 @@ const CORRUPT: &str =
     "Object storage is unavailable: stored data is corrupt; restore a valid data directory";
 
 fn io_message(kind: ErrorKind) -> String {
+    // These faults fill a disk data directory, so only the disk remedy may appear.
     if kind == ErrorKind::StorageFull {
         return concat!(
-            "Storage capacity exhausted; for backend=memory release objects/readers or restart ",
-            "with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), ",
-            "and for backend=disk free disk space; data kept by soft delete also uses capacity until it expires, so set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions and leave default_soft_delete_retention_seconds at 0 to free later deletions at once; retry with generation preconditions after capacity is available"
-        ).into();
+            "Storage capacity exhausted; free space in the data directory, where data kept by ",
+            "soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds ",
+            "to 0 on buckets that retain deletions), then retry with generation preconditions"
+        )
+        .into();
     }
     format!(
         "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"

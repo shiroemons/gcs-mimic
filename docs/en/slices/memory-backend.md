@@ -145,7 +145,12 @@ Contract references, checked 2026-10-30:
 - [Pinned reference memory backend](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/backend/memory.go) and [object helpers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go): this new aggregate RAM budget is a visible local safety difference.
 
 Capacity exhaustion keeps the existing 503 `backendError` mapping, with fixed
-advice naming RAM limits and disk space. Retrying alone does not create capacity;
+advice that names only the budget that ran out: delete objects, noting that data
+kept by soft delete keeps its bytes until it expires, or raise `memory_max_bytes`
+for object bytes, or raise `memory_catalog_max_bytes` for catalog pages. The
+failure carries which budget it was as a type, not as text, and a disk backend's
+full disk instead names free space in the data directory and soft delete
+retention. Retrying alone does not create capacity;
 release data/readers or change the relevant startup budget. Changing a RAM budget
 requires a restart and loses that process's RAM state; it is not a live recovery
 operation. Retry with generation conditions after capacity is available.

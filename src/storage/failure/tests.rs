@@ -36,6 +36,51 @@ fn contextual_recovery_failures_keep_classification_and_sources() {
     );
 }
 
+/// SQLite reports a memory catalog's page budget and a full disk alike, so only a job on a
+/// memory catalog's connection marks the failure with that budget, and only while it runs.
+#[test]
+fn a_full_database_names_the_memory_catalog_budget_only_inside_its_job() {
+    let full = || match unavailable(sqlite_failure(rusqlite::ffi::SQLITE_FULL)) {
+        CatalogError::Io(cause) => cause,
+        error => panic!("{error:?}"),
+    };
+    assert_eq!(full().memory_budget(), None);
+    {
+        let _job = MemoryCatalogJob::enter();
+        let cause = full();
+        assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
+        assert_eq!(cause.memory_budget(), Some(MemoryBudget::Catalog));
+        assert!(
+            crate::error::causes(cause.source().unwrap())
+                .any(|error| error.downcast_ref::<rusqlite::Error>().is_some()),
+            "the SQLite failure stays in the cause chain"
+        );
+    }
+    assert_eq!(full().memory_budget(), None, "the job's scope ended");
+}
+
+#[test]
+fn an_exhausted_blob_budget_survives_io_and_recovery_context_wrappers() {
+    let blobs = || {
+        io::Error::new(
+            io::ErrorKind::StorageFull,
+            MemoryExhausted::new(MemoryBudget::Blobs),
+        )
+    };
+    assert_eq!(
+        IoCause::from(blobs()).memory_budget(),
+        Some(MemoryBudget::Blobs)
+    );
+    let ObjectError::Io(cause) = object_context("staging cleanup", blobs()) else {
+        panic!("a full blob budget is I/O");
+    };
+    assert_eq!(cause.memory_budget(), Some(MemoryBudget::Blobs));
+    assert_eq!(
+        IoCause::from(io::Error::from(io::ErrorKind::StorageFull)).memory_budget(),
+        None
+    );
+}
+
 fn guidance_failures() -> Vec<(ObjectError, &'static str)> {
     use BackendFailure::*;
     let cases = [
