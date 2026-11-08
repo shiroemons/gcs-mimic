@@ -284,6 +284,10 @@ fn acl_update_errors_keep_client_input_and_authorization_status() {
         ),
         (CatalogError::Forbidden, ObjectError::Forbidden),
         (
+            CatalogError::Denied(project_access(false).denied("bucket")),
+            ObjectError::Denied(project_access(false).denied("bucket")),
+        ),
+        (
             CatalogError::PublicAccessPrevention,
             ObjectError::PublicAccessPrevention,
         ),
@@ -1316,10 +1320,12 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
         )
     };
     let winner = publish(winner_body, winner_permit, true).await.unwrap();
-    assert_eq!(
-        publish(body, permit, false).await.unwrap_err(),
-        ObjectError::OverwriteForbidden
-    );
+    let overwrite = || {
+        ObjectError::OverwriteForbidden(
+            project_access(false).denied_for(crate::auth::OBJECTS_DELETE, "bucket"),
+        )
+    };
+    assert_eq!(publish(body, permit, false).await.unwrap_err(), overwrite());
     let current = catalog
         .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await
@@ -1338,7 +1344,7 @@ async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create()
     for (conditions, error) in [
         (conditions, ObjectError::PreconditionFailed),
         (mismatch, ObjectError::PreconditionFailed),
-        (Default::default(), ObjectError::OverwriteForbidden),
+        (Default::default(), overwrite()),
     ] {
         assert_eq!(
             catalog
@@ -1459,27 +1465,29 @@ async fn recreate_bucket(catalog: &Catalog, project: &str) -> ObjectRecord {
     put(catalog, "object", b"other project").await
 }
 
-/// Every bucket and object operation must fail with `Forbidden` and change nothing.
+/// Every bucket and object operation must fail with the access's own refused permission and
+/// change nothing.
 async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current: &ObjectRecord) {
     let conditions = ObjectConditions::default();
+    let denied = || ObjectError::Denied(access.denied("bucket"));
     assert_eq!(
         catalog
             .check_upload("bucket", "object", conditions, access)
             .await,
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     assert_eq!(
         catalog
             .get_object(live("bucket", "object"), conditions, access)
             .await,
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     assert_eq!(
         catalog
             .open_object(live("bucket", "object"), conditions, access)
             .await
             .map(|(record, _)| record),
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     let query = ObjectListQuery {
         bucket: "bucket".into(),
@@ -1490,7 +1498,7 @@ async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current:
             .list_objects(query, 10, access)
             .await
             .map(|page| page.items),
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     let update = ObjectMetadataUpdate {
         content_type: Some(Some("application/json".into())),
@@ -1506,24 +1514,24 @@ async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current:
                 access,
             )
             .await,
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     assert_eq!(
         catalog
             .delete_object(live("bucket", "object"), conditions, access)
             .await,
-        Err(ObjectError::Forbidden)
+        Err(denied())
     );
     assert_eq!(
         catalog.get_bucket("bucket", access).await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("bucket")))
     );
     // Authorization precedes the non-empty check, so a non-empty bucket also reports 403.
     assert_eq!(
         catalog
             .delete_bucket("bucket", Default::default(), access)
             .await,
-        Err(CatalogError::Forbidden)
+        Err(CatalogError::Denied(access.denied("bucket")))
     );
     assert_eq!(
         catalog
@@ -1592,9 +1600,10 @@ async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
                 .unwrap();
         }
         assert_all_forbidden(&catalog, &read, &current).await;
+        let refused = ObjectError::Denied(create.denied("bucket"));
         assert_eq!(
             publish(&catalog, "fresh", permit, create).await,
-            Err(ObjectError::Forbidden)
+            Err(refused)
         );
         assert_eq!(
             catalog.get_policy("bucket", PERMISSIVE).await.unwrap(),
@@ -1645,11 +1654,12 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
             .bucket_access("bucket", Some(identity), OBJECTS_GET)
             .await
             .unwrap();
+        let refused = || Err(ObjectError::Denied(access.denied("bucket")));
         assert_eq!(
             catalog
                 .get_object(live("bucket", "object"), Default::default(), &access)
                 .await,
-            Err(ObjectError::Forbidden)
+            refused()
         );
         let target = AclTarget::Object {
             bucket: "bucket".into(),
@@ -1685,7 +1695,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
             concurrent
                 .as_ref()
                 .is_ok_and(|record| record.generation == current.generation)
-                || concurrent == Err(ObjectError::Forbidden)
+                || concurrent == refused()
         );
         assert_eq!(
             catalog
@@ -1698,7 +1708,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
                     &access
                 )
                 .await,
-            Err(ObjectError::Forbidden)
+            refused()
         );
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut reader.into_reader().await, &mut bytes).unwrap();
@@ -1781,7 +1791,7 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
         assert_all_forbidden(&catalog, &read, &current).await;
         assert_eq!(
             catalog.get_policy("bucket", &get_iam).await,
-            Err(CatalogError::Forbidden)
+            Err(CatalogError::Denied(get_iam.denied("bucket")))
         );
         assert_eq!(
             catalog
@@ -1794,11 +1804,12 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
                     &set_iam
                 )
                 .await,
-            Err(CatalogError::Forbidden)
+            Err(CatalogError::Denied(set_iam.denied("bucket")))
         );
+        let refused = ObjectError::Denied(create.denied("bucket"));
         assert_eq!(
             publish(&catalog, "fresh", permit, create).await,
-            Err(ObjectError::Forbidden)
+            Err(refused)
         );
         assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
         catalog.close().await.unwrap();
@@ -1821,12 +1832,12 @@ async fn operations_recheck_the_authorized_project_after_bucket_recreation() {
     let current = recreate_bucket(&catalog, "other-project").await;
     assert_eq!(
         publish(&catalog, "object", permit, access.clone()).await,
-        Err(ObjectError::Forbidden)
+        Err(ObjectError::Denied(access.denied("bucket")))
     );
     let permit = catalog.admit_object_upload().unwrap();
     assert_eq!(
         publish(&catalog, "fresh", permit, access.clone()).await,
-        Err(ObjectError::Forbidden)
+        Err(ObjectError::Denied(access.denied("bucket")))
     );
     assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
     assert_all_forbidden(&catalog, &access, &current).await;
@@ -1906,7 +1917,7 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     let current = recreate_bucket(&catalog, "other-project").await;
     assert_eq!(
         publish(&catalog, "object", permit, access.clone()).await,
-        Err(ObjectError::Forbidden)
+        Err(ObjectError::Denied(access.denied("bucket")))
     );
     assert_all_forbidden(&catalog, &access, &current).await;
     // Created later in a permitted project: overwriting still needs storage.objects.delete
@@ -1916,7 +1927,9 @@ async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
     let permit = catalog.admit_object_upload().unwrap();
     assert_eq!(
         publish(&catalog, "object", permit, access.clone()).await,
-        Err(ObjectError::OverwriteForbidden)
+        Err(ObjectError::OverwriteForbidden(
+            access.denied_for(crate::auth::OBJECTS_DELETE, "bucket")
+        ))
     );
     assert_eq!(
         catalog

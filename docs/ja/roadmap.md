@@ -11,7 +11,9 @@
 
 複数バケット、バケット別のCORS・IAM、ストリーミング転送、rewrite・compose・moveを利用できます。世代履歴、hold、バケット・オブジェクトのretention、soft delete・restoreも、宣言した範囲で実装しています。V2/V4 RSA署名転送とV4署名POST policyにも対応しています。JSON ACL、通知設定、HMACキー管理、Autoclass設定もありますが、後述の効果には制約があります。バケット・オブジェクトのPATCH・PUTでは、ACLをほかのメタデータと同じトランザクションで置き換えます。media・multipart・コピーの呼び出しトークンは、上限付きのローカル保持期間内で元の応答を再送します。JSONのmedia GETとXMLのGETは、gzipで保存したオブジェクトを展開して返します。Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。0.9.0以降は、`gcloud storage`で[例の手順（英語）](../../examples/gcloud/README.md)を実行でき、[examples（英語）](../../examples/README.md)で8種類の公式クライアントの例を用意しています。0.10.0以降は、`x-goog-content-length-range`に対応したため、Rails Active Storage 8.1.4.1のダイレクトアップロードが動きます。XMLの読み取りも条件付きヘッダーを評価します。詳細は[0.13.0のリリースノート](../en/releases/0.13.0.md)、[0.12.0のリリースノート](../en/releases/0.12.0.md)、[0.11.0のリリースノート](../en/releases/0.11.0.md)、[0.10.0のリリースノート](../en/releases/0.10.0.md)、[0.9.0のリリースノート](../en/releases/0.9.0.md)、[0.8.0のリリースノート](../en/releases/0.8.0.md)、[0.5.0のリリースノート](../en/releases/0.5.0.md)と[0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
 
-バケット初期設定は未作成分だけを作り、APIの変更を保持します。
+バケット初期設定は未作成分だけを設定付きで作り、APIの変更を保持します。
+0.13.0の後は、項目でバケットの最初のIAMポリシーも指定でき、文書を`GCS_MIMIC_BUCKETS`にインラインで書けます。
+インラインの文書の既定であるreconcileモードは、編集した項目を既存のバケットに書きます。
 seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 0.8.0以降はツリー全体を準備して一括公開し、変更した保護対象があると全体を戻してreadyを出しません。
 同一のオブジェクトは世代を保持します。
@@ -28,8 +30,18 @@ Go・Ruby・Node.js・PHP・Python・Java・.NET・Rustの全ケースが通り�
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。
 Googleの既定universeを使うOAuthは、引き続きローカル認証の手順ではありません。
+0.13.0の後は、組み込みのテスト署名者の鍵を使えば、この手順がstrictでも動きます。鍵の登録はいりません。
+strictのRailsテストは、署名者が`roles/storage.objectUser`だけを持つ構成で通ります。
 API全体の完全互換を意味しません。範囲と制約は
 [機能比較](feature-comparison.md)と[生成機能表](feature-matrix.md)にあります。
+
+本番に近いローカルのアクセスには、0.13.0より新しいリリースが必要です。
+strictでは信頼済みリスナーがアプリのサーバー用のポートを用意し、`STORAGE_EMULATOR_HOST`を使うGo storageのような認証情報のないクライアントを1つのIDとして扱います。
+ブラウザーは匿名のままで、非公開バケットには署名付きURLでだけ届きます。
+組み込みのテスト署名者は公開済みの鍵でそのURLに署名し、`signed_urls=verify`はpermissiveでも署名を検査します。
+ID文書とバケット文書は`GCS_MIMIC_IDENTITIES`と`GCS_MIMIC_BUCKETS`にインラインで書けます。
+[strictのローカル構成（英語）](../../examples/strict-local/README.md)は、これらを少数の設定で組み合わせます。
+これらはローカル独自の機能で、Cloud Storageの動作ではありません。構成をブラウザーで動かすまで、DESIGN-101は`PARTIAL`のままです。
 
 ## 不足機能の優先順位
 
@@ -111,6 +123,8 @@ JSON v1をstrict・permissive共通のローカル管理権限で適用します
 新しいバケットに最初から付ける`iamPolicy`も書けます。
 `buckets_file_mode=reconcile`を指定した場合だけ、起動時に各項目が書いた
 フィールドを既存バケットへ反映します。ロケーションと所有者は変えません。
+`GCS_MIMIC_BUCKETS`にインラインで書いた同じ文書は、既定でreconcileです。そこでの編集は次の起動で反映するためのものだからです。
+reconcileでも、項目が書かなくなったフィールドは元に戻しません。
 [使い方と制限](container-usage.md#初期バケット設定ファイルを使う)を参照してください。
 
 双方向同期では、競合、特殊な名前、部分書込、通知欠落、復旧を扱う必要があります。

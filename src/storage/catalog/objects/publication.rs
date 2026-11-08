@@ -207,9 +207,31 @@ pub(in crate::storage::catalog) fn acl_update_error(error: CatalogError) -> Obje
 
 /// Whether the caller holds `storage.objects.delete`, which replacing a live object requires.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::storage::catalog) enum DeletePermission {
+pub(in crate::storage::catalog) enum DeletePermission<'a> {
     Granted,
-    Denied,
+    /// Borrows what the refusal names, so that the many publications that replace nothing
+    /// build no denial.
+    Denied {
+        identity: Option<&'a crate::auth::Identity>,
+        bucket: &'a str,
+    },
+}
+
+impl DeletePermission<'_> {
+    /// The refusal of a publication that would replace a live object, if the caller may not
+    /// delete it.
+    pub(in crate::storage::catalog) fn overwrite_refusal(self) -> Option<ObjectError> {
+        match self {
+            Self::Granted => None,
+            Self::Denied { identity, bucket } => {
+                Some(ObjectError::OverwriteForbidden(crate::auth::Denied::new(
+                    identity,
+                    crate::auth::OBJECTS_DELETE,
+                    crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_DELETE, bucket),
+                )))
+            }
+        }
+    }
 }
 
 /// Whether the bucket keeps replaced live generations as noncurrent versions.

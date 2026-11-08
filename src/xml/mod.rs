@@ -26,7 +26,7 @@ pub(crate) mod multipart;
 #[cfg(test)]
 mod test_support;
 pub use cors::CorsWarnings;
-pub(crate) use cors::{cors, warn_unconfigured_cors};
+pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;
@@ -150,7 +150,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
         ),
         Failure::MismatchWithHostPort => Error::new(
             XmlCode::SignatureDoesNotMatch,
-            "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it.",
+            "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it, which is already the default where the built-in test signer is enabled.",
         ),
         Failure::Expired => Error::new(XmlCode::ExpiredToken, "The request signature has expired."),
         Failure::NotYetValid => Error::new(
@@ -238,6 +238,9 @@ pub(crate) struct Error {
     message: String,
     /// The optional `Details` element, which Cloud Storage uses to name a missing object.
     details: Option<String>,
+    /// The refused permission behind an `AccessDenied` or `AuthenticationRequired`, logged when
+    /// the response leaves.
+    denied: Option<Box<crate::auth::Denied>>,
 }
 
 /// The XML declaration Cloud Storage writes, with single-quoted pseudo-attributes.
@@ -276,6 +279,7 @@ impl Error {
             code,
             message: message.into(),
             details: None,
+            denied: None,
         }
     }
 
@@ -329,6 +333,9 @@ impl Error {
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
+        if let Some(denied) = &self.denied {
+            denied.log();
+        }
         let mut body = format!("{DECLARATION}<Error>");
         element(&mut body, "Code", self.code.as_str());
         element(&mut body, "Message", &self.message);
@@ -398,7 +405,9 @@ impl From<JsonError> for Error {
             error.message
         };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
-        Self::new(code, message)
+        let mut xml = Self::new(code, message);
+        xml.denied = error.denied;
+        xml
     }
 }
 

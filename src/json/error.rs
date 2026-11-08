@@ -1,5 +1,5 @@
 use crate::{
-    auth::AuthFailure,
+    auth::{AuthFailure, Denied},
     bucket::CatalogError,
     object::ObjectError,
     storage::failure::{BackendCause, BackendFailure, IoCause, MemoryBudget},
@@ -107,6 +107,9 @@ pub struct JsonError {
     pub(crate) plain: Option<&'static PlainText>,
     /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
     pub(crate) html_typed: bool,
+    /// The refused permission behind a denial, logged when the response leaves so that a
+    /// probe which discards the denial logs nothing.
+    pub(crate) denied: Option<Box<Denied>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -338,6 +341,7 @@ impl JsonError {
             location: None,
             plain: None,
             html_typed: false,
+            denied: None,
         }
     }
 
@@ -509,8 +513,23 @@ impl JsonError {
             .with_kind(ErrorKind::InvalidArgument)
     }
 
+    /// A refusal that no Cloud Storage permission names keeps the documented example message.
     pub(crate) fn forbidden() -> Self {
         Self::new(StatusCode::FORBIDDEN, "forbidden", "Forbidden")
+    }
+
+    /// The 401 `required` an anonymous caller receives in place of a 403. A refused
+    /// permission keeps its message, which names the anonymous caller; any other refusal
+    /// becomes the documented `Login Required` example.
+    pub(crate) fn for_anonymous_caller(self) -> Self {
+        let mut error = Self::from(AuthFailure::LoginRequired);
+        if let Some(denied) = self.denied {
+            if denied.is_anonymous() {
+                error.message = denied.to_string();
+            }
+            error.denied = Some(denied);
+        }
+        error
     }
 
     pub fn unsupported(name: &str) -> Self {
@@ -590,6 +609,9 @@ impl JsonError {
     }
 
     pub(crate) fn into_response(self) -> Response<Full<Bytes>> {
+        if let Some(denied) = &self.denied {
+            denied.log();
+        }
         if self.status == StatusCode::NOT_MODIFIED {
             let mut response = Response::new(Full::new(Bytes::new()));
             *response.status_mut() = self.status;
@@ -693,10 +715,19 @@ impl From<AuthFailure> for JsonError {
                 error.location = Some(&AUTHORIZATION_HEADER);
                 error
             }
-            // The service's longer "<principal> does not have <permission> access" text is
-            // undocumented, so the documented example message is kept.
+            AuthFailure::Denied(denied) => denied.into(),
             AuthFailure::Forbidden => Self::forbidden(),
         }
+    }
+}
+
+/// The documented 403 `forbidden` reason with Cloud Storage's longer message naming the
+/// principal and the refused permission.
+impl From<Box<Denied>> for JsonError {
+    fn from(denied: Box<Denied>) -> Self {
+        let mut error = Self::new(StatusCode::FORBIDDEN, "forbidden", denied.to_string());
+        error.denied = Some(denied);
+        error
     }
 }
 
@@ -727,6 +758,7 @@ impl From<CatalogError> for JsonError {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
             }
             CatalogError::PreconditionFailed => Self::precondition_not_held(),
+            CatalogError::Denied(denied) => denied.into(),
             CatalogError::Forbidden => Self::forbidden(),
             error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
                 StatusCode::BAD_REQUEST,
@@ -870,7 +902,8 @@ impl From<ObjectError> for JsonError {
                 error.to_string(),
             ),
             ObjectError::PreconditionFailed => Self::precondition_not_held().at_if_match(),
-            ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
+            ObjectError::OverwriteForbidden(denied) | ObjectError::Denied(denied) => denied.into(),
+            ObjectError::Forbidden => Self::forbidden(),
             ObjectError::UnlockedRetentionOverrideRequired => Self::new(
                 StatusCode::FORBIDDEN,
                 "forbidden",
@@ -1096,6 +1129,75 @@ mod tests {
         );
         let unrelated = JsonError::invalid_parameter(OBJECT_NOT_FOUND);
         assert!(!unrelated.is_missing_object());
+    }
+
+    fn denied(id: Option<&str>) -> Box<Denied> {
+        let identity = id.map(|id| {
+            crate::auth::Identity::from_upload_snapshot(&json!({"id": id, "projects": {}})).unwrap()
+        });
+        Denied::new(
+            identity.as_ref(),
+            crate::auth::BUCKETS_GET,
+            crate::auth::denied::Resource::in_bucket(crate::auth::BUCKETS_GET, "bucket"),
+        )
+    }
+
+    /// Every error enum renders a refused permission as the documented 403 `forbidden` reason
+    /// with the message naming the principal and the permission.
+    #[test]
+    fn denials_keep_the_forbidden_reason_and_name_the_principal_and_permission() {
+        let message = "viewer@example.invalid does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).";
+        let viewer = || denied(Some("viewer@example.invalid"));
+        for error in [
+            JsonError::from(AuthFailure::Denied(viewer())),
+            JsonError::from(CatalogError::Denied(viewer())),
+            JsonError::from(ObjectError::Denied(viewer())),
+        ] {
+            assert_eq!(
+                error.value(),
+                json!({"error": {"code": 403, "message": message,
+                    "errors": [{"message": message, "domain": "global", "reason": "forbidden"}]}})
+            );
+            assert_eq!(error.denied, Some(viewer()));
+        }
+        // Refusals that no permission names keep the documented example message.
+        for error in [
+            JsonError::from(AuthFailure::Forbidden),
+            JsonError::from(CatalogError::Forbidden),
+            JsonError::from(ObjectError::Forbidden),
+        ] {
+            assert_eq!(
+                (error.status, error.reason),
+                (StatusCode::FORBIDDEN, "forbidden")
+            );
+            assert_eq!(error.message, "Forbidden");
+            assert_eq!(error.denied, None);
+        }
+    }
+
+    #[test]
+    fn an_anonymous_caller_gets_401_required_naming_the_permission_it_lacks() {
+        let anonymous = JsonError::from(CatalogError::Denied(denied(None))).for_anonymous_caller();
+        let message = "Anonymous caller does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource (or it may not exist).";
+        assert_eq!(
+            anonymous.value(),
+            json!({"error": {"code": 401, "message": message, "errors": [{"message": message,
+                "domain": "global", "reason": "required", "locationType": "header",
+                "location": "Authorization"}]}})
+        );
+        assert_eq!(anonymous.kind, ErrorKind::Required);
+        // Another 403, or a refusal naming a stored principal, keeps the documented example.
+        let login_required = JsonError::from(AuthFailure::LoginRequired);
+        for error in [
+            JsonError::from(ObjectError::LockedRetention),
+            JsonError::from(ObjectError::Denied(denied(Some(
+                "snapshot@example.invalid",
+            )))),
+        ] {
+            let error = error.for_anonymous_caller();
+            assert_eq!(error.value(), login_required.value());
+            assert_eq!(error.kind, ErrorKind::Required);
+        }
     }
 
     #[test]

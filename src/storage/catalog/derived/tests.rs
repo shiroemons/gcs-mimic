@@ -733,7 +733,7 @@ async fn all_source_conditions_are_checked_before_pinning_and_ranges_are_validat
         catalog
             .resolve_derived_source(live("bucket", "source"), Default::default(), &denied)
             .await,
-        Err(ObjectError::Forbidden)
+        Err(ObjectError::Denied(refused)) if refused == denied.denied("bucket")
     ));
     assert!(
         catalog

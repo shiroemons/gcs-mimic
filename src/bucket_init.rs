@@ -7,7 +7,7 @@ use crate::{
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     clock::Clock,
-    config::CompatProfile,
+    config::{BucketsFileMode, CompatProfile, DocumentKind, DocumentSource, Form, Setting},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
     storage::{
@@ -22,6 +22,7 @@ use serde::{
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     path::Path,
@@ -1173,16 +1174,17 @@ pub async fn apply(
     config: &crate::config::Config,
     clock: std::sync::Arc<dyn Clock>,
 ) -> std::io::Result<InitOutcome> {
-    let Some(path) = config.buckets_file.clone() else {
+    let Some(source) = config.buckets.clone() else {
         return Ok(InitOutcome::Disabled);
     };
+    let setting = DocumentKind::Buckets.setting(source.form());
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
     let bucket_limit = config.max_buckets_per_batch;
-    let mode = config.buckets_file_mode;
+    let mode = BucketsFileMode::resolve(config.buckets_file_mode, source.form());
     let entries = crate::task::run_blocking("bucket-initializer", move || {
         load(
-            &path,
+            &source,
             &project,
             clock.as_ref(),
             &default_location,
@@ -1193,13 +1195,13 @@ pub async fn apply(
     .map_err(|_| {
         std::io::Error::other(Diagnostics::error(
             DiagnosticSource::Initializer,
-            "buckets_file",
+            setting.as_str(),
             "Cannot finish reading bucket initialization; inspect local resources and restart.",
         ))
     })?
     .map_err(std::io::Error::other)?;
     let (targets, prepared) =
-        plan::prepare(entries).map_err(|error| initialization_failure(&error))?;
+        plan::prepare(entries).map_err(|error| initialization_failure(&error, setting))?;
     let report = catalog
         .admin(Origin::BucketInit)
         .initialize_buckets(targets, move |observed| {
@@ -1207,14 +1209,15 @@ pub async fn apply(
         })
         .await
         .map_err(|error| match error {
-            plan::PlanError::Admin(error) => initialization_failure(&error),
+            plan::PlanError::Admin(error) => initialization_failure(&error, setting),
             plan::PlanError::Rejected(diagnostics) => std::io::Error::other(diagnostics),
         })?;
     report.warnings.write(std::io::stderr().lock())?;
     Ok(report.outcome())
 }
 
-fn initialization_failure(error: &AdminError) -> std::io::Error {
+/// `setting` is the one that supplied the document, which the diagnostic names.
+fn initialization_failure(error: &AdminError, setting: Setting) -> std::io::Error {
     let reason = match error {
         // Each store names its own remedy: a disk has no RAM budget, and RAM no data directory.
         AdminError::DiskFull(cause) => match cause.memory_budget() {
@@ -1244,13 +1247,14 @@ fn initialization_failure(error: &AdminError) -> std::io::Error {
     };
     std::io::Error::other(Diagnostics::error(
         DiagnosticSource::Initializer,
-        "buckets_file",
+        setting.as_str(),
         format!(
             "Cannot initialize buckets ({reason}); inspect the native catalog and available disk space, then restart to retry create-missing."
         ),
     ))
 }
 
+/// The document limit, which applies to a file and to inline text alike.
 fn file_limit(bucket_limit: Option<NonZeroUsize>) -> usize {
     bucket_limit.map_or(UNLIMITED_FILE_LIMIT, |limit| {
         limit
@@ -1260,26 +1264,83 @@ fn file_limit(bucket_limit: Option<NonZeroUsize>) -> usize {
     })
 }
 
-fn file_limit_fix(bucket_limit: Option<NonZeroUsize>) -> String {
-    let limit = file_limit(bucket_limit);
-    match bucket_limit {
-        Some(_) => format!(
-            "Bucket initialization file exceeds {limit} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 32 MiB in all."
-        ),
-        None => format!(
-            "Bucket initialization file exceeds {limit} bytes; check that buckets_file names the intended file, or reduce it."
-        ),
+/// What a document of `form` is called in a fix.
+fn noun(form: Form) -> &'static str {
+    match form {
+        Form::File => "file",
+        Form::Inline => "document",
     }
 }
 
-/// Read one selected regular file; relative paths use the process working directory.
+fn file_limit_fix(form: Form, bucket_limit: Option<NonZeroUsize>) -> String {
+    let limit = file_limit(bucket_limit);
+    let noun = noun(form);
+    match (form, bucket_limit) {
+        (Form::File | Form::Inline, Some(_)) => format!(
+            "Bucket initialization {noun} exceeds {limit} bytes; reduce it, or raise max_buckets_per_batch, which allows 1 KiB per bucket and at least 32 MiB in all."
+        ),
+        (Form::File, None) => format!(
+            "Bucket initialization file exceeds {limit} bytes; check that buckets_file names the intended file, or reduce it."
+        ),
+        (Form::Inline, None) => {
+            format!("Bucket initialization document exceeds {limit} bytes; reduce it.")
+        }
+    }
+}
+
+/// Reads the document that `source` names, then validates it with [`parse`]. A file must be a
+/// regular file; a relative path uses the process working directory.
 pub(crate) fn load(
-    file: &Path,
+    source: &DocumentSource,
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
     bucket_limit: Option<NonZeroUsize>,
 ) -> Result<Vec<InitEntry>, Diagnostics> {
+    let check = |bytes: &[u8]| {
+        parse(
+            bytes,
+            source.form(),
+            seed_project,
+            clock,
+            default_location,
+            bucket_limit,
+        )
+    };
+    match source {
+        DocumentSource::File(path) => check(&read_file(path, bucket_limit)?),
+        DocumentSource::Inline(text) => check(text.as_bytes()),
+    }
+}
+
+/// The projects that the document `source` names: its top-level `project` and each entry's.
+/// The built-in identities hold their implicit roles there. Startup validates the whole document
+/// before any bucket exists and fails on any error, so one that cannot be read or parsed here
+/// names no project instead of failing twice.
+pub(crate) fn named_projects(
+    source: &DocumentSource,
+    bucket_limit: Option<NonZeroUsize>,
+) -> BTreeSet<String> {
+    let read = match source {
+        DocumentSource::File(path) => read_file(path, bucket_limit).ok().map(Cow::Owned),
+        DocumentSource::Inline(text) => Some(Cow::Borrowed(text.as_bytes())),
+    };
+    let Some(document) = read.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else {
+        return BTreeSet::new();
+    };
+    let entries = document
+        .get("buckets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    std::iter::once(&document)
+        .chain(entries)
+        .filter_map(|object| object.get("project").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn read_file(file: &Path, bucket_limit: Option<NonZeroUsize>) -> Result<Vec<u8>, Diagnostics> {
     let read_failure = || {
         Diagnostics::error(
             DiagnosticSource::Initializer,
@@ -1299,35 +1360,37 @@ pub(crate) fn load(
     if !file.metadata().map_err(|_| read_failure())?.is_file() {
         return Err(read_failure());
     }
-    let bytes = bounded_file::read_from(file, file_limit(bucket_limit) as u64).map_err(|error| Diagnostics::error(
+    bounded_file::read_from(file, file_limit(bucket_limit) as u64).map_err(|error| Diagnostics::error(
         DiagnosticSource::Initializer, "buckets_file", match error {
-            ReadError::Limit => file_limit_fix(bucket_limit),
+            ReadError::Limit => file_limit_fix(Form::File, bucket_limit),
             ReadError::Io(_) => "Cannot read bucket initialization file; select a readable local JSON file, for example buckets.json.".into(),
-        }))?;
-    parse(&bytes, seed_project, clock, default_location, bucket_limit)
+        }))
 }
 
 /// Validate the entire document before returning any records, always using native semantics.
+/// `form` names the setting that supplied it in document-level diagnostics.
 pub(crate) fn parse(
     bytes: &[u8],
+    form: Form,
     seed_project: &str,
     clock: &dyn Clock,
     default_location: &str,
     bucket_limit: Option<NonZeroUsize>,
 ) -> Result<Vec<InitEntry>, Diagnostics> {
+    let setting = DocumentKind::Buckets.setting(form).as_str();
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     if bytes.len() > file_limit(bucket_limit) {
         return Err(Diagnostics::error(
             DiagnosticSource::Initializer,
-            "buckets_file",
-            file_limit_fix(bucket_limit),
+            setting,
+            file_limit_fix(form, bucket_limit),
         ));
     }
     // Value enforces UTF-8, finite numbers and serde's recursion bound before raw traversal.
-    let _: Value = serde_json::from_slice(bytes).map_err(|_| failure("buckets_file", "Malformed bucket initialization file; use one UTF-8 JSON object without BOM, comments or trailing data, for example {\"version\":1,\"buckets\":[]}."))?;
+    let _: Value = serde_json::from_slice(bytes).map_err(|_| Diagnostics::error(DiagnosticSource::Initializer, setting, format!("Malformed bucket initialization {}; use one UTF-8 JSON object without BOM, comments or trailing data, for example {{\"version\":1,\"buckets\":[]}}.", noun(form))))?;
     let raw: &RawValue = serde_json::from_slice(bytes).map_err(|_| {
         failure(
-            "buckets_file",
+            setting,
             "Provide one valid JSON document, for example {\"version\":1,\"buckets\":[]}.",
         )
     })?;
@@ -1613,6 +1676,7 @@ mod tests {
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
         records(super::parse(
             bytes,
+            Form::File,
             seed_project,
             clock,
             default_location,
@@ -1620,14 +1684,18 @@ mod tests {
         ))
     }
 
+    fn file(path: &Path) -> DocumentSource {
+        DocumentSource::File(path.to_owned())
+    }
+
     fn load(
-        file: &Path,
+        path: &Path,
         seed_project: &str,
         clock: &dyn Clock,
         default_location: &str,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
         records(super::load(
-            file,
+            &file(path),
             seed_project,
             clock,
             default_location,
@@ -1638,6 +1706,7 @@ mod tests {
     fn entries(document: &str) -> Result<Vec<InitEntry>, Diagnostics> {
         super::parse(
             document.as_bytes(),
+            Form::File,
             "seed-project",
             &FixedClock,
             "US",
@@ -1651,6 +1720,7 @@ mod tests {
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
         records(super::parse(
             document.as_bytes(),
+            Form::File,
             "seed-project",
             &FixedClock,
             "US",
@@ -1800,7 +1870,7 @@ mod tests {
             bytes in prop::collection::vec(any::<u8>(), 0..4096),
             limit in prop_oneof![Just(0usize), Just(1), 1usize..=1_000_000, Just(1_000_000)],
         ) {
-            if let Err(errors) = super::parse(&bytes, "seed-project", &FixedClock, "US", named(limit)) {
+            if let Err(errors) = super::parse(&bytes, Form::Inline, "seed-project", &FixedClock, "US", named(limit)) {
                 prop_assert!(errors.is_err());
                 prop_assert!(rendered_bytes(&errors) <= DIAGNOSTIC_BYTES_LIMIT);
             }
@@ -2156,8 +2226,11 @@ mod tests {
         let document = json!({"version":1,"buckets":entries}).to_string();
         assert_eq!(parsed_with(&document, None).unwrap().len(), LIMIT + 1);
         assert_eq!(file_limit(None), UNLIMITED_FILE_LIMIT);
-        let fix = file_limit_fix(None);
+        let fix = file_limit_fix(Form::File, None);
         assert!(fix.contains("buckets_file"), "{fix}");
+        assert!(!fix.contains("max_buckets_per_batch"), "{fix}");
+        let fix = file_limit_fix(Form::Inline, None);
+        assert!(!fix.contains("buckets_file"), "{fix}");
         assert!(!fix.contains("max_buckets_per_batch"), "{fix}");
     }
 
@@ -2173,7 +2246,7 @@ mod tests {
         assert_eq!(file_limit(1_000_000), 1_000_000 * FILE_BYTES_PER_BUCKET);
 
         let directory = crate::test_support::TestDir::new();
-        let file = directory.0.join("buckets.json");
+        let path = directory.0.join("buckets.json");
         let empty = r#"{"version":1,"buckets":[]}"#;
         let fill = |extra: usize| {
             format!(
@@ -2185,12 +2258,19 @@ mod tests {
         for failure in [
             parsed_within(&fill(1), limit).unwrap_err(),
             {
-                fs::write(&file, fill(1)).unwrap();
-                super::load(&file, "seed-project", &FixedClock, "US", named(limit)).unwrap_err()
+                fs::write(&path, fill(1)).unwrap();
+                super::load(
+                    &file(&path),
+                    "seed-project",
+                    &FixedClock,
+                    "US",
+                    named(limit),
+                )
+                .unwrap_err()
             },
             {
-                fs::write(&file, fill(0)).unwrap();
-                load(&file, "seed-project", &FixedClock, "US").unwrap_err()
+                fs::write(&path, fill(0)).unwrap();
+                load(&path, "seed-project", &FixedClock, "US").unwrap_err()
             },
         ] {
             assert_eq!(failure.errors[0].key, "buckets_file");
@@ -2199,8 +2279,36 @@ mod tests {
                 "{failure}"
             );
         }
-        fs::write(&file, fill(0)).unwrap();
-        assert!(super::load(&file, "seed-project", &FixedClock, "US", named(limit)).is_ok());
+        fs::write(&path, fill(0)).unwrap();
+        assert!(
+            super::load(
+                &file(&path),
+                "seed-project",
+                &FixedClock,
+                "US",
+                named(limit)
+            )
+            .is_ok()
+        );
+        // Inline text is held to the same limit, and the fix names the inline setting.
+        let inline = |extra| {
+            super::load(
+                &DocumentSource::Inline(fill(extra)),
+                "seed-project",
+                &FixedClock,
+                "US",
+                named(limit),
+            )
+        };
+        assert!(inline(0).is_ok());
+        let failure = inline(1).unwrap_err();
+        assert_eq!(failure.errors[0].key, "buckets");
+        assert!(
+            failure.errors[0]
+                .fix
+                .starts_with("Bucket initialization document exceeds"),
+            "{failure}"
+        );
     }
 
     #[test]
@@ -2329,6 +2437,16 @@ mod tests {
             assert_eq!(errors.errors.len(), 1);
             assert_eq!(errors.errors[0].key, "buckets_file");
             assert!(!errors.to_string().contains("secret"));
+            // The inline form names its own setting and never echoes the text either.
+            if let Ok(text) = std::str::from_utf8(bytes) {
+                let inline = DocumentSource::Inline(text.to_owned());
+                let errors = super::load(&inline, "seed-project", &FixedClock, "US", named(LIMIT))
+                    .unwrap_err();
+                assert_eq!(errors.errors.len(), 1);
+                assert_eq!(errors.errors[0].key, "buckets");
+                assert!(!errors.to_string().contains("secret"));
+                assert!(!errors.to_string().contains("file"), "{errors}");
+            }
         }
         for document in ["null", "[]", "true", "1", "\"text\""] {
             assert_eq!(keys(document), ["$"]);
@@ -2858,10 +2976,16 @@ mod tests {
 
     #[test]
     fn initialization_failure_reports_catalog_corruption() {
-        assert_eq!(
-            initialization_failure(&AdminError::Corrupt("invalid stored enum".into())).to_string(),
-            "buckets_file: Cannot initialize buckets (catalog corrupt); inspect the native catalog and available disk space, then restart to retry create-missing."
-        );
+        for setting in [Setting::BucketsFile, Setting::Buckets] {
+            assert_eq!(
+                initialization_failure(&AdminError::Corrupt("invalid stored enum".into()), setting)
+                    .to_string(),
+                format!(
+                    "{}: Cannot initialize buckets (catalog corrupt); inspect the native catalog and available disk space, then restart to retry create-missing.",
+                    setting.as_str()
+                )
+            );
+        }
     }
 
     #[test]
@@ -2875,7 +2999,11 @@ mod tests {
                     MemoryExhausted::new(budget),
                 ),
             };
-            initialization_failure(&AdminError::DiskFull(IoCause::from(error))).to_string()
+            initialization_failure(
+                &AdminError::DiskFull(IoCause::from(error)),
+                Setting::Buckets,
+            )
+            .to_string()
         };
         let disk = full(None);
         assert!(
@@ -2995,6 +3123,40 @@ mod tests {
             json!({"version":1,"buckets":[{"name":"example-bucket","iamConfiguration":null}]})
                 .to_string();
         assert!(parsed(&document).is_ok());
+    }
+
+    /// Only where the text comes from differs: an inline document yields the records and entry
+    /// diagnostics that the same document in a file does.
+    #[test]
+    fn an_inline_document_loads_and_fails_like_the_same_file() {
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("buckets.json");
+        for document in [
+            r#"{"version":1,"project":"file-project","buckets":[{"name":"first-bucket","labels":{"env":"dev"}},{"name":"second-bucket","project":"entry-project"}]}"#,
+            r#"{"version":1,"buckets":[{"name":"Bad Name","storageClas":"secret-value"},{"name":"bad name"}]}"#,
+            r#"{"version":2,"buckets":[]}"#,
+            r#"{"version":1,"buckets":[{"name":"dup"},{"name":"dup"}],"buckets":[]}"#,
+        ] {
+            fs::write(&path, document).unwrap();
+            let [from_file, inline] =
+                [file(&path), DocumentSource::Inline(document.into())].map(|source| {
+                    records(super::load(
+                        &source,
+                        "seed-project",
+                        &FixedClock,
+                        "US",
+                        named(LIMIT),
+                    ))
+                });
+            match (from_file, inline) {
+                (Ok(from_file), Ok(inline)) => assert_eq!(from_file, inline, "{document}"),
+                (Err(from_file), Err(inline)) => {
+                    assert_eq!(from_file.errors, inline.errors, "{document}");
+                    assert!(!inline.to_string().contains("secret-value"));
+                }
+                (from_file, inline) => panic!("{document}: {from_file:?} != {inline:?}"),
+            }
+        }
     }
 
     #[test]

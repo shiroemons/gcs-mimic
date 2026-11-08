@@ -1,6 +1,6 @@
 # Examples
 
-Each client directory runs the same workflow against gcs-mimic with an official client: create a bucket, upload, list, download and delete an object. The [strict local recipe](#production-like-access) is a block for your own compose.yaml instead.
+Each client directory runs the same workflow against gcs-mimic with an official client: create a bucket, upload, list, download and delete an object. The [production-like examples](#production-like-access) set up access as in production instead.
 
 ## Start gcs-mimic
 
@@ -30,4 +30,9 @@ Each directory's README lists its requirements. Run an example with `./run.sh` (
 
 ## Production-like access
 
-[strict-local](strict-local/) is a `gcs` service to paste into your application's compose.yaml. Private buckets stay private, public buckets open only through `allUsers`, browsers use URLs signed by the built-in test signer, and application servers on the Compose network keep their code. It needs a release newer than 0.13.0. The container smoke test runs it with the image built from the checkout.
+Both need a gcs-mimic release newer than 0.13.0.
+
+| Example | What it is |
+| --- | --- |
+| [strict-local](strict-local/) | A `gcs` service to paste into your application's compose.yaml. Private buckets stay private, public buckets open only through `allUsers`, browsers use URLs signed by the built-in test signer, and application servers on the Compose network keep their code. The container smoke test runs it with the image built from the checkout. |
+| [full-stack](full-stack/) | A complete application in one Compose project: gcs-mimic in strict mode with the trusted listener, a Go API server, a Rails app and a frontend. It includes per-worktree ports, public and private buckets with CORS, and signed URLs for the browser. It is built on the strict local recipe. |

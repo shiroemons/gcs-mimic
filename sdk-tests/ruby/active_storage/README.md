@@ -89,12 +89,35 @@ bash sdk-tests/ruby/active_storage/run-strict.sh
 
 The runner registers only the public test key, grants its local identity the
 local-project admin role, starts an isolated strict server and cleans up its own
-data. `strict.rb` verifies stock Rails V2 and the explicit `EmulatorGcs` V4
-service, private access, PAP and browser-equivalent CORS with signatures kept
-intact. It does not remove OAuth authorization or rewrite signed URLs.
+data. `strict.rb` creates a private and a public bucket (an `allUsers`
+`roles/storage.objectViewer` policy) as that identity and verifies stock Rails V2
+and the explicit `EmulatorGcs` V4 service, private access, PAP and
+browser-equivalent CORS with signatures kept intact. It then runs what an
+application does: a `has_one_attached` PNG attachment with download, `exist?` and
+`purge`, whose `variants/KEY/` deletion lists the bucket, plus `delete_prefixed`;
+a content type change that patches the object's metadata; `Blob.compose`; and
+upload, `exist?`, the unsigned `url` and `purge` through a `public: true` service.
+The stock SDK names `storage.googleapis.com` in public URLs whatever the endpoint
+is, so that case asserts the Google host and sends the URL's path to the
+emulator. Two local fixes follow, each with an anonymous GET of the URL used
+unchanged. The `EmulatorGcs` adapter's `public_url` names its `public_endpoint`
+(AS-STRICT-PUBLIC-URL-ADAPTER, through the `*_public_browser` entries, with an
+escaped custom key and the blob route's redirect). The
+[initializer](initializers/active_storage_gcs_emulator.rb) that an application
+copies to `config/initializers/` prepends the same method to the stock GCS
+service in development and test for entries that set an `endpoint`
+(AS-STRICT-PUBLIC-URL-INITIALIZER). That case loads it last, checks the stock
+entry and a variant key, and checks that an entry without an endpoint keeps the
+Google URL. It does not remove OAuth authorization or rewrite signed URLs.
 The runner then repeats the same scenario against a second strict server started
 with `--test-signer enabled`, whose identity file declares only
-`test-signer@gcs-mimic.invalid` with the local-project admin role and no keys.
+`test-signer@gcs-mimic.invalid` with the local-project `roles/storage.objectUser`
+role and no keys, as the
+[strict local recipe](../../../examples/strict-local/README.md) grants it. That
+role cannot create buckets or change their settings, so the server creates
+`app-private` (PAP enforced, the direct-upload CORS rule) and `app-public` from
+[strict-buckets.json](strict-buckets.json), and `strict.rb` uses them without
+looking them up and deletes only their objects.
 `strict.rb gcs_emulator_test_signer` selects the documented
 [built-in test signer recipe](../../../docs/en/signed-urls.md#built-in-test-signer):
 `client_email: test-signer@gcs-mimic.invalid` and the private key that

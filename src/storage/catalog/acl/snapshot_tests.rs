@@ -116,7 +116,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                         connection, "bucket", "object", generation, &checked,
                     ) {
                         Ok(()) => Ok(true),
-                        Err(ObjectError::Forbidden) => Ok(false),
+                        Err(ObjectError::Denied(_)) => Ok(false),
                         Err(error) => Err(unavailable(error)),
                     }
                 })

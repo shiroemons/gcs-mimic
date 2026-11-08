@@ -2,8 +2,19 @@ use super::*;
 
 #[test]
 fn object_error_keeps_authorization_from_catalog() {
+    let denied = || {
+        crate::auth::Denied::new(
+            None,
+            crate::auth::OBJECTS_GET,
+            crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
+        )
+    };
     for (input, expected) in [
         (CatalogError::Forbidden, ObjectError::Forbidden),
+        (
+            CatalogError::Denied(denied()),
+            ObjectError::Denied(denied()),
+        ),
         (
             CatalogError::PublicAccessPrevention,
             ObjectError::PublicAccessPrevention,

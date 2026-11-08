@@ -270,24 +270,29 @@ Go storage v1.70.0 omits non-default ports from canonical Host. A server that
 verifies signatures, like the strict journey above, therefore rejects its URLs
 for a host:port endpoint with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
-`signed_host_port=lenient`. The default permissive server does not check
+`signed_host_port=lenient`, which is already the default wherever the
+[built-in test signer](#built-in-test-signer) is enabled: its published key
+marks a local test, so tolerating a signer that drops the port changes nothing
+that matters there. The default permissive server does not check
 signatures, so those URLs work there. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start a server that
 verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
-elsewhere the setting is a startup error because it would change nothing)
-with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, JSON
-`signed_host_port`). A V4 signature that does not match the actual Host is then
+elsewhere an explicit `lenient` is a startup error because it would change
+nothing) with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`,
+JSON `signed_host_port`), or enable the test signer. An explicit `exact` wins
+over that default and is accepted everywhere, and the ready event reports the
+effective value. A V4 signature that does not match the actual Host is then
 checked once more with the port removed from the canonical host and accepted
 only if that matches. The host name, method, path, query, signed headers,
 payload rule and time window stay bound, and an IPv6 literal keeps its brackets.
 V2 signatures and POST policies do not sign Host and are unaffected. The first
 such match in a process logs one `signature_host_port_omitted` warning without
-the URL or credentials. The default `exact` keeps verification unchanged. The Go
-SDK suite sends unmodified `SignedURL` GET and PUT URLs for a host:port to a
-strict server started with `lenient` and the
+the URL or credentials. `exact`, the default without the test signer, keeps
+verification unchanged. The Go SDK suite sends unmodified `SignedURL` GET and
+PUT URLs for a host:port to a strict server started with `lenient` and the
 [built-in test signer](#built-in-test-signer), where they pass while tampering
-still fails, and checks that the default exact server rejects such a URL with the
+still fails, and checks that an exact server rejects such a URL with the
 message above; see the
 [evidence](evidence/signed-urls.md#built-in-test-signer-and-lenient-host-ports-with-official-sdks).
 The Node.js signer drops the port the same way; see the
@@ -297,7 +302,8 @@ test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_k
 bucket_bound_hostname:)` with an explicit bucket/name File path because
 bucket-bound signing removes the normal bucket prefix. This preserves host:port
 before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
-SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Exact verification stays the default.
+SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Exact verification stays the
+default where the test signer is disabled.
 PAP suppresses stored `allUsers` and `allAuthenticatedUsers` grants in strict mode;
 explicit signer grants remain usable. The journey compares the policy before,
 during and after enforcement, shows public reactivation with `inherited`, then
@@ -343,31 +349,45 @@ and the ready event reports the effective value as `"test_signer"`:
 | --- | --- | --- |
 | `permissive` with `signed_urls=verify` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
 | `permissive` with the default `signed_urls=ignore` | `disabled` | No signature is verified, so the signer would do nothing |
-| `strict` | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
+| `strict` whose identity document declares `test-signer@gcs-mimic.invalid` | `enabled` | The entry for its ID says that this local setup asked for the signer |
+| `strict` otherwise | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
 
-An explicit `disabled` is accepted everywhere. An explicit `enabled` in
-permissive mode with `signed_urls=ignore` fails startup ("test_signer=enabled has
-no effect while signatures are ignored"), because it would promise a
-verification that never happens.
+An explicit value wins. An explicit `disabled` is accepted everywhere. An
+explicit `enabled` in permissive mode with `signed_urls=ignore` fails startup
+("test_signer=enabled has no effect while signatures are ignored"), because it
+would promise a verification that never happens. The identity document is
+`identity_file` or the inline `identities`; either one declaring the ID counts.
 
-- **Strict mode with `test_signer=enabled`**: startup emits one warning before
-  readiness that the signer's private key is published, so anyone can
-  authenticate as that identity and reach `allAuthenticatedUsers` grants and
-  anything granted to it. The identity then exists with the built-in public key.
-  If the identity file declares `test-signer@gcs-mimic.invalid`, that entry
+- **Strict mode with the signer enabled**, by `test_signer=enabled` or by an
+  entry for its ID: startup emits one warning before readiness that the
+  signer's private key is published, so anyone can authenticate as that
+  identity and reach `allAuthenticatedUsers` grants and anything granted to it.
+  The warning names the input that enabled it: the `test_signer` input, or the
+  `identity_file` or `identities` input that declares the entry. The identity
+  then exists with the built-in public key.
+  If the identity document declares `test-signer@gcs-mimic.invalid`, that entry
   supplies its tokens, project roles and ACL entity, and the built-in key is
-  added to its `public_keys`. Otherwise it has no project roles, so a bucket or
-  object grant such as `user:test-signer@gcs-mimic.invalid` authorizes it; a
-  signature it makes without a grant gets 403 `AccessDenied`. V4 and V2 RSA
+  added to its `public_keys`: an explicit declaration replaces every implicit
+  grant. Otherwise it holds `roles/storage.objectUser` in the effective
+  `seed_project` and in every project the buckets document (`buckets_file` or
+  `buckets`) names, and the warning says so. That is the least predefined role
+  that covers signed GET and PUT, overwrites and what Rails also does (delete,
+  list and metadata updates), and it administers no IAM policy or ACL, which
+  matters because anyone can sign with the published key. An object it writes
+  records it as owner, so with fine-grained ACLs it may still edit that object's
+  own ACL, as an owner may in Cloud Storage; uniform bucket-level access removes
+  that. In other projects a bucket or object grant such as
+  `user:test-signer@gcs-mimic.invalid` authorizes it, and a signature it makes
+  without one gets 403 `AccessDenied`. V4 and V2 RSA
   signed URLs and self-signed service-account JWTs from it verify like those of
-  any registered identity with public keys. An identity file entry whose ACL
+  any registered identity with public keys. An identity entry whose ACL
   alias or natural user entity names the signer fails startup unless it
   declares the signer itself.
-- **Strict mode by default or with `test_signer=disabled`**: there is no
-  built-in signer. An identity file entry with its ID is an ordinary identity
-  with only the file's own keys. Signatures made with the published key fail
-  with 403 `InvalidAccessKeyId`, whose message says that the built-in test
-  signer is disabled and names `test_signer=enabled` (or with 403
+- **Strict mode without an entry for its ID, or with `test_signer=disabled`**:
+  there is no built-in signer. With `test_signer=disabled`, an entry with its ID
+  is an ordinary identity with only its own keys. Signatures made with the
+  published key fail with 403 `InvalidAccessKeyId`, whose message says that the
+  built-in test signer is disabled and names `test_signer=enabled` (or with 403
   `SignatureDoesNotMatch` when that entry declares other `public_keys`), and its
   JWTs with 401.
 - **Permissive mode** ignores signatures by default, so the signer is disabled.
@@ -375,8 +395,9 @@ verification that never happens.
   `test_signer=disabled`; see
   [verifying signed requests in permissive mode](#verifying-signed-requests-in-permissive-mode).
 
-The ready event's `identities` counts only the identity file's entries. To use
-the signer with strict mode, enable it explicitly:
+The ready event's `identities` counts only the identity document's entries. To
+use the signer with strict mode, declare it in the identity document with the
+project roles it needs, or enable it explicitly:
 
 ```sh
 GCS_MIMIC_AUTH_MODE=strict GCS_MIMIC_IDENTITY_FILE=identities.json \
@@ -426,13 +447,14 @@ url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOption
 ```
 
 Go storage drops a non-default port from the Host it signs, so a URL for
-`localhost:4443` does not match the request's `Host: localhost:4443`. A server
-that verifies signatures, as one using the built-in signer does, rejects it with
-403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
-`gcs-mimic url sign`, or set `signed_host_port=lenient`, which tolerates the
-missing port. The Go SDK suite signs this way with the printed key for a
-`127.0.0.1` host:port and passes against a strict server with
-`test_signer=enabled` and `signed_host_port=lenient`.
+`localhost:4443` does not match the request's `Host: localhost:4443`. Exact
+verification rejects it with 403 `SignatureDoesNotMatch`, but a server with the
+built-in signer enabled defaults to `signed_host_port=lenient`, which tolerates
+the missing port, so the URL above verifies there unless `signed_host_port=exact`
+is set. Elsewhere, use a default-port endpoint, sign with `gcs-mimic url sign`,
+or set `signed_host_port=lenient`. The Go SDK suite signs this way with the
+printed key for a `127.0.0.1` host:port and passes against a strict server with
+the test signer enabled and `signed_host_port=lenient`.
 
 Rails Active Storage takes the same credentials in `config/storage.yml`. Save
 the key in the app, for example with
@@ -453,12 +475,15 @@ gcs_emulator:
     private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
 ```
 
-In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, then
-grant `user:test-signer@gcs-mimic.invalid` on the bucket or declare the signer
-with project roles in the identity file. The strict Rails suite
-(`sdk-tests/ruby/active_storage/run-strict.sh`) runs this recipe against such a
-server whose identity file declares the signer with project roles: Rails' JWT
-bearer, its V2 URLs and the final-origin V4 adapter pass. A
+In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, which
+also lets strict mode start without an identity document: the signer then reads
+and writes objects in the buckets document's projects and `seed_project`, and a
+bucket elsewhere needs a grant for `user:test-signer@gcs-mimic.invalid`. To
+choose its roles yourself, declare the signer with project roles in the
+identity document, which also enables it. The strict Rails suite
+(`sdk-tests/ruby/active_storage/run-strict.sh`) runs this recipe against a
+server whose identity file gives the signer only `roles/storage.objectUser`:
+Rails' JWT bearer, its V2 URLs and the final-origin V4 adapter pass. A
 [trusted listener](container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
 does not replace the signer for Rails, because Rails always sends its own token.
 
@@ -608,8 +633,9 @@ Signatures verify with these keys:
   permissive mode verifies signatures;
 - ACTIVE HMAC keys created through the JSON API. Their service account needs
   no identity entry, since nothing is authorized by identity;
-- RSA public keys from an identity file. Permissive mode accepts
-  `identity_file` only with `signed_urls=verify`, and its identities may declare
+- RSA public keys from an identity document, `identity_file` or the same
+  registry inline in `identities`. Permissive mode accepts either only with
+  `signed_urls=verify`, and its identities may declare
   only `id` and `public_keys` (and an empty or absent `tokens`).
   `project_roles`, `acl_entity`, non-empty `tokens` and
   `public_access_prevention_projects` require `auth_mode=strict` and fail

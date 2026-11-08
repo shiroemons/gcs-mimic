@@ -43,11 +43,12 @@ impl SigningKeys {
 #[cfg(test)]
 mod tests {
     use crate::auth::{
-        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner,
+        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, TestSignerChoice,
         signature::SignedHostPort, test_signer,
     };
-    use crate::config::{AuthProfile, Verification};
+    use crate::config::{AuthProfile, DocumentSource, TrustedCaller, Verification};
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     const PUBLIC: &str = include_str!("../../fixtures/signing/test-only-public.pem");
 
@@ -108,26 +109,41 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        let auth = Auth::load(&AuthProfile::Permissive).unwrap();
+        let auth = Auth::load(&AuthProfile::Permissive, &BTreeSet::new()).unwrap();
         assert!(matches!(auth.profile, Profile::Permissive));
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
-        for (test_signer, identity_file, signed_host_port) in [
-            (TestSigner::Enabled, false, SignedHostPort::Exact),
-            (TestSigner::Disabled, false, SignedHostPort::Lenient),
-            (TestSigner::Enabled, true, SignedHostPort::Lenient),
-            (TestSigner::Disabled, true, SignedHostPort::Exact),
+        // An explicit host-port setting wins; without one, the settled signer selects it.
+        for (test_signer, identity_file, configured, signed_host_port) in [
+            (
+                TestSigner::Enabled,
+                false,
+                Some(SignedHostPort::Exact),
+                SignedHostPort::Exact,
+            ),
+            (
+                TestSigner::Disabled,
+                false,
+                Some(SignedHostPort::Lenient),
+                SignedHostPort::Lenient,
+            ),
+            (TestSigner::Enabled, true, None, SignedHostPort::Lenient),
+            (TestSigner::Disabled, true, None, SignedHostPort::Exact),
         ] {
-            let auth = Auth::load(&AuthProfile::VerifyingPermissive {
-                identity_file: identity_file.then(|| path.clone()),
-                verification: Verification {
-                    test_signer,
-                    signed_host_port,
+            let auth = Auth::load(
+                &AuthProfile::VerifyingPermissive {
+                    identities: identity_file.then(|| DocumentSource::File(path.clone())),
+                    verification: Verification {
+                        test_signer: TestSignerChoice::Fixed(test_signer),
+                        signed_host_port: configured,
+                    },
                 },
-            })
+                &BTreeSet::new(),
+            )
             .unwrap();
             assert_eq!(auth.mode(), AuthMode::Permissive);
             assert_eq!(auth.signed_urls(), SignedUrls::Verify);
             assert_eq!(auth.signed_host_port, signed_host_port);
+            assert_eq!(auth.test_signer(), test_signer);
             assert!(auth.principals().is_none() && auth.identity_count().is_none());
             let Profile::VerifyingPermissive(keys) = &auth.profile else {
                 panic!("permissive verification expected");
@@ -139,13 +155,17 @@ mod tests {
             );
         }
         // Loading reports only identity file contents; the pairing rules belong to validation.
-        let error = Auth::load(&AuthProfile::Strict {
-            identity_file: path,
-            verification: Verification {
-                test_signer: TestSigner::Disabled,
-                signed_host_port: SignedHostPort::Lenient,
+        let error = Auth::load(
+            &AuthProfile::Strict {
+                identities: Some(DocumentSource::File(path)),
+                verification: Verification {
+                    test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
+                    signed_host_port: Some(SignedHostPort::Lenient),
+                },
+                trusted: TrustedCaller::Anonymous,
             },
-        })
+            &BTreeSet::new(),
+        )
         .unwrap_err();
         assert!(error.to_string().contains("missing required field: tokens"));
     }

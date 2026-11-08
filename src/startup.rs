@@ -149,7 +149,7 @@ impl ReadyEvent {
             shutdown_timeout_ms: config.shutdown_timeout,
             auth_mode: auth.mode().as_str(),
             identities: auth.identity_count(),
-            test_signer: config.effective_test_signer().as_str(),
+            test_signer: auth.test_signer().as_str(),
             signed_urls: auth.signed_urls().as_str(),
             seed,
             buckets_file,
@@ -160,8 +160,8 @@ impl ReadyEvent {
                 .as_ref()
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
-            cors_fallback: config.cors_fallback.as_str(),
-            signed_host_port: config.signed_host_port.as_str(),
+            cors_fallback: config.effective_cors_fallback().fallback().as_str(),
+            signed_host_port: auth.signed_host_port().as_str(),
             api_base_url,
         }
     }
@@ -533,7 +533,7 @@ fn ready_event(
             }
             if let Some(listener) = &listeners.trusted {
                 event.trusted_listen = Some(listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
-                event.trusted_principal.clone_from(&config.trusted_principal);
+                event.trusted_principal = auth.trusted_principal().map(str::to_owned);
             }
             serde_json::to_string(&event)
             .map(|ready| (ready, api_base_url))
@@ -692,6 +692,7 @@ mod tests {
     use crate::test_support::TestDir;
     use gcs_mimic::{
         clock::{Clock, SystemClock},
+        config::DocumentSource,
         storage::Catalog,
     };
     use std::{
@@ -858,7 +859,7 @@ mod tests {
         assert!(bound.listeners.trusted.is_none());
         drop(bound);
         config.grpc_listen = Some("127.0.0.1:0".parse().unwrap());
-        config.buckets_file = Some(dir.0.join("missing-buckets.json"));
+        config.buckets = Some(DocumentSource::File(dir.0.join("missing-buckets.json")));
         let error = prepare_startup(
             &catalog,
             &config,
@@ -870,7 +871,7 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.to_string().contains("buckets_file"));
-        config.buckets_file = None;
+        config.buckets = None;
         let PhaseResult::Complete(bound) = prepare_startup(
             &catalog,
             &config,
@@ -1262,12 +1263,13 @@ mod tests {
         let dir = TestDir::new();
         let mut config = dir.config();
         config.data_dir = dir.0.join("data");
-        config.buckets_file = Some(dir.0.join("buckets.json"));
+        let buckets = dir.0.join("buckets.json");
         fs::write(
-            config.buckets_file.as_ref().unwrap(),
+            &buckets,
             r#"{"version":1,"buckets":[{"name":"pending-bucket"}]}"#,
         )
         .unwrap();
+        config.buckets = Some(DocumentSource::File(buckets));
         let catalog = Catalog::open(&config.data_dir).await.unwrap();
         let (entered, validating) = tokio::sync::oneshot::channel();
         let (release, released) = mpsc::channel();

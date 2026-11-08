@@ -464,14 +464,97 @@ fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_o
         "https://other.example.invalid"
     );
     assert_eq!(json.headers["access-control-allow-credentials"], "true");
+    // An explicit allow-all was chosen knowingly, so it neither warns nor notes.
+    let events = stderr_events(&mut server);
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["event"] == "cors_unconfigured" || e["event"] == "cors_fallback_default")
+    );
+}
+
+/// Permissive mode allows every origin by default, as fake-gcs-server does, and says once per
+/// bucket that Cloud Storage would refuse; strict mode follows Cloud Storage. Stored rules keep
+/// their exact behavior either way.
+#[test]
+fn the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows() {
+    let data = TestDir::new();
+    let (mut server, ready) = Server::start_with_stderr(&data, &[], Stdio::piped());
+    assert_eq!(ready["cors_fallback"], "allow-all");
+    for bucket in ["open-bucket", "ruled-bucket"] {
+        server.create_bucket("", "project-a", bucket).success();
+        server.upload("", bucket, "item", b"hello").success();
+    }
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/ruled-bucket",
+            "Content-Type: application/json\r\n",
+            json!({"cors":[{"origin":[ORIGIN],"method":["GET"]}]})
+                .to_string()
+                .as_bytes(),
+        )
+        .success();
+    let other = "Origin: https://other.example.invalid\r\n";
+    for _ in 0..2 {
+        let reply = server.request("GET", "/open-bucket/item", other, b"");
+        reply.expect(200);
+        assert_eq!(reply.headers["access-control-allow-origin"], "*");
+        assert_eq!(reply.body, b"hello");
+    }
+    let denied = server.request("GET", "/ruled-bucket/item", other, b"");
+    denied.expect(200);
+    assert!(!denied.headers.contains_key("access-control-allow-origin"));
+    let allowed = cors_request(&server, "GET", "/ruled-bucket/item", "", b"");
+    assert_eq!(allowed.headers["access-control-allow-origin"], ORIGIN);
     let events = stderr_events(&mut server);
     assert!(!events.iter().any(|e| e["event"] == "cors_unconfigured"));
+    let notes: Vec<_> = events
+        .iter()
+        .filter(|e| e["event"] == "cors_fallback_default")
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["level"], "info");
+    assert_eq!(notes[0]["bucket"], "open-bucket");
+    assert!(
+        notes[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Cloud Storage refuses"),
+        "{notes:?}"
+    );
+
+    let config = TestDir::new();
+    let data = TestDir::new();
+    let identities = common::process::write_identities(&config.0, &registry());
+    let strict = [
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        identities.to_str().unwrap(),
+    ];
+    let (mut server, ready) = Server::start_with_stderr(&data, &strict, Stdio::piped());
+    assert_eq!(ready["cors_fallback"], "none");
+    server
+        .create_bucket(ADMIN, "project-a", "plain-bucket")
+        .success();
+    server
+        .upload(ADMIN, "plain-bucket", "item", b"hello")
+        .success();
+    let reply = server.request("GET", "/plain-bucket/item", &format!("{ADMIN}{other}"), b"");
+    reply.expect(200);
+    assert!(!reply.headers.contains_key("access-control-allow-origin"));
+    let events = stderr_events(&mut server);
+    assert!(events.iter().any(|e| e["event"] == "cors_unconfigured"));
+    assert!(!events.iter().any(|e| e["event"] == "cors_fallback_default"));
 }
 
 #[test]
 fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
     let data = TestDir::new();
-    let (mut server, ready) = Server::start_with_stderr(&data, &[], Stdio::piped());
+    // Permissive mode defaults to allow-all, so the fallback is turned off explicitly.
+    let (mut server, ready) =
+        Server::start_with_stderr(&data, &["--cors-fallback", "none"], Stdio::piped());
     assert_eq!(ready["cors_fallback"], "none");
     server
         .create_bucket("", "project-a", "plain-bucket")

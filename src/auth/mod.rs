@@ -10,6 +10,11 @@
 
 mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
+mod built_in;
+pub(crate) use built_in::BuiltIn;
+pub use built_in::TRUSTED_APP_ID;
+pub(crate) mod denied;
+pub use denied::Denied;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
@@ -29,13 +34,13 @@ pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
-use crate::config::AuthProfile;
+use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting, TrustedCaller};
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
-    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -154,6 +159,19 @@ impl ProjectGrant {
         self.any_storage_permission = true;
         self.permissions.insert(permission);
     }
+
+    /// Adds what the predefined `role` grants; `None` for a role outside the pinned snapshot.
+    fn add_role(&mut self, role: &str) -> Option<()> {
+        let expanded = roles::permissions(role)?;
+        self.any_storage_permission |= !expanded.is_empty();
+        for permission in Permission::ALL {
+            if expanded.contains(&permission.as_str()) {
+                self.grant(*permission);
+            }
+        }
+        self.explicit_storage_admin |= role == "roles/storage.admin";
+        Some(())
+    }
 }
 
 #[cfg(test)]
@@ -211,7 +229,7 @@ crate::config::string_enum! {
 crate::config::string_enum! {
     no_default
     /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
-    /// the default depends on the profile; see [`TestSigner::resolve`].
+    /// the default depends on the profile; see [`TestSignerChoice::select`].
     pub enum TestSigner {
         Enabled => "enabled",
         Disabled => "disabled",
@@ -219,17 +237,39 @@ crate::config::string_enum! {
     "test_signer must be enabled or disabled"
 }
 
-impl TestSigner {
-    /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
-    /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
-    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there
-    /// and is enabled wherever signatures verify; where they are ignored it would do nothing.
-    pub fn resolve(configured: Option<Self>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
-        configured.unwrap_or(match (mode, signed_urls) {
-            (AuthMode::Permissive, SignedUrls::Verify) => Self::Enabled,
-            (AuthMode::Permissive, SignedUrls::Ignore)
-            | (AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::Disabled,
-        })
+/// How a profile settles the built-in test signer. Validation selects the rule; only strict
+/// mode's default needs the identity document, so loading settles that one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TestSignerChoice {
+    /// An explicit `test_signer`, or a default that the profile alone decides.
+    Fixed(TestSigner),
+    /// Strict mode's default: enabled exactly when the identity document declares
+    /// `test-signer@gcs-mimic.invalid`.
+    WhenDeclared,
+}
+
+impl TestSignerChoice {
+    /// An explicit setting wins. Otherwise permissive mode, which authorizes nothing by
+    /// identity, enables the signer wherever signatures verify; where they are ignored it would
+    /// do nothing. Strict mode leaves it to the identity document: anyone can sign with the
+    /// published key, so it would turn `allAuthenticatedUsers` grants into public access, and
+    /// an entry for its ID says that this local setup asked for it.
+    pub fn select(configured: Option<TestSigner>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+        match (configured, mode, signed_urls) {
+            (Some(signer), _, _) => Self::Fixed(signer),
+            (None, AuthMode::Permissive, SignedUrls::Verify) => Self::Fixed(TestSigner::Enabled),
+            (None, AuthMode::Permissive, SignedUrls::Ignore) => Self::Fixed(TestSigner::Disabled),
+            (None, AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::WhenDeclared,
+        }
+    }
+
+    /// The effective value, given whether the identity document declares the signer's ID.
+    fn settle(self, declares_signer: impl FnOnce() -> bool) -> TestSigner {
+        match self {
+            Self::Fixed(signer) => signer,
+            Self::WhenDeclared if declares_signer() => TestSigner::Enabled,
+            Self::WhenDeclared => TestSigner::Disabled,
+        }
     }
 }
 
@@ -290,13 +330,16 @@ fn strict_only(field: &str) -> String {
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthFailure {
     /// Credentials were presented but are unknown, malformed or of an unsupported kind.
     InvalidCredentials,
     /// An anonymous caller needs a permission.
     LoginRequired,
-    /// An authenticated caller lacks the permission.
+    /// An authenticated caller lacks the named Cloud Storage permission.
+    Denied(Box<Denied>),
+    /// An authenticated caller is refused for a reason no Cloud Storage permission names,
+    /// such as an emulator administration route or project visibility.
     Forbidden,
 }
 
@@ -305,6 +348,7 @@ impl fmt::Display for AuthFailure {
         formatter.write_str(match self {
             Self::InvalidCredentials => "invalid credentials",
             Self::LoginRequired => "login required",
+            Self::Denied(denied) => return denied.fmt(formatter),
             Self::Forbidden => "forbidden",
         })
     }
@@ -526,7 +570,11 @@ impl<'a> Caller<'a> {
         if allowed {
             Ok(())
         } else {
-            Err(AuthFailure::Forbidden)
+            Err(AuthFailure::Denied(Denied::new(
+                Some(identity),
+                permission,
+                denied::Resource::project(project),
+            )))
         }
     }
 }
@@ -543,8 +591,8 @@ impl fmt::Display for InvalidUploadSnapshot {
 
 impl std::error::Error for InvalidUploadSnapshot {}
 
-/// Why the strict-mode identity file could not be loaded. `Display` names the file and, for an
-/// invalid entry, its index; token values are never included.
+/// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
+/// values are never included. [`IdentityError`] adds the setting that supplied the document.
 #[derive(Debug)]
 pub enum RegistryError {
     TooLarge,
@@ -564,26 +612,27 @@ pub enum RegistryError {
     Project {
         entry: usize,
         project: String,
-        source: crate::json::JsonError,
+        /// Boxed, so a JSON error does not enlarge every result that carries an identity failure.
+        source: Box<crate::json::JsonError>,
     },
 }
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooLarge => write!(f, "identity_file exceeds {MAX_REGISTRY_MIB} MiB"),
-            Self::Io(error) => write!(f, "identity_file: {error}"),
-            Self::Syntax(error) => write!(f, "identity_file: {error}"),
+            Self::TooLarge => write!(f, "exceeds {MAX_REGISTRY_MIB} MiB"),
+            Self::Io(error) => write!(f, "{error}"),
+            Self::Syntax(error) => write!(f, "{error}"),
             Self::Invalid {
                 entry: None,
                 reason,
-            } => write!(f, "identity_file: {reason}"),
+            } => f.write_str(reason),
             Self::Invalid {
                 entry: Some(index),
                 reason,
-            } => write!(f, "identity_file: identities[{index}]: {reason}"),
+            } => write!(f, "identities[{index}]: {reason}"),
             Self::PublicKey { entry, source } => {
-                write!(f, "identity_file: identities[{entry}]: {source}")
+                write!(f, "identities[{entry}]: {source}")
             }
             Self::Project {
                 entry,
@@ -591,7 +640,7 @@ impl fmt::Display for RegistryError {
                 source,
             } => write!(
                 f,
-                "identity_file: identities[{entry}]: project {project:?}: {}",
+                "identities[{entry}]: project {project:?}: {}",
                 source.message
             ),
         }
@@ -604,13 +653,55 @@ impl std::error::Error for RegistryError {
             Self::Io(error) => Some(error),
             Self::Syntax(error) => Some(error),
             Self::PublicKey { source, .. } => Some(source),
-            Self::Project { source, .. } => Some(source),
+            Self::Project { source, .. } => Some(source.as_ref()),
             Self::TooLarge | Self::Invalid { .. } => None,
         }
     }
 }
 
-/// Local principal registry loaded from the strict-mode identity file.
+/// Why the identity document could not be loaded, with the setting that supplied it:
+/// `identity_file` for a file and `identities` for the inline document.
+#[derive(Debug)]
+pub struct IdentityError {
+    /// `None` when strict mode started without a document, with built-in identities only.
+    form: Option<Form>,
+    source: RegistryError,
+}
+
+impl IdentityError {
+    fn new(document: Option<&DocumentSource>, source: RegistryError) -> Self {
+        Self {
+            form: document.map(DocumentSource::form),
+            source,
+        }
+    }
+
+    /// The setting that supplied the document. Without one only the built-in identities exist,
+    /// so a failure concerns the strict profile itself.
+    pub(crate) fn setting(&self) -> Setting {
+        self.form.map_or(Setting::AuthMode, |form| {
+            DocumentKind::Identities.setting(form)
+        })
+    }
+}
+
+impl fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let setting = self.setting().as_str();
+        match &self.source {
+            RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
+            source => write!(f, "{setting}: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for IdentityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+/// Local principal registry loaded from the strict-mode identity document.
 #[derive(Debug)]
 pub struct Registry {
     identities: Vec<Identity>,
@@ -625,49 +716,92 @@ pub struct Registry {
     trusted: Option<usize>,
 }
 
-fn read_identity_file(path: &Path) -> Result<Vec<u8>, RegistryError> {
-    crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
-        crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
-        crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
-    })
+/// The identity document's bytes. Inline text is held to the same limit as a file, so both forms
+/// accept the same documents.
+fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryError> {
+    let bytes = match source {
+        DocumentSource::File(path) => crate::bounded_file::read(path, MAX_REGISTRY_BYTES)
+            .map(Cow::Owned)
+            .map_err(|error| match error {
+                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
+                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
+            })?,
+        DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
+    };
+    if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
+        return Err(RegistryError::TooLarge);
+    }
+    Ok(bytes)
 }
 
 impl Registry {
-    pub fn load(path: &Path) -> Result<Self, RegistryError> {
-        Self::parse(&read_identity_file(path)?)
+    /// Strict mode's principals, with the built-in test signer when `signer` settles to enabled.
+    fn load_principals(
+        source: Option<&DocumentSource>,
+        signer: TestSignerChoice,
+        trusted: &TrustedCaller,
+        projects: &BTreeSet<String>,
+    ) -> Result<(Self, TestSigner), IdentityError> {
+        let load = || {
+            let mut registry = match source {
+                Some(source) => Self::parse(&read_identities(source)?)?,
+                None => Self::without_document(),
+            };
+            let signer = signer.settle(|| registry.declares(test_signer::ID));
+            match signer {
+                TestSigner::Enabled => registry.add_test_signer(projects)?,
+                TestSigner::Disabled => {}
+            }
+            // A named principal must be registered, which the principal checks after loading
+            // report against the settings; only the built-in one is added here.
+            match trusted {
+                TrustedCaller::BuiltIn => registry.trust_built_in_app(projects)?,
+                TrustedCaller::Anonymous | TrustedCaller::Named(_) => {}
+            }
+            Ok((registry, signer))
+        };
+        load().map_err(|error| IdentityError::new(source, error))
     }
 
-    /// Strict mode's principals, with the built-in test signer when it is enabled.
-    fn load_principals(path: &Path, signer: TestSigner) -> Result<Self, RegistryError> {
-        let mut registry = Self::load(path)?;
-        match signer {
-            TestSigner::Enabled => registry.add_test_signer()?,
-            TestSigner::Disabled => {}
-        }
-        Ok(registry)
-    }
-
-    /// The keys permissive verification accepts: an optional identity file's and the built-in
-    /// test signer's when it is enabled.
+    /// The keys permissive verification accepts: an optional identity document's and the
+    /// built-in test signer's when `signer` settles to enabled.
     fn load_signing_keys(
-        path: Option<&Path>,
-        signer: TestSigner,
-    ) -> Result<SigningKeys, RegistryError> {
-        let mut keys = match path {
-            Some(path) => {
-                Self::parse_for(&read_identity_file(path)?, IdentityUse::SigningKeys)?.signing_keys
+        source: Option<&DocumentSource>,
+        signer: TestSignerChoice,
+    ) -> Result<(SigningKeys, TestSigner), IdentityError> {
+        let mut keys = match source {
+            Some(source) => {
+                read_identities(source)
+                    .and_then(|bytes| Self::parse_for(&bytes, IdentityUse::SigningKeys))
+                    .map_err(|error| IdentityError::new(Some(source), error))?
+                    .signing_keys
             }
             None => SigningKeys::default(),
         };
+        let signer = signer.settle(|| keys.contains(test_signer::ID));
         match signer {
             TestSigner::Enabled => keys.add(test_signer::ID, test_signer::public_key()),
             TestSigner::Disabled => {}
         }
-        Ok(keys)
+        Ok((keys, signer))
     }
 
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
         Self::parse_for(bytes, IdentityUse::Principals)
+    }
+
+    /// A strict registry without an identity document, where only the built-in identities that
+    /// loading adds will exist.
+    fn without_document() -> Self {
+        Self {
+            identities: Vec::new(),
+            declared: 0,
+            ids: HashMap::new(),
+            tokens: HashMap::new(),
+            signing_keys: SigningKeys::default(),
+            public_access_prevention_projects: Vec::new(),
+            trusted: None,
+        }
     }
 
     fn parse_for(bytes: &[u8], usage: IdentityUse) -> Result<Self, RegistryError> {
@@ -820,27 +954,14 @@ impl Registry {
         Ok(())
     }
 
-    /// Adds the built-in test signer's public key. An entry the file declares with its ID keeps
-    /// its tokens, project roles and ACL entity; otherwise the signer exists without project
-    /// roles, so only bucket or object grants authorize it.
-    fn add_test_signer(&mut self) -> Result<(), RegistryError> {
-        let id = test_signer::ID;
-        if !self.ids.contains_key(id) {
-            self.ids.insert(id.to_owned(), self.identities.len());
-            self.identities.push(Identity {
-                id: id.to_owned(),
-                acl_entity: None,
-                projects: Arc::default(),
-            });
-            // The file's own aliases were already validated, so a collision involves this signer.
-            acl_identity::validate_aliases(&self.identities).map_err(|_| RegistryError::Invalid {
-                entry: None,
-                reason: format!(
-                    "another identity's id or acl_entity names the built-in test signer {id}; declare {id} itself or set test_signer=disabled"
-                ),
-            })?;
-        }
-        self.signing_keys.add(id, test_signer::public_key());
+    /// Adds the built-in test signer's public key. An entry the document declares with its ID
+    /// keeps its tokens, project roles and ACL entity; otherwise the signer holds
+    /// `roles/storage.objectUser` in `projects`, and elsewhere only bucket or object grants
+    /// authorize it.
+    fn add_test_signer(&mut self, projects: &BTreeSet<String>) -> Result<(), RegistryError> {
+        self.add_built_in(BuiltIn::TestSigner, projects)?;
+        self.signing_keys
+            .add(test_signer::ID, test_signer::public_key());
         Ok(())
     }
 
@@ -939,7 +1060,7 @@ fn parse_project_roles(
         crate::json::validate_project(project).map_err(|source| RegistryError::Project {
             entry: index,
             project: project.clone(),
-            source,
+            source: Box::new(source),
         })?;
         let role_values = role_values
             .as_array()
@@ -958,18 +1079,11 @@ fn parse_project_roles(
             if !names.insert(role) {
                 return Err(error(format!("project {project:?}: duplicate role {role}")));
             }
-            let expanded = roles::permissions(role).ok_or_else(|| {
+            granted.add_role(role).ok_or_else(|| {
                 error(format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
-            granted.any_storage_permission |= !expanded.is_empty();
-            for permission in Permission::ALL {
-                if expanded.contains(&permission.as_str()) {
-                    granted.grant(*permission);
-                }
-            }
-            granted.explicit_storage_admin |= role == "roles/storage.admin";
         }
     }
     Ok(permissions)
@@ -997,15 +1111,29 @@ enum Profile {
 }
 
 /// The active authentication profile. The default is permissive.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Auth {
     profile: Profile,
     verifiers: signature::Verifiers,
     /// Whether V4 verification also accepts a canonical host without the request's port.
     signed_host_port: signature::SignedHostPort,
+    /// Whether the built-in test signer exists, as loading settled it.
+    test_signer: TestSigner,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
     /// It never authorizes anything.
     local_creator_entity: Option<String>,
+}
+
+impl Default for Auth {
+    fn default() -> Self {
+        Self {
+            profile: Profile::default(),
+            verifiers: signature::Verifiers::default(),
+            signed_host_port: signature::SignedHostPort::default(),
+            test_signer: TestSigner::Disabled,
+            local_creator_entity: None,
+        }
+    }
 }
 
 impl Auth {
@@ -1024,37 +1152,73 @@ impl Auth {
         }
     }
 
-    /// Loads the profile that configuration validation selected, reading its identity file once
-    /// and adding the built-in test signer when the profile enables it. Validation owns the
-    /// pairing rules; only identity file contents can fail here.
-    pub fn load(profile: &AuthProfile) -> Result<Self, RegistryError> {
-        let (profile, verification) = match profile {
+    /// Loads the profile that configuration validation selected, reading its identity document
+    /// once and adding the built-in test signer when the profile's choice settles to enabled.
+    /// Validation owns the pairing rules and selects that choice; only the document's contents
+    /// can fail here, and only whether it declares the signer can settle the choice.
+    ///
+    /// `implicit_projects` are the projects where a built-in identity that the document does not
+    /// declare holds its implicit role.
+    pub fn load(
+        profile: &AuthProfile,
+        implicit_projects: &BTreeSet<String>,
+    ) -> Result<Self, IdentityError> {
+        let (profile, test_signer, verification) = match profile {
             AuthProfile::Permissive => return Ok(Self::permissive()),
             AuthProfile::VerifyingPermissive {
-                identity_file,
+                identities,
                 verification,
-            } => (
-                Profile::VerifyingPermissive(Registry::load_signing_keys(
-                    identity_file.as_deref(),
-                    verification.test_signer,
-                )?),
-                verification,
-            ),
+            } => {
+                let (keys, signer) =
+                    Registry::load_signing_keys(identities.as_ref(), verification.test_signer)?;
+                (Profile::VerifyingPermissive(keys), signer, verification)
+            }
             AuthProfile::Strict {
-                identity_file,
+                identities,
                 verification,
-            } => (
-                Profile::Strict(Registry::load_principals(
-                    identity_file,
+                trusted,
+            } => {
+                let (registry, signer) = Registry::load_principals(
+                    identities.as_ref(),
                     verification.test_signer,
-                )?),
-                verification,
-            ),
+                    trusted,
+                    implicit_projects,
+                )?;
+                (Profile::Strict(registry), signer, verification)
+            }
         };
         Ok(Self {
-            signed_host_port: verification.signed_host_port,
+            signed_host_port: signature::SignedHostPort::resolve(
+                verification.signed_host_port,
+                test_signer,
+            ),
+            test_signer,
             ..Self::with_profile(profile)
         })
+    }
+
+    /// Whether the built-in test signer exists, as loading settled it.
+    pub fn test_signer(&self) -> TestSigner {
+        self.test_signer
+    }
+
+    /// The identity that requests without credentials on the trusted listener act as, named by
+    /// `trusted_principal` or built in.
+    pub fn trusted_principal(&self) -> Option<&str> {
+        let registry = self.registry()?;
+        registry.identities.get(registry.trusted?).map(Identity::id)
+    }
+
+    /// Whether the identity document declares `id`, as opposed to gcs-mimic adding it.
+    pub(crate) fn declares(&self, id: &str) -> bool {
+        self.registry()
+            .is_some_and(|registry| registry.declares(id))
+    }
+
+    /// Whether V4 verification also accepts a canonical host without the request's port, after
+    /// the default that the settled test signer selects.
+    pub fn signed_host_port(&self) -> signature::SignedHostPort {
+        self.signed_host_port
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.
@@ -1064,7 +1228,10 @@ impl Auth {
             .unwrap()
             .signing_keys;
         keys.add(test_signer::ID, test_signer::public_key());
-        Self::with_profile(Profile::VerifyingPermissive(keys))
+        Self {
+            test_signer: TestSigner::Enabled,
+            ..Self::with_profile(Profile::VerifyingPermissive(keys))
+        }
     }
 
     fn registry(&self) -> Option<&Registry> {
@@ -1446,7 +1613,12 @@ mod tests {
                     .patch_bucket("pap-permissions", update, Default::default(), &access)
                     .await
             };
-            assert_eq!(result, Err(CatalogError::Forbidden));
+            assert_eq!(
+                result,
+                Err(CatalogError::Denied(
+                    access.denied_for(BUCKETS_SET_IAM, "pap-permissions")
+                ))
+            );
             assert_eq!(
                 catalog
                     .get_bucket("pap-permissions", PERMISSIVE)
@@ -1499,7 +1671,12 @@ mod tests {
                         assert_eq!(after.labels["team"], "storage");
                         assert_eq!(after.metageneration, before.metageneration + 1);
                     } else {
-                        assert_eq!(result, Err(CatalogError::Forbidden));
+                        assert_eq!(
+                            result,
+                            Err(CatalogError::Denied(
+                                access.denied_for(BUCKETS_SET_IAM, "pap-permissions")
+                            ))
+                        );
                         assert_eq!(
                             catalog
                                 .get_bucket("pap-permissions", PERMISSIVE)
@@ -1587,7 +1764,13 @@ mod tests {
                             assert_eq!(after.metageneration, before.metageneration + 1);
                             assert_eq!(after.labels["changed"], "yes");
                         } else {
-                            assert_eq!(result, Err(CatalogError::Forbidden));
+                            // Even a caller who may not read the ACL is refused for writing it.
+                            assert_eq!(
+                                result,
+                                Err(CatalogError::Denied(
+                                    access.denied_for(BUCKETS_SET_IAM, "acl-permissions")
+                                ))
+                            );
                             assert_eq!(
                                 catalog
                                     .get_bucket("acl-permissions", PERMISSIVE)
@@ -1829,7 +2012,11 @@ mod tests {
         assert_eq!(caller.authorize(BUCKETS_GET, None), Ok(()));
         assert_eq!(
             caller.authorize(BUCKETS_GET, Some("unlisted-project")),
-            Err(AuthFailure::Forbidden)
+            Err(AuthFailure::Denied(Denied::new(
+                Some(identity),
+                BUCKETS_GET,
+                denied::Resource::project(Some("unlisted-project")),
+            )))
         );
         assert_eq!(
             Caller::Anonymous.authorize(BUCKETS_GET, None),
@@ -2023,7 +2210,7 @@ mod tests {
             br#"{"identities":[{"id":"app@example.invalid","tokens":["app-token"],"project_roles":{"p":["roles/storage.objectAdmin"]}},{"id":"other@example.invalid","tokens":["other-token"]}]}"#,
         )
         .unwrap();
-        registry.add_test_signer().unwrap();
+        registry.add_test_signer(&BTreeSet::new()).unwrap();
         let mut auth = Auth::strict(registry);
         let trusted = ListenerRole::Trusted;
         // Until a principal is named the trusted listener grants nothing more than the public one.
@@ -2183,14 +2370,28 @@ mod tests {
                 valid(r#"{"id":"a","tokens":["t"],"project_roles":{"":["roles/storage.admin"]}}"#),
             ),
         ] {
-            let error = Registry::parse(document.as_bytes())
+            // Either setting supplies the same document, and the failure names the one used.
+            let dir = TestDir::new();
+            let path = dir.0.join("identities.json");
+            std::fs::write(&path, &document).unwrap();
+            for (source, setting) in [
+                (DocumentSource::File(path), "identity_file: "),
+                (DocumentSource::Inline(document), "identities: "),
+            ] {
+                let error = Registry::load_principals(
+                    Some(&source),
+                    TestSignerChoice::WhenDeclared,
+                    &TrustedCaller::Anonymous,
+                    &BTreeSet::new(),
+                )
                 .unwrap_err()
                 .to_string();
-            assert!(error.starts_with("identity_file"), "{case}: {error}");
-            assert!(
-                !error.contains("\"t\""),
-                "{case}: tokens must not be echoed"
-            );
+                assert!(error.starts_with(setting), "{case}: {error}");
+                assert!(
+                    !error.contains("\"t\""),
+                    "{case}: tokens must not be echoed"
+                );
+            }
         }
     }
 
@@ -2268,6 +2469,7 @@ mod tests {
         assert!(full.allows(OBJECTS_CREATE, "project-4999"));
     }
 
+    /// An inline document is held to the limit a file is, and each failure names its setting.
     #[test]
     fn registry_file_read_is_bounded() {
         let dir = TestDir::new();
@@ -2275,20 +2477,39 @@ mod tests {
         let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
         let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
         document.push_str(&" ".repeat(limit - document.len()));
+        let load = |source: &DocumentSource| {
+            Registry::load_principals(
+                Some(source),
+                TestSignerChoice::WhenDeclared,
+                &TrustedCaller::Anonymous,
+                &BTreeSet::new(),
+            )
+            .map(|(registry, _)| registry)
+        };
         std::fs::write(&path, &document).unwrap();
-        assert_eq!(Registry::load(&path).unwrap().len(), 1);
+        let file = DocumentSource::File(path.clone());
+        assert_eq!(load(&file).unwrap().len(), 1);
+        assert_eq!(
+            load(&DocumentSource::Inline(document.clone()))
+                .unwrap()
+                .len(),
+            1
+        );
         document.push(' ');
         std::fs::write(&path, &document).unwrap();
         assert_eq!(
-            Registry::load(&path).unwrap_err().to_string(),
+            load(&file).unwrap_err().to_string(),
             "identity_file exceeds 16 MiB"
         );
-        std::fs::remove_file(&path).unwrap();
-        assert!(
-            Registry::load(&path)
+        assert_eq!(
+            load(&DocumentSource::Inline(document))
                 .unwrap_err()
-                .to_string()
-                .starts_with("identity_file: ")
+                .to_string(),
+            "identities exceeds 16 MiB"
         );
+        std::fs::remove_file(&path).unwrap();
+        let error = load(&file).unwrap_err();
+        assert!(error.to_string().starts_with("identity_file: "));
+        assert!(std::error::Error::source(&error).is_some());
     }
 }

@@ -15,6 +15,7 @@ Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのま
 - **SDKでそのまま動く**: Go・Ruby・Node.js・Python・PHP・Java・.NET・Rustの8つのSDKが[SDKスコアカード](#sdkスコアカード)の全ケースを通過します。
 - **旧設定を読み替える**: 旧フラグや`FAKE_GCS_*`の多くを受け付けます。保存データの変換やクライアントアダプターには対応範囲があります（[移行](#fake-gcs-serverから移行する)を参照）。
 - **コンテナ1つ**: ディレクトリから初期ファイルを読み込み、ボリュームにデータを残せます。
+- **必要なときは本番に近く**: strictでは非公開バケットを非公開のまま保ち、署名付きURLを検証します。アプリのサーバーのコードは変えません（[本番に近いアクセス](#本番に近いアクセス)を参照）。
 
 [English](../../README.md) ·
 [実装状態の原本](../../compatibility/features.json)
@@ -72,6 +73,29 @@ resumableアップロードのURLなど、エミュレーターが返すリン�
 このため、アプリとホスト上のプログラムが1台のサーバーを共有できます。
 `GCS_MIMIC_API_BASE_URL`は、そのアドレスを固定するときだけ指定します。例えば`Host`を書き換えるリバースプロキシの後ろに置く場合です。
 0.11.0までのリリースはアドレスを1つに固定するので、ここに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を追加してください。
+
+## 本番に近いアクセス
+
+上の構成はfake-gcs-serverと同じく、すべてのリクエストを受け付け、署名を検査しません。
+非公開バケットや署名付きURLをCloud Storageと同じように検査したい場合は、strictと信頼済みリスナーを使います。
+
+| 目的 | 構成 |
+| --- | --- |
+| fake-gcs-serverと同じように動かす | 上の既定の構成 |
+| 非公開バケットは非公開のまま、公開バケットは`allUsers`で公開し、ブラウザーは署名付きURLを使い、サーバーのコードは変えない | strictと信頼済みリスナー: [strictのローカル構成（英語）](../../examples/strict-local/README.md) |
+
+最小の構成は、`gcs`サービスの5つの設定です。証明書・鍵・サービスアカウントの準備はいりません。
+
+- `GCS_MIMIC_SCHEME: http`
+- `GCS_MIMIC_AUTH_MODE: strict`
+- `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444`。Composeネットワーク上のサーバーが使うポートです。認証情報のないリクエストは、ここでは組み込みの`trusted-app@gcs-mimic.invalid`として扱います。このポートは公開しません。
+- `GCS_MIMIC_BUCKETS`。バケットをインラインのJSONで書き、公開バケットには`allUsers`の`iamPolicy`を付けます。
+- `GCS_MIMIC_TEST_SIGNER: enabled`。署名付きURLが必要なときだけ指定します。
+
+Goのサーバーは`STORAGE_EMULATOR_HOST: gcs:4444`を設定します。
+Railsは`gcs-mimic test-signer credentials`が出力する署名者の鍵を使います。[Rails Active Storage](rails-active-storage.md#6-strictで本番に近い確認をする)を参照してください。
+貼り付けるブロックと各部分の説明は[strictのローカル構成（英語）](../../examples/strict-local/README.md)にあります。0.13.0より新しいリリースが必要です。
+すべてのリクエストを受け付けたまま署名だけを検査する方法は、[どの構成を使うか](container-usage.md#どの構成を使うか)を参照してください。
 
 ## 初期ファイルを読み込む
 
@@ -146,7 +170,7 @@ gcs_emulator:
   # plus project, bucket and local credentials
 ```
 
-項目の全体、バケットとCORS、Railsをコンテナで動かす場合、CIは[Rails Active Storage](rails-active-storage.md)を参照してください。
+項目の全体、バケットとCORS、Railsをコンテナで動かす場合、組み込みのテスト署名者を使うstrict、CIは[Rails Active Storage](rails-active-storage.md)を参照してください。
 
 ## fake-gcs-serverから移行する
 
@@ -194,12 +218,19 @@ GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 | 設定 | 用途 |
 | --- | --- |
 | `GCS_MIMIC_SCHEME` | `https`（既定）、`http`、`both` |
+| `GCS_MIMIC_AUTH_MODE` | `permissive`（既定）はfake-gcs-serverと同じくすべてのリクエストを受け付ける。`strict`はローカルのIDに対してIAMとACLで各リクエストを認可する。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
+| `GCS_MIMIC_BUCKETS` | 起動時に作るバケットを、`cors`や`iamPolicy`などの設定付きでインラインのJSONに書く。`GCS_MIMIC_BUCKETS_FILE`は同じ文書をファイルから読む。[初期バケット設定](container-usage.md#初期バケット設定ファイルを使う) |
+| `GCS_MIMIC_IDENTITIES` | strictで使うローカルのID・トークン・ロールをインラインのJSONに書く。`GCS_MIMIC_IDENTITY_FILE`は同じ文書をファイルから読む |
+| `GCS_MIMIC_TRUSTED_LISTEN` | strict用。公開しない待受（例: `0.0.0.0:4444`）で、サーバーからの認証情報のないリクエストを1つのIDとして扱う。[信頼済みリスナー](container-usage.md#信頼済みリスナーで非公開バケットを守る) |
+| `GCS_MIMIC_TEST_SIGNER` | `enabled`で、秘密鍵を公開している組み込みの署名者`test-signer@gcs-mimic.invalid`を有効にする。署名付きURLに鍵の準備がいらない。[テスト署名者（英語）](../en/signed-urls.md#built-in-test-signer) |
+| `GCS_MIMIC_SIGNED_URLS` | `ignore`（permissiveの既定）は署名付きURLを検査せずに受け付ける。`verify`は署名と期限を検査する。[署名の検証（英語）](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode) |
+| `GCS_MIMIC_CORS_FALLBACK` | CORSルールのないバケットの公開URL・XML URLのCORS。`allow-all`（permissiveの既定）はどのオリジンのページからも読める。`none`（strictの既定）はCORSヘッダーを返さない |
 | `GCS_MIMIC_API_BASE_URL` | エミュレーターが返すリンクのアドレスを固定する。未指定なら各リクエストの接続先を使う |
 | `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444` |
-| `GCS_MIMIC_CORS_FALLBACK` | `allow-all`で、ブラウザーがどのオリジンからでも公開URLを読める |
-| `GCS_MIMIC_AUTH_MODE` | `strict`でローカルのbearer tokenを検査。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
 
+`GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.13.0より新しいリリースが必要です。
+0.13.0までは、`GCS_MIMIC_CORS_FALLBACK`の既定はどちらのモードでも`none`です。
 `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help`ですべての設定を確認できます。
 
 ## 機能の概要

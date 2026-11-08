@@ -697,7 +697,8 @@ fn api_origin_ready_and_resumable_locations_use_bound_addresses() {
         assert_eq!(ready["api_base_url"], base);
         assert!(ready["public_base_url"].is_null());
         assert_eq!(ready["public_virtual_host_enabled"], false);
-        assert_eq!(ready["cors_fallback"], "none");
+        // Permissive mode allows every origin for buckets without rules unless told otherwise.
+        assert_eq!(ready["cors_fallback"], "allow-all");
         assert_eq!(ready["signed_host_port"], "exact");
         let response = request(
             address,

@@ -139,7 +139,7 @@ SPEC-GO-SIGNER-PORT. No container, browser or real-cloud run was performed.
 | Command | Result |
 | --- | --- |
 | `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` | PASS: `go vet`, then 90 top-level tests passed, 1 skipped (`TestV2RSASignedTransfers`, which needs the HTTPS profile), 0 failed; `TestBuiltInSignerURLsPassUnderLenientHostPort` and its `ExactServerNamesTheSetting` subtest passed |
-| `bash sdk-tests/ruby/active_storage/run-strict.sh` | PASS: signing self-check, then 3 PASS and 0 FAIL for each of the registered-key and built-in test signer variants |
+| `bash sdk-tests/ruby/active_storage/run-strict.sh` | PASS: signing self-check, then 9 PASS and 0 FAIL for each of the registered-key variant and the built-in test signer variant, whose signer holds only `roles/storage.objectUser` |
 | `bash scripts/sdk-active-storage.sh` | Unchanged: scenario 1 PASS, 6 PASS_WITH_WORKAROUND and the known AS-DEFAULT-AUTH FAIL (exit 1, as documented); attachments 11 PASS, 0 FAIL; production check PASS |
 
 Go 1.27.3 / storage v1.70.0 / API v0.311.0. `scripts/sdk-go.sh` starts a third
@@ -164,16 +164,55 @@ keeps asserting that unmodified URLs for a host:port fail on that server.
 Ruby 4.0.9 / Bundler 4.0.24 / Rails 8.1.4.1 / google-cloud-storage 1.62.1 /
 googleauth 1.17.6. `run-strict.sh` runs `strict.rb` twice. The second server runs
 `--test-signer enabled` with an identity file that declares only
-`test-signer@gcs-mimic.invalid`, with `roles/storage.admin` on `local-project` and
-no keys. Its `gcs_emulator_test_signer` storage.yml entry follows the documented
-recipe: `client_email: test-signer@gcs-mimic.invalid` and the private key that
-`gcs-mimic test-signer credentials | jq -r .private_key` writes. The built-in key
-is byte-identical to `fixtures/signing/test-only-private.pem`. Rails' self-signed
-JWT bearer, stock V2 URLs and the `EmulatorGcs` V4 adapter pass
-`AS-STRICT-JWT-UPLOAD-DOWNLOAD`, `AS-STRICT-V2-DIRECT-UPLOAD-CORS` and
-`AS-STRICT-V4-DIRECT-UPLOAD-CORS`, including the anonymous 401, PAP and tampered
-V4 query negatives. A trusted listener would not help this path: Rails always
-presents its own JWT, which authenticates as its signer on every listener.
+`test-signer@gcs-mimic.invalid`, with `roles/storage.objectUser` on
+`local-project` and no keys, the role that `examples/strict-local` grants it.
+That role cannot create buckets or change their settings, so the server also runs
+`--buckets-file sdk-tests/ruby/active_storage/strict-buckets.json`. It creates
+`app-private`, with public access prevention enforced and the direct-upload CORS
+rule, and `app-public`, whose policy grants `allUsers`
+`roles/storage.objectViewer`. `strict.rb` uses both without a bucket lookup and
+deletes only their objects. The first, registered-key server creates its own
+buckets as `roles/storage.admin`. The `gcs_emulator_test_signer` storage.yml
+entry follows the documented recipe: `client_email: test-signer@gcs-mimic.invalid`
+and the private key that `gcs-mimic test-signer credentials | jq -r .private_key`
+writes. The built-in key is byte-identical to
+`fixtures/signing/test-only-private.pem`.
+
+Both variants pass all nine cases:
+
+- `AS-STRICT-JWT-UPLOAD-DOWNLOAD`, `AS-STRICT-V2-DIRECT-UPLOAD-CORS` and
+  `AS-STRICT-V4-DIRECT-UPLOAD-CORS`: Rails' self-signed JWT bearer, stock V2 URLs
+  and the `EmulatorGcs` V4 adapter, including the anonymous 401, PAP and tampered
+  V4 query negatives.
+- `AS-STRICT-ATTACH-PURGE`: a `has_one_attached` PNG's download, `exist?` and
+  `purge`, which also deletes the blob's `variants/KEY/` prefix by listing it,
+  then `delete_prefixed` for a neighbouring prefix that purge kept.
+- `AS-STRICT-METADATA-UPDATE`: a content type change patches the object's
+  content type and disposition.
+- `AS-STRICT-COMPOSE`: `Blob.compose` stores the concatenated bytes and keeps
+  its sources.
+- `AS-STRICT-PUBLIC-BUCKET`: upload, `exist?` and `purge` through a
+  `public: true` service. The stock `url` is unsigned and names
+  `storage.googleapis.com` (google-cloud-storage 1.62.1, `File#public_url`); an
+  anonymous GET of its path on the emulator returns the bytes.
+- `AS-STRICT-PUBLIC-URL-ADAPTER`: the `EmulatorGcs` adapter's `public_url` names
+  its `public_endpoint`. Its URL for a custom key with a slash and a space, used
+  unchanged, returns the bytes to an anonymous GET, and the blob route redirects
+  to it.
+- `AS-STRICT-PUBLIC-URL-INITIALIZER`: after
+  `sdk-tests/ruby/active_storage/initializers/active_storage_gcs_emulator.rb` is
+  loaded, the same stock entry and a variant key name the emulator and return
+  the bytes anonymously. An entry without an endpoint keeps the
+  `storage.googleapis.com` URL.
+
+A manual run with the signer's role replaced by `roles/storage.objectViewer`
+plus `roles/storage.objectCreator`, before the public URL cases existed, failed
+every test signer case and the cleanup (0 PASS, 8 FAIL). Each failure was a
+403 on the object `DELETE`, so the scenario detects a missing
+`storage.objects.delete`. The metadata patch and compose still succeeded in that
+run, because the uploader owns its objects through their ACL. A trusted listener
+would not help this path: Rails always presents its own JWT, which authenticates
+as its signer on every listener.
 
 ## Source pins
 

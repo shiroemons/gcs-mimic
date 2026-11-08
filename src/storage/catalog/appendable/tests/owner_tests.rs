@@ -110,9 +110,10 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
             permission: crate::auth::Permission::ObjectsCreate,
             project: Some("project".into()),
         };
+        let refused = wrong.denied("append");
         assert!(matches!(
             writer.finalize(None, wrong, 1024).await,
-            Err(AppendError::Object(ObjectError::Forbidden))
+            Err(AppendError::Object(ObjectError::Denied(denied))) if denied == refused
         ));
         assert!(
             matches!(&writer.record().owner, Some(ObjectOwner::Principal { id, .. }) if id == "local:creator")
@@ -172,7 +173,7 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
                         &former_finalizer
                     )
                     .await,
-                Err(ObjectError::Forbidden)
+                Err(ObjectError::Denied(former_finalizer.denied("append")))
             );
             let creator = catalog
                 .bucket_access(

@@ -493,6 +493,7 @@ mod tests {
             .await
             .unwrap();
         let target = destination(&source, "copy", b"");
+        let refused = ObjectError::Denied(access.denied("bucket"));
         let (request, progress, resume) =
             start(&catalog, source, access, target, BYTE_BUDGET, 5000);
         let progress = progress.await.unwrap();
@@ -508,7 +509,7 @@ mod tests {
             .await
             .unwrap();
         resume.send(()).unwrap();
-        assert_eq!(request.await.unwrap(), Err(ObjectError::Forbidden));
+        assert_eq!(request.await.unwrap(), Err(refused));
         assert_eq!(
             catalog
                 .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
@@ -561,6 +562,7 @@ mod tests {
             .await
             .unwrap();
         let target = destination(&source, "copy", b"");
+        let refused = ObjectError::Denied(access.denied("bucket"));
         let (request, progress, resume) =
             start(&catalog, source, access, target, BYTE_BUDGET, 5000);
         let progress = progress.await.unwrap();
@@ -578,7 +580,7 @@ mod tests {
             .unwrap();
         resume.send(()).unwrap();
         let error = request.await.unwrap().unwrap_err();
-        assert_eq!(error, ObjectError::Forbidden);
+        assert_eq!(error, refused);
         assert_eq!(
             json::JsonError::from(error).status,
             hyper::StatusCode::FORBIDDEN

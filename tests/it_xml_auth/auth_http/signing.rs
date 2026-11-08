@@ -152,7 +152,17 @@ fn signed_private_get_head_range_and_bucket_grants_use_signer_permissions() {
         now,
         HeaderMap::new(),
     );
-    error(&send(&server, "GET", &no_roles, ""), 403, "AccessDenied");
+    // A signed URL acts as its signer, so the denial names the signer.
+    crate::common::errors::xml_error_message(
+        &send(&server, "GET", &no_roles, ""),
+        403,
+        "AccessDenied",
+        &crate::common::errors::denial_message(
+            "no-roles@example.invalid",
+            "storage.objects.get",
+            "object",
+        ),
+    );
     iam::set(&server,ADMIN,&json!({"bindings":[iam::binding("roles/storage.objectViewer","user:no-roles@example.invalid")]})).success();
     assert_eq!(
         send(&server, "GET", &no_roles, "").success().body,
@@ -345,7 +355,7 @@ fn message(reply: &Reply) -> String {
     body[start..end].to_owned()
 }
 
-const HOST_PORT_HINT: &str = "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it.";
+const HOST_PORT_HINT: &str = "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it, which is already the default where the built-in test signer is enabled.";
 
 const PLAIN_MISMATCH: &str = "The request signature does not match.";
 
@@ -362,6 +372,41 @@ fn exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_set
         let reply = send(&server, method, &portless, "");
         error(&reply, 403, "SignatureDoesNotMatch");
         assert_eq!(message(&reply), HOST_PORT_HINT);
+    }
+}
+
+/// Where the built-in test signer is enabled the host port is lenient without the setting, and
+/// an explicit exact still wins.
+#[test]
+fn an_enabled_test_signer_makes_the_host_port_lenient_unless_exact_is_set() {
+    for (options, lenient) in [
+        (&["--test-signer", "enabled"][..], true),
+        (
+            &["--test-signer", "enabled", "--signed-host-port", "exact"],
+            false,
+        ),
+    ] {
+        let (_config, _data, server, ready) = fixture_with(options, Stdio::null());
+        assert_eq!(ready["test_signer"], "enabled");
+        assert_eq!(
+            ready["signed_host_port"],
+            if lenient { "lenient" } else { "exact" }
+        );
+        let host = server.address.rsplit_once(':').unwrap().0.to_owned();
+        let portless = sign_without_port(
+            &server,
+            &host,
+            &Method::GET,
+            "/iam-bucket/object",
+            "viewer@example.invalid",
+        );
+        let reply = send(&server, "GET", &portless, "");
+        if lenient {
+            assert_eq!(reply.success().body, b"hello world");
+        } else {
+            error(&reply, 403, "SignatureDoesNotMatch");
+            assert_eq!(message(&reply), HOST_PORT_HINT);
+        }
     }
 }
 

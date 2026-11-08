@@ -10,7 +10,9 @@ const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
 /// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
 const WARNED_BUCKET_LIMIT: usize = 64;
 
-/// Remembers one unconfigured-CORS warning per bucket and State, up to 64 buckets.
+/// Remembers one CORS fallback log per bucket and State, up to 64 buckets: the unconfigured-CORS
+/// warning where the fallback is off, or the note where the permissive default allowed a request.
+/// The effective fallback is fixed for a process, so only one of them can ever use the set.
 #[derive(Default)]
 pub struct CorsWarnings(Mutex<BTreeSet<String>>);
 
@@ -42,6 +44,22 @@ pub(crate) fn warn_unconfigured_cors(
             serde_json::json!({
                 "bucket": bucket,
                 "message": "XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field",
+            }),
+        );
+    }
+}
+
+/// The permissive default allows what Cloud Storage refuses, so say so once per bucket: an app
+/// that works locally would otherwise fail in production without a hint. An explicit allow-all
+/// was chosen knowingly and stays silent.
+pub(crate) fn note_default_cors_fallback(state: &crate::server::State, bucket: &str) {
+    if state.xml_cors_warned_buckets.first(bucket) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Info,
+            "cors_fallback_default",
+            serde_json::json!({
+                "bucket": bucket,
+                "message": "the permissive default cors_fallback=allow-all allowed an XML/public browser request to a bucket without CORS rules, which Cloud Storage refuses; configure the bucket cors field, or set cors_fallback explicitly",
             }),
         );
     }

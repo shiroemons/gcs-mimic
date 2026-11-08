@@ -144,19 +144,19 @@ async fn restore_errors_preserve_retained_bytes_and_ambiguous_commits() {
 
 #[tokio::test]
 async fn restore_rejections_before_pinning_do_not_discard_unused_blob_ids() {
+    let denied = BucketAccess::Policy {
+        identity: None,
+        permission: crate::auth::Permission::ObjectsRestore,
+        project: None,
+    };
     for expected in [
-        ObjectError::Forbidden,
+        ObjectError::Denied(denied.denied("bucket")),
         ObjectError::ObjectNotFound,
         ObjectError::PreconditionFailed,
     ] {
         let data = TestDir::new();
         let (catalog, mut target, _) = retained(&data.0).await;
-        let denied = BucketAccess::Policy {
-            identity: None,
-            permission: crate::auth::Permission::ObjectsRestore,
-            project: None,
-        };
-        let access = if expected == ObjectError::Forbidden {
+        let access = if matches!(expected, ObjectError::Denied(_)) {
             RestoreAccess {
                 restore: &denied,
                 create: PERMISSIVE,

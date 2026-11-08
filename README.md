@@ -25,6 +25,9 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
   have explicit limits (see
   [migrating](#migrating-from-fake-gcs-server)).
 - **One container**: preload files from a directory, keep data in a volume.
+- **Production-like when you need it**: strict mode keeps private buckets
+  private and verifies signed URLs, while your servers keep their code (see
+  [production-like access](#production-like-access)).
 
 ## Quick start
 
@@ -83,6 +86,36 @@ each request connected to, so the app and programs on the host can share one
 server. Set `GCS_MIMIC_API_BASE_URL` only to fix that address, for example
 behind a reverse proxy that rewrites `Host`. Releases up to 0.11.0 return one
 fixed address, so with them add `GCS_MIMIC_API_BASE_URL: http://gcs:4443` here.
+
+## Production-like access
+
+The setup above behaves like fake-gcs-server: every request is allowed and no
+signature is checked. When private buckets and signed URLs need the checks that
+Cloud Storage makes, use strict mode with a trusted listener:
+
+| Goal | Setup |
+| --- | --- |
+| Behave like fake-gcs-server | The default, as above |
+| Private buckets stay private, public buckets open through `allUsers`, browsers use signed URLs, your servers keep their code | Strict mode with a trusted listener: the [strict local recipe](examples/strict-local/README.md) |
+
+The minimal setup is five settings of the `gcs` service. Nothing needs
+preparing: no certificate, no key and no service account.
+
+- `GCS_MIMIC_SCHEME: http`
+- `GCS_MIMIC_AUTH_MODE: strict`
+- `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444`, a port for your servers on the
+  Compose network. Requests there without credentials act as the built-in
+  `trusted-app@gcs-mimic.invalid`. Never publish this port.
+- `GCS_MIMIC_BUCKETS`, the buckets as inline JSON, with an `allUsers`
+  `iamPolicy` for each public bucket
+- `GCS_MIMIC_TEST_SIGNER: enabled`, only when you need signed URLs
+
+Go servers then set `STORAGE_EMULATOR_HOST: gcs:4444`. Rails reads the signer's
+key from `gcs-mimic test-signer credentials`; see
+[Rails Active Storage](docs/en/rails-active-storage.md#6-production-like-checks-in-strict-mode).
+The recipe has the block to paste and explains each part. This needs a release
+newer than 0.13.0. To check signatures only, while every request stays allowed,
+see [which setup do I need](docs/en/container-usage.md#which-setup-do-i-need).
 
 ## Preload files
 
@@ -208,20 +241,30 @@ gcs_emulator:
 ```
 
 [Rails Active Storage](docs/en/rails-active-storage.md) has the full entry,
-bucket and CORS setup, Rails in containers and CI.
+bucket and CORS setup, Rails in containers, strict mode with the built-in test
+signer and CI.
 
 ## Common settings
 
 | Setting | Purpose |
 | --- | --- |
 | `GCS_MIMIC_SCHEME` | `https` (default), `http` or `both` |
+| `GCS_MIMIC_AUTH_MODE` | `permissive` (default) allows every request, as fake-gcs-server does; `strict` authorizes each request by IAM and ACLs for local identities ([strict authentication](docs/en/getting-started.md#strict-local-authentication)) |
+| `GCS_MIMIC_BUCKETS` | Buckets to create at startup, as inline JSON with settings such as `cors` and `iamPolicy`; `GCS_MIMIC_BUCKETS_FILE` reads the same document from a file ([bucket settings](docs/en/container-usage.md#initialize-bucket-settings)) |
+| `GCS_MIMIC_IDENTITIES` | Local identities, tokens and roles for strict mode, as inline JSON; `GCS_MIMIC_IDENTITY_FILE` reads the same document from a file |
+| `GCS_MIMIC_TRUSTED_LISTEN` | Strict mode: an unpublished listener, such as `0.0.0.0:4444`, where your servers' requests without credentials act as one identity ([trusted listener](docs/en/container-usage.md#keep-private-buckets-private-with-a-trusted-listener)) |
+| `GCS_MIMIC_TEST_SIGNER` | `enabled` turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key is published, so signed URLs need no key setup ([test signer](docs/en/signed-urls.md#built-in-test-signer)) |
+| `GCS_MIMIC_SIGNED_URLS` | `ignore` (the permissive default) accepts signed URLs without checking them; `verify` checks their signatures and expiry ([verification](docs/en/signed-urls.md#verifying-signed-requests-in-permissive-mode)) |
+| `GCS_MIMIC_CORS_FALLBACK` | CORS for public and XML URLs of buckets without CORS rules: `allow-all` (the permissive default) lets pages on any origin read them, `none` (the strict default) sends no CORS headers |
 | `GCS_MIMIC_API_BASE_URL` | Fixes the address in links that the emulator returns; unset, links use the address of each request |
 | `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444` |
-| `GCS_MIMIC_CORS_FALLBACK` | `allow-all` lets browsers read public URLs from any origin |
-| `GCS_MIMIC_AUTH_MODE` | `strict` checks local bearer tokens; see [strict authentication](docs/en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help` lists every option.
+`GCS_MIMIC_BUCKETS`, `GCS_MIMIC_IDENTITIES`, `GCS_MIMIC_TRUSTED_LISTEN`,
+`GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_SIGNED_URLS` need a release newer than
+0.13.0. Up to 0.13.0, `GCS_MIMIC_CORS_FALLBACK` defaults to `none` in both
+modes. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.13.0 --help` lists every
+option.
 
 ## Features at a glance
 

@@ -12,7 +12,7 @@ use super::{
 use crate::{
     auth::Caller,
     bucket::{BucketAccess, CatalogError},
-    config::{CompatProfile, CorsFallback},
+    config::{CompatProfile, CorsFallback, CorsFallbackChoice},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
 };
@@ -229,6 +229,8 @@ async fn respond_xml_cors(
         return respond_routed(request, ctx, selected).await;
     };
     let RequestCtx { state, config, .. } = ctx;
+    let choice = config.effective_cors_fallback();
+    let fallback = choice.fallback();
     let has_origin = request.headers().contains_key("origin");
     let kind = if request.method() == Method::OPTIONS && has_origin {
         CorsRequest::Preflight
@@ -263,7 +265,7 @@ async fn respond_xml_cors(
                 (Vec::new(), false, false)
             }
         }
-    } else if config.cors_fallback != CorsFallback::None {
+    } else if fallback != CorsFallback::None {
         (Vec::new(), false, false)
     } else {
         let has_rules = match state.catalog.bucket_has_cors(&object.bucket).await {
@@ -279,16 +281,11 @@ async fn respond_xml_cors(
     // After a failed lookup that is unknown, and granting every origin would fail open, so no
     // CORS field is sent at all.
     let cors = if has_origin && !lookup_failed {
-        if found && rules.is_empty() && config.cors_fallback == CorsFallback::None {
-            xml::warn_unconfigured_cors(state, &object.bucket, request.headers());
+        let cors = xml::cors(request.headers(), request.method(), &rules, kind, fallback);
+        if found && rules.is_empty() {
+            note_bucket_without_rules(state, &object.bucket, request.headers(), choice, &cors);
         }
-        xml::cors(
-            request.headers(),
-            request.method(),
-            &rules,
-            kind,
-            config.cors_fallback,
-        )
+        cors
     } else {
         hyper::HeaderMap::new()
     };
@@ -296,7 +293,7 @@ async fn respond_xml_cors(
     // when the request has an Origin (observed 2026-10-31). Where rules or the local
     // fallback can add CORS fields, the response still varies by Origin when none match;
     // that case was not observed on Cloud Storage.
-    let varies_by_origin = has_rules || config.cors_fallback != CorsFallback::None;
+    let varies_by_origin = has_rules || fallback != CorsFallback::None;
     let (mut response, vary) = match kind {
         CorsRequest::Preflight => (
             boxed(empty_response(StatusCode::OK)),
@@ -325,6 +322,28 @@ fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value 
         other => json::safe_backend_cause(&other.to_string()).to_owned(),
     };
     serde_json::json!({"bucket": bucket, "cause": cause})
+}
+
+/// Logs once per bucket what its lack of rules did to an Origin-bearing request: a warning
+/// where no fallback applies, or a note where only the permissive default let it through.
+fn note_bucket_without_rules(
+    state: &super::State,
+    bucket: &str,
+    headers: &HeaderMap,
+    fallback: CorsFallbackChoice,
+    granted: &HeaderMap,
+) {
+    match fallback {
+        CorsFallbackChoice::Explicit(CorsFallback::None)
+        | CorsFallbackChoice::Default(CorsFallback::None) => {
+            xml::warn_unconfigured_cors(state, bucket, headers);
+        }
+        CorsFallbackChoice::Default(CorsFallback::AllowAll) if !granted.is_empty() => {
+            xml::note_default_cors_fallback(state, bucket);
+        }
+        CorsFallbackChoice::Default(CorsFallback::AllowAll)
+        | CorsFallbackChoice::Explicit(CorsFallback::AllowAll) => {}
+    }
 }
 
 fn report_cors_lookup_failed(bucket: &str, error: &CatalogError) {

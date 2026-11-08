@@ -336,7 +336,9 @@ impl From<CatalogError> for AdminError {
             CatalogError::Corrupt(cause) => Self::Corrupt(cause),
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
-            CatalogError::Forbidden | CatalogError::PublicAccessPrevention => Self::Forbidden,
+            CatalogError::Denied(_)
+            | CatalogError::Forbidden
+            | CatalogError::PublicAccessPrevention => Self::Forbidden,
             CatalogError::Metadata(error) => Self::Invalid(error.to_string()),
             error @ (CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
@@ -361,8 +363,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,
             ObjectError::InvalidMetadata => Self::Invalid(error.to_string()),
-            ObjectError::Forbidden
-            | ObjectError::OverwriteForbidden
+            ObjectError::Denied(_)
+            | ObjectError::Forbidden
+            | ObjectError::OverwriteForbidden(_)
             | ObjectError::PublicAccessPrevention => Self::Forbidden,
             ObjectError::BodyAborted(reason) => Self::BodyAborted(reason),
             error => Self::backend(error),

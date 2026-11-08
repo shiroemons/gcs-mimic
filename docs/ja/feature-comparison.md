@@ -12,6 +12,7 @@
 比較対象は、gcs-mimic（gcs-mimicの列は`0.5.0`に更新）、fake-gcs-server`v1.56.1`、
 gcp-storage-emulator`v2026.07.19`です。基本比較は2026-10-23、
 ファイル操作の追加調査は2026-10-24、同期ディレクトリの追加調査は2026-10-28時点です。
+本番に近いアクセスの追加調査（2026-11-08）では、0.13.0より新しいリリースが必要なgcs-mimicの機能を加えています。該当するセルにはその旨を書いています。
 
 ## バケットとファイル操作
 
@@ -62,12 +63,14 @@ soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-
 | --- | --- | --- | --- |
 | path-styleのGET・HEAD・PUTで本体転送 | ✅ | ✅ public-host経由 | ◐ HEADなし |
 | JSON APIの既定CORS | ✅ | ✅ | ❌ |
-| バケットごとのXML CORSを強制 | ✅ | ❌ | ❌ |
+| バケットごとのXML CORSを強制 | ✅ ルールのないバケットは`cors_fallback`に従う。0.13.0より新しいリリースでは、permissiveの既定はfake-gcs-serverと同じくすべてのオリジンを許す`allow-all`、strictの既定は`none` | ❌ | ❌ |
 | 無条件のバケットIAMを保存・取得 | ✅ | ❌ | ✅ 保存のみ |
 | 既定ロールのバケットIAMを強制 | ✅ strict | ❌ | ❌ |
 | `allUsers`と`allAuthenticatedUsers`の読取権限を区別 | ✅ strict | ❌ | ❌ |
 | V4 RSA署名形式のGET・PUTで本体転送 | ✅ | ✅ 検証なし | ✅ 検証なし |
-| V4 RSA署名と期限を検証 | ✅ | ❌ | ❌ |
+| V4 RSA署名と期限を検証 | ✅ 0.13.0より新しいリリースでは、permissiveでも`signed_urls=verify`で検証する。組み込みのテスト署名者が有効なときの既定の`signed_host_port=lenient`は、Go storageが署名するポートなしのhostを受け付ける | ❌ | ❌ |
+| 鍵の生成・登録なしで使え、エミュレーターが署名を検証する組み込みの署名者 | ✅ 鍵を公開済みの`test-signer@gcs-mimic.invalid`。`gcs-mimic test-signer credentials`がサービスアカウントの鍵ファイルを出力し、`url sign`は既定でこの署名者を使う。strictでは`test_signer=enabled`か、IDに宣言したときに有効。0.13.0より新しいリリースが必要 | ❌ 署名を検証しないため署名者も不要 | ❌ 署名を検証しないため署名者も不要 |
+| ブラウザーは匿名のまま、アプリのサーバーは認証情報なしで使う | 🚧 strictの信頼済みリスナー。公開しないポートで、認証情報のないリクエストを`trusted_principal`（既定は`roles/storage.admin`を持つ組み込みの`trusted-app@gcs-mimic.invalid`）として同じIAM・ACL・公開アクセス防止の判定にかける。ブラウザーからのリクエストと想定外のHostは拒否。構成をブラウザーで動かす確認は未実施（DESIGN-101は`PARTIAL`）。0.13.0より新しいリリースが必要 | ❌ アクセス制御なし。すべて受け付ける | ❌ アクセス制御なし。すべて受け付ける |
 | TLSで待ち受ける | ✅ | ✅ | ❌ |
 | gRPC Storage v2を公式Goクライアントで使う（平文h2c。バケットCRUD・更新・IAM、オブジェクトの読み書き・一覧・更新・削除・復元、resumableの開始・照会・取消、範囲・双方向読み取り、rewrite・compose・move、Writer.Append・takeover・確定によるappendableオブジェクト。ゾーンのRapidバケットは扱わない） | ✅ JSON・XMLと状態・strict認可を共有 | ❌ Storage v1のみ | ❌ |
 | 旧Storage v1 gRPC（比較対象の12 RPC。複数メッセージのInsertObject、プロジェクト省略のListBucketsを含む） | ✅ 記載したフィールド範囲 | ◐ InsertObjectは最初のメッセージのデータだけ | ❌ |
@@ -80,6 +83,10 @@ soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-
 署名らしいURLを受け付けることと、署名・期限・権限を検証することを分けています。
 IAMの保存やCORSの成功も、アクセス制御を保証しません。
 gcs-mimicの公開主体判定はローカルのstrictの範囲です。ACLとUBLAの効果と残る条件は[ACLの効果（英語）](../en/slices/acl-permission-effects.md)に記録しています。
+組み込みの署名者、信頼済みリスナー、`cors_fallback`はエミュレーター独自の機能で、Cloud Storageの動作ではありません。
+組み込みの署名者の秘密鍵は公開されていて、信頼済みリスナーはそのポートに届くものすべてにIDを与えるため、どちらもローカルの開発とテスト専用です。
+[strictのローカル構成（英語）](../../examples/strict-local/README.md)はこれらを組み合わせたものです。
+コンテナのsmoke testは、この構成をブラウザーではなくcurlで実行しています。
 
 ## ローカルでの使い方
 
@@ -90,6 +97,7 @@ gcs-mimicの公開主体判定はローカルのstrictの範囲です。ACLとUB
 | 外部編集後にhash・世代も整合させる | 🚧 作成・編集を継続監視で取り込み、削除は承認後だけ反映（Linux・macOS） | ❌ | ❌ |
 | 任意のメモリ保存モード | ✅ 上限付きRAM（`--backend memory`） | ✅ | ✅ |
 | バケット・ファイルの初期ディレクトリ読込 | ✅ 毎回の起動時・明示的に有効にしたreseed | ✅ 起動・reseed | ❌ |
+| 起動時の文書から、設定（CORS・versioning・プロジェクト・IAMポリシー）付きでバケットを作る | 🚧 `buckets_file`のJSON文書か、`GCS_MIMIC_BUCKETS`のインラインの文書。最初の`iamPolicy`を書け、適用しなかった編集は警告し、`buckets_file_mode=reconcile`（インラインの文書の既定）は編集したフィールドを既存バケットに書く。インライン・`iamPolicy`・reconcileは0.13.0より新しいリリースが必要。クラッシュ境界とレビューのケースは未完了（DESIGN-062は`PARTIAL`） | ❌ 起動時のバケット文書なし。初期ディレクトリは設定なしでバケットを作る | ❌ 起動時のバケット文書なし |
 | 公開済みのDockerイメージ | ✅ GHCR・Docker Hub（amd64・arm64） | ✅ | ✅ |
 | 公開済みの単体バイナリ | ✅ macOS・Windows・Linux | ✅ | ❌ Pythonが必要 |
 
