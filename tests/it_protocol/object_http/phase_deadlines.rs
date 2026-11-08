@@ -126,6 +126,134 @@ fn obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines() {
     assert_eq!(server.get("session?alt=media").body, b"0123456789");
 }
 
+/// A resource body may reach 16 MiB, so a pause inside it is the client's pace on every route:
+/// the request deadline measures the server and never ends it.
+#[test]
+fn obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines() {
+    let dir = TestDir::new();
+    let server = impatient(&dir);
+    server.upload("name=described", "", b"data").expect(200);
+
+    // Each request sends its head and the start of its body, then stalls mid-body.
+    let mid_body = |head: &str, body: &str, split: usize| {
+        let (first, second) = body.split_at(split);
+        let head = format!(
+            "{head}Connection: close\r\nContent-Length: {}\r\n\r\n{first}",
+            body.len()
+        );
+        stalled(&server, &head, &[second.as_bytes()])
+    };
+    mid_body(
+        "PATCH /storage/v1/b/test-bucket/o/described HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n",
+        r#"{"metadata":{"stalled":"yes"}}"#,
+        12,
+    )
+    .expect(200);
+    assert_eq!(server.get("described").json()["metadata"]["stalled"], "yes");
+
+    mid_body(
+        "POST /storage/v1/b?project=local HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n",
+        r#"{"name":"stalled-bucket"}"#,
+        9,
+    )
+    .expect(200);
+    server
+        .request("GET", "/storage/v1/b/stalled-bucket", "", b"")
+        .expect(200);
+
+    mid_body(
+        "PUT /stalled-xml-bucket HTTP/1.1\r\nHost: local\r\nx-goog-project-id: local\r\n",
+        "<CreateBucketConfiguration><StorageClass>NEARLINE</StorageClass></CreateBucketConfiguration>",
+        20,
+    )
+    .expect(200);
+    let created = server.request("GET", "/storage/v1/b/stalled-xml-bucket", "", b"");
+    assert_eq!(created.json_ok()["storageClass"], "NEARLINE");
+}
+
+/// Body inactivity bounds a silent body on every route. Its expiry is the documented request
+/// timeout of each API: 408 `uploadBrokenConnection` in JSON, 400 `RequestTimeout` in XML.
+#[test]
+fn obj_http_explicit_body_inactivity_answers_silent_resource_bodies() {
+    let dir = TestDir::new();
+    before_short_deadline(&dir, |setup| {
+        setup.upload("name=described", "", b"data").expect(200);
+    });
+    let server = start_with(&dir, &["--body-inactivity-timeout-ms", LIMIT]);
+    let silent = |head: &str| {
+        let mut stream = server.stream();
+        stream.write_all(head.as_bytes()).unwrap();
+        Reply::framed(stream)
+    };
+    let names_the_setting = |reply: &Reply| {
+        assert!(
+            String::from_utf8_lossy(&reply.body).contains("body_inactivity_timeout_ms"),
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        assert_eq!(reply.headers["connection"], "close");
+    };
+
+    let patch = silent(
+        "PATCH /storage/v1/b/test-bucket/o/described HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"metadata\":",
+    );
+    patch.json_error(408, "uploadBrokenConnection");
+    names_the_setting(&patch);
+    assert!(server.get("described").json().get("metadata").is_none());
+
+    let bucket = silent(
+        "POST /storage/v1/b?project=local HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"name\":",
+    );
+    bucket.json_error(408, "uploadBrokenConnection");
+    names_the_setting(&bucket);
+
+    let object = silent(
+        "PUT /test-bucket/xml-silent HTTP/1.1\r\nHost: local\r\nContent-Length: 10\r\n\r\n01234",
+    );
+    common::errors::xml_error_with_content_type(&object, 400, "RequestTimeout");
+    names_the_setting(&object);
+    server.get("xml-silent").json_error(404, "notFound");
+
+    let xml_bucket = silent(
+        "PUT /silent-xml-bucket HTTP/1.1\r\nHost: local\r\nx-goog-project-id: local\r\nContent-Length: 100\r\n\r\n<CreateBucketConfiguration>",
+    );
+    common::errors::xml_error_with_content_type(&xml_bucket, 400, "RequestTimeout");
+    names_the_setting(&xml_bucket);
+    server
+        .request("GET", "/storage/v1/b/silent-xml-bucket", "", b"")
+        .json_error(404, "notFound");
+}
+
+/// Every frame of a resource body renews body inactivity, as it does for an upload, so a body
+/// that trickles in for several times the limit still completes.
+#[test]
+fn obj_http_trickled_resource_body_renews_body_inactivity() {
+    let dir = TestDir::new();
+    before_short_deadline(&dir, |_| ());
+    let server = start_with(
+        &dir,
+        &[
+            "--body-inactivity-timeout-ms",
+            LIMIT,
+            "--request-timeout-ms",
+            LIMIT,
+        ],
+    );
+    let body = br#"{"name":"trickled-bucket"}"#;
+    let mut stream = server.stream();
+    stream.set_nodelay(true).unwrap();
+    write!(stream, "POST /storage/v1/b?project=local HTTP/1.1\r\nHost: local\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
+    // A sixth of the limit between bytes; the whole body takes about four limits.
+    for byte in body {
+        assert_silent(&stream, Duration::from_millis(80));
+        stream.write_all(&[*byte]).unwrap();
+    }
+    Reply::framed(stream).expect(200);
+    server
+        .request("GET", "/storage/v1/b/trickled-bucket", "", b"")
+        .expect(200);
+}
+
 /// More than the kernel socket buffers hold, so a client that stops reading stalls the response.
 const LARGE: usize = 64 * 1024 * 1024;
 

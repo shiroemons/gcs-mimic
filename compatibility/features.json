@@ -59054,7 +59054,7 @@
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
         "https://docs.cloud.google.com/storage/docs/retry-strategy"
       ],
-      "source_checked_at": "2026-10-28",
+      "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
       "notes": "Content-Length, chunked transfer, empty/truncated bodies, Expect: 100-continue, connection reuse and bounded header/parser state retain existing evidence in docs/en/evidence/http-connection-semantics.md. New bounded metadata and multipart transport gzip validates all members and EOF before publication; method override delegates to existing strict/conditional PATCH handlers. Scoped native framing/checksum/denial/deadline tests pass in docs/en/slices/http-ingress.md. Complete HTTP/2 flow control and final combined SDK/container coverage remain pending.",
       "dependencies": [],
@@ -59063,22 +59063,37 @@
       "acceptance_cases": [
         {
           "id": "upload_deadline_response",
-          "description": "A connection or absolute deadline that expires before an object upload handler answers cancels it without publication and returns 408 uploadBrokenConnection, as a JSON error or the XML error code.",
+          "description": "A body inactivity or absolute object deadline that expires before an object upload handler answers cancels it without publication. JSON answers 408 uploadBrokenConnection for both; XML answers 400 RequestTimeout for a silent body and the 408 uploadBrokenConnection error code for object_request_timeout_ms.",
           "result": "PASS",
           "test_ids": [
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
             "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
             "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
-            "xml_put_chunked_trailers_and_body_deadlines_cannot_publish"
+            "xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+            "the_timeout_reply_names_the_limit_that_expired"
           ]
         },
         {
           "id": "backend_deadline_response",
-          "description": "A deadline that expires before any other handler answers returns 503 backendError instead of a silent close, and the server stays usable.",
+          "description": "A request_timeout_ms deadline that expires while a handler works toward its response, on any route, returns 503 backendError (XML ServiceUnavailable) instead of a silent close, and the server stays usable.",
           "result": "PASS",
           "test_ids": [
-            "bkt_http_deadline_before_response_returns_backend_error"
+            "bkt_http_deadline_before_response_returns_backend_error",
+            "the_timeout_reply_names_the_limit_that_expired"
+          ]
+        },
+        {
+          "id": "client_paced_request_bodies",
+          "description": "Waiting for request body bytes on any route (JSON and XML resource bodies, batch envelopes, uploads) never counts against request_timeout_ms; body_inactivity_timeout_ms (default 0, disabled) bounds it and every received frame renews it. Its expiry answers JSON 408 uploadBrokenConnection or XML 400 RequestTimeout naming the setting, with Connection: close and no mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines",
+            "obj_http_explicit_body_inactivity_answers_silent_resource_bodies",
+            "obj_http_trickled_resource_body_renews_body_inactivity",
+            "bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline",
+            "a_pending_request_body_moves_any_request_to_the_inactivity_limit",
+            "the_timeout_reply_names_the_limit_that_expired"
           ]
         },
         {
@@ -59173,9 +59188,16 @@
         "obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines",
         "obj_http_explicit_body_inactivity_answers_a_stalled_upload_with_408",
         "obj_http_explicit_body_inactivity_cuts_a_stalled_download",
-        "obj_http_disabled_and_largest_timeouts_never_cut_any_phase"
+        "obj_http_disabled_and_largest_timeouts_never_cut_any_phase",
+        "obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines",
+        "obj_http_explicit_body_inactivity_answers_silent_resource_bodies",
+        "obj_http_trickled_resource_body_renews_body_inactivity",
+        "bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline",
+        "a_pending_request_body_moves_any_request_to_the_inactivity_limit",
+        "the_timeout_reply_names_the_limit_that_expired"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib server::; cargo test --locked --lib xml::; cargo test --locked --test it_protocol; cargo test --locked --test it_json; cargo test --locked --test it_xml_auth; cargo test --locked --test it_process tls_streaming_progress_and_upload_deadlines_preserve_existing_object","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/evidence/http-connection-semantics.md","test_ids":["obj_http_stalled_resource_bodies_outlive_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_silent_resource_bodies","obj_http_trickled_resource_body_renews_body_inactivity","bkt_http_silent_body_meets_body_inactivity_not_the_request_deadline","a_pending_request_body_moves_any_request_to_the_inactivity_limit","the_timeout_reply_names_the_limit_that_expired","bkt_http_deadline_before_response_returns_backend_error","xml_put_chunked_trailers_and_body_deadlines_cannot_publish","obj_http_trickle_upload_deadline_releases_permits_without_publication","obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out","obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots","tls_streaming_progress_and_upload_deadlines_preserve_existing_object"]},
         {"command":"cargo test --locked --lib -- reclaim_tests server::transport; cargo test --locked --test it_protocol -- phase_deadlines; cargo test --locked --test it_process -- foundation","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["full_server_closes_only_the_oldest_idle_connection_per_waiting_client","full_server_without_a_waiting_client_keeps_its_idle_connections","each_request_renews_the_keep_alive_deadline","a_request_wakes_only_the_connection_that_turned_idle_first","accepted_tcp_connections_enable_keepalive","obj_http_stalled_upload_body_outlives_header_and_request_deadlines","obj_http_stalled_download_outlives_header_and_request_deadlines","obj_http_stalled_resumable_chunk_outlives_header_and_request_deadlines","obj_http_explicit_body_inactivity_answers_a_stalled_upload_with_408","obj_http_explicit_body_inactivity_cuts_a_stalled_download","obj_http_disabled_and_largest_timeouts_never_cut_any_phase"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
         {
@@ -59205,11 +59227,11 @@
       "sdk_evidence": [],
       "known_deviations": [
         "A waiting client at a full server closes the connection that turned idle first, so max_connections of 1 closes after a response when a client waits; a partial next request head that arrives with the previous body waits for keep_alive_timeout_ms; HTTP/2 flow control and the remaining framing matrix stay pending.",
-        "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; a body sent to a non-upload route receives 503 because the cancelled handler cannot report whether its small body was read.",
+        "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; which limit maps to which documented code is a local choice. With body_inactivity_timeout_ms at its default of 0, a client that stops sending a request body on any route holds its connection until it disconnects.",
         "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "AUDIT-011",

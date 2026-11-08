@@ -245,6 +245,11 @@ impl Error {
         Self::new(XmlCode::PreconditionFailed, PRECONDITION_NOT_HELD)
     }
 
+    /// The 400 `RequestTimeout` for a client whose socket stayed silent too long.
+    pub(crate) fn request_timeout(message: impl Into<String>) -> Self {
+        Self::new(XmlCode::RequestTimeout, message)
+    }
+
     pub(crate) fn status(&self) -> StatusCode {
         self.code.status()
     }

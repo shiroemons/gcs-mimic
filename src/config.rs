@@ -232,9 +232,9 @@ pub struct Config {
     // timeouts, so the defaults are local choices that a slow client should not reach.
     /// Waiting for a request head: on a new connection, and once a next request has started.
     pub header_read_timeout: TimeLimit,
-    /// Silence while a streamed request body or a response body is in flight.
+    /// Silence while a request body on any route or a response body is in flight.
     pub body_inactivity_timeout: TimeLimit,
-    /// A handler's time before its response starts, and so all of a small-bodied request.
+    /// A handler's time before its response starts, apart from waits for request body bytes.
     pub request_timeout: TimeLimit,
     pub keep_alive_timeout: TimeLimit,
     pub object_request_timeout: TimeLimit,

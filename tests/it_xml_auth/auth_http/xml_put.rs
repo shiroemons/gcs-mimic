@@ -721,7 +721,7 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     stream.write_all(b"partial").unwrap();
     let mut received = Vec::new();
     stream.read_to_end(&mut received).unwrap();
-    assert_upload_timed_out(&received);
+    assert_timed_out(&received, "400", "RequestTimeout");
     clean(&data, &mut server);
     let (mut server, _) = Server::start(&data, &["--object-request-timeout-ms", "500"]);
     assert_eq!(snapshot(&server, &data), before);
@@ -734,20 +734,19 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     }
     let mut received = Vec::new();
     stream.read_to_end(&mut received).unwrap();
-    assert_upload_timed_out(&received);
+    assert_timed_out(&received, "408", "uploadBrokenConnection");
     clean(&data, &mut server);
     let (server, _) = Server::start(&data, &[]);
     assert_eq!(snapshot(&server, &data), before);
 }
 
-/// Both deadlines answer an unfinished XML upload with the documented XML timeout code.
-fn assert_upload_timed_out(response: &[u8]) {
+/// Each deadline answers an unfinished XML upload with its documented XML code: a silent socket
+/// is 400 `RequestTimeout`, and an upload past its whole-request limit is 408.
+#[track_caller]
+fn assert_timed_out(response: &[u8], status: &str, code: &str) {
     let text = String::from_utf8_lossy(response);
-    assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
-    assert!(
-        text.contains("<Code>uploadBrokenConnection</Code>"),
-        "{text}"
-    );
+    assert!(text.starts_with(&format!("HTTP/1.1 {status} ")), "{text}");
+    assert!(text.contains(&format!("<Code>{code}</Code>")), "{text}");
 }
 
 #[test]

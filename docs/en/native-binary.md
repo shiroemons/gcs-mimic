@@ -124,8 +124,8 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | Available CPUs from 2 to 8 | 1–1024; on Linux the available CPUs honor a container's quota and affinity |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 8 | 1–1024 |
 | `--header-read-timeout-ms` | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS` | 30000 (30 seconds) | 0 disables, no upper limit; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement |
-| `--body-inactivity-timeout-ms` | `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; silence while an object body or gRPC stream is in flight |
-| `--request-timeout-ms` | `GCS_MIMIC_REQUEST_TIMEOUT_MS` | 180000 (3 minutes) | 0 disables, no upper limit; handler time before a response starts, including small request bodies |
+| `--body-inactivity-timeout-ms` | `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |
+| `--request-timeout-ms` | `GCS_MIMIC_REQUEST_TIMEOUT_MS` | 180000 (3 minutes) | 0 disables, no upper limit; handler time before a response starts, excluding time spent waiting for request body bytes |
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | none | Alias: sets the three settings above to one value; each of them named explicitly wins, from any source |
 | `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 0 disables, no upper limit; idle time between HTTP/1.1 requests on one connection and on gRPC connections |
 | `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; absolute upload/media deadline |
@@ -174,13 +174,16 @@ one, so pooled clients keep the others. A request head must arrive within
 
 Cloud Storage [documents no seconds](sources.md#timeouts-and-limits-behind-the-local-defaults)
 for these limits, so the defaults are local choices that a slow client should not reach.
-A stalled upload or download has no limit by default; `--body-inactivity-timeout-ms` sets one,
-and each progressing chunk renews it. Upload/media requests have no absolute ceiling by
+A stalled request body on any route, such as an upload, a metadata PATCH or a batch, and a
+stalled download have no limit by default; `--body-inactivity-timeout-ms` sets one, and each
+progressing chunk renews it. Upload/media requests have no absolute ceiling by
 default; `--object-request-timeout-ms` sets one that chunks cannot renew.
 A handler that has not started its response gets `--request-timeout-ms` (default three minutes),
-which also bounds a small request body. Expiry before a response
-returns a retryable error without publication: 408 `uploadBrokenConnection` for object
-uploads and 503 `backendError` for other requests. Expiry during download truncates the
+which never counts time spent waiting for request body bytes. Expiry before a response
+returns a retryable error without publication, chosen by the limit that expired: a silent
+request body answers JSON 408 `uploadBrokenConnection` or XML 400 `RequestTimeout`, an
+upload past `--object-request-timeout-ms` answers 408 `uploadBrokenConnection`, and a handler
+past `--request-timeout-ms` answers 503 `backendError`. Expiry during download truncates the
 stream after its headers and closes the connection. A deadline response, or a rejection
 that leaves the request body unread, closes the connection; the server then keeps
 reading and discarding client input for up to 30 seconds, so a rejected upload still

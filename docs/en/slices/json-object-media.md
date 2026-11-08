@@ -340,9 +340,11 @@ connection and truncates the stream; already buffered socket bytes may still rea
 client. No minimum transfer rate is enforced.
 
 `header_read_timeout_ms` (default 30000) is the HTTP header-read deadline.
-`request_timeout_ms` (default 180000) bounds a handler before its response starts, including a
-small request body. `body_inactivity_timeout_ms` (default 0, disabled) bounds silence while an
-object body is in flight; each progressed chunk renews it, so active transfers can last longer.
+`request_timeout_ms` (default 180000) bounds a handler before its response starts, never
+counting time spent waiting for request body bytes. `body_inactivity_timeout_ms` (default 0,
+disabled) bounds silence while a request body on any route or a response body is in flight;
+each progressed chunk renews it, so active transfers can last longer. Its expiry answers JSON
+408 `uploadBrokenConnection` or XML 400 `RequestTimeout`.
 `connection_timeout_ms` has no default: named, it sets those three to one value, and any of them
 named explicitly wins, whichever source named it.
 Catalog waits suspend these deadlines, and each wait ends on every path out of it; catalog
@@ -372,7 +374,7 @@ external SQLite lock does not confirm a background upload's commit: SQLite may s
 sleeping between busy retries. The catalog-timeout regression therefore observes the
 committed catalog row before checking media bytes with its 100 ms GET startup budget;
 both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
-Bucket/probe/unknown routes answer expiry of `request_timeout_ms` with 503 `backendError`.
+Every route, uploads included, answers expiry of `request_timeout_ms` with 503 `backendError`.
 HTTP/1.1 connections stay open between requests: each
 request starts its own deadlines, and an idle connection closes after
 `keep_alive_timeout_ms` (default 120000 ms) or, when a client waits at a full server, if it is

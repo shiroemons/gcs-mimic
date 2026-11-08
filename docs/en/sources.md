@@ -152,18 +152,20 @@ SPEC-013 continues to own invocation-token response replay.
 
 ## Timeouts and limits behind the local defaults
 
-Checked on **2026-11-06** for the connection, capacity and soft delete defaults. These pages move, so the table records what each said on that date.
+Checked on **2026-11-06** for the connection, capacity and soft delete defaults, and the two status code pages again on **2026-11-08** for the timeout replies. These pages move, so the table records what each said on that date.
 
 | Source | What it says |
 | --- | --- |
-| [JSON status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | 408 `uploadBrokenConnection`: "The request timed out. You should retry the request using truncated exponential backoff." 503 `backendError`: "We encountered an internal error. You should retry the request using truncated exponential backoff." No seconds. |
-| [XML status codes](https://docs.cloud.google.com/storage/docs/xml-api/reference-status) | `RequestTimeout` is listed under 400, not 408: "Your socket connection to the server was not read from or written to within the timeout period." No seconds. |
+| [JSON status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | 408 `uploadBrokenConnection`, the only 408 reason: "The request timed out. You should retry the request using truncated exponential backoff." 503 `backendError`: "We encountered an internal error. You should retry the request using truncated exponential backoff." No seconds. |
+| [XML status codes](https://docs.cloud.google.com/storage/docs/xml-api/reference-status) | `RequestTimeout` is listed under 400, not 408: "Your socket connection to the server was not read from or written to within the timeout period." 408 lists `uploadBrokenConnection`, spelled with a lowercase `u`: "The request timed out. Retry using exponential backoff". No seconds. |
 | [Best practices](https://docs.cloud.google.com/storage/docs/best-practices) | "For upload traffic, we recommend setting reasonably long timeouts." No seconds. |
 | [Quotas and limits](https://docs.cloud.google.com/storage/quotas) | Maximum object size 5 TiB, "regardless of write method". A resumable session has 7 days from initiation. Simultaneous XML multipart uploads for an object and how long one may stay unfinished are both "Unlimited". No limit on connections or concurrent resumable sessions. |
 | [Retry strategy](https://docs.cloud.google.com/storage/docs/retry-strategy) | Retries HTTP 408, 429 and 5xx. Lists client library timeouts, such as a 120-second Python deadline and 20-second Java read and connect timeouts, but no server timeout. |
 | [Soft delete](https://docs.cloud.google.com/storage/docs/soft-delete) | "The default retention duration is 7 days and you can customize the retention duration between 7 days and 90 days." A retention of 0 disables it. |
 
 **Cloud Storage documents no seconds for waiting on a request head, for silence on a body or for a whole request.** The defaults of `header_read_timeout_ms` (30000), `body_inactivity_timeout_ms` (disabled), `request_timeout_ms` (180000), `object_request_timeout_ms` (disabled) and `catalog_wait_timeout_ms` (120000) are local choices: a slow client should not reach them, and no default bounds a whole upload, as the "reasonably long" recommendation asks. They are not observed provider values.
+
+The timeout replies use the codes above for what each limit measures. A request body that stays silent past `body_inactivity_timeout_ms` is a socket the client stopped writing to, so the JSON API answers 408 `uploadBrokenConnection` and the XML API 400 `RequestTimeout`. An upload past `object_request_timeout_ms` answers 408 `uploadBrokenConnection` in both APIs, and a handler with no response ready within `request_timeout_ms` answers 503 `backendError` (XML `ServiceUnavailable`). The pairing of each limit with a code is a local choice; no real-cloud differential confirms it.
 
 The following are also local choices, not provider behavior:
 

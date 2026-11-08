@@ -172,19 +172,66 @@ const LINGER_TIME: Duration = Duration::from_secs(30);
 /// connection after the server has given up on it.
 const CLOSE_BUDGET: Duration = Duration::from_secs(5);
 
-/// The response for a request whose deadline expires before its handler answers.
-/// Cloud Storage documents both statuses as retryable. An object upload reports
-/// the broken upload; other requests, including bucket writes whose small bodies
-/// are read at once, report a backend timeout.
+/// The response for a request whose deadline expires before its handler answers. The
+/// connection picks it when the deadline expires, from the limit that expired: the request's
+/// route alone cannot tell a silent client from a slow server. Cloud Storage documents every
+/// status used here as retryable.
 struct DeadlineReply {
-    xml: bool,
-    body: xml::ErrorBody,
-    upload: bool,
+    api: ReplyApi,
+    payload: Payload,
+}
+
+/// Which API's error document a timeout reply carries.
+#[derive(Clone, Copy, Debug)]
+enum ReplyApi {
+    Json,
+    /// An XML error omits its document for HEAD.
+    Xml(xml::ErrorBody),
+}
+
+/// What the request sends, which decides how its whole-request limit is reported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Payload {
+    /// Object data with a body: `/upload/...`, or an XML PUT or POST.
+    Upload,
+    Other,
+}
+
+/// Which limit a request outlasted. Recorded with the claim, so the reply names the limit
+/// that actually expired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Expiry {
+    /// The client left the request body silent past `body_inactivity_timeout_ms`.
+    BodyInactivity,
+    /// The server had no response ready within `request_timeout_ms`.
+    Request,
+    /// An enforced object transfer outlasted `object_request_timeout_ms`.
+    ObjectRequest,
 }
 
 fn request_timed_out() -> JsonError {
     JsonError::service_unavailable(
         "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
+    )
+}
+
+/// The JSON API documents 408 `uploadBrokenConnection` as its only request timeout.
+fn request_body_silent() -> JsonError {
+    JsonError::new(
+        StatusCode::REQUEST_TIMEOUT,
+        "uploadBrokenConnection",
+        "The request timed out: no request body bytes arrived within body_inactivity_timeout_ms; retry the request, or raise body_inactivity_timeout_ms for slow clients (0 disables it).",
+    )
+}
+
+/// The XML API documents a silent socket as 400 `RequestTimeout`; this repeats its meaning.
+const XML_REQUEST_BODY_SILENT: &str = "Your socket connection to the server was not read from or written to within the timeout period: no request body bytes arrived within body_inactivity_timeout_ms; retry the request, or raise body_inactivity_timeout_ms for slow clients (0 disables it).";
+
+fn upload_timed_out() -> JsonError {
+    JsonError::new(
+        StatusCode::REQUEST_TIMEOUT,
+        "uploadBrokenConnection",
+        "The upload timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large uploads (0 disables it).",
     )
 }
 
@@ -208,33 +255,45 @@ impl DeadlineReply {
         endpoints: &crate::config::EndpointSnapshot,
     ) -> Self {
         let headers = request.headers();
-        let xml = matches!(
-            xml::select_object_with_endpoints(request.uri(), headers, config, endpoints),
-            Ok(Some(_))
-        );
+        let api = match xml::select_object_with_endpoints(request.uri(), headers, config, endpoints)
+        {
+            Ok(Some(_)) => ReplyApi::Xml(xml::ErrorBody::for_method(request.method())),
+            Ok(None) | Err(_) => ReplyApi::Json,
+        };
         let upload_route = request.uri().path().starts_with("/upload/")
-            || (xml && matches!(*request.method(), Method::PUT | Method::POST));
-        Self {
-            xml,
-            body: xml::ErrorBody::for_method(request.method()),
-            upload: has_body(headers) && upload_route,
+            || (matches!(api, ReplyApi::Xml(_))
+                && matches!(*request.method(), Method::PUT | Method::POST));
+        let payload = if has_body(headers) && upload_route {
+            Payload::Upload
+        } else {
+            Payload::Other
+        };
+        Self { api, payload }
+    }
+
+    fn json_error(&self, expiry: Expiry) -> JsonError {
+        match (expiry, self.payload) {
+            (Expiry::BodyInactivity, Payload::Upload | Payload::Other) => request_body_silent(),
+            // Only a transfer's whole-request limit reports a broken upload: a server that is
+            // slow to answer an upload is still a server-side timeout.
+            (Expiry::ObjectRequest, Payload::Upload) => upload_timed_out(),
+            (Expiry::ObjectRequest, Payload::Other)
+            | (Expiry::Request, Payload::Upload | Payload::Other) => request_timed_out(),
         }
     }
 
-    fn response(self) -> Response<ResponseBody> {
-        let error = if self.upload {
-            JsonError::new(
-                StatusCode::REQUEST_TIMEOUT,
-                "uploadBrokenConnection",
-                "The upload timed out; retry the request, or raise body_inactivity_timeout_ms for slow clients, object_request_timeout_ms for large uploads, or request_timeout_ms for a slow server (0 disables each).",
-            )
-        } else {
-            request_timed_out()
-        };
-        let mut response = if self.xml {
-            boxed(xml::Error::from(error).response(self.body))
-        } else {
-            boxed(error.into_response())
+    fn xml_error(&self, expiry: Expiry) -> xml::Error {
+        match expiry {
+            // The XML API lists a silent socket under 400, apart from the JSON API's 408.
+            Expiry::BodyInactivity => xml::Error::request_timeout(XML_REQUEST_BODY_SILENT),
+            Expiry::Request | Expiry::ObjectRequest => self.json_error(expiry).into(),
+        }
+    }
+
+    fn response(self, expiry: Expiry) -> Response<ResponseBody> {
+        let mut response = match self.api {
+            ReplyApi::Json => boxed(self.json_error(expiry).into_response()),
+            ReplyApi::Xml(body) => boxed(self.xml_error(expiry).response(body)),
         };
         response.headers_mut().insert(
             "connection",
@@ -391,8 +450,9 @@ enum RequestStage {
     Running,
     /// The handler waits for catalog work that has its own budget, so deadlines pause.
     AwaitingCatalog,
-    /// The connection chose to answer with a timeout, and is about to drop the handler.
-    Expired,
+    /// The connection chose to answer with a timeout for the limit that expired, and is about to
+    /// drop the handler.
+    Expired(Expiry),
     /// The handler returned, so hyper may have sent the response head and no timeout reply can
     /// follow.
     Responded,
@@ -400,22 +460,14 @@ enum RequestStage {
     Finished,
 }
 
-/// Whether the handler is waiting for request body bytes that the client has yet to send.
+/// Whether the handler is waiting for request body bytes that the client has yet to send. A body
+/// of any size arrives at the client's pace: every JSON document may reach 16 MiB, and a pause
+/// between its bytes says nothing about the server.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum BodyRead {
     #[default]
     NotPending,
     Pending,
-}
-
-/// Who decides how long a route's request body takes to arrive.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum BodyPace {
-    /// A small body, which arrives at once from a healthy client.
-    #[default]
-    Bounded,
-    /// A body that can be large enough for a slow client to take as long as it needs.
-    ClientPaced,
 }
 
 /// Whether a response that has started is waiting for the server rather than for the client.
@@ -432,7 +484,6 @@ pub(crate) struct ObjectActivity {
     stage: RequestStage,
     deadline: Option<tokio::time::Instant>,
     body_read: BodyRead,
-    body_pace: BodyPace,
     response_work: ResponseWork,
 }
 
@@ -455,22 +506,29 @@ impl RequestStep {
             Self::ServerPaced => "no response was ready before request_timeout_ms",
         }
     }
+
+    /// The limit that expires when this step outlasts its limit. A response body's silence
+    /// cannot be answered, since its head has left, so a client-paced expiry with a reply is
+    /// always a silent request body.
+    fn expiry(self) -> Expiry {
+        match self {
+            Self::ClientPaced => Expiry::BodyInactivity,
+            Self::ServerPaced => Expiry::Request,
+        }
+    }
 }
 
 impl ObjectActivity {
     fn step(&self) -> RequestStep {
-        match (self.stage, self.body_read, self.body_pace) {
-            (RequestStage::Responded, ..)
-            | (RequestStage::Running, BodyRead::Pending, BodyPace::ClientPaced) => {
-                RequestStep::ClientPaced
+        match self.stage {
+            RequestStage::Responded => RequestStep::ClientPaced,
+            RequestStage::Running => match self.body_read {
+                BodyRead::Pending => RequestStep::ClientPaced,
+                BodyRead::NotPending => RequestStep::ServerPaced,
+            },
+            RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Finished => {
+                RequestStep::ServerPaced
             }
-            (
-                RequestStage::Running
-                | RequestStage::AwaitingCatalog
-                | RequestStage::Expired
-                | RequestStage::Finished,
-                ..,
-            ) => RequestStep::ServerPaced,
         }
     }
 
@@ -484,7 +542,7 @@ impl ObjectActivity {
     /// part, whose catalog wait must not start behind the timeout reply.
     fn finish_object(&mut self) {
         let stage = match self.stage {
-            RequestStage::Expired => RequestStage::Expired,
+            RequestStage::Expired(expiry) => RequestStage::Expired(expiry),
             RequestStage::Running
             | RequestStage::AwaitingCatalog
             | RequestStage::Responded
@@ -508,15 +566,15 @@ enum ExpiryClaim {
     ResponseStarted,
 }
 
-fn claim_expiry(activity: &watch::Sender<ObjectActivity>) -> ExpiryClaim {
+fn claim_expiry(activity: &watch::Sender<ObjectActivity>, expiry: Expiry) -> ExpiryClaim {
     let mut claim = ExpiryClaim::Refused;
     activity.send_if_modified(|progress| match progress.stage {
         RequestStage::Running => {
-            progress.stage = RequestStage::Expired;
+            progress.stage = RequestStage::Expired(expiry);
             claim = ExpiryClaim::Granted;
             true
         }
-        RequestStage::AwaitingCatalog | RequestStage::Expired | RequestStage::Finished => false,
+        RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Finished => false,
         RequestStage::Responded => {
             claim = ExpiryClaim::ResponseStarted;
             false
@@ -525,13 +583,27 @@ fn claim_expiry(activity: &watch::Sender<ObjectActivity>) -> ExpiryClaim {
     claim
 }
 
-/// Resolves once the connection has claimed this request's expiry. The read guard that
-/// `wait_for` returns stays inside, so it cannot block a later update of the channel.
-async fn expiry_claimed(activity: &watch::Sender<ObjectActivity>) {
+/// Resolves with the limit that expired once the connection has claimed this request's expiry.
+/// The read guard that `wait_for` returns stays inside, so it cannot block a later update of the
+/// channel.
+async fn expiry_claimed(activity: &watch::Sender<ObjectActivity>) -> Expiry {
     let mut progress = activity.subscribe();
-    let _ = progress
-        .wait_for(|progress| progress.stage == RequestStage::Expired)
-        .await;
+    let claimed = progress
+        .wait_for(|progress| matches!(progress.stage, RequestStage::Expired(_)))
+        .await
+        .ok()
+        .and_then(|progress| match progress.stage {
+            RequestStage::Expired(expiry) => Some(expiry),
+            RequestStage::Running
+            | RequestStage::AwaitingCatalog
+            | RequestStage::Responded
+            | RequestStage::Finished => None,
+        });
+    match claimed {
+        Some(expiry) => expiry,
+        // The wait ends without a claim only once every sender is gone, and the caller holds one.
+        None => std::future::pending().await,
+    }
 }
 
 /// Records progress, which renews the limit on the request's current step: a body chunk moved,
@@ -575,9 +647,10 @@ pub(crate) async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>,
     let mut request_deadline = limit.deadline();
     loop {
         let current = *progress.borrow_and_update();
-        let expiry = current
-            .deadline
-            .map_or(request_deadline, |deadline| deadline.min(request_deadline));
+        let (at, expiry) = match current.deadline {
+            Some(deadline) if deadline < request_deadline => (deadline, Expiry::ObjectRequest),
+            _ => (request_deadline, Expiry::Request),
+        };
         tokio::select! {
             biased;
             changed = progress.changed() => {
@@ -586,8 +659,8 @@ pub(crate) async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>,
                 }
                 request_deadline = limit.deadline();
             }
-            () = tokio::time::sleep_until(expiry), if current.stage != RequestStage::AwaitingCatalog => {
-                if claim_expiry(activity) == ExpiryClaim::Granted {
+            () = tokio::time::sleep_until(at), if current.stage != RequestStage::AwaitingCatalog => {
+                if claim_expiry(activity, expiry) == ExpiryClaim::Granted {
                     return;
                 }
             }
@@ -639,7 +712,7 @@ async fn claim_catalog_wait(
             update(progress);
             true
         }
-        RequestStage::Expired => {
+        RequestStage::Expired(_) => {
             expired = true;
             false
         }
@@ -1211,7 +1284,7 @@ impl ConnectionService {
                 .map(|body| finished.track(body)));
             }
         };
-        let expiry = DeadlineReply::new(&request, &config, endpoints.snapshot());
+        let timeout_reply = DeadlineReply::new(&request, &config, endpoints.snapshot());
         let format =
             json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
         let ctx = RequestCtx {
@@ -1228,7 +1301,7 @@ impl ConnectionService {
                 format,
                 routing::respond(request.map(|body| RequestBody::transport(body, activity.clone())), ctx),
             ) => response,
-            () = expiry_claimed(&activity) => expiry.response(),
+            expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
         };
         // Handlers stop reading a body early only to reject it, and hyper then
         // closes the connection. Announcing the close keeps a pooled client from
@@ -1355,7 +1428,7 @@ impl ConnectionWatch {
                     }
                     current = next;
                     match current.stage {
-                        RequestStage::Running | RequestStage::AwaitingCatalog | RequestStage::Expired | RequestStage::Responded => {
+                        RequestStage::Running | RequestStage::AwaitingCatalog | RequestStage::Expired(_) | RequestStage::Responded => {
                             phase = ConnectionPhase::Request;
                             deadline.as_mut().reset(limits.during_request(&current).deadline());
                         }
@@ -1374,7 +1447,7 @@ impl ConnectionWatch {
                     }
                 },
                 _ = &mut object_deadline, if matches!(phase, ConnectionPhase::Request) && current.deadline.is_some() && current.stage != RequestStage::AwaitingCatalog => {
-                    match claim_expiry(&activity) {
+                    match claim_expiry(&activity, Expiry::ObjectRequest) {
                         ExpiryClaim::Granted => {
                             crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                             deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
@@ -1403,7 +1476,7 @@ impl ConnectionWatch {
                         }
                         // An idle keep-alive connection closes quietly.
                         ConnectionPhase::Idle { .. } => break if reads.arrived_since_idle() { UnreadInput::MayRemain } else { UnreadInput::None },
-                        ConnectionPhase::Request => match claim_expiry(&activity) {
+                        ConnectionPhase::Request => match claim_expiry(&activity, current.step().expiry()) {
                             ExpiryClaim::Granted => {
                                 warn_connection_timeout(current.step().timeout_message());
                                 deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);

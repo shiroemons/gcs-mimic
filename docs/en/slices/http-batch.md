@@ -9,7 +9,8 @@ on HTTP connections the earlier of request_timeout_ms (default
 180000 ms) and object_request_timeout_ms (batch admission, default 0, disabled)
 ends the wait with JSON 503 backendError. Expiry of the request
 deadline also closes the connection with `Connection: close`. An admitted envelope's body
-then runs under body_inactivity_timeout_ms, like an object body. The request stays below
+then runs under body_inactivity_timeout_ms, like every request body, and its silence answers
+408 uploadBrokenConnection. The request stays below
 10,000,000 bytes, as the batch guide documents. The response has no total limit: it leaves
 chunked, one part at a time, so memory follows the largest part rather than their sum; this is
 not a bound on whole-process RSS. Outer authentication
