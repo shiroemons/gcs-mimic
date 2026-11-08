@@ -1,0 +1,12 @@
+{"version": 1, "project": "local-project", "buckets": [
+  {"name": "app-public",
+   "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]},
+   "cors": [{"origin": ["http://localhost:3000"], "method": ["GET", "HEAD"],
+             "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]},
+  {"name": "app-private",
+   "iamConfiguration": {"publicAccessPrevention": "enforced"},
+   "cors": [{"origin": ["http://localhost:3000"], "method": ["PUT"],
+             "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition",
+                                "Cache-Control", "x-goog-content-length-range"],
+             "maxAgeSeconds": 3600}]}
+]}
