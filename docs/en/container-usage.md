@@ -84,6 +84,22 @@ allocated port, which is `http://127.0.0.1:4443` (or `https://`) in the image, a
 the ready event reports it as `api_base_url`. The checked-in Compose files pass
 `GCS_MIMIC_API_BASE_URL` through only when it is set in your environment.
 
+## Which setup do I need?
+
+| Goal | Setup | Settings |
+| --- | --- | --- |
+| Behave like fake-gcs-server: every request is allowed and no signature is checked | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
+| Check signed URLs as Cloud Storage does while everything else stays open | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify`, plus `GCS_MIMIC_SIGNED_HOST_PORT=lenient` for URLs that Go storage signs |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener | Copy the [strict local recipe](../../examples/strict-local/README.md) as it is |
+
+Start with the default. When signed URLs or private buckets need production-like
+checks, paste the strict local recipe as it is: the container smoke test runs that
+exact block with the image, and its README explains each part. Use permissive
+`verify` only as a step on the way, when strict mode is not an option yet: it
+rejects a bad signature, but it grants every verified and every unsigned request,
+so it cannot show that a private bucket stays private. The last two rows need a
+release newer than 0.13.0.
+
 ## Load local files
 
 Keep the bucket/object layout used by fake-gcs-server's `/data` mount:
@@ -455,49 +471,16 @@ else, because a listed name is admitted as any other accepted Host.
 
 The server does not warn about a wildcard trusted address: inside a container
 the listener must bind `0.0.0.0` for other containers to reach it, so a warning
-would fire on every start. Keeping the port off `ports:` is the protection. In
-this example the application containers use the trusted listener, the browser
-uses the published main listener, and Compose writes the identity file inline
-(inline `content` needs Docker Compose 2.23.1 or later; see the
-[bucket file example](fake-gcs-server-migration.md#bucket-file-inside-composeyaml)):
+would fire on every start. Keeping the port off `ports:` is the protection.
 
-```yaml
-services:
-  gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
-    ports:
-      # The browser-facing listener only; port 4444 is never published.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
-    environment:
-      GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_AUTH_MODE: strict
-      GCS_MIMIC_IDENTITY_FILE: /etc/gcs-mimic/identities.json
-      GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
-      GCS_MIMIC_TRUSTED_PRINCIPAL: app@example.invalid
-    configs:
-      - source: gcs_identities
-        target: /etc/gcs-mimic/identities.json
-    volumes:
-      - gcs-data:/var/lib/gcs-mimic
-  app:
-    build: .
-    environment:
-      STORAGE_EMULATOR_HOST: gcs:4444
-    depends_on:
-      gcs:
-        condition: service_healthy
-configs:
-  gcs_identities:
-    content: |
-      {"identities": [
-        {"id": "app@example.invalid", "tokens": [],
-         "project_roles": {"local-project": ["roles/storage.admin"]}}
-      ]}
-volumes:
-  gcs-data:
-```
+The [strict local recipe](../../examples/strict-local/README.md) is the complete
+example: a `gcs` service to paste into your compose.yaml, with the trusted listener
+for the application containers, the published main listener for the browser, the
+identity and bucket files written inline, and the built-in test signer for signed
+URLs. The container smoke test runs it with the image, so use it as it is rather
+than assembling these settings yourself.
 
-`gcs` is a single-label name, so this example needs no `trusted_allowed_hosts`.
+`gcs` is a single-label name, so the recipe needs no `trusted_allowed_hosts`.
 To use a dotted alias instead, give the service a network alias and list it:
 
 ```yaml
@@ -520,9 +503,10 @@ it only the roles the application needs. Pages then use
 `roles/storage.objectViewer` is readable there anonymously, and a private object
 answers 401 unless the page has a signed URL. The application signs such URLs
 for that browser-facing address, never for `gcs:4444`, with a key the identity
-file registers; see [signed URLs](signed-urls.md). The image healthcheck probes
-the main listener and needs no change. DESIGN-101 records this local extension
-and stays PARTIAL; see the [evidence](evidence/trusted-listener.md).
+file registers or with the built-in test signer; see [signed URLs](signed-urls.md).
+The image healthcheck probes the main listener and needs no change. DESIGN-101
+records this local extension and stays PARTIAL; see the
+[evidence](evidence/trusted-listener.md).
 
 ## Further setup
 

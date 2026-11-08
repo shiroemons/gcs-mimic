@@ -181,7 +181,9 @@ The bucket file can live in the Compose file itself, so no separate
 defines the file, and the service's `configs:` mounts it at `target`, the path
 `GCS_MIMIC_BUCKETS_FILE` names. Inline `content` needs Docker Compose 2.23.1 or
 later, according to the
-[Compose configs reference](https://docs.docker.com/reference/compose-file/configs/).
+[Compose configs reference](https://docs.docker.com/reference/compose-file/configs/),
+and a service without `read_only: true`: Compose copies the content into the
+container and refuses a read-only one.
 Add these lines to the `gcs` service above, in place of the `buckets.json` mount:
 
 ```yaml
@@ -216,6 +218,10 @@ warning names the fields that still differ and ready counts the bucket as
 `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to the service environment; each start
 then writes only the fields an entry sets whose value differs, and fields it
 omits keep their API changes. Releases up to 0.13.0 do not know this setting.
+The server reads the edited `content` only in a recreated container: with Docker
+Compose 5.6.1 a plain `docker compose up -d` keeps the running container and
+`docker compose restart` keeps the old content, so run
+`docker compose up -d --force-recreate gcs`.
 Deleting a field from `content` never resets it: removing the `iamPolicy` above
 leaves `app-images` public, with a one-time warning that `iamPolicy` is no
 longer written, until the entry writes the policy you want.
@@ -277,23 +283,37 @@ test "$cancellation_status" = 499
 Authority rewriting is scoped to unsigned permissive sessions. Never
 rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 
+### Which setup do I need?
+
+| Goal | Setup | Settings |
+| --- | --- | --- |
+| Behave like fake-gcs-server: every request is allowed and no signature is checked | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
+| Check signed URLs as Cloud Storage does while everything else stays open | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify`, plus `GCS_MIMIC_SIGNED_HOST_PORT=lenient` for URLs that Go storage signs |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener | Copy the [strict local recipe](../../examples/strict-local/README.md) as it is |
+
+Start with the default, which this walkthrough uses. When signed URLs or private
+buckets need production-like checks, paste the strict local recipe as it is: the
+container smoke test runs that exact block with the image, and its README
+explains each part. Use permissive `verify` only as a step on the way, when strict
+mode is not an option yet: it rejects a bad signature, but it grants every
+verified and every unsigned request, so it cannot show that a private bucket
+stays private. The last two rows need a release newer than 0.13.0.
+
 ### Strict mode without changing application servers
 
 fake-gcs-server checks no permissions, so application servers that move to
 strict mode would otherwise need credentials in every client: anonymous requests
-then reach only `allUsers` grants. To keep production-like access in the browser
-(public buckets through `allUsers`, private ones only through signed URLs)
-without that change, add a trusted listener on the Compose network, for example
-`GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444` with
-`GCS_MIMIC_TRUSTED_PRINCIPAL` naming a registered identity, and point the
-application services at `STORAGE_EMULATOR_HOST=gcs:4444`. Requests without
-credentials there act as that identity under the same authorization; requests
-with credentials authenticate as on the main listener, and browser-initiated
-requests get 403. To keep DNS rebinding pages out, the Host must be an IP
-literal, a `localhost` name or a single-label name such as `gcs`; list a dotted
-service alias in `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`, and any other Host gets 421.
-Never publish that port. See the
-[Compose example](container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
+then reach only `allUsers` grants. The
+[strict local recipe](../../examples/strict-local/README.md) avoids that change.
+Its application services use `STORAGE_EMULATOR_HOST=gcs:4444`, a trusted listener
+on the Compose network where requests without credentials act as a registered
+identity, while browsers use the published port: public buckets through
+`allUsers`, private ones only through signed URLs. Never publish the trusted
+port. The [trusted listener section](container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
+explains its checks: requests with credentials authenticate as on the main
+listener, browser-initiated requests get 403, and a Host other than an IP
+literal, a `localhost` name, a single-label name such as `gcs` or a name in
+`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` gets 421.
 
 ### Rails Active Storage
 

@@ -157,6 +157,7 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 `target`のパスへマウントします。`GCS_MIMIC_BUCKETS_FILE`にはそのパスを指定します。
 [Composeのconfigsリファレンス](https://docs.docker.com/reference/compose-file/configs/)によると、
 `content`はDocker Compose 2.23.1以降で使えます。
+また、サービスに`read_only: true`を付けないでください。Composeは中身をコンテナへコピーするため、読み取り専用のコンテナでは作成を拒否します。
 上の`gcs`サービスへ、`buckets.json`のマウントの代わりに次を追加します。
 
 ```yaml
@@ -190,6 +191,8 @@ readyの`unapplied`に数えます。既存バケットへ反映するには、�
 `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`を追加します。各起動は項目が書いたフィールドのうち
 値が異なるものだけを書き込み、書かないフィールドはAPIでの変更を保ちます。
 0.13.0までのリリースはこの設定を知りません。
+編集した`content`をサーバーが読むのは、作り直したコンテナだけです。
+Docker Compose 5.6.1では、`docker compose up -d`だけでは動いているコンテナをそのまま使い、`docker compose restart`では古い中身のままなので、`docker compose up -d --force-recreate gcs`を実行します。
 `content`からフィールドを消しても元には戻りません。上の`iamPolicy`を消しても
 `app-images`は公開のままで、`iamPolicy`を書かなくなったことを一度だけ警告します。
 望むポリシーを項目に書くまで、この状態が続きます。
@@ -249,18 +252,31 @@ test "$cancellation_status" = 499
 オリジンの置き換えは署名なしのpermissiveセッションに限ります。
 strictの署名URLは最終的に利用者がアクセスするURLで署名し、後から書き換えません。
 
+### どの構成を使うか
+
+| 目的 | 構成 | 設定 |
+| --- | --- | --- |
+| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認しない | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
+| 署名URLはCloud Storageと同じく確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify`。Go storageが署名したURLには`GCS_MIMIC_SIGNED_HOST_PORT=lenient`も追加 |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード | [strict localレシピ](../../examples/strict-local/README.md)（英語）をそのままコピー |
+
+まずはこの手順と同じ既定の構成で始めてください。
+署名URLや非公開バケットを本番に近い形で確認したくなったら、strict localレシピをそのまま貼り付けます。
+コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各部分の意味はレシピのREADMEで説明しています。
+permissiveの`verify`は、strictモードをまだ使えないときの途中段階としてだけ使ってください。
+不正な署名は拒否しますが、検証に通ったリクエストも署名のないリクエストもすべて許可するので、非公開バケットが非公開のままかは確認できません。
+表の2行目と3行目の構成には、0.13.0より新しいリリースが必要です。
+
 ### アプリのサーバーを変えずにstrictモードにする
 
 fake-gcs-serverは権限を確認しないため、strictモードに移ると、アプリのサーバー側のクライアントすべてに認証情報が必要になります。
 認証情報のないリクエストは`allUsers`の権限しか使えないからです。
-ブラウザーでは本番に近いアクセス（公開バケットは`allUsers`で読め、非公開バケットは署名URLでだけ使える）を保ち、アプリのコードは変えたくない場合は、Composeネットワーク内に信頼済みリスナーを追加します。
-たとえば`GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444`と、登録済みのIDを指す`GCS_MIMIC_TRUSTED_PRINCIPAL`を設定し、アプリのサービスは`STORAGE_EMULATOR_HOST=gcs:4444`で接続します。
-このリスナーでは、認証情報のないリクエストがそのIDとして同じ認可を受けます。
-認証情報付きのリクエストはメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になります。
-DNSリバインディングのページを防ぐため、HostはIPリテラル、`localhost`の名前、`gcs`のようなドットのない名前のいずれかである必要があります。
-ドットを含むサービスのエイリアスは`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`に書き、それ以外のHostは421になります。
-このポートは公開しないでください。
-[Composeの例](container-usage.md#信頼済みリスナーで非公開バケットを守る)を参照してください。
+[strict localレシピ](../../examples/strict-local/README.md)（英語）を使うと、この変更は要りません。
+アプリのサービスは、Composeネットワーク内の信頼済みリスナーである`STORAGE_EMULATOR_HOST=gcs:4444`に接続し、そこでは認証情報のないリクエストが登録済みのIDとして扱われます。
+ブラウザーは公開したポートを使い、公開バケットは`allUsers`で読め、非公開バケットは署名URLでだけ使えます。
+信頼済みリスナーのポートは公開しないでください。
+[信頼済みリスナーの節](container-usage.md#信頼済みリスナーで非公開バケットを守る)で確認の内容を説明しています。
+認証情報付きのリクエストはメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になり、IPリテラル、`localhost`の名前、`gcs`のようなドットのない名前、`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`に書いた名前以外のHostは421になります。
 
 ## Rails Active Storage
 

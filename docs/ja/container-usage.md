@@ -86,6 +86,21 @@ macOSがlistenキューを`kern.ipc.somaxconn`（既定は128）で打ち切る�
 同じDockerネットワークのクライアントでは、確認した範囲で起きていません。
 [測定結果](../en/evidence/zero-config-defaults.md#simultaneous-connections-on-macos)があります。
 
+## どの構成を使うか
+
+| 目的 | 構成 | 設定 |
+| --- | --- | --- |
+| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認しない | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
+| 署名URLはCloud Storageと同じく確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify`。Go storageが署名したURLには`GCS_MIMIC_SIGNED_HOST_PORT=lenient`も追加 |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード | [strict localレシピ](../../examples/strict-local/README.md)（英語）をそのままコピー |
+
+まずは既定の構成で始めてください。
+署名URLや非公開バケットを本番に近い形で確認したくなったら、strict localレシピをそのまま貼り付けます。
+コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各部分の意味はレシピのREADMEで説明しています。
+permissiveの`verify`は、strictモードをまだ使えないときの途中段階としてだけ使ってください。
+不正な署名は拒否しますが、検証に通ったリクエストも署名のないリクエストもすべて許可するので、非公開バケットが非公開のままかは確認できません。
+表の2行目と3行目の構成には、0.13.0より新しいリリースが必要です。
+
 ## 初期ファイルを読み込む
 
 fake-gcs-serverの`/data`と同じバケット・オブジェクト配置を使えます。
@@ -384,46 +399,12 @@ Composeのネットワークエイリアス`storage.compose.internal`やKubernet
 ワイルドカードのアドレスでも警告は出しません。
 コンテナ内では、ほかのコンテナから届くように`0.0.0.0`でbindする必要があり、警告は起動のたびに出てしまうからです。
 `ports:`に載せないことが保護になります。
-次の例では、アプリのコンテナは信頼済みリスナーを、ブラウザーは公開したメインのリスナーを使い、IDファイルはComposeに直接書きます
-（`content`での直接記述にはDocker Compose 2.23.1以降が必要です。[バケットファイルの例](fake-gcs-server-migration.md#バケットファイルをcomposeyamlに書く)も参照してください）。
 
-```yaml
-services:
-  gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
-    ports:
-      # The browser-facing listener only; port 4444 is never published.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
-    environment:
-      GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_AUTH_MODE: strict
-      GCS_MIMIC_IDENTITY_FILE: /etc/gcs-mimic/identities.json
-      GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
-      GCS_MIMIC_TRUSTED_PRINCIPAL: app@example.invalid
-    configs:
-      - source: gcs_identities
-        target: /etc/gcs-mimic/identities.json
-    volumes:
-      - gcs-data:/var/lib/gcs-mimic
-  app:
-    build: .
-    environment:
-      STORAGE_EMULATOR_HOST: gcs:4444
-    depends_on:
-      gcs:
-        condition: service_healthy
-configs:
-  gcs_identities:
-    content: |
-      {"identities": [
-        {"id": "app@example.invalid", "tokens": [],
-         "project_roles": {"local-project": ["roles/storage.admin"]}}
-      ]}
-volumes:
-  gcs-data:
-```
+[strict localレシピ](../../examples/strict-local/README.md)（英語）が完全な例です。
+アプリのcompose.yamlに貼り付ける`gcs`サービスで、アプリのコンテナ向けの信頼済みリスナー、ブラウザー向けに公開したメインのリスナー、Composeに直接書いたIDファイルとバケットファイル、署名URL用の組み込みテスト署名者がそろっています。
+コンテナのスモークテストがこれをイメージで動かしているので、ここの設定を自分で組み合わせず、レシピをそのまま使ってください。
 
-`gcs`はドットのない名前なので、この例では`trusted_allowed_hosts`は不要です。
+`gcs`はドットのない名前なので、レシピでは`trusted_allowed_hosts`は不要です。
 ドットを含むエイリアスを使う場合は、サービスにネットワークエイリアスを付けて、その名前を書きます。
 
 ```yaml
@@ -443,7 +424,7 @@ services:
 アプリはトークンを送らないので、このIDにトークンは不要です。ロールはアプリに必要なものだけを与えます。
 ページは`http://localhost:${GCS_MIMIC_PORT:-4443}`を使います。
 ポリシーで`allUsers`に`roles/storage.objectViewer`を与えたバケットは匿名で読め、非公開のオブジェクトは署名URLがなければ401になります。
-アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDファイルに登録した鍵で作ります（[署名URL](../en/signed-urls.md)、英語）。
+アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDファイルに登録した鍵か組み込みテスト署名者で作ります（[署名URL](../en/signed-urls.md)、英語）。
 イメージのhealthcheckはメインのリスナーを確認するので、変更は不要です。
 DESIGN-101はPARTIALです。[検証結果（英語）](../en/evidence/trusted-listener.md)を参照してください。
 
