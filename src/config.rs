@@ -275,8 +275,9 @@ pub struct Config {
     pub signed_host_port: SignedHostPort,
     /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
     pub identities: Option<DocumentSource>,
-    /// The explicit `test_signer` setting; [`Config::effective_test_signer`] applies the
-    /// profile's default.
+    /// The explicit `test_signer` setting; validation selects the profile's default with
+    /// [`TestSignerChoice::select`](crate::auth::TestSignerChoice::select), which loading the
+    /// identity document settles in strict mode.
     pub test_signer: Option<TestSigner>,
     /// The explicit `signed_urls` setting; [`Config::effective_signed_urls`] applies the
     /// profile's default.
@@ -367,15 +368,6 @@ impl Default for Config {
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
 
-    /// Whether the built-in test signer exists, after the profile's default.
-    pub fn effective_test_signer(&self) -> TestSigner {
-        TestSigner::resolve(
-            self.test_signer,
-            self.auth_mode,
-            self.effective_signed_urls(),
-        )
-    }
-
     /// Whether signed XML requests verify, after the profile's default.
     pub fn effective_signed_urls(&self) -> SignedUrls {
         SignedUrls::resolve(self.signed_urls, self.auth_mode)
@@ -455,6 +447,7 @@ impl Config {
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
             auth_profile: None,
+            settings: Settings::new(),
         };
         report.apply_settings(&settings);
         report.config.runtime_endpoints =
@@ -471,6 +464,7 @@ impl Config {
         report.check_auth(&settings);
         report.check_trusted_listener(&settings);
         report.check_notifications(&settings);
+        report.settings = settings;
         report
     }
 }
@@ -1001,6 +995,9 @@ pub struct ConfigurationReport {
     invalid: BTreeSet<String>,
     /// Set by validation only when the authentication settings are valid and agree.
     auth_profile: Option<AuthProfile>,
+    /// The inputs validation read, so that a diagnostic after loading can still name the one
+    /// that caused it.
+    settings: Settings,
 }
 
 impl ConfigurationReport {
@@ -1318,7 +1315,6 @@ impl ConfigurationReport {
 
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
-        self.warn_strict_test_signer(settings);
         let config = &self.config;
         if let Some(input) = settings.get("admin_principal")
             && !self.invalid.contains("admin_principal")
@@ -1413,24 +1409,6 @@ impl ConfigurationReport {
                     ]
                     .contains(&Some(address))
             })
-    }
-
-    /// Strict mode authenticates the built-in signer only on request; say what that exposes.
-    fn warn_strict_test_signer(&mut self, settings: &Settings) {
-        if self.config.auth_mode == AuthMode::Strict
-            && self.config.effective_test_signer() == TestSigner::Enabled
-            && self.valid(&["auth_mode", "test_signer"])
-            && let Some(input) = settings.get(Setting::TestSigner.as_str())
-        {
-            self.diagnostics.warnings.push(Diagnostic::new(
-                input.source,
-                &input.key,
-                format!(
-                    "test_signer=enabled in strict mode: the private key of {} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it. Use it only for local tests.",
-                    crate::auth::test_signer::ID
-                ),
-            ));
-        }
     }
 
     fn check_admin_auth(&mut self, settings: &Settings) {
@@ -1611,7 +1589,7 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
-    use crate::test_support::TestDir;
+    use crate::{auth::TestSignerChoice, test_support::TestDir};
 
     #[test]
     fn strict_admin_requires_an_instance_principal_and_hosts_are_validated() {
@@ -2143,7 +2121,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it() {
+    fn test_signer_defaults_are_selected_by_profile() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         // An explicit enabled needs signatures to verify, which permissive mode does only when asked.
@@ -2170,15 +2148,34 @@ mod tests {
         let empty = BTreeMap::new();
         let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
         let verify = ["--signed-urls", "verify"].map(str::to_owned);
-        for (args, explicit, effective) in [
-            (&[][..], None, TestSigner::Disabled),
-            (&[][..], Some("disabled"), TestSigner::Disabled),
-            (&verify[..], None, TestSigner::Enabled),
-            (&verify[..], Some("enabled"), TestSigner::Enabled),
-            (&verify[..], Some("disabled"), TestSigner::Disabled),
-            (&strict[..], None, TestSigner::Disabled),
-            (&strict[..], Some("disabled"), TestSigner::Disabled),
-            (&strict[..], Some("enabled"), TestSigner::Enabled),
+        let fixed = TestSignerChoice::Fixed;
+        // Validation selects the rule; loading settles strict mode's default against the
+        // identity document and warns there, which config::auth::tests covers.
+        for (args, explicit, choice) in [
+            (&[][..], None, None),
+            (&[][..], Some("disabled"), None),
+            (&verify[..], None, Some(fixed(TestSigner::Enabled))),
+            (
+                &verify[..],
+                Some("enabled"),
+                Some(fixed(TestSigner::Enabled)),
+            ),
+            (
+                &verify[..],
+                Some("disabled"),
+                Some(fixed(TestSigner::Disabled)),
+            ),
+            (&strict[..], None, Some(TestSignerChoice::WhenDeclared)),
+            (
+                &strict[..],
+                Some("disabled"),
+                Some(fixed(TestSigner::Disabled)),
+            ),
+            (
+                &strict[..],
+                Some("enabled"),
+                Some(fixed(TestSigner::Enabled)),
+            ),
         ] {
             let mut args = args.to_vec();
             args.extend(
@@ -2189,24 +2186,16 @@ mod tests {
             );
             let report = Config::preflight(&args, &empty);
             assert!(!report.diagnostics.is_err(), "{args:?}");
-            assert_eq!(report.config.effective_test_signer(), effective, "{args:?}");
-            let warnings: Vec<_> = report
-                .diagnostics
-                .warnings
-                .iter()
-                .filter(|warning| warning.key == "--test-signer")
-                .collect();
-            if args.contains(&"strict".to_owned()) && effective == TestSigner::Enabled {
-                assert_eq!(warnings.len(), 1, "{args:?}");
-                assert!(warnings[0].fix.contains("allAuthenticatedUsers"));
-                assert!(
-                    warnings[0]
-                        .fix
-                        .contains("test-signer@gcs-mimic.invalid is published")
-                );
-            } else {
-                assert!(warnings.is_empty(), "{args:?}: {warnings:?}");
-            }
+            let selected = match report.auth_profile() {
+                Some(AuthProfile::Permissive) => None,
+                Some(
+                    AuthProfile::VerifyingPermissive { verification, .. }
+                    | AuthProfile::Strict { verification, .. },
+                ) => Some(verification.test_signer),
+                None => panic!("{args:?}: no profile"),
+            };
+            assert_eq!(selected, choice, "{args:?}");
+            assert!(report.diagnostics.warnings.is_empty(), "{args:?}");
         }
         // Where signatures are ignored an enabled signer would promise what never happens.
         let ignored = ["--test-signer", "enabled"].map(str::to_owned);
@@ -2233,7 +2222,7 @@ mod tests {
             Config::preflight(&args, &empty).auth_profile().cloned()
         };
         let verification = |test_signer, signed_host_port| Verification {
-            test_signer,
+            test_signer: TestSignerChoice::Fixed(test_signer),
             signed_host_port,
         };
         assert_eq!(profile(&[]), Some(AuthProfile::Permissive));

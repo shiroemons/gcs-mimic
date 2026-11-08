@@ -117,7 +117,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
   --identities JSON            none (the --identity-file registry itself, with the same format and limits; not with --identity-file)
   --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
-  --test-signer MODE           enabled with permissive --signed-urls verify, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
+  --test-signer MODE           enabled with permissive --signed-urls verify or when strict identities declare its id, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -178,8 +178,8 @@ type, project_id local-project, client_email, private_key and the non-Google uni
 gcs-emulator.invalid, which keeps Google auth libraries from requesting tokens from Google.
 The private key is published with gcs-mimic, so anyone can sign as this identity; use it only
 for local tests. The server accepts its signatures in permissive mode with signed_urls=verify,
-and in strict mode only with test_signer=enabled. No configuration, environment or network
-is read.";
+and in strict mode with test_signer=enabled or when the identity document declares this id.
+No configuration, environment or network is read.";
 
 fn main() -> ExitCode {
     #[cfg(target_env = "musl")]
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "9b88c31305d63f1777852f62b75fd4da12a89d2c30ef40ee87046d0776601a1c"
+            "76d8e0a96819496b4a12680b4474d3323528e1b0a6bf57f6e699d24d2e1c0b62"
         );
     }
 

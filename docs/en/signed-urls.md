@@ -337,31 +337,36 @@ and the ready event reports the effective value as `"test_signer"`:
 | --- | --- | --- |
 | `permissive` with `signed_urls=verify` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
 | `permissive` with the default `signed_urls=ignore` | `disabled` | No signature is verified, so the signer would do nothing |
-| `strict` | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
+| `strict` whose identity document declares `test-signer@gcs-mimic.invalid` | `enabled` | The entry for its ID says that this local setup asked for the signer |
+| `strict` otherwise | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
 
-An explicit `disabled` is accepted everywhere. An explicit `enabled` in
-permissive mode with `signed_urls=ignore` fails startup ("test_signer=enabled has
-no effect while signatures are ignored"), because it would promise a
-verification that never happens.
+An explicit value wins. An explicit `disabled` is accepted everywhere. An
+explicit `enabled` in permissive mode with `signed_urls=ignore` fails startup
+("test_signer=enabled has no effect while signatures are ignored"), because it
+would promise a verification that never happens. The identity document is
+`identity_file` or the inline `identities`; either one declaring the ID counts.
 
-- **Strict mode with `test_signer=enabled`**: startup emits one warning before
-  readiness that the signer's private key is published, so anyone can
-  authenticate as that identity and reach `allAuthenticatedUsers` grants and
-  anything granted to it. The identity then exists with the built-in public key.
-  If the identity file declares `test-signer@gcs-mimic.invalid`, that entry
+- **Strict mode with the signer enabled**, by `test_signer=enabled` or by an
+  entry for its ID: startup emits one warning before readiness that the
+  signer's private key is published, so anyone can authenticate as that
+  identity and reach `allAuthenticatedUsers` grants and anything granted to it.
+  The warning names the input that enabled it: the `test_signer` input, or the
+  `identity_file` or `identities` input that declares the entry. The identity
+  then exists with the built-in public key.
+  If the identity document declares `test-signer@gcs-mimic.invalid`, that entry
   supplies its tokens, project roles and ACL entity, and the built-in key is
   added to its `public_keys`. Otherwise it has no project roles, so a bucket or
   object grant such as `user:test-signer@gcs-mimic.invalid` authorizes it; a
   signature it makes without a grant gets 403 `AccessDenied`. V4 and V2 RSA
   signed URLs and self-signed service-account JWTs from it verify like those of
-  any registered identity with public keys. An identity file entry whose ACL
+  any registered identity with public keys. An identity entry whose ACL
   alias or natural user entity names the signer fails startup unless it
   declares the signer itself.
-- **Strict mode by default or with `test_signer=disabled`**: there is no
-  built-in signer. An identity file entry with its ID is an ordinary identity
-  with only the file's own keys. Signatures made with the published key fail
-  with 403 `InvalidAccessKeyId`, whose message says that the built-in test
-  signer is disabled and names `test_signer=enabled` (or with 403
+- **Strict mode without an entry for its ID, or with `test_signer=disabled`**:
+  there is no built-in signer. With `test_signer=disabled`, an entry with its ID
+  is an ordinary identity with only its own keys. Signatures made with the
+  published key fail with 403 `InvalidAccessKeyId`, whose message says that the
+  built-in test signer is disabled and names `test_signer=enabled` (or with 403
   `SignatureDoesNotMatch` when that entry declares other `public_keys`), and its
   JWTs with 401.
 - **Permissive mode** ignores signatures by default, so the signer is disabled.
@@ -369,8 +374,9 @@ verification that never happens.
   `test_signer=disabled`; see
   [verifying signed requests in permissive mode](#verifying-signed-requests-in-permissive-mode).
 
-The ready event's `identities` counts only the identity file's entries. To use
-the signer with strict mode, enable it explicitly:
+The ready event's `identities` counts only the identity document's entries. To
+use the signer with strict mode, declare it in the identity document with the
+project roles it needs, or enable it explicitly:
 
 ```sh
 GCS_MIMIC_AUTH_MODE=strict GCS_MIMIC_IDENTITY_FILE=identities.json \
@@ -445,9 +451,9 @@ gcs_emulator:
     private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
 ```
 
-In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, then
-grant `user:test-signer@gcs-mimic.invalid` on the bucket or declare the signer
-with project roles in the identity file.
+In strict mode, declare the signer with project roles in the identity document,
+which enables it, or start the server with `GCS_MIMIC_TEST_SIGNER=enabled` and
+grant `user:test-signer@gcs-mimic.invalid` on the bucket.
 
 ## Legacy V2 HMAC and header signatures
 

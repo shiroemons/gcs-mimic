@@ -211,7 +211,7 @@ crate::config::string_enum! {
 crate::config::string_enum! {
     no_default
     /// Whether the built-in [`test_signer`] identity exists. Its private key is published, so
-    /// the default depends on the profile; see [`TestSigner::resolve`].
+    /// the default depends on the profile; see [`TestSignerChoice::select`].
     pub enum TestSigner {
         Enabled => "enabled",
         Disabled => "disabled",
@@ -219,17 +219,39 @@ crate::config::string_enum! {
     "test_signer must be enabled or disabled"
 }
 
-impl TestSigner {
-    /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
-    /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
-    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there
-    /// and is enabled wherever signatures verify; where they are ignored it would do nothing.
-    pub fn resolve(configured: Option<Self>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
-        configured.unwrap_or(match (mode, signed_urls) {
-            (AuthMode::Permissive, SignedUrls::Verify) => Self::Enabled,
-            (AuthMode::Permissive, SignedUrls::Ignore)
-            | (AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::Disabled,
-        })
+/// How a profile settles the built-in test signer. Validation selects the rule; only strict
+/// mode's default needs the identity document, so loading settles that one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TestSignerChoice {
+    /// An explicit `test_signer`, or a default that the profile alone decides.
+    Fixed(TestSigner),
+    /// Strict mode's default: enabled exactly when the identity document declares
+    /// `test-signer@gcs-mimic.invalid`.
+    WhenDeclared,
+}
+
+impl TestSignerChoice {
+    /// An explicit setting wins. Otherwise permissive mode, which authorizes nothing by
+    /// identity, enables the signer wherever signatures verify; where they are ignored it would
+    /// do nothing. Strict mode leaves it to the identity document: anyone can sign with the
+    /// published key, so it would turn `allAuthenticatedUsers` grants into public access, and
+    /// an entry for its ID says that this local setup asked for it.
+    pub fn select(configured: Option<TestSigner>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+        match (configured, mode, signed_urls) {
+            (Some(signer), _, _) => Self::Fixed(signer),
+            (None, AuthMode::Permissive, SignedUrls::Verify) => Self::Fixed(TestSigner::Enabled),
+            (None, AuthMode::Permissive, SignedUrls::Ignore) => Self::Fixed(TestSigner::Disabled),
+            (None, AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::WhenDeclared,
+        }
+    }
+
+    /// The effective value, given whether the identity document declares the signer's ID.
+    fn settle(self, declares_signer: impl FnOnce() -> bool) -> TestSigner {
+        match self {
+            Self::Fixed(signer) => signer,
+            Self::WhenDeclared if declares_signer() => TestSigner::Enabled,
+            Self::WhenDeclared => TestSigner::Disabled,
+        }
     }
 }
 
@@ -682,25 +704,29 @@ fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryErr
 }
 
 impl Registry {
-    /// Strict mode's principals, with the built-in test signer when it is enabled.
-    fn load_principals(source: &DocumentSource, signer: TestSigner) -> Result<Self, IdentityError> {
+    /// Strict mode's principals, with the built-in test signer when `signer` settles to enabled.
+    fn load_principals(
+        source: &DocumentSource,
+        signer: TestSignerChoice,
+    ) -> Result<(Self, TestSigner), IdentityError> {
         let load = || {
             let mut registry = Self::parse(&read_identities(source)?)?;
+            let signer = signer.settle(|| registry.ids.contains_key(test_signer::ID));
             match signer {
                 TestSigner::Enabled => registry.add_test_signer()?,
                 TestSigner::Disabled => {}
             }
-            Ok(registry)
+            Ok((registry, signer))
         };
         load().map_err(|error| IdentityError::new(source, error))
     }
 
     /// The keys permissive verification accepts: an optional identity document's and the
-    /// built-in test signer's when it is enabled.
+    /// built-in test signer's when `signer` settles to enabled.
     fn load_signing_keys(
         source: Option<&DocumentSource>,
-        signer: TestSigner,
-    ) -> Result<SigningKeys, IdentityError> {
+        signer: TestSignerChoice,
+    ) -> Result<(SigningKeys, TestSigner), IdentityError> {
         let mut keys = match source {
             Some(source) => {
                 read_identities(source)
@@ -710,11 +736,12 @@ impl Registry {
             }
             None => SigningKeys::default(),
         };
+        let signer = signer.settle(|| keys.contains(test_signer::ID));
         match signer {
             TestSigner::Enabled => keys.add(test_signer::ID, test_signer::public_key()),
             TestSigner::Disabled => {}
         }
-        Ok(keys)
+        Ok((keys, signer))
     }
 
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
@@ -1048,15 +1075,29 @@ enum Profile {
 }
 
 /// The active authentication profile. The default is permissive.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Auth {
     profile: Profile,
     verifiers: signature::Verifiers,
     /// Whether V4 verification also accepts a canonical host without the request's port.
     signed_host_port: signature::SignedHostPort,
+    /// Whether the built-in test signer exists, as loading settled it.
+    test_signer: TestSigner,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
     /// It never authorizes anything.
     local_creator_entity: Option<String>,
+}
+
+impl Default for Auth {
+    fn default() -> Self {
+        Self {
+            profile: Profile::default(),
+            verifiers: signature::Verifiers::default(),
+            signed_host_port: signature::SignedHostPort::default(),
+            test_signer: TestSigner::Disabled,
+            local_creator_entity: None,
+        }
+    }
 }
 
 impl Auth {
@@ -1076,36 +1117,39 @@ impl Auth {
     }
 
     /// Loads the profile that configuration validation selected, reading its identity document
-    /// once and adding the built-in test signer when the profile enables it. Validation owns the
-    /// pairing rules; only the document's contents can fail here.
+    /// once and adding the built-in test signer when the profile's choice settles to enabled.
+    /// Validation owns the pairing rules and selects that choice; only the document's contents
+    /// can fail here, and only whether it declares the signer can settle the choice.
     pub fn load(profile: &AuthProfile) -> Result<Self, IdentityError> {
-        let (profile, verification) = match profile {
+        let (profile, test_signer, verification) = match profile {
             AuthProfile::Permissive => return Ok(Self::permissive()),
             AuthProfile::VerifyingPermissive {
                 identities,
                 verification,
-            } => (
-                Profile::VerifyingPermissive(Registry::load_signing_keys(
-                    identities.as_ref(),
-                    verification.test_signer,
-                )?),
-                verification,
-            ),
+            } => {
+                let (keys, signer) =
+                    Registry::load_signing_keys(identities.as_ref(), verification.test_signer)?;
+                (Profile::VerifyingPermissive(keys), signer, verification)
+            }
             AuthProfile::Strict {
                 identities,
                 verification,
-            } => (
-                Profile::Strict(Registry::load_principals(
-                    identities,
-                    verification.test_signer,
-                )?),
-                verification,
-            ),
+            } => {
+                let (registry, signer) =
+                    Registry::load_principals(identities, verification.test_signer)?;
+                (Profile::Strict(registry), signer, verification)
+            }
         };
         Ok(Self {
             signed_host_port: verification.signed_host_port,
+            test_signer,
             ..Self::with_profile(profile)
         })
+    }
+
+    /// Whether the built-in test signer exists, as loading settled it.
+    pub fn test_signer(&self) -> TestSigner {
+        self.test_signer
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.
@@ -1115,7 +1159,10 @@ impl Auth {
             .unwrap()
             .signing_keys;
         keys.add(test_signer::ID, test_signer::public_key());
-        Self::with_profile(Profile::VerifyingPermissive(keys))
+        Self {
+            test_signer: TestSigner::Enabled,
+            ..Self::with_profile(Profile::VerifyingPermissive(keys))
+        }
     }
 
     fn registry(&self) -> Option<&Registry> {
@@ -2242,7 +2289,7 @@ mod tests {
                 (DocumentSource::File(path), "identity_file: "),
                 (DocumentSource::Inline(document), "identities: "),
             ] {
-                let error = Registry::load_principals(&source, TestSigner::Disabled)
+                let error = Registry::load_principals(&source, TestSignerChoice::WhenDeclared)
                     .unwrap_err()
                     .to_string();
                 assert!(error.starts_with(setting), "{case}: {error}");
@@ -2336,8 +2383,10 @@ mod tests {
         let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
         let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
         document.push_str(&" ".repeat(limit - document.len()));
-        let load =
-            |source: &DocumentSource| Registry::load_principals(source, TestSigner::Disabled);
+        let load = |source: &DocumentSource| {
+            Registry::load_principals(source, TestSignerChoice::WhenDeclared)
+                .map(|(registry, _)| registry)
+        };
         std::fs::write(&path, &document).unwrap();
         let file = DocumentSource::File(path.clone());
         assert_eq!(load(&file).unwrap().len(), 1);

@@ -149,7 +149,7 @@ impl ReadyEvent {
             shutdown_timeout_ms: config.shutdown_timeout,
             auth_mode: auth.mode().as_str(),
             identities: auth.identity_count(),
-            test_signer: config.effective_test_signer().as_str(),
+            test_signer: auth.test_signer().as_str(),
             signed_urls: auth.signed_urls().as_str(),
             seed,
             buckets_file,

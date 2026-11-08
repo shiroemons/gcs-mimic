@@ -47199,25 +47199,28 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled only in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored and its published key would let anyone authenticate in strict mode and reach allAuthenticatedUsers grants; an explicit enabled while signatures are ignored fails startup; strict test_signer=enabled warns at startup, then knows the signer without an identity file entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored, and in strict mode only when the identity document declares test-signer@gcs-mimic.invalid, because otherwise its published key would let anyone authenticate and reach allAuthenticatedUsers grants without the setup asking for it; an explicit value wins, and an explicit enabled while signatures are ignored fails startup; a strict signer that is enabled warns at startup at the input that enabled it, then knows the signer without an identity entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-045-TEST-SIGNER",
-          "description": "test_signer defaults to enabled only in permissive mode with signed_urls=verify and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Strict mode by default or with test_signer=disabled has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and an identity file entry with its ID stays an ordinary identity without the key. Strict test_signer=enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity file entry it has no project roles, so its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity and gains the built-in key; an alias naming it fails startup; identities counts only file entries.",
+          "description": "test_signer defaults to enabled in permissive mode with signed_urls=verify and in strict mode when the identity document (identity_file or identities) declares test-signer@gcs-mimic.invalid, and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Validation selects the rule (an explicit or profile value, or strict mode's declaration rule) and loading settles the declaration rule against the document. Strict mode without such an entry, or with test_signer=disabled, has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and under test_signer=disabled an entry with its ID stays an ordinary identity without the key. A strict signer that is enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use, keyed to the test_signer input when that enabled it and otherwise to the identity setting's input, whose message names the declaration and test_signer=disabled; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity entry it has no project roles, so its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity and gains the built-in key; an alias naming it fails startup; identities counts only document entries.",
           "result": "PASS",
           "test_ids": [
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
             "an_enabled_declared_signer_keeps_its_tokens_and_project_roles",
             "strict_mode_has_no_built_in_signer_by_default_or_when_disabled",
+            "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
             "a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode",
             "auth::test_signer::tests::an_undeclared_signer_exists_without_project_roles_or_tokens",
             "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
             "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
             "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
-            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it"
+            "config::tests::test_signer_defaults_are_selected_by_profile",
+            "config::auth::tests::strict_mode_settles_the_test_signer_from_the_identity_document",
+            "config::auth::tests::permissive_test_signer_defaults_ignore_the_identity_document"
           ]
         },
         {
@@ -47308,7 +47311,10 @@
         "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
         "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
         "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
-        "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
+        "config::tests::test_signer_defaults_are_selected_by_profile",
+        "config::auth::tests::strict_mode_settles_the_test_signer_from_the_identity_document",
+        "config::auth::tests::permissive_test_signer_defaults_ignore_the_identity_document",
+        "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
         "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
         "credentials_print_a_service_account_key_file_for_the_built_in_signer",
         "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
@@ -47325,6 +47331,7 @@
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
             "an_enabled_declared_signer_keeps_its_tokens_and_project_roles",
             "strict_mode_has_no_built_in_signer_by_default_or_when_disabled",
+            "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
             "a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode"
           ]
         },
@@ -47338,7 +47345,9 @@
             "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
             "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
             "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
-            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
+            "config::tests::test_signer_defaults_are_selected_by_profile",
+            "config::auth::tests::strict_mode_settles_the_test_signer_from_the_identity_document",
+            "config::auth::tests::permissive_test_signer_defaults_ignore_the_identity_document",
             "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
           ]
         },

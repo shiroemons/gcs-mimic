@@ -1,4 +1,5 @@
 use crate::{
+    auth::{TestSigner, test_signer},
     config::{Config, ConfigurationReport},
     diagnostics::{Diagnostic, DiagnosticSource},
     test_support::TestDir,
@@ -89,6 +90,149 @@ fn load_failures_name_the_setting_and_the_entry_without_echoing_tokens() {
             );
             assert!(!errors[0].fix.contains("secret-token"), "{errors:?}");
         }
+    }
+}
+
+/// A registry document, with an entry for the built-in signer's ID when `declared`.
+fn registry(declared: bool) -> String {
+    let mut identities = vec![admin()];
+    if declared {
+        identities.push(json!({"id": test_signer::ID, "tokens": []}));
+    }
+    json!({ "identities": identities }).to_string()
+}
+
+fn test_signer_warnings(report: &ConfigurationReport) -> Vec<&Diagnostic> {
+    report
+        .diagnostics
+        .warnings
+        .iter()
+        .filter(|warning| {
+            warning
+                .fix
+                .contains("test-signer@gcs-mimic.invalid is published")
+        })
+        .collect()
+}
+
+/// Strict mode enables the signer when the identity document declares its ID, unless
+/// `test_signer` says otherwise, and warns at the setting that enabled it.
+#[test]
+fn strict_mode_settles_the_test_signer_from_the_identity_document() {
+    let dir = TestDir::new();
+    for declared in [false, true] {
+        for (flag, value, _) in sources(&dir, &registry(declared)) {
+            for (explicit, expected, warned_at) in [
+                (None, declared, declared.then_some(flag)),
+                (Some("enabled"), true, Some("--test-signer")),
+                (Some("disabled"), false, None),
+            ] {
+                let mut args = vec!["--auth-mode", "strict", flag, value.as_str()];
+                args.extend(
+                    explicit
+                        .into_iter()
+                        .flat_map(|value| ["--test-signer", value]),
+                );
+                let mut report = report(&args);
+                let auth = report.load_auth();
+                assert!(
+                    !report.diagnostics.is_err(),
+                    "{args:?}: {}",
+                    report.diagnostics
+                );
+                let expected = if expected {
+                    TestSigner::Enabled
+                } else {
+                    TestSigner::Disabled
+                };
+                assert_eq!(auth.test_signer(), expected, "{args:?}");
+                // A declared entry stays one declared identity; the signer adds none.
+                assert_eq!(auth.identity_count(), Some(1 + usize::from(declared)));
+                let warnings = test_signer_warnings(&report);
+                match warned_at {
+                    None => assert!(warnings.is_empty(), "{args:?}: {warnings:?}"),
+                    Some(key) => {
+                        assert_eq!(warnings.len(), 1, "{args:?}: {warnings:?}");
+                        assert_eq!(warnings[0].key, key);
+                        assert_eq!(warnings[0].source, DiagnosticSource::Cli);
+                        let fix = &warnings[0].fix;
+                        for expected in [
+                            "anyone can authenticate",
+                            "allAuthenticatedUsers",
+                            "only for local tests",
+                        ] {
+                            assert!(fix.contains(expected), "{fix}");
+                        }
+                        if explicit.is_none() {
+                            let setting = flag.trim_start_matches("--").replace('-', "_");
+                            assert!(
+                                fix.starts_with(&format!("{setting} declares {}", test_signer::ID)),
+                                "{fix}"
+                            );
+                            assert!(fix.contains("test_signer=disabled"), "{fix}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The warning names the input that enabled the signer, from whichever source it came.
+    let env = BTreeMap::from([
+        ("GCS_MIMIC_AUTH_MODE".to_owned(), "strict".to_owned()),
+        ("GCS_MIMIC_IDENTITIES".to_owned(), registry(true)),
+    ]);
+    let mut report = Config::preflight(&[], &env);
+    assert_eq!(report.load_auth().test_signer(), TestSigner::Enabled);
+    let warnings = test_signer_warnings(&report);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        (warnings[0].source, warnings[0].key.as_str()),
+        (DiagnosticSource::Environment, "GCS_MIMIC_IDENTITIES")
+    );
+}
+
+/// Permissive defaults are unchanged: the signer exists exactly where signatures verify, and a
+/// declared entry changes nothing there.
+#[test]
+fn permissive_test_signer_defaults_ignore_the_identity_document() {
+    let dir = TestDir::new();
+    let public = include_str!("../../../fixtures/signing/test-only-public.pem");
+    let document = json!({"identities":[{"id": test_signer::ID, "public_keys": [public]}]});
+    let path = dir.0.join("keys.json");
+    std::fs::write(&path, document.to_string()).unwrap();
+    let path = path.to_str().unwrap();
+    for (args, expected) in [
+        (&[][..], TestSigner::Disabled),
+        (&["--signed-urls", "verify"], TestSigner::Enabled),
+        (
+            &["--signed-urls", "verify", "--identity-file", path],
+            TestSigner::Enabled,
+        ),
+        (
+            &["--signed-urls", "verify", "--test-signer", "disabled"],
+            TestSigner::Disabled,
+        ),
+        (
+            &[
+                "--signed-urls",
+                "verify",
+                "--identity-file",
+                path,
+                "--test-signer",
+                "disabled",
+            ],
+            TestSigner::Disabled,
+        ),
+    ] {
+        let mut report = report(args);
+        let auth = report.load_auth();
+        assert!(
+            !report.diagnostics.is_err(),
+            "{args:?}: {}",
+            report.diagnostics
+        );
+        assert_eq!(auth.test_signer(), expected, "{args:?}");
+        assert!(report.diagnostics.warnings.is_empty(), "{args:?}");
     }
 }
 

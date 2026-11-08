@@ -43,7 +43,7 @@ impl SigningKeys {
 #[cfg(test)]
 mod tests {
     use crate::auth::{
-        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner,
+        Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner, TestSignerChoice,
         signature::SignedHostPort, test_signer,
     };
     use crate::config::{AuthProfile, DocumentSource, Verification};
@@ -120,7 +120,7 @@ mod tests {
             let auth = Auth::load(&AuthProfile::VerifyingPermissive {
                 identities: identity_file.then(|| DocumentSource::File(path.clone())),
                 verification: Verification {
-                    test_signer,
+                    test_signer: TestSignerChoice::Fixed(test_signer),
                     signed_host_port,
                 },
             })
@@ -128,6 +128,7 @@ mod tests {
             assert_eq!(auth.mode(), AuthMode::Permissive);
             assert_eq!(auth.signed_urls(), SignedUrls::Verify);
             assert_eq!(auth.signed_host_port, signed_host_port);
+            assert_eq!(auth.test_signer(), test_signer);
             assert!(auth.principals().is_none() && auth.identity_count().is_none());
             let Profile::VerifyingPermissive(keys) = &auth.profile else {
                 panic!("permissive verification expected");
@@ -142,7 +143,7 @@ mod tests {
         let error = Auth::load(&AuthProfile::Strict {
             identities: DocumentSource::File(path),
             verification: Verification {
-                test_signer: TestSigner::Disabled,
+                test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
                 signed_host_port: SignedHostPort::Lenient,
             },
         })

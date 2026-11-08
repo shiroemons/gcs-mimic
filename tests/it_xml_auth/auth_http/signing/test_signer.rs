@@ -198,55 +198,99 @@ fn an_enabled_declared_signer_keeps_its_tokens_and_project_roles() {
         .forbidden();
 }
 
-/// Strict mode leaves the signer out unless enabled, and never attaches the published key to an
-/// entry that merely uses its ID.
+/// Strict mode leaves the signer out when nothing asks for it, and `test_signer=disabled` keeps
+/// an entry for its ID an ordinary identity without the published key.
 #[test]
 fn strict_mode_has_no_built_in_signer_by_default_or_when_disabled() {
-    for declared in [false, true] {
-        for options in [&[][..], &["--test-signer", "disabled"]] {
-            let (_config, _data, server, ready) = strict(declared, options, Stdio::inherit());
-            assert_eq!(ready["test_signer"], "disabled");
-            assert_eq!(ready["identities"], if declared { 7 } else { 6 });
-            grant_signer(&server);
-            for url in [
-                v4(&server, "/iam-bucket/object"),
-                v2(&server, "/iam-bucket/object"),
-                cli_signed(&server, "object"),
-            ] {
-                let reply = send(&server, "GET", &url, "");
-                error(&reply, 403, "InvalidAccessKeyId");
-                // The answer names the setting rather than an unknown registered identity.
-                assert!(
+    let disabled = &["--test-signer", "disabled"][..];
+    for (declared, options) in [(false, &[][..]), (false, disabled), (true, disabled)] {
+        let (_config, _data, server, ready) = strict(declared, options, Stdio::inherit());
+        assert_eq!(ready["test_signer"], "disabled");
+        assert_eq!(ready["identities"], if declared { 7 } else { 6 });
+        grant_signer(&server);
+        for url in [
+            v4(&server, "/iam-bucket/object"),
+            v2(&server, "/iam-bucket/object"),
+            cli_signed(&server, "object"),
+        ] {
+            let reply = send(&server, "GET", &url, "");
+            error(&reply, 403, "InvalidAccessKeyId");
+            // The answer names the setting rather than an unknown registered identity.
+            assert!(
                     String::from_utf8_lossy(&reply.body).contains(
                         "test-signer@gcs-mimic.invalid is the built-in test signer, which is disabled; set test_signer=enabled."
                     ),
                     "{}",
                     String::from_utf8_lossy(&reply.body)
                 );
-            }
-            let unknown = sign(
-                &server,
-                &Method::GET,
-                "/iam-bucket/object",
-                "unknown@example.invalid",
-                SystemTime::now(),
-                HeaderMap::new(),
-            );
-            let reply = send(&server, "GET", &unknown, "");
-            error(&reply, 403, "InvalidAccessKeyId");
-            assert!(
-                String::from_utf8_lossy(&reply.body)
-                    .contains("The signing key or its registered identity is unknown or inactive.")
-            );
-            let path = "/storage/v1/b/iam-bucket/o/object?alt=media";
-            server
-                .get(&jwt::bearer(test_signer::ID), path)
-                .invalid_credentials();
-            if declared {
-                let token = "Authorization: Bearer signer-token\r\n";
-                assert_eq!(server.get(token, path).success().body, b"hello world");
-            }
         }
+        let unknown = sign(
+            &server,
+            &Method::GET,
+            "/iam-bucket/object",
+            "unknown@example.invalid",
+            SystemTime::now(),
+            HeaderMap::new(),
+        );
+        let reply = send(&server, "GET", &unknown, "");
+        error(&reply, 403, "InvalidAccessKeyId");
+        assert!(
+            String::from_utf8_lossy(&reply.body)
+                .contains("The signing key or its registered identity is unknown or inactive.")
+        );
+        let path = "/storage/v1/b/iam-bucket/o/object?alt=media";
+        server
+            .get(&jwt::bearer(test_signer::ID), path)
+            .invalid_credentials();
+        if declared {
+            let token = "Authorization: Bearer signer-token\r\n";
+            assert_eq!(server.get(token, path).success().body, b"hello world");
+        }
+    }
+}
+
+/// An identity entry for the signer's ID asks for the signer, so strict mode enables it without
+/// `test_signer` and warns at the setting that supplied the entry.
+#[test]
+fn a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting() {
+    let (_config, _data, mut server, ready) = strict(true, &[], Stdio::piped());
+    assert_eq!(ready["test_signer"], "enabled");
+    assert_eq!(ready["identities"], 7);
+    // The entry's own project role authorizes what the published key signs.
+    for url in [
+        v4(&server, "/iam-bucket/object"),
+        v2(&server, "/iam-bucket/object"),
+        cli_signed(&server, "object"),
+    ] {
+        assert_eq!(
+            send(&server, "GET", &url, "").success().body,
+            b"hello world"
+        );
+    }
+    let token = "Authorization: Bearer signer-token\r\n";
+    server
+        .upload(token, "iam-bucket", "denied", b"no")
+        .forbidden();
+    let warnings: Vec<_> = stderr_events(&mut server)
+        .into_iter()
+        .filter(|event| event["event"] == "diagnostics" && event["level"] == "warn")
+        .flat_map(|event| event["diagnostics"].as_array().unwrap().clone())
+        .filter(|diagnostic| {
+            diagnostic["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("is published"))
+        })
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["key"], "--identity-file");
+    let message = warnings[0]["fix"].as_str().unwrap();
+    for expected in [
+        "identity_file declares test-signer@gcs-mimic.invalid",
+        "anyone can authenticate",
+        "allAuthenticatedUsers",
+        "test_signer=disabled",
+    ] {
+        assert!(message.contains(expected), "{message}");
     }
 }
 

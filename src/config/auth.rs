@@ -6,14 +6,15 @@ use super::{
     Setting, Settings,
 };
 use crate::auth::{
-    Auth, AuthMode, SignedUrls, TestSigner, TrustedPrincipalError, signature::SignedHostPort,
+    Auth, AuthMode, SignedUrls, TestSigner, TestSignerChoice, TrustedPrincipalError,
+    signature::SignedHostPort, test_signer,
 };
 use std::borrow::Cow;
 
 /// What a profile that verifies signatures needs besides its identity document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Verification {
-    pub test_signer: TestSigner,
+    pub test_signer: TestSignerChoice,
     pub signed_host_port: SignedHostPort,
 }
 
@@ -133,7 +134,11 @@ impl AuthProfile {
     /// The profile the configuration selects, or every setting that contradicts it.
     pub(super) fn select(config: &Config) -> Result<Self, Vec<Mismatch>> {
         let verification = Verification {
-            test_signer: config.effective_test_signer(),
+            test_signer: TestSignerChoice::select(
+                config.test_signer,
+                config.auth_mode,
+                config.effective_signed_urls(),
+            ),
             signed_host_port: config.signed_host_port,
         };
         match (
@@ -225,10 +230,11 @@ impl ConfigurationReport {
     }
 
     /// Loads the profile that validation selected, reading its identity document once, and
-    /// checks the principals that settings name against it. Validation owns the pairing rules,
-    /// so only the document's contents and those names can fail here; each failure is recorded
-    /// with the setting it concerns. Without a valid profile this is permissive, because
-    /// validation has already reported why startup cannot proceed.
+    /// checks the principals that settings name against it. Validation owns the pairing rules
+    /// and selects how the test signer is chosen, so only the document's contents and those
+    /// names can fail here, and only the document settles strict mode's test signer default;
+    /// each failure or warning is recorded with the setting it concerns. Without a valid profile
+    /// this is permissive, because validation has already reported why startup cannot proceed.
     pub fn load_auth(&mut self) -> Auth {
         let Some(profile) = &self.auth_profile else {
             return Auth::permissive();
@@ -241,7 +247,9 @@ impl ConfigurationReport {
         match Auth::load(profile) {
             Ok(mut auth) => {
                 if let Some(form) = registry {
-                    self.resolve_principals(&mut auth, DocumentKind::Identities.setting(form));
+                    let registry = DocumentKind::Identities.setting(form);
+                    self.warn_strict_test_signer(&auth, registry);
+                    self.resolve_principals(&mut auth, registry);
                 }
                 auth
             }
@@ -253,6 +261,40 @@ impl ConfigurationReport {
                 ));
                 Auth::permissive()
             }
+        }
+    }
+
+    /// Strict mode has the built-in signer only on request, from `test_signer=enabled` or from
+    /// an entry for its ID in `registry`; say what that exposes, at the setting that asked.
+    fn warn_strict_test_signer(&mut self, auth: &Auth, registry: Setting) {
+        match auth.test_signer() {
+            TestSigner::Enabled => {}
+            TestSigner::Disabled => return,
+        }
+        let id = test_signer::ID;
+        let (setting, cause, remedy) = match self.config.test_signer {
+            Some(_) => (
+                Setting::TestSigner,
+                "test_signer=enabled in strict mode".to_owned(),
+                "",
+            ),
+            None => (
+                registry,
+                format!(
+                    "{} declares {id}, so strict mode enables the built-in test signer",
+                    registry.as_str()
+                ),
+                ", or set test_signer=disabled to keep the entry without the built-in key",
+            ),
+        };
+        if let Some(input) = self.settings.get(setting.as_str()) {
+            self.diagnostics.warnings.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                format!(
+                    "{cause}: the private key of {id} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it. Use it only for local tests{remedy}."
+                ),
+            ));
         }
     }
 

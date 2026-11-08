@@ -173,9 +173,10 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 固定したローカル署名鍵を使い、対応する公開鍵・ID・権限を登録します。
 起動ごとに生成した未登録の鍵ではstrict認証できません。
 鍵を登録する代わりに、[組み込みのテスト署名者（英語）](../en/signed-urls.md#built-in-test-signer)も使えます。
-エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動します（strictでは既定で無効で、有効にすると起動時に警告が出ます）。
-`client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの鍵にし、
-そのIDにバケットのIAMで権限を付けるか、IDファイルにプロジェクトロール付きで宣言します。
+ID文書に`test-signer@gcs-mimic.invalid`をプロジェクトロール付きで宣言すると、strictでも有効になります。
+宣言しない場合は、エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動し、そのIDにバケットのIAMで権限を付けます
+（strictではそれ以外は無効で、有効にすると起動時に警告が出ます）。
+`client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの鍵にします。
 秘密鍵は公開されていて誰でもこのIDで認証できるため、ローカルのテストだけで使います。
 鍵はエミュレーター自身から取り出せるため、リポジトリのチェックアウトは不要です。
 
@@ -199,7 +200,7 @@ GoogleのOAuth発行・検証を再現する機能ではありません。
   `GCS_MIMIC_AUTH_MODE=strict`では、アップロードが`401 Invalid Credentials`で失敗します。
   strictは登録していない自己署名JWTを受け付けないためです（0.7.0以前は自己署名JWTを検証しません）。
   0.8.0以降のstrictは、明示した登録済みJWTの範囲だけを受け付けます。
-  組み込みのテスト署名者がこの範囲に含まれるのは、`GCS_MIMIC_TEST_SIGNER=enabled`のときだけです。
+  組み込みのテスト署名者がこの範囲に含まれるのは、ID文書がそれを宣言しているときか、`GCS_MIMIC_TEST_SIGNER=enabled`のときだけです。
   このとき、エミュレーターのログに`auth_self_signed_jwt_rejected`の警告が1回出ます。
 - googleauthが`googleapis.com`以外で自分でトークンに署名する動作に依存しています。googleauth 1.17.6と1.17.7で確認しました。版を固定し、更新後に確認し直してください。より簡単なエミュレーター設定を追加する[google-cloud-ruby#34023](https://github.com/googleapis/google-cloud-ruby/pull/34023)は、2026-10-30時点で未マージです。
 
