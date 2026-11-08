@@ -1,6 +1,6 @@
 # Examples
 
-Each directory runs the same workflow against gcs-mimic with an official client: create a bucket, upload, list, download and delete an object.
+Each client directory runs the same workflow against gcs-mimic with an official client: create a bucket, upload, list, download and delete an object. The [strict local recipe](#production-like-access) is a block for your own compose.yaml instead.
 
 ## Start gcs-mimic
 
@@ -27,3 +27,7 @@ Only the Rust example needs the gRPC listener on port 4444; the others use HTTP 
 | [gcloud](gcloud/) | `gcloud storage` (Google Cloud SDK 591.0.0) | Also covers resumable, parallel composite and sliced transfers. |
 
 Each directory's README lists its requirements. Run an example with `./run.sh` (`./gcloud-example.sh` for gcloud); set `GCS_MIMIC_ENDPOINT` to use an address other than `http://localhost:4443`.
+
+## Production-like access
+
+[strict-local](strict-local/) is a `gcs` service to paste into your application's compose.yaml. Private buckets stay private, public buckets open only through `allUsers`, browsers use URLs signed by the built-in test signer, and application servers on the Compose network keep their code. It needs a release newer than 0.13.0. The container smoke test runs it with the image built from the checkout.
