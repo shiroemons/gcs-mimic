@@ -37,6 +37,7 @@ For an absolute-form request target, its authority must exactly match the actual
 | Condition | Status/code |
 | --- | --- |
 | Missing, malformed, duplicate signing fields or unsupported algorithm; mixed Authorization | 400 InvalidAuthentication |
+| `X-Goog-Expires` or `X-Amz-Expires` present but not a whole number of seconds from 1 to 604800 | 400 InvalidAuthentication; the message names the parameter and the range |
 | Unknown signer or no registered RSA key | 403 InvalidAccessKeyId |
 | Cryptographic mismatch or missing signed header | 403 SignatureDoesNotMatch |
 | Too early beyond the documented skew | 403 RequestTimeTooSkewed |
@@ -45,6 +46,8 @@ For an absolute-form request target, its authority must exactly match the actual
 | Valid signature with unsupported operation/query/header | 400 InvalidArgument |
 
 HEAD keeps the normal XML status and headers with no body. The documented status catalog supports these names/statuses, but precise messages, precedence and query-specific early/expiry mappings remain local choices in SPEC-SIGNING-EDGES; this is not a claim of complete provider wire parity.
+
+An out-of-range expiry answers, for example, `X-Goog-Expires must be a whole number of seconds from 1 to 604800.` Go storage signs a duration under one second as `X-Goog-Expires=0`, which a generic signing-parameter message would not explain. An empty or missing expiry keeps the generic message. Cloud Storage's answer to an out-of-range expiry is not recorded, so only the message differs from other malformed fields.
 
 ## Local helper
 
@@ -58,7 +61,9 @@ The helper omits explicit default HTTP port 80 and HTTPS port 443 before constru
 
 ## Pinned Go SDK endpoint limitation
 
-Storage v1.70.0 `storage.go:854` builds canonical Host with `URL.Hostname()`, which removes a non-default port even when `SignedURLOptions.Hostname` includes it. Unmodified SDK URLs therefore fail with 403 `SignatureDoesNotMatch` when sent with the actual host:port. The emulator deliberately retains exact Host verification. Use `gcs-mimic url sign` for explicit local ports, or expose a default-port endpoint. SPEC-GO-SIGNER-PORT records the upstream limitation; no upstream code or manifest is patched here.
+Storage v1.70.0 `storage.go:854` builds canonical Host with `URL.Hostname()`, which removes a non-default port even when `SignedURLOptions.Hostname` includes it. Unmodified SDK URLs therefore fail with 403 `SignatureDoesNotMatch` when sent with the actual host:port. By default the emulator retains exact Host verification. When a signature fails over the actual Host but matches the same request without the port, the message says so: "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it." A signature that fails for any other reason, such as a tampered query on a host:port request, keeps the plain message. Use `gcs-mimic url sign` for explicit local ports, or expose a default-port endpoint. SPEC-GO-SIGNER-PORT records the upstream limitation; no upstream code or manifest is patched here.
+
+The opt-in `signed_host_port=lenient` setting (`--signed-host-port lenient`, `GCS_MIMIC_SIGNED_HOST_PORT=lenient`) serves setups that cannot use a default port, such as one published port per worktree. When a V4 signature over a Host that names an explicit port does not match, the verifier builds the same canonical request with only the port removed from `host` and accepts the request only if that matches. This covers RSA and HMAC, query and Authorization-header signatures, `AWS4-HMAC-SHA256` and the seed signature of aws-chunked uploads; chunk signatures chain from the seed and are unchanged. The host name, method, path, query, signed headers, payload rule and time window stay bound, an absolute-form target must still equal the Host as sent, and an IPv6 literal keeps its brackets, so a signer that also removes them still fails. A Host without a port, V2 signatures and POST policies are unaffected. The first portless match in a process logs one `signature_host_port_omitted` warning that names the setting but no URL, signature or credential.
 
 The Go test proves an unmodified `storage.SignedURL` succeeds at a portless authority. A guarded client dialer maps only that authority to the isolated ephemeral listener, so no privileged listener, external request or Host rewrite is needed. A separate test asserts failure of unmodified SDK URLs at non-default ports. Its independent Go canonical request is checked against the SDK `SignBytes` message, then corrects only the Host port and signs with Go's standard RSA implementation. The successful corrected host:port case is an independent cryptographic cross-check, not a claim that unmodified SDK signing supports such ports. Both workflows run over HTTP and trusted HTTPS.
 

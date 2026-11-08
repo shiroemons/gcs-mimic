@@ -82,6 +82,8 @@ pub(super) fn prepare_resource(
                 resource,
             },
         )?,
+        // V2 does not sign Host.
+        portless: None,
         signature: decode_signature(required(&query, "Signature")?)?,
     })
 }

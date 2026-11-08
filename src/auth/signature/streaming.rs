@@ -123,8 +123,11 @@ impl Auth {
             return Err(Failure::Malformed.into());
         };
         let state = Streaming::new(&secret, &prepared);
-        hmac::verify(&state.key, prepared.message.as_bytes(), &prepared.signature)
-            .map_err(|_| Failure::Mismatch)?;
+        // The seed signs the canonical request; the chunk chain starts from the seed signature
+        // alone, so a lenient host form does not change how chunks verify.
+        verify::verify_host_forms(self.signed_host_port, &prepared, |message| {
+            hmac::verify(&state.key, message.as_bytes(), &prepared.signature).is_ok()
+        })?;
         Ok((caller, state))
     }
 }
@@ -133,11 +136,10 @@ impl Auth {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn published_aws_streaming_seed_and_three_chunk_signatures_match_exactly() {
+    fn published_seed(host: &str) -> verify::Prepared {
         let mut headers = HeaderMap::new();
         for (name, value) in [
-            ("host", "s3.amazonaws.com"),
+            ("host", host),
             ("content-encoding", "aws-chunked"),
             ("content-length", "66824"),
             ("x-amz-date", "20130524T000000Z"),
@@ -154,13 +156,42 @@ mod tests {
                 value.parse().unwrap(),
             );
         }
-        let prepared = v4::prepare(
+        v4::prepare(
             &Method::PUT,
             &"/examplebucket/chunkObject.txt".parse().unwrap(),
             &headers,
             parse_timestamp("20130524T000000Z").unwrap(),
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain() {
+        // The published seed signs Host without a port; this request adds one.
+        let prepared = published_seed("s3.amazonaws.com:4443");
+        let mut state = Streaming::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", &prepared);
+        let seed = |host_port| {
+            verify::verify_host_forms(host_port, &prepared, |message| {
+                hmac::verify(&state.key, message.as_bytes(), &prepared.signature).is_ok()
+            })
+        };
+        assert_eq!(
+            seed(SignedHostPort::Exact),
+            Err(Failure::MismatchWithHostPort)
+        );
+        assert_eq!(seed(SignedHostPort::Lenient), Ok(()));
+        let hash = digest::digest(&digest::SHA256, &vec![b'a'; 65536]);
+        state
+            .verify_chunk(
+                hash.as_ref(),
+                &unhex("ad80c730a21e5b8d04586a2213dd63b9a0e99e0e2307b0ade35a65485a288648").unwrap(),
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn published_aws_streaming_seed_and_three_chunk_signatures_match_exactly() {
+        let prepared = published_seed("s3.amazonaws.com");
         // Published demonstration credentials, never an emulator-created secret.
         let mut state = Streaming::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", &prepared);
         hmac::verify(&state.key, prepared.message.as_bytes(), &prepared.signature).unwrap();

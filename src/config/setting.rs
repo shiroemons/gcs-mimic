@@ -63,6 +63,7 @@ super::string_enum! {
         AuthMode => "auth_mode",
         CompatProfile => "compat_profile",
         CorsFallback => "cors_fallback",
+        SignedHostPort => "signed_host_port",
         IdentityFile => "identity_file",
         PubsubEmulatorHost => "pubsub_emulator_host",
         EventPubsubProjectId => "event_pubsub_project_id",
@@ -133,6 +134,7 @@ impl Setting {
             | Self::AuthMode
             | Self::CompatProfile
             | Self::CorsFallback
+            | Self::SignedHostPort
             | Self::IdentityFile
             | Self::PubsubEmulatorHost
             | Self::EventPubsubProjectId

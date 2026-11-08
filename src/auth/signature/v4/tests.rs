@@ -150,12 +150,18 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
         raw.replace("20261023%2Fauto", "20261022%2Fauto"),
         format!("{raw}&%58-Goog-Credential=duplicate"),
         format!("{raw}&GoogleAccessId=mixed"),
-        raw.replace("Expires=60", "Expires=604801"),
-        raw.replace("Expires=60", "Expires=0"),
+        raw.replace("Expires=60", "Expires="),
     ] {
         assert!(matches!(
             prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now),
             Err(Failure::Malformed)
+        ));
+    }
+    for expires in ["604801", "0"] {
+        let bad = raw.replace("Expires=60", &format!("Expires={expires}"));
+        assert!(matches!(
+            prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now),
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google))
         ));
     }
     assert!(matches!(
@@ -164,6 +170,27 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
     ));
     assert!(matches!(
         prepare(&Method::POST, &query(), &query_headers, now),
+        Err(Failure::Malformed)
+    ));
+}
+
+#[test]
+fn an_out_of_range_expiry_names_the_parameter_of_its_algorithm() {
+    let now = parse_timestamp(DATE).unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "localhost".parse().unwrap());
+    let aws = |expires: &str| -> Uri {
+        format!("/bucket/object?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key%2F20261023%2Fauto%2Fs3%2Faws4_request&X-Amz-Date={DATE}&X-Amz-Expires={expires}&X-Amz-SignedHeaders=host&X-Amz-Signature=00").parse().unwrap()
+    };
+    assert!(prepare(&Method::GET, &aws("60"), &headers, now).is_ok());
+    for expires in ["0", "604801", "-1", "abc"] {
+        assert!(matches!(
+            prepare(&Method::GET, &aws(expires), &headers, now),
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Aws))
+        ));
+    }
+    assert!(matches!(
+        prepare(&Method::GET, &aws(""), &headers, now),
         Err(Failure::Malformed)
     ));
 }

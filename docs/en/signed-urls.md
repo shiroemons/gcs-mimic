@@ -262,14 +262,28 @@ the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
 The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
 signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
-Go storage v1.70.0 omits non-default ports from canonical Host. Prefer the helper
-for local ports or expose a default-port endpoint. Ruby Storage 1.62.1 signs
+Go storage v1.70.0 omits non-default ports from canonical Host, so its URLs for
+a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when a signature
+matches the request only without its port, the message says so and suggests
+`signed_host_port=lenient`. Prefer the helper
+for local ports or expose a default-port endpoint. Where that is impractical,
+for example when every worktree publishes a different port, start the server
+with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, JSON
+`signed_host_port`). A V4 signature that does not match the actual Host is then
+checked once more with the port removed from the canonical host and accepted
+only if that matches. The host name, method, path, query, signed headers,
+payload rule and time window stay bound, and an IPv6 literal keeps its brackets.
+V2 signatures and POST policies do not sign Host and are unaffected. The first
+such match in a process logs one `signature_host_port_omitted` warning without
+the URL or credentials. The default `exact` keeps verification unchanged. The
+Node.js signer drops the port the same way; see the
+[Node.js SDK notes](../../sdk-tests/node/README.md). Ruby Storage 1.62.1 signs
 `storage.googleapis.com` by default even with an emulator endpoint. Its pinned
 test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_key:,
 bucket_bound_hostname:)` with an explicit bucket/name File path because
 bucket-bound signing removes the normal bucket prefix. This preserves host:port
 before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
-SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Strict verification is unchanged.
+SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Exact verification stays the default.
 PAP suppresses stored `allUsers` and `allAuthenticatedUsers` grants in strict mode;
 explicit signer grants remain usable. The journey compares the policy before,
 during and after enforcement, shows public reactivation with `inherited`, then

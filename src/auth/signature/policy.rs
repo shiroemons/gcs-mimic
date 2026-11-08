@@ -29,6 +29,8 @@ impl Auth {
                 },
                 scope: String::new(),
                 message: policy.into(),
+                // A policy signs the submitted document, never Host.
+                portless: None,
                 signature: v2::decode_signature(signature)?,
             },
         )
@@ -65,6 +67,7 @@ impl Auth {
             algorithm,
             scope: credential.scope.into(),
             message: policy.into(),
+            portless: None,
             signature: unhex(signature)?,
         };
         self.verify_prepared(catalog, prepared).await.map(Some)
