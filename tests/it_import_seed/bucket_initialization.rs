@@ -568,7 +568,13 @@ fn validation_reports_all_entries_before_seed_or_mutation() {
     let dir = TestDir::new();
     input(
         &dir.0,
-        json!([{"name":"valid-bucket"},{"name":"typo-bucket","storageClas":"STANDARD"},{"name":"iam-bucket","iam":{}},{"name":"lifecycle-bucket","lifecycle":{"rule":[]}}]),
+        json!([
+            {"name":"valid-bucket"},
+            {"name":"typo-bucket","storageClas":"STANDARD"},
+            {"name":"iam-bucket","iam":{}},
+            {"name":"lifecycle-bucket","lifecycle":{"rule":[]}},
+            {"name":"policy-bucket","iamPolicy":{"bindings":[{"role":"roles/owner","members":["group:team@example.invalid"]}]}}
+        ]),
     );
     let output = selected(&dir.0)
         .arg("--seed-dir")
@@ -588,8 +594,10 @@ fn validation_reports_all_entries_before_seed_or_mutation() {
         "buckets[1].storageClas",
         "buckets[2].iam",
         "buckets[3].lifecycle",
+        "buckets[4].iamPolicy.bindings[0].role",
+        "buckets[4].iamPolicy.bindings[0].members[0]",
     ] {
-        assert!(keys.contains(&key));
+        assert!(keys.contains(&key), "{key} in {keys:?}");
     }
     let server = Server::start(&mut command(&dir.0));
     assert_eq!(server.ready["buckets_file"], json!({"outcome":"disabled"}));
@@ -757,6 +765,213 @@ fn strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_m
     assert_eq!(metadata["storageClass"], "NEARLINE");
     assert_eq!(metadata["labels"]["owner"], "native");
     assert_eq!(metadata["versioning"]["enabled"], true);
+    server.stop();
+}
+
+fn acl_grants(server: &Server, bucket: &str) -> Vec<(String, String)> {
+    server.json("GET", &format!("/storage/v1/b/{bucket}/acl"), Value::Null)["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            (
+                item["entity"].as_str().unwrap().to_owned(),
+                item["role"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_file_policy_replaces_the_default_policy_as_set_iam_policy_does() {
+    let dir = TestDir::new();
+    let policy = json!({"bindings":[
+        {"role":"roles/storage.objectViewer","members":["allUsers"]},
+        {"role":"roles/storage.legacyBucketReader","members":["allAuthenticatedUsers"]},
+        {"role":"roles/storage.legacyBucketOwner","members":[]}
+    ]});
+    input(
+        &dir.0,
+        json!([{"name":"file-bucket","iamPolicy":policy},{"name":"default-bucket"}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 2, 0, 0);
+    server.json(
+        "POST",
+        "/storage/v1/b?project=project-a",
+        json!({"name":"api-bucket"}),
+    );
+    let set = server.json("PUT", "/storage/v1/b/api-bucket/iam", policy);
+    let file = server.json("GET", "/storage/v1/b/file-bucket/iam", Value::Null);
+    // The empty binding is dropped and the default legacy bindings are gone, as after the PUT.
+    assert_eq!(
+        file["bindings"],
+        json!([
+            {"role":"roles/storage.objectViewer","members":["allUsers"]},
+            {"role":"roles/storage.legacyBucketReader","members":["allAuthenticatedUsers"]}
+        ])
+    );
+    assert_eq!(file["bindings"], set["bindings"]);
+    assert_eq!(
+        acl_grants(&server, "file-bucket"),
+        acl_grants(&server, "api-bucket")
+    );
+    assert_eq!(
+        acl_grants(&server, "file-bucket"),
+        [("allAuthenticatedUsers".to_owned(), "READER".to_owned())]
+    );
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/default-bucket/iam", Value::Null)["bindings"],
+        json!([
+            {"role":"roles/storage.legacyBucketOwner","members":["projectEditor:project-a","projectOwner:project-a"]},
+            {"role":"roles/storage.legacyBucketReader","members":["projectViewer:project-a"]}
+        ])
+    );
+    // Creation stores the policy: it is not a later policy write that advances metageneration.
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/file-bucket", Value::Null)["metageneration"],
+        "1"
+    );
+    let object = server.json(
+        "POST",
+        "/upload/storage/v1/b/file-bucket/o?uploadType=media&name=file",
+        json!("public"),
+    );
+    assert_eq!(object["name"], "file");
+    server.stop();
+}
+
+#[test]
+fn a_memory_backend_starts_buckets_with_their_file_policy() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([{"name":"memory-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}}]),
+    );
+    let server = Server::start(selected(&dir.0).args(["--backend", "memory"]));
+    counts(&server, 1, 0, 0);
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/memory-bucket/iam", Value::Null)["bindings"],
+        json!([{"role":"roles/storage.objectViewer","members":["allUsers"]}])
+    );
+    server.stop();
+    assert!(!dir.0.join("data").exists());
+}
+
+fn strict_identity(root: &Path) -> std::path::PathBuf {
+    let identity = root.join("identity.json");
+    fs::write(
+        &identity,
+        json!({
+            "identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"project-a":["roles/storage.admin"],"project-p":["roles/storage.admin"]}}],
+            "public_access_prevention_projects":["project-p"]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    identity
+}
+
+#[test]
+fn strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([
+            {"name":"public-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}},
+            {"name":"private-bucket"}
+        ]),
+    );
+    let identity = strict_identity(&dir.0);
+    let server = Server::start(
+        selected(&dir.0)
+            .args(["--auth-mode", "strict", "--identity-file"])
+            .arg(&identity),
+    );
+    counts(&server, 2, 0, 0);
+    for bucket in ["public-bucket", "private-bucket"] {
+        assert_eq!(
+            server
+                .request(
+                    "POST",
+                    &format!("/upload/storage/v1/b/{bucket}/o?uploadType=media&name=file"),
+                    "Authorization: Bearer admin\r\n",
+                    "content"
+                )
+                .0,
+            200
+        );
+        let public = bucket == "public-bucket";
+        assert_eq!(
+            server.request("GET", &format!("/{bucket}/file"), "", "").0,
+            if public { 200 } else { 401 }
+        );
+        let media = server.request(
+            "GET",
+            &format!("/storage/v1/b/{bucket}/o/file?alt=media"),
+            "",
+            "",
+        );
+        assert_eq!(media.0, if public { 200 } else { 401 });
+        if public {
+            assert_eq!(media.2, b"content");
+        }
+        // Reading objects is all the binding grants.
+        assert_eq!(
+            server
+                .request("DELETE", &format!("/storage/v1/b/{bucket}/o/file"), "", "")
+                .0,
+            401
+        );
+    }
+    server.stop();
+}
+
+#[test]
+fn public_access_prevention_refuses_a_public_file_policy_before_any_mutation() {
+    let dir = TestDir::new();
+    let public = json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]});
+    input(
+        &dir.0,
+        json!([
+            {"name":"valid-bucket","iamPolicy":public},
+            {"name":"enforced-bucket","iamConfiguration":{"publicAccessPrevention":"enforced"},
+             "iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allAuthenticatedUsers"]}]}},
+            {"name":"parent-bucket","project":"project-p","iamPolicy":public},
+            {"name":"private-parent-bucket","project":"project-p","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["user:reader@example.invalid"]}]}}
+        ]),
+    );
+    let identity = strict_identity(&dir.0);
+    let output = selected(&dir.0)
+        .args(["--auth-mode", "strict", "--identity-file"])
+        .arg(&identity)
+        .output()
+        .unwrap();
+    let event = diagnostic(&output);
+    let keys: Vec<_> = event["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        keys,
+        ["buckets[1].iamPolicy", "buckets[2].iamPolicy"],
+        "{event}"
+    );
+    assert!(
+        event.to_string().contains("Public access prevention"),
+        "{event}"
+    );
+    let server = Server::start(&mut command(&dir.0));
+    for bucket in ["valid-bucket", "private-parent-bucket"] {
+        assert_eq!(
+            server
+                .request("GET", &format!("/storage/v1/b/{bucket}"), "", "")
+                .0,
+            404
+        );
+    }
     server.stop();
 }
 

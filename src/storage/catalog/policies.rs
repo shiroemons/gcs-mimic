@@ -351,13 +351,7 @@ impl Catalog {
             if policy.etag.is_some() && policy.etag != current.etag {
                 return Err(CatalogError::PreconditionFailed);
             }
-            if public_access_prevention(&transaction, &bucket)?
-                && policy.bindings.iter().any(|binding| {
-                    binding.members.iter().any(|member| {
-                        matches!(member.as_str(), "allUsers" | "allAuthenticatedUsers")
-                    })
-                })
-            {
+            if public_access_prevention(&transaction, &bucket)? && policy.names_public_principal() {
                 return Err(CatalogError::PublicAccessPrevention);
             }
             super::acl::replace_from_policy(&transaction, &bucket, &policy, principals.as_ref())?;

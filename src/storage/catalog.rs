@@ -126,7 +126,7 @@ use bucket_list::bucket_metadata_charge;
 #[cfg(test)]
 use bucket_update::BucketWrite;
 pub(super) use buckets::select_bucket;
-use buckets::{insert_bucket_in_transaction, read_bucket};
+use buckets::{insert_bucket_in_transaction, insert_bucket_with_policy, read_bucket};
 use connection::ConnectionUnavailable;
 #[cfg(test)]
 use open::immutable_catalog_uri;

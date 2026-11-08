@@ -3,6 +3,7 @@
 //! Versioned bucket initialization with complete validation before create-missing.
 
 use crate::{
+    auth::Policy,
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     clock::Clock,
@@ -11,7 +12,7 @@ use crate::{
     json::{parse_insert_with_profile, validate_project},
     storage::{
         Catalog,
-        admin::{AdminError, BucketDefinition, EnsureBucket, Origin},
+        admin::{AdminError, Origin},
     },
 };
 use serde::{
@@ -25,6 +26,9 @@ use std::{
     path::Path,
     time::SystemTime,
 };
+
+mod plan;
+mod policy;
 
 /// Leaves room beside one entry of the largest size, which a smaller file limit would refuse first.
 pub(crate) const FILE_LIMIT: usize = 2 * ENTRY_LIMIT;
@@ -562,6 +566,10 @@ struct Entry {
     iam_configuration: Option<IamConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     soft_delete_policy: Option<SoftDeletePolicy>,
+    /// Not a bucket resource member, so the encoded resource that the insert parser reads leaves
+    /// it out; the catalog stores it as the bucket's policy instead.
+    #[serde(skip_serializing)]
+    iam_policy: Option<policy::IamPolicy>,
 }
 
 /// Only the writable field: `effectiveTime` is output-only and has no meaning in a definition.
@@ -734,7 +742,6 @@ fn unsupported(name: &str) -> bool {
     matches!(
         name,
         "iam"
-            | "iamPolicy"
             | "bindings"
             | "acl"
             | "defaultObjectAcl"
@@ -770,36 +777,54 @@ fn unsupported(name: &str) -> bool {
     )
 }
 
+/// Advice for a member that version 1 recognizes but does not accept.
+fn resource_unsupported(name: &str) -> Option<&'static str> {
+    if matches!(name, "iam" | "bindings") {
+        Some(
+            "Unsupported in bucket initialization version 1; write bucket IAM bindings as \"iamPolicy\":{\"bindings\":[{\"role\":\"roles/storage.objectViewer\",\"members\":[\"allUsers\"]}]}.",
+        )
+    } else {
+        unsupported(name).then_some(
+            "Unsupported in bucket initialization version 1; remove this field, including empty or disabled settings.",
+        )
+    }
+}
+
 fn closed<T: DeserializeOwned>(fields: &Members<'_>, parent: &str, diagnostics: &mut Collected) {
+    closed_with::<T>(fields, parent, diagnostics, resource_unsupported);
+}
+
+/// Reports each member `T` does not declare; `unsupported` supplies the advice for members that
+/// are recognized but refused, and every other member is unknown.
+fn closed_with<T: DeserializeOwned>(
+    fields: &Members<'_>,
+    parent: &str,
+    diagnostics: &mut Collected,
+    unsupported: fn(&str) -> Option<&'static str>,
+) {
     let names = schema_fields::<T>();
     for (name, _) in &fields.0 {
         // Derived closed structs are the schema authority; the names only supply advice.
         if names.contains(&name.as_str()) {
             continue;
         }
-        let fix = if unsupported(name) {
-            "Unsupported in bucket initialization version 1; remove this field, including empty or disabled settings.".into()
+        let (reason, fix) = if let Some(fix) = unsupported(name) {
+            (Reason::Unsupported, fix.to_owned())
         } else if let Some(nearest) = names
             .iter()
             .min_by_key(|candidate| (distance(name, candidate), **candidate))
         {
-            format!(
-                "Unknown field; use {nearest}, for example {}.",
-                example(nearest)
+            (
+                Reason::Unknown,
+                format!(
+                    "Unknown field; use {nearest}, for example {}.",
+                    example(nearest)
+                ),
             )
         } else {
-            "Unknown field; remove it.".into()
+            (Reason::Unknown, "Unknown field; remove it.".into())
         };
-        error(
-            diagnostics,
-            if unsupported(name) {
-                Reason::Unsupported
-            } else {
-                Reason::Unknown
-            },
-            path(parent, name),
-            fix,
-        );
+        error(diagnostics, reason, path(parent, name), fix);
     }
 }
 
@@ -824,6 +849,12 @@ fn example(field: &str) -> &'static str {
         "softDeletePolicy" | "retentionDurationSeconds" => {
             "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 1 to 3155760000)"
         }
+        "iamPolicy" => policy::EXAMPLE,
+        "bindings" => {
+            "\"bindings\":[{\"role\":\"roles/storage.objectViewer\",\"members\":[\"allUsers\"]}]"
+        }
+        "role" => "\"role\":\"roles/storage.objectViewer\"",
+        "members" => "\"members\":[\"allUsers\"]",
         _ => "\"publicAccessPrevention\":\"inherited\"",
     }
 }
@@ -909,6 +940,7 @@ fn check_shape(
                     closed::<SoftDeletePolicy>(&nested, &key, diagnostics);
                 }
             }
+            "iamPolicy" => policy::check_shape(raw, &key, diagnostics),
             "project" => {
                 project(raw, &key, diagnostics)?;
             }
@@ -1005,6 +1037,7 @@ fn check_values(
             "name" | "location" | "storageClass" | "defaultEventBasedHold" => {
                 native(name, &parsed, &key, now, diagnostics)
             }
+            "iamPolicy" => policy::check_values(raw, &key, diagnostics)?,
             _ => {}
         }
     }
@@ -1072,6 +1105,13 @@ pub enum InitOutcome {
     },
 }
 
+/// One validated entry: the bucket an insert would create and the policy it starts with.
+#[derive(Debug)]
+pub(crate) struct InitEntry {
+    pub(crate) record: BucketRecord,
+    pub(crate) policy: Option<Policy>,
+}
+
 /// Validate once, then publish missing buckets through local administrative authority.
 pub async fn apply(
     catalog: &Catalog,
@@ -1084,7 +1124,7 @@ pub async fn apply(
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
     let bucket_limit = config.max_buckets_per_batch;
-    let records = crate::task::run_blocking("bucket-initializer", move || {
+    let entries = crate::task::run_blocking("bucket-initializer", move || {
         load(
             &path,
             &project,
@@ -1102,43 +1142,20 @@ pub async fn apply(
         ))
     })?
     .map_err(std::io::Error::other)?;
-    let projects: Vec<_> = records
-        .iter()
-        .map(|record| record.project.clone())
-        .collect();
-    let definitions = records
-        .into_iter()
-        .map(BucketDefinition::new)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| initialization_failure(&error))?;
-    let results = catalog
+    let (targets, prepared) =
+        plan::prepare(entries).map_err(|error| initialization_failure(&error))?;
+    let report = catalog
         .admin(Origin::BucketInit)
-        .ensure_buckets(definitions)
+        .initialize_buckets(targets, move |observed| {
+            plan::plan(prepared, observed, bucket_limit)
+        })
         .await
-        .map_err(|error| initialization_failure(&error))?;
-    let mut created = 0;
-    let mut existing = 0;
-    let mut diagnostics = Diagnostics::default();
-    for (index, (result, project)) in results.iter().zip(projects).enumerate() {
-        match result {
-            EnsureBucket::Created(_) => created += 1,
-            EnsureBucket::Existing(record) => {
-                existing += 1;
-                if record.project != project {
-                    diagnostics.warnings.push(Diagnostic::new(
-                        DiagnosticSource::Initializer, format!("buckets[{index}].project"),
-                        "Existing bucket ownership is retained; align or remove this entry, or choose another bucket name, for example local-assets.",
-                    ));
-                }
-            }
-        }
-    }
-    diagnostics.write(std::io::stderr().lock())?;
-    Ok(InitOutcome::Applied {
-        created,
-        existing,
-        project_mismatches: diagnostics.warnings.len(),
-    })
+        .map_err(|error| match error {
+            plan::PlanError::Admin(error) => initialization_failure(&error),
+            plan::PlanError::Rejected(diagnostics) => std::io::Error::other(diagnostics),
+        })?;
+    report.warnings.write(std::io::stderr().lock())?;
+    Ok(report.outcome())
 }
 
 fn initialization_failure(error: &AdminError) -> std::io::Error {
@@ -1189,7 +1206,7 @@ pub(crate) fn load(
     clock: &dyn Clock,
     default_location: &str,
     bucket_limit: Option<NonZeroUsize>,
-) -> Result<Vec<BucketRecord>, Diagnostics> {
+) -> Result<Vec<InitEntry>, Diagnostics> {
     let read_failure = || {
         Diagnostics::error(
             DiagnosticSource::Initializer,
@@ -1224,7 +1241,7 @@ pub(crate) fn parse(
     clock: &dyn Clock,
     default_location: &str,
     bucket_limit: Option<NonZeroUsize>,
-) -> Result<Vec<BucketRecord>, Diagnostics> {
+) -> Result<Vec<InitEntry>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     if bytes.len() > file_limit(bucket_limit) {
         return Err(Diagnostics::error(
@@ -1420,18 +1437,23 @@ fn records(
     now: SystemTime,
     default_location: &str,
     mut diagnostics: Collected,
-) -> Result<Vec<BucketRecord>, Diagnostics> {
+) -> Result<Vec<InitEntry>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     let mut records = Vec::with_capacity(entries.len());
     for entry in entries {
         let index = entry.index;
         let project = entry.project.unwrap_or_else(|| inherited.to_owned());
-        let entry: Entry = serde_json::from_value(entry.resource).map_err(|_| {
+        let mut entry: Entry = serde_json::from_value(entry.resource).map_err(|_| {
             failure(
                 "$",
                 "Invalid initializer schema; use version 1 with native bucket resources.",
             )
         })?;
+        let policy = entry
+            .iam_policy
+            .take()
+            .map(|policy| policy.into_policy(&format!("buckets[{index}].iamPolicy")))
+            .transpose()?;
         let encoded = serde_json::to_vec(&entry).map_err(|_| {
             failure(
                 "$",
@@ -1454,7 +1476,7 @@ fn records(
             CompatProfile::Native,
             default_location,
         ) {
-            Ok(record) => records.push(record),
+            Ok(record) => records.push(InitEntry { record, policy }),
             Err(_) => error(
                 &mut diagnostics,
                 Reason::Native,
@@ -1499,13 +1521,25 @@ mod tests {
         NonZeroUsize::new(limit)
     }
 
+    fn records(
+        entries: Result<Vec<InitEntry>, Diagnostics>,
+    ) -> Result<Vec<BucketRecord>, Diagnostics> {
+        entries.map(|entries| entries.into_iter().map(|entry| entry.record).collect())
+    }
+
     fn parse(
         bytes: &[u8],
         seed_project: &str,
         clock: &dyn Clock,
         default_location: &str,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
-        super::parse(bytes, seed_project, clock, default_location, named(LIMIT))
+        records(super::parse(
+            bytes,
+            seed_project,
+            clock,
+            default_location,
+            named(LIMIT),
+        ))
     }
 
     fn load(
@@ -1514,20 +1548,36 @@ mod tests {
         clock: &dyn Clock,
         default_location: &str,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
-        super::load(file, seed_project, clock, default_location, named(LIMIT))
+        records(super::load(
+            file,
+            seed_project,
+            clock,
+            default_location,
+            named(LIMIT),
+        ))
+    }
+
+    fn entries(document: &str) -> Result<Vec<InitEntry>, Diagnostics> {
+        super::parse(
+            document.as_bytes(),
+            "seed-project",
+            &FixedClock,
+            "US",
+            named(LIMIT),
+        )
     }
 
     fn parsed_with(
         document: &str,
         limit: Option<NonZeroUsize>,
     ) -> Result<Vec<BucketRecord>, Diagnostics> {
-        super::parse(
+        records(super::parse(
             document.as_bytes(),
             "seed-project",
             &FixedClock,
             "US",
             limit,
-        )
+        ))
     }
 
     fn parsed_within(document: &str, limit: usize) -> Result<Vec<BucketRecord>, Diagnostics> {
@@ -2401,7 +2451,7 @@ mod tests {
     fn closed_schema_rejects_unknown_unsupported_and_disabled_noops() {
         for (field, value) in [
             ("iam", json!({})),
-            ("iamPolicy", json!({"bindings":[]})),
+            ("bindings", json!([])),
             ("acl", json!([])),
             ("defaultObjectAcl", json!([])),
             ("timeCreated", json!("secret")),
@@ -2415,6 +2465,12 @@ mod tests {
             let errors = parsed(&document).unwrap_err();
             assert_eq!(errors.errors.len(), 1, "{document}");
             assert!(errors.errors[0].fix.contains("Unsupported"));
+            // Bindings belong in iamPolicy, so the advice for the IAM spellings points there.
+            assert_eq!(
+                errors.errors[0].fix.contains("\"iamPolicy\""),
+                matches!(field, "iam" | "bindings"),
+                "{document}"
+            );
         }
         for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
             let document = json!({"version":1,"buckets":[{"name":"example-bucket","iamConfiguration":{field:{"enabled":false}}}]}).to_string();
@@ -2432,6 +2488,175 @@ mod tests {
         let mut errors = Collected::new(named(LIMIT));
         closed::<Document>(&members(raw).unwrap(), "", &mut errors);
         assert!(errors.finish().errors[0].fix.contains("use buckets,"));
+    }
+
+    #[test]
+    fn iam_policy_keeps_the_written_bindings_and_drops_empty_ones_like_set_iam_policy() {
+        let document = json!({"version":1,"buckets":[
+            {"name":"public-bucket","iamPolicy":{"bindings":[
+                {"role":"roles/storage.objectViewer","members":["allUsers","user:reader@example.invalid"]},
+                {"role":"roles/storage.legacyBucketReader","members":[]}
+            ]}},
+            {"name":"cleared-bucket","iamPolicy":{"bindings":[]}},
+            {"name":"default-bucket"}
+        ]})
+        .to_string();
+        let entries = entries(&document).unwrap();
+        assert_eq!(
+            entries[0].policy,
+            Some(Policy {
+                bindings: vec![crate::auth::Binding {
+                    role: "roles/storage.objectViewer".into(),
+                    members: vec!["allUsers".into(), "user:reader@example.invalid".into()],
+                }],
+                etag: None,
+            })
+        );
+        assert_eq!(
+            entries[1].policy,
+            Some(Policy {
+                bindings: Vec::new(),
+                etag: None
+            })
+        );
+        assert_eq!(entries[2].policy, None);
+        // The policy is not a bucket resource member, so it does not reach the record.
+        assert_eq!(entries[0].record.name, "public-bucket");
+    }
+
+    #[test]
+    fn iam_policy_reports_each_invalid_part_at_its_own_key_without_echoing_values() {
+        let policy = |policy: Value| {
+            json!({"version":1,"buckets":[{"name":"example-bucket","iamPolicy":policy}]})
+                .to_string()
+        };
+        let binding = |binding: Value| policy(json!({"bindings":[binding]}));
+        for (document, key, fix) in [
+            (policy(json!(null)), "buckets[0].iamPolicy", "policy object"),
+            (policy(json!([])), "buckets[0].iamPolicy", "policy object"),
+            (
+                policy(json!({})),
+                "buckets[0].iamPolicy.bindings",
+                "Missing bindings",
+            ),
+            (
+                policy(json!({"bindings":{}})),
+                "buckets[0].iamPolicy.bindings",
+                "array of bindings",
+            ),
+            (
+                policy(json!({"bindings":[],"version":3})),
+                "buckets[0].iamPolicy.version",
+                "Unsupported",
+            ),
+            (
+                policy(json!({"bindings":[],"etag":"CAE="})),
+                "buckets[0].iamPolicy.etag",
+                "Unsupported",
+            ),
+            (
+                policy(json!({"bindings":[],"auditConfigs":[]})),
+                "buckets[0].iamPolicy.auditConfigs",
+                "Unsupported",
+            ),
+            (
+                policy(json!({"bindings":[],"bindingz":[]})),
+                "buckets[0].iamPolicy.bindingz",
+                "use bindings",
+            ),
+            (
+                binding(json!("roles/storage.objectViewer")),
+                "buckets[0].iamPolicy.bindings[0]",
+                "binding object",
+            ),
+            (
+                binding(
+                    json!({"role":"roles/storage.objectViewer","members":["allUsers"],"condition":{}}),
+                ),
+                "buckets[0].iamPolicy.bindings[0].condition",
+                "Conditional",
+            ),
+            (
+                binding(json!({"members":["allUsers"]})),
+                "buckets[0].iamPolicy.bindings[0].role",
+                "Missing role",
+            ),
+            (
+                binding(json!({"role":"roles/storage.objectViewer"})),
+                "buckets[0].iamPolicy.bindings[0].members",
+                "Missing members",
+            ),
+            (
+                binding(json!({"role":"roles/owner","members":["allUsers"]})),
+                "buckets[0].iamPolicy.bindings[0].role",
+                "Basic and custom roles",
+            ),
+            (
+                binding(json!({"role":"roles/storage.hmacKeyAdmin","members":["allUsers"]})),
+                "buckets[0].iamPolicy.bindings[0].role",
+                "granted on a bucket",
+            ),
+            (
+                binding(json!({"role":"secret-role","members":["allUsers"]})),
+                "buckets[0].iamPolicy.bindings[0].role",
+                "granted on a bucket",
+            ),
+            (
+                binding(json!({"role":1,"members":["allUsers"]})),
+                "buckets[0].iamPolicy.bindings[0].role",
+                "granted on a bucket",
+            ),
+            (
+                binding(json!({"role":"roles/storage.objectViewer","members":"allUsers"})),
+                "buckets[0].iamPolicy.bindings[0].members",
+                "array of members",
+            ),
+            (
+                binding(
+                    json!({"role":"roles/storage.objectViewer","members":["allUsers","secret-member"]}),
+                ),
+                "buckets[0].iamPolicy.bindings[0].members[1]",
+                "Invalid member",
+            ),
+            (
+                binding(json!({"role":"roles/storage.objectViewer","members":[1]})),
+                "buckets[0].iamPolicy.bindings[0].members[0]",
+                "Invalid member",
+            ),
+            (
+                binding(
+                    json!({"role":"roles/storage.objectViewer","members":["group:secret@example.invalid"]}),
+                ),
+                "buckets[0].iamPolicy.bindings[0].members[0]",
+                "Groups, domains",
+            ),
+            (
+                binding(
+                    json!({"role":"roles/storage.objectViewer","members":vec!["allUsers"; 1501]}),
+                ),
+                "buckets[0].iamPolicy",
+                "at most 1500 principals",
+            ),
+        ] {
+            let errors = parsed(&document).unwrap_err();
+            has(&errors, key, fix);
+            assert!(!errors.to_string().contains("secret"), "{errors}");
+        }
+        // The occurrence limit counts every binding, as setIamPolicy does.
+        let split = policy(json!({"bindings":[
+            {"role":"roles/storage.objectViewer","members":vec!["allUsers"; 750]},
+            {"role":"roles/storage.objectCreator","members":vec!["allUsers"; 751]}
+        ]}));
+        has(
+            &parsed(&split).unwrap_err(),
+            "buckets[0].iamPolicy",
+            "at most 1500 principals",
+        );
+        let at_limit = policy(json!({"bindings":[
+            {"role":"roles/storage.objectViewer","members":vec!["allUsers"; 750]},
+            {"role":"roles/storage.objectCreator","members":vec!["allUsers"; 750]}
+        ]}));
+        assert!(parsed(&at_limit).is_ok());
     }
 
     #[test]
