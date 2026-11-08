@@ -363,6 +363,7 @@ GoogleのOAuth発行・検証を再現する機能ではありません。
   0.8.0以降のstrictは、明示した登録済みJWTの範囲だけを受け付けます。
   組み込みのテスト署名者がこの範囲に含まれるのは、ID文書がそれを宣言しているときか、`GCS_MIMIC_TEST_SIGNER=enabled`のときだけです。
   このとき、エミュレーターのログに`auth_self_signed_jwt_rejected`の警告が1回出ます。
+  テスト署名者が無効なまま`test-signer credentials`の鍵で署名したJWTも401になります。このときの警告は、テスト署名者が無効であることと、`GCS_MIMIC_TEST_SIGNER=enabled`で有効にできることを伝えます。
 - googleauthが`googleapis.com`以外で自分でトークンに署名する動作に依存しています。googleauth 1.17.6と1.17.7で確認しました。版を固定し、更新後に確認し直してください。より簡単なエミュレーター設定を追加する[google-cloud-ruby#34023](https://github.com/googleapis/google-cloud-ruby/pull/34023)は、2026-10-30時点で未マージです。
 
 多くのRailsアプリは、開発・テストでDiskサービスを使っています。そのほうが簡単ですが、署名付きURLやCORSなど、Google Cloud Storageの動きは確認できません。

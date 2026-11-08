@@ -49,6 +49,8 @@ use std::{
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
+/// A disabled test signer has its own advice, which an earlier general warning must not hide.
+static WARNED_DISABLED_TEST_SIGNER_JWT: AtomicBool = AtomicBool::new(false);
 
 // `untestable` excludes a permission from bucket testIamPermissions, not authorization.
 macro_rules! permissions {
@@ -1384,7 +1386,7 @@ impl Auth {
             Presented::Jwt { candidate, warn } => {
                 let identity = candidate.verify(&self.verifiers).await?;
                 if identity.is_none() && warn {
-                    warn_self_signed_jwt();
+                    warn_self_signed_jwt(jwt::Rejection::Unsupported);
                 }
                 identity
             }
@@ -1424,9 +1426,9 @@ impl Auth {
             let warn = looks_like_jwt(token);
             jwt::Candidate::parse(registry, token, clock)
                 .map(|candidate| Presented::Jwt { candidate, warn })
-                .ok_or_else(|| {
+                .map_err(|rejection| {
                     if warn {
-                        warn_self_signed_jwt();
+                        warn_self_signed_jwt(rejection);
                     }
                     AuthFailure::InvalidCredentials
                 })
@@ -1442,14 +1444,28 @@ impl Auth {
     }
 }
 
-fn warn_self_signed_jwt() {
-    if !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
+/// Logs the advice for `rejection` once per cause, so an earlier unrelated rejection cannot hide
+/// the disabled test signer. The message never includes the token.
+fn warn_self_signed_jwt(rejection: jwt::Rejection) {
+    let (warned, message): (_, Cow<'static, str>) = match rejection {
+        jwt::Rejection::Unsupported => (
+            &WARNED_SELF_SIGNED_JWT,
+            "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients".into(),
+        ),
+        jwt::Rejection::DisabledTestSigner => (
+            &WARNED_DISABLED_TEST_SIGNER_JWT,
+            format!(
+                "strict authentication rejected a self-signed JWT from the built-in test signer {} because the test signer is disabled; set GCS_MIMIC_TEST_SIGNER=enabled (--test-signer enabled) to accept the key that gcs-mimic test-signer credentials prints",
+                test_signer::ID
+            )
+            .into(),
+        ),
+    };
+    if !warned.swap(true, Ordering::Relaxed) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
             "auth_self_signed_jwt_rejected",
-            serde_json::json!({
-                "message": "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients",
-            }),
+            serde_json::json!({ "message": message }),
         );
     }
 }

@@ -47370,6 +47370,15 @@
           ]
         },
         {
+          "id": "DESIGN-045-DISABLED-SIGNER-JWT",
+          "description": "A self-signed JWT from test-signer@gcs-mimic.invalid, as Rails sends with the key that test-signer credentials prints, gets the unchanged 401 Invalid Credentials in strict mode while the test signer is disabled; the auth_self_signed_jwt_rejected warning, once per process for this cause and separately from the general self-signed JWT advice, says that the built-in test signer is disabled and that GCS_MIMIC_TEST_SIGNER=enabled turns it on, without any part of the token. Another issuer without keys and a token outside the supported claims keep the general advice, and the enabled signer's JWT authenticates. The 401 body itself carries no hint.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+            "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
+          ]
+        },
+        {
           "id": "DESIGN-045-URL",
           "description": "CLI output verifies for final HTTPS host:port, encoded object and repeated headers. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
           "result": "PASS",
@@ -47447,9 +47456,21 @@
         "credentials_print_a_service_account_key_file_for_the_built_in_signer",
         "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
         "unknown_test_signer_arguments_are_rejected",
-        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
+        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies",
+        "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+        "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib auth::; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/rails-active-storage.md",
+          "test_ids": [
+            "auth::jwt::tests::a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt",
+            "signing::jwt::a_test_signer_jwt_names_the_disabled_signer_in_its_warning"
+          ]
+        },
         {
           "command": "cargo test --locked --test it_xml_auth signing::",
           "result": "PASS",

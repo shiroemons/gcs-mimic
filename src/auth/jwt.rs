@@ -3,6 +3,7 @@
 use super::{
     AuthError, Identity, Registry,
     signature::{PublicKey, Verifiers},
+    test_signer,
 };
 use crate::clock::Clock;
 use serde::Deserialize;
@@ -37,8 +38,46 @@ pub(super) struct Candidate<'a> {
     signature: Vec<u8>,
 }
 
+/// Why a JWT-shaped bearer token was refused before its signature was checked. The response
+/// says only that the credentials are invalid; the cause goes to the operator's log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Rejection {
+    /// Outside the supported header and claims, or from an issuer without registered keys.
+    Unsupported,
+    /// From the built-in test signer while it is disabled. Rails and other clients sign with
+    /// the key that `test-signer credentials` prints, so this names a likely setup mistake.
+    DisabledTestSigner,
+}
+
 impl<'a> Candidate<'a> {
-    pub(super) fn parse(registry: &'a Registry, token: &str, clock: &dyn Clock) -> Option<Self> {
+    pub(super) fn parse(
+        registry: &'a Registry,
+        token: &str,
+        clock: &dyn Clock,
+    ) -> Result<Self, Rejection> {
+        let (message, issuer, signature) =
+            Self::unverified(token, clock).ok_or(Rejection::Unsupported)?;
+        // The enabled test signer always has its published key, so a missing one means disabled.
+        let keys = registry
+            .signing_keys
+            .get(&issuer)
+            .ok_or(if issuer == test_signer::ID {
+                Rejection::DisabledTestSigner
+            } else {
+                Rejection::Unsupported
+            })?;
+        let identity = registry.identity(&issuer).ok_or(Rejection::Unsupported)?;
+        Ok(Self {
+            identity,
+            keys: Arc::clone(keys),
+            message: message.into(),
+            signature,
+        })
+    }
+
+    /// The signed message, the issuer and the signature of a token whose header and claims fit
+    /// the supported subset, before any key is looked up.
+    fn unverified<'t>(token: &'t str, clock: &dyn Clock) -> Option<(&'t str, String, Vec<u8>)> {
         if token.len() > MAX_TOKEN_BYTES {
             return None;
         }
@@ -67,15 +106,7 @@ impl<'a> Candidate<'a> {
         {
             return None;
         }
-        let keys = Arc::clone(registry.signing_keys.get(&claims.iss)?);
-        let signature = decode(signature)?;
-        let identity = registry.identity(&claims.iss)?;
-        Some(Self {
-            identity,
-            keys,
-            message: message.into(),
-            signature,
-        })
+        Some((message, claims.iss, decode(signature)?))
     }
 
     pub(super) async fn verify(

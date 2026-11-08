@@ -332,6 +332,44 @@ async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
     ));
 }
 
+/// A JWT from the built-in test signer is refused like any other issuer without keys while the
+/// signer is disabled, but its rejection names that cause, which the warning turns into advice.
+#[test]
+fn a_disabled_test_signer_is_named_as_the_cause_of_its_rejected_jwt() {
+    let signed_by = |issuer: &str| {
+        let mut claims = claims();
+        claims["iss"] = issuer.into();
+        claims["sub"] = issuer.into();
+        token(&claims)
+    };
+    let disabled = registry(&[PUBLIC], &[]);
+    let rejection = |registry: &Registry, issuer: &str| {
+        Candidate::parse(registry, &signed_by(issuer), &Fixed(NOW)).err()
+    };
+    assert_eq!(
+        rejection(&disabled, test_signer::ID),
+        Some(Rejection::DisabledTestSigner)
+    );
+    // Another issuer without keys and a token outside the subset keep the general cause.
+    assert_eq!(
+        rejection(&disabled, "unknown@example.invalid"),
+        Some(Rejection::Unsupported)
+    );
+    let mut lifetime = claims();
+    lifetime["iss"] = test_signer::ID.into();
+    lifetime["sub"] = test_signer::ID.into();
+    lifetime["exp"] = (NOW + 7200).into();
+    assert!(matches!(
+        Candidate::parse(&disabled, &token(&lifetime), &Fixed(NOW)),
+        Err(Rejection::Unsupported)
+    ));
+    let mut enabled = registry(&[PUBLIC], &[]);
+    enabled
+        .add_test_signer(&std::collections::BTreeSet::new())
+        .unwrap();
+    assert_eq!(rejection(&enabled, test_signer::ID), None);
+}
+
 #[test]
 fn jwt_base64url_rejects_padding_noncanonical_bits_and_other_alphabets() {
     assert_eq!(decode("e30").unwrap(), b"{}");

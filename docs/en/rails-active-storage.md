@@ -438,7 +438,10 @@ Limits of the recipe:
   the emulator log shows one `auth_self_signed_jwt_rejected` warning. Strict
   mode accepts only the documented registered JWT subset described above, which
   includes the built-in test signer only when the identity document declares it
-  or `GCS_MIMIC_TEST_SIGNER=enabled`.
+  or `GCS_MIMIC_TEST_SIGNER=enabled`. A JWT signed with the
+  `test-signer credentials` key while the signer is disabled also gets the 401,
+  and the warning then says that the test signer is disabled and that
+  `GCS_MIMIC_TEST_SIGNER=enabled` turns it on.
 - The recipe relies on googleauth signing its own token outside
   `googleapis.com`. Checked with googleauth 1.17.6 and 1.17.7; pin your
   versions and recheck after upgrades.
