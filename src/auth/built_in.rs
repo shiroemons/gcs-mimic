@@ -16,7 +16,7 @@ use std::{
 /// The trusted listener's application identity. The reserved `.invalid` domain can never name a
 /// real Google account, and the ID differs from the test signer and from the permissive creator
 /// `local-user@gcs-mimic.invalid`.
-pub const TRUSTED_APP_ID: &str = "trusted-app@gcs-mimic.invalid";
+pub(crate) const TRUSTED_APP_ID: &str = "trusted-app@gcs-mimic.invalid";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BuiltIn {

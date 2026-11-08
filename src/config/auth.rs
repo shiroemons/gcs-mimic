@@ -13,16 +13,16 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 /// What a profile that verifies signatures needs besides its identity document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Verification {
-    pub test_signer: TestSignerChoice,
+pub(crate) struct Verification {
+    pub(crate) test_signer: TestSignerChoice,
     /// The explicit `signed_host_port`; loading applies the default that the settled test signer
-    /// selects, with [`SignedHostPort::resolve`].
-    pub signed_host_port: Option<SignedHostPort>,
+    /// selects, with [`HostPortPolicy::resolve`](crate::auth::signature::HostPortPolicy::resolve).
+    pub(crate) signed_host_port: Option<SignedHostPort>,
 }
 
 /// Who a request without credentials on the trusted listener acts as.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TrustedCaller {
+pub(crate) enum TrustedCaller {
     /// No trusted listener, so every such request is anonymous.
     Anonymous,
     /// The registered identity that `trusted_principal` names. Loading resolves it where it
@@ -43,9 +43,12 @@ impl TrustedCaller {
 }
 
 /// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
-/// so loading a profile needs no checks of its own.
+/// so loading a profile needs no checks of its own. Outside tests [`AuthProfile::select`] is the
+/// only constructor, and it is also what keeps strict mode from lacking every caller: that rule
+/// spans the identity document, `trusted` and the test signer choice, so a variant of its own
+/// would repeat those fields in a form that must agree with them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthProfile {
+pub(crate) enum AuthProfile {
     /// Credentials are ignored and nothing is authorized.
     Permissive,
     /// Signed XML requests verify first, then get permissive access.
@@ -269,8 +272,10 @@ impl ConfigurationReport {
             .any(|setting| self.invalid.contains(setting.as_str()))
     }
 
-    /// The profile to load, when the authentication settings are valid.
-    pub fn auth_profile(&self) -> Option<&AuthProfile> {
+    /// The profile to load, when the authentication settings are valid; only tests read it,
+    /// because loading takes it from the report itself.
+    #[cfg(test)]
+    pub(crate) fn auth_profile(&self) -> Option<&AuthProfile> {
         self.auth_profile.as_ref()
     }
 

@@ -27,7 +27,9 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
-pub use auth::{AuthProfile, TrustedCaller, Verification};
+#[cfg(test)]
+pub(crate) use auth::Verification;
+pub(crate) use auth::{AuthProfile, TrustedCaller};
 pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
 pub use runtime::RuntimeEndpoints;

@@ -12,7 +12,7 @@ mod acl_identity;
 pub(crate) use acl_identity::validate_local_creator_email;
 mod built_in;
 pub(crate) use built_in::BuiltIn;
-pub use built_in::TRUSTED_APP_ID;
+pub(crate) use built_in::TRUSTED_APP_ID;
 pub(crate) mod denied;
 pub use denied::Denied;
 mod jwt;
@@ -256,7 +256,7 @@ crate::config::string_enum! {
 /// How a profile settles the built-in test signer. Validation selects the rule; only strict
 /// mode's default needs the identity document, so loading settles that one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TestSignerChoice {
+pub(crate) enum TestSignerChoice {
     /// An explicit `test_signer`, or a default that the profile alone decides.
     Fixed(TestSigner),
     /// Strict mode's default: enabled exactly when the identity document declares
@@ -270,7 +270,11 @@ impl TestSignerChoice {
     /// do nothing. Strict mode leaves it to the identity document: anyone can sign with the
     /// published key, so it would turn `allAuthenticatedUsers` grants into public access, and
     /// an entry for its ID says that this local setup asked for it.
-    pub fn select(configured: Option<TestSigner>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+    pub(crate) fn select(
+        configured: Option<TestSigner>,
+        mode: AuthMode,
+        signed_urls: SignedUrls,
+    ) -> Self {
         match (configured, mode, signed_urls) {
             (Some(signer), _, _) => Self::Fixed(signer),
             (None, AuthMode::Permissive, SignedUrls::Verify) => Self::Fixed(TestSigner::Enabled),
@@ -660,7 +664,7 @@ impl std::error::Error for RegistryError {
 /// Why the identity document could not be loaded, with the setting that supplied it:
 /// `identity_file` for a file and `identities` for the inline document.
 #[derive(Debug)]
-pub struct IdentityError {
+pub(crate) struct IdentityError {
     /// `None` when strict mode started without a document, with built-in identities only.
     form: Option<Form>,
     source: RegistryError,
@@ -1154,7 +1158,7 @@ impl Auth {
     ///
     /// `implicit_projects` are the projects where a built-in identity that the document does not
     /// declare holds its implicit role.
-    pub fn load(
+    pub(crate) fn load(
         profile: &AuthProfile,
         implicit_projects: &BTreeSet<String>,
     ) -> Result<Self, IdentityError> {
