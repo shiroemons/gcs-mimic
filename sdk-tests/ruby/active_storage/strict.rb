@@ -34,6 +34,10 @@ class Document < ActiveRecord::Base
   has_one_attached :file
 end
 
+require "rack/mock"
+rails_app = Rack::MockRequest.new(Rails.application)
+routes = Rails.application.routes.url_helpers
+
 # Rails loads the service configurations with Blob's lazy initialization.
 ActiveStorage::Blob.service
 configuration = Rails.application.config.active_storage.service_configurations.fetch(service_name)
@@ -178,15 +182,67 @@ begin
     service = blob.service
     assert(service.public? && service.exist?(blob.key), "public object is missing")
     assert(!service.exist?("missing-#{SecureRandom.hex(8)}"), "public exist? found a missing key")
-    # A public service's url is unsigned. The SDK always names storage.googleapis.com as its host,
-    # so the browser-equivalent request sends the same path to the emulator.
+    # A public service's url is unsigned. The stock SDK always names storage.googleapis.com as its
+    # host, which is why the adapter case below exists; this request sends the same path to the emulator.
     url = URI(blob.url)
     assert(url.query.nil? && url.path == "/#{public_bucket.name}/#{blob.key}", "public url is not an unsigned object path")
+    assert(url.host == "storage.googleapis.com", "the stock public url no longer names Google; revisit the adapter")
     local = URI("#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}#{url.path}")
     response = fetch(local, Net::HTTP::Get.new(local))
     assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "anonymous public GET failed: #{response.code}")
     blob.purge
     assert(!service.exist?(blob.key), "purge left the public object")
+  end
+  run_case.call("AS-STRICT-PUBLIC-URL-ADAPTER") do
+    # The adapter's public url names public_endpoint, so it and the redirect that image tags follow
+    # reach the emulator unchanged. The custom key checks that each path segment is escaped.
+    bytes = "strict adapter public bytes"
+    folder = "avatars/#{SecureRandom.hex(4)}"
+    key = "#{folder}/public file.txt"
+    blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new(bytes), filename: "public file.txt", key: key,
+      service_name: "#{service_name}_public_browser")
+    url = URI(blob.url)
+    expected = "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}/#{folder}/public%20file.txt"
+    assert(url.to_s == expected, "adapter public url differs: #{url}")
+    response = fetch(url, Net::HTTP::Get.new(url))
+    assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "anonymous adapter public GET failed: #{response.code}")
+    redirect = rails_app.get(routes.rails_blob_path(blob, only_path: true), "HTTP_HOST" => "127.0.0.1")
+    assert(redirect.status == 302 && redirect.location == url.to_s, "blob route did not redirect to the public url")
+    blob.purge
+    assert(!blob.service.exist?(key), "purge left the adapter public object")
+  end
+  run_case.call("AS-STRICT-PUBLIC-URL-INITIALIZER") do
+    # The same stock service as AS-STRICT-PUBLIC-BUCKET, which named storage.googleapis.com before
+    # this load, now names its endpoint. The initializer changes every GCS service in the process,
+    # so this case runs last.
+    load File.join(__dir__, "initializers/active_storage_gcs_emulator.rb")
+    origin = "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}"
+    bytes = "strict initializer public bytes"
+    blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new(bytes), filename: "patched.txt",
+      service_name: "#{service_name}_public")
+    service = blob.service
+    url = URI(blob.url)
+    assert(url.to_s == "#{origin}/#{blob.key}", "patched public url differs: #{url}")
+    response = fetch(url, Net::HTTP::Get.new(url))
+    assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "anonymous patched public GET failed: #{response.code}")
+    # A public variant's key has slashes, which stay path separators.
+    variant = "variants/#{blob.key}/#{SecureRandom.hex(8)}"
+    service.upload(variant, StringIO.new("variant bytes"), content_type: "image/png")
+    variant_url = URI(service.url(variant, expires_in: 300, filename: ActiveStorage::Filename.new("variant.png"),
+      content_type: "image/png", disposition: :inline))
+    assert(variant_url.to_s == "#{origin}/#{variant}", "patched variant url differs: #{variant_url}")
+    assert(fetch(variant_url, Net::HTTP::Get.new(variant_url)).body == "variant bytes", "anonymous variant GET failed")
+    # An entry without an endpoint, as in production, keeps the stock URL; building it sends no request.
+    # Production credentials name no universe, and the SDK refuses a mismatched one.
+    stock = ActiveStorage::Service::GCSService.new(public: true, project: "local-project",
+      bucket: public_bucket.name, credentials: configuration.fetch("credentials").except("universe_domain"))
+    stock_url = URI(stock.url("unchanged", expires_in: 300, filename: ActiveStorage::Filename.new("unchanged.txt"),
+      content_type: "text/plain", disposition: :inline))
+    assert(stock_url.to_s == "https://storage.googleapis.com/#{public_bucket.name}/unchanged",
+      "the initializer changed an entry without an endpoint: #{stock_url}")
+    service.delete(variant)
+    blob.purge
+    assert(!service.exist?(blob.key) && !service.exist?(variant), "purge left the patched public objects")
   end
 ensure
   begin

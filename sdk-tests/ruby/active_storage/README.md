@@ -97,9 +97,18 @@ application does: a `has_one_attached` PNG attachment with download, `exist?` an
 `purge`, whose `variants/KEY/` deletion lists the bucket, plus `delete_prefixed`;
 a content type change that patches the object's metadata; `Blob.compose`; and
 upload, `exist?`, the unsigned `url` and `purge` through a `public: true` service.
-The SDK names `storage.googleapis.com` in public URLs whatever the endpoint is,
-so the anonymous read sends that URL's path to the emulator. It does not remove
-OAuth authorization or rewrite signed URLs.
+The stock SDK names `storage.googleapis.com` in public URLs whatever the endpoint
+is, so that case asserts the Google host and sends the URL's path to the
+emulator. Two local fixes follow, each with an anonymous GET of the URL used
+unchanged. The `EmulatorGcs` adapter's `public_url` names its `public_endpoint`
+(AS-STRICT-PUBLIC-URL-ADAPTER, through the `*_public_browser` entries, with an
+escaped custom key and the blob route's redirect). The
+[initializer](initializers/active_storage_gcs_emulator.rb) that an application
+copies to `config/initializers/` prepends the same method to the stock GCS
+service in development and test for entries that set an `endpoint`
+(AS-STRICT-PUBLIC-URL-INITIALIZER). That case loads it last, checks the stock
+entry and a variant key, and checks that an entry without an endpoint keeps the
+Google URL. It does not remove OAuth authorization or rewrite signed URLs.
 The runner then repeats the same scenario against a second strict server started
 with `--test-signer enabled`, whose identity file declares only
 `test-signer@gcs-mimic.invalid` with the local-project `roles/storage.objectUser`

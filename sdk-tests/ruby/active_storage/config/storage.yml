@@ -56,15 +56,21 @@ gcs_emulator_strict: &gcs_emulator_strict
     private_key: <%= File.read(Rails.root.join("../../../fixtures/signing/test-only-private.pem")).dump %>
 
 # This explicit adapter signs the final browser host and port with the SDK's public API.
-gcs_emulator_strict_browser:
+gcs_emulator_strict_browser: &gcs_emulator_strict_browser
   <<: *gcs_emulator_strict
   service: EmulatorGcs
   public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
 
-# A bucket whose policy grants allUsers read; Rails hands out unsigned URLs for it.
+# A bucket whose policy grants allUsers read; Rails hands out unsigned URLs for it. The stock
+# service names storage.googleapis.com in them; the adapter names public_endpoint.
 gcs_emulator_strict_public:
   <<: *gcs_emulator_strict
+  bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
+  public: true
+
+gcs_emulator_strict_public_browser:
+  <<: *gcs_emulator_strict_browser
   bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
   public: true
 
@@ -79,7 +85,7 @@ gcs_emulator_test_signer: &gcs_emulator_test_signer
     universe_domain: gcs-emulator.invalid
     private_key: <%= File.read(ENV.fetch("GCS_EMULATOR_TEST_SIGNER_KEY")).dump if ENV.key?("GCS_EMULATOR_TEST_SIGNER_KEY") %>
 
-gcs_emulator_test_signer_browser:
+gcs_emulator_test_signer_browser: &gcs_emulator_test_signer_browser
   <<: *gcs_emulator_test_signer
   service: EmulatorGcs
   public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
@@ -87,5 +93,10 @@ gcs_emulator_test_signer_browser:
 
 gcs_emulator_test_signer_public:
   <<: *gcs_emulator_test_signer
+  bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
+  public: true
+
+gcs_emulator_test_signer_public_browser:
+  <<: *gcs_emulator_test_signer_browser
   bucket: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_BUCKET", "local-public-bucket") %>
   public: true

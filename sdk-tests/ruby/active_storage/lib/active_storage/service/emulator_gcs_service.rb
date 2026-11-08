@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "active_storage/service/gcs_service"
+require "erb"
 require "uri"
 
 # An explicit local adapter: the SDK's endpoint override does not change its V4 canonical Host.
@@ -32,6 +33,13 @@ class ActiveStorage::Service::EmulatorGcsService < ActiveStorage::Service::GCSSe
       signing_file(key).signed_url(**signing_options, version: :v4, method: "GET", expires: expires_in,
         query: {"response-content-disposition" => content_disposition_with(type: disposition, filename: filename),
                 "response-content-type" => content_type})
+    end
+
+    # The SDK names storage.googleapis.com in every public URL whatever the endpoint is; a public
+    # bucket serves the same path on the final origin.
+    def public_url(key, **)
+      path = key.split("/", -1).map { |segment| ERB::Util.url_encode(segment) }.join("/")
+      "#{@public_endpoint.to_s.delete_suffix('/')}/#{bucket.name}/#{path}"
     end
 
     def signing_file(key)
