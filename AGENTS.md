@@ -62,6 +62,17 @@ Run `cargo xtask lint` (also run by `just check` and CI) before pushing; any new
 - Flush a `tokio::fs::File` before `sync_all()` or `sync_data()`. tokio finishes the last write in the background and the sync does not report its error, so a failed tail write would publish a short file as durable.
 - Test each changed durable write path for a failed write and a failed flush or sync, and each new publish, rename or fsync step for a crash and a `Fault::PowerLoss` snapshot followed by restart and recovery, through the seam in `src/storage/catalog/fault.rs` (`objects::make_durable`, `objects::sync_dir`). Ordinary tests never hit these failures; the failed-tail-write bug surfaced only through a flaky test. A `Fault::Snapshot` crash keeps unsynced bytes like a process abort, so only a power-loss snapshot makes a missing fsync fail. The model covers only seamed steps: renames, unlinks and new-file entries made outside the seam (such as the restore-to-staging renames in recovery) are not modeled, and a truncation counts only where it calls `fault::truncated`.
 
+## Idiomatic Rust
+
+Write the code an experienced Rust engineer would approve in review, following the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/). Passing Clippy is the minimum: it catches few of the rules below, so reread new code against them before finishing. Follow the surrounding module's conventions except where they break a rule here, because imitation is how a weak pattern spreads. Each rule states why.
+
+- Encode invariants in types: parse input once at the boundary into enums and newtypes, with `FromStr` or `TryFrom`, rather than passing `String`s, sentinel values or `Option`s that must be set together. A state the type cannot represent needs no runtime check and no test.
+- Borrow by default: accept `&str`, `&[T]` and `&Path`, return owned values, and clone only where ownership is required. An owned parameter that a function only reads forces every caller to give up or copy its value.
+- Keep the success path flat with `?`, `let else` and `let` chains, and bind the value of an `if` or `match` instead of assigning a `mut` across branches. Nesting and late assignment hide which path does the work.
+- Use an iterator adapter when it names the intent (`any`, `find`, `filter_map`, `collect`), and a plain `for` over the collection when the body mutates or has side effects. Separate finding from changing: keep multi-line closures out of `for` headers, and join two collections through a lookup rather than nested loops. Both hide what the loop is for.
+- Implement standard traits (`From`, `TryFrom`, `FromStr`, `Display`, `Default`, `IntoIterator`) instead of ad-hoc conversion functions, and name methods by the guidelines' `as_`, `to_` and `into_` cost conventions, without a `get_` prefix. Callers then get the conversions for free and the name states the cost.
+- Match exhaustively, without a `_` arm, on an enum whose new variants must each be handled. The compiler then lists every site to update.
+
 ## Access and URLs
 
 - Public URL construction never changes IAM or ACL permissions. `allAuthenticatedUsers` is not anonymous public access.
