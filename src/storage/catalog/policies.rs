@@ -298,7 +298,7 @@ impl Catalog {
                     .ok_or(CatalogError::NotFound)?;
             match check_access(&transaction, &bucket, &project, &access) {
                 Ok(_) => Ok(true),
-                Err(CatalogError::Denied(_) | CatalogError::Forbidden) => Ok(false),
+                Err(error) if error.is_refusal() => Ok(false),
                 Err(error) => Err(error),
             }
         })

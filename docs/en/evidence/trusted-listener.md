@@ -101,13 +101,15 @@ env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-g
 
 Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
 v0.311.0 on macOS arm64, HTTP profile. Besides its permissive and strict servers,
-`scripts/sdk-go.sh` starts a strict server for the Go suite only with
-`--trusted-listen 127.0.0.1:0`, `--trusted-principal local-app@example.invalid`,
-`--test-signer enabled` and `--signed-host-port lenient`, and no fixed API base
-URL. Its identity file grants the principal, which has no token,
-`roles/storage.admin` on `local-project`. The runner reads the bound trusted
-address from the ready event, which must also report the principal, and passes
-it to `go test` as `GCS_MIMIC_TRUSTED_ENDPOINT`.
+`scripts/sdk-go.sh` starts a strict server for the Go suite only the way the
+[strict local recipe](../../../examples/strict-local/README.md) does: with
+`--trusted-listen 127.0.0.1:0` and `--test-signer enabled`, no identity document,
+no `--trusted-principal`, no `--signed-host-port` and no fixed API base URL.
+Requests without credentials on the trusted listener act as the built-in
+`trusted-app@gcs-mimic.invalid`, which holds `roles/storage.admin` on the default
+seed project `local-project`. The runner reads the bound trusted address from
+the ready event, which must also report no identities and that principal, and
+passes it to `go test` as `GCS_MIMIC_TRUSTED_ENDPOINT`.
 
 | Check | Result |
 | --- | --- |
@@ -120,7 +122,7 @@ to the trusted listener and passes no credentials, so the SDK adds
 `option.WithoutAuthentication`; the suite's guarded HTTP client only confines
 requests to that origin. The client creates a bucket and checks that its IAM
 policy grants nothing to `allUsers` or `allAuthenticatedUsers`, uploads an object
-whose owner is `user-local-app@example.invalid`, reads it through the SDK's
+whose owner is `user-trusted-app@gcs-mimic.invalid`, reads it through the SDK's
 default XML media reads and lists and deletes objects. A resumable upload with a
 256 KiB chunk size sends three chunks; the Location from its initiation starts
 with the trusted origin and every chunk goes to it, and the finished object's

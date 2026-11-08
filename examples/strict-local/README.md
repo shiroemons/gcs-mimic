@@ -40,7 +40,8 @@ services:
       GCS_MIMIC_AUTH_MODE: strict
       # Application servers on the Compose network use gcs:4444 without credentials.
       GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
-      # Only for signed URLs: the built-in signer, whose key ships with gcs-mimic.
+      # The built-in signer, whose key ships with gcs-mimic: needed for signed URLs and by
+      # Rails or any client using `test-signer credentials`. Remove it only if nothing does.
       GCS_MIMIC_TEST_SIGNER: enabled
       GCS_MIMIC_BUCKETS: |
         {"version": 1, "project": "local-project", "buckets": [
@@ -93,7 +94,7 @@ Set `FRONTEND_PORT` when your frontend does not run on port 3000, and `GCS_MIMIC
 | `GCS_MIMIC_SCHEME: http` | Plain HTTP, as fake-gcs-server serves it; no client needs a CA. |
 | `GCS_MIMIC_AUTH_MODE: strict` | Every request is authorized by IAM and ACLs. A request without credentials is anonymous and gets only `allUsers` grants. |
 | `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444` | A second, plain HTTP listener for your servers on the Compose network, where a request without credentials acts as the built-in identity `trusted-app@gcs-mimic.invalid`. It binds every interface inside the container so that other containers reach it; leaving it out of `ports:` keeps it off your machine's network. |
-| `GCS_MIMIC_TEST_SIGNER: enabled` | Only for signed URLs: turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key ships with gcs-mimic, so nothing has to generate or register a key. Remove the line if your application signs no URLs. |
+| `GCS_MIMIC_TEST_SIGNER: enabled` | Turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key ships with gcs-mimic, so nothing has to generate or register a key. Signed URLs need it, and so do Rails and any other client that uses the key from `test-signer credentials`: they sign their own token with it, and the server knows that key only while the signer is enabled. Remove the line only when nothing signs URLs or uses those credentials. |
 | `GCS_MIMIC_BUCKETS` | Creates the buckets at startup with their policy and CORS rules. Compose fills in `${FRONTEND_PORT:-3000}` before the server reads the JSON, so write a literal `$` as `$$`. |
 | `ports` | Publishes only the main listener, and only on loopback. |
 | `gcs-data` volume | Keeps buckets and objects across `docker compose down` and `up`. |
@@ -250,7 +251,7 @@ The JSON is part of the service's environment, so a changed value makes Compose 
 | The browser reports a CORS error | The page's origin is not `http://localhost:${FRONTEND_PORT:-3000}`, or the request sets a header the bucket's `responseHeader` does not list | Set `FRONTEND_PORT` or list the header, then run `docker compose up -d`. |
 | Rails in a container: images do not load and direct uploads fail with `Error storing ... Status: 0` | Rails handed the browser URLs on a name only containers resolve, such as `gcs` | Use the [container variant](#rails-in-a-container). |
 | Compose reports `invalid interpolation format` for `GCS_MIMIC_BUCKETS` | The JSON holds a literal `$` | Write it as `$$`. |
-| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. |
+| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. Until one is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`. |
 
 ## What is verified
 

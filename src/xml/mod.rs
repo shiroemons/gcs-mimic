@@ -101,7 +101,7 @@ fn unknown_signer(lookup: crate::auth::signature::KeyLookup, key: &str) -> Error
             format!("The {key} or its registered identity is unknown or inactive.")
         }
         KeyLookup::PermissiveKeys => format!(
-            "The {key} is unknown or inactive. With signed_urls=verify, keys come from identity file public_keys, HMAC keys created through the JSON API and the built-in test signer."
+            "The {key} is unknown or inactive. With signed_urls=verify, keys come from the public_keys of the identity document (identity_file or identities), HMAC keys created through the JSON API and the built-in test signer."
         ),
         KeyLookup::DisabledTestSigner => format!(
             "{} is the built-in test signer, which is disabled; set test_signer=enabled.",

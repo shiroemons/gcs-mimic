@@ -114,19 +114,27 @@ a permissive server for `GCS_MIMIC_ENDPOINT`, a strict server
 suite only. For each server it checks the bound port in the ready
 JSON log (the strict servers must also report `"auth_mode":"strict"`), probes
 `/_internal/ready`, then runs vet and uncached verbose tests. The server must
-support `serve --listen IP:PORT --data-dir PATH` and the strict options. A trap
+support `serve --listen IP:PORT --data-dir PATH` and the strict options. Flags
+configure every server: each starts without the exported `GCS_MIMIC_*` and
+`FAKE_GCS_*` variables and `PUBSUB_EMULATOR_HOST` (`scripts/server-env.sh`), so
+settings exported for another setup, such as the strict local recipe, do not
+reach it. A trap
 stops every server, propagates a server failure status, reports every failure log
 and deletes only this run's temporary directory.
 
-The local-development server runs `--test-signer enabled`,
-`--signed-host-port lenient` and `--trusted-listen 127.0.0.1:0` with
-`--trusted-principal local-app@example.invalid`, and has no fixed API base URL, so
-links follow each request's Host. Its identity file grants that application
-identity `roles/storage.admin` and `test-signer@gcs-mimic.invalid`
-`roles/storage.objectUser` on `local-project`. The runner reads the trusted address
-from the ready event, which must also report the principal, the enabled signer and
-the lenient setting, and passes `GCS_MIMIC_LOCAL_STRICT_ENDPOINT` and
-`GCS_MIMIC_TRUSTED_ENDPOINT` to `go test` only; the tests skip without them:
+The local-development server starts the way the
+[strict local recipe](../../examples/strict-local/README.md) does: only
+`--test-signer enabled` and `--trusted-listen 127.0.0.1:0`, with no identity
+document, `--trusted-principal` or `--signed-host-port`, and no fixed API base
+URL, so links follow each request's Host. The built-in
+`trusted-app@gcs-mimic.invalid` then acts for requests without credentials on the
+trusted listener with `roles/storage.admin`, and `test-signer@gcs-mimic.invalid`
+holds `roles/storage.objectUser`, both on the default seed project
+`local-project`; `signed_host_port` defaults to `lenient`. The runner reads the
+trusted address from the ready event, which must also report no identities, the
+built-in principal, the enabled signer and the lenient setting, and passes
+`GCS_MIMIC_LOCAL_STRICT_ENDPOINT` and `GCS_MIMIC_TRUSTED_ENDPOINT` to `go test`
+only; the tests skip without them:
 
 - `TestBuiltInSignerURLsPassUnderLenientHostPort` signs with the key that
   `gcs-mimic test-signer credentials` prints (`GCS_MIMIC_BINARY`) and the

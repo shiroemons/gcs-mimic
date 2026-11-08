@@ -787,6 +787,14 @@ impl ObjectError {
     pub(crate) fn is_backend_failure(&self) -> bool {
         matches!(self, Self::Unavailable(_) | Self::Io(_) | Self::Corrupt(_))
     }
+
+    /// An authorization refusal of the access itself, whether or not it names a Cloud Storage
+    /// permission. A caller that turns a refusal into a hidden result tests this, so it cannot
+    /// handle one kind and let the other escape as an error. [`Self::OverwriteForbidden`] is
+    /// not one: it refuses only the replacement a publication would make.
+    pub(crate) fn is_refusal(&self) -> bool {
+        matches!(self, Self::Denied(_) | Self::Forbidden)
+    }
 }
 
 impl From<crate::bucket::CatalogError> for ObjectError {

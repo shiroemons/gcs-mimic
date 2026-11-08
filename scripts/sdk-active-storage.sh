@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source scripts/server-env.sh
 suite="$PWD/sdk-tests/ruby/active_storage"
 (cd "$suite" && BUNDLE_FROZEN=true bundle check)
 env -u RUSTUP_TOOLCHAIN cargo build --locked
@@ -33,8 +34,8 @@ trap 'exit 143' TERM
 address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
 if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
 origin="http://$address"
-env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
-  -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY \
+set_server_env
+"${server_env[@]}" \
   "$server" serve --scheme http --listen "$address" --api-base-url "$origin" \
   --auth-mode permissive --data-dir "$work/data" \
   --buckets-file "$suite/buckets.json" >"$work/server.log" 2>&1 &

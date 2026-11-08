@@ -92,7 +92,7 @@ the ready event reports it as `api_base_url`. The checked-in Compose files pass
 | Goal | Setup | Settings |
 | --- | --- | --- |
 | Behave like fake-gcs-server: every request is allowed, no signature is checked and browsers read every bucket | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
-| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs or, like Rails, uses the `test-signer credentials` key |
 | Only while strict mode is not possible yet: check signed URLs, allow everything else | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify` |
 
 Start with the default. For production-like checks, use strict mode with the

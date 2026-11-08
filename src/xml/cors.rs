@@ -27,7 +27,9 @@ impl CorsWarnings {
 }
 
 /// Browsers only report a generic CORS failure, so the server log is the one place that can say
-/// a migrated fake-gcs-server caller now needs the fallback or bucket rules.
+/// the bucket needs CORS rules. The rules come first because Cloud Storage needs them too, and
+/// strict mode, the production-like setup, is where this mostly fires; the fallback is only the
+/// fake-gcs-server shortcut that hides the refusal.
 pub(crate) fn warn_unconfigured_cors(
     state: &crate::server::State,
     bucket: &str,
@@ -43,7 +45,7 @@ pub(crate) fn warn_unconfigured_cors(
             "cors_unconfigured",
             serde_json::json!({
                 "bucket": bucket,
-                "message": "XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field",
+                "message": "XML/public browser request reached a bucket without CORS rules and got no CORS headers, as on Cloud Storage; configure the bucket cors field. GCS_MIMIC_CORS_FALLBACK=allow-all allows every origin as fake-gcs-server does, but hides what Cloud Storage would refuse",
             }),
         );
     }

@@ -18,13 +18,15 @@ import (
 	"cloud.google.com/go/storage"
 )
 
-// scripts/sdk-go.sh starts a third server for local development: strict mode with the built-in
-// test signer, signed_host_port=lenient and a trusted listener whose requests without credentials
-// act as localAppPrincipal. Its identity file grants that identity roles/storage.admin and the test
-// signer roles/storage.objectUser on strictProject.
+// scripts/sdk-go.sh starts a third server for local development the way the strict local recipe
+// does: strict mode with the built-in test signer and a trusted listener, and no identity document,
+// trusted principal or host port setting. Requests without credentials on the trusted listener act
+// as the built-in trustedAppPrincipal, which holds roles/storage.admin on the default seed project,
+// strictProject, where the test signer holds roles/storage.objectUser. With the test signer enabled,
+// signed_host_port defaults to lenient.
 const (
-	localAppPrincipal = "local-app@example.invalid"
-	testSignerID      = "test-signer@gcs-mimic.invalid"
+	trustedAppPrincipal = "trusted-app@gcs-mimic.invalid"
+	testSignerID        = "test-signer@gcs-mimic.invalid"
 )
 
 // trustedSetup is a bucket that a client without credentials created through the trusted listener,
@@ -42,7 +44,7 @@ func newTrustedSetup(t *testing.T, label string) trustedSetup {
 	t.Helper()
 	rawMain, rawTrusted := os.Getenv("GCS_MIMIC_LOCAL_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_TRUSTED_ENDPOINT")
 	if rawMain == "" || rawTrusted == "" {
-		t.Skip("GCS_MIMIC_LOCAL_STRICT_ENDPOINT or GCS_MIMIC_TRUSTED_ENDPOINT is unset; scripts/sdk-go.sh starts a strict server with the test signer, signed_host_port=lenient and a trusted listener")
+		t.Skip("GCS_MIMIC_LOCAL_STRICT_ENDPOINT or GCS_MIMIC_TRUSTED_ENDPOINT is unset; scripts/sdk-go.sh starts a strict server with the test signer and a trusted listener, as the strict local recipe does")
 	}
 	mainURL, err := emulatorEndpoint(rawMain, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
 	if err != nil {
@@ -103,9 +105,9 @@ func requestStatus(t *testing.T, ctx context.Context, client *http.Client, metho
 	return data
 }
 
-// SPEC-GO-SIGNER-PORT: the pinned SDK drops the explicit port from the Host it signs. Under
-// signed_host_port=lenient its unmodified URLs for host:port pass; every other signed part stays
-// bound.
+// SPEC-GO-SIGNER-PORT: the pinned SDK drops the explicit port from the Host it signs. Under the
+// signed_host_port=lenient default that the enabled test signer brings, its unmodified URLs for
+// host:port pass; every other signed part stays bound.
 func TestBuiltInSignerURLsPassUnderLenientHostPort(t *testing.T) {
 	setup := newTrustedSetup(t, "signed")
 	signer, key := testSignerKey(t)
@@ -197,7 +199,7 @@ func TestTrustedListenerServesTheEmulatorHostClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
-	if written.Owner != "user-"+localAppPrincipal {
+	if written.Owner != "user-"+trustedAppPrincipal {
 		t.Fatalf("owner %q, want the trusted principal", written.Owner)
 	}
 	// The client keeps the SDK's default XML media reads.
@@ -238,7 +240,7 @@ func TestTrustedListenerServesTheEmulatorHostClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attrs.Owner != "user-"+localAppPrincipal || attrs.Size != int64(len(large)) || attrs.Generation != writer.Attrs().Generation {
+	if attrs.Owner != "user-"+trustedAppPrincipal || attrs.Size != int64(len(large)) || attrs.Generation != writer.Attrs().Generation {
 		t.Fatalf("resumable object: owner %q, size %d, generation %d", attrs.Owner, attrs.Size, attrs.Generation)
 	}
 	readObject(t, ctx, bucket.Object(resumable.ObjectName()), large, attrs.Generation)

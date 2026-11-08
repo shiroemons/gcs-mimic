@@ -143,9 +143,11 @@ SPEC-GO-SIGNER-PORT. No container, browser or real-cloud run was performed.
 | `bash scripts/sdk-active-storage.sh` | Unchanged: scenario 1 PASS, 6 PASS_WITH_WORKAROUND and the known AS-DEFAULT-AUTH FAIL (exit 1, as documented); attachments 11 PASS, 0 FAIL; production check PASS |
 
 Go 1.27.3 / storage v1.70.0 / API v0.311.0. `scripts/sdk-go.sh` starts a third
-strict server for the Go suite with `--test-signer enabled` and
-`--signed-host-port lenient`; its identity file grants
-`test-signer@gcs-mimic.invalid` `roles/storage.objectUser` on `local-project`.
+strict server for the Go suite the way the strict local recipe does, with
+`--test-signer enabled` and a trusted listener but no identity document and no
+`--signed-host-port`. Undeclared, the enabled `test-signer@gcs-mimic.invalid`
+holds `roles/storage.objectUser` on the default seed project `local-project`, and
+`signed_host_port` defaults to `lenient`.
 The test runs `gcs-mimic test-signer credentials` and passes its `client_email`
 and `private_key` to an unmodified `storage.SignedURL` with
 `SigningSchemeV4`, `Hostname` set to the server's `127.0.0.1:PORT` and
