@@ -147,6 +147,17 @@ impl PermissionSet {
     }
 }
 
+/// Who wrote a project role. Local administration such as sync controls requires a
+/// `roles/storage.admin` that an operator wrote in the identity document; a role gcs-mimic gives
+/// a built-in identity on its own grants the same permissions but never that authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GrantSource {
+    /// An identity document entry's `project_roles`.
+    Declared,
+    /// A built-in identity's role in the projects the setup names, absent a declared entry.
+    Implicit,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ProjectGrant {
     permissions: PermissionSet,
@@ -161,7 +172,7 @@ impl ProjectGrant {
     }
 
     /// Adds what the predefined `role` grants; `None` for a role outside the pinned snapshot.
-    fn add_role(&mut self, role: &str) -> Option<()> {
+    fn add_role(&mut self, role: &str, source: GrantSource) -> Option<()> {
         let expanded = roles::permissions(role)?;
         self.any_storage_permission |= !expanded.is_empty();
         for permission in Permission::ALL {
@@ -169,7 +180,10 @@ impl ProjectGrant {
                 self.grant(*permission);
             }
         }
-        self.explicit_storage_admin |= role == "roles/storage.admin";
+        self.explicit_storage_admin |= match source {
+            GrantSource::Declared => role == "roles/storage.admin",
+            GrantSource::Implicit => false,
+        };
         Some(())
     }
 }
@@ -466,6 +480,8 @@ impl Identity {
         &self.id
     }
 
+    /// Whether the identity document grants `roles/storage.admin` in `project`. A built-in
+    /// identity's implicit role never counts, so only an operator's grant opens sync controls.
     pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
         self.projects
             .get(project)
@@ -1079,7 +1095,7 @@ fn parse_project_roles(
             if !names.insert(role) {
                 return Err(error(format!("project {project:?}: duplicate role {role}")));
             }
-            granted.add_role(role).ok_or_else(|| {
+            granted.add_role(role, GrantSource::Declared).ok_or_else(|| {
                 error(format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))

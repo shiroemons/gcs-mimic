@@ -4,7 +4,9 @@
 //! An identity document entry with a built-in's ID replaces it, so an explicit declaration
 //! always wins over the implicit grants.
 
-use super::{Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer};
+use super::{
+    GrantSource, Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -55,7 +57,9 @@ impl BuiltIn {
         )
     }
 
-    /// The implicit grants: the role in every project, or none without a role.
+    /// The implicit grants: the role in every project, or none without a role. They carry the
+    /// role's permissions but no explicit `roles/storage.admin`, so they never open sync controls,
+    /// which the identity document alone can grant.
     fn grants(self, projects: &BTreeSet<String>) -> BTreeMap<String, ProjectGrant> {
         let Some(role) = self.role() else {
             return BTreeMap::new();
@@ -66,7 +70,9 @@ impl BuiltIn {
             .iter()
             .filter_map(|project| {
                 let mut grant = ProjectGrant::default();
-                grant.add_role(role).map(|()| (project.clone(), grant))
+                grant
+                    .add_role(role, GrantSource::Implicit)
+                    .map(|()| (project.clone(), grant))
             })
             .collect()
     }

@@ -23,6 +23,7 @@ struct Server {
     child: Child,
     stdout: BufReader<ChildStdout>,
     endpoint: String,
+    ready: Value,
 }
 
 impl Server {
@@ -87,6 +88,7 @@ impl Server {
             child,
             stdout,
             endpoint: format!("http://{}", ready["listen"].as_str().unwrap()),
+            ready,
         }
     }
 

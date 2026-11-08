@@ -88,6 +88,8 @@ cargo xtask compatibility check
 | `server::admin::guard::tests::management_guards_run_before_every_route_specific_gate` | Management keeps refusing the same browser headers through the shared check |
 | `batch_parts_and_management_follow_the_listener_of_their_request` | A batch part runs as the principal on the trusted listener (200) and anonymously on the main one (401); `PUT /_internal/config` without a token succeeds on the trusted listener only, because the principal is the administrator |
 | `server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles` | Management without a token is 401 on the public role and 200 on the trusted role whose principal is the administrator; a presented non-administrator token is 403 on both |
+| `auth::built_in::tests::only_a_declared_storage_admin_is_explicit` | A declared entry's `roles/storage.admin` is explicit in its own project; the implicit roles of the built-in application and the test signer grant their permissions but are never explicit |
+| `the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin` | With directory synchronization and no identity document, sync status, conflicts and rescan without credentials on the trusted listener get 403 as the built-in application; an entry for that identity with `roles/storage.admin` in the seed project makes them answer 200, 200 and 202; the main listener answers 401 either way |
 | `process_shutdown_reports_stopped_and_releases_catalog_for_restart` | The default ready key set is unchanged |
 | `help_output_keeps_its_exact_bytes` | The help digest pins the trusted listener option lines |
 

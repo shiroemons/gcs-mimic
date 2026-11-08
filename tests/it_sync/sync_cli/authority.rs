@@ -1,5 +1,46 @@
 use super::*;
 
+/// The trusted listener's built-in application identity holds `roles/storage.admin` only
+/// implicitly, which never opens sync controls: a request without credentials there is refused
+/// as a caller without an explicit grant is. An identity document entry for that identity that
+/// writes the role down opens them.
+#[test]
+fn the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin() {
+    let inputs = TestDir::new();
+    let registry = inputs.0.join("identities.json");
+    fs::write(&registry, br#"{"identities":[{"id":"trusted-app@gcs-mimic.invalid","tokens":[],"project_roles":{"local":["roles/storage.admin"]}}]}"#).unwrap();
+    let declared = ["--identity-file", registry.to_str().unwrap()];
+    for (identities, refused) in [(&[][..], true), (&declared[..], false)] {
+        let data = TestDir::new();
+        let tree = TestDir::new();
+        let options = [
+            &["--auth-mode", "strict", "--trusted-listen", "127.0.0.1:0"][..],
+            identities,
+        ]
+        .concat();
+        let server = Server::start_with(&data, Some(&tree), &options);
+        assert_eq!(
+            server.ready["trusted_principal"],
+            "trusted-app@gcs-mimic.invalid"
+        );
+        let trusted = server.ready["trusted_listen"].as_str().unwrap();
+        for (method, path, body, allowed) in [
+            ("GET", "/_internal/sync", &b""[..], 200),
+            ("GET", "/_internal/sync/conflicts", b"", 200),
+            ("POST", "/_internal/sync/rescan", b"{}", 202),
+        ] {
+            common::effects::request(trusted, method, path, "", body).expect_with(
+                if refused { 403 } else { allowed },
+                format_args!("{method} {path} {identities:?}"),
+            );
+        }
+        // The main listener judges the same request without credentials as anonymous.
+        server
+            .request("GET", "/_internal/sync", None, b"")
+            .expect(401);
+    }
+}
+
 #[tokio::test]
 async fn live_cli_requires_retained_original_owner_after_bucket_recreation_and_restart() {
     let data = TestDir::new();

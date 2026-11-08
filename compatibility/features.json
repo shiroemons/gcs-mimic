@@ -56151,7 +56151,7 @@
         },
         {
           "id": "DESIGN-101-BUILT-IN-APP",
-          "description": "Without trusted_principal, requests without credentials on the trusted listener act as the built-in trusted-app@gcs-mimic.invalid, distinct from local-user@gcs-mimic.invalid and the test signer. It holds roles/storage.admin in the effective seed_project and in every project the buckets document (buckets_file or buckets) names, its top-level project and each entry's: through the trusted listener it reads and writes private buckets there and creates buckets in those projects only, getting 403 elsewhere, while the same requests without credentials on the main listener answer 401; it has no token and no key, objects it writes record it as owner and ACL OWNER, and a presented credential still acts as itself. An explicit trusted_principal is used instead and the built-in identity does not exist; an identity document entry with its ID replaces the implicit grants with its own roles, tokens and ACL entity, and an alias naming it fails startup. Ready reports the effective trusted_principal.",
+          "description": "Without trusted_principal, requests without credentials on the trusted listener act as the built-in trusted-app@gcs-mimic.invalid, distinct from local-user@gcs-mimic.invalid and the test signer. It holds roles/storage.admin in the effective seed_project and in every project the buckets document (buckets_file or buckets) names, its top-level project and each entry's: through the trusted listener it reads and writes private buckets there and creates buckets in those projects only, getting 403 elsewhere, while the same requests without credentials on the main listener answer 401; it has no token and no key, objects it writes record it as owner and ACL OWNER, and a presented credential still acts as itself. An explicit trusted_principal is used instead and the built-in identity does not exist; an identity document entry with its ID replaces the implicit grants with its own roles, tokens and ACL entity, and an alias naming it fails startup. Ready reports the effective trusted_principal. The implicit role, like the test signer's, is never the explicit roles/storage.admin that directory synchronization controls require: without credentials on the trusted listener they answer 403, as for any caller without that grant, until an identity document entry for trusted-app@gcs-mimic.invalid writes the role.",
           "result": "PASS",
           "test_ids": [
             "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
@@ -56160,7 +56160,9 @@
             "auth::built_in::tests::every_implicit_role_is_in_the_pinned_snapshot",
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
-            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
+            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+            "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
+            "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin"
           ]
         },
         {
@@ -56268,6 +56270,8 @@
         "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
         "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
         "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
+        "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+        "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin",
         "strict_mode_starts_without_identities_for_the_built_in_app",
         "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
         "config::auth::tests::strict_mode_starts_without_identities_only_for_a_requested_built_in",
@@ -56326,6 +56330,16 @@
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
             "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib auth::; cargo test --locked --test it_sync",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "auth::built_in::tests::only_a_declared_storage_admin_is_explicit",
+            "the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin"
           ]
         },
         {
