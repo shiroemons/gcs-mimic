@@ -558,10 +558,7 @@ impl Admin {
         &self,
         records: Vec<BucketDefinition>,
     ) -> Result<Vec<EnsureBucket>, AdminError> {
-        let mut names = std::collections::HashSet::new();
-        if records.iter().any(|record| !names.insert(&record.0.name)) {
-            return Err(AdminError::Invalid("duplicate bucket name".into()));
-        }
+        require_unique_names(records.iter().map(|record| record.0.name.as_str()))?;
         let origin = self.origin();
         let grant = self.grant.clone();
         let default_retention = self.catalog.default_soft_delete_retention();
@@ -569,42 +566,18 @@ impl Admin {
             .run_admin(move |connection| {
                 let transaction = sql::immediate(connection)?;
                 grant.authorize(&transaction)?;
+                let mut existing = existing_buckets(
+                    &transaction,
+                    records.iter().map(|record| record.0.name.as_str()),
+                )?;
                 let mut results = Vec::with_capacity(records.len());
-                // The names are bound as one JSON array so the statement text stays static.
-                let names = serde_json::to_string(
-                    &records
-                        .iter()
-                        .map(|record| record.0.name.as_str())
-                        .collect::<Vec<_>>(),
-                )
-                .map_err(unavailable)?;
-                let mut lookup = transaction.prepare_cached(concat!(
-                    "SELECT ",
-                    super::bucket_columns!(),
-                    " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
-                ))?;
-                let mut existing = lookup
-                    .query_map([names], read_bucket)?
-                    .map(|record| record.map(|record| (record.name.clone(), record)))
-                    .collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()?;
-                drop(lookup);
                 for BucketDefinition(mut record) in records {
                     if let Some(existing) = existing.remove(&record.name) {
                         results.push(EnsureBucket::Existing(existing));
                         continue;
                     }
-                    super::insert_bucket_in_transaction(
-                        &transaction,
-                        &mut record,
-                        default_retention,
-                    )?;
-                    super::change_journal::append(
-                        &transaction,
-                        origin,
-                        super::change_journal::ChangeKind::BucketCreate,
-                        &record.name,
-                        None,
-                    )?;
+                    let creation = super::BucketCreation::default_policy(origin, default_retention);
+                    super::create_bucket_in_transaction(&transaction, &mut record, creation)?;
                     results.push(EnsureBucket::Created(record));
                 }
                 transaction.commit()?;
@@ -914,4 +887,34 @@ impl Admin {
         self.catalog.reclaim_after_commit().await;
         Ok(())
     }
+}
+
+const SELECT_EXISTING: &str = concat!(
+    "SELECT ",
+    super::bucket_columns!(),
+    " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
+);
+
+/// Refuses a batch that names one bucket twice: each name is created or found once.
+fn require_unique_names<'a>(mut names: impl Iterator<Item = &'a str>) -> Result<(), AdminError> {
+    let mut seen = std::collections::HashSet::new();
+    if names.any(|name| !seen.insert(name)) {
+        return Err(AdminError::Invalid("duplicate bucket name".into()));
+    }
+    Ok(())
+}
+
+/// The stored buckets among `names`, read with one statement for the whole batch.
+fn existing_buckets<'a>(
+    transaction: &rusqlite::Transaction<'_>,
+    names: impl Iterator<Item = &'a str>,
+) -> Result<std::collections::HashMap<String, BucketRecord>, CatalogError> {
+    // The names are bound as one JSON array so the statement text stays static.
+    let names = serde_json::to_string(&names.collect::<Vec<_>>()).map_err(unavailable)?;
+    transaction
+        .prepare_cached(SELECT_EXISTING)?
+        .query_map([names], read_bucket)?
+        .map(|record| record.map(|record| (record.name.clone(), record)))
+        .collect::<rusqlite::Result<_>>()
+        .map_err(CatalogError::from)
 }

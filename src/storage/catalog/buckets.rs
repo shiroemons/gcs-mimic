@@ -40,14 +40,8 @@ impl Catalog {
         self.run(move |connection| {
             validate_cors(&record.cors)?;
             let transaction = sql::immediate(connection)?;
-            insert_bucket_in_transaction(&transaction, &mut record, default_retention)?;
-            change_journal::append(
-                &transaction,
-                admin::Origin::Api,
-                change_journal::ChangeKind::BucketCreate,
-                &record.name,
-                None,
-            )?;
+            let creation = BucketCreation::default_policy(admin::Origin::Api, default_retention);
+            create_bucket_in_transaction(&transaction, &mut record, creation)?;
             transaction.commit()?;
             Ok(record)
         })
@@ -168,6 +162,67 @@ impl Catalog {
 /// its creation time (documented in docs/en/slices/bucket-soft-delete-restore.md).
 const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
 
+/// How a creation stores a new bucket.
+#[derive(Clone, Copy)]
+pub(super) struct BucketCreation<'a> {
+    /// The origin the creation's journal entry names.
+    pub(super) origin: admin::Origin,
+    pub(super) default_retention: Option<NonZeroU64>,
+    /// Replaces the owning project's default policy, as a policy write would; `None` keeps the
+    /// default.
+    pub(super) policy: Option<&'a Policy>,
+    pub(super) principals: Option<&'a principals::Profile>,
+}
+
+impl BucketCreation<'_> {
+    pub(super) fn default_policy(
+        origin: admin::Origin,
+        default_retention: Option<NonZeroU64>,
+    ) -> Self {
+        Self {
+            origin,
+            default_retention,
+            policy: None,
+            principals: None,
+        }
+    }
+}
+
+/// Inserts a missing bucket, derives its ACL from a policy other than the default one, and
+/// journals the creation; the caller commits.
+pub(super) fn create_bucket_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &mut BucketRecord,
+    creation: BucketCreation<'_>,
+) -> Result<(), CatalogError> {
+    let BucketCreation {
+        origin,
+        default_retention,
+        policy,
+        principals,
+    } = creation;
+    match policy {
+        None => insert_bucket_in_transaction(transaction, record, default_retention)?,
+        Some(policy) => {
+            insert_bucket_with_policy(transaction, record, default_retention, policy)?;
+            if policy.names_public_principal()
+                && policies::public_access_prevention(transaction, &record.name)?
+            {
+                return Err(CatalogError::PublicAccessPrevention);
+            }
+            // As a policy write does, so the bucket ACL shows the grants the policy makes.
+            acl::replace_from_policy(transaction, &record.name, policy, principals)?;
+        }
+    }
+    change_journal::append(
+        transaction,
+        origin,
+        change_journal::ChangeKind::BucketCreate,
+        &record.name,
+        None,
+    )
+}
+
 /// Inserts a bucket with the default policy of its owning project, as an API insert does.
 pub(super) fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
@@ -178,9 +233,8 @@ pub(super) fn insert_bucket_in_transaction(
     insert_bucket_with_policy(transaction, record, default_soft_delete_retention, &policy)
 }
 
-/// Inserts a bucket that starts with `policy` instead of the default one. The caller derives the
-/// bucket ACL from a policy other than the default before the transaction commits.
-pub(super) fn insert_bucket_with_policy(
+/// Inserts a bucket that starts with `policy` instead of the default one.
+fn insert_bucket_with_policy(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
     default_soft_delete_retention: Option<NonZeroU64>,

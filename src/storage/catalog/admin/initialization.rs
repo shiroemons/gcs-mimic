@@ -12,19 +12,19 @@ use crate::{
     bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
     clock::Clock,
     storage::catalog::{
-        acl, bucket_columns,
+        BucketCreation,
         bucket_update::{self, BucketChange, BucketWrite},
-        change_journal, insert_bucket_with_policy,
+        change_journal, create_bucket_in_transaction,
         policies::{self, Metageneration, PolicyWrite},
         principals::Profile,
-        read_bucket, sql, unavailable, unix_micros,
+        sql, unavailable, unix_micros,
     },
 };
 use rusqlite::{
     OptionalExtension, Transaction, params,
     types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
 };
-use std::{collections::HashMap, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 #[cfg(test)]
 mod tests;
@@ -42,11 +42,6 @@ pub(in crate::storage::catalog) const SCHEMA: &str = "CREATE TABLE bucket_file_e
 ) WITHOUT ROWID;
 PRAGMA user_version = 52;";
 
-const SELECT_EXISTING: &str = concat!(
-    "SELECT ",
-    bucket_columns!(),
-    " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
-);
 const PARENT_PREVENTS_PUBLIC_ACCESS: &str =
     "SELECT EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = ?1)";
 const SELECT_ENTRY: &str = "SELECT digest, members FROM bucket_file_entries WHERE bucket = ?1";
@@ -193,10 +188,7 @@ impl Admin {
         T: Send + 'static,
         E: From<AdminError> + Send + 'static,
     {
-        let mut names = std::collections::HashSet::new();
-        if targets.iter().any(|target| !names.insert(&target.name)) {
-            return Err(AdminError::Invalid("duplicate bucket name".into()).into());
-        }
+        super::require_unique_names(targets.iter().map(|target| target.name.as_str()))?;
         let grant = self.grant.clone();
         let clock = self.catalog.0.clock.clone();
         let default_retention = self.catalog.default_soft_delete_retention();
@@ -233,19 +225,10 @@ fn observe(
     targets: &[InitTarget],
 ) -> Result<Vec<Observed>, CatalogError> {
     grant.authorize(transaction)?;
-    // The names are bound as one JSON array so the statement text stays static.
-    let names = serde_json::to_string(
-        &targets
-            .iter()
-            .map(|target| target.name.as_str())
-            .collect::<Vec<_>>(),
-    )
-    .map_err(unavailable)?;
-    let mut existing = transaction
-        .prepare_cached(SELECT_EXISTING)?
-        .query_map([names], read_bucket)?
-        .map(|record| record.map(|record| (record.name.clone(), record)))
-        .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+    let mut existing = super::existing_buckets(
+        transaction,
+        targets.iter().map(|target| target.name.as_str()),
+    )?;
     targets
         .iter()
         .map(|target| {
@@ -370,37 +353,15 @@ impl Apply<'_> {
         if record.name != target.name {
             return Err(unavailable("initialization plan names another bucket"));
         }
-        let default_policy;
-        let stored = match &policy {
-            Some(policy) => policy,
-            None => {
-                default_policy = Policy::default_for(&record.project);
-                &default_policy
-            }
+        // The plan has already refused a public policy under public access prevention; the
+        // creation keeps the catalog's own rule as well.
+        let creation = BucketCreation {
+            origin: change_journal::origin(&self.access),
+            default_retention: self.default_retention,
+            policy: policy.as_ref(),
+            principals: self.principals,
         };
-        insert_bucket_with_policy(
-            self.transaction,
-            &mut record,
-            self.default_retention,
-            stored,
-        )?;
-        if let Some(policy) = &policy {
-            // The plan has already refused such a policy; this keeps the catalog's own rule.
-            if policy.names_public_principal()
-                && policies::public_access_prevention(self.transaction, &record.name)?
-            {
-                return Err(CatalogError::PublicAccessPrevention);
-            }
-            // As a policy write does, so the bucket ACL shows the grants the policy makes.
-            acl::replace_from_policy(self.transaction, &record.name, policy, self.principals)?;
-        }
-        change_journal::append(
-            self.transaction,
-            change_journal::origin(&self.access),
-            change_journal::ChangeKind::BucketCreate,
-            &record.name,
-            None,
-        )?;
+        create_bucket_in_transaction(self.transaction, &mut record, creation)?;
         self.record(&record.name, entry)
     }
 }

@@ -8,7 +8,7 @@ use crate::{
     bucket::BucketRecord,
     storage::{
         admin::{AdminError, BucketDefinition, BucketName, Origin},
-        catalog::{change_journal, insert_bucket_in_transaction, unavailable},
+        catalog::{BucketCreation, create_bucket_in_transaction, unavailable},
     },
 };
 use rusqlite::{OptionalExtension, params};
@@ -54,8 +54,7 @@ impl RootLease {
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
                 // A bucket mirroring a working tree keeps no deletion history on disk.
-                insert_bucket_in_transaction(&tx, record, None)?;
-                change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
+                create_bucket_in_transaction(&tx, record, BucketCreation::default_policy(Origin::SyncIngest, None))?;
                 incarnation = Some(bucket_incarnation(&tx, &name)?);
             }
             sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation])?;
