@@ -55910,7 +55910,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none (default) or allow-all in both profiles. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it first and to set allow-all only for XML/public browser reads. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets). The ready event reports cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
+      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none or allow-all in both profiles; the default is allow-all in permissive mode, as fake-gcs-server allows every origin and a permissive user wants browser access without configuration, and none in strict mode, as Cloud Storage has no fallback, and an explicit value wins. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it first and to set allow-all only for XML/public browser reads. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets); where the permissive default allow-all is what allowed such a request, one info cors_fallback_default note says that Cloud Storage would refuse it, sharing that bounded memory, and an explicit allow-all logs nothing. The ready event reports the effective cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052"
@@ -55920,13 +55920,22 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-100-CONFIG",
-          "description": "Default none; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice starts with removal and names allow-all only for XML/public browser reads, without echoing the list.",
+          "description": "Default allow-all in permissive mode and none in strict mode, an explicit value winning in both; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice starts with removal and names allow-all only for XML/public browser reads, without echoing the list.",
           "result": "PASS",
           "test_ids": [
-            "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+            "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
             "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses"
+          ]
+        },
+        {
+          "id": "DESIGN-100-DEFAULT",
+          "description": "Without the setting, a permissive server reports cors_fallback allow-all and answers a cross-origin XML GET of a bucket without rules with Allow-Origin *, logging one info cors_fallback_default note for that bucket that says Cloud Storage refuses it, and no cors_unconfigured warning; a bucket with stored rules keeps its exact allow and deny behavior. A strict server reports none, sends no CORS field for the same request and warns cors_unconfigured without the note. An explicit allow-all logs neither.",
+          "result": "PASS",
+          "test_ids": [
+            "the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows",
+            "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json"
           ]
         },
         {
@@ -55958,7 +55967,8 @@
         }
       ],
       "test_ids": [
-        "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+        "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
+        "the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows",
         "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "api_origin_ready_and_resumable_locations_use_bound_addresses",
@@ -55976,7 +55986,7 @@
           "verified_at": "2026-10-29",
           "artifact": "docs/en/evidence/cors-fallback.md",
           "test_ids": [
-            "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+            "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
             "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
@@ -55994,6 +56004,18 @@
           "test_ids": [
             "xml_cors_lookup_failure_does_not_precede_authentication",
             "xml_cors_lookup_failure_does_not_apply_the_allow_all_fallback"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/cors-fallback.md",
+          "test_ids": [
+            "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
+            "the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows",
+            "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
+            "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
         }
       ],

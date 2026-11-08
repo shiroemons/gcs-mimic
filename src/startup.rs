@@ -160,7 +160,7 @@ impl ReadyEvent {
                 .as_ref()
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
-            cors_fallback: config.cors_fallback.as_str(),
+            cors_fallback: config.effective_cors_fallback().fallback().as_str(),
             signed_host_port: auth.signed_host_port().as_str(),
             api_base_url,
         }

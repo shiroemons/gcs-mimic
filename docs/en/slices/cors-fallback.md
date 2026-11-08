@@ -35,12 +35,21 @@ generic CORS failure, so the server must name the fix.
 
 | CLI | Environment | JSON config | Values |
 | --- | --- | --- | --- |
-| `--cors-fallback MODE` | `GCS_MIMIC_CORS_FALLBACK=MODE` | `"cors_fallback": "MODE"` | `none` (default) or `allow-all` |
+| `--cors-fallback MODE` | `GCS_MIMIC_CORS_FALLBACK=MODE` | `"cors_fallback": "MODE"` | `none` or `allow-all`; the default depends on `auth_mode` |
 
 The setting chooses what XML/public CORS does for a bucket without stored
-rules. It works in both `native` and `legacy-emulator` profiles, and the ready
-event reports `cors_fallback`. Like every native option it takes a value; a
-bare `--cors-fallback` fails with `--cors-fallback allow-all` as its example.
+rules. The default follows the authentication mode:
+
+| `auth_mode` | Default | Why |
+| --- | --- | --- |
+| `permissive` | `allow-all` | fake-gcs-server allows every origin, and a permissive user wants browser access without configuration; CORS never grants access |
+| `strict` | `none` | Cloud Storage has no fallback, so a production-like setup still catches a bucket that lacks `cors` rules |
+
+An explicit value wins in both modes, and buckets with stored rules always
+follow their rules exactly. It works in both `native` and `legacy-emulator`
+profiles, and the ready event reports the effective `cors_fallback`. Like every
+native option it takes a value; a bare `--cors-fallback` fails with
+`--cors-fallback allow-all` as its example.
 
 Server-wide CORS rules are deliberately not configurable. Production buckets
 need their own `cors`, so rules belong on buckets, through the JSON API or the
@@ -90,11 +99,28 @@ The process remembers at most 64 warned bucket names. Requests without Origin,
 missing buckets and buckets with rules do not warn. The warning does not change
 the response.
 
+## Default fallback note
+
+Where the permissive default `allow-all` is what allowed an XML/public request
+that carries a valid Origin to an existing bucket without rules, the process logs
+one `cors_fallback_default` note for that bucket at `info` level, because Cloud
+Storage would refuse the request without bucket `cors` rules:
+
+```json
+{"event":"cors_fallback_default","level":"info","bucket":"assets","message":"the permissive default cors_fallback=allow-all allowed an XML/public browser request to a bucket without CORS rules, which Cloud Storage refuses; configure the bucket cors field, or set cors_fallback explicitly"}
+```
+
+It shares the 64-bucket memory of the warning above; the effective fallback is
+fixed for a process, so only one of the two is ever logged. An explicit
+`allow-all` logs nothing, as before, and neither does a request the fallback did
+not allow, such as one with an unsupported method.
+
 ## Acceptance
 
 | Case | Tests |
 | --- | --- |
-| Configuration values, precedence, both profiles and bare-flag example | `config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles` |
+| Configuration values, precedence, the default per authentication mode, explicit values in both modes, both profiles and bare-flag example | `config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles` |
+| Permissive default allowing a cross-origin XML GET on a bucket without rules with one info note, strict default refusing it, stored rules unaffected and the ready field per mode | `the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows` |
 | Legacy header-list advice starting with removal, without echoing values | `config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls` |
 | Allow-all headers, stored-rule precedence and denials | `xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules` |
 | Bounded once-per-bucket warning memory | `xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded` |

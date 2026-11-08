@@ -288,7 +288,9 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
         {"name":"held-bucket","defaultEventBasedHold":true}
         ]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    // Without the permissive default fallback, each bucket's own rules alone decide CORS, as
+    // on Cloud Storage.
+    let server = Server::start(selected(&dir.0).args(["--cors-fallback", "none"]));
     counts(&server, 3, 0, 0);
     let held = server.json(
         "POST",

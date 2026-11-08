@@ -26,7 +26,7 @@ pub(crate) mod multipart;
 #[cfg(test)]
 mod test_support;
 pub use cors::CorsWarnings;
-pub(crate) use cors::{cors, warn_unconfigured_cors};
+pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;

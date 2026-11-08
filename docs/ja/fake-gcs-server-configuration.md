@@ -195,7 +195,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 公開URLの生成 | `url public --base-url` | 単体ではHost照合を設定しない |
 | 仮想ホストのルート | `GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS` | 同じHost照合ではない |
 | バケットCORS | JSONバケットAPI | XML用・JSONは別の固定ルール |
-| ルールのないバケットのCORS（`-cors-headers`の代わり） | `GCS_MIMIC_CORS_FALLBACK=allow-all` | CORSルールのないバケットのXML・公開URLだけに適用。正しい形式のリクエストヘッダーはすべて許可。全体のCORSルールは設定できない |
+| ルールのないバケットのCORS（`-cors-headers`の代わり） | `GCS_MIMIC_CORS_FALLBACK`・`--cors-fallback`・JSONの`cors_fallback` | CORSルールのないバケットのXML・公開URLだけに適用。正しい形式のリクエストヘッダーはすべて許可。既定はpermissiveでは移行元と同じく全オリジンを許可する`allow-all`、strictではCloud Storageと同じく`none`で、明示した値が優先される。permissiveの既定が許可したリクエストは、Cloud Storageなら拒否されることをバケットごとに1回だけinfoで記録する。全体のCORSルールは設定できない |
 | バケットlocation | JSONバケットAPI | 公式のregional・predefined dual-region名と`US`・`EU`・`ASIA`。大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返す |
 | メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文64 MiB・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
@@ -291,6 +291,7 @@ UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のU
 後続のDESIGN-100で、CORSルールのないバケットの扱いを選ぶ`GCS_MIMIC_CORS_FALLBACK`（`none`・`allow-all`）を追加しました。
 `FAKE_GCS_CORS_HEADERS`は引き続き起動エラーとし、まず削除するよう案内します。JSON APIはもともと正しい形式のヘッダーをすべて許可するためです。
 ブラウザからCORSルールのないバケットのXML・公開URLを読む場合に限り、`GCS_MIMIC_CORS_FALLBACK=allow-all`も案内します。
+その後、permissiveでは`allow-all`が既定になり、strictでは`none`のままです。
 
 リポジトリのComposeで使う`GCS_MIMIC_PORT`はホスト側の公開ポート用です。
 サーバー自身の環境変数ではなく、バイナリへ渡しても待受設定にはなりません。

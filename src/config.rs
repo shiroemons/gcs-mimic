@@ -122,14 +122,45 @@ string_enum! {
 }
 
 string_enum! {
+    no_default
     /// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
-    /// rules, so `AllowAll` exists only as a fake-gcs-server migration aid.
+    /// rules, so `AllowAll` exists only as a local convenience and fake-gcs-server migration aid;
+    /// see [`CorsFallbackChoice::select`] for the default.
     pub enum CorsFallback {
-        #[default]
         None => "none",
         AllowAll => "allow-all",
     }
     "cors_fallback must be none or allow-all"
+}
+
+/// The effective CORS fallback and what chose it, since only a default that allows every origin
+/// is worth noting when it lets through a request that Cloud Storage would refuse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorsFallbackChoice {
+    /// The `cors_fallback` setting.
+    Explicit(CorsFallback),
+    /// The authentication mode's default.
+    Default(CorsFallback),
+}
+
+impl CorsFallbackChoice {
+    /// An explicit setting wins. Otherwise permissive mode allows every origin, as
+    /// fake-gcs-server does: its users want browser access without configuration, and CORS never
+    /// grants access. Strict mode follows Cloud Storage, which has no fallback, so a
+    /// production-like setup still catches a bucket that lacks `cors` rules.
+    pub fn select(configured: Option<CorsFallback>, mode: AuthMode) -> Self {
+        match (configured, mode) {
+            (Some(fallback), _) => Self::Explicit(fallback),
+            (None, AuthMode::Permissive) => Self::Default(CorsFallback::AllowAll),
+            (None, AuthMode::Strict) => Self::Default(CorsFallback::None),
+        }
+    }
+
+    pub fn fallback(self) -> CorsFallback {
+        match self {
+            Self::Explicit(fallback) | Self::Default(fallback) => fallback,
+        }
+    }
 }
 
 string_enum! {
@@ -285,7 +316,9 @@ pub struct Config {
     pub shutdown_timeout: TimeLimit,
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
-    pub cors_fallback: CorsFallback,
+    /// The explicit `cors_fallback` setting; [`Config::effective_cors_fallback`] applies the
+    /// authentication mode's default.
+    pub cors_fallback: Option<CorsFallback>,
     /// The explicit `signed_host_port` setting, whether V4 verification also accepts a canonical
     /// host without the request Host's port; loading applies the default, lenient wherever the
     /// built-in test signer is enabled.
@@ -373,7 +406,7 @@ impl Default for Config {
             shutdown_timeout: TimeLimit::from_millis(5_000),
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
-            cors_fallback: CorsFallback::None,
+            cors_fallback: None,
             signed_host_port: None,
             identities: None,
             test_signer: None,
@@ -388,6 +421,13 @@ impl Config {
     /// Whether signed XML requests verify, after the profile's default.
     pub fn effective_signed_urls(&self) -> SignedUrls {
         SignedUrls::resolve(self.signed_urls, self.auth_mode)
+    }
+
+    /// XML/public CORS for buckets without stored rules, after the authentication mode's
+    /// default. Derived from the final mode, so a configuration built in code agrees with one
+    /// that validation produced.
+    pub fn effective_cors_fallback(&self) -> CorsFallbackChoice {
+        CorsFallbackChoice::select(self.cors_fallback, self.auth_mode)
     }
 
     pub fn healthcheck_url(&self) -> String {
@@ -898,7 +938,7 @@ fn apply_access_setting(
         }
         Setting::AuthMode => config.auth_mode = value.parse()?,
         Setting::CompatProfile => config.compat_profile = value.parse()?,
-        Setting::CorsFallback => config.cors_fallback = value.parse()?,
+        Setting::CorsFallback => config.cors_fallback = Some(value.parse()?),
         Setting::SignedHostPort => config.signed_host_port = Some(value.parse()?),
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
         Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
@@ -2140,9 +2180,10 @@ mod tests {
     }
 
     #[test]
-    fn cors_fallback_defaults_to_none_with_precedence_in_both_profiles() {
+    fn cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles() {
         let empty = BTreeMap::new();
-        let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
+        let load =
+            |args: &[String], env| Config::load(args, env).unwrap().effective_cors_fallback();
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
@@ -2153,18 +2194,43 @@ mod tests {
             &env,
             &["--cors-fallback", "allow-all"],
             [
-                CorsFallback::None,
-                CorsFallback::AllowAll,
-                CorsFallback::None,
-                CorsFallback::AllowAll,
+                None,
+                Some(CorsFallback::AllowAll),
+                Some(CorsFallback::None),
+                Some(CorsFallback::AllowAll),
             ],
             Config::load,
             |config| config.cors_fallback,
         );
+        // Permissive mode allows every origin by default, as fake-gcs-server does; strict mode
+        // follows Cloud Storage. An explicit value wins in both.
+        let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
+        for (mode, default) in [
+            (&[][..], CorsFallback::AllowAll),
+            (&strict[..], CorsFallback::None),
+        ] {
+            assert_eq!(
+                load(mode, &empty),
+                CorsFallbackChoice::Default(default),
+                "{mode:?}"
+            );
+            for explicit in [CorsFallback::None, CorsFallback::AllowAll] {
+                let mut args = mode.to_vec();
+                args.extend(["--cors-fallback".into(), explicit.as_str().into()]);
+                assert_eq!(
+                    load(&args, &empty),
+                    CorsFallbackChoice::Explicit(explicit),
+                    "{args:?}"
+                );
+            }
+        }
         for profile in ["native", "legacy-emulator"] {
             let args =
                 ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
-            assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+            assert_eq!(
+                load(&args, &empty),
+                CorsFallbackChoice::Explicit(CorsFallback::AllowAll)
+            );
         }
         assert_rejected(
             "cors_fallback",
