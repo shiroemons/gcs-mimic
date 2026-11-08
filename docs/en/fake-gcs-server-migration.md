@@ -273,9 +273,9 @@ that fetches path-style public URLs such as `$api/assets/browser.txt` worked
 without configuration. In the default permissive profile it still does:
 `GCS_MIMIC_CORS_FALLBACK` defaults to `allow-all`, which allows any origin on the
 XML and public routes of buckets without stored rules. The first such
-cross-origin request for each bucket is logged once at info level, so you can
-see which buckets would need rules. Buckets with rules always follow them, and
-the fallback never changes authorization. Strict mode defaults to `none`, as
+cross-origin request for each bucket logs one `cors_fallback_default` event at
+info level, so you can see which buckets would need rules. Buckets with rules
+always follow them, and the fallback never changes authorization. Strict mode defaults to `none`, as
 Cloud Storage behaves: a browser fetch fails until the bucket has `cors` rules,
 which the [strict local recipe](../../examples/strict-local/README.md) writes for
 each bucket. See [CORS fallback](slices/cors-fallback.md).

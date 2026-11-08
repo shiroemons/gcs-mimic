@@ -352,9 +352,9 @@ Create another bucket with different rules, or change existing rules with
 JSON endpoints use fixed CORS defaults. CORS does not grant object permissions.
 For buckets without rules, `GCS_MIMIC_CORS_FALLBACK` defaults to `allow-all` in
 permissive mode, so any origin reads their XML and public URLs, as with
-fake-gcs-server; the server logs the first such request for each bucket at info
-level. In strict mode it defaults to `none`, so a browser needs the bucket's
-`cors` rules, as with Cloud Storage. Buckets with rules always follow them; see
+fake-gcs-server; the first such request for each bucket logs one
+`cors_fallback_default` event at info level. In strict mode it defaults to
+`none`, so a browser needs the bucket's `cors` rules, as with Cloud Storage. Buckets with rules always follow them; see
 [CORS fallback](slices/cors-fallback.md).
 
 By default the server accepts signed URLs without checking their signatures.

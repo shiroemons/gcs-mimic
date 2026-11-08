@@ -16,7 +16,7 @@ Nothing needs preparing:
 
 Rails always needs that file, even when it signs no URLs: it signs its own token with the key in its credentials.
 
-This recipe needs a gcs-mimic release newer than 0.13.0. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`. Until such a release is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
+This recipe needs a gcs-mimic release newer than 0.13.0. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`, and with `auth_mode=strict requires identity_file`. Until such a release is out, build an image from a checkout with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
 
 The [full application example](../full-stack/README.md) shows a Go API, a Rails app and a frontend connected to this service.
 
@@ -241,16 +241,16 @@ The JSON is part of the service's environment, so a changed value makes Compose 
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| 401 for a request from one of your servers | It reached the main listener (`gcs:4443`, `localhost:4443`) without credentials, where it is anonymous | Set `STORAGE_EMULATOR_HOST: gcs:4444`. |
-| 401 in the browser for an `app-private` object | The page used an unsigned URL for a private bucket; that is the production behavior | Hand the page a signed URL, or store the object in `app-public`. |
-| 403 for a server request or a signed URL in a bucket you created later | The bucket belongs to a project that `GCS_MIMIC_BUCKETS` does not name, where the built-in identities have no role | Create it in `local-project`, or name its project in an entry of `GCS_MIMIC_BUCKETS`. |
+| 401 "Anonymous caller does not have ..." for a request from one of your servers | It reached the main listener (`gcs:4443`, `localhost:4443`) without credentials, where it is anonymous | Set `STORAGE_EMULATOR_HOST: gcs:4444`. |
+| 401 "Anonymous caller does not have ..." in the browser for an `app-private` object | The page used an unsigned URL for a private bucket; that is the production behavior | Hand the page a signed URL, or store the object in `app-public`. |
+| 403 "`trusted-app@gcs-mimic.invalid` does not have ..." or "`test-signer@gcs-mimic.invalid` does not have ..." in a bucket you created later | The bucket belongs to a project that `GCS_MIMIC_BUCKETS` does not name, where the built-in identities have no role | Create it in `local-project`, or name its project in an entry of `GCS_MIMIC_BUCKETS`. |
 | 403 `SignatureDoesNotMatch` | The URL was signed for another host than the browser sends (`gcs:4444`, `127.0.0.1` instead of `localhost`), was changed after signing, or the request sends a signed header, such as `Content-Type`, with another value. Lenient forgives only a missing port | Sign for `GCS_BROWSER_HOST` and send the signed headers unchanged. |
 | 403 "The trusted listener serves the application's own servers and refuses browser-initiated requests" from port 4444 | The request carried `Origin` or `Sec-Fetch-Site`: a browser, or a server that forwards a browser's headers | Send browser requests to the published port, and drop those headers from server requests. |
 | 421 `misdirected` from port 4444 | Its Host is a dotted name, such as `host.docker.internal:4444` or a network alias like `storage.compose.internal`, which a DNS rebinding page could also use | Use `gcs:4444` or `gcs.localhost:4444`, or list the name in `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`. |
 | The browser reports a CORS error | The page's origin is not `http://localhost:${FRONTEND_PORT:-3000}`, or the request sets a header the bucket's `responseHeader` does not list | Set `FRONTEND_PORT` or list the header, then run `docker compose up -d`. |
 | Rails in a container: images do not load and direct uploads fail with `Error storing ... Status: 0` | Rails handed the browser URLs on a name only containers resolve, such as `gcs` | Use the [container variant](#rails-in-a-container). |
 | Compose reports `invalid interpolation format` for `GCS_MIMIC_BUCKETS` | The JSON holds a literal `$` | Write it as `$$`. |
-| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. |
+| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use a newer release. |
 
 ## What is verified
 

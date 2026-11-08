@@ -312,7 +312,7 @@ curl --fail -H 'Content-Type: application/json' \
 `PATCH /storage/v1/b/BUCKET`を使います。バケットCORSはXML用で、
 JSON APIは固定のCORSルールを使います。CORSを許可しても読み取り権限は増えません。
 ルールのないバケットについては、permissiveモードでは`GCS_MIMIC_CORS_FALLBACK`の既定値が`allow-all`で、fake-gcs-serverと同じくXML・公開URLをどのオリジンからでも読めます。
-サーバーは、こうしたリクエストをバケットごとに最初の1回だけinfoレベルでログに出します。
+サーバーは、こうしたリクエストをバケットごとに最初の1回だけinfoレベルの`cors_fallback_default`としてログに出します。
 strictモードでは既定値が`none`で、Cloud Storageと同じく、ブラウザーにはバケットの`cors`ルールが必要です。
 ルールのあるバケットは、常にそのルールに従います（[CORSフォールバックの仕様](../en/slices/cors-fallback.md)、英語）。
 

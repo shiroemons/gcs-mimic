@@ -240,7 +240,7 @@ fake-gcs-serverはすべてのルートに同じワイルドカードのCORSを�
 `$api/assets/browser.txt`のようなpath-styleの公開URLを設定なしでfetchできました。
 既定のpermissiveプロファイルでは、gcs-mimicでもそのままfetchできます。
 `GCS_MIMIC_CORS_FALLBACK`の既定値が`allow-all`で、CORSルールを保存していないバケットのXML・公開URLではどのオリジンも許可するからです。
-こうした別オリジンのリクエストは、バケットごとに最初の1回だけinfoレベルでログに出すので、ルールが必要になるバケットを確認できます。
+こうした別オリジンのリクエストは、バケットごとに最初の1回だけinfoレベルの`cors_fallback_default`としてログに出すので、ルールが必要になるバケットを確認できます。
 ルールのあるバケットは常にそのルールに従い、フォールバックで権限は変わりません。
 strictモードの既定値はCloud Storageと同じ`none`で、バケットに`cors`を設定するまでfetchはCORSエラーになります。
 [strict localレシピ](../../examples/strict-local/README.md)（英語）は、バケットごとにこのルールを書いています。
