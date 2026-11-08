@@ -230,6 +230,7 @@ const CASCADED: &[&str] = &[
     "acl_object_entries",
     "bucket_notifications",
     "bucket_notification_ids",
+    "bucket_file_entries",
 ];
 
 fn reclaim(connection: &mut Connection, data_dir: &Path) -> Result<(), CatalogError> {

@@ -29,6 +29,9 @@ use std::{
 
 mod plan;
 mod policy;
+mod written;
+
+use written::{Member, Written};
 
 /// Leaves room beside one entry of the largest size, which a smaller file limit would refuse first.
 pub(crate) const FILE_LIMIT: usize = 2 * ENTRY_LIMIT;
@@ -572,6 +575,50 @@ struct Entry {
     iam_policy: Option<policy::IamPolicy>,
 }
 
+impl Entry {
+    /// The members this entry sets. A null member sets nothing, and neither does an empty
+    /// location, which selects the default one, nor a nested object without its setting.
+    fn written(&self) -> Written {
+        [
+            (
+                Member::Location,
+                self.location
+                    .as_deref()
+                    .is_some_and(|location| !location.is_empty()),
+            ),
+            (Member::StorageClass, self.storage_class.is_some()),
+            (Member::Labels, self.labels.is_some()),
+            (Member::Cors, self.cors.is_some()),
+            (
+                Member::Versioning,
+                self.versioning
+                    .as_ref()
+                    .is_some_and(|versioning| versioning.enabled.is_some()),
+            ),
+            (
+                Member::DefaultEventBasedHold,
+                self.default_event_based_hold.is_some(),
+            ),
+            (
+                Member::PublicAccessPrevention,
+                self.iam_configuration
+                    .as_ref()
+                    .is_some_and(|iam| iam.public_access_prevention.is_some()),
+            ),
+            (
+                Member::SoftDeletePolicy,
+                self.soft_delete_policy
+                    .as_ref()
+                    .is_some_and(|policy| policy.retention_duration_seconds.is_some()),
+            ),
+            (Member::IamPolicy, self.iam_policy.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(member, written)| written.then_some(member))
+        .collect()
+    }
+}
+
 /// Only the writable field: `effectiveTime` is output-only and has no meaning in a definition.
 /// The value stays untyped so the JSON API parser applies the same validation as an insert.
 #[derive(Deserialize, Serialize)]
@@ -1102,14 +1149,18 @@ pub enum InitOutcome {
         created: usize,
         existing: usize,
         project_mismatches: usize,
+        /// Existing buckets whose entry changed since it was recorded and that still differ.
+        unapplied: usize,
     },
 }
 
-/// One validated entry: the bucket an insert would create and the policy it starts with.
+/// One validated entry: the bucket an insert would create, the policy it starts with, and the
+/// members the entry writes.
 #[derive(Debug)]
 pub(crate) struct InitEntry {
     pub(crate) record: BucketRecord,
     pub(crate) policy: Option<Policy>,
+    pub(crate) written: Written,
 }
 
 /// Validate once, then publish missing buckets through local administrative authority.
@@ -1449,6 +1500,7 @@ fn records(
                 "Invalid initializer schema; use version 1 with native bucket resources.",
             )
         })?;
+        let written = entry.written();
         let policy = entry
             .iam_policy
             .take()
@@ -1476,7 +1528,11 @@ fn records(
             CompatProfile::Native,
             default_location,
         ) {
-            Ok(record) => records.push(InitEntry { record, policy }),
+            Ok(record) => records.push(InitEntry {
+                record,
+                policy,
+                written,
+            }),
             Err(_) => error(
                 &mut diagnostics,
                 Reason::Native,
@@ -2522,6 +2578,83 @@ mod tests {
         assert_eq!(entries[2].policy, None);
         // The policy is not a bucket resource member, so it does not reach the record.
         assert_eq!(entries[0].record.name, "public-bucket");
+    }
+
+    #[test]
+    fn entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled() {
+        let digest = |entry: Value, project: Option<&str>| {
+            let mut document = json!({"version":1,"buckets":[entry]});
+            if let Some(project) = project {
+                document["project"] = json!(project);
+            }
+            let entry = entries(&document.to_string()).unwrap().remove(0);
+            entry.written.digest(&entry.record, entry.policy.as_ref())
+        };
+        let base = digest(
+            json!({"name":"first-bucket","location":"US","labels":{"a":"1","b":"2"},
+                "softDeletePolicy":{"retentionDurationSeconds":5},
+                "iamPolicy":{"bindings":[
+                    {"role":"roles/storage.objectViewer","members":["allUsers","user:a@example.invalid"]},
+                    {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+            None,
+        );
+        for (same, project) in [
+            // The name selects the bucket and the project is compared on its own.
+            (
+                json!({"name":"other-bucket","location":"US","labels":{"a":"1","b":"2"},
+                    "softDeletePolicy":{"retentionDurationSeconds":5},
+                    "iamPolicy":{"bindings":[
+                        {"role":"roles/storage.objectViewer","members":["allUsers","user:a@example.invalid"]},
+                        {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+                Some("other-project"),
+            ),
+            // Case, number spelling, member order, binding order, repeats and null members.
+            (
+                json!({"name":"first-bucket","location":"us","labels":{"b":"2","a":"1"},
+                    "softDeletePolicy":{"retentionDurationSeconds":"5"},"cors":null,
+                    "iamPolicy":{"bindings":[
+                        {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]},
+                        {"role":"roles/storage.objectViewer","members":["user:a@example.invalid"]},
+                        {"role":"roles/storage.objectViewer","members":["allUsers","allUsers"]},
+                        {"role":"roles/storage.legacyBucketReader","members":[]}]}}),
+                None,
+            ),
+        ] {
+            assert_eq!(digest(same, project), base);
+        }
+        for changed in [
+            json!({"name":"first-bucket","location":"EU","labels":{"a":"1","b":"2"},
+                "softDeletePolicy":{"retentionDurationSeconds":5},
+                "iamPolicy":{"bindings":[
+                    {"role":"roles/storage.objectViewer","members":["allUsers","user:a@example.invalid"]},
+                    {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+            json!({"name":"first-bucket","location":"US","labels":{"a":"1"},
+                "softDeletePolicy":{"retentionDurationSeconds":5},
+                "iamPolicy":{"bindings":[
+                    {"role":"roles/storage.objectViewer","members":["allUsers","user:a@example.invalid"]},
+                    {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+            json!({"name":"first-bucket","location":"US","labels":{"a":"1","b":"2"},
+                "iamPolicy":{"bindings":[
+                    {"role":"roles/storage.objectViewer","members":["allUsers","user:a@example.invalid"]},
+                    {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+            json!({"name":"first-bucket","location":"US","labels":{"a":"1","b":"2"},
+                "softDeletePolicy":{"retentionDurationSeconds":5},
+                "iamPolicy":{"bindings":[
+                    {"role":"roles/storage.objectViewer","members":["user:a@example.invalid"]},
+                    {"role":"roles/storage.objectCreator","members":["user:b@example.invalid"]}]}}),
+            json!({"name":"first-bucket","location":"US","labels":{"a":"1","b":"2"},
+                "softDeletePolicy":{"retentionDurationSeconds":5}}),
+        ] {
+            assert_ne!(digest(changed, None), base);
+        }
+        // Writing the default value is still writing the member.
+        assert_ne!(
+            digest(
+                json!({"name":"first-bucket","storageClass":"STANDARD"}),
+                None
+            ),
+            digest(json!({"name":"first-bucket"}), None)
+        );
     }
 
     #[test]

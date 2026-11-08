@@ -106,10 +106,32 @@ impl Server {
 }
 
 fn counts(server: &Server, created: usize, existing: usize, mismatches: usize) {
-    assert_eq!(
-        server.ready["buckets_file"],
-        json!({"outcome":"applied","created":created,"existing":existing,"project_mismatches":mismatches})
+    applied(
+        server,
+        json!({"created":created,"existing":existing,"project_mismatches":mismatches}),
     );
+}
+
+/// Ready reports every count, zeros included; `nonzero` names the counts that are not zero.
+fn applied(server: &Server, nonzero: Value) {
+    let mut expected = json!({
+        "outcome":"applied","created":0,"existing":0,"project_mismatches":0,"unapplied":0
+    });
+    for (count, value) in nonzero.as_object().unwrap() {
+        assert!(expected.get(count).is_some(), "unknown count {count}");
+        expected[count] = value.clone();
+    }
+    assert_eq!(server.ready["buckets_file"], expected);
+}
+
+/// The initializer's warning diagnostics, which precede ready on stderr.
+fn warnings(stderr: &str) -> Vec<Value> {
+    stderr
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|event| event["event"] == "diagnostics" && event["level"] == "warn")
+        .flat_map(|event| event["diagnostics"].as_array().cloned().unwrap_or_default())
+        .collect()
 }
 
 #[test]
@@ -166,7 +188,9 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
         json!([{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"},{"name":"new-bucket"}]),
     );
     let server = Server::start(selected(&dir.0).args(["--default-location", "ASIA"]));
-    counts(&server, 1, 2, 0);
+    // Only the entry that writes another location changed; a new default location is not an
+    // entry change.
+    applied(&server, json!({"created":1,"existing":2,"unapplied":1}));
     assert_eq!(
         server.json("GET", "/storage/v1/b/default-bucket", Value::Null),
         initial
@@ -183,7 +207,14 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
         server.json("GET", "/storage/v1/b/new-bucket", Value::Null)["location"],
         "ASIA"
     );
-    server.stop();
+    let warnings = warnings(&server.stop());
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["key"], "buckets[1]");
+    let fix = warnings[0]["fix"].as_str().unwrap();
+    assert!(
+        fix.contains("location") && fix.contains("keeps its location"),
+        "{fix}"
+    );
 }
 
 #[test]
@@ -334,10 +365,11 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
     server.stop();
     input(
         &dir.0,
-        json!([{"name":"assets-bucket","labels":{"owner":"file"},"versioning":{"enabled":false}},{"name":"new-bucket"}]),
+        json!([{"name":"assets-bucket","labels":{"owner":"secret-value"},"versioning":{"enabled":false}},{"name":"new-bucket"}]),
     );
     let server = Server::start(&mut selected(&dir.0));
-    counts(&server, 1, 1, 0);
+    // The edited entry is reported, and the bucket keeps every API change.
+    applied(&server, json!({"created":1,"existing":1,"unapplied":1}));
     assert_eq!(
         server.json("GET", "/storage/v1/b/assets-bucket", Value::Null),
         after_policy
@@ -389,7 +421,16 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
             .0,
         412
     );
-    server.stop();
+    let warnings = warnings(&server.stop());
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["key"], "buckets[0]");
+    let fix = warnings[0]["fix"].as_str().unwrap();
+    assert!(
+        fix.contains("labels, versioning.enabled") && !fix.contains("location"),
+        "{fix}"
+    );
+    // Values stay out of diagnostics, like every other initializer diagnostic.
+    assert!(!fix.contains("owner") && !fix.contains("secret"), "{fix}");
 }
 
 /// An entry and a file above their former limits of 64 KiB and 1 MiB reach the catalog whole.
@@ -766,6 +807,98 @@ fn strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_m
     assert_eq!(metadata["labels"]["owner"], "native");
     assert_eq!(metadata["versioning"]["enabled"], true);
     server.stop();
+}
+
+fn labels(server: &Server, bucket: &str) -> Value {
+    server.json("GET", &format!("/storage/v1/b/{bucket}"), Value::Null)["labels"].clone()
+}
+
+#[test]
+fn a_changed_entry_warns_on_every_start_until_the_bucket_matches_it() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([{"name":"edited-bucket","labels":{"env":"dev"}},{"name":"steady-bucket"}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 2, 0, 0);
+    // Changing a bucket only through the API leaves its unchanged entry silent.
+    server.json(
+        "PATCH",
+        "/storage/v1/b/steady-bucket",
+        json!({"labels":{"owner":"api"}}),
+    );
+    assert!(warnings(&server.stop()).is_empty());
+    input(
+        &dir.0,
+        json!([{"name":"edited-bucket","labels":{"env":"secret-value"}},{"name":"steady-bucket"}]),
+    );
+    for _ in 0..2 {
+        let server = Server::start(&mut selected(&dir.0));
+        applied(&server, json!({"existing":2,"unapplied":1}));
+        assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
+        assert_eq!(labels(&server, "steady-bucket"), json!({"owner":"api"}));
+        let warnings = warnings(&server.stop());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0]["key"], "buckets[0]");
+        assert!(warnings[0]["fix"].as_str().unwrap().contains("labels"));
+        assert!(!warnings[0].to_string().contains("secret"));
+    }
+    // Once the API brings the bucket in line, the entry becomes the recorded one.
+    let server = Server::start(&mut selected(&dir.0));
+    server.json(
+        "PATCH",
+        "/storage/v1/b/edited-bucket",
+        json!({"labels":{"env":"secret-value"}}),
+    );
+    server.stop();
+    for _ in 0..2 {
+        let server = Server::start(&mut selected(&dir.0));
+        applied(&server, json!({"existing":2}));
+        assert!(warnings(&server.stop()).is_empty());
+    }
+}
+
+#[test]
+fn a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning() {
+    let dir = TestDir::new();
+    let server = Server::start(&mut command(&dir.0));
+    server.json(
+        "POST",
+        "/storage/v1/b?project=project-a",
+        json!({"name":"api-bucket","labels":{"owner":"api"}}),
+    );
+    server.stop();
+    // Spellings with one meaning share a digest, so the next start sees no change.
+    input(
+        &dir.0,
+        json!([{"name":"api-bucket","labels":{"owner":"file"},"location":"us","softDeletePolicy":{"retentionDurationSeconds":"5"}}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":1}));
+    assert_eq!(labels(&server, "api-bucket"), json!({"owner":"api"}));
+    assert!(warnings(&server.stop()).is_empty());
+    input(
+        &dir.0,
+        json!([{"name":"api-bucket","labels":{"owner":"file"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":1}));
+    assert!(warnings(&server.stop()).is_empty());
+    input(
+        &dir.0,
+        json!([{"name":"api-bucket","labels":{"owner":"other"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":1,"unapplied":1}));
+    let warnings = warnings(&server.stop());
+    let fix = warnings[0]["fix"].as_str().unwrap();
+    // The location matched the stored bucket all along; labels and soft delete differ.
+    assert!(
+        fix.contains("labels, softDeletePolicy.retentionDurationSeconds")
+            && !fix.contains("keeps its location"),
+        "{fix}"
+    );
 }
 
 fn acl_grants(server: &Server, bucket: &str) -> Vec<(String, String)> {

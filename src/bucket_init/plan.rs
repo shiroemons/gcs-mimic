@@ -1,13 +1,13 @@
 //! Decides from what the catalog holds what one start does for each entry. The catalog runs the
 //! plan inside the transaction that applies it, so a rejected plan changes nothing.
 
-use super::{Collected, InitEntry, InitOutcome, Reason};
+use super::{Collected, InitEntry, InitOutcome, Reason, Written, written::Member};
 use crate::{
     auth::{Policy, PublicAccess},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     storage::admin::{
         AdminError, BucketDefinition,
-        initialization::{Creation, InitTarget, Observed, Planned},
+        initialization::{Creation, InitTarget, Observed, Planned, Stored},
     },
 };
 use std::num::NonZeroUsize;
@@ -47,11 +47,17 @@ impl std::error::Error for PlanError {
     }
 }
 
+/// An entry whose bucket definition the catalog accepts.
+pub(super) struct Prepared {
+    creation: Creation,
+    written: Written,
+}
+
 /// Checks every definition before the catalog is touched and names the bucket each targets. The
-/// targets go to the catalog job and the creations to the plan, so each needs its own names.
+/// targets go to the catalog job and the entries to the plan, so each needs its own names.
 pub(super) fn prepare(
     entries: Vec<InitEntry>,
-) -> Result<(Vec<InitTarget>, Vec<Creation>), AdminError> {
+) -> Result<(Vec<InitTarget>, Vec<Prepared>), AdminError> {
     entries
         .into_iter()
         .map(|entry| {
@@ -59,11 +65,14 @@ pub(super) fn prepare(
                 name: entry.record.name.clone(),
                 project: entry.record.project.clone(),
             };
+            let digest = entry.written.digest(&entry.record, entry.policy.as_ref());
             let creation = Creation {
                 definition: BucketDefinition::new(entry.record)?,
                 policy: entry.policy,
+                digest,
             };
-            Ok((target, creation))
+            let written = entry.written;
+            Ok((target, Prepared { creation, written }))
         })
         .collect()
 }
@@ -73,6 +82,7 @@ pub(super) struct Report {
     created: usize,
     existing: usize,
     project_mismatches: usize,
+    unapplied: usize,
     pub(super) warnings: Diagnostics,
 }
 
@@ -82,19 +92,41 @@ impl Report {
             created: self.created,
             existing: self.existing,
             project_mismatches: self.project_mismatches,
+            unapplied: self.unapplied,
         }
     }
 
-    fn warn(&mut self, key: String, fix: &str) {
+    fn warn(&mut self, key: String, fix: impl Into<String>) {
         self.warnings
             .warnings
             .push(Diagnostic::new(DiagnosticSource::Initializer, key, fix));
     }
+
+    /// One warning names every member the bucket kept, but never a value.
+    fn unapplied(&mut self, index: usize, members: &[Member]) {
+        self.unapplied += 1;
+        let fields = members
+            .iter()
+            .map(|member| member.field())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let location = if members.contains(&Member::Location) {
+            " An existing bucket keeps its location; delete and recreate the bucket to move it."
+        } else {
+            ""
+        };
+        self.warn(
+            format!("buckets[{index}]"),
+            format!(
+                "This entry changed after its bucket was created from it, and existing settings are kept: the bucket still differs in {fields}. Change the bucket through the API to match, or restore the entry.{location}"
+            ),
+        );
+    }
 }
 
-/// Plans each entry in file order. A missing bucket is created; an existing one is kept as it is.
+/// Plans each entry in file order: a missing bucket is created, and an existing one is kept.
 pub(super) fn plan(
-    entries: Vec<Creation>,
+    entries: Vec<Prepared>,
     observed: Vec<Observed>,
     bucket_limit: Option<NonZeroUsize>,
 ) -> Result<(Vec<Planned>, Report), PlanError> {
@@ -102,35 +134,71 @@ pub(super) fn plan(
     let mut rejected = Collected::new(bucket_limit);
     let mut planned = Vec::with_capacity(entries.len());
     for (index, (entry, observed)) in entries.into_iter().zip(observed).enumerate() {
-        let record = entry.definition.record();
-        if let Some(existing) = observed.existing {
-            report.existing += 1;
-            if existing.project != record.project {
-                report.project_mismatches += 1;
-                report.warn(format!("buckets[{index}].project"), PROJECT_FIX);
+        let step = match observed.existing {
+            Some(stored) => {
+                report.existing += 1;
+                existing(&mut report, index, &entry, &stored)
             }
-            planned.push(Planned::Keep);
-            continue;
-        }
-        let prevented =
-            record.public_access_prevention_enforced || observed.parent == PublicAccess::Prevented;
-        if prevented
-            && entry
-                .policy
-                .as_ref()
-                .is_some_and(Policy::names_public_principal)
-        {
-            rejected.record(
-                Reason::Native,
-                format!("buckets[{index}].iamPolicy"),
-                PUBLIC_ACCESS_FIX,
-            );
-        }
-        report.created += 1;
-        planned.push(Planned::Create(Box::new(entry)));
+            None => {
+                if public_access_refused(&entry.creation, observed.parent) {
+                    rejected.record(
+                        Reason::Native,
+                        format!("buckets[{index}].iamPolicy"),
+                        PUBLIC_ACCESS_FIX,
+                    );
+                }
+                report.created += 1;
+                Planned::Create(Box::new(entry.creation))
+            }
+        };
+        planned.push(step);
     }
     if rejected.is_err() {
         return Err(PlanError::Rejected(rejected.finish()));
     }
     Ok((planned, report))
+}
+
+fn public_access_refused(creation: &Creation, parent: PublicAccess) -> bool {
+    let prevented = creation
+        .definition
+        .record()
+        .public_access_prevention_enforced
+        || parent == PublicAccess::Prevented;
+    prevented
+        && creation
+            .policy
+            .as_ref()
+            .is_some_and(Policy::names_public_principal)
+}
+
+/// Keeps an existing bucket. Its recorded entry moves only to an entry that the bucket matches,
+/// so a changed entry keeps warning until the bucket or the entry is brought back in line.
+fn existing(report: &mut Report, index: usize, entry: &Prepared, stored: &Stored) -> Planned {
+    let wanted = entry.creation.definition.record();
+    if stored.record.project != wanted.project {
+        // The entry describes another owner's bucket, so it is not this bucket's entry.
+        report.project_mismatches += 1;
+        report.warn(format!("buckets[{index}].project"), PROJECT_FIX);
+        return Planned::Keep;
+    }
+    let current = entry.creation.digest;
+    match stored.digest {
+        // The API or an older release created the bucket, so no earlier entry exists to compare
+        // with: the current one becomes the baseline without a warning.
+        None => Planned::Record(current),
+        Some(recorded) if recorded == current => Planned::Keep,
+        Some(_) => {
+            let differing: Vec<_> = entry
+                .written
+                .differences(wanted, entry.creation.policy.as_ref(), stored)
+                .collect();
+            if differing.is_empty() {
+                Planned::Record(current)
+            } else {
+                report.unapplied(index, &differing);
+                Planned::Keep
+            }
+        }
+    }
 }
