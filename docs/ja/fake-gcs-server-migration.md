@@ -272,7 +272,7 @@ strictの署名URLは最終的に利用者がアクセスするURLで署名し�
 | 目的 | 構成 | 設定 |
 | --- | --- | --- |
 | fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
-| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーからCloud Storageへの呼び出しは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
 | strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify` |
 
 まずはこの手順と同じ既定の構成で始めてください。
@@ -295,6 +295,11 @@ Go API、Rails、フロントエンドをつなぐ例は[アプリ全体の例](
 信頼済みリスナーのポートは公開しないでください。
 [信頼済みリスナーの節](container-usage.md#信頼済みリスナーで非公開バケットを守る)で確認の内容を説明しています。
 認証情報付きのリクエストはメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になり、IPリテラル、`localhost`の名前、`gcs`のようなドットのない名前、`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`に書いた名前以外のHostは421になります。
+
+対象になるのは、サーバー自身が送るリクエストだけです。
+fake-gcs-serverは署名を確認しないため、ブラウザーに渡すURLをエミュレーターのときだけ署名なしにしているアプリがあります。
+そうしたリクエストはstrictでは401になり、permissiveの`GCS_MIMIC_SIGNED_URLS=verify`では確認する署名がないので許可されます。
+必要な変更は、レシピの[信頼済みリスナーの対象外の一覧](../../examples/strict-local/README.md#what-the-trusted-listener-does-not-cover)（英語）にあります。
 
 ## Rails Active Storage
 

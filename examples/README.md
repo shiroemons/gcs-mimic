@@ -34,5 +34,5 @@ Both need gcs-mimic 0.14.0 or later.
 
 | Example | What it is |
 | --- | --- |
-| [strict-local](strict-local/) | A `gcs` service to paste into your application's compose.yaml. Private buckets stay private, public buckets open only through `allUsers`, browsers use URLs signed by the built-in test signer, and application servers on the Compose network keep their code. The container smoke test runs it with the image built from the checkout. |
+| [strict-local](strict-local/) | A `gcs` service to paste into your application's compose.yaml. Private buckets stay private, public buckets open only through `allUsers`, browsers use URLs signed by the built-in test signer, and application servers on the Compose network keep their own Cloud Storage calls. The container smoke test runs it with the image built from the checkout. |
 | [full-stack](full-stack/) | A complete application in one Compose project: gcs-mimic in strict mode with the trusted listener, a Go API server, a Rails app and a frontend. It includes per-worktree ports, public and private buckets with CORS, and signed URLs for the browser. It is built on the strict local recipe. |

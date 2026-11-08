@@ -307,7 +307,7 @@ rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 | Goal | Setup | Settings |
 | --- | --- | --- |
 | Behave like fake-gcs-server: every request is allowed, no signature is checked and browsers read every bucket | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
-| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs or, like Rails, uses the `test-signer credentials` key |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their own Cloud Storage calls | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs or, like Rails, uses the `test-signer credentials` key |
 | Only while strict mode is not possible yet: check signed URLs, allow everything else | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify` |
 
 Start with the default, which this walkthrough uses. For production-like checks,
@@ -339,6 +339,14 @@ explains its checks: requests with credentials authenticate as on the main
 listener, browser-initiated requests get 403, and a Host other than an IP
 literal, a `localhost` name, a single-label name such as `gcs` or a name in
 `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` gets 421.
+
+This covers only the requests the servers send themselves. fake-gcs-server checks
+no signature, so an application may leave the URLs it hands to browsers unsigned
+against the emulator; in strict mode those requests get 401, and permissive
+`GCS_MIMIC_SIGNED_URLS=verify` allows them because they carry no signature to
+check. The recipe's
+[list of what the trusted listener does not cover](../../examples/strict-local/README.md#what-the-trusted-listener-does-not-cover)
+names the changes these applications need.
 
 ### Rails Active Storage
 

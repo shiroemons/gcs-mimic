@@ -26,7 +26,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
   [migrating](#migrating-from-fake-gcs-server)).
 - **One container**: preload files from a directory, keep data in a volume.
 - **Production-like when you need it**: strict mode keeps private buckets
-  private and verifies signed URLs, while your servers keep their code (see
+  private and verifies signed URLs, while your servers keep their own Cloud Storage calls (see
   [production-like access](#production-like-access)).
 
 ## Quick start
@@ -96,7 +96,7 @@ Cloud Storage makes, use strict mode with a trusted listener:
 | Goal | Setup |
 | --- | --- |
 | Behave like fake-gcs-server | The default, as above |
-| Private buckets stay private, public buckets open through `allUsers`, browsers use signed URLs, your servers keep their code | Strict mode with a trusted listener: the [strict local recipe](examples/strict-local/README.md) |
+| Private buckets stay private, public buckets open through `allUsers`, browsers use signed URLs, your servers keep their own Cloud Storage calls | Strict mode with a trusted listener: the [strict local recipe](examples/strict-local/README.md) |
 
 The minimal setup is five settings of the `gcs` service. Nothing needs
 preparing: no certificate, no key and no service account.

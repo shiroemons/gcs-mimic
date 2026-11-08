@@ -4,7 +4,7 @@ Paste one block into your application's `compose.yaml` to get Cloud Storage acce
 
 - Private buckets stay private: a browser reaches them only through signed URLs.
 - Public buckets are readable only through their `allUsers` grant.
-- Your application's servers need no code change: Go storage with `STORAGE_EMULATOR_HOST` sends no credentials and still gets in.
+- Your application's servers keep their own Cloud Storage calls: Go storage with `STORAGE_EMULATOR_HOST` sends no credentials and still gets in. URLs they hand to browsers are checked as in production, so [some applications need a change](#what-the-trusted-listener-does-not-cover).
 - URLs that Go storage signs for a local port verify.
 - Rails Active Storage works with the same signer.
 
@@ -141,7 +141,17 @@ The buckets:
 
 ### Go servers
 
-Set `STORAGE_EMULATOR_HOST: gcs:4444`; the code stays as it is. With that variable Go storage sends requests without credentials, and the trusted listener runs them as `trusted-app@gcs-mimic.invalid`, which also becomes the owner of the objects they write. Links that the server returns, such as a resumable upload's session URL, keep the `gcs:4444` host.
+Set `STORAGE_EMULATOR_HOST: gcs:4444`; the calls your servers make to Cloud Storage stay as they are. With that variable Go storage sends requests without credentials, and the trusted listener runs them as `trusted-app@gcs-mimic.invalid`, which also becomes the owner of the objects they write. Links that the server returns, such as a resumable upload's session URL, keep the `gcs:4444` host.
+
+### What the trusted listener does not cover
+
+It covers only the requests your servers send themselves. URLs they hand to a browser or another program are checked like any other request, so these applications need a change:
+
+| Your application | What happens | Change |
+| --- | --- | --- |
+| Skips signing only against the emulator, and gives the browser an unsigned URL or POST form for a private bucket. fake-gcs-server checks no signature, so this shortcut is common | 401 on the published port, because the request is anonymous. Permissive `GCS_MIMIC_SIGNED_URLS=verify` cannot show this: an unsigned request has no signature to check, and it is allowed | Sign those URLs against the emulator too, as in [Signing URLs for the browser](#signing-urls-for-the-browser) |
+| Signs without a key in production, leaving Go storage to find the identity in the runtime's credentials | `storage: unable to detect default GoogleAccessID`, because a client that uses `STORAGE_EMULATOR_HOST` has no credentials | Add an emulator branch that sets `GoogleAccessID`, `PrivateKey`, `Hostname` and `Insecure`, as in [Signing URLs for the browser](#signing-urls-for-the-browser) |
+| Builds URLs from the value of `STORAGE_EMULATOR_HOST`, such as the address an image proxy fetches objects from | Those URLs move to `gcs:4444` with it. Whatever fetches them acts as `trusted-app@gcs-mimic.invalid`, so a private object passed by mistake still loads and the difference from production stays hidden. URLs stored before the switch keep the old port, so code that recognizes the emulator by its host and port no longer matches them | Build them from a separate setting that names the main listener, `gcs:4443`, where the fetch is anonymous as it is in production |
 
 ### Signing URLs for the browser
 

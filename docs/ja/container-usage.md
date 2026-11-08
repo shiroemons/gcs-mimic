@@ -92,7 +92,7 @@ macOSがlistenキューを`kern.ipc.somaxconn`（既定は128）で打ち切る�
 | 目的 | 構成 | 設定 |
 | --- | --- | --- |
 | fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
-| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーからCloud Storageへの呼び出しは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
 | strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify` |
 
 まずは既定の構成で始めてください。
@@ -393,7 +393,8 @@ BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 strictモードでは、認証情報のないリクエストは匿名になり、`allUsers`の権限でだけ許可されます。
 ブラウザーにはこれが望ましく、ページは公開バケットを読み、非公開バケットには署名URLでだけアクセスします。
 一方、アプリのサーバーもエミュレーターには認証情報を送らないことが多く（`STORAGE_EMULATOR_HOST`を設定したGo storageや、resumableアップロードを開始するHTTPクライアントなど）、同じく匿名になります。
-信頼済みリスナーはこうしたサーバー専用のポートを用意し、アプリのコードを変えずに済むようにします。
+信頼済みリスナーはこうしたサーバー専用のポートを用意し、サーバーからの呼び出しを変えずに済むようにします。
+ブラウザーに渡すURLは確認の対象のままなので、エミュレーターのときだけ署名を省いているアプリには[変更が必要です](../../examples/strict-local/README.md#what-the-trusted-listener-does-not-cover)（英語）。
 
 - 信頼済みリスナーで認証情報のないリクエストは、1つのID（信頼済みプリンシパル）として扱います。`trusted_principal`でほかのIDを指定しない限り、組み込みの`trusted-app@gcs-mimic.invalid`です。
   そのうえで、そのIDの認証情報を送ったリクエストと同じIAM・ACL・公開アクセス防止の確認を受け、書き込んだオブジェクトの所有者もそのIDになります。
