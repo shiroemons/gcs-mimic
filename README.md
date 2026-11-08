@@ -108,7 +108,9 @@ preparing: no certificate, no key and no service account.
   `trusted-app@gcs-mimic.invalid`. Never publish this port.
 - `GCS_MIMIC_BUCKETS`, the buckets as inline JSON, with an `allUsers`
   `iamPolicy` for each public bucket
-- `GCS_MIMIC_TEST_SIGNER: enabled`, only when you need signed URLs
+- `GCS_MIMIC_TEST_SIGNER: enabled`, for signed URLs and for Rails or any client
+  that uses the `test-signer credentials` key. Leave it out only when nothing
+  signs URLs or uses those credentials.
 
 Go servers then set `STORAGE_EMULATOR_HOST: gcs:4444`. Rails reads the signer's
 key from `gcs-mimic test-signer credentials`; see

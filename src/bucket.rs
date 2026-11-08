@@ -494,6 +494,32 @@ pub enum CatalogError {
 mod tests {
     use super::*;
 
+    /// Both enums count the same two refusals, and the conversion between them keeps that.
+    #[test]
+    fn refusals_are_permission_denials_and_unnamed_forbidden_errors() {
+        use crate::object::ObjectError;
+        let denied = || {
+            crate::auth::Denied::new(
+                None,
+                crate::auth::OBJECTS_GET,
+                crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
+            )
+        };
+        for refusal in [CatalogError::Denied(denied()), CatalogError::Forbidden] {
+            assert!(refusal.is_refusal(), "{refusal:?}");
+            assert!(ObjectError::from(refusal).is_refusal());
+        }
+        for other in [
+            CatalogError::PublicAccessPrevention,
+            CatalogError::NotFound,
+            CatalogError::PreconditionFailed,
+        ] {
+            assert!(!other.is_refusal(), "{other:?}");
+            assert!(!ObjectError::from(other).is_refusal());
+        }
+        assert!(!ObjectError::OverwriteForbidden(denied()).is_refusal());
+    }
+
     #[test]
     fn cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit() {
         let long_values = CorsRule {
@@ -603,6 +629,15 @@ impl fmt::Display for CatalogError {
             }
             Self::Unavailable(reason) => write!(formatter, "catalog unavailable: {reason}"),
         }
+    }
+}
+
+impl CatalogError {
+    /// An authorization refusal, whether or not it names a Cloud Storage permission. A
+    /// caller that turns a refusal into a hidden result tests this, so it cannot handle one
+    /// kind and let the other escape as an error.
+    pub(crate) fn is_refusal(&self) -> bool {
+        matches!(self, Self::Denied(_) | Self::Forbidden)
     }
 }
 

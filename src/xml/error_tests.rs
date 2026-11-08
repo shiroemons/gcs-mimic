@@ -177,7 +177,7 @@ fn signature_errors_explain_unknown_signers_and_a_zero_expiry() {
     let permissive = unknown(KeyLookup::PermissiveKeys);
     assert!(!permissive.contains("registered identity"), "{permissive}");
     for source in [
-        "identity file public_keys",
+        "the public_keys of the identity document (identity_file or identities)",
         "HMAC keys created through the JSON API",
         "the built-in test signer",
     ] {

@@ -767,7 +767,7 @@ impl Catalog {
             };
             match target_access(&transaction, target, &row.project, &access) {
                 Ok(()) => {}
-                Err(CatalogError::Denied(_) | CatalogError::Forbidden) => {
+                Err(error) if error.is_refusal() => {
                     let identity = match &access {
                         BucketAccess::Policy { identity, .. } => identity.as_ref(),
                         _ => None,
@@ -948,7 +948,7 @@ impl Catalog {
                     };
                     match check_access(&transaction, bucket, &row.project, &access) {
                         Ok(_) => bucket_projection(&transaction, bucket, &row).map(Some),
-                        Err(CatalogError::Denied(_) | CatalogError::Forbidden) => Ok(None),
+                        Err(error) if error.is_refusal() => Ok(None),
                         Err(error) => Err(error),
                     }
                 })

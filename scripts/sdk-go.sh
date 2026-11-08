@@ -97,14 +97,8 @@ case "$scheme" in
   *) echo 'GCS_MIMIC_SDK_SCHEME must be http or https' >&2; exit 1 ;;
 esac
 
-# Each server starts without the harness's own GCS_MIMIC_ variables, which it would read as settings.
-server_env=(env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS
-  -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE
-  -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_GRPC_ENDPOINT -u GCS_MIMIC_STRICT_GRPC_ENDPOINT
-  -u GCS_MIMIC_LOCAL_STRICT_ENDPOINT -u GCS_MIMIC_TRUSTED_ENDPOINT
-  -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS
-  -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME
-  -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT -u GCS_MIMIC_BINARY)
+# Each server starts without any variable it would read as a setting; flags configure it.
+source scripts/server-env.sh
 
 # Waits until the server's ready event names its listen address and its readiness probe answers.
 # Arguments: PID, log name, listen address, origin, required ready-event auth_mode (empty for any).
@@ -140,6 +134,7 @@ start_server() {
   origin="$scheme://$address"
   grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
+  set_server_env
   "${server_env[@]}" \
     "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
@@ -149,32 +144,37 @@ start_server() {
   wait_for_ready "$server_pid" "$name" "$address" "$origin" "$auth_mode"
 }
 
-local_app=local-app@example.invalid
 local_strict_endpoint=
 trusted_endpoint=
-# Starts the Go suite's local-development server: strict mode with the built-in test signer,
-# signed_host_port=lenient and a trusted listener whose requests without credentials act as
-# local_app. Unlike start_server it fixes no API base URL, because links must follow each request's
-# Host for a resumable session started on the trusted listener to continue there, and it opens no
-# gRPC listener. The trusted listener binds port 0, so only its ready event reports the address.
+# Starts the Go suite's local-development server the way the strict local recipe does: strict mode
+# with the built-in test signer and a trusted listener, and no identity document, trusted principal
+# or host port setting. The built-in trusted-app@gcs-mimic.invalid then acts for requests without
+# credentials on the trusted listener with roles/storage.admin, and the test signer holds
+# roles/storage.objectUser, both on the default seed project local-project, which the Go suite
+# uses; and signed_host_port defaults to lenient. Unlike start_server it fixes no API base URL,
+# because links must follow each request's Host for a resumable session started on the trusted
+# listener to continue there, and it opens no gRPC listener. The trusted listener binds port 0, so
+# only its ready event reports the address.
 # Arguments: extra serve arguments.
 start_local_strict_server() {
   local address origin trusted
   address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
   origin="$scheme://$address"
+  set_server_env
   "${server_env[@]}" \
     "$server" serve --scheme "$scheme" --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
-    --auth-mode strict --test-signer enabled --signed-host-port lenient \
-    --trusted-listen 127.0.0.1:0 --trusted-principal "$local_app" "$@" >"$work/local-strict-server.log" 2>&1 &
+    --auth-mode strict --test-signer enabled --trusted-listen 127.0.0.1:0 "$@" \
+    >"$work/local-strict-server.log" 2>&1 &
   local_strict_pid=$!
   local_strict_endpoint=$origin
   wait_for_ready "$local_strict_pid" local-strict-server.log "$address" "$origin" strict
-  # A server that ignored one of the settings must not pass as the local-development server.
-  trusted=$(jq -Rr --arg principal "$local_app" \
-    'fromjson? | select(.event == "ready" and .trusted_principal == $principal and .test_signer == "enabled" and .signed_host_port == "lenient") | .trusted_listen // empty' \
+  # A server that ignored a setting or that did not apply the recipe's defaults must not pass as
+  # the local-development server.
+  trusted=$(jq -Rr \
+    'fromjson? | select(.event == "ready" and .identities == 0 and .trusted_principal == "trusted-app@gcs-mimic.invalid" and .test_signer == "enabled" and .signed_host_port == "lenient") | .trusted_listen // empty' \
     "$work/local-strict-server.log")
-  if [[ ! $trusted =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Ready event lacks the trusted listener, test signer or lenient host port' >&2; exit 1; fi
+  if [[ ! $trusted =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Ready event lacks the trusted listener, the built-in trusted principal, the test signer or the lenient host port, or names identities' >&2; exit 1; fi
   # The trusted listener speaks plain HTTP whatever the scheme.
   trusted_endpoint="http://$trusted"
   if ! "$server" healthcheck --url "$trusted_endpoint/_internal/ready" >/dev/null 2>&1; then
@@ -194,14 +194,7 @@ jq --rawfile key fixtures/signing/test-only-public.pem \
 start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$work/strict-data" \
   --auth-mode strict --identity-file "$work/identities.json" \
   --xml-virtual-host-domains storage.example.invalid
-# The application identity has no token, so only the trusted listener acts as it. With the test
-# signer enabled, strict mode adds the published key to the signer's entry, whose role grants what
-# its signed GET and PUT URLs need.
-jq -n --arg app "$local_app" '{identities: [
-  {id: $app, tokens: [], project_roles: {"local-project": ["roles/storage.admin"]}},
-  {id: "test-signer@gcs-mimic.invalid", tokens: [], project_roles: {"local-project": ["roles/storage.objectUser"]}}]}' \
-  > "$work/local-identities.json"
-start_local_strict_server --data-dir "$work/local-strict-data" --identity-file "$work/local-identities.json"
+start_local_strict_server --data-dir "$work/local-strict-data"
 
 cd sdk-tests/go
 export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"

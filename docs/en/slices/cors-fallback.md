@@ -92,7 +92,7 @@ existing bucket without rules logs one `cors_unconfigured` warning for that
 bucket at `warn` level:
 
 ```json
-{"event":"cors_unconfigured","level":"warn","bucket":"assets","message":"XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field"}
+{"event":"cors_unconfigured","level":"warn","bucket":"assets","message":"XML/public browser request reached a bucket without CORS rules and got no CORS headers, as on Cloud Storage; configure the bucket cors field. GCS_MIMIC_CORS_FALLBACK=allow-all allows every origin as fake-gcs-server does, but hides what Cloud Storage would refuse"}
 ```
 
 The process remembers at most 64 warned bucket names. Requests without Origin,

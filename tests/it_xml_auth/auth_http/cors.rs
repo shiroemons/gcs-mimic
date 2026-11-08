@@ -576,11 +576,15 @@ fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert_eq!(warnings[0]["level"], "warn");
     assert_eq!(warnings[0]["bucket"], "plain-bucket");
+    // The advice leads with the bucket rules Cloud Storage needs too; the fallback follows
+    // only with the warning that it hides Cloud Storage's refusal.
+    let message = warnings[0]["message"].as_str().unwrap();
+    let rules = message.find("configure the bucket cors field").unwrap();
+    let fallback = message.find("GCS_MIMIC_CORS_FALLBACK=allow-all").unwrap();
+    assert!(rules < fallback, "{message}");
     assert!(
-        warnings[0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("GCS_MIMIC_CORS_FALLBACK=allow-all")
+        message.contains("hides what Cloud Storage would refuse"),
+        "{message}"
     );
 }
 

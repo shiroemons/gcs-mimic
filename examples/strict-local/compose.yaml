@@ -12,7 +12,8 @@ services:
       GCS_MIMIC_AUTH_MODE: strict
       # Application servers on the Compose network use gcs:4444 without credentials.
       GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
-      # Only for signed URLs: the built-in signer, whose key ships with gcs-mimic.
+      # The built-in signer, whose key ships with gcs-mimic: needed for signed URLs and by
+      # Rails or any client using `test-signer credentials`. Remove it only if nothing does.
       GCS_MIMIC_TEST_SIGNER: enabled
       GCS_MIMIC_BUCKETS: |
         {"version": 1, "project": "local-project", "buckets": [
