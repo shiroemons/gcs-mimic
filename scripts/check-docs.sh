@@ -17,8 +17,7 @@ awk '/^<!-- strict-local compose.yaml -->$/ { marked = 1; next }
 }
 # These recipes use settings that only their own release has, and a release's tag publishes them
 # as they are. The container smoke test sets GCS_MIMIC_IMAGE, so it never reads their default.
-version=$(cargo metadata --locked --offline --no-deps --format-version 1 |
-  jq -er '.packages[] | select(.name == "gcs-mimic") | .version')
+version=$(awk -F'"' '/^\[/ { package = ($0 == "[package]") } package && /^version = / { print $2; exit }' Cargo.toml)
 for recipe in examples/strict-local/compose.yaml examples/full-stack/compose.yaml; do
   grep -qF "ghcr.io/shiroemons/gcs-mimic:$version}" "$recipe" || {
     echo "$recipe must default to the image of the manifest version $version" >&2
