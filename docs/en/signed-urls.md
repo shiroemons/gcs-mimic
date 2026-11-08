@@ -283,8 +283,14 @@ only if that matches. The host name, method, path, query, signed headers,
 payload rule and time window stay bound, and an IPv6 literal keeps its brackets.
 V2 signatures and POST policies do not sign Host and are unaffected. The first
 such match in a process logs one `signature_host_port_omitted` warning without
-the URL or credentials. The default `exact` keeps verification unchanged. The
-Node.js signer drops the port the same way; see the
+the URL or credentials. The default `exact` keeps verification unchanged. The Go
+SDK suite sends unmodified `SignedURL` GET and PUT URLs for a host:port to a
+strict server started with `lenient` and the
+[built-in test signer](#built-in-test-signer), where they pass while tampering
+still fails, and checks that the default exact server rejects such a URL with the
+message above; see the
+[evidence](evidence/signed-urls.md#built-in-test-signer-and-lenient-host-ports-with-official-sdks).
+The Node.js signer drops the port the same way; see the
 [Node.js SDK notes](../../sdk-tests/node/README.md). Ruby Storage 1.62.1 signs
 `storage.googleapis.com` by default even with an emulator endpoint. Its pinned
 test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_key:,
@@ -424,7 +430,9 @@ Go storage drops a non-default port from the Host it signs, so a URL for
 that verifies signatures, as one using the built-in signer does, rejects it with
 403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
 `gcs-mimic url sign`, or set `signed_host_port=lenient`, which tolerates the
-missing port.
+missing port. The Go SDK suite signs this way with the printed key for a
+`127.0.0.1` host:port and passes against a strict server with
+`test_signer=enabled` and `signed_host_port=lenient`.
 
 Rails Active Storage takes the same credentials in `config/storage.yml`. Save
 the key in the app, for example with
@@ -447,7 +455,12 @@ gcs_emulator:
 
 In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, then
 grant `user:test-signer@gcs-mimic.invalid` on the bucket or declare the signer
-with project roles in the identity file.
+with project roles in the identity file. The strict Rails suite
+(`sdk-tests/ruby/active_storage/run-strict.sh`) runs this recipe against such a
+server whose identity file declares the signer with project roles: Rails' JWT
+bearer, its V2 URLs and the final-origin V4 adapter pass. A
+[trusted listener](container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
+does not replace the signer for Rails, because Rails always sends its own token.
 
 ## Legacy V2 HMAC and header signatures
 

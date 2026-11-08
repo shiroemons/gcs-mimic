@@ -765,7 +765,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-031 | V4 HMAC signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-033 | V4 canonical host and port | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
+| DESIGN-033 | V4 canonical host and port | IMPLEMENTED | P2 | EXACT | EXACT | 6 |
 | DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
@@ -825,7 +825,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-006 | Local user and group membership fixtures | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-009 | Custom roles through local configuration | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-011 | Cross-project identity and ownership fixtures | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-101 | Trusted listener for application servers in strict mode | PARTIAL | P2 | PROJECT | PROJECT | 0 |
+| DESIGN-101 | Trusted listener for application servers in strict mode | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 
 ### CLI compatibility
 
@@ -957,7 +957,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
-| DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 1 |
+| DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 2 |
 | DESIGN-085 | Node official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-087 | Official Rust SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 0 |

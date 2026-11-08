@@ -45319,7 +45319,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. That exact rule is the default; the local opt-in signed_host_port=lenient also accepts a V4 signature whose canonical host omits only the request's port, which Cloud Storage's default-port endpoint never needs, so it is an emulator setting rather than a Google behavior. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. That exact rule is the default; the local opt-in signed_host_port=lenient also accepts a V4 signature whose canonical host omits only the request's port, which Cloud Storage's default-port endpoint never needs, so it is an emulator setting rather than a Google behavior. Unmodified Go SDK URLs for an explicit host:port pass on a lenient strict server in the Go suite. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -45369,7 +45369,7 @@
         },
         {
           "id": "DESIGN-033-SIGNED-HOST-PORT",
-          "description": "signed_host_port (CLI, environment, config file; exact by default, invalid values rejected with the accepted choices) is reported as ready field signed_host_port. With exact, a V4 signature that fails over a Host naming an explicit port but matches the same request without that port answers 403 SignatureDoesNotMatch whose message says so and names signed_host_port=lenient; a tampered request on a host:port Host, a missing signed header and a portless Host keep the plain message in both modes. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs stand in for the Go SDK, whose suite runs only the default; see SPEC-GO-SIGNER-PORT.",
+          "description": "signed_host_port (CLI, environment, config file; exact by default, invalid values rejected with the accepted choices) is reported as ready field signed_host_port. With exact, a V4 signature that fails over a Host naming an explicit port but matches the same request without that port answers 403 SignatureDoesNotMatch whose message says so and names signed_host_port=lenient; a tampered request on a host:port Host, a missing signed header and a portless Host keep the plain message in both modes. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs cover each signature form; DESIGN-033-LENIENT-SDK adds the unmodified Go SDK.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
@@ -45383,12 +45383,23 @@
             "signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request",
             "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"
           ]
+        },
+        {
+          "id": "DESIGN-033-LENIENT-SDK",
+          "description": "Pinned Go storage v1.70.0 SignedURL, unmodified, signs V4 GET and PUT with ContentType for an explicit host:port as test-signer@gcs-mimic.invalid with the private key that gcs-mimic test-signer credentials prints. A strict server started with signed_host_port=lenient and test_signer=enabled accepts both URLs unchanged at that host:port and records the signer as the uploaded object's owner; a tampered query, a changed Content-Type and a GET with the PUT URL fail with 403 SignatureDoesNotMatch and leave the object unchanged. The default exact strict server of the same run rejects such a URL with 403 SignatureDoesNotMatch whose message names signed_host_port=lenient. See SPEC-GO-SIGNER-PORT.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBuiltInSignerURLsPassUnderLenientHostPort",
+            "TestBuiltInSignerURLsPassUnderLenientHostPort/ExactServerNamesTheSetting"
+          ]
         }
       ],
       "test_ids": [
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/SignedUpload",
         "TestV4RSAVirtualHostedURLs",
+        "TestBuiltInSignerURLsPassUnderLenientHostPort",
+        "TestBuiltInSignerURLsPassUnderLenientHostPort/ExactServerNamesTheSetting",
         "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
         "auth::signature::tests::only_an_explicit_port_is_removed_from_a_host",
         "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
@@ -45412,6 +45423,16 @@
         "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-urls.md",
+          "test_ids": [
+            "TestBuiltInSignerURLsPassUnderLenientHostPort",
+            "TestBuiltInSignerURLsPassUnderLenientHostPort/ExactServerNamesTheSetting"
+          ]
+        },
         {"command":"cargo test --locked --lib auth::signature && cargo test --locked --lib signed_host_port && cargo test --locked --test it_xml_auth","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port","auth::signature::tests::only_an_explicit_port_is_removed_from_a_host","auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding","auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound","auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port","auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain","config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes","signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting","signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request","signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"]},
         {
           "command": "cargo test --workspace --locked --offline",
@@ -45611,6 +45632,22 @@
           "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.311.0",
+          "transport": "HTTP XML V4 RSA signed GET/PUT at an explicit host:port; unmodified SDK URLs signed with the built-in test signer's printed key pass under signed_host_port=lenient, and the default exact server's rejection names the setting (SPEC-GO-SIGNER-PORT)",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-urls.md",
+          "test_ids": [
+            "TestBuiltInSignerURLsPassUnderLenientHostPort",
+            "TestBuiltInSignerURLsPassUnderLenientHostPort/ExactServerNamesTheSetting"
           ]
         }
       ],
@@ -54927,7 +54964,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "The existing non-Google universe_domain storage.yml recipe reaches the permissive emulator with self-signed JWTs, including 400 days after startup; its native Rails and Chrome evidence remains in docs/en/slices/sdk-active-storage-scenario.md. Unreleased strict authentication verifies bounded RS256 full-control JWTs against startup-registered local public keys and applies ordinary IAM. The explicit EmulatorGcs Rails adapter signs final-origin V4 URLs with the public Ruby SDK API. The integrated strict Rails model/Net::HTTP fixture passes signing self-check, JWT upload/download and V2/V4 direct-upload CORS scenarios, preserving private unsigned-read, PAP and changed-signed-header negatives. See docs/en/slices/strict-service-account-jwt.md and docs/en/rails-active-storage.md. Actual strict Rails browser UI and container reachability remain separate pending acceptance. Default Google OAuth/token exchange and remote IAM signing are unsupported; the local recipe is not a claim that default Google credentials work. The suite is pinned to Rails 8.1.4.1, whose direct uploads are always V2 and sign x-goog-content-length-range; XML PUT enforces that range (EXT-XML-022-CONTENT-LENGTH-RANGE, docs/en/slices/xml-content-length-range.md), and the EmulatorGcs V4 adapter signs it too.",
+      "notes": "The existing non-Google universe_domain storage.yml recipe reaches the permissive emulator with self-signed JWTs, including 400 days after startup; its native Rails and Chrome evidence remains in docs/en/slices/sdk-active-storage-scenario.md. Unreleased strict authentication verifies bounded RS256 full-control JWTs against startup-registered local public keys and applies ordinary IAM. The explicit EmulatorGcs Rails adapter signs final-origin V4 URLs with the public Ruby SDK API. The integrated strict Rails model/Net::HTTP fixture passes signing self-check, JWT upload/download and V2/V4 direct-upload CORS scenarios, preserving private unsigned-read, PAP and changed-signed-header negatives. The same scenario also passes with the documented built-in test signer recipe (the key that gcs-mimic test-signer credentials prints) against a server started with test_signer=enabled. See docs/en/slices/strict-service-account-jwt.md and docs/en/rails-active-storage.md. Actual strict Rails browser UI and container reachability remain separate pending acceptance. Default Google OAuth/token exchange and remote IAM signing are unsupported; the local recipe is not a claim that default Google credentials work. The suite is pinned to Rails 8.1.4.1, whose direct uploads are always V2 and sign x-goog-content-length-range; XML PUT enforces that range (EXT-XML-022-CONTENT-LENGTH-RANGE, docs/en/slices/xml-content-length-range.md), and the EmulatorGcs V4 adapter signs it too.",
       "dependencies": ["DESIGN-083"],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -54940,25 +54977,28 @@
         {"id": "AS-DIRECT-UPLOAD", "description": "Unchanged service URL and headers accept HTTP PUT and exact readback (PASS_WITH_WORKAROUND) after OAuth authorization removal; default authentication remains pending.", "result": "PENDING", "test_ids": ["AS-DIRECT-UPLOAD"]},
         {"id": "AS-EXIST-COMPOSE", "description": "With OAuth authorization removed only: existence/missing and ordered compose preserve source objects (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-EXIST-COMPOSE"]},
         {"id": "AS-STRICT-LOCAL-RECIPE", "description": "The registered local JWT profile and explicit final-origin V4 adapter pass strict model/Net::HTTP upload/download and V2/V4 direct-upload CORS, preserving private unsigned-read, PAP and changed signed-header negatives. Actual Rails browser UI remains separate.", "result": "PASS", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]},
+        {"id": "AS-STRICT-TEST-SIGNER", "description": "The documented built-in test signer recipe (storage.yml client_email test-signer@gcs-mimic.invalid with the private key that gcs-mimic test-signer credentials prints) passes the same strict JWT upload/download and stock V2 and EmulatorGcs V4 direct-upload CORS scenarios, with the same private unsigned-read, PAP and tampered-query negatives, against a strict server started with test_signer=enabled whose identity file declares the signer with project roles and no keys. The trusted listener does not serve this path, because Rails always presents its own JWT.", "result": "PASS", "test_ids": ["sdk-tests/ruby/active_storage/strict.rb gcs_emulator_test_signer"]},
         {"id": "AS-EMULATOR-STORAGE-YML", "description": "The documented gcs_emulator storage.yml entry (non-Google universe_domain, boot-generated key) serves has_one_attached upload/download, unchanged url GET, the default redirect target, proxy mode, V2 direct uploads, including the cache_control entry whose Cache-Control Rails 8.1.4.1 sends unsigned, with browser-equivalent CORS preflight and PUT from buckets.json rules (x-goog-content-length-range and Cache-Control must be allowed response headers), purge and a 400-day-later upload without leaving the emulator origin or changing internals; a production boot generates no key. Removing universe_domain fails every case at oauth2.googleapis.com; removing the CORS rule or the key guard fails its cases.", "result": "PASS", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]},
         {"id": "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "description": "The unchanged Rails 8.1.4.1 direct-upload URL signs x-goog-content-length-range for the blob's byte size; a larger or smaller body with a matching Content-MD5 fails with 400 EntityTooLarge or EntityTooSmall and stores nothing. See docs/en/slices/xml-content-length-range.md.", "result": "PASS", "test_ids": ["AS-EMULATOR-DIRECT-UPLOAD-SIZE"]}
       ],
-      "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE", "AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY", "strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens", "AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"],
+      "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE", "AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY", "strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens", "AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS", "sdk-tests/ruby/active_storage/strict.rb gcs_emulator_test_signer"],
       "verification": [
         {"command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-11-04", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]},
         {"command": "just check-active-storage (attachments.rb and attachments.rb --production)", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-EMULATOR-BUCKETS-FILE", "AS-EMULATOR-ATTACH", "AS-EMULATOR-URL", "AS-EMULATOR-REDIRECT-TARGET", "AS-EMULATOR-PROXY", "AS-EMULATOR-DIRECT-UPLOAD", "AS-EMULATOR-DIRECT-UPLOAD-CORS", "AS-EMULATOR-DIRECT-UPLOAD-SIZE", "AS-EMULATOR-CACHE-CONTROL-DIRECT-UPLOAD", "AS-EMULATOR-NO-OAUTH-LATER", "AS-EMULATOR-PURGE", "AS-EMULATOR-PRODUCTION-NO-KEY"]},
         {"command": "cargo test --test auth_http", "result": "PASS", "verified_at": "2026-10-30", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens"]},
-        {"command": "bash sdk-tests/ruby/active_storage/run-strict.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]}
+        {"command": "bash sdk-tests/ruby/active_storage/run-strict.sh", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS"]},
+        {"command": "bash sdk-tests/ruby/active_storage/run-strict.sh (registered key and built-in test signer variants)", "result": "PASS", "verified_at": "2026-11-08", "artifact": "docs/en/evidence/signed-urls.md", "test_ids": ["AS-STRICT-JWT-UPLOAD-DOWNLOAD", "AS-STRICT-V2-DIRECT-UPLOAD-CORS", "AS-STRICT-V4-DIRECT-UPLOAD-CORS", "sdk-tests/ruby/active_storage/strict.rb gcs_emulator_test_signer"]}
       ],
       "sdk_evidence": [
-        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4.1 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; six conditional passes after authorization removal, including unchanged V2 signed GET/PUT with the signed x-goog-content-length-range", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
+        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4.1 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; six conditional passes after authorization removal, including unchanged V2 signed GET/PUT with the signed x-goog-content-length-range", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-11-04", "artifact": "docs/en/slices/xml-content-length-range.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]},
+        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.24", "sdk": "Active Storage / google-cloud-storage / googleauth", "version": "8.1.4.1 / 1.62.1 / 1.17.6", "transport": "HTTP JSON/XML in strict mode; self-signed JWT bearer, stock V2 and EmulatorGcs V4 signed URLs from the built-in test signer's printed key against test_signer=enabled", "command": "bash sdk-tests/ruby/active_storage/run-strict.sh", "result": "PASS", "verified_at": "2026-11-08", "artifact": "docs/en/evidence/signed-urls.md", "test_ids": ["sdk-tests/ruby/active_storage/strict.rb gcs_emulator_test_signer"]}
       ],
       "known_deviations": [
         "Historical AS-SIGNED-URL and AS-DIRECT-UPLOAD evidence used OAuth authorization removal. Later AS-EMULATOR cases use the public universe_domain recipe without that private-client workaround. Neither historical run establishes the new strict final-origin adapter's complete Rails/browser behavior.",
         "AS-DEFAULT-AUTH retains its historical failure at Google's OAuth endpoint. The explicit local universe/JWT strict model/Net::HTTP recipe passes separately; actual strict Rails browser UI, public serving and image transformation remain unverified. DESIGN-040 retains unsupported signing formats and virtual-host differences."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-04"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "DESIGN-085",
@@ -55878,7 +55918,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite; the documented Compose example remains unrun. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -55959,13 +55999,22 @@
           ]
         },
         {
+          "id": "DESIGN-101-GO-SDK",
+          "description": "The pinned Go storage v1.70.0 client, created with STORAGE_EMULATOR_HOST set to the trusted listener and no credentials, so the SDK adds option.WithoutAuthentication, acts as trusted_principal: it creates a bucket whose IAM policy grants nothing to allUsers or allAuthenticatedUsers, uploads an object whose owner is the principal, reads it with the SDK's default XML media reads, lists and deletes objects, and finishes a three-chunk resumable upload whose Location and every chunk request stay on the trusted listener. JSON metadata, JSON media and XML reads of the same object without credentials on the main listener answer 401.",
+          "result": "PASS",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
+        },
+        {
           "id": "DESIGN-101-PENDING",
-          "description": "Run the documented Compose example with the image (inline identity file, unpublished trusted port, an application container on gcs:4444, a browser on the published main port) and an unmodified Go storage client with STORAGE_EMULATOR_HOST against the trusted listener. gRPC stays out of scope.",
+          "description": "Run the documented Compose example with the image (inline identity file, unpublished trusted port, an application container on gcs:4444, a browser on the published main port). gRPC stays out of scope.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
+        "TestTrustedListenerServesTheEmulatorHostClient",
         "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
         "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
         "help_output_keeps_its_exact_bytes",
@@ -56092,11 +56141,36 @@
           "test_ids": [
             "help_output_keeps_its_exact_bytes"
           ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.311.0",
+          "transport": "HTTP JSON metadata, XML media reads, multipart and resumable uploads on the trusted listener through STORAGE_EMULATOR_HOST without credentials; anonymous JSON and XML reads on the main listener answer 401",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
+        }
+      ],
       "known_deviations": [
-        "The documented Compose example and an unmodified Go storage client against the trusted listener have not been run. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "The documented Compose example has not been run. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-08"

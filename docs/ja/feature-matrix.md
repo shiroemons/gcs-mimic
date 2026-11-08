@@ -765,7 +765,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-030 | V4 RSA署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-031 | V4 HMAC署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-032 | 署名付きURLの日時・有効期限制約 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-033 | V4の正規化対象Host・ポート | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
+| DESIGN-033 | V4の正規化対象Host・ポート | IMPLEMENTED | P2 | EXACT | EXACT | 6 |
 | DESIGN-034 | V4のパス符号化・Unicode処理 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-035 | V4クエリの並べ替え・符号化 | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-036 | V4署名対象ヘッダーの正規化 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
@@ -825,7 +825,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-006 | ユーザー・グループ所属のローカル定義 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-009 | カスタムロールのローカル設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-011 | プロジェクトをまたぐ主体・所有関係の再現 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-101 | strictモードでアプリのサーバー向けに使う信頼済みリスナー | PARTIAL | P2 | PROJECT | PROJECT | 0 |
+| DESIGN-101 | strictモードでアプリのサーバー向けに使う信頼済みリスナー | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 
 ### CLI compatibility
 
@@ -957,7 +957,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 4 |
-| DESIGN-084 | Rails Active Storageの一連の操作 | PARTIAL | P2 | PROJECT | PROJECT | 1 |
+| DESIGN-084 | Rails Active Storageの一連の操作 | PARTIAL | P2 | PROJECT | PROJECT | 2 |
 | DESIGN-085 | Node公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-086 | Python公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-087 | Rust公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |

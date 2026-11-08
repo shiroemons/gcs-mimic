@@ -131,6 +131,50 @@ the complete current native/source-image/strict-Compose guide passed, including 
 HMAC, Authorization-header V4, V2, POST policy and signed resumable rows are unchanged.
 Next: delivery order 18, actual signed browser transfers using existing CORS/TLS.
 
+## Built-in test signer and lenient host ports with official SDKs
+
+Checked **2026-11-08** on macOS arm64 over HTTP, for DESIGN-033, DESIGN-084 and
+SPEC-GO-SIGNER-PORT. No container, browser or real-cloud run was performed.
+
+| Command | Result |
+| --- | --- |
+| `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` | PASS: `go vet`, then 90 top-level tests passed, 1 skipped (`TestV2RSASignedTransfers`, which needs the HTTPS profile), 0 failed; `TestBuiltInSignerURLsPassUnderLenientHostPort` and its `ExactServerNamesTheSetting` subtest passed |
+| `bash sdk-tests/ruby/active_storage/run-strict.sh` | PASS: signing self-check, then 3 PASS and 0 FAIL for each of the registered-key and built-in test signer variants |
+| `bash scripts/sdk-active-storage.sh` | Unchanged: scenario 1 PASS, 6 PASS_WITH_WORKAROUND and the known AS-DEFAULT-AUTH FAIL (exit 1, as documented); attachments 11 PASS, 0 FAIL; production check PASS |
+
+Go 1.27.3 / storage v1.70.0 / API v0.311.0. `scripts/sdk-go.sh` starts a third
+strict server for the Go suite with `--test-signer enabled` and
+`--signed-host-port lenient`; its identity file grants
+`test-signer@gcs-mimic.invalid` `roles/storage.objectUser` on `local-project`.
+The test runs `gcs-mimic test-signer credentials` and passes its `client_email`
+and `private_key` to an unmodified `storage.SignedURL` with
+`SigningSchemeV4`, `Hostname` set to the server's `127.0.0.1:PORT` and
+`Insecure`. The SDK keeps the port in the URL and drops it from the Host it
+signs. Sent unchanged to that host:port, the GET URL returns the object and the
+PUT URL with `ContentType: text/plain` stores the body with the signer as owner.
+A tampered query, a changed Content-Type and a GET with the PUT URL fail with 403
+`SignatureDoesNotMatch` and leave the object unchanged. A selected run whose
+server logs were printed showed one `signature_host_port_omitted` warning. The
+subtest sends the same kind of URL,
+signed as `local-admin@example.invalid` with the same published key, to the
+default exact strict server, which rejects it with 403 `SignatureDoesNotMatch`
+and the message naming `signed_host_port=lenient`. `TestV4RSASignedDownload`
+keeps asserting that unmodified URLs for a host:port fail on that server.
+
+Ruby 4.0.9 / Bundler 4.0.24 / Rails 8.1.4.1 / google-cloud-storage 1.62.1 /
+googleauth 1.17.6. `run-strict.sh` runs `strict.rb` twice. The second server runs
+`--test-signer enabled` with an identity file that declares only
+`test-signer@gcs-mimic.invalid`, with `roles/storage.admin` on `local-project` and
+no keys. Its `gcs_emulator_test_signer` storage.yml entry follows the documented
+recipe: `client_email: test-signer@gcs-mimic.invalid` and the private key that
+`gcs-mimic test-signer credentials | jq -r .private_key` writes. The built-in key
+is byte-identical to `fixtures/signing/test-only-private.pem`. Rails' self-signed
+JWT bearer, stock V2 URLs and the `EmulatorGcs` V4 adapter pass
+`AS-STRICT-JWT-UPLOAD-DOWNLOAD`, `AS-STRICT-V2-DIRECT-UPLOAD-CORS` and
+`AS-STRICT-V4-DIRECT-UPLOAD-CORS`, including the anonymous 401, PAP and tampered
+V4 query negatives. A trusted listener would not help this path: Rails always
+presents its own JWT, which authenticates as its signer on every listener.
+
 ## Source pins
 
 Official documentation fetched on 2026-10-23. Digests identify complete fetched
