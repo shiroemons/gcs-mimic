@@ -19,7 +19,7 @@ use crate::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         UploadChunk, custom_time_key,
     },
-    server::{ObjectCtx, RequestCtx, ResponseBody, State, anonymous_error, boxed},
+    server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
     storage::ObjectUpload,
 };
 use http_body_util::Full;
@@ -612,7 +612,7 @@ pub(crate) async fn respond(
         version,
     } = plan(&form, &bucket)?;
     let fields = &form.fields;
-    let caller = authenticate(state, &headers, fields, version).await?;
+    let caller = authenticate(ctx, &headers, fields, version).await?;
     let range = fields
         .get("policy")
         .map(|policy| {
@@ -672,15 +672,16 @@ pub(crate) async fn respond(
 /// Authenticates a form upload from its policy fields, or from its Authorization header when
 /// the form has no policy.
 async fn authenticate<'a>(
-    state: &'a State,
+    ctx: RequestCtx<'a>,
     headers: &HeaderMap,
     fields: &BTreeMap<String, String>,
     version: Option<Version>,
 ) -> Result<Option<Caller<'a>>, Error> {
+    let state = ctx.state;
     let Some(policy) = fields.get("policy") else {
         return state
             .auth
-            .authenticate_request(headers, None, state.clock.as_ref())
+            .authenticate_request(headers, None, state.clock.as_ref(), ctx.listener)
             .await
             .map_err(|error| Error::from(JsonError::from(error)));
     };

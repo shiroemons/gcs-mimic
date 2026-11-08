@@ -457,6 +457,39 @@ impl Identity {
     }
 }
 
+/// The listener a request arrived on. It decides only who a request without credentials acts
+/// as: presented credentials authenticate the same way on every listener, and the caller then
+/// goes through the same authorization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListenerRole {
+    /// Serves browsers and every other client. A request without credentials is anonymous, so
+    /// only `allUsers` grants authorize it.
+    Public,
+    /// Serves the application's own servers on a private network. A request without credentials
+    /// acts as `trusted_principal`.
+    Trusted,
+}
+
+/// Why `trusted_principal` cannot name the identity it was given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrustedPrincipalError {
+    /// Only strict mode has registered identities to act as.
+    RequiresStrict,
+    /// No identity has that id: neither the identity file nor the built-in test signer.
+    Unknown,
+}
+
+impl fmt::Display for TrustedPrincipalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::RequiresStrict => "trusted_principal requires auth_mode=strict",
+            Self::Unknown => "trusted_principal is not a registered identity",
+        })
+    }
+}
+
+impl std::error::Error for TrustedPrincipalError {}
+
 /// The resolved strict-mode caller.
 #[derive(Clone, Copy, Debug)]
 pub enum Caller<'a> {
@@ -585,6 +618,8 @@ pub struct Registry {
     tokens: HashMap<String, usize>,
     signing_keys: SigningKeys,
     public_access_prevention_projects: Vec<String>,
+    /// The identity that requests without credentials on the trusted listener act as.
+    trusted: Option<usize>,
 }
 
 fn read_identity_file(path: &Path) -> Result<Vec<u8>, RegistryError> {
@@ -669,6 +704,7 @@ impl Registry {
             tokens: HashMap::new(),
             signing_keys: SigningKeys::default(),
             public_access_prevention_projects,
+            trusted: None,
         };
         for (index, entry) in entries.iter().enumerate() {
             registry.add_entry(entry, index, usage)?;
@@ -808,6 +844,17 @@ impl Registry {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.identities.len()
+    }
+
+    /// Who a request that presents no credentials acts as on `listener`.
+    fn caller_without_credentials(&self, listener: ListenerRole) -> Caller<'_> {
+        let trusted = match listener {
+            ListenerRole::Public => None,
+            ListenerRole::Trusted => self.trusted.and_then(|index| self.identities.get(index)),
+        };
+        // A trusted listener without a principal stays anonymous, so a missing setting can only
+        // take access away.
+        trusted.map_or(Caller::Anonymous, Caller::Principal)
     }
 
     fn identity(&self, id: &str) -> Option<&Identity> {
@@ -1056,6 +1103,21 @@ impl Auth {
         self.local_creator_entity.as_deref()
     }
 
+    /// Makes requests without credentials on the trusted listener act as the registered identity
+    /// `id`, which may be the built-in test signer when it is enabled.
+    pub fn trust_principal(&mut self, id: &str) -> Result<(), TrustedPrincipalError> {
+        let Profile::Strict(registry) = &mut self.profile else {
+            return Err(TrustedPrincipalError::RequiresStrict);
+        };
+        let index = registry
+            .ids
+            .get(id)
+            .copied()
+            .ok_or(TrustedPrincipalError::Unknown)?;
+        registry.trusted = Some(index);
+        Ok(())
+    }
+
     pub fn mode(&self) -> AuthMode {
         match self.profile {
             Profile::Permissive | Profile::VerifyingPermissive(_) => AuthMode::Permissive,
@@ -1088,8 +1150,20 @@ impl Auth {
         headers: &HeaderMap,
         query: Option<&str>,
     ) -> Result<Option<Caller<'_>>, AuthFailure> {
+        self.authenticate_on(ListenerRole::Public, headers, query)
+            .await
+    }
+
+    /// [`Self::authenticate`] for a request that arrived on a `listener`.
+    #[cfg(test)]
+    pub(crate) async fn authenticate_on(
+        &self,
+        listener: ListenerRole,
+        headers: &HeaderMap,
+        query: Option<&str>,
+    ) -> Result<Option<Caller<'_>>, AuthFailure> {
         match self
-            .authenticate_request(headers, query, &crate::clock::SystemClock)
+            .authenticate_request(headers, query, &crate::clock::SystemClock, listener)
             .await
         {
             Ok(caller) => Ok(caller),
@@ -1098,17 +1172,20 @@ impl Auth {
         }
     }
 
+    /// The one place a listener's role affects authentication: only a request that presents no
+    /// credentials at all changes, so invalid credentials fail on every listener.
     pub(crate) async fn authenticate_request(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,
         clock: &dyn crate::clock::Clock,
+        listener: ListenerRole,
     ) -> Result<Option<Caller<'_>>, AuthError> {
         let Some(registry) = self.registry() else {
             return Ok(None);
         };
         let identity = match Self::presented(registry, headers, query, clock)? {
-            Presented::Anonymous => return Ok(Some(Caller::Anonymous)),
+            Presented::Anonymous => return Ok(Some(registry.caller_without_credentials(listener))),
             Presented::Token(identity) => Some(identity),
             Presented::Jwt { candidate, warn } => {
                 let identity = candidate.verify(&self.verifiers).await?;
@@ -1926,6 +2003,71 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn the_trusted_listener_changes_only_requests_without_credentials() {
+        let id = |result: Result<Option<Caller<'_>>, AuthFailure>| match result {
+            Ok(Some(Caller::Principal(identity))) => Ok(Some(identity.id().to_owned())),
+            Ok(Some(Caller::Anonymous)) => Ok(None),
+            Ok(None) => panic!("strict mode must resolve a caller"),
+            Err(error) => Err(error),
+        };
+        let mut registry = Registry::parse(
+            br#"{"identities":[{"id":"app@example.invalid","tokens":["app-token"],"project_roles":{"p":["roles/storage.objectAdmin"]}},{"id":"other@example.invalid","tokens":["other-token"]}]}"#,
+        )
+        .unwrap();
+        registry.add_test_signer().unwrap();
+        let mut auth = Auth::strict(registry);
+        let trusted = ListenerRole::Trusted;
+        // Until a principal is named the trusted listener grants nothing more than the public one.
+        assert_eq!(
+            id(auth.authenticate_on(trusted, &headers(&[]), None).await),
+            Ok(None)
+        );
+        assert_eq!(
+            auth.trust_principal("missing@example.invalid"),
+            Err(TrustedPrincipalError::Unknown)
+        );
+        auth.trust_principal("app@example.invalid").unwrap();
+        assert_eq!(
+            id(auth.authenticate_on(trusted, &headers(&[]), None).await),
+            Ok(Some("app@example.invalid".into()))
+        );
+        assert_eq!(
+            id(auth.authenticate(&headers(&[]), None).await),
+            Ok(None),
+            "the public listener keeps anonymous requests anonymous"
+        );
+        assert_eq!(
+            id(auth
+                .authenticate_on(trusted, &headers(&[b"Bearer other-token"]), None)
+                .await),
+            Ok(Some("other@example.invalid".into()))
+        );
+        for (values, query) in [
+            (&[&b"Bearer unknown-token"[..]][..], None),
+            (&[b"Bearer"], None),
+            (&[b"Basic YXBwOg=="], None),
+            (&[b"Bearer app-token", b"Bearer app-token"], None),
+            (&[], Some("access_token=app-token")),
+            (&[], Some("X-Goog-Credential=unknown")),
+        ] {
+            assert_eq!(
+                id(auth.authenticate_on(trusted, &headers(values), query).await),
+                Err(AuthFailure::InvalidCredentials),
+                "{values:?} {query:?}"
+            );
+        }
+        auth.trust_principal(test_signer::ID).unwrap();
+        assert_eq!(
+            id(auth.authenticate_on(trusted, &headers(&[]), None).await),
+            Ok(Some(test_signer::ID.into()))
+        );
+        assert_eq!(
+            Auth::permissive().trust_principal("app@example.invalid"),
+            Err(TrustedPrincipalError::RequiresStrict)
+        );
+    }
+
     #[test]
     fn registry_validation_rejects_invalid_files_without_partial_load() {
         let valid = |identity: &str| format!(r#"{{"identities":[{identity}]}}"#);
@@ -2076,7 +2218,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer extra-999".parse().unwrap());
         let caller = auth
-            .authenticate_request(&headers, None, &crate::clock::SystemClock)
+            .authenticate_request(
+                &headers,
+                None,
+                &crate::clock::SystemClock,
+                ListenerRole::Public,
+            )
             .await
             .unwrap()
             .unwrap();

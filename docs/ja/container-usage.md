@@ -328,6 +328,86 @@ JSON-BUCKETS-002、JSON-BUCKETS-008、DESIGN-062はPARTIAL、
 BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 詳細は[英語の契約](../en/slices/bucket-initialization.md)を参照してください。
 
+## 信頼済みリスナーで非公開バケットを守る
+
+strictモードでは、認証情報のないリクエストは匿名になり、`allUsers`の権限でだけ許可されます。
+ブラウザーにはこれが望ましく、ページは公開バケットを読み、非公開バケットには署名URLでだけアクセスします。
+一方、アプリのサーバーもエミュレーターには認証情報を送らないことが多く（`STORAGE_EMULATOR_HOST`を設定したGo storageや、resumableアップロードを開始するHTTPクライアントなど）、同じく匿名になります。
+信頼済みリスナーはこうしたサーバー専用のポートを用意し、アプリのコードを変えずに済むようにします。
+
+- 信頼済みリスナーで認証情報のないリクエストは、登録済みのIDである`trusted_principal`として扱います。
+  そのうえで、そのIDのトークンを送ったリクエストと同じIAM・ACL・公開アクセス防止の確認を受け、書き込んだオブジェクトの所有者もそのIDになります。
+- 認証情報（bearerトークン、自己署名JWT、署名URLのパラメーター、署名の`Authorization`ヘッダー、POSTポリシー）付きのリクエストは、メインのリスナーとまったく同じく認証します。
+  不正な認証情報はエラーになり、`trusted_principal`には切り替わりません。
+  [Rails Active Storageのレシピ](rails-active-storage.md)は常に自分のトークンを送るので、そのトークンの署名者の登録が引き続き必要です。
+- `Origin`ヘッダーがある、または`Sec-Fetch-Site`が`none`以外のリクエストは、ルーティングの前に403になります。
+  サーバー側のクライアントはどちらのヘッダーも送りません。
+- メインのリスナーのすべてのルート（JSON、XML、アップロード、batch、`/_internal`）に応答します。
+  管理ルートには引き続き`admin_principal`が必要なので、トークンなしで使えるのは`trusted_principal`がそのIDを指すときだけです。
+  gRPCには信頼済みリスナーはありません。
+- 非公開のコンテナネットワーク向けなので、`scheme`に関係なく平文HTTPで待ち受けます。
+  `max_connections`とすべてのタイムアウトは、ほかのリスナーと共有します。
+  `GCS_MIMIC_API_BASE_URL`でアドレスを固定しない限り、APIが返すリンクは各リクエストのHostに従うため、`gcs:4444`経由で開始したresumableセッションはそのまま`gcs:4444`で続けられます。
+
+`GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）と`GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）は一緒に設定します。
+片方だけの指定、permissiveモード（すべてのリクエストがすでに許可されるため）、`unix_socket`との併用、ほかのリスナーと同じアドレス、IDファイルにも`test_signer=enabled`の組み込みテスト署名者にも当たらないIDのいずれかでは、起動が止まります。
+ready通知は、bindした`trusted_listen`と`trusted_principal`を返します。
+
+> [!WARNING]
+> 信頼済みリスナーのポートは公開せず、ほかの人やマシンと共有するネットワークでbindしないでください。
+> 届いたリクエストはすべて、認証情報なしで`trusted_principal`として扱われます。
+> ブラウザーの確認が拒否するのはページからのリクエストで、ほかのプログラムは防げません。
+> また、ブラウザーは`Sec-Fetch-Site`をループバックとHTTPSのアドレスにだけ送り、通常のリンクや画像には`Origin`を付けないため、ブラウザーからのリクエストもすべては防げません。
+
+ワイルドカードのアドレスでも警告は出しません。
+コンテナ内では、ほかのコンテナから届くように`0.0.0.0`でbindする必要があり、警告は起動のたびに出てしまうからです。
+`ports:`に載せないことが保護になります。
+次の例では、アプリのコンテナは信頼済みリスナーを、ブラウザーは公開したメインのリスナーを使い、IDファイルはComposeに直接書きます
+（`content`での直接記述にはDocker Compose 2.23.1以降が必要です。[バケットファイルの例](fake-gcs-server-migration.md#バケットファイルをcomposeyamlに書く)も参照してください）。
+
+```yaml
+services:
+  gcs:
+    image: ghcr.io/shiroemons/gcs-mimic:0.13.0
+    ports:
+      # The browser-facing listener only; port 4444 is never published.
+      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+    environment:
+      GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_AUTH_MODE: strict
+      GCS_MIMIC_IDENTITY_FILE: /etc/gcs-mimic/identities.json
+      GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
+      GCS_MIMIC_TRUSTED_PRINCIPAL: app@example.invalid
+    configs:
+      - source: gcs_identities
+        target: /etc/gcs-mimic/identities.json
+    volumes:
+      - gcs-data:/var/lib/gcs-mimic
+  app:
+    build: .
+    environment:
+      STORAGE_EMULATOR_HOST: gcs:4444
+    depends_on:
+      gcs:
+        condition: service_healthy
+configs:
+  gcs_identities:
+    content: |
+      {"identities": [
+        {"id": "app@example.invalid", "tokens": [],
+         "project_roles": {"local-project": ["roles/storage.admin"]}}
+      ]}
+volumes:
+  gcs-data:
+```
+
+アプリはトークンを送らないので、このIDにトークンは不要です。ロールはアプリに必要なものだけを与えます。
+ページは`http://localhost:${GCS_MIMIC_PORT:-4443}`を使います。
+ポリシーで`allUsers`に`roles/storage.objectViewer`を与えたバケットは匿名で読め、非公開のオブジェクトは署名URLがなければ401になります。
+アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDファイルに登録した鍵で作ります（[署名URL](../en/signed-urls.md)、英語）。
+イメージのhealthcheckはメインのリスナーを確認するので、変更は不要です。
+DESIGN-101はPARTIALです。[検証結果（英語）](../en/evidence/trusted-listener.md)を参照してください。
+
 ## 詳しい手順
 
 - [HTTPSと証明書](../en/local-https.md#local-https-with-an-explicit-development-ca)

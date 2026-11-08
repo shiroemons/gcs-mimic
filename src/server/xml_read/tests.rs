@@ -29,6 +29,7 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
         config: &config,
         endpoints: &endpoints,
         activity: &activity,
+        listener: crate::auth::ListenerRole::Public,
     };
     for (method, uri, data) in [
         (
@@ -138,6 +139,7 @@ async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
         config: &config,
         endpoints: &endpoints,
         activity: &activity,
+        listener: crate::auth::ListenerRole::Public,
     };
     let request = Request::builder()
         .method("POST")

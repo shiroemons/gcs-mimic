@@ -3,7 +3,7 @@
 use crate::{
     config::{Config, EndpointSnapshot},
     json::JsonError,
-    server::{RequestBody, RequestCtx},
+    server::{RequestBody, RequestCtx, browser},
     url::PublicOrigin,
 };
 use hyper::{Request, StatusCode, http::uri::Authority};
@@ -12,13 +12,7 @@ pub(super) fn browser_or_misdirected(
     request: &Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Result<(), JsonError> {
-    if request.headers().contains_key("origin")
-        || request
-            .headers()
-            .get_all("sec-fetch-site")
-            .iter()
-            .any(|v| v != "none")
-    {
+    if browser::initiated(request.headers()) {
         return Err(JsonError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
@@ -198,6 +192,7 @@ mod tests {
                 config: &config,
                 endpoints: &endpoints,
                 activity: &activity,
+                listener: crate::auth::ListenerRole::Public,
             };
             assert_eq!(
                 browser_or_misdirected(&request, ctx)
@@ -234,6 +229,7 @@ mod tests {
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener: crate::auth::ListenerRole::Public,
         };
         for path in [
             "/_internal/config",

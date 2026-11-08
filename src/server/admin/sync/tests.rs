@@ -349,6 +349,7 @@ impl Fixture {
                 config: &self.config,
                 endpoints: &endpoints,
                 activity: &activity,
+                listener: crate::auth::ListenerRole::Public,
             },
         )
         .await

@@ -499,6 +499,7 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
         headers: &HeaderMap::new(),
         clock: &Fixed(now),
         resource: &Resource::PathStyle,
+        listener: crate::auth::ListenerRole::Public,
     })
     .await
     .err()

@@ -315,7 +315,12 @@ async fn control_authority(
         hyper::header::HeaderValue::from_static("Bearer control-token"),
     );
     let identity = auth
-        .authenticate_request(&headers, None, &crate::clock::SystemClock)
+        .authenticate_request(
+            &headers,
+            None,
+            &crate::clock::SystemClock,
+            crate::auth::ListenerRole::Public,
+        )
         .await
         .unwrap()
         .unwrap()

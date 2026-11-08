@@ -1,5 +1,5 @@
 use crate::{
-    auth::{self, Auth, Caller},
+    auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     config::{Config, ConnectionScheme},
@@ -104,6 +104,7 @@ impl Default for WorkPools {
 pub(crate) use crate::json::RESOURCE_BODY_LIMIT;
 
 mod batch;
+mod browser;
 mod buckets;
 mod context;
 mod ingress;
@@ -754,22 +755,54 @@ pub(crate) async fn serve_with_tls_and_drain(
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
-    serve_with_grpc_and_drain(listeners, None, config, state, shutdown, background_drain).await
+    let listeners = TcpListeners {
+        public: listeners,
+        trusted: None,
+        grpc: None,
+    };
+    serve_with_grpc_and_drain(listeners, config, state, shutdown, background_drain).await
+}
+
+/// The TCP listeners of one server. They share `max_connections` and every timeout.
+pub struct TcpListeners {
+    /// The browser-facing listeners, each with its TLS acceptor when it serves HTTPS.
+    pub public: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    /// The plain HTTP listener for the application's own servers, where a request without
+    /// credentials acts as `trusted_principal`.
+    pub trusted: Option<TcpListener>,
+    /// The separate plaintext gRPC listener.
+    pub grpc: Option<TcpListener>,
 }
 
 pub async fn serve_with_grpc_and_drain(
-    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
-    grpc: Option<TcpListener>,
+    listeners: TcpListeners,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    let TcpListeners {
+        public,
+        trusted,
+        grpc,
+    } = listeners;
+    let public = public.into_iter().map(|(listener, tls)| {
+        let serving = Serving {
+            tls,
+            role: ListenerRole::Public,
+        };
+        (transport::Listener::Tcp(listener), serving)
+    });
+    // Plain HTTP whatever the scheme: the listener is meant for a private container network.
+    let trusted = trusted.map(|listener| {
+        let serving = Serving {
+            tls: None,
+            role: ListenerRole::Trusted,
+        };
+        (transport::Listener::Tcp(listener), serving)
+    });
     serve_transports(
-        listeners
-            .into_iter()
-            .map(|(listener, tls)| (transport::Listener::Tcp(listener), tls))
-            .collect(),
+        public.chain(trusted).collect(),
         grpc,
         config.into(),
         state,
@@ -777,6 +810,21 @@ pub async fn serve_with_grpc_and_drain(
         background_drain,
     )
     .await
+}
+
+/// How the HTTP connections a listener accepts are served.
+#[derive(Clone)]
+struct Serving {
+    /// Present when the listener serves HTTPS.
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    role: ListenerRole,
+}
+
+/// What the requests of one connection learn from the listener that accepted it.
+#[derive(Clone, Copy)]
+struct Listening {
+    scheme: ConnectionScheme,
+    role: ListenerRole,
 }
 
 #[cfg(unix)]
@@ -787,8 +835,12 @@ pub async fn serve_with_unix_and_drain(
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    let serving = Serving {
+        tls: None,
+        role: ListenerRole::Public,
+    };
     serve_transports(
-        vec![(transport::Listener::Unix(listener), None)],
+        vec![(transport::Listener::Unix(listener), serving)],
         None,
         config.into(),
         state,
@@ -799,7 +851,7 @@ pub async fn serve_with_unix_and_drain(
 }
 
 async fn serve_transports(
-    mut listeners: Vec<(transport::Listener, Option<tokio_rustls::TlsAcceptor>)>,
+    mut listeners: Vec<(transport::Listener, Serving)>,
     grpc: Option<TcpListener>,
     config: Arc<Config>,
     state: Arc<State>,
@@ -815,7 +867,13 @@ async fn serve_transports(
     }
     let grpc_index = grpc.as_ref().map(|_| listeners.len());
     if let Some(listener) = grpc {
-        listeners.push((transport::Listener::Tcp(listener), None));
+        // gRPC serves its connections itself; its calls always authenticate as on a public
+        // listener, so nothing here applies to them.
+        let unused = Serving {
+            tls: None,
+            role: ListenerRole::Public,
+        };
+        listeners.push((transport::Listener::Tcp(listener), unused));
     }
     let (stop, _) = watch::channel(false);
     let slots = Arc::new(SlotReclaim::default());
@@ -908,7 +966,7 @@ async fn serve_transports(
 
 /// What the accept loop shares with every connection task it starts.
 struct ConnectionStarter<'a> {
-    listeners: &'a [(transport::Listener, Option<tokio_rustls::TlsAcceptor>)],
+    listeners: &'a [(transport::Listener, Serving)],
     grpc_index: Option<usize>,
     config: &'a Arc<Config>,
     state: &'a Arc<State>,
@@ -923,10 +981,10 @@ impl ConnectionStarter<'_> {
         index: usize,
         stream: transport::Stream,
     ) -> io::Result<()> {
-        let Some((_, acceptor)) = self.listeners.get(index) else {
+        let Some((_, serving)) = self.listeners.get(index) else {
             return Err(io::Error::other("Accepted connection has no listener"));
         };
-        let acceptor = acceptor.clone();
+        let serving = serving.clone();
         let grpc_index = self.grpc_index;
         let state = self.state.clone();
         let config = self.config.clone();
@@ -938,11 +996,11 @@ impl ConnectionStarter<'_> {
                     crate::grpc::serve_connection(stream, &config, state, stopping, &slots).await;
                 }
                 transport::Stream::Tcp(stream) => {
-                    serve_http(stream, acceptor, state, config, stopping, slots).await;
+                    serve_http(stream, serving, state, config, stopping, slots).await;
                 }
                 #[cfg(unix)]
                 transport::Stream::Unix(stream) => {
-                    serve_http(stream, None, state, config, stopping, slots).await;
+                    serve_http(stream, serving, state, config, stopping, slots).await;
                 }
             }
         };
@@ -1033,7 +1091,7 @@ impl Drop for IdleTurn<'_> {
 }
 
 fn poll_incoming(
-    listeners: &[(transport::Listener, Option<tokio_rustls::TlsAcceptor>)],
+    listeners: &[(transport::Listener, Serving)],
     next: usize,
     cx: &mut std::task::Context<'_>,
 ) -> std::task::Poll<Result<(usize, transport::Stream), (usize, io::Error)>> {
@@ -1065,13 +1123,14 @@ fn poll_incoming(
 
 async fn serve_http(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    acceptor: Option<tokio_rustls::TlsAcceptor>,
+    serving: Serving,
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
     slots: Arc<SlotReclaim>,
 ) {
-    if let Some(acceptor) = acceptor {
+    let Serving { tls, role } = serving;
+    if let Some(acceptor) = tls {
         let handshake = tokio::time::timeout_at(
             config.tls_handshake_timeout.deadline(),
             acceptor.accept(stream),
@@ -1085,25 +1144,17 @@ async fn serve_http(
                 Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
             }
         };
-        serve_connection(
-            stream,
-            ConnectionScheme::Https,
-            state,
-            config,
-            stopping,
-            slots,
-        )
-        .await;
+        let listening = Listening {
+            scheme: ConnectionScheme::Https,
+            role,
+        };
+        serve_connection(stream, listening, state, config, stopping, slots).await;
     } else {
-        serve_connection(
-            stream,
-            ConnectionScheme::Http,
-            state,
-            config,
-            stopping,
-            slots,
-        )
-        .await;
+        let listening = Listening {
+            scheme: ConnectionScheme::Http,
+            role,
+        };
+        serve_connection(stream, listening, state, config, stopping, slots).await;
     }
 }
 
@@ -1171,7 +1222,7 @@ fn http1_builder() -> http1::Builder {
 
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    scheme: ConnectionScheme,
+    listening: Listening,
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
@@ -1182,7 +1233,7 @@ async fn serve_connection(
     let reads = Arc::new(ReadActivity::default());
     let builder = http1_builder();
     let service = ConnectionService {
-        scheme,
+        listening,
         state,
         config,
         activity: activity.clone(),
@@ -1223,7 +1274,7 @@ async fn serve_connection(
 /// The per-request half of a connection: hyper calls it once for every request head.
 #[derive(Clone)]
 struct ConnectionService {
-    scheme: ConnectionScheme,
+    listening: Listening,
     state: Arc<State>,
     config: Arc<Config>,
     activity: watch::Sender<ObjectActivity>,
@@ -1249,7 +1300,7 @@ impl ConnectionService {
         request: Request<Incoming>,
     ) -> Result<Response<ResponseBody>, Infallible> {
         let Self {
-            scheme,
+            listening,
             state,
             config,
             activity,
@@ -1273,7 +1324,9 @@ impl ConnectionService {
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
         {
-            Ok(endpoints) => endpoints.for_request(scheme, request.uri(), request.headers()),
+            Ok(endpoints) => {
+                endpoints.for_request(listening.scheme, request.uri(), request.headers())
+            }
             Err(_) => {
                 return Ok(boxed(
                     JsonError::service_unavailable(
@@ -1292,6 +1345,7 @@ impl ConnectionService {
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener: listening.role,
         };
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.

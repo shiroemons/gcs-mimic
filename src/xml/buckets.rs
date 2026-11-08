@@ -45,6 +45,7 @@ pub(crate) async fn respond(
         headers: request.headers(),
         clock: ctx.state.clock.as_ref(),
         resource: &resource,
+        listener: ctx.listener,
     })
     .await
     {

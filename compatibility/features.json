@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 95
+    "project_requirement": 96
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -55815,6 +55815,188 @@
       "known_deviations": [],
       "implemented_in": "5eb3efdd0b7b4b83d1b419151e1a9d627ed035cf",
       "last_verified": "2026-10-29"
+    },
+    {
+      "id": "DESIGN-101",
+      "kind": "project_requirement",
+      "category": "Authentication",
+      "title": "Trusted listener for application servers in strict mode",
+      "interface": "Emulator configuration and listener authentication",
+      "phase": "P2",
+      "priority": "MEDIUM",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://w3c.github.io/webappsec-fetch-metadata/",
+        "https://fetch.spec.whatwg.org/"
+      ],
+      "source_checked_at": "2026-11-08",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "dependencies": [
+        "DESIGN-002",
+        "DESIGN-004"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-101-CONFIG",
+          "description": "Both settings require auth_mode=strict and each other; trusted_listen is a numeric IP:port, port 0 allowed, rejected with unix_socket and when it equals listen, the scheme=both HTTP listener or grpc_listen at a nonzero port; trusted_principal uses the identity id format; each failure names its setting; the help digest pins the option lines.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+            "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
+            "help_output_keeps_its_exact_bytes"
+          ]
+        },
+        {
+          "id": "DESIGN-101-PRINCIPAL",
+          "description": "The principal must name an identity of the loaded registry, including the built-in test signer only when it is enabled; an unknown principal stops startup before the data directory is created; permissive mode cannot trust a principal; without a trusted principal the trusted role stays anonymous.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::the_trusted_listener_changes_only_requests_without_credentials",
+            "startup_rejects_a_trusted_principal_missing_from_the_registry"
+          ]
+        },
+        {
+          "id": "DESIGN-101-WITHOUT-CREDENTIALS",
+          "description": "On the trusted listener a request without credentials creates a bucket, uploads media with the owner and ACL entities a token upload records, reads through JSON and XML, writes through XML PUT and starts and finishes a resumable session whose Location and mediaLink use the trusted Host; the same requests without credentials on the main listener answer 401.",
+          "result": "PASS",
+          "test_ids": [
+            "requests_without_credentials_act_as_the_trusted_principal_only_on_the_trusted_listener",
+            "auth::tests::the_trusted_listener_changes_only_requests_without_credentials"
+          ]
+        },
+        {
+          "id": "DESIGN-101-PRESENTED-CREDENTIALS",
+          "description": "On the trusted listener another identity's token acts as that identity (viewer reads, cannot create a bucket; a role-less token gets 403); unknown bearer, Basic and access_token credentials get 401 and an unverifiable V2 signed URL gets 403, never the principal; a bucket granting allUsers objectViewer stays readable without credentials through JSON and XML on the main listener while a private bucket stays 401.",
+          "result": "PASS",
+          "test_ids": [
+            "presented_credentials_and_public_grants_decide_alike_on_both_listeners",
+            "auth::tests::the_trusted_listener_changes_only_requests_without_credentials"
+          ]
+        },
+        {
+          "id": "DESIGN-101-BROWSER",
+          "description": "Any Origin header, including null, and Sec-Fetch-Site other than none get 403 naming the trusted listener before routing on JSON, XML and probe routes; Sec-Fetch-Site none passes; the main listener answers the same requests as before; management uses the same shared check.",
+          "result": "PASS",
+          "test_ids": [
+            "browser_initiated_requests_are_refused_on_the_trusted_listener_only",
+            "server::browser::tests::only_the_trusted_listener_refuses_browser_initiated_requests",
+            "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate"
+          ]
+        },
+        {
+          "id": "DESIGN-101-ROUTES",
+          "description": "Batch parts authenticate as on the envelope's listener; management still requires admin_principal and works without a token on the trusted listener only when trusted_principal names that identity, while a presented non-administrator token is 403 on both listeners.",
+          "result": "PASS",
+          "test_ids": [
+            "batch_parts_and_management_follow_the_listener_of_their_request",
+            "server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles"
+          ]
+        },
+        {
+          "id": "DESIGN-101-READY",
+          "description": "Ready reports the bound trusted_listen and trusted_principal outside listeners; without the settings the ready key set is unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "requests_without_credentials_act_as_the_trusted_principal_only_on_the_trusted_listener",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
+        {
+          "id": "DESIGN-101-PENDING",
+          "description": "Run the documented Compose example with the image (inline identity file, unpublished trusted port, an application container on gcs:4444, a browser on the published main port) and an unmodified Go storage client with STORAGE_EMULATOR_HOST against the trusted listener. gRPC stays out of scope.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+        "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
+        "help_output_keeps_its_exact_bytes",
+        "auth::tests::the_trusted_listener_changes_only_requests_without_credentials",
+        "startup_rejects_a_trusted_principal_missing_from_the_registry",
+        "requests_without_credentials_act_as_the_trusted_principal_only_on_the_trusted_listener",
+        "presented_credentials_and_public_grants_decide_alike_on_both_listeners",
+        "browser_initiated_requests_are_refused_on_the_trusted_listener_only",
+        "server::browser::tests::only_the_trusted_listener_refuses_browser_initiated_requests",
+        "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate",
+        "batch_parts_and_management_follow_the_listener_of_their_request",
+        "server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib auth::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "auth::tests::the_trusted_listener_changes_only_requests_without_credentials"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib config::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+            "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib server::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "server::browser::tests::only_the_trusted_listener_refuses_browser_initiated_requests",
+            "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate",
+            "server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles"
+          ]
+        },
+        {
+          "command": "cargo test --locked --bin gcs-mimic",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "help_output_keeps_its_exact_bytes"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_xml_auth trusted_listener",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "startup_rejects_a_trusted_principal_missing_from_the_registry",
+            "requests_without_credentials_act_as_the_trusted_principal_only_on_the_trusted_listener",
+            "presented_credentials_and_public_grants_decide_alike_on_both_listeners",
+            "browser_initiated_requests_are_refused_on_the_trusted_listener_only",
+            "batch_parts_and_management_follow_the_listener_of_their_request"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_process foundation",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [
+        "The documented Compose example and an unmodified Go storage client against the trusted listener have not been run. The browser refusal relies on Origin and Sec-Fetch-Site: browsers send Sec-Fetch-Site only to loopback and HTTPS addresses and no Origin for a plain link or image GET, so it does not stop every browser request and keeping the port unpublished remains the protection. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-11-08"
     },
     {
       "id": "UX-001",

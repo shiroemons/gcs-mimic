@@ -75,6 +75,7 @@ impl Fixture {
             config: &self.config,
             endpoints: &self.endpoints,
             activity: &activity,
+            listener: crate::auth::ListenerRole::Public,
         };
         let (caller, streaming) =
             crate::xml::authenticate_upload_target(crate::xml::Authentication {
@@ -85,6 +86,7 @@ impl Fixture {
                 headers: request.headers(),
                 clock: self.state.clock.as_ref(),
                 resource: &crate::auth::signature::Resource::PathStyle,
+                listener: ctx.listener,
             })
             .await?;
         let operation = super::super::super::route(

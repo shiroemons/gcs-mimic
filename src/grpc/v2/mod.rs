@@ -15,7 +15,7 @@ mod update_copy;
 
 use crate::grpc::generated::google::{iam::v1 as iam, storage::v2 as pb};
 use crate::{
-    auth::{AuthError, Caller},
+    auth::{AuthError, Caller, ListenerRole},
     server::State,
 };
 use std::{pin::Pin, sync::Arc};
@@ -121,10 +121,16 @@ impl Storage {
     ) -> impl Future<Output = Result<Option<Caller<'_>>, Status>> + Send {
         let headers = request.metadata().clone().into_headers();
         async move {
+            // gRPC has no trusted listener, so a call without credentials is always anonymous.
             let caller = self
                 .state
                 .auth
-                .authenticate_request(&headers, None, self.state.clock.as_ref())
+                .authenticate_request(
+                    &headers,
+                    None,
+                    self.state.clock.as_ref(),
+                    ListenerRole::Public,
+                )
                 .await
                 .map_err(auth_error)?;
             Ok(caller)

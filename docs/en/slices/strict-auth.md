@@ -143,6 +143,20 @@ catalog access or existence check:
   key cannot hide a credential. These credentials never grant access or fall back
   to anonymous.
 
+### Trusted listener
+
+A later local extension, DESIGN-101, adds an optional `trusted_listen` for the
+application's own servers. There, and only there, a request that presents no
+credentials resolves to the registered `trusted_principal` instead of the
+anonymous caller; everything after that is the same strict decision code, so
+IAM, ACLs, public access prevention and object owners follow that identity.
+Presented credentials, including invalid ones and the query parameters above,
+resolve exactly as on the main listener, and a request with `Origin` or a
+`Sec-Fetch-Site` other than `none` gets 403 before routing. Both settings require
+strict mode and each other, and startup checks the principal against the loaded
+registry as it does `admin_principal`. gRPC has no trusted listener. See the
+[Compose example and warnings](../container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
+
 ### Errors
 
 | Condition | Status | Body |

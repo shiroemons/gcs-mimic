@@ -21,7 +21,7 @@ pub mod pb {
 }
 
 use crate::{
-    auth::{BUCKETS_LIST, Caller},
+    auth::{BUCKETS_LIST, Caller, ListenerRole},
     bucket::{BucketAccess, BucketConditions, CatalogError},
     grpc::{
         v2::status::unsupported,
@@ -246,9 +246,15 @@ impl Storage {
                     "legacy billing metadata; omit x-goog-user-project",
                 ));
             }
+            // gRPC has no trusted listener, so a call without credentials is always anonymous.
             self.state
                 .auth
-                .authenticate_request(&metadata.into_headers(), None, self.state.clock.as_ref())
+                .authenticate_request(
+                    &metadata.into_headers(),
+                    None,
+                    self.state.clock.as_ref(),
+                    ListenerRole::Public,
+                )
                 .await
                 .map_err(super::v2::auth_error)
         }

@@ -205,6 +205,7 @@ pub(super) async fn decode_metadata(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
+            ctx.listener,
         )
         .await
         .map_err(JsonError::from)?;
@@ -350,6 +351,7 @@ mod tests {
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener: crate::auth::ListenerRole::Public,
         };
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         encoder.write_all(b"{}").unwrap();

@@ -277,6 +277,21 @@ test "$cancellation_status" = 499
 Authority rewriting is scoped to unsigned permissive sessions. Never
 rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 
+### Strict mode without changing application servers
+
+fake-gcs-server checks no permissions, so application servers that move to
+strict mode would otherwise need credentials in every client: anonymous requests
+then reach only `allUsers` grants. To keep production-like access in the browser
+(public buckets through `allUsers`, private ones only through signed URLs)
+without that change, add a trusted listener on the Compose network, for example
+`GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444` with
+`GCS_MIMIC_TRUSTED_PRINCIPAL` naming a registered identity, and point the
+application services at `STORAGE_EMULATOR_HOST=gcs:4444`. Requests without
+credentials there act as that identity under the same authorization; requests
+with credentials authenticate as on the main listener, and browser-initiated
+requests get 403. Never publish that port. See the
+[Compose example](container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
+
 ### Rails Active Storage
 
 The data `endpoint` alone does not redirect OAuth: googleauth 1.17.6 requests
@@ -291,6 +306,9 @@ keep the production entry for production. See the
 An earlier recipe built the service in application code with a preset token
 and a one-day expiry. It is replaced: after the expiry, googleauth tried to
 refresh the token at Google. The entry works only with the permissive profile.
+A trusted listener does not change that: the entry always sends its own token,
+which authenticates as on the main listener, so strict mode needs its signer
+registered.
 
 ### Migration troubleshooting
 
