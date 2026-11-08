@@ -77,10 +77,29 @@ gcs_emulator: # development and test
 - **`universe_domain`で、RailsがGoogleに接続しなくなります。** これはGoogle Cloudの公開クラウド以外のクラウド向けの設定です。`googleapis.com`以外の値にすると、googleauthはGoogleのOAuthにトークンを取りに行かず、自分でトークンに署名します。これがないと、アップロードのたびに`oauth2.googleapis.com`へ接続しようとして失敗します。2か所に同じ値を書いてください。
 - **鍵は使い捨てです。** 開発・テストのときだけ起動時に生成し、ローカルのURLの署名に使います。Googleの認証情報ではありません。エミュレーターが知らない鍵のため、strictでは拒否されます。[手順6](#6-strictで本番に近い確認をする)では、代わりに組み込みのテスト署名者を使います。
 - `endpoint`の末尾の`/`は残します。
-- **`public: true`ではエミュレーターに届きません。**
-  `public: true`のサービスでは、Railsは各オブジェクトの公開URLを返します。
-  google-cloud-storage 1.62.1はこのURLを`endpoint`にかかわらず常に`https://storage.googleapis.com`で組み立てるため、ローカルのアプリの公開ファイルはエミュレーターから読み込まれません。
-  確認済みの回避策は、まだここに記載していません。
+- **`public: true`には回避策が必要です。** そのURLはエミュレーターに届きません。[公開ファイル](#公開ファイル)を参照してください。
+
+### 公開ファイル
+
+`public: true`のサービスでは、Railsは各ファイルを公開URLでリンクします。
+google-cloud-storage 1.62.1はこのURLを`endpoint`にかかわらず常に`https://storage.googleapis.com`で組み立てます。
+そのため、ローカルのアプリの公開画像はエミュレーターから読み込まれません。
+次のどちらの回避策でも、このURLをエミュレーターに向け、本番には影響しません。
+strictでは、[strictのローカル構成（英語）](../../examples/strict-local/README.md)のように、バケットに`allUsers`の`iamPolicy`も必要です。
+
+1. **推奨: `EmulatorGcs`アダプター。** [手順6](#6-strictで本番に近い確認をする)のとおりアダプターをコピーし、`public_url`メソッドを足します。
+   `service: EmulatorGcs`はローカルの`storage.yml`の項目だけで選びます。本番は`service: GCS`と本来のURLのままです。
+
+   ```ruby
+   # PLACEHOLDER: the verified public_url method for EmulatorGcs and its storage.yml entry.
+   ```
+
+2. **別の方法: initializer。** ローカルでも標準の`service: GCS`を使う場合は、`config/initializers`で`ActiveStorage::Service::GCSService`に`public_url`の上書きをprependします。
+   `GCS_EMULATOR_ENDPOINT`を設定したときだけ適用します。本番はこれを設定しないため、標準のURLのままです。
+
+   ```ruby
+   # PLACEHOLDER: the verified config/initializers patch.
+   ```
 
 ## 3. 環境ごとに項目を選ぶ
 

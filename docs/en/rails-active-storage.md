@@ -86,11 +86,36 @@ gcs_emulator: # development and test
   rejects it because the emulator does not know it; [step 6](#6-production-like-checks-in-strict-mode)
   uses the built-in test signer instead.
 - Keep the trailing `/` in `endpoint`.
-- **`public: true` does not reach the emulator.** For a service with
-  `public: true`, Rails returns each object's public URL, which
-  google-cloud-storage 1.62.1 always builds on `https://storage.googleapis.com`
-  whatever `endpoint` says, so a local app's public files never load from the
-  emulator. A verified workaround is not documented here yet.
+- **`public: true` needs a workaround.** Its URLs never reach the emulator;
+  see [public files](#public-files).
+
+### Public files
+
+For a service with `public: true`, Rails links each file at its public URL,
+and google-cloud-storage 1.62.1 always builds that URL on
+`https://storage.googleapis.com`, whatever `endpoint` says. A local app's public
+images therefore never load from the emulator. Either workaround below points
+those URLs at the emulator and leaves production untouched. In strict mode the
+bucket also needs an `allUsers` `iamPolicy`, as in the
+[strict local recipe](../../examples/strict-local/README.md).
+
+1. **Recommended: the `EmulatorGcs` adapter.** Copy the adapter as described in
+   [step 6](#6-production-like-checks-in-strict-mode), add a `public_url` method
+   to it, and select `service: EmulatorGcs` only in the local `storage.yml`
+   entry. Production keeps `service: GCS` and its own URLs.
+
+   ```ruby
+   # PLACEHOLDER: the verified public_url method for EmulatorGcs and its storage.yml entry.
+   ```
+
+2. **Alternative: an initializer.** To keep the stock `service: GCS` locally
+   too, prepend a `public_url` override to `ActiveStorage::Service::GCSService`
+   in `config/initializers`, applied only when `GCS_EMULATOR_ENDPOINT` is set.
+   Production does not set it and keeps the stock URLs.
+
+   ```ruby
+   # PLACEHOLDER: the verified config/initializers patch.
+   ```
 
 ## 3. Select the entry per environment
 
