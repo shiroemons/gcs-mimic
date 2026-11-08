@@ -374,8 +374,8 @@ would promise a verification that never happens. The identity document is
   supplies its tokens, project roles and ACL entity, and the built-in key is
   added to its `public_keys`: an explicit declaration replaces every implicit
   grant. Otherwise it holds `roles/storage.objectUser` in the effective
-  `seed_project` and in every project the buckets document (`buckets_file` or
-  `buckets`) names, and the warning says so. That is the least predefined role
+  `seed_project` and in the project of every bucket the buckets document
+  (`buckets_file` or `buckets`) creates, and the warning says so. That is the least predefined role
   that covers signed GET and PUT, overwrites and what Rails also does (delete,
   list and metadata updates), and it administers no IAM policy or ACL, which
   matters because anyone can sign with the published key. An object it writes

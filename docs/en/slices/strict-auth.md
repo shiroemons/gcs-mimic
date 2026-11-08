@@ -186,8 +186,13 @@ Without `trusted_principal`, the listener's requests without credentials act as
 the built-in application identity `trusted-app@gcs-mimic.invalid`, which differs
 from the permissive creator `local-user@gcs-mimic.invalid` and from the test
 signer. It holds `roles/storage.admin` in the effective `seed_project` and in
-every project the buckets document names (its top-level `project` and each
-entry's, from `buckets_file` or `buckets`), so the application's servers can
+the project of every bucket the buckets document creates (each entry's
+`project`, or else the document's top-level one, from `buckets_file` or
+`buckets`). Strict mode loads authentication before the bucket initializer
+runs, so configuration reads and parses that document once and keeps the
+parse; the initializer validates the same text instead of reading the file
+again, and a document that cannot be read or parsed fails startup there with
+the initializer's diagnostic. So the application's servers can
 read and write private buckets there and create buckets only in those projects;
 a bucket in any other project gets 403. Name an explicit identity with
 `trusted_principal` to cover other projects. The identity has no token and no

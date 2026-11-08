@@ -21,6 +21,9 @@ pub enum DocumentSource {
     /// up to 1 GiB. Shared, because validation tries every setting on a copy of the
     /// configuration, which must not copy the text with it.
     Inline(Arc<str>),
+    /// A buckets document that startup has already read, from either setting, and parsed once,
+    /// so that later phases use that version instead of reading the file again.
+    Parsed(crate::bucket_init::ParsedDocument),
 }
 
 impl DocumentSource {
@@ -28,6 +31,7 @@ impl DocumentSource {
         match self {
             Self::File(_) => Form::File,
             Self::Inline(_) => Form::Inline,
+            Self::Parsed(document) => document.form(),
         }
     }
 }
@@ -38,6 +42,12 @@ impl fmt::Debug for DocumentSource {
         match self {
             Self::File(path) => f.debug_tuple("File").field(path).finish(),
             Self::Inline(text) => write!(f, "Inline(<{} bytes>)", text.len()),
+            Self::Parsed(document) => write!(
+                f,
+                "Parsed({:?}, <{} bytes>)",
+                document.form(),
+                document.bytes().len()
+            ),
         }
     }
 }

@@ -417,7 +417,7 @@ strictモードでは、認証情報のないリクエストは匿名になり�
 
 `GCS_MIMIC_TRUSTED_LISTEN`（`--trusted-listen`、JSONの`trusted_listen`）を設定すると開きます。
 `GCS_MIMIC_TRUSTED_PRINCIPAL`（`--trusted-principal`、JSONの`trusted_principal`）を省略すると、信頼済みプリンシパルは組み込みの`trusted-app@gcs-mimic.invalid`です。
-このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）に出てくるすべてのprojectと、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
+このIDは、バケットの文書（`GCS_MIMIC_BUCKETS`か`GCS_MIMIC_BUCKETS_FILE`）が作るすべてのバケットのproject（項目の`project`、なければ文書の`project`）と、実際に使う`seed_project`で`roles/storage.admin`を持ちます。アプリのサーバーはプロジェクト所有者のサービスアカウントと同じ操作ができ、strictモードはIDの文書なしで起動できます。
 このロールは暗黙の付与なので、ディレクトリ同期の制御に必要な明示的な`roles/storage.admin`にはなりません。IDの文書でそのロールを付与するまで、信頼済みリスナーからの同期の制御は403になります。
 IDの文書（`GCS_MIMIC_IDENTITIES`か`GCS_MIMIC_IDENTITY_FILE`）に`trusted-app@gcs-mimic.invalid`の項目を書くと、そのロールに置き換わります。
 ほかのIDとして扱うには、`GCS_MIMIC_TRUSTED_PRINCIPAL`にIDの文書のIDか、有効にした組み込みテスト署名者を指定します。

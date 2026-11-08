@@ -281,11 +281,13 @@ impl ConfigurationReport {
     /// each failure or warning is recorded with the setting it concerns. Without a valid profile
     /// this is permissive, because validation has already reported why startup cannot proceed.
     pub fn load_auth(&mut self) -> Auth {
-        let Some(profile) = &self.auth_profile else {
+        // A copy shares its documents, and it leaves the report free to keep the buckets
+        // document that the implicit projects come from.
+        let Some(profile) = self.auth_profile.clone() else {
             return Auth::permissive();
         };
         // Only strict mode has built-in identities with implicit roles.
-        let (document, implicit_projects) = match profile {
+        let (document, implicit_projects) = match &profile {
             AuthProfile::Strict {
                 identities,
                 verification,
@@ -296,7 +298,7 @@ impl ConfigurationReport {
                 let projects = match (trusted, verification.test_signer) {
                     (TrustedCaller::BuiltIn, _)
                     | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
-                    | (_, TestSignerChoice::WhenDeclared) => self.config.implicit_projects(),
+                    | (_, TestSignerChoice::WhenDeclared) => self.implicit_projects(),
                     (
                         TrustedCaller::Anonymous | TrustedCaller::Named(_),
                         TestSignerChoice::Fixed(TestSigner::Disabled),
@@ -311,7 +313,7 @@ impl ConfigurationReport {
         };
         // The setting that supplied the identity document, which messages name.
         let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
-        match Auth::load(profile, &implicit_projects) {
+        match Auth::load(&profile, &implicit_projects) {
             Ok(mut auth) => {
                 self.warn_strict_test_signer(&auth, registry, &implicit_projects);
                 self.resolve_principals(&mut auth, registry);
@@ -425,19 +427,30 @@ impl ConfigurationReport {
             }
         }
     }
-}
 
-impl Config {
     /// Where the built-in identities hold their implicit roles: the effective `seed_project`
-    /// and every project the buckets document names, so that the application can manage the
-    /// buckets its own setup declares and nothing else.
-    fn implicit_projects(&self) -> BTreeSet<String> {
-        let mut projects = self
-            .buckets
-            .as_ref()
-            .map(|source| crate::bucket_init::named_projects(source, self.max_buckets_per_batch))
-            .unwrap_or_default();
-        projects.insert(self.seed_project.clone());
+    /// and the project of every bucket the buckets document creates, so that the application
+    /// can manage the buckets its own setup declares and nothing else.
+    ///
+    /// Authentication loads before the initializer's phase, so the document is read and parsed
+    /// here, once, and the configuration keeps that parse: the initializer then validates the
+    /// same version instead of reading the file again. A document that cannot be read or parsed
+    /// fails startup here, with the diagnostic the initializer would give.
+    fn implicit_projects(&mut self) -> BTreeSet<String> {
+        let mut projects = BTreeSet::new();
+        // Conflicting or invalid document settings were already reported, and nothing loads them.
+        if self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
+            && let Some(source) = &self.config.buckets
+        {
+            match crate::bucket_init::parse_document(source, self.config.max_buckets_per_batch) {
+                Ok(document) => {
+                    projects.clone_from(document.projects());
+                    self.config.buckets = Some(DocumentSource::Parsed(document));
+                }
+                Err(diagnostics) => self.diagnostics.errors.extend(diagnostics.errors),
+            }
+        }
+        projects.insert(self.config.seed_project.clone());
         projects
     }
 }

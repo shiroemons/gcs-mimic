@@ -22,10 +22,10 @@ use serde::{
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     path::Path,
+    sync::Arc,
     time::SystemTime,
 };
 
@@ -1310,34 +1310,77 @@ pub(crate) fn load(
     match source {
         DocumentSource::File(path) => check(&read_file(path, bucket_limit)?),
         DocumentSource::Inline(text) => check(text.as_bytes()),
+        // Configuration already read the document and parsed it as one JSON value.
+        DocumentSource::Parsed(document) => validate(
+            document.bytes(),
+            document.form(),
+            seed_project,
+            clock,
+            default_location,
+            bucket_limit,
+        ),
     }
 }
 
-/// The projects that the document `source` names: its top-level `project` and each entry's.
-/// The built-in identities hold their implicit roles there. Startup validates the whole document
-/// before any bucket exists and fails on any error, so one that cannot be read or parsed here
-/// names no project instead of failing twice.
-pub(crate) fn named_projects(
+/// A buckets document that startup read and parsed as one JSON value before the initializer's
+/// phase. Strict mode loads authentication first, and its built-in identities hold their
+/// implicit roles in the projects this parse finds; the initializer then validates these bytes
+/// instead of reading the file again. Both therefore see one version of a file that may change
+/// while the server starts, and a document of up to 1 GiB is read and parsed as one value once.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ParsedDocument {
+    form: Form,
+    /// One JSON value within the document limit; shared, because a configuration copy keeps it.
+    bytes: Arc<[u8]>,
+    /// The project of each bucket the document creates where the document names one: the
+    /// entry's `project`, or else the document's. Any other entry inherits `seed_project`.
+    projects: BTreeSet<String>,
+}
+
+impl ParsedDocument {
+    pub(crate) fn form(&self) -> Form {
+        self.form
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// With `seed_project`, the projects of the buckets the document creates. For a document
+    /// that validates, these are exactly the buckets' projects; one that does not stops startup
+    /// before they matter.
+    pub(crate) fn projects(&self) -> &BTreeSet<String> {
+        &self.projects
+    }
+}
+
+/// Reads the document that `source` names and parses it as one JSON value, failing with the
+/// diagnostic that the initializer gives an unreadable, oversized or malformed document.
+pub(crate) fn parse_document(
     source: &DocumentSource,
     bucket_limit: Option<NonZeroUsize>,
-) -> BTreeSet<String> {
-    let read = match source {
-        DocumentSource::File(path) => read_file(path, bucket_limit).ok().map(Cow::Owned),
-        DocumentSource::Inline(text) => Some(Cow::Borrowed(text.as_bytes())),
+) -> Result<ParsedDocument, Diagnostics> {
+    let (form, bytes): (Form, Arc<[u8]>) = match source {
+        DocumentSource::File(path) => (Form::File, read_file(path, bucket_limit)?.into()),
+        DocumentSource::Inline(text) => (Form::Inline, Arc::clone(text).into()),
+        DocumentSource::Parsed(document) => return Ok(document.clone()),
     };
-    let Some(document) = read.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else {
-        return BTreeSet::new();
-    };
-    let entries = document
+    let document = json_value(&bytes, form, bucket_limit)?;
+    // The same inheritance that `parse` applies to the records it builds.
+    let inherited = document.get("project").and_then(Value::as_str);
+    let projects = document
         .get("buckets")
         .and_then(Value::as_array)
         .into_iter()
-        .flatten();
-    std::iter::once(&document)
-        .chain(entries)
-        .filter_map(|object| object.get("project").and_then(Value::as_str))
+        .flatten()
+        .filter_map(|entry| entry.get("project").and_then(Value::as_str).or(inherited))
         .map(str::to_owned)
-        .collect()
+        .collect();
+    Ok(ParsedDocument {
+        form,
+        bytes,
+        projects,
+    })
 }
 
 fn read_file(file: &Path, bucket_limit: Option<NonZeroUsize>) -> Result<Vec<u8>, Diagnostics> {
@@ -1377,8 +1420,24 @@ pub(crate) fn parse(
     default_location: &str,
     bucket_limit: Option<NonZeroUsize>,
 ) -> Result<Vec<InitEntry>, Diagnostics> {
+    json_value(bytes, form, bucket_limit)?;
+    validate(
+        bytes,
+        form,
+        seed_project,
+        clock,
+        default_location,
+        bucket_limit,
+    )
+}
+
+/// The document's size and its parse as one JSON value, which every later check relies on.
+fn json_value(
+    bytes: &[u8],
+    form: Form,
+    bucket_limit: Option<NonZeroUsize>,
+) -> Result<Value, Diagnostics> {
     let setting = DocumentKind::Buckets.setting(form).as_str();
-    let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     if bytes.len() > file_limit(bucket_limit) {
         return Err(Diagnostics::error(
             DiagnosticSource::Initializer,
@@ -1387,7 +1446,21 @@ pub(crate) fn parse(
         ));
     }
     // Value enforces UTF-8, finite numbers and serde's recursion bound before raw traversal.
-    let _: Value = serde_json::from_slice(bytes).map_err(|_| Diagnostics::error(DiagnosticSource::Initializer, setting, format!("Malformed bucket initialization {}; use one UTF-8 JSON object without BOM, comments or trailing data, for example {{\"version\":1,\"buckets\":[]}}.", noun(form))))?;
+    serde_json::from_slice(bytes).map_err(|_| Diagnostics::error(DiagnosticSource::Initializer, setting, format!("Malformed bucket initialization {}; use one UTF-8 JSON object without BOM, comments or trailing data, for example {{\"version\":1,\"buckets\":[]}}.", noun(form))))
+}
+
+/// [`parse`] after [`json_value`] accepted `bytes`: the document's shape, every entry and the
+/// records the initializer applies.
+fn validate(
+    bytes: &[u8],
+    form: Form,
+    seed_project: &str,
+    clock: &dyn Clock,
+    default_location: &str,
+    bucket_limit: Option<NonZeroUsize>,
+) -> Result<Vec<InitEntry>, Diagnostics> {
+    let setting = DocumentKind::Buckets.setting(form).as_str();
+    let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     let raw: &RawValue = serde_json::from_slice(bytes).map_err(|_| {
         failure(
             setting,
@@ -3156,6 +3229,128 @@ mod tests {
                 }
                 (from_file, inline) => panic!("{document}: {from_file:?} != {inline:?}"),
             }
+        }
+    }
+
+    fn projects(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    /// The projects that the parse finds, with the seed project, are exactly those of the
+    /// buckets the initializer then creates from the same parse: an entry's own project, and the
+    /// document's only where some entry inherits it.
+    #[test]
+    fn a_parsed_document_names_the_projects_of_the_buckets_it_creates() {
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("buckets.json");
+        for (document, named_projects) in [
+            (
+                r#"{"version":1,"project":"doc-project","buckets":[{"name":"inherits"},{"name":"own","project":"entry-project"}]}"#,
+                &["doc-project", "entry-project"][..],
+            ),
+            (
+                r#"{"version":1,"project":"doc-project","buckets":[{"name":"own","project":"entry-project"}]}"#,
+                &["entry-project"],
+            ),
+            (
+                r#"{"version":1,"buckets":[{"name":"seeded"},{"name":"own","project":"entry-project"}]}"#,
+                &["entry-project"],
+            ),
+            (r#"{"version":1,"project":"doc-project","buckets":[]}"#, &[]),
+        ] {
+            fs::write(&path, document).unwrap();
+            for source in [file(&path), DocumentSource::Inline(document.into())] {
+                let parsed = parse_document(&source, named(LIMIT)).unwrap();
+                assert_eq!(parsed.projects(), &projects(named_projects), "{document}");
+                let created: BTreeSet<_> = records(super::load(
+                    &DocumentSource::Parsed(parsed.clone()),
+                    "seed-project",
+                    &FixedClock,
+                    "US",
+                    named(LIMIT),
+                ))
+                .unwrap()
+                .into_iter()
+                .map(|record| record.project)
+                .collect();
+                assert!(parsed.projects().is_subset(&created), "{document}");
+                let with_seed = |mut set: BTreeSet<String>| {
+                    set.insert("seed-project".to_owned());
+                    set
+                };
+                assert_eq!(
+                    with_seed(created),
+                    with_seed(parsed.projects().clone()),
+                    "{document}"
+                );
+            }
+        }
+    }
+
+    /// The initializer validates the text that configuration read, so a file replaced after
+    /// that read cannot give the initializer other buckets than the ones whose projects the
+    /// built-in identities were given.
+    #[test]
+    fn a_parsed_document_is_validated_without_reading_the_file_again() {
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("buckets.json");
+        fs::write(
+            &path,
+            r#"{"version":1,"buckets":[{"name":"first-bucket"}]}"#,
+        )
+        .unwrap();
+        let parsed = DocumentSource::Parsed(parse_document(&file(&path), named(LIMIT)).unwrap());
+        fs::write(
+            &path,
+            r#"{"version":1,"buckets":[{"name":"replaced-bucket","project":"other-project"}]}"#,
+        )
+        .unwrap();
+        let names = |source: &DocumentSource| {
+            records(super::load(
+                source,
+                "seed-project",
+                &FixedClock,
+                "US",
+                named(LIMIT),
+            ))
+            .unwrap()
+            .into_iter()
+            .map(|record| record.name)
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&parsed), ["first-bucket"]);
+        assert_eq!(names(&file(&path)), ["replaced-bucket"]);
+        assert_eq!(parsed.form(), Form::File);
+        assert!(!format!("{parsed:?}").contains("first-bucket"));
+    }
+
+    /// A document that cannot be read or parsed fails its parse with the initializer's own
+    /// diagnostic, so failing there instead of in the initializer reports the same thing once.
+    #[test]
+    fn an_unparsable_document_fails_like_the_initializer() {
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("buckets.json");
+        let missing = file(&directory.0.join("missing.json"));
+        fs::write(&path, r#"{"version":1,"buckets":["#).unwrap();
+        for source in [
+            file(&path),
+            DocumentSource::Inline(r#"{"version":1,"#.into()),
+            missing,
+        ] {
+            let Err(parse) = parse_document(&source, named(LIMIT)) else {
+                panic!("{source:?} parsed");
+            };
+            let Err(load) = records(super::load(
+                &source,
+                "seed-project",
+                &FixedClock,
+                "US",
+                named(LIMIT),
+            )) else {
+                panic!("{source:?} loaded");
+            };
+            assert_eq!(parse.errors, load.errors, "{source:?}");
+            assert_eq!(parse.errors.len(), 1, "{source:?}");
         }
     }
 

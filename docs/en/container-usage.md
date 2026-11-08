@@ -495,8 +495,8 @@ their own, and their code stays unchanged:
 Set `GCS_MIMIC_TRUSTED_LISTEN` (`--trusted-listen`, JSON `trusted_listen`) to
 open it. Without `GCS_MIMIC_TRUSTED_PRINCIPAL` (`--trusted-principal`, JSON
 `trusted_principal`), the principal is the built-in `trusted-app@gcs-mimic.invalid`.
-It holds `roles/storage.admin` on every project the bucket document
-(`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) names and on the effective
+It holds `roles/storage.admin` on the project of every bucket the bucket document
+(`GCS_MIMIC_BUCKETS` or `GCS_MIMIC_BUCKETS_FILE`) creates and on the effective
 `seed_project`, so the application's servers can do what a project owner's
 service account does, and strict mode then starts without an identity document.
 These roles are implicit, so they are not the explicit `roles/storage.admin`

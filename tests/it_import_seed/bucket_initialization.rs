@@ -1605,6 +1605,32 @@ fn selected_file_only_is_loaded_and_invalid_paths_fail_without_ready() {
     }
 }
 
+/// Strict mode's built-in identities need the document's projects before the initializer runs,
+/// so startup reads and parses it then; a malformed or missing document still stops startup
+/// once, with the initializer's diagnostic, before the data directory is created.
+#[test]
+fn a_document_the_built_in_identities_read_first_fails_startup_once() {
+    for contents in [Some(&b"{\"version\":1,"[..]), None] {
+        let dir = TestDir::new();
+        if let Some(contents) = contents {
+            fs::write(dir.0.join("buckets.json"), contents).unwrap();
+        }
+        let strict = selected(&dir.0)
+            .args(["--auth-mode", "strict", "--trusted-listen", "127.0.0.1:0"])
+            .output()
+            .unwrap();
+        let strict = diagnostic(&strict);
+        assert!(!dir.0.join("data").exists());
+        let records = strict["diagnostics"].as_array().unwrap();
+        assert_eq!(records.len(), 1, "{strict}");
+        assert_eq!(records[0]["source"], "initializer");
+        assert_eq!(records[0]["key"], "buckets_file");
+        // The initializer reports the same document the same way in its own phase.
+        let permissive = diagnostic(&selected(&dir.0).output().unwrap());
+        assert_eq!(strict["diagnostics"], permissive["diagnostics"]);
+    }
+}
+
 /// The document from the environment, a CLI option or a config file member initializes what the
 /// same file would, and its failures name the inline setting without echoing the document.
 #[test]

@@ -743,6 +743,8 @@ fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryErr
                 crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
             })?,
         DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
+        // Only a buckets document is parsed ahead, but its text is the document either way.
+        DocumentSource::Parsed(document) => Cow::Borrowed(document.bytes()),
     };
     if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
         return Err(RegistryError::TooLarge);
