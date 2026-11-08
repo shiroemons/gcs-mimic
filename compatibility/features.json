@@ -41575,7 +41575,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md. The opt-in signed_urls=verify (default ignore in permissive mode; strict always verifies and rejects an explicit ignore) verifies signed XML requests exactly as strict mode does, with the built-in test signer, ACTIVE catalog HMAC keys and identity-file public keys, then grants permissive access without IAM or ACL checks; unsigned requests and JSON routes are unchanged. With it, identity_file is accepted in permissive mode for id and public_keys only. Contract: docs/en/signed-urls.md#verifying-signed-requests-in-permissive-mode; evidence: docs/en/evidence/signed-request-verification.md.",
+      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md. The opt-in signed_urls=verify (default ignore in permissive mode; strict always verifies and rejects an explicit ignore) verifies signed XML requests exactly as strict mode does, with the built-in test signer, ACTIVE catalog HMAC keys and identity-file public keys, then grants permissive access without IAM or ACL checks; unsigned requests and JSON routes are unchanged. With it, the identity document (identity_file, or the same registry inline in identities) is accepted in permissive mode for id and public_keys only. Contract: docs/en/signed-urls.md#verifying-signed-requests-in-permissive-mode; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -41616,6 +41616,25 @@
             "startup_pairs_identity_files_and_signed_urls_with_the_profile",
             "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
           ]
+        },
+        {
+          "id": "DESIGN-001-INLINE-IDENTITIES",
+          "description": "identities (CLI --identities, GCS_MIMIC_IDENTITIES, or a JSON config member holding the registry object or a string containing it) carries the identity_file registry itself with the same precedence, 16 MiB limit, validation and pairing rules: strict requires one of the two, permissive accepts either only with signed_urls=verify, and local_creator_email follows the same rule. Naming both fails with one diagnostic that names both settings and leaves no profile; an empty value fails like an empty path; a config member that is neither an object nor a string fails for its key. Load failures name the setting that supplied the registry and the entry index, never a token or the document text, and the principal checks name that setting; debug output shows only the inline text's length.",
+          "result": "PASS",
+          "test_ids": [
+            "config::document::tests::inline_documents_follow_precedence_from_every_source",
+            "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+            "config::document::tests::an_empty_inline_document_is_rejected_from_every_source",
+            "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+            "config::document::tests::inline_identities_pair_with_the_profile_like_an_identity_file",
+            "config::document::tests::debug_output_never_shows_inline_text",
+            "config::auth::tests::both_forms_load_the_same_registry",
+            "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
+            "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth::tests::registry_file_read_is_bounded",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
         }
       ],
       "test_ids": [
@@ -41634,9 +41653,40 @@
         "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
         "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
         "startup_pairs_identity_files_and_signed_urls_with_the_profile",
-        "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
+        "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings",
+        "config::document::tests::inline_documents_follow_precedence_from_every_source",
+        "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+        "config::document::tests::an_empty_inline_document_is_rejected_from_every_source",
+        "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+        "config::document::tests::inline_identities_pair_with_the_profile_like_an_identity_file",
+        "config::document::tests::debug_output_never_shows_inline_text",
+        "config::auth::tests::both_forms_load_the_same_registry",
+        "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
+        "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
+        "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+        "auth::tests::registry_file_read_is_bounded"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- config:: auth:: bucket_init; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/strict-auth.md",
+          "test_ids": [
+            "config::document::tests::inline_documents_follow_precedence_from_every_source",
+            "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+            "config::document::tests::an_empty_inline_document_is_rejected_from_every_source",
+            "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+            "config::document::tests::inline_identities_pair_with_the_profile_like_an_identity_file",
+            "config::document::tests::debug_output_never_shows_inline_text",
+            "config::auth::tests::both_forms_load_the_same_registry",
+            "config::auth::tests::load_failures_name_the_setting_and_the_entry_without_echoing_tokens",
+            "config::auth::tests::unknown_principals_name_the_setting_that_supplied_the_registry",
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth::tests::registry_file_read_is_bounded",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        },
         {
           "command": "cargo test --locked --test it_xml_auth",
           "result": "PASS",
@@ -49611,7 +49661,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. Bucket file entries may write an initial iamPolicy, edited entries that were not applied warn, and the opt-in buckets_file_mode=reconcile applies written fields to existing buckets at startup. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Post-ready directory synchronization now includes native Linux/macOS observation, conditional create/edit ingestion, continuous API export and revision-bound external deletion controls. Conflict recovery and strict synchronization remain under integration, with final Linux/SDK/container evidence pending. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
+      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. The bucket document comes from buckets_file or, inline, from buckets (CLI, environment, or a JSON config member holding the object or a string), with the same limits and validation; naming both fails startup. Bucket document entries may write an initial iamPolicy, edited entries that were not applied warn, and the opt-in buckets_file_mode=reconcile applies written fields to existing buckets at startup. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Post-ready directory synchronization now includes native Linux/macOS observation, conditional create/edit ingestion, continuous API export and revision-bound external deletion controls. Conflict recovery and strict synchronization remain under integration, with final Linux/SDK/container evidence pending. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -49666,6 +49716,21 @@
           "description": "Verify selector parsing and CLI over env over config over unset, duplicate/empty/non-string paths and selected-path-only startup loading together with effective startup application; startup failures must suppress ready and preserve complete diagnostics.",
           "result": "PASS",
           "test_ids": ["bucket_initializer_selectors_follow_precedence_and_reject_empty_paths", "selected_file_only_is_loaded_and_invalid_paths_fail_without_ready", "validation_reports_all_entries_before_seed_or_mutation"]
+        },
+        {
+          "id": "BUCKET-INIT-INLINE",
+          "description": "buckets (CLI --buckets, GCS_MIMIC_BUCKETS, or a JSON config member holding the document object as written or a string containing it) carries the buckets_file document itself with the same precedence, limits and validation: the same document yields the same records and entry diagnostics from either form, inline text past the limit fails naming buckets, and document-level failures are keyed buckets and call it a document. Naming both settings fails before the catalog exists with one diagnostic that names both; an empty value fails; buckets_file_mode accepts either setting. No diagnostic repeats the document text, and the ready buckets_file counts keep their name for both forms.",
+          "result": "PASS",
+          "test_ids": [
+            "an_inline_document_initializes_buckets_from_every_source",
+            "bucket_init::tests::an_inline_document_loads_and_fails_like_the_same_file",
+            "bucket_init::tests::the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
+            "bucket_init::tests::malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+            "config::document::tests::inline_documents_follow_precedence_from_every_source",
+            "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+            "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+            "config::document::tests::the_buckets_mode_accepts_either_document_setting"
+          ]
         },
         {
           "id": "BUCKET-INIT-PARSER-INPUT",
@@ -49949,9 +50014,33 @@
         "a_file_policy_replaces_the_default_policy_as_set_iam_policy_does",
         "strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private",
         "public_access_prevention_refuses_a_public_file_policy_before_any_mutation",
-        "a_memory_backend_starts_buckets_with_their_file_policy"
+        "a_memory_backend_starts_buckets_with_their_file_policy",
+        "an_inline_document_initializes_buckets_from_every_source",
+        "bucket_init::tests::an_inline_document_loads_and_fails_like_the_same_file",
+        "bucket_init::tests::the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
+        "bucket_init::tests::malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+        "config::document::tests::inline_documents_follow_precedence_from_every_source",
+        "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+        "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+        "config::document::tests::the_buckets_mode_accepts_either_document_setting"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- config:: auth:: bucket_init; cargo test --locked --test it_import_seed bucket_initialization",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "an_inline_document_initializes_buckets_from_every_source",
+            "bucket_init::tests::an_inline_document_loads_and_fails_like_the_same_file",
+            "bucket_init::tests::the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
+            "bucket_init::tests::malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+            "config::document::tests::inline_documents_follow_precedence_from_every_source",
+            "config::document::tests::a_config_file_holds_the_document_as_an_object_or_a_string",
+            "config::document::tests::naming_both_settings_of_a_document_fails_and_names_both",
+            "config::document::tests::the_buckets_mode_accepts_either_document_setting"
+          ]
+        },
         {"command":"cargo test --locked --test it_import_seed bucket_initialization (26 passed); cargo test --locked --lib bucket_init (35 passed)","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/bucket-initialization.md","test_ids":["iam_policy_keeps_the_written_bindings_and_drops_empty_ones_like_set_iam_policy","iam_policy_reports_each_invalid_part_at_its_own_key_without_echoing_values","a_file_policy_replaces_the_default_policy_as_set_iam_policy_does","strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private","public_access_prevention_refuses_a_public_file_policy_before_any_mutation","a_memory_backend_starts_buckets_with_their_file_policy","validation_reports_all_entries_before_seed_or_mutation"]},
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it","the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart","sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","no_depth_limit_accepts_what_export_can_create_past_the_former_default"]},
         {
@@ -55878,7 +55967,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"

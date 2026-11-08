@@ -692,6 +692,7 @@ mod tests {
     use crate::test_support::TestDir;
     use gcs_mimic::{
         clock::{Clock, SystemClock},
+        config::DocumentSource,
         storage::Catalog,
     };
     use std::{
@@ -858,7 +859,7 @@ mod tests {
         assert!(bound.listeners.trusted.is_none());
         drop(bound);
         config.grpc_listen = Some("127.0.0.1:0".parse().unwrap());
-        config.buckets_file = Some(dir.0.join("missing-buckets.json"));
+        config.buckets = Some(DocumentSource::File(dir.0.join("missing-buckets.json")));
         let error = prepare_startup(
             &catalog,
             &config,
@@ -870,7 +871,7 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.to_string().contains("buckets_file"));
-        config.buckets_file = None;
+        config.buckets = None;
         let PhaseResult::Complete(bound) = prepare_startup(
             &catalog,
             &config,
@@ -1262,12 +1263,13 @@ mod tests {
         let dir = TestDir::new();
         let mut config = dir.config();
         config.data_dir = dir.0.join("data");
-        config.buckets_file = Some(dir.0.join("buckets.json"));
+        let buckets = dir.0.join("buckets.json");
         fs::write(
-            config.buckets_file.as_ref().unwrap(),
+            &buckets,
             r#"{"version":1,"buckets":[{"name":"pending-bucket"}]}"#,
         )
         .unwrap();
+        config.buckets = Some(DocumentSource::File(buckets));
         let catalog = Catalog::open(&config.data_dir).await.unwrap();
         let (entered, validating) = tokio::sync::oneshot::channel();
         let (release, released) = mpsc::channel();

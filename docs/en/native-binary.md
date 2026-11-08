@@ -102,7 +102,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |
 | `--grpc-listen` | `GCS_MIMIC_GRPC_LISTEN` | none (disabled) | JSON key `grpc_listen`; numeric IP:port (for example `127.0.0.1:4444`), port 0 allowed; separate plaintext h2c listener. Set Go `STORAGE_EMULATOR_HOST_GRPC` to its address. It serves the scoped Storage v2 bucket, object, write and read RPCs and the legacy Storage v1 migration profile; other RPCs and unsupported fields return actionable, non-retryable `UNIMPLEMENTED`. See the [Storage v2 bucket](slices/grpc-v2-buckets.md), [object I/O](slices/grpc-v2-object-io.md), [update/copy](slices/grpc-v2-update-copy.md), [bidi read](slices/grpc-v2-bidi-read.md) and [Storage v1](slices/grpc-v1-legacy.md) contracts. |
 | `--trusted-listen` | `GCS_MIMIC_TRUSTED_LISTEN` | none (disabled) | JSON key `trusted_listen`; numeric IP:port, port 0 allowed; requires `auth_mode=strict` and `trusted_principal`, rejects `unix_socket` and another listener's address. An extra plain HTTP listener, whatever `scheme`, for the application's own servers: a request without credentials acts as `trusted_principal` under the normal strict checks, credentials authenticate as on the main listener, and a request with `Origin` or a `Sec-Fetch-Site` other than `none` gets 403. A Host other than an IP literal, a `localhost` name, a single-label name or a `trusted_allowed_hosts` entry gets 421, which keeps DNS rebinding pages out; responses carry `Cross-Origin-Resource-Policy: same-origin` and `X-Content-Type-Options: nosniff`. No gRPC. Never publish it; see the [trusted listener](container-usage.md#keep-private-buckets-private-with-a-trusted-listener) |
-| `--trusted-principal` | `GCS_MIMIC_TRUSTED_PRINCIPAL` | none | JSON key `trusted_principal`; an identity of the identity file, or the built-in test signer with `test_signer=enabled`; requires `trusted_listen`. Ready reports it with the bound `trusted_listen` |
+| `--trusted-principal` | `GCS_MIMIC_TRUSTED_PRINCIPAL` | none | JSON key `trusted_principal`; an identity of the identity document, or the built-in test signer with `test_signer=enabled`; requires `trusted_listen`. Ready reports it with the bound `trusted_listen` |
 | `--trusted-allowed-hosts` | `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` | none | JSON key `trusted_allowed_hosts`; up to 32 comma-separated DNS names without ports or schemes that the trusted listener also accepts as Host, such as a dotted service alias; requires `trusted_listen` |
 | `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
@@ -118,8 +118,9 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--max-sync-entries` | `GCS_MIMIC_MAX_SYNC_ENTRIES` | 0 (unlimited) | 0–2^64−1; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. Time grows with the tree. A positive value stops there and names the setting. Without one, a tree past 10,000 entries logs `sync_tree_large` once per process |
 | `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | 0 (unlimited) | 0–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk still stops at 1024 levels, which keeps its descriptors bounded and is deeper than any object name can nest |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved. At most 1 GiB, or with `max_buckets_per_batch` set, 1 KiB per allowed bucket and at least 32 MiB |
-| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `create` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file`. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner. See [bucket initialization](slices/bucket-initialization.md) |
-| `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
+| `--buckets` | `GCS_MIMIC_BUCKETS` | none | JSON key `buckets`; the `buckets_file` document itself, with the same format, limits and validation, so a Compose file can hold it in `environment:`. In the JSON config file the value is the document object or a string containing it. Naming it with `buckets_file` fails startup. Diagnostics name `buckets` and the entry path, never the document text |
+| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `create` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file` or `buckets`, and governs both. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner. See [bucket initialization](slices/bucket-initialization.md) |
+| `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one buckets document (`buckets_file` or `buckets`) or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
 | `--max-grpc-streams` | `GCS_MIMIC_MAX_GRPC_STREAMS` | 100 | 1–65536; requires `grpc_listen`. Concurrent streams per gRPC connection. Each can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests; lower it to limit that memory. With a gRPC listener, startup also raises the open-file limit toward connections times streams times two, without a warning when that falls short |
@@ -136,11 +137,12 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait, the wait for a busy upload session, and the wait of a reset, reseed, publication or management call for its turn |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 0 waits for unfinished requests without a limit |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 5497558138880 (5 TiB) | 1–5497558138880 (5 TiB); also caps gzip upload expansion, so lower it on a shared or exposed server |
-| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file, which permissive accepts only with `signed_urls=verify` |
+| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity document (`identity_file` or `identities`), which permissive accepts only with `signed_urls=verify` |
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
 | `--signed-host-port` | `GCS_MIMIC_SIGNED_HOST_PORT` | `exact` | `exact` or `lenient`; JSON key `signed_host_port`. `lenient` also accepts a V4 signature whose canonical host omits the port of the request Host, as Go storage signs; every other signed part stays bound. Requires signature verification (strict, or `signed_urls=verify`). See [signed URLs](signed-urls.md) |
 | `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 16 MiB with no limit on its number of identities; with `strict`, or with permissive `signed_urls=verify`, where identities may declare only `id` and `public_keys` |
+| `--identities` | `GCS_MIMIC_IDENTITIES` | none | JSON key `identities`; the `identity_file` registry itself, with the same format, limits and pairing rules. In the JSON config file the value is the registry object or a string containing it. Naming it with `identity_file` fails startup. Diagnostics name `identities` and the entry index, never tokens |
 | `--signed-urls` | `GCS_MIMIC_SIGNED_URLS` | `ignore` when permissive, `verify` when strict | `ignore` or `verify`; JSON key `signed_urls`. Permissive `verify` [checks signed XML requests](signed-urls.md#verifying-signed-requests-in-permissive-mode) as strict mode does, then grants permissive access; strict rejects `ignore`. It covers signed URLs, V2/V4/AWS4 `Authorization` header signatures and POST policies, so S3-style clients that sign with made-up HMAC keys are rejected once `verify` is on |
 | `--test-signer` | `GCS_MIMIC_TEST_SIGNER` | `enabled` when permissive with `signed_urls=verify`, otherwise `disabled` | `enabled` or `disabled`; JSON key `test_signer`. The [built-in test signer](signed-urls.md#built-in-test-signer) `test-signer@gcs-mimic.invalid`, whose private key is published, so anyone can authenticate as it; enabling it in strict mode warns at startup, and enabling it while signatures are ignored fails startup. Local tests only |
 | `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 0 (off) | 0, or 1–3155760000; applies to new native buckets created without `softDeletePolicy`, whichever backend. Deleted and replaced objects keep their bytes for this long; 0 frees them at once. Cloud Storage defaults to 604800 and accepts 7 to 90 days, so the default and the range are both local. Buckets that store a policy keep it |
@@ -168,8 +170,9 @@ ready and releases the sockets/catalog; shutdown closes both. Compose users
 must publish the second HTTP port explicitly. TLS clients still need CA trust
 and a matching SAN, as described in the HTTPS section.
 
-The identity file is read once at startup; an invalid registry, `strict` without a
-file or a file with `permissive` fails before readiness. Run
+The identity document is read once at startup; an invalid registry, `strict` without
+`identity_file` or `identities`, or either setting while permissive mode ignores
+signatures fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
 HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
@@ -259,6 +262,23 @@ event includes `buckets_file` with `created`, `existing`, `project_mismatches`,
 Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
 The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
 using CLI > environment > config. Relative paths use the process working directory.
+
+`--buckets`, `GCS_MIMIC_BUCKETS` or server JSON `buckets` carries the same document
+inline instead of a path, so a Compose service can keep it in `environment:`:
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS: >-
+        {"version":1,"project":"local-project",
+         "buckets":[{"name":"app-uploads"}]}
+```
+
+The ready event keeps the field name `buckets_file` for compatibility and reports the
+same counts for either setting; it never repeats the document. Naming both settings
+fails startup. gcs-mimic reads the value as plain text, but Compose expands `${VAR}`
+in it first, so write a literal `$` as `$$`.
 
 Restart with the same data directory to retain API changes and object versions;
 only missing buckets are created, even if settings in the file change, and an

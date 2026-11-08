@@ -29,13 +29,13 @@ pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
-use crate::config::AuthProfile;
+use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting};
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
-    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -543,8 +543,8 @@ impl fmt::Display for InvalidUploadSnapshot {
 
 impl std::error::Error for InvalidUploadSnapshot {}
 
-/// Why the strict-mode identity file could not be loaded. `Display` names the file and, for an
-/// invalid entry, its index; token values are never included.
+/// Why an identity document is invalid. `Display` names, for an invalid entry, its index; token
+/// values are never included. [`IdentityError`] adds the setting that supplied the document.
 #[derive(Debug)]
 pub enum RegistryError {
     TooLarge,
@@ -571,19 +571,19 @@ pub enum RegistryError {
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooLarge => write!(f, "identity_file exceeds {MAX_REGISTRY_MIB} MiB"),
-            Self::Io(error) => write!(f, "identity_file: {error}"),
-            Self::Syntax(error) => write!(f, "identity_file: {error}"),
+            Self::TooLarge => write!(f, "exceeds {MAX_REGISTRY_MIB} MiB"),
+            Self::Io(error) => write!(f, "{error}"),
+            Self::Syntax(error) => write!(f, "{error}"),
             Self::Invalid {
                 entry: None,
                 reason,
-            } => write!(f, "identity_file: {reason}"),
+            } => f.write_str(reason),
             Self::Invalid {
                 entry: Some(index),
                 reason,
-            } => write!(f, "identity_file: identities[{index}]: {reason}"),
+            } => write!(f, "identities[{index}]: {reason}"),
             Self::PublicKey { entry, source } => {
-                write!(f, "identity_file: identities[{entry}]: {source}")
+                write!(f, "identities[{entry}]: {source}")
             }
             Self::Project {
                 entry,
@@ -591,7 +591,7 @@ impl fmt::Display for RegistryError {
                 source,
             } => write!(
                 f,
-                "identity_file: identities[{entry}]: project {project:?}: {}",
+                "identities[{entry}]: project {project:?}: {}",
                 source.message
             ),
         }
@@ -610,7 +610,45 @@ impl std::error::Error for RegistryError {
     }
 }
 
-/// Local principal registry loaded from the strict-mode identity file.
+/// Why the identity document could not be loaded, with the setting that supplied it:
+/// `identity_file` for a file and `identities` for the inline document.
+#[derive(Debug)]
+pub struct IdentityError {
+    form: Form,
+    source: RegistryError,
+}
+
+impl IdentityError {
+    fn new(document: &DocumentSource, source: RegistryError) -> Self {
+        Self {
+            form: document.form(),
+            source,
+        }
+    }
+
+    /// The setting that supplied the document.
+    pub(crate) fn setting(&self) -> Setting {
+        DocumentKind::Identities.setting(self.form)
+    }
+}
+
+impl fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let setting = self.setting().as_str();
+        match &self.source {
+            RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
+            source => write!(f, "{setting}: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for IdentityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+/// Local principal registry loaded from the strict-mode identity document.
 #[derive(Debug)]
 pub struct Registry {
     identities: Vec<Identity>,
@@ -625,37 +663,50 @@ pub struct Registry {
     trusted: Option<usize>,
 }
 
-fn read_identity_file(path: &Path) -> Result<Vec<u8>, RegistryError> {
-    crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
-        crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
-        crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
-    })
+/// The identity document's bytes. Inline text is held to the same limit as a file, so both forms
+/// accept the same documents.
+fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryError> {
+    let bytes = match source {
+        DocumentSource::File(path) => crate::bounded_file::read(path, MAX_REGISTRY_BYTES)
+            .map(Cow::Owned)
+            .map_err(|error| match error {
+                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
+                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
+            })?,
+        DocumentSource::Inline(text) => Cow::Borrowed(text.as_bytes()),
+    };
+    if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_REGISTRY_BYTES) {
+        return Err(RegistryError::TooLarge);
+    }
+    Ok(bytes)
 }
 
 impl Registry {
-    pub fn load(path: &Path) -> Result<Self, RegistryError> {
-        Self::parse(&read_identity_file(path)?)
-    }
-
     /// Strict mode's principals, with the built-in test signer when it is enabled.
-    fn load_principals(path: &Path, signer: TestSigner) -> Result<Self, RegistryError> {
-        let mut registry = Self::load(path)?;
-        match signer {
-            TestSigner::Enabled => registry.add_test_signer()?,
-            TestSigner::Disabled => {}
-        }
-        Ok(registry)
+    fn load_principals(source: &DocumentSource, signer: TestSigner) -> Result<Self, IdentityError> {
+        let load = || {
+            let mut registry = Self::parse(&read_identities(source)?)?;
+            match signer {
+                TestSigner::Enabled => registry.add_test_signer()?,
+                TestSigner::Disabled => {}
+            }
+            Ok(registry)
+        };
+        load().map_err(|error| IdentityError::new(source, error))
     }
 
-    /// The keys permissive verification accepts: an optional identity file's and the built-in
-    /// test signer's when it is enabled.
+    /// The keys permissive verification accepts: an optional identity document's and the
+    /// built-in test signer's when it is enabled.
     fn load_signing_keys(
-        path: Option<&Path>,
+        source: Option<&DocumentSource>,
         signer: TestSigner,
-    ) -> Result<SigningKeys, RegistryError> {
-        let mut keys = match path {
-            Some(path) => {
-                Self::parse_for(&read_identity_file(path)?, IdentityUse::SigningKeys)?.signing_keys
+    ) -> Result<SigningKeys, IdentityError> {
+        let mut keys = match source {
+            Some(source) => {
+                read_identities(source)
+                    .and_then(|bytes| Self::parse_for(&bytes, IdentityUse::SigningKeys))
+                    .map_err(|error| IdentityError::new(source, error))?
+                    .signing_keys
             }
             None => SigningKeys::default(),
         };
@@ -1024,28 +1075,28 @@ impl Auth {
         }
     }
 
-    /// Loads the profile that configuration validation selected, reading its identity file once
-    /// and adding the built-in test signer when the profile enables it. Validation owns the
-    /// pairing rules; only identity file contents can fail here.
-    pub fn load(profile: &AuthProfile) -> Result<Self, RegistryError> {
+    /// Loads the profile that configuration validation selected, reading its identity document
+    /// once and adding the built-in test signer when the profile enables it. Validation owns the
+    /// pairing rules; only the document's contents can fail here.
+    pub fn load(profile: &AuthProfile) -> Result<Self, IdentityError> {
         let (profile, verification) = match profile {
             AuthProfile::Permissive => return Ok(Self::permissive()),
             AuthProfile::VerifyingPermissive {
-                identity_file,
+                identities,
                 verification,
             } => (
                 Profile::VerifyingPermissive(Registry::load_signing_keys(
-                    identity_file.as_deref(),
+                    identities.as_ref(),
                     verification.test_signer,
                 )?),
                 verification,
             ),
             AuthProfile::Strict {
-                identity_file,
+                identities,
                 verification,
             } => (
                 Profile::Strict(Registry::load_principals(
-                    identity_file,
+                    identities,
                     verification.test_signer,
                 )?),
                 verification,
@@ -2183,14 +2234,23 @@ mod tests {
                 valid(r#"{"id":"a","tokens":["t"],"project_roles":{"":["roles/storage.admin"]}}"#),
             ),
         ] {
-            let error = Registry::parse(document.as_bytes())
-                .unwrap_err()
-                .to_string();
-            assert!(error.starts_with("identity_file"), "{case}: {error}");
-            assert!(
-                !error.contains("\"t\""),
-                "{case}: tokens must not be echoed"
-            );
+            // Either setting supplies the same document, and the failure names the one used.
+            let dir = TestDir::new();
+            let path = dir.0.join("identities.json");
+            std::fs::write(&path, &document).unwrap();
+            for (source, setting) in [
+                (DocumentSource::File(path), "identity_file: "),
+                (DocumentSource::Inline(document), "identities: "),
+            ] {
+                let error = Registry::load_principals(&source, TestSigner::Disabled)
+                    .unwrap_err()
+                    .to_string();
+                assert!(error.starts_with(setting), "{case}: {error}");
+                assert!(
+                    !error.contains("\"t\""),
+                    "{case}: tokens must not be echoed"
+                );
+            }
         }
     }
 
@@ -2268,6 +2328,7 @@ mod tests {
         assert!(full.allows(OBJECTS_CREATE, "project-4999"));
     }
 
+    /// An inline document is held to the limit a file is, and each failure names its setting.
     #[test]
     fn registry_file_read_is_bounded() {
         let dir = TestDir::new();
@@ -2275,20 +2336,32 @@ mod tests {
         let mut document = r#"{"identities":[{"id":"a","tokens":["t"]}]}"#.to_owned();
         let limit = usize::try_from(MAX_REGISTRY_BYTES).unwrap();
         document.push_str(&" ".repeat(limit - document.len()));
+        let load =
+            |source: &DocumentSource| Registry::load_principals(source, TestSigner::Disabled);
         std::fs::write(&path, &document).unwrap();
-        assert_eq!(Registry::load(&path).unwrap().len(), 1);
+        let file = DocumentSource::File(path.clone());
+        assert_eq!(load(&file).unwrap().len(), 1);
+        assert_eq!(
+            load(&DocumentSource::Inline(document.clone()))
+                .unwrap()
+                .len(),
+            1
+        );
         document.push(' ');
         std::fs::write(&path, &document).unwrap();
         assert_eq!(
-            Registry::load(&path).unwrap_err().to_string(),
+            load(&file).unwrap_err().to_string(),
             "identity_file exceeds 16 MiB"
         );
-        std::fs::remove_file(&path).unwrap();
-        assert!(
-            Registry::load(&path)
+        assert_eq!(
+            load(&DocumentSource::Inline(document))
                 .unwrap_err()
-                .to_string()
-                .starts_with("identity_file: ")
+                .to_string(),
+            "identities exceeds 16 MiB"
         );
+        std::fs::remove_file(&path).unwrap();
+        let error = load(&file).unwrap_err();
+        assert!(error.to_string().starts_with("identity_file: "));
+        assert!(std::error::Error::source(&error).is_some());
     }
 }

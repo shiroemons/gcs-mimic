@@ -20,13 +20,15 @@ The following selectors are implemented together with startup application:
 
 | Surface | Input |
 | --- | --- |
-| CLI | `gcs-mimic serve --buckets-file PATH` |
-| Environment | `GCS_MIMIC_BUCKETS_FILE=PATH` |
-| Flat JSON server config | `"buckets_file":"PATH"` |
+| CLI | `gcs-mimic serve --buckets-file PATH`, or the document itself with `--buckets JSON` |
+| Environment | `GCS_MIMIC_BUCKETS_FILE=PATH`, or `GCS_MIMIC_BUCKETS=JSON` |
+| Flat JSON server config | `"buckets_file":"PATH"`, or `"buckets"` holding the document object or a string that contains it |
 | Default | Unset; no file discovery or implicit initialization |
-| Mode | `--buckets-file-mode`, `GCS_MIMIC_BUCKETS_FILE_MODE` or `"buckets_file_mode"`: `create` (default) or `reconcile`, with the same precedence. Naming a mode without `buckets_file` fails startup with a diagnostic for the mode's key. |
+| Mode | `--buckets-file-mode`, `GCS_MIMIC_BUCKETS_FILE_MODE` or `"buckets_file_mode"`: `create` (default) or `reconcile`, with the same precedence. It governs both document settings, and keeps its name. Naming a mode without `buckets_file` or `buckets` fails startup with a diagnostic for the mode's key. |
 
-Use CLI > environment > config file > unset. Duplicate CLI options remain errors. An explicit empty/non-string path is invalid, not disabled. Resolve relative paths against the process working directory, matching existing file settings; do not resolve against the server config's directory. Only the selected path is opened; an overridden path is not inspected. A selected unreadable file fails startup. Open once, require a regular file (a symlink to a regular file is allowed), read at most the file limit plus one byte and close it. No stdin, URL, directory traversal, file watching or startup rewrite of input is provided. File replacement after this read takes effect on the next startup.
+Use CLI > environment > config file > unset. Duplicate CLI options remain errors. An explicit empty/non-string path is invalid, not disabled.
+
+The inline `buckets` setting carries the same document, with the same limits and validation, so a Compose file can hold it in `environment:`. A document has one source: naming `buckets` and `buckets_file` together fails startup with one diagnostic, keyed to the `buckets` input, that names both settings, whatever their sources. A config file object member keeps its text as written, so repeated members inside it are still reported; a member that is neither an object nor a string fails with a diagnostic for its key. gcs-mimic reads the value as plain text. Compose expands `${VAR}` before the server sees it, so a literal `$` is written `$$`. An empty value is invalid. Resolve relative paths against the process working directory, matching existing file settings; do not resolve against the server config's directory. Only the selected path is opened; an overridden path is not inspected. A selected unreadable file fails startup. Open once, require a regular file (a symlink to a regular file is allowed), read at most the file limit plus one byte and close it. No stdin, URL, directory traversal, file watching or startup rewrite of input is provided. File replacement after this read takes effect on the next startup.
 
 | Limit | Inclusive maximum | Accounting |
 | --- | --- | --- |
@@ -112,7 +114,7 @@ The handoff is `bucket_init::load(&Path, seed_project: &str, &dyn Clock)` or `bu
 4. If any validation error exists, return nonzero with no initializer mutation, seed, bind or ready. Validate existing-bucket entries too: invalid settings cannot be hidden by the bucket already existing. The initializer's load/validation is its bounded startup phase after catalog recovery/PAP, so catalog open/recovery may already have occurred; this is not a promise that an invalid bucket file never creates a data directory.
 5. Only after successful validation run one administrative transaction with all entries. It observes every named bucket, plans each entry against that state and applies the plan. A plan that refuses an entry, such as a public `iamPolicy` under public access prevention, reports every refused entry and returns before any write. Emit project-mismatch and unapplied-entry warnings from the plan; continue to seed and later startup phases. Ready is emitted only after all required phases succeed.
 
-Use the [shared diagnostics record and renderer](configuration-workflows.md#shared-diagnostics-contract): `source:"initializer"`, original zero-based paths such as `buckets[2].location`, and `fix` containing the reason and a safe actionable example. Selector configuration errors retain `cli`/`environment`/`config` and the original selector key. File read/syntax errors use `source:"initializer",key:"buckets_file"` (or `$` for document-root shape). Emit one bounded initializer validation batch, warnings before errors; records sort by shared source order then key UTF-8 bytes, preserving encounter order for repeated keys. No duplicate human prose line accompanies JSON. Diagnostics remain visible at every log level; any error prevents ready.
+Use the [shared diagnostics record and renderer](configuration-workflows.md#shared-diagnostics-contract): `source:"initializer"`, original zero-based paths such as `buckets[2].location`, and `fix` containing the reason and a safe actionable example. Selector configuration errors retain `cli`/`environment`/`config` and the original selector key. File read/syntax errors use `source:"initializer",key:"buckets_file"` (or `$` for document-root shape); the same errors for the inline document use `key:"buckets"` and call it a document rather than a file. Entry paths are the same for both, and no diagnostic repeats the document text. Emit one bounded initializer validation batch, warnings before errors; records sort by shared source order then key UTF-8 bytes, preserving encounter order for repeated keys. No duplicate human prose line accompanies JSON. Diagnostics remain visible at every log level; any error prevents ready.
 
 Detect every independent occurrence in the inspected entries, rather than stopping at the first field error; retain or count it under the diagnostic limits above. For duplicate members use the same field path and identify the repeated occurrence in the fix; never keep only the last value. Unknown keys include their entry index and nearest allowed field in the fix (minimum character edit distance, ties by UTF-8 byte order); suggestions are advice, never automatic correction. Known unsupported keys instead say unsupported and recommend removal or a delivered API alternative. Label-map keys are data, so do not suggest schema names for them. Escape original field paths/control characters with JSON; never echo raw parser/I/O text, arbitrary values, credentials or the file's contents. Use safe examples rather than an invalid supplied project or secret-shaped value. Omission never turns validation failure into success.
 
@@ -166,7 +168,7 @@ Only differing members are written, so a start with an unchanged file changes no
 
 ## Ready event
 
-`init-create-missing` contributes only the `buckets_file` member to the existing stdout ready event; retain all other owners' keys. Unset input yields exactly:
+`init-create-missing` contributes only the `buckets_file` member to the existing stdout ready event; retain all other owners' keys. The member keeps that name for compatibility when the inline `buckets` setting supplied the document, and reports the same counts. Unset input yields exactly:
 
 ```json
 {"buckets_file":{"outcome":"disabled"}}

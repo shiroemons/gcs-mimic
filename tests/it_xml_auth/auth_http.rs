@@ -1111,6 +1111,38 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
         // The registry is checked before the catalog is created or the listener is bound.
         assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 0, "{case}");
     }
+    // The same documents inline fail the same way, and each diagnostic names that setting.
+    for (case, document, message) in &documents {
+        let dir = TestDir::new();
+        let output = common::server_command()
+            .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
+            .args(["--auth-mode", "strict", "--identities", document.as_str()])
+            .arg("--data-dir")
+            .arg(&dir.0)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{case}");
+        assert!(
+            output.stdout.is_empty(),
+            "{case}: no readiness before failure"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let event: serde_json::Value = stderr
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .find(|event: &serde_json::Value| event["level"] == "error")
+            .unwrap();
+        let diagnostic = &event["diagnostics"][0];
+        assert_eq!(diagnostic["source"], "identity", "{case}");
+        assert_eq!(diagnostic["key"], "identities", "{case}");
+        let fix = diagnostic["fix"].as_str().unwrap();
+        assert!(fix.starts_with("identities: "), "{case}: {fix}");
+        if !message.starts_with("identity_file") {
+            assert!(fix.contains(message), "{case}: {fix}");
+        }
+        assert!(!stderr.contains("\"tokens\":["), "{case}: {stderr}");
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 0, "{case}");
+    }
     // Environment variables select the same profile.
     let dir = TestDir::new();
     let mut child = common::server_command()

@@ -595,8 +595,9 @@ Signatures verify with these keys:
   permissive mode verifies signatures;
 - ACTIVE HMAC keys created through the JSON API. Their service account needs
   no identity entry, since nothing is authorized by identity;
-- RSA public keys from an identity file. Permissive mode accepts
-  `identity_file` only with `signed_urls=verify`, and its identities may declare
+- RSA public keys from an identity document, `identity_file` or the same
+  registry inline in `identities`. Permissive mode accepts either only with
+  `signed_urls=verify`, and its identities may declare
   only `id` and `public_keys` (and an empty or absent `tokens`).
   `project_roles`, `acl_entity`, non-empty `tokens` and
   `public_access_prevention_projects` require `auth_mode=strict` and fail

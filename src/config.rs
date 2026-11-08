@@ -9,6 +9,7 @@ use crate::{
     time_limit::TimeLimit,
     url::PublicOrigin,
 };
+use serde_json::value::RawValue;
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
@@ -17,6 +18,7 @@ use std::{
 };
 
 mod auth;
+mod document;
 mod notifications;
 mod runtime;
 mod setting;
@@ -26,6 +28,8 @@ mod test_support;
 #[cfg(test)]
 mod unix_tests;
 pub use auth::{AuthProfile, Verification};
+pub use document::DocumentSource;
+pub(crate) use document::{DocumentKind, Form};
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
@@ -215,7 +219,8 @@ pub struct Config {
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
-    pub buckets_file: Option<PathBuf>,
+    /// The bucket initialization document, from `buckets_file` or `buckets`.
+    pub buckets: Option<DocumentSource>,
     pub buckets_file_mode: BucketsFileMode,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
@@ -268,8 +273,8 @@ pub struct Config {
     pub cors_fallback: CorsFallback,
     /// Whether V4 verification also accepts a canonical host without the request Host's port.
     pub signed_host_port: SignedHostPort,
-    /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
-    pub identity_file: Option<PathBuf>,
+    /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
+    pub identities: Option<DocumentSource>,
     /// The explicit `test_signer` setting; [`Config::effective_test_signer`] applies the
     /// profile's default.
     pub test_signer: Option<TestSigner>,
@@ -311,7 +316,7 @@ impl Default for Config {
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
-            buckets_file: None,
+            buckets: None,
             buckets_file_mode: BucketsFileMode::Create,
             api_base_url: None,
             public_base_url: None,
@@ -352,7 +357,7 @@ impl Default for Config {
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
             signed_host_port: SignedHostPort::Exact,
-            identity_file: None,
+            identities: None,
             test_signer: None,
             signed_urls: None,
         }
@@ -454,6 +459,7 @@ impl Config {
         report.apply_settings(&settings);
         report.config.runtime_endpoints =
             RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
+        report.check_document_sources(&settings);
         report.check_buckets_file(&settings);
         report.check_sync(&settings);
         report.check_backend(&settings);
@@ -498,17 +504,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
     match read_config(&selector.value) {
         Ok(values) => {
             for (key, value) in values {
-                let text = if key == "default_location" && value.is_null() {
-                    Some(String::new())
-                } else if matches!(key.as_str(), "sync_delete_guard" | "admin_enabled")
-                    && value.is_boolean()
-                {
-                    Some(value.to_string())
-                } else if key == "buckets_file" {
-                    value.as_str().map(str::to_owned)
-                } else {
-                    setting_text(&value)
-                };
+                let text = member_text(&key, &value);
                 if !inputs.push(Input {
                     source: DiagnosticSource::Config,
                     key: key.clone(),
@@ -525,10 +521,11 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                 }
                 if text.is_none() {
                     invalid_file_fields.insert(key.clone());
+                    let fix = member_fix(&key);
                     inputs.diagnostics.errors.push(Diagnostic::new(
                         DiagnosticSource::Config,
                         key,
-                        CONFIG_VALUE_FIX,
+                        fix,
                     ));
                     inputs.entries.pop();
                 }
@@ -653,8 +650,11 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::BucketsFile
         | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
+        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, &value),
+        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, &value),
+        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, &value),
+        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, &value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::TrustedPrincipal
@@ -665,7 +665,6 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CompatProfile
         | Setting::CorsFallback
         | Setting::SignedHostPort
-        | Setting::IdentityFile
         | Setting::TestSigner
         | Setting::SignedUrls => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
@@ -836,14 +835,6 @@ fn apply_storage_setting(
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
         }
-        Setting::BucketsFile => {
-            if value.is_empty() {
-                return Err(
-                    "buckets_file must not be empty; use buckets.json or omit the setting".into(),
-                );
-            }
-            config.buckets_file = Some(PathBuf::from(value));
-        }
         Setting::BucketsFileMode => config.buckets_file_mode = value.parse()?,
         _ => return Err(unknown_setting()),
     }
@@ -898,9 +889,6 @@ fn apply_access_setting(
         Setting::CompatProfile => config.compat_profile = value.parse()?,
         Setting::CorsFallback => config.cors_fallback = value.parse()?,
         Setting::SignedHostPort => config.signed_host_port = value.parse()?,
-        Setting::IdentityFile => {
-            config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
-        }
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
         Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
         _ => return Err(unknown_setting()),
@@ -1058,18 +1046,18 @@ impl ConfigurationReport {
         }
     }
 
-    /// The mode only changes what a buckets file does, so naming it without one is a mistake.
+    /// The mode only changes what a buckets document does, so naming it without one is a mistake.
     fn check_buckets_file(&mut self, settings: &Settings) {
         let mode = Setting::BucketsFileMode.as_str();
-        if self.config.buckets_file.is_none()
-            && !self.invalid.contains(Setting::BucketsFile.as_str())
+        if self.config.buckets.is_none()
+            && self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
             && let Some(input) = settings.get(mode)
             && self.invalid.insert(mode.to_owned())
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
-                "This setting requires buckets_file; supply --buckets-file PATH or remove this setting.",
+                "This setting requires buckets_file or buckets; supply --buckets-file PATH or the document itself with --buckets JSON, or remove this setting.",
             ));
         }
     }
@@ -1130,9 +1118,9 @@ impl ConfigurationReport {
             self.invalid.insert("local_creator_email".into());
         }
         // Strict mode records the registered caller, so a creator address would be silently unused.
-        // A permissive identity file that only verifies signatures leaves the creator in use.
+        // A permissive identity document that only verifies signatures leaves the creator in use.
         if (config.auth_mode == AuthMode::Strict
-            || (config.identity_file.is_some()
+            || (config.identities.is_some()
                 && config.effective_signed_urls() == SignedUrls::Ignore))
             && !config.local_creator_email.is_empty()
             && let Some(input) = settings.get("local_creator_email")
@@ -1467,13 +1455,16 @@ pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
         )
     })?;
     let mut public_base = None;
-    for (key, value) in entries {
+    for (key, raw) in entries {
+        let invalid = || Diagnostic::new(DiagnosticSource::Config, &key, member_fix(&key));
+        // The server validates a document; this helper only checks that the member may hold one.
+        if document::holds_document(&key) {
+            document::member_text(&raw).ok_or_else(invalid)?;
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(raw.get()).map_err(|_| invalid())?;
         if setting_text(&value).is_none() {
-            return Err(Diagnostic::new(
-                DiagnosticSource::Config,
-                key,
-                CONFIG_VALUE_FIX,
-            ));
+            return Err(invalid());
         }
         if key == "public_base_url" {
             public_base = Some(
@@ -1497,6 +1488,32 @@ fn setting_text(value: &serde_json::Value) -> Option<String> {
         .or_else(|| value.as_u64().map(|v| v.to_string()))
 }
 
+/// The setting value a config file member supplies, or `None` for a JSON type its setting does
+/// not take.
+fn member_text(key: &str, raw: &RawValue) -> Option<String> {
+    if document::holds_document(key) {
+        return document::member_text(raw);
+    }
+    let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
+    if key == "default_location" && value.is_null() {
+        Some(String::new())
+    } else if matches!(key, "sync_delete_guard" | "admin_enabled") && value.is_boolean() {
+        Some(value.to_string())
+    } else if key == "buckets_file" {
+        value.as_str().map(str::to_owned)
+    } else {
+        setting_text(&value)
+    }
+}
+
+fn member_fix(key: &str) -> &'static str {
+    if document::holds_document(key) {
+        document::MEMBER_FIX
+    } else {
+        CONFIG_VALUE_FIX
+    }
+}
+
 enum ConfigReadError {
     Unreadable,
     TooLarge,
@@ -1515,7 +1532,8 @@ impl ConfigReadError {
     }
 }
 
-fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigReadError> {
+/// The members of a config file as written, so that a document member keeps its exact text.
+fn read_config(path: &str) -> Result<Vec<(String, Box<RawValue>)>, ConfigReadError> {
     let bytes =
         crate::bounded_file::read(Path::new(path), 65_536).map_err(|error| match error {
             crate::bounded_file::ReadError::Limit => ConfigReadError::TooLarge,
@@ -2222,7 +2240,7 @@ mod tests {
         assert_eq!(
             profile(&["--signed-urls", "verify", "--signed-host-port", "lenient"]),
             Some(AuthProfile::VerifyingPermissive {
-                identity_file: None,
+                identities: None,
                 verification: verification(TestSigner::Enabled, SignedHostPort::Lenient),
             })
         );
@@ -2236,7 +2254,7 @@ mod tests {
                 "enabled"
             ]),
             Some(AuthProfile::Strict {
-                identity_file: "ids.json".into(),
+                identities: DocumentSource::File("ids.json".into()),
                 verification: verification(TestSigner::Enabled, SignedHostPort::Exact),
             })
         );
@@ -2538,7 +2556,7 @@ mod tests {
             ),
         ] {
             let loaded = Config::load(&args, &env).unwrap();
-            assert!(loaded.buckets_file.is_some());
+            assert!(matches!(loaded.buckets, Some(DocumentSource::File(_))));
             let args = if source == DiagnosticSource::Cli {
                 vec!["--buckets-file".into(), "".into()]
             } else {
@@ -2567,14 +2585,14 @@ mod tests {
             &["--buckets-file", "cli.json"],
             [
                 None,
-                Some("file.json".into()),
-                Some("env.json".into()),
-                Some("cli.json".into()),
+                Some(DocumentSource::File("file.json".into())),
+                Some(DocumentSource::File("env.json".into())),
+                Some(DocumentSource::File("cli.json".into())),
             ],
             Config::load,
-            |config| config.buckets_file,
+            |config| config.buckets,
         );
-        assert_eq!(Config::default().buckets_file, None);
+        assert_eq!(Config::default().buckets, None);
     }
 
     #[test]
@@ -3744,7 +3762,7 @@ mod tests {
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let defaults = load_http(&[], &BTreeMap::new()).unwrap();
         assert_eq!(defaults.auth_mode, AuthMode::Permissive);
-        assert_eq!(defaults.identity_file, None);
+        assert_eq!(defaults.identities, None);
         std::fs::write(
             &file,
             r#"{"auth_mode":"strict","identity_file":"file-ids.json"}"#,
@@ -3759,12 +3777,12 @@ mod tests {
             &["--identity-file", "cli-ids.json"],
             [
                 None,
-                Some("file-ids.json".into()),
-                Some("env-ids.json".into()),
-                Some("cli-ids.json".into()),
+                Some(DocumentSource::File("file-ids.json".into())),
+                Some(DocumentSource::File("env-ids.json".into())),
+                Some(DocumentSource::File("cli-ids.json".into())),
             ],
             load_http,
-            |config| config.identity_file,
+            |config| config.identities,
         );
         // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
         let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);

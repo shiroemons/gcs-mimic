@@ -46,7 +46,7 @@ mod tests {
         Auth, AuthMode, IdentityUse, Profile, Registry, SignedUrls, TestSigner,
         signature::SignedHostPort, test_signer,
     };
-    use crate::config::{AuthProfile, Verification};
+    use crate::config::{AuthProfile, DocumentSource, Verification};
     use serde_json::json;
 
     const PUBLIC: &str = include_str!("../../fixtures/signing/test-only-public.pem");
@@ -118,7 +118,7 @@ mod tests {
             (TestSigner::Disabled, true, SignedHostPort::Exact),
         ] {
             let auth = Auth::load(&AuthProfile::VerifyingPermissive {
-                identity_file: identity_file.then(|| path.clone()),
+                identities: identity_file.then(|| DocumentSource::File(path.clone())),
                 verification: Verification {
                     test_signer,
                     signed_host_port,
@@ -140,7 +140,7 @@ mod tests {
         }
         // Loading reports only identity file contents; the pairing rules belong to validation.
         let error = Auth::load(&AuthProfile::Strict {
-            identity_file: path,
+            identities: DocumentSource::File(path),
             verification: Verification {
                 test_signer: TestSigner::Disabled,
                 signed_host_port: SignedHostPort::Lenient,

@@ -1603,6 +1603,62 @@ fn selected_file_only_is_loaded_and_invalid_paths_fail_without_ready() {
     }
 }
 
+/// The document from the environment, a CLI option or a config file member initializes what the
+/// same file would, and its failures name the inline setting without echoing the document.
+#[test]
+fn an_inline_document_initializes_buckets_from_every_source() {
+    let dir = TestDir::new();
+    let document = json!({"version":1,"project":"project-a","buckets":[
+        {"name":"inline-bucket","labels":{"env":"dev"}},{"name":"other-bucket"}]});
+    let text = document.to_string();
+    let server = Server::start(command(&dir.0).env("GCS_MIMIC_BUCKETS", &text));
+    counts(&server, 2, 0, 0);
+    let bucket = bucket(&server, "inline-bucket");
+    assert_eq!(bucket["labels"], json!({"env":"dev"}));
+    server.stop();
+    let server = Server::start(command(&dir.0).args(["--buckets", &text]));
+    counts(&server, 0, 2, 0);
+    server.stop();
+    let config = dir.0.join("settings.json");
+    fs::write(&config, json!({ "buckets": document }).to_string()).unwrap();
+    let server = Server::start(command(&dir.0).arg("--config").arg(&config));
+    counts(&server, 0, 2, 0);
+    server.stop();
+
+    let failing = TestDir::new();
+    for (document, key) in [
+        (
+            r#"{"version":1,"buckets":[{"name":"Secret Name"}]}"#,
+            "buckets[0].name",
+        ),
+        (r#"{"version":1,"buckets":[{"secret-field":1}"#, "buckets"),
+    ] {
+        let output = command(&failing.0)
+            .env("GCS_MIMIC_BUCKETS", document)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{document}");
+        assert!(output.stdout.is_empty());
+        let event = diagnostic(&output);
+        assert_eq!(event["diagnostics"][0]["source"], "initializer");
+        assert_eq!(event["diagnostics"][0]["key"], key);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.contains("Secret") && !stderr.contains("secret"),
+            "{stderr}"
+        );
+    }
+    // A document has one source: both settings fail before the catalog exists.
+    let output = selected(&failing.0)
+        .env("GCS_MIMIC_BUCKETS", &text)
+        .output()
+        .unwrap();
+    let event = diagnostic(&output);
+    assert_eq!(event["diagnostics"][0]["key"], "GCS_MIMIC_BUCKETS");
+    let fix = event["diagnostics"][0]["fix"].as_str().unwrap();
+    assert!(fix.contains("buckets and buckets_file"), "{fix}");
+}
+
 #[test]
 fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it() {
     let dir = TestDir::new();
