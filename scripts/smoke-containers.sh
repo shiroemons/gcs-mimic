@@ -75,6 +75,21 @@ expect_cors() {
   tr -d '\r' < "$work/cors-headers" | grep -Fxi 'access-control-max-age: 3600'
 }
 
+# A port that nothing on the host loopback answers, for files whose host and container ports
+# must be equal, so that Docker cannot pick one.
+free_port() {
+  local attempt candidate
+  for ((attempt = 0; attempt < 50; attempt++)); do
+    candidate=$((20000 + RANDOM % 20000))
+    if ! (exec 3<>"/dev/tcp/127.0.0.1/$candidate") 2>/dev/null; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo 'No free loopback port found' >&2
+  return 1
+}
+
 for platform in "$@"; do
   arch=${platform#linux/}
   export DOCKER_DEFAULT_PLATFORM=$platform
@@ -393,20 +408,21 @@ for platform in "$@"; do
   address=$(docker compose -p "$project" port gcs 4443)
   [[ $address == 127.0.0.1:* ]] || exit 1
   docker inspect "$service" | jq -e '.[0].HostConfig.PortBindings | keys == ["4443/tcp"]' >/dev/null
-  # Assert effective behavior, not the recipe's setting names, so that the recipe can drop settings
-  # whose defaults come to match.
+  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$service") == true ]] || exit 1
+  # Assert effective behavior, not the recipe's setting names: the recipe leaves the principal,
+  # the host port rule and the bucket mode to their defaults.
   docker logs "$service" 2>&1 | jq -se '
     any(.event == "diagnostics" and any(.diagnostics[]; .fix | contains("test-signer@gcs-mimic.invalid is published")))
-    and any(.event == "ready" and .auth_mode == "strict" and .identities == 2 and .test_signer == "enabled"
+    and any(.event == "ready" and .auth_mode == "strict" and .test_signer == "enabled"
       and .signed_urls == "verify" and .signed_host_port == "lenient"
       and .listeners == [{listen: "0.0.0.0:4443", scheme: "http"}]
-      and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "app@example.invalid"
+      and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "trusted-app@gcs-mimic.invalid"
       and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   strict_peer() {
     docker run --rm --read-only --network "${project}_default" "$peer_image" \
       --disable --noproxy '*' --silent --show-error --max-time 5 "$@"
   }
-  # Without credentials the trusted listener acts as the application identity.
+  # Without credentials the trusted listener acts as the built-in application identity.
   strict_peer --fail 'http://gcs:4444/storage/v1/b?project=local-project' \
     | jq -e '[.items[].name] == ["app-private", "app-public"]' >/dev/null
   strict_peer --fail http://gcs:4444/storage/v1/b/app-public/iam \
@@ -417,6 +433,8 @@ for platform in "$@"; do
     'http://gcs:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=docs%2Fprivate.txt' \
     | jq -e '.name == "docs/private.txt"' >/dev/null
   [[ $(strict_peer --fail 'http://gcs:4444/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media') == 'private bytes' ]] || exit 1
+  strict_peer --fail 'http://gcs:4444/storage/v1/b/app-private/o/docs%2Fprivate.txt?projection=full' \
+    | jq -e '.owner.entity == "user-trusted-app@gcs-mimic.invalid"' >/dev/null
   strict_peer --fail -H 'Content-Type: text/plain' --data-binary 'public bytes' \
     'http://gcs:4444/upload/storage/v1/b/app-public/o?uploadType=media&name=hello.txt' \
     | jq -e '.name == "hello.txt"' >/dev/null
@@ -470,9 +488,11 @@ for platform in "$@"; do
   docker compose -p "$project" run --rm gcs test-signer credentials >"$work/test-signer.json"
   jq -e '.client_email == "test-signer@gcs-mimic.invalid"
     and (.private_key | startswith("-----BEGIN PRIVATE KEY-----\n"))' "$work/test-signer.json" >/dev/null
-  # An edited bucket file reaches the existing volume once Compose recreates the container.
+  # Editing the inline buckets changes the service's environment, so a plain `up` recreates the
+  # container, and the edit reaches the buckets already in the volume.
   export FRONTEND_PORT=3001
-  docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
+  docker compose -p "$project" up --detach --wait --wait-timeout 40
+  [[ $(docker compose -p "$project" ps --quiet gcs) != "$service" ]] || exit 1
   service=$(docker compose -p "$project" ps --quiet gcs)
   address=$(docker compose -p "$project" port gcs 4443)
   docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
@@ -492,5 +512,130 @@ for platform in "$@"; do
   docker compose -p "$project" down --volumes
   project=
   export COMPOSE_FILE=compose.yaml:compose.http.yaml
-  echo "PASS: $platform strict local recipe: ready with test signer and trusted listener, credential-free trusted reads and writes, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, bucket file reconcile"
+  echo "PASS: $platform strict local recipe: read-only root, ready with test signer and built-in trusted principal, credential-free trusted reads and writes owned by trusted-app, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, inline bucket edit applied by a plain up"
+
+  # The full application example must connect as written. compose.smoke.yaml turns the Go API,
+  # Rails and frontend services into idle curl containers, and each request below runs inside the
+  # service that makes it in an application, with that service's environment, network and key.
+  project="gcs-mimic-full-stack-${arch}-$$"
+  export COMPOSE_FILE=examples/full-stack/compose.yaml:examples/full-stack/compose.smoke.yaml
+  export GCS_SMOKE_PEER_IMAGE=$peer_image GCS_SMOKE_TEST_SIGNER_KEY=$work/full-stack-signer.pem
+  unset FRONTEND_PORT WEB_PORT API_PORT
+  GCS_MIMIC_PORT=$(free_port)
+  export GCS_MIMIC_PORT
+  port=$GCS_MIMIC_PORT
+  # The README's one preparation step, run with the example file alone.
+  docker compose -p "$project" -f examples/full-stack/compose.yaml config --quiet
+  docker compose -p "$project" -f examples/full-stack/compose.yaml run --rm gcs test-signer credentials \
+    >"$work/full-stack-signer.json"
+  jq -r .private_key "$work/full-stack-signer.json" >"$GCS_SMOKE_TEST_SIGNER_KEY"
+  [[ $(head -n 1 "$GCS_SMOKE_TEST_SIGNER_KEY") == '-----BEGIN PRIVATE KEY-----' ]] || exit 1
+  docker compose -p "$project" config --quiet
+  docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  [[ $(docker compose -p "$project" port gcs "$port") == "127.0.0.1:$port" ]] || exit 1
+  docker inspect "$service" | jq -e --arg port "$port/tcp" '.[0].HostConfig.PortBindings | keys == [$port]' >/dev/null
+  [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$service") == true ]] || exit 1
+  docker logs "$service" 2>&1 | jq -se --arg listen "0.0.0.0:$port" '
+    any(.event == "ready" and .auth_mode == "strict" and .test_signer == "enabled" and .signed_host_port == "lenient"
+      and .listeners == [{listen: $listen, scheme: "http"}]
+      and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "trusted-app@gcs-mimic.invalid"
+      and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+  for app in api web; do
+    docker compose -p "$project" exec -T "$app" cat /run/secrets/gcs-test-signer | cmp - "$GCS_SMOKE_TEST_SIGNER_KEY"
+  done
+  # The Go API: requests without credentials to STORAGE_EMULATOR_HOST, the trusted listener.
+  api_curl() {
+    docker compose -p "$project" exec -T api sh -c 'path=$1; shift
+      exec curl --disable --noproxy "*" --fail --silent --show-error --max-time 5 "$@" "http://$STORAGE_EMULATOR_HOST$path"' \
+      api "$@"
+  }
+  api_curl '/upload/storage/v1/b/app-private/o?uploadType=media&name=docs%2Fprivate.txt' \
+    -H 'Content-Type: text/plain' --data-binary 'private bytes' | jq -e '.name == "docs/private.txt"' >/dev/null
+  [[ $(api_curl '/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media') == 'private bytes' ]] || exit 1
+  # Objects written through the trusted listener belong to the built-in identity it acts as.
+  api_curl '/storage/v1/b/app-private/o/docs%2Fprivate.txt?projection=full' \
+    | jq -e '.owner.entity == "user-trusted-app@gcs-mimic.invalid"' >/dev/null
+  api_curl '/upload/storage/v1/b/app-public/o?uploadType=media&name=images%2Flogo.png' \
+    -H 'Content-Type: image/png' --data-binary @- <"$work/expected" | jq -e '.contentType == "image/png"' >/dev/null
+  # Rails: its endpoint gcs.localhost reaches the main listener through the network alias, where a
+  # request without credentials is anonymous. Ruby resolves the name through Docker's DNS, but curl
+  # sends every *.localhost name to its own loopback, so look the name up as Ruby does and pin it.
+  rails_status() {
+    docker compose -p "$project" exec -T web sh -c 'authority=${GCS_EMULATOR_ENDPOINT#http://}
+      authority=${authority%%/*}
+      address=$(getent hosts "${authority%:*}" | awk "{ print \$1; exit }")
+      exec curl --disable --noproxy "*" --silent --show-error --max-time 5 -o /dev/null -w "%{http_code}" \
+        --resolve "$authority:${address:?the network alias did not resolve}" "$GCS_EMULATOR_ENDPOINT$1"' \
+      web "$1"
+  }
+  [[ $(rails_status 'storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media') == 401 ]] || exit 1
+  [[ $(rails_status app-private/docs/private.txt) == 401 ]] || exit 1
+  [[ $(rails_status app-public/images/logo.png) == 200 ]] || exit 1
+  # The host plays the browser, which sends localhost and *.localhost names to this machine.
+  browser() {
+    curl --disable --noproxy '*' --silent --show-error --max-time 5 \
+      --resolve "localhost:$port:127.0.0.1" --resolve "gcs.localhost:$port:127.0.0.1" "$@"
+  }
+  browser --fail -D "$work/full-headers" -o "$work/full-body" -H 'Origin: http://localhost:3000' \
+    "http://localhost:$port/app-public/images/logo.png"
+  cmp "$work/expected" "$work/full-body"
+  tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3000' >/dev/null
+  [[ $(browser -o /dev/null -w '%{http_code}' "http://localhost:$port/app-private/docs/private.txt") == 401 ]] || exit 1
+  full_sign() {
+    docker compose -p "$project" exec -T gcs gcs-mimic url sign --expires 5m "$@"
+  }
+  browser_host=$(docker compose -p "$project" exec -T api printenv GCS_BROWSER_HOST)
+  [[ $browser_host == "localhost:$port" ]] || exit 1
+  # Go storage signs its Hostname without the port; the browser then sends the port.
+  signed=$(full_sign --base-url http://localhost --bucket app-private --object docs/private.txt --method GET)
+  [[ $(browser --fail "http://$browser_host${signed#http://localhost}") == 'private bytes' ]] || exit 1
+  signed=$(full_sign --base-url "http://$browser_host" --bucket app-private --object docs/private.txt --method GET)
+  [[ $(browser --fail "$signed") == 'private bytes' ]] || exit 1
+  # Rails gives the browser URLs on its own endpoint.
+  rails_endpoint=$(docker compose -p "$project" exec -T web printenv GCS_EMULATOR_ENDPOINT)
+  [[ $rails_endpoint == "http://gcs.localhost:$port/" ]] || exit 1
+  signed=$(full_sign --base-url "${rails_endpoint%/}" --bucket app-private --object docs/private.txt --method GET)
+  [[ $signed == "${rails_endpoint}app-private/docs/private.txt?"* ]] || exit 1
+  [[ $(browser --fail "$signed") == 'private bytes' ]] || exit 1
+  # A frontend upload through a URL the API signs, preflight first.
+  signed=$(full_sign --base-url "http://$browser_host" --bucket app-private --object uploads/browser.txt \
+    --method PUT --header 'content-type:text/plain')
+  browser --fail -D "$work/full-headers" -o /dev/null -X OPTIONS -H 'Origin: http://localhost:3000' \
+    -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type' "$signed"
+  tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-headers: content-type' >/dev/null
+  code=$(browser -D "$work/full-headers" -o /dev/null -w '%{http_code}' -X PUT \
+    -H 'Origin: http://localhost:3000' -H 'Content-Type: text/plain' --data-binary 'signed upload' "$signed")
+  [[ $code == 200 ]] || exit 1
+  tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3000' >/dev/null
+  [[ $(api_curl '/storage/v1/b/app-private/o/uploads%2Fbrowser.txt?alt=media') == 'signed upload' ]] || exit 1
+  # A Rails page's direct upload preflight, with the headers Active Storage sends.
+  browser --fail -D "$work/full-headers" -o /dev/null -X OPTIONS -H 'Origin: http://localhost:3001' \
+    -H 'Access-Control-Request-Method: PUT' \
+    -H 'Access-Control-Request-Headers: content-type,content-md5,content-disposition,cache-control,x-goog-content-length-range' \
+    "${rails_endpoint}app-private/uploads/rails.bin"
+  tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3001' >/dev/null
+  # A plain `up` after editing the inline buckets recreates gcs and reconciles the volume's buckets.
+  export FRONTEND_PORT=3002
+  docker compose -p "$project" up --detach --wait --wait-timeout 40
+  [[ $(docker compose -p "$project" ps --quiet gcs) != "$service" ]] || exit 1
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
+  browser --fail -D "$work/full-headers" -o /dev/null -H 'Origin: http://localhost:3002' \
+    "http://localhost:$port/app-public/images/logo.png"
+  tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3002' >/dev/null
+  browser --fail -D "$work/full-headers" -o /dev/null -H 'Origin: http://localhost:3000' \
+    "http://localhost:$port/app-public/images/logo.png"
+  if tr -d '\r' < "$work/full-headers" | grep -i '^access-control-allow-origin:'; then
+    echo 'The reconciled bucket still allows the old frontend origin' >&2
+    exit 1
+  fi
+  [[ $(rails_status app-public/images/logo.png) == 200 ]] || exit 1
+  [[ $(api_curl '/storage/v1/b/app-private/o/uploads%2Fbrowser.txt?alt=media') == 'signed upload' ]] || exit 1
+  unset FRONTEND_PORT
+  docker compose -p "$project" down --volumes
+  project=
+  export COMPOSE_FILE=compose.yaml:compose.http.yaml
+  unset GCS_SMOKE_PEER_IMAGE GCS_SMOKE_TEST_SIGNER_KEY
+  echo "PASS: $platform full application example on port $port: test signer key mounted, API credential-free trusted writes owned by trusted-app, Rails anonymous through gcs.localhost (401 private, 200 public), browser public read with CORS, portless, exact and gcs.localhost signed GET, signed PUT with preflight, Rails direct upload preflight, inline bucket edit applied by a plain up"
 done
