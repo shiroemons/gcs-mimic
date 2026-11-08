@@ -7,7 +7,7 @@ use crate::{
     object::MapMode,
     storage::admin::{
         AdminError,
-        initialization::{EntryDigest, Stored},
+        initialization::{EntryDigest, MemberBits, RecordedEntry, Stored},
     },
 };
 use serde_json::Value;
@@ -17,9 +17,27 @@ use std::collections::{BTreeMap, BTreeSet};
 /// needs a new label: otherwise an old digest could match an entry that now means something else.
 const DIGEST_LABEL: &[u8] = b"gcs-mimic bucket file entry, version 1\n";
 
-/// A member that a start compares with an existing bucket, in the order diagnostics list them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Member {
+#[cfg(test)]
+mod tests;
+
+/// Declares `Member` together with the list of every member, so decoding a recorded set cannot
+/// miss one.
+macro_rules! members {
+    ($($(#[$meta:meta])* $member:ident),+ $(,)?) => {
+        /// A member that a start compares with an existing bucket, in the order diagnostics list
+        /// them.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        pub(crate) enum Member {
+            $($(#[$meta])* $member),+
+        }
+
+        impl Member {
+            const ALL: &'static [Self] = &[$(Self::$member),+];
+        }
+    };
+}
+
+members! {
     Location,
     StorageClass,
     Labels,
@@ -32,6 +50,22 @@ pub(crate) enum Member {
 }
 
 impl Member {
+    /// The member's bit in a recorded entry. The catalog keeps these bits, so a member keeps its
+    /// bit for good and a new member takes an unused one.
+    const fn bit(self) -> u32 {
+        match self {
+            Self::Location => 1 << 0,
+            Self::StorageClass => 1 << 1,
+            Self::Labels => 1 << 2,
+            Self::Cors => 1 << 3,
+            Self::Versioning => 1 << 4,
+            Self::DefaultEventBasedHold => 1 << 5,
+            Self::PublicAccessPrevention => 1 << 6,
+            Self::SoftDeletePolicy => 1 << 7,
+            Self::IamPolicy => 1 << 8,
+        }
+    }
+
     /// The entry field that writes the member.
     pub(crate) fn field(self) -> &'static str {
         match self {
@@ -197,10 +231,31 @@ impl Written {
         self.0.contains(&member)
     }
 
+    fn bits(&self) -> MemberBits {
+        MemberBits::new(self.0.iter().fold(0, |bits, member| bits | member.bit()))
+    }
+
+    /// The entry a start records for a bucket that holds what this entry writes.
+    pub(crate) fn record(&self, record: &BucketRecord, policy: Option<&Policy>) -> RecordedEntry {
+        RecordedEntry {
+            digest: self.digest(record, policy),
+            members: self.bits(),
+        }
+    }
+
+    /// The members a recorded entry wrote that this entry no longer writes.
+    pub(crate) fn removed_since(&self, recorded: MemberBits) -> Vec<Member> {
+        Member::ALL
+            .iter()
+            .copied()
+            .filter(|member| recorded.get() & member.bit() != 0 && !self.contains(*member))
+            .collect()
+    }
+
     /// Digests the written members and their normalized values, leaving out `name` and `project`:
     /// the name selects the bucket, and the project is ownership, which the run compares on its own
     /// and never changes.
-    pub(crate) fn digest(&self, record: &BucketRecord, policy: Option<&Policy>) -> EntryDigest {
+    fn digest(&self, record: &BucketRecord, policy: Option<&Policy>) -> EntryDigest {
         // Sorted by field name, so the digest does not depend on the order of `Member`.
         let sorted: BTreeMap<_, _> = self
             .0

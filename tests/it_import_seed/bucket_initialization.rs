@@ -422,16 +422,34 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
             .0,
         412
     );
+    // The edit and the dropped cors are two warnings for one entry, which counts once.
     let warnings = warnings(&server.stop());
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert_eq!(warnings[0]["key"], "buckets[0]");
-    let fix = warnings[0]["fix"].as_str().unwrap();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(
-        fix.contains("labels, versioning.enabled") && !fix.contains("location"),
-        "{fix}"
+        warnings
+            .iter()
+            .all(|warning| warning["key"] == "buckets[0]")
+    );
+    let fixes: Vec<_> = warnings
+        .iter()
+        .map(|warning| warning["fix"].as_str().unwrap())
+        .collect();
+    assert!(
+        fixes
+            .iter()
+            .any(|fix| fix.contains("labels, versioning.enabled") && !fix.contains("location")),
+        "{fixes:?}"
+    );
+    assert!(
+        fixes
+            .iter()
+            .any(|fix| fix.starts_with("cors is no longer written")),
+        "{fixes:?}"
     );
     // Values stay out of diagnostics, like every other initializer diagnostic.
-    assert!(!fix.contains("owner") && !fix.contains("secret"), "{fix}");
+    for fix in fixes {
+        assert!(!fix.contains("owner") && !fix.contains("secret"), "{fix}");
+    }
 }
 
 /// An entry and a file above their former limits of 64 KiB and 1 MiB reach the catalog whole.
@@ -861,42 +879,64 @@ fn a_changed_entry_warns_on_every_start_until_the_bucket_matches_it() {
 }
 
 #[test]
-fn a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning() {
+fn a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the_entry() {
     let dir = TestDir::new();
     let server = Server::start(&mut command(&dir.0));
-    server.json(
-        "POST",
-        "/storage/v1/b?project=project-a",
-        json!({"name":"api-bucket","labels":{"owner":"api"}}),
-    );
+    for (name, owner) in [("api-bucket", "api"), ("matching-bucket", "file")] {
+        server.json(
+            "POST",
+            "/storage/v1/b?project=project-a",
+            json!({"name":name,"labels":{"owner":owner}}),
+        );
+    }
     server.stop();
-    // Spellings with one meaning share a digest, so the next start sees no change.
+    // As after an upgrade from a release without records: the first start reports what differs.
     input(
         &dir.0,
-        json!([{"name":"api-bucket","labels":{"owner":"file"},"location":"us","softDeletePolicy":{"retentionDurationSeconds":"5"}}]),
+        json!([
+            {"name":"api-bucket","labels":{"owner":"file"},"location":"us","softDeletePolicy":{"retentionDurationSeconds":"5"}},
+            {"name":"matching-bucket","labels":{"owner":"file"}}
+        ]),
     );
     let server = Server::start(&mut selected(&dir.0));
-    applied(&server, json!({"existing":1}));
+    applied(&server, json!({"existing":2,"unapplied":1}));
     assert_eq!(labels(&server, "api-bucket"), json!({"owner":"api"}));
+    let warnings_now = warnings(&server.stop());
+    assert_eq!(warnings_now.len(), 1, "{warnings_now:?}");
+    assert_eq!(warnings_now[0]["key"], "buckets[0]");
+    let fix = warnings_now[0]["fix"].as_str().unwrap();
+    assert!(
+        fix.contains("without a recorded entry")
+            && fix.contains("labels, softDeletePolicy.retentionDurationSeconds")
+            && !fix.contains("keeps its location"),
+        "{fix}"
+    );
+    // That entry is the record now, and spellings with one meaning share a digest.
+    input(
+        &dir.0,
+        json!([
+            {"name":"api-bucket","labels":{"owner":"file"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}},
+            {"name":"matching-bucket","labels":{"owner":"file"}}
+        ]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":2}));
     assert!(warnings(&server.stop()).is_empty());
     input(
         &dir.0,
-        json!([{"name":"api-bucket","labels":{"owner":"file"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}}]),
+        json!([
+            {"name":"api-bucket","labels":{"owner":"other"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}},
+            {"name":"matching-bucket","labels":{"owner":"file"}}
+        ]),
     );
     let server = Server::start(&mut selected(&dir.0));
-    applied(&server, json!({"existing":1}));
-    assert!(warnings(&server.stop()).is_empty());
-    input(
-        &dir.0,
-        json!([{"name":"api-bucket","labels":{"owner":"other"},"location":"US","softDeletePolicy":{"retentionDurationSeconds":5}}]),
-    );
-    let server = Server::start(&mut selected(&dir.0));
-    applied(&server, json!({"existing":1,"unapplied":1}));
+    applied(&server, json!({"existing":2,"unapplied":1}));
     let warnings = warnings(&server.stop());
     let fix = warnings[0]["fix"].as_str().unwrap();
-    // The location matched the stored bucket all along; labels and soft delete differ.
+    // An edit after the record repeats until resolved; the location matched all along.
     assert!(
-        fix.contains("labels, softDeletePolicy.retentionDurationSeconds")
+        fix.contains("changed after its bucket was created or last reconciled")
+            && fix.contains("labels, softDeletePolicy.retentionDurationSeconds")
             && !fix.contains("keeps its location"),
         "{fix}"
     );
@@ -1072,6 +1112,166 @@ fn reconcile_keeps_the_location_and_another_owners_bucket() {
         .map(|warning| warning["key"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(keys, ["buckets[0].location", "buckets[1].project"]);
+}
+
+#[test]
+fn a_location_reconcile_keeps_stays_reported_in_create_mode() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([{"name":"placed-bucket","location":"US","labels":{"env":"dev"}}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 1, 0, 0);
+    server.stop();
+    input(
+        &dir.0,
+        json!([{"name":"placed-bucket","location":"EU","labels":{"env":"prod"}}]),
+    );
+    // Reconcile applies the labels and keeps the location, so the bucket still differs.
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":1,"unapplied":1,"reconciled":1}));
+    assert_eq!(labels(&server, "placed-bucket"), json!({"env":"prod"}));
+    server.stop();
+    for _ in 0..2 {
+        let server = Server::start(&mut selected(&dir.0));
+        applied(&server, json!({"existing":1,"unapplied":1}));
+        let warnings = warnings(&server.stop());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let fix = warnings[0]["fix"].as_str().unwrap();
+        assert!(
+            fix.contains("differs in location.") && fix.contains("keeps its location"),
+            "{fix}"
+        );
+    }
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":1,"unapplied":1}));
+    assert_eq!(bucket(&server, "placed-bucket")["location"], "US");
+    server.stop();
+}
+
+#[test]
+fn a_member_an_entry_stops_writing_is_reported_once_and_never_reset() {
+    let dir = TestDir::new();
+    let public = json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]});
+    let cors = json!([{"origin":["https://one.example"],"method":["GET"]}]);
+    input(
+        &dir.0,
+        json!([
+            {"name":"public-bucket","iamPolicy":public,"labels":{"env":"dev"}},
+            {"name":"guarded-bucket","cors":cors,"iamConfiguration":{"publicAccessPrevention":"enforced"}}
+        ]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 2, 0, 0);
+    let policy_before = policy(&server, "public-bucket");
+    let guarded_before = bucket(&server, "guarded-bucket");
+    server.stop();
+    // Dropping the grant to test denied access does not make the bucket private again.
+    input(
+        &dir.0,
+        json!([
+            {"name":"public-bucket","labels":{"env":"dev"}},
+            {"name":"guarded-bucket"}
+        ]),
+    );
+    for (mode, start) in [
+        ("create", selected(&dir.0)),
+        ("reconcile", reconciling(&dir.0)),
+    ] {
+        let mut start = start;
+        let server = Server::start(&mut start);
+        if mode == "create" {
+            applied(&server, json!({"existing":2,"unapplied":2}));
+        } else {
+            // The removals were reported and recorded by the start before.
+            applied(&server, json!({"existing":2}));
+        }
+        assert_eq!(policy(&server, "public-bucket"), policy_before);
+        assert_eq!(bucket(&server, "guarded-bucket"), guarded_before);
+        let warnings = warnings(&server.stop());
+        if mode == "create" {
+            let fixes: Vec<_> = warnings
+                .iter()
+                .map(|warning| {
+                    format!(
+                        "{}: {}",
+                        warning["key"].as_str().unwrap(),
+                        warning["fix"].as_str().unwrap()
+                    )
+                })
+                .collect();
+            assert_eq!(
+                fixes,
+                [
+                    "buckets[0]: iamPolicy is no longer written; the bucket keeps its current value. Write the value you want, or change it through the API.",
+                    "buckets[1]: cors, iamConfiguration.publicAccessPrevention are no longer written; the bucket keeps their current values. Write the values you want, or change them through the API.",
+                ]
+            );
+        } else {
+            assert!(warnings.is_empty(), "{warnings:?}");
+        }
+    }
+    // Reconcile mode reports a removal the same way, once.
+    input(
+        &dir.0,
+        json!([{"name":"public-bucket"},{"name":"guarded-bucket"}]),
+    );
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":2,"unapplied":1}));
+    assert_eq!(labels(&server, "public-bucket"), json!({"env":"dev"}));
+    let warnings_now = warnings(&server.stop());
+    assert_eq!(warnings_now.len(), 1, "{warnings_now:?}");
+    assert!(
+        warnings_now[0]["fix"]
+            .as_str()
+            .unwrap()
+            .starts_with("labels is no longer written"),
+        "{warnings_now:?}"
+    );
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":2}));
+    assert!(warnings(&server.stop()).is_empty());
+}
+
+#[test]
+fn a_public_policy_its_own_entry_prevents_is_refused_on_every_volume() {
+    let public = json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]});
+    let contradicting = json!([{"name":"guarded-bucket",
+        "iamConfiguration":{"publicAccessPrevention":"enforced"},"iamPolicy":public}]);
+    let refused = |command: &mut Command| {
+        let event = diagnostic(&command.output().unwrap());
+        assert_eq!(
+            event["diagnostics"][0]["key"], "buckets[0].iamPolicy",
+            "{event}"
+        );
+    };
+    // A fresh volume refuses the entry before creating anything.
+    let fresh = TestDir::new();
+    input(&fresh.0, contradicting.clone());
+    refused(&mut selected(&fresh.0));
+    refused(&mut reconciling(&fresh.0));
+    // An existing bucket that already holds the policy and the prevention gets the same verdict.
+    let existing = TestDir::new();
+    input(
+        &existing.0,
+        json!([{"name":"guarded-bucket","iamPolicy":public}]),
+    );
+    let server = Server::start(&mut selected(&existing.0));
+    counts(&server, 1, 0, 0);
+    server.json(
+        "PATCH",
+        "/storage/v1/b/guarded-bucket",
+        json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
+    );
+    let before = bucket(&server, "guarded-bucket");
+    server.stop();
+    input(&existing.0, contradicting);
+    refused(&mut selected(&existing.0));
+    refused(&mut reconciling(&existing.0));
+    let server = Server::start(&mut command(&existing.0));
+    assert_eq!(bucket(&server, "guarded-bucket"), before);
+    server.stop();
 }
 
 #[test]

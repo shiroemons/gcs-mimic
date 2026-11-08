@@ -7295,7 +7295,7 @@
           "id": "BUCKET-INIT-UNAPPLIED",
           "description": "Catalog schema 52 records a digest of each bucket's normalized written entry members, without name or project; equivalent spellings share a digest. In create mode an edited entry whose bucket still differs warns once per entry on every start, naming fields without values, and ready counts it as unapplied; a bucket the API brought in line, an unchanged entry and an API-only change stay silent, and a bucket without a record adopts the entry silently. Deleting, soft deleting or resetting a bucket removes its record in the same transaction, restore starts without one, and released data directories upgrade. Contract: docs/en/slices/bucket-initialization.md#entry-records-and-reconcile-mode.",
           "result": "PASS",
-          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_digest_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources"]
+          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the_entry", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_entry_or_its_members_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources"]
         },
         {
           "id": "BUCKET-INIT-RECONCILE",
@@ -7560,11 +7560,11 @@
       ],
       "test_ids": [
         "a_changed_entry_warns_on_every_start_until_the_bucket_matches_it",
-        "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning",
+        "a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the_entry",
         "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled",
         "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing",
         "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one",
-        "record_replaces_the_digest_without_touching_the_bucket",
+        "record_replaces_the_entry_or_its_members_without_touching_the_bucket",
         "default_location_applies_to_new_api_and_initializer_buckets_only",
         "supported_release_data_directories_upgrade_without_changing_resources",
         "reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api",
@@ -7670,7 +7670,7 @@
           "result": "PASS",
           "verified_at": "2026-11-08",
           "artifact": "docs/en/slices/bucket-initialization.md",
-          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_digest_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources", "reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api", "an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode", "reconcile_keeps_the_location_and_another_owners_bucket", "reconcile_checks_public_access_prevention_against_stored_state_before_any_change", "the_mode_without_a_buckets_file_fails_startup", "buckets_file_mode_defaults_to_create_and_requires_a_buckets_file"]
+          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the_entry", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_entry_or_its_members_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources", "reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api", "an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode", "reconcile_keeps_the_location_and_another_owners_bucket", "reconcile_checks_public_access_prevention_against_stored_state_before_any_change", "the_mode_without_a_buckets_file_fails_startup", "buckets_file_mode_defaults_to_create_and_requires_a_buckets_file"]
         },
         {
           "command": "just check",

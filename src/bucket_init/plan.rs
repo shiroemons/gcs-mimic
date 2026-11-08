@@ -12,10 +12,12 @@ use crate::{
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     storage::admin::{
         AdminError, BucketDefinition,
-        initialization::{Creation, InitTarget, Observed, Planned, Reconciliation, Stored},
+        initialization::{
+            Creation, EntryUpdate, InitTarget, Observed, Planned, Reconciliation, Stored,
+        },
     },
 };
-use std::num::NonZeroUsize;
+use std::{collections::BTreeSet, num::NonZeroUsize};
 
 const PUBLIC_ACCESS_FIX: &str = "Public access prevention is enforced for this bucket or its project, so its policy cannot grant allUsers or allAuthenticatedUsers; remove those members, or set \"iamConfiguration\":{\"publicAccessPrevention\":\"inherited\"} when the project does not enforce it.";
 const PROJECT_FIX: &str = "Existing bucket ownership is retained; align or remove this entry, or choose another bucket name, for example local-assets.";
@@ -70,11 +72,11 @@ pub(super) fn prepare(
                 name: entry.record.name.clone(),
                 project: entry.record.project.clone(),
             };
-            let digest = entry.written.digest(&entry.record, entry.policy.as_ref());
+            let recorded = entry.written.record(&entry.record, entry.policy.as_ref());
             let creation = Creation {
                 definition: BucketDefinition::new(entry.record)?,
                 policy: entry.policy,
-                digest,
+                entry: recorded,
             };
             let written = entry.written;
             Ok((target, Prepared { creation, written }))
@@ -82,12 +84,23 @@ pub(super) fn prepare(
         .collect()
 }
 
+/// Joins field names for a diagnostic, which names fields but never their values.
+fn fields(members: &[Member]) -> String {
+    members
+        .iter()
+        .map(|member| member.field())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[derive(Default)]
 pub(super) struct Report {
     created: usize,
     existing: usize,
     project_mismatches: usize,
-    unapplied: usize,
+    /// Entries with at least one warning about a member their bucket does not hold. A bucket can
+    /// be warned about more than once and still counts once.
+    unapplied: BTreeSet<usize>,
     reconciled: usize,
     pub(super) warnings: Diagnostics,
 }
@@ -98,7 +111,7 @@ impl Report {
             created: self.created,
             existing: self.existing,
             project_mismatches: self.project_mismatches,
-            unapplied: self.unapplied,
+            unapplied: self.unapplied.len(),
             reconciled: self.reconciled,
         }
     }
@@ -109,20 +122,17 @@ impl Report {
             .push(Diagnostic::new(DiagnosticSource::Initializer, key, fix));
     }
 
-    /// One warning names every member the bucket kept, but never a value.
-    fn unapplied(&mut self, index: usize, members: &[Member]) {
-        self.unapplied += 1;
-        let fields = members
-            .iter()
-            .map(|member| member.field())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let location = if members.contains(&Member::Location) {
-            " An existing bucket keeps its location; delete and recreate the bucket to move it."
-        } else {
-            ""
-        };
-        self.warn(
+    fn unapplied(&mut self, index: usize, key: String, fix: impl Into<String>) {
+        self.unapplied.insert(index);
+        self.warn(key, fix);
+    }
+
+    /// The entry changed since it was recorded, and the bucket still differs from it.
+    fn edited(&mut self, index: usize, members: &[Member]) {
+        let fields = fields(members);
+        let location = location_note(members);
+        self.unapplied(
+            index,
             format!("buckets[{index}]"),
             format!(
                 "This entry changed after its bucket was created or last reconciled, and existing settings are kept: the bucket still differs in {fields}. Set buckets_file_mode=reconcile to apply the written fields, change the bucket through the API, or restore the entry.{location}"
@@ -130,12 +140,50 @@ impl Report {
         );
     }
 
+    /// No entry was recorded for the bucket, and it differs from the current one. The current
+    /// entry becomes the record, so this is reported on this start only.
+    fn unrecorded(&mut self, index: usize, members: &[Member]) {
+        let fields = fields(members);
+        let location = location_note(members);
+        self.unapplied(
+            index,
+            format!("buckets[{index}]"),
+            format!(
+                "The bucket existed without a recorded entry, created through the API or by an earlier release, and existing settings are kept: it differs from this entry in {fields}. Set buckets_file_mode=reconcile to apply the written fields, or change the bucket through the API. Later starts compare with this entry and do not repeat this warning.{location}"
+            ),
+        );
+    }
+
+    /// The recorded entry wrote members that the current one omits. Omitting a member never
+    /// resets it, so the bucket keeps its value either way.
+    fn removed(&mut self, index: usize, members: &[Member]) {
+        let fields = fields(members);
+        let fix = if let [_] = members {
+            format!(
+                "{fields} is no longer written; the bucket keeps its current value. Write the value you want, or change it through the API."
+            )
+        } else {
+            format!(
+                "{fields} are no longer written; the bucket keeps their current values. Write the values you want, or change them through the API."
+            )
+        };
+        self.unapplied(index, format!("buckets[{index}]"), fix);
+    }
+
     fn location_kept(&mut self, index: usize) {
-        self.unapplied += 1;
-        self.warn(
+        self.unapplied(
+            index,
             format!("buckets[{index}].location"),
             "An existing bucket keeps its location, so reconcile mode left it; delete and recreate the bucket to move it, or write the bucket's current location.",
         );
+    }
+}
+
+fn location_note(members: &[Member]) -> &'static str {
+    if members.contains(&Member::Location) {
+        " An existing bucket keeps its location; delete and recreate the bucket to move it."
+    } else {
+        ""
     }
 }
 
@@ -202,8 +250,14 @@ impl Run {
                 .warn(format!("buckets[{index}].project"), PROJECT_FIX);
             return Ok(Planned::Keep);
         }
+        if let Some(recorded) = stored.entry {
+            let removed = entry.written.removed_since(recorded.members);
+            if !removed.is_empty() {
+                self.report.removed(index, &removed);
+            }
+        }
         match self.mode {
-            BucketsFileMode::Create => Ok(self.keep(index, &entry, &stored)),
+            BucketsFileMode::Create => Ok(self.keep(index, &entry, &stored, observed.parent)),
             BucketsFileMode::Reconcile => self.reconcile(index, entry, &stored, observed.parent),
         }
     }
@@ -223,30 +277,43 @@ impl Run {
         }
     }
 
-    /// Keeps an existing bucket. Its recorded entry moves only to an entry that the bucket
-    /// matches, so a changed entry keeps warning until the bucket or the entry is brought back
-    /// in line.
-    fn keep(&mut self, index: usize, entry: &Prepared, stored: &Stored) -> Planned {
-        let current = entry.creation.digest;
-        match stored.digest {
-            // The API or an older release created the bucket, so no earlier entry exists to
-            // compare with: the current one becomes the baseline without a warning.
-            None => Planned::Record(current),
-            Some(recorded) if recorded == current => Planned::Keep,
-            Some(_) => {
-                let differing: Vec<_> = entry
-                    .written
-                    .differences(
-                        entry.creation.definition.record(),
-                        entry.creation.policy.as_ref(),
-                        stored,
-                    )
-                    .collect();
+    /// Keeps an existing bucket. Its recorded digest moves only to an entry that the bucket
+    /// matches, so a changed entry keeps warning until the bucket or the entry is brought back in
+    /// line.
+    fn keep(
+        &mut self,
+        index: usize,
+        entry: &Prepared,
+        stored: &Stored,
+        parent: PublicAccess,
+    ) -> Planned {
+        let wanted = entry.creation.definition.record();
+        let policy = entry.creation.policy.as_ref();
+        // Judged as on a volume without the bucket, so the same file gets the same verdict.
+        self.refuse_public_policy(index, policy, public_access(wanted, parent));
+        let current = entry.creation.entry;
+        let differing =
+            || -> Vec<Member> { entry.written.differences(wanted, policy, stored).collect() };
+        match stored.entry {
+            None => {
+                let differing = differing();
+                if !differing.is_empty() {
+                    self.report.unrecorded(index, &differing);
+                }
+                Planned::Record(EntryUpdate::Matched(current))
+            }
+            Some(recorded) if recorded.digest == current.digest => Planned::Keep,
+            Some(recorded) => {
+                let differing = differing();
                 if differing.is_empty() {
-                    Planned::Record(current)
+                    Planned::Record(EntryUpdate::Matched(current))
                 } else {
-                    self.report.unapplied(index, &differing);
-                    Planned::Keep
+                    self.report.edited(index, &differing);
+                    if recorded.members == current.members {
+                        Planned::Keep
+                    } else {
+                        Planned::Record(EntryUpdate::Members(current.members))
+                    }
                 }
             }
         }
@@ -254,7 +321,8 @@ impl Run {
 
     /// Writes each member the entry writes whose value the bucket does not hold, whether or not
     /// the entry changed, so an API change to a written member is undone and one to any other
-    /// member stays. An unchanged bucket gets no write at all.
+    /// member stays. An unchanged bucket gets no write at all. A kept location leaves the bucket
+    /// different from its entry, so the recorded digest stays and create mode keeps reporting it.
     fn reconcile(
         &mut self,
         index: usize,
@@ -264,40 +332,47 @@ impl Run {
     ) -> Result<Planned, PlanError> {
         let Prepared { creation, written } = entry;
         let wanted = creation.definition.record();
-        let mut differing: Vec<_> = written
-            .differences(wanted, creation.policy.as_ref(), stored)
-            .collect();
-        if let Some(location) = differing
-            .iter()
-            .position(|member| *member == Member::Location)
-        {
-            differing.remove(location);
-            self.report.location_kept(index);
-        }
-        let current = creation.digest;
-        if differing.is_empty() {
-            return Ok(if stored.digest == Some(current) {
-                Planned::Keep
-            } else {
-                Planned::Record(current)
-            });
-        }
-        let policy = creation
-            .policy
-            .filter(|_| differing.contains(&Member::IamPolicy));
-        // Public access prevention as it stands once this entry is applied.
+        // Public access prevention as it stands once this entry is applied, checked against the
+        // whole written policy so the verdict does not depend on what the bucket holds already.
         let prevention = if written.contains(Member::PublicAccessPrevention) {
             wanted
         } else {
             &stored.record
         };
-        self.refuse_public_policy(index, policy.as_ref(), public_access(prevention, parent));
+        self.refuse_public_policy(
+            index,
+            creation.policy.as_ref(),
+            public_access(prevention, parent),
+        );
+        let mut differing: Vec<_> = written
+            .differences(wanted, creation.policy.as_ref(), stored)
+            .collect();
+        let current = creation.entry;
+        let entry_update = if let Some(location) = differing
+            .iter()
+            .position(|member| *member == Member::Location)
+        {
+            differing.remove(location);
+            self.report.location_kept(index);
+            stored
+                .entry
+                .filter(|recorded| recorded.members != current.members)
+                .map(|_| EntryUpdate::Members(current.members))
+        } else {
+            (stored.entry != Some(current)).then_some(EntryUpdate::Matched(current))
+        };
+        if differing.is_empty() {
+            return Ok(entry_update.map_or(Planned::Keep, Planned::Record));
+        }
+        let policy = creation
+            .policy
+            .filter(|_| differing.contains(&Member::IamPolicy));
         let update = written::patch(&differing, wanted)?;
         self.report.reconciled += 1;
         Ok(Planned::Reconcile(Box::new(Reconciliation {
             update,
             policy,
-            digest: current,
+            entry: entry_update,
         })))
     }
 }

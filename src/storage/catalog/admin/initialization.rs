@@ -21,7 +21,7 @@ use crate::{
     },
 };
 use rusqlite::{
-    Transaction, params,
+    OptionalExtension, Transaction, params,
     types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
 };
 use std::{collections::HashMap, num::NonZeroU64};
@@ -29,13 +29,16 @@ use std::{collections::HashMap, num::NonZeroU64};
 #[cfg(test)]
 mod tests;
 
-/// The entry each bucket was created or last reconciled from, as a digest, so a later start can
-/// tell an edited entry from an unchanged one. A row goes with its bucket through the foreign
-/// key: deleting, soft deleting or resetting a bucket forgets its entry in the same transaction,
-/// and a restored or recreated bucket starts without one.
+/// What each bucket's file entry was when a start last recorded it, so a later start can tell an
+/// edited entry from an unchanged one and a member the entry stopped writing. `digest` is the
+/// entry the bucket was created, last reconciled or found to match; `members` is the set of
+/// members the latest recorded entry wrote. A row goes with its bucket through the foreign key:
+/// deleting, soft deleting or resetting a bucket forgets its entry in the same transaction, and a
+/// restored or recreated bucket starts without one.
 pub(in crate::storage::catalog) const SCHEMA: &str = "CREATE TABLE bucket_file_entries (
     bucket TEXT PRIMARY KEY COLLATE BINARY REFERENCES buckets(name) ON DELETE CASCADE,
-    digest BLOB NOT NULL CHECK(typeof(digest) = 'blob' AND length(digest) = 32)
+    digest BLOB NOT NULL CHECK(typeof(digest) = 'blob' AND length(digest) = 32),
+    members INTEGER NOT NULL CHECK(typeof(members) = 'integer' AND members BETWEEN 0 AND 4294967295)
 ) WITHOUT ROWID;
 PRAGMA user_version = 52;";
 
@@ -46,9 +49,10 @@ const SELECT_EXISTING: &str = concat!(
 );
 const PARENT_PREVENTS_PUBLIC_ACCESS: &str =
     "SELECT EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = ?1)";
-const SELECT_DIGEST: &str = "SELECT digest FROM bucket_file_entries WHERE bucket = ?1";
-const RECORD_DIGEST: &str = "INSERT INTO bucket_file_entries VALUES (?1, ?2)
-    ON CONFLICT(bucket) DO UPDATE SET digest = excluded.digest";
+const SELECT_ENTRY: &str = "SELECT digest, members FROM bucket_file_entries WHERE bucket = ?1";
+const RECORD_ENTRY: &str = "INSERT INTO bucket_file_entries VALUES (?1, ?2, ?3)
+    ON CONFLICT(bucket) DO UPDATE SET digest = excluded.digest, members = excluded.members";
+const RECORD_MEMBERS: &str = "UPDATE bucket_file_entries SET members = ?2 WHERE bucket = ?1";
 
 /// The SHA-256 digest of one normalized bucket file entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +76,51 @@ impl FromSql for EntryDigest {
     }
 }
 
+/// The members an entry wrote, one bit each. The initializer owns what each bit means; the
+/// catalog only keeps the bits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MemberBits(u32);
+
+impl MemberBits {
+    pub(crate) const fn new(bits: u32) -> Self {
+        Self(bits)
+    }
+
+    pub(crate) const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl ToSql for MemberBits {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl FromSql for MemberBits {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        u32::column_result(value).map(Self)
+    }
+}
+
+/// One recorded file entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RecordedEntry {
+    pub(crate) digest: EntryDigest,
+    pub(crate) members: MemberBits,
+}
+
+/// How a run changes the entry recorded for an existing bucket.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryUpdate {
+    /// The bucket now holds what the entry writes: the entry becomes the recorded one.
+    Matched(RecordedEntry),
+    /// The bucket still differs from the entry, so the recorded digest stays and the difference
+    /// is reported again; only which members the entry writes is recorded, so that a removed
+    /// member is reported once. A bucket without a recorded entry keeps none.
+    Members(MemberBits),
+}
+
 /// The bucket one file entry names and the project that would own it if it were created.
 pub(crate) struct InitTarget {
     pub(crate) name: String,
@@ -90,17 +139,17 @@ pub(crate) struct Observed {
 pub(crate) struct Stored {
     pub(crate) record: BucketRecord,
     pub(crate) policy: Policy,
-    /// `None` for a bucket that the API created, or that a release before the digests created.
-    pub(crate) digest: Option<EntryDigest>,
+    /// `None` for a bucket that the API created, or that a release before the records created.
+    pub(crate) entry: Option<RecordedEntry>,
 }
 
 /// What the run does for one target, in the order of the targets.
 pub(crate) enum Planned {
     Create(Box<Creation>),
-    /// Brings an existing bucket in line with its entry and records the entry.
+    /// Brings an existing bucket closer to its entry.
     Reconcile(Box<Reconciliation>),
-    /// Keeps the bucket and records the entry it now matches.
-    Record(EntryDigest),
+    /// Keeps the bucket and changes its recorded entry.
+    Record(EntryUpdate),
     Keep,
 }
 
@@ -108,17 +157,18 @@ pub(crate) enum Planned {
 pub(crate) struct Creation {
     pub(crate) definition: BucketDefinition,
     pub(crate) policy: Option<Policy>,
-    pub(crate) digest: EntryDigest,
+    pub(crate) entry: RecordedEntry,
 }
 
-/// The writes that make an existing bucket hold what its entry writes. Each part writes only
-/// what differs; the plan sets at least one of them.
+/// The writes that bring an existing bucket closer to what its entry writes. Each part writes
+/// only what differs; the plan sets `update` or `policy`.
 pub(crate) struct Reconciliation {
     /// Applied as a PATCH applies it.
     pub(crate) update: Option<BucketMetadataUpdate>,
     /// Replaces the policy as setIamPolicy does.
     pub(crate) policy: Option<Policy>,
-    pub(crate) digest: EntryDigest,
+    /// `None` keeps the recorded entry as it is.
+    pub(crate) entry: Option<EntryUpdate>,
 }
 
 /// What every applied step shares.
@@ -221,9 +271,16 @@ fn observe(
 }
 
 fn stored(transaction: &Transaction<'_>, record: BucketRecord) -> Result<Stored, CatalogError> {
+    let entry = sql::row(transaction, SELECT_ENTRY, [&record.name], |row| {
+        Ok(RecordedEntry {
+            digest: row.get(0)?,
+            members: row.get(1)?,
+        })
+    })
+    .optional()?;
     Ok(Stored {
         policy: policies::read_policy(transaction, &record.name)?,
-        digest: sql::optional_scalar(transaction, SELECT_DIGEST, [&record.name])?,
+        entry,
         record,
     })
 }
@@ -233,7 +290,7 @@ impl Apply<'_> {
         match step {
             Planned::Create(creation) => self.create(target, *creation),
             Planned::Reconcile(reconciliation) => self.reconcile(&target.name, *reconciliation),
-            Planned::Record(digest) => self.record(&target.name, digest),
+            Planned::Record(update) => self.update_entry(&target.name, update),
             Planned::Keep => Ok(()),
         }
     }
@@ -246,7 +303,7 @@ impl Apply<'_> {
         Reconciliation {
             update,
             policy,
-            digest,
+            entry,
         }: Reconciliation,
     ) -> Result<(), CatalogError> {
         let metageneration = match update {
@@ -278,11 +335,25 @@ impl Apply<'_> {
             };
             policies::replace_policy(self.transaction, write, &mut policy, self.principals)?;
         }
-        self.record(bucket, digest)
+        entry.map_or(Ok(()), |entry| self.update_entry(bucket, entry))
     }
 
-    fn record(&self, bucket: &str, digest: EntryDigest) -> Result<(), CatalogError> {
-        sql::exec(self.transaction, RECORD_DIGEST, params![bucket, digest])?;
+    fn update_entry(&self, bucket: &str, update: EntryUpdate) -> Result<(), CatalogError> {
+        match update {
+            EntryUpdate::Matched(entry) => self.record(bucket, entry),
+            EntryUpdate::Members(members) => {
+                sql::exec(self.transaction, RECORD_MEMBERS, params![bucket, members])?;
+                Ok(())
+            }
+        }
+    }
+
+    fn record(&self, bucket: &str, entry: RecordedEntry) -> Result<(), CatalogError> {
+        sql::exec(
+            self.transaction,
+            RECORD_ENTRY,
+            params![bucket, entry.digest, entry.members],
+        )?;
         Ok(())
     }
 
@@ -292,7 +363,7 @@ impl Apply<'_> {
         Creation {
             definition,
             policy,
-            digest,
+            entry,
         }: Creation,
     ) -> Result<(), CatalogError> {
         let mut record = definition.into_record();
@@ -330,6 +401,6 @@ impl Apply<'_> {
             &record.name,
             None,
         )?;
-        self.record(&record.name, digest)
+        self.record(&record.name, entry)
     }
 }

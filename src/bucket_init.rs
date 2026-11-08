@@ -2592,7 +2592,10 @@ mod tests {
                 document["project"] = json!(project);
             }
             let entry = entries(&document.to_string()).unwrap().remove(0);
-            entry.written.digest(&entry.record, entry.policy.as_ref())
+            entry
+                .written
+                .record(&entry.record, entry.policy.as_ref())
+                .digest
         };
         let base = digest(
             json!({"name":"first-bucket","location":"US","labels":{"a":"1","b":"2"},
