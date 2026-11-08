@@ -24,6 +24,29 @@ fn unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback() {
         supplied.extend([key.into(), value.into()]);
         assert!(Config::load(&supplied, &BTreeMap::new()).is_err(), "{key}");
     }
+    // A valid strict pair still names a TCP listener, which the socket excludes.
+    let mut trusted = args.clone();
+    trusted.extend(
+        [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+            "--trusted-listen",
+            "127.0.0.1:0",
+            "--trusted-principal",
+            "app@example.invalid",
+        ]
+        .map(str::to_owned),
+    );
+    let error = Config::load(&trusted, &BTreeMap::new()).unwrap_err();
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|error| error.key == "--unix-socket" && error.fix.contains("trusted_listen")),
+        "{error}"
+    );
     let env = BTreeMap::from([("GCS_MIMIC_LISTEN".into(), "127.0.0.1:0".into())]);
     assert!(Config::load(&args, &env).is_err());
     assert!(

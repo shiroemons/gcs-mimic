@@ -38,6 +38,7 @@ pub(super) async fn request(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
+            ctx.listener,
         )
         .await
         .map_err(JsonError::from)?;

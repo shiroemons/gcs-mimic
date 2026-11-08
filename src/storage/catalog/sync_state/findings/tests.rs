@@ -25,13 +25,18 @@ async fn control_identity(projects: &[&str]) -> crate::auth::Identity {
         "authorization",
         hyper::header::HeaderValue::from_static("Bearer control-token"),
     );
-    auth.authenticate_request(&headers, None, &SystemClock)
-        .await
-        .unwrap()
-        .unwrap()
-        .principal()
-        .unwrap()
-        .clone()
+    auth.authenticate_request(
+        &headers,
+        None,
+        &SystemClock,
+        crate::auth::ListenerRole::Public,
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .principal()
+    .unwrap()
+    .clone()
 }
 
 async fn publish(catalog: &Catalog, data: &TestDir, bucket: &BucketName, name: &str) -> Generation {

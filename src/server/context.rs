@@ -5,7 +5,7 @@
 
 use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
 use crate::{
-    auth::Caller,
+    auth::{Caller, ListenerRole},
     bucket::BucketAccess,
     config::{ApiBaseSource, Config, RequestEndpoints},
     json::{self, JsonError},
@@ -37,6 +37,8 @@ pub(crate) struct RequestCtx<'a> {
     pub(crate) endpoints: &'a RequestEndpoints,
     /// Reports body and catalog progress to the connection's deadline watchdog.
     pub(crate) activity: &'a watch::Sender<ObjectActivity>,
+    /// The listener that accepted the connection; batch parts keep their envelope's.
+    pub(crate) listener: ListenerRole,
 }
 
 /// Whether the connection answers with a timeout once an object request deadline expires.

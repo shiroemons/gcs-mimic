@@ -91,6 +91,7 @@ async fn authority(
             request.headers(),
             request.uri().query(),
             ctx.state.clock.as_ref(),
+            ctx.listener,
         )
         .await?
     {
@@ -197,10 +198,9 @@ mod tests {
         .await
         .unwrap();
         let registry = auth::Registry::parse(br#"{"identities":[{"id":"manager","tokens":["manager"]},{"id":"ordinary","tokens":["ordinary"],"project_roles":{"local":["roles/storage.admin"]}}]}"#).unwrap();
-        let state = std::sync::Arc::new(super::super::State::for_test(
-            catalog,
-            auth::Auth::strict(registry),
-        ));
+        let mut auth = auth::Auth::strict(registry);
+        auth.trust_principal("manager").unwrap();
+        let state = std::sync::Arc::new(super::super::State::for_test(catalog, auth));
         let config = crate::config::Config {
             admin_enabled: true,
             admin_principal: Some("manager".into()),
@@ -212,16 +212,25 @@ mod tests {
             .unwrap()
             .without_request();
         let (activity, _) = tokio::sync::watch::channel(super::super::ObjectActivity::default());
-        let ctx = RequestCtx {
+        let public = RequestCtx {
             state: &state,
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener: auth::ListenerRole::Public,
         };
-        for (token, status) in [
-            (None, StatusCode::UNAUTHORIZED),
-            (Some("ordinary"), StatusCode::FORBIDDEN),
-            (Some("manager"), StatusCode::OK),
+        let trusted = RequestCtx {
+            listener: auth::ListenerRole::Trusted,
+            ..public
+        };
+        // The trusted principal names the administrator here, so only the trusted listener
+        // admits a request without a token; a presented token still decides on both.
+        for (ctx, token, status) in [
+            (public, None, StatusCode::UNAUTHORIZED),
+            (public, Some("ordinary"), StatusCode::FORBIDDEN),
+            (public, Some("manager"), StatusCode::OK),
+            (trusted, None, StatusCode::OK),
+            (trusted, Some("ordinary"), StatusCode::FORBIDDEN),
         ] {
             let mut request = Request::builder()
                 .method(Method::PUT)

@@ -57,6 +57,12 @@ pub(crate) struct ReadyEvent {
     message: String,
     listen: Option<SocketAddr>,
     listeners: Vec<ReadyListener>,
+    /// Reported apart from `listeners`, whose entries all judge requests without credentials as
+    /// anonymous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trusted_listen: Option<SocketAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trusted_principal: Option<String>,
     transport: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     unix_socket: Option<String>,
@@ -121,6 +127,8 @@ impl ReadyEvent {
             message: format!("server started at {api_base_url}"),
             listen: Some(listen),
             listeners,
+            trusted_listen: None,
+            trusted_principal: None,
             transport: "tcp",
             unix_socket: None,
             protocol: "http1",
@@ -159,10 +167,16 @@ impl ReadyEvent {
     }
 }
 
+/// The sockets a server accepts on, all bound before readiness.
+struct BoundListeners {
+    primary: PrimaryListener,
+    http: Option<tokio::net::TcpListener>,
+    trusted: Option<tokio::net::TcpListener>,
+    grpc: Option<tokio::net::TcpListener>,
+}
+
 struct BoundStartup {
-    listener: PrimaryListener,
-    listener_http: Option<tokio::net::TcpListener>,
-    listener_grpc: Option<tokio::net::TcpListener>,
+    listeners: BoundListeners,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
     sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
@@ -189,6 +203,7 @@ async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
         if config.scheme != gcs_mimic::config::Scheme::Http
             || config.listen_http.is_some()
             || config.grpc_listen.is_some()
+            || config.trusted_listen.is_some()
         {
             return Err(phase(
                 DiagnosticSource::Listener,
@@ -321,22 +336,29 @@ async fn prepare_startup(
     let sync_root = complete!(gcs_mimic::sync::preflight(catalog, config))
         .map_err(|error| phase(DiagnosticSource::Sync, "sync_dir", &error.to_string()))?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
-    let (listener, listener_http, listener_grpc) = complete!(async {
-        let listener = bind_primary(config).await?;
-        let listener_http = match config.effective_listen_http() {
+    let listeners = complete!(async {
+        let primary = bind_primary(config).await?;
+        let http = match config.effective_listen_http() {
             Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
             None => None,
         };
-        let listener_grpc = match config.grpc_listen {
+        let trusted = match config.trusted_listen {
+            Some(address) => Some(bind_configured_listener(address, "trusted_listen").await?),
+            None => None,
+        };
+        let grpc = match config.grpc_listen {
             Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
             None => None,
         };
-        Ok::<_, io::Error>((listener, listener_http, listener_grpc))
+        Ok::<_, io::Error>(BoundListeners {
+            primary,
+            http,
+            trusted,
+            grpc,
+        })
     })?;
     Ok(PhaseResult::Complete(BoundStartup {
-        listener,
-        listener_http,
-        listener_grpc,
+        listeners,
         seed,
         buckets_file,
         sync_root,
@@ -389,9 +411,7 @@ pub(crate) async fn serve(
         return Err(authentication::close(&catalog, cause).await);
     }
     let BoundStartup {
-        listener,
-        listener_http,
-        listener_grpc,
+        listeners,
         seed,
         buckets_file,
         sync_root,
@@ -407,15 +427,7 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return finish_startup(&catalog, result.map(|_| ())).await,
     };
-    let ready = ready_event(
-        &config,
-        &auth,
-        &listener,
-        listener_http.as_ref(),
-        listener_grpc.as_ref(),
-        seed,
-        buckets_file,
-    );
+    let ready = ready_event(&config, &auth, &listeners, seed, buckets_file);
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => {
@@ -450,21 +462,23 @@ pub(crate) async fn serve(
         }
         Ok(())
     };
-    match listener {
+    let BoundListeners {
+        primary,
+        http,
+        trusted,
+        grpc,
+    } = listeners;
+    match primary {
         PrimaryListener::Tcp(listener) => {
-            let mut listeners = vec![(listener, acceptor)];
-            if let Some(listener) = listener_http {
-                listeners.push((listener, None));
-            }
-            server::serve_with_grpc_and_drain(
-                listeners,
-                listener_grpc,
-                config,
-                state,
-                shutdown,
-                background_drain,
-            )
-            .await?;
+            let mut public = vec![(listener, acceptor)];
+            public.extend(http.map(|listener| (listener, None)));
+            let listeners = server::TcpListeners {
+                public,
+                trusted,
+                grpc,
+            };
+            server::serve_with_grpc_and_drain(listeners, config, state, shutdown, background_drain)
+                .await?;
         }
         #[cfg(unix)]
         PrimaryListener::Unix(listener) => {
@@ -479,13 +493,12 @@ pub(crate) async fn serve(
 fn ready_event(
     config: &Config,
     auth: &Auth,
-    listener: &PrimaryListener,
-    listener_http: Option<&tokio::net::TcpListener>,
-    listener_grpc: Option<&tokio::net::TcpListener>,
+    listeners: &BoundListeners,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
 ) -> io::Result<(String, String)> {
-    listener
+    listeners
+        .primary
         .local_addr()
         .map_err(|_| {
             phase(
@@ -495,7 +508,7 @@ fn ready_event(
             )
         })
         .and_then(|address| {
-            let address_http = listener_http.map(|listener| listener.local_addr()).transpose()
+            let address_http = listeners.http.as_ref().map(|listener| listener.local_addr()).transpose()
                 .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
             let api_base_url = address.map_or_else(|| config.api_base_url.clone().unwrap_or_else(|| "http://localhost".into()),
                 |address| config.effective_api_base_url(address));
@@ -515,8 +528,12 @@ fn ready_event(
                 event.unix_socket = Some(path.to_string_lossy().into_owned());
                 event.message = "server started on a private Unix socket".into();
             }
-            if let Some(listener) = listener_grpc {
+            if let Some(listener) = &listeners.grpc {
                 event.listeners.push(ReadyListener { listen: listener.local_addr()?, scheme: "h2c" });
+            }
+            if let Some(listener) = &listeners.trusted {
+                event.trusted_listen = Some(listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
+                event.trusted_principal.clone_from(&config.trusted_principal);
             }
             serde_json::to_string(&event)
             .map(|ready| (ready, api_base_url))
@@ -789,9 +806,11 @@ mod tests {
         let PhaseResult::Complete(bound) = result else {
             panic!("unexpected shutdown")
         };
-        assert!(bound.listener.local_addr().unwrap().is_none());
-        assert!(bound.listener_http.is_none() && bound.listener_grpc.is_none());
-        let PrimaryListener::Unix(listener) = bound.listener else {
+        let listeners = bound.listeners;
+        assert!(listeners.primary.local_addr().unwrap().is_none());
+        assert!(listeners.http.is_none() && listeners.grpc.is_none());
+        assert!(listeners.trusted.is_none());
+        let PrimaryListener::Unix(listener) = listeners.primary else {
             panic!("TCP fallback")
         };
         listener.close().await.unwrap();
@@ -816,7 +835,8 @@ mod tests {
         .unwrap() else {
             panic!("unexpected stop");
         };
-        assert!(bound.listener_grpc.is_none());
+        assert!(bound.listeners.grpc.is_none());
+        assert!(bound.listeners.trusted.is_none());
         drop(bound);
         config.grpc_listen = Some("127.0.0.1:0".parse().unwrap());
         config.buckets_file = Some(dir.0.join("missing-buckets.json"));
@@ -843,7 +863,7 @@ mod tests {
         .unwrap() else {
             panic!("unexpected stop");
         };
-        let listener = bound.listener_grpc.as_ref().unwrap();
+        let listener = bound.listeners.grpc.as_ref().unwrap();
         let address = listener.local_addr().unwrap();
         let failure = bind_configured_listener(address, "grpc_listen")
             .await

@@ -432,6 +432,7 @@ mod tests {
                 headers: &headers,
                 clock: &clock,
                 resource: &Resource::PathStyle,
+                listener: crate::auth::ListenerRole::Public,
             })
             .await
             .unwrap_err();
@@ -646,6 +647,7 @@ mod tests {
             headers: &headers,
             clock: &clock,
             resource: &Resource::PathStyle,
+            listener: crate::auth::ListenerRole::Public,
         })
         .await
         .unwrap_err();

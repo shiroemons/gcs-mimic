@@ -1,7 +1,7 @@
 use gcs_mimic::{
-    auth::Auth,
+    auth::{Auth, TrustedPrincipalError},
     clock::{Clock, SystemClock},
-    config::Config,
+    config::{Config, ConfigurationReport},
     config_input::{Fix as UrlFix, MAX_CLI_ARGS, UrlStyle, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
@@ -62,6 +62,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
+  --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403; never publish it)
+  --trusted-principal ID       none (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; required with it)
   --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
@@ -382,14 +384,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
     }
-    if report.valid(&["admin_principal"])
-        && let (Some(principal), Some(principals)) =
-            (&report.config.admin_principal, auth.principals())
-        && !principals.iter().any(|identity| identity.id() == principal)
-    {
-        report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "admin_principal",
-            format!("admin_principal {principal:?} is not an id in identity_file; use one of its identities.")));
-    }
+    resolve_principals(&mut report, &mut auth);
     // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
         auth = auth.with_local_creator_email(&report.config.local_creator_email);
@@ -473,6 +468,34 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         startup::serve(config, auth, acceptor, shutdown).await
     })?;
     Ok(())
+}
+
+/// Checks the principals that settings name against the loaded registry, and makes requests
+/// without credentials on the trusted listener act as `trusted_principal`.
+fn resolve_principals(report: &mut ConfigurationReport, auth: &mut Auth) {
+    if report.valid(&["admin_principal"])
+        && let (Some(principal), Some(principals)) =
+            (&report.config.admin_principal, auth.principals())
+        && !principals.iter().any(|identity| identity.id() == principal)
+    {
+        report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "admin_principal",
+            format!("admin_principal {principal:?} is not an id in identity_file; use one of its identities.")));
+    }
+    if report.valid(&["trusted_principal"])
+        && let Some(principal) = report.config.trusted_principal.as_deref()
+    {
+        match auth.trust_principal(principal) {
+            Ok(()) => {}
+            // Startup already fails then: the setting was rejected for permissive mode, or the
+            // identity file did not load.
+            Err(TrustedPrincipalError::RequiresStrict) => {}
+            Err(TrustedPrincipalError::Unknown) => report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Identity,
+                "trusted_principal",
+                format!("trusted_principal {principal:?} is not an id in identity_file; use one of its identities, or the built-in test signer with test_signer=enabled."),
+            )),
+        }
+    }
 }
 
 fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
@@ -1004,7 +1027,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "be4c80e0b461536221b07e7a6688fc35b6c3e2ae69701328c996778450928d31"
+            "73a884e8c43c04dac42d87e7d208670d174a28d06ee86e4f502c359b642841a8"
         );
     }
 

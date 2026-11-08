@@ -107,7 +107,12 @@ async fn control(
     let caller = ctx
         .state
         .auth
-        .authenticate_request(request.headers(), None, ctx.state.clock.as_ref())
+        .authenticate_request(
+            request.headers(),
+            None,
+            ctx.state.clock.as_ref(),
+            ctx.listener,
+        )
         .await?;
     let identity = caller
         .map(|caller| caller.principal().cloned())

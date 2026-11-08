@@ -138,9 +138,13 @@ impl MixedServer {
             ..Config::default()
         };
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let listeners = TcpListeners {
+            public: vec![(http, None)],
+            trusted: None,
+            grpc: Some(grpc),
+        };
         let task = tokio::spawn(serve_with_grpc_and_drain(
-            vec![(http, None)],
-            Some(grpc),
+            listeners,
             config,
             state,
             async move { stopped.await.map_err(io::Error::other) },

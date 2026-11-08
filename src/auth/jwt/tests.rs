@@ -1,5 +1,5 @@
 use super::*;
-use crate::auth::{Auth, AuthFailure, Caller};
+use crate::auth::{Auth, AuthFailure, Caller, ListenerRole};
 use hyper::HeaderMap;
 use ring::{rand::SystemRandom, signature};
 use serde_json::{Value, json};
@@ -20,7 +20,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         format!("Bearer {}", token(&claims())).parse().unwrap(),
     );
     let caller = auth
-        .authenticate_request(&headers, None, &Fixed(NOW))
+        .authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
         .await
         .unwrap()
         .unwrap();
@@ -36,7 +36,8 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
             .unwrap(),
     );
     assert!(matches!(
-        auth.authenticate_request(&headers, None, &Fixed(NOW)).await,
+        auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+            .await,
         Err(AuthError::Failure(AuthFailure::InvalidCredentials))
     ));
     let (started, ready) = tokio::sync::oneshot::channel();
@@ -50,7 +51,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         headers.insert("authorization", "Bearer opaque-token".parse().unwrap());
         let caller = tokio::time::timeout(
             Duration::from_secs(1),
-            auth.authenticate_request(&headers, None, &Fixed(NOW)),
+            auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public),
         )
         .await
         .unwrap()
@@ -58,7 +59,7 @@ async fn requests_verify_jwts_on_the_bounded_pool_and_resolve_tokens_without_it(
         .unwrap();
         assert_eq!(caller.principal().unwrap().id(), ISSUER);
         assert!(matches!(
-            auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW))
+            auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW), ListenerRole::Public)
                 .await,
             Ok(Some(Caller::Anonymous))
         ));
@@ -123,7 +124,10 @@ fn token(claims: &Value) -> String {
 async fn authenticate<'a>(auth: &'a Auth, token: &str, clock: &dyn Clock) -> Option<&'a Identity> {
     let mut headers = HeaderMap::new();
     headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-    match auth.authenticate_request(&headers, None, clock).await {
+    match auth
+        .authenticate_request(&headers, None, clock, ListenerRole::Public)
+        .await
+    {
         Ok(Some(Caller::Principal(identity))) => Some(identity),
         Ok(_) | Err(AuthError::Failure(_)) => None,
         Err(AuthError::Unavailable(error)) => panic!("credential verifier failed: {error}"),
@@ -137,7 +141,7 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         let caller = auth
-            .authenticate_request(&headers, None, &Fixed(NOW))
+            .authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
             .await
             .unwrap()
             .unwrap();
@@ -153,7 +157,7 @@ async fn jwt_resolves_registered_keys_and_keeps_opaque_tokens_and_project_permis
     );
     assert!(matches!(
         Auth::permissive()
-            .authenticate_request(&headers, None, &Fixed(0))
+            .authenticate_request(&headers, None, &Fixed(0), ListenerRole::Public)
             .await,
         Ok(None)
     ));
@@ -316,12 +320,13 @@ async fn registered_jwt_shaped_tokens_never_bypass_signature_or_scope_checks() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         assert!(matches!(
-            auth.authenticate_request(&headers, None, &Fixed(NOW)).await,
+            auth.authenticate_request(&headers, None, &Fixed(NOW), ListenerRole::Public)
+                .await,
             Err(AuthError::Failure(AuthFailure::InvalidCredentials))
         ));
     }
     assert!(matches!(
-        auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW))
+        auth.authenticate_request(&HeaderMap::new(), None, &Fixed(NOW), ListenerRole::Public)
             .await,
         Ok(Some(Caller::Anonymous))
     ));

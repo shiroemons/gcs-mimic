@@ -174,6 +174,9 @@ pub struct Config {
     pub listen: SocketAddr,
     pub listen_http: Option<SocketAddr>,
     pub grpc_listen: Option<SocketAddr>,
+    /// A plain HTTP listener for the application's own servers on a private network, where a
+    /// request without credentials acts as `trusted_principal`. Strict mode only.
+    pub trusted_listen: Option<SocketAddr>,
     pub unix_socket: Option<PathBuf>,
     pub scheme: Scheme,
     pub tls_cert: Option<PathBuf>,
@@ -218,6 +221,8 @@ pub struct Config {
     pub admin_enabled: bool,
     pub admin_principal: Option<String>,
     pub admin_allowed_hosts: Vec<String>,
+    /// The registered identity that requests without credentials on `trusted_listen` act as.
+    pub trusted_principal: Option<String>,
     /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
     /// authentication; empty disables it. Never an authorization input.
     pub local_creator_email: String,
@@ -275,6 +280,7 @@ impl Default for Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             listen_http: None,
             grpc_listen: None,
+            trusted_listen: None,
             unix_socket: None,
             scheme: Scheme::Https,
             tls_cert: None,
@@ -307,6 +313,7 @@ impl Default for Config {
             admin_enabled: false,
             admin_principal: None,
             admin_allowed_hosts: Vec::new(),
+            trusted_principal: None,
             local_creator_email: DEFAULT_LOCAL_CREATOR_EMAIL.into(),
             runtime_endpoints: RuntimeEndpoints::default(),
             pubsub_emulator_host: None,
@@ -445,6 +452,7 @@ impl Config {
         report.check_public_base_url(&settings);
         report.check_api_base_url(&settings);
         report.check_auth(&settings);
+        report.check_trusted_listener(&settings);
         report.check_notifications(&settings);
         report
     }
@@ -616,6 +624,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::Listen
         | Setting::ListenHttp
         | Setting::GrpcListen
+        | Setting::TrustedListen
         | Setting::UnixSocket
         | Setting::TlsCert
         | Setting::TlsKey
@@ -637,6 +646,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
+        | Setting::TrustedPrincipal
         | Setting::LocalCreatorEmail
         | Setting::AdminEnabled
         | Setting::AuthMode
@@ -696,6 +706,11 @@ fn apply_network_setting(
         Setting::GrpcListen => {
             config.grpc_listen = Some(value.parse().map_err(|_| {
                 "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
+            })?);
+        }
+        Setting::TrustedListen => {
+            config.trusted_listen = Some(value.parse().map_err(|_| {
+                "trusted_listen must be an IP socket address, for example 0.0.0.0:4444 inside a container"
             })?);
         }
         Setting::UnixSocket => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
@@ -838,6 +853,15 @@ fn apply_access_setting(
                 );
             }
             config.admin_principal = Some(value.to_owned());
+        }
+        Setting::TrustedPrincipal => {
+            if !crate::auth::valid_principal_id(value) {
+                return Err(
+                    "trusted_principal must be 1..=254 bytes of printable ASCII without whitespace, like identity ids"
+                        .into(),
+                );
+            }
+            config.trusted_principal = Some(value.to_owned());
         }
         Setting::LocalCreatorEmail => {
             if !value.is_empty() {
@@ -1186,12 +1210,12 @@ impl ConfigurationReport {
                 Some(
                     "unix_socket requires scheme=http; advertised HTTP(S) origins remain independent.",
                 )
-            } else if ["listen", "listen_http", "grpc_listen"]
+            } else if ["listen", "listen_http", "grpc_listen", "trusted_listen"]
                 .iter()
                 .any(|key| settings.contains_key(*key))
             {
                 Some(
-                    "unix_socket cannot be combined with explicit listen, listen_http or grpc_listen settings; remove the TCP settings.",
+                    "unix_socket cannot be combined with explicit listen, listen_http, grpc_listen or trusted_listen settings; remove the TCP settings.",
                 )
             } else {
                 None
@@ -1352,6 +1376,62 @@ impl ConfigurationReport {
             self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_host_port=lenient has no effect while signatures are ignored; set signed_urls=verify or auth_mode=strict, or remove the setting."));
             self.invalid.insert("signed_host_port".into());
         }
+    }
+
+    /// The trusted listener only changes who a request without credentials acts as, which
+    /// matters only where strict mode judges anonymous requests, and either half of the pair
+    /// alone would claim an effect it does not have.
+    fn check_trusted_listener(&mut self, settings: &Settings) {
+        let listen = Setting::TrustedListen.as_str();
+        let principal = Setting::TrustedPrincipal.as_str();
+        let named = (
+            settings.contains_key(listen),
+            settings.contains_key(principal),
+        );
+        let rejected = match (self.config.auth_mode, named) {
+            (_, (false, false)) => return,
+            (AuthMode::Permissive, _) if self.valid(&["auth_mode"]) => [listen, principal]
+                .map(|name| {
+                    (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
+                })
+                .to_vec(),
+            (AuthMode::Strict, (true, false)) => vec![(listen, "trusted_listen requires trusted_principal; set --trusted-principal to the registered identity that requests without credentials act as.".to_owned())],
+            (AuthMode::Strict, (false, true)) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
+            (AuthMode::Strict, (true, true)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
+            // An invalid auth_mode was already reported, and a valid strict pair stays.
+            (AuthMode::Permissive | AuthMode::Strict, _) => return,
+        };
+        for (name, fix) in rejected {
+            if let Some(input) = settings.get(name)
+                && self.invalid.insert(name.to_owned())
+            {
+                self.diagnostics
+                    .errors
+                    .push(Diagnostic::new(input.source, &input.key, fix));
+            }
+        }
+    }
+
+    /// Port 0 picks a free port for each listener, so only a fixed port can collide.
+    fn trusted_listen_collides(&self) -> bool {
+        let config = &self.config;
+        config.unix_socket.is_none()
+            && self.valid(&[
+                "trusted_listen",
+                "listen",
+                "listen_http",
+                "grpc_listen",
+                "scheme",
+            ])
+            && config.trusted_listen.is_some_and(|address| {
+                address.port() != 0
+                    && [
+                        Some(config.listen),
+                        config.effective_listen_http(),
+                        config.grpc_listen,
+                    ]
+                    .contains(&Some(address))
+            })
     }
 
     /// Strict mode authenticates the built-in signer only on request; say what that exposes.
@@ -1600,6 +1680,152 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    #[test]
+    fn a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address() {
+        let strict = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+        ];
+        let load = |options: &[&str]| {
+            let args: Vec<String> = options.iter().map(|option| (*option).to_owned()).collect();
+            Config::load(&args, &BTreeMap::new())
+        };
+        let mut paired = strict.to_vec();
+        paired.extend([
+            "--trusted-listen",
+            "0.0.0.0:4444",
+            "--trusted-principal",
+            "app@example.invalid",
+        ]);
+        let config = load(&paired).unwrap();
+        assert_eq!(config.trusted_listen, Some("0.0.0.0:4444".parse().unwrap()));
+        assert_eq!(
+            config.trusted_principal.as_deref(),
+            Some("app@example.invalid")
+        );
+        let defaults = Config::default();
+        assert_eq!(
+            (defaults.trusted_listen, defaults.trusted_principal),
+            (None, None)
+        );
+        let with = |extra: &[&'static str]| {
+            let mut options = strict.to_vec();
+            options.extend_from_slice(extra);
+            options
+        };
+        let app = ["--trusted-principal", "app@example.invalid"];
+        for (options, key, message) in [
+            (
+                vec!["--trusted-listen", "0.0.0.0:4444"],
+                "--trusted-listen",
+                "requires auth_mode=strict",
+            ),
+            (
+                vec!["--trusted-principal", "app@example.invalid"],
+                "--trusted-principal",
+                "requires auth_mode=strict",
+            ),
+            (
+                vec![
+                    "--signed-urls",
+                    "verify",
+                    "--trusted-listen",
+                    "0.0.0.0:4444",
+                    "--trusted-principal",
+                    "app@example.invalid",
+                ],
+                "--trusted-principal",
+                "requires auth_mode=strict",
+            ),
+            (
+                with(&["--trusted-listen", "0.0.0.0:4444"]),
+                "--trusted-listen",
+                "requires trusted_principal",
+            ),
+            (with(&app), "--trusted-principal", "requires trusted_listen"),
+            (
+                with(&["--trusted-listen", "gcs:4444", app[0], app[1]]),
+                "--trusted-listen",
+                "IP socket address",
+            ),
+            (
+                with(&[
+                    "--trusted-listen",
+                    "0.0.0.0:4444",
+                    "--trusted-principal",
+                    "bad id",
+                ]),
+                "--trusted-principal",
+                "without whitespace",
+            ),
+            (
+                with(&[
+                    "--listen",
+                    "0.0.0.0:4443",
+                    "--trusted-listen",
+                    "0.0.0.0:4443",
+                    app[0],
+                    app[1],
+                ]),
+                "--trusted-listen",
+                "must differ from listen",
+            ),
+            (
+                with(&[
+                    "--scheme",
+                    "both",
+                    "--trusted-listen",
+                    "127.0.0.1:8000",
+                    app[0],
+                    app[1],
+                ]),
+                "--trusted-listen",
+                "must differ from listen",
+            ),
+            (
+                with(&[
+                    "--grpc-listen",
+                    "127.0.0.1:4445",
+                    "--trusted-listen",
+                    "127.0.0.1:4445",
+                    app[0],
+                    app[1],
+                ]),
+                "--trusted-listen",
+                "must differ from listen",
+            ),
+        ] {
+            let error = load(&options).unwrap_err();
+            assert!(
+                error
+                    .errors
+                    .iter()
+                    .any(|error| error.key == key && error.fix.contains(message)),
+                "{options:?}: {error}"
+            );
+        }
+        // Port 0 picks a free port for each listener, so equal ephemeral addresses are distinct.
+        load(&with(&[
+            "--listen",
+            "127.0.0.1:0",
+            "--trusted-listen",
+            "127.0.0.1:0",
+            app[0],
+            app[1],
+        ]))
+        .unwrap();
+        // A principal the identity file lacks is found only when startup reads the file.
+        load(&with(&[
+            "--trusted-listen",
+            "0.0.0.0:4444",
+            "--trusted-principal",
+            "unknown@example.invalid",
+        ]))
+        .unwrap();
     }
 
     #[test]

@@ -41,6 +41,9 @@ pub(crate) struct Authentication<'auth, 'request> {
     pub(crate) headers: &'request HeaderMap,
     pub(crate) clock: &'request dyn crate::clock::Clock,
     pub(crate) resource: &'request crate::auth::signature::Resource,
+    /// Decides who an unsigned request without credentials acts as; signatures verify alike on
+    /// every listener.
+    pub(crate) listener: crate::auth::ListenerRole,
 }
 
 pub(crate) async fn authenticate_target<'a>(
@@ -54,6 +57,7 @@ pub(crate) async fn authenticate_target<'a>(
         headers,
         clock,
         resource,
+        listener,
     } = authentication;
     if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
     {
@@ -82,7 +86,7 @@ pub(crate) async fn authenticate_target<'a>(
                 }
             })
     } else {
-        auth.authenticate_request(headers, uri.query(), clock)
+        auth.authenticate_request(headers, uri.query(), clock, listener)
             .await
             .map_err(|e| Error::from(JsonError::from(e)))
     }

@@ -14,6 +14,7 @@ super::string_enum! {
         Listen => "listen",
         ListenHttp => "listen_http",
         GrpcListen => "grpc_listen",
+        TrustedListen => "trusted_listen",
         UnixSocket => "unix_socket",
         Scheme => "scheme",
         TlsCert => "tls_cert",
@@ -44,6 +45,7 @@ super::string_enum! {
         AdminEnabled => "admin_enabled",
         AdminPrincipal => "admin_principal",
         AdminAllowedHosts => "admin_allowed_hosts",
+        TrustedPrincipal => "trusted_principal",
         LocalCreatorEmail => "local_creator_email",
         XmlVirtualHostDomains => "xml_virtual_host_domains",
         MaxConnections => "max_connections",
@@ -111,6 +113,7 @@ impl Setting {
             | Self::Listen
             | Self::ListenHttp
             | Self::GrpcListen
+            | Self::TrustedListen
             | Self::UnixSocket
             | Self::Scheme
             | Self::TlsCert
@@ -133,6 +136,7 @@ impl Setting {
             | Self::AdminEnabled
             | Self::AdminPrincipal
             | Self::AdminAllowedHosts
+            | Self::TrustedPrincipal
             | Self::LocalCreatorEmail
             | Self::XmlVirtualHostDomains
             | Self::AuthMode

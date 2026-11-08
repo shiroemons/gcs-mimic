@@ -116,6 +116,16 @@ impl Fixture {
         fields
     }
 
+    fn ctx(&self) -> RequestCtx<'_> {
+        RequestCtx {
+            state: &self.state,
+            config: &self.config,
+            endpoints: &self.endpoints,
+            activity: &self.activity,
+            listener: crate::auth::ListenerRole::Public,
+        }
+    }
+
     async fn post(&self, variant: Variant, bytes: &[u8]) -> Result<Response<ResponseBody>, Error> {
         let mut body = Vec::new();
         for (name, value) in self.fields(variant) {
@@ -138,12 +148,7 @@ impl Fixture {
         let object = crate::xml::select_object(request.uri(), request.headers(), &self.config)
             .unwrap()
             .unwrap();
-        let ctx = RequestCtx {
-            state: &self.state,
-            config: &self.config,
-            endpoints: &self.endpoints,
-            activity: &self.activity,
-        };
+        let ctx = self.ctx();
         respond(
             request,
             &object,
@@ -247,7 +252,7 @@ async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous()
     for variant in [Variant::V4Hmac, Variant::V2Hmac] {
         let fields = fixture.fields(variant);
         let version = Version::select(&fields).unwrap();
-        let error = authenticate(&fixture.state, &HeaderMap::new(), &fields, version)
+        let error = authenticate(fixture.ctx(), &HeaderMap::new(), &fields, version)
             .await
             .unwrap_err();
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);

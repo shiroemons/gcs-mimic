@@ -8,6 +8,7 @@ use super::{
     chunk_body::{self, ChunkSender, Completion},
 };
 use crate::{
+    auth::ListenerRole,
     config::{Config, RequestEndpoints},
     json::{self, JsonError},
 };
@@ -142,6 +143,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         config: ctx.config.clone(),
         endpoints: ctx.endpoints.clone(),
         connection: ctx.activity.clone(),
+        listener: ctx.listener,
         sender,
         completion,
     };
@@ -162,6 +164,8 @@ struct PartRunner {
     config: Config,
     endpoints: RequestEndpoints,
     connection: watch::Sender<ObjectActivity>,
+    /// A part arrived inside the envelope, so it authenticates as on the envelope's listener.
+    listener: ListenerRole,
     sender: ChunkSender,
     completion: Completion,
 }
@@ -176,6 +180,7 @@ impl PartRunner {
             config,
             endpoints,
             connection,
+            listener,
             sender,
             completion,
         } = self;
@@ -185,6 +190,7 @@ impl PartRunner {
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener,
         };
         for part in parts {
             let rendered = tokio::select! {
@@ -399,6 +405,7 @@ mod tests {
                 config: &self.config,
                 endpoints: &self.endpoints,
                 activity: &self.activity,
+                listener: ListenerRole::Public,
             }
         }
 
@@ -694,6 +701,7 @@ mod tests {
             config: &config,
             endpoints: &endpoints,
             activity: &activity,
+            listener: ListenerRole::Public,
         };
         let request = |read: Arc<AtomicBool>| {
             let frame = Ok::<_, Infallible>(Frame::data(Bytes::from_static(
