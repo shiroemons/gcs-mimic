@@ -177,6 +177,8 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 `client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの
 `fixtures/signing/test-only-private.pem`にし、そのIDにバケットのIAMで権限を付けるか、
 IDファイルにプロジェクトロール付きで宣言します。秘密鍵は公開されていて誰でもこのIDで認証できるため、ローカルのテストだけで使います。
+同じ認証情報を使えば、permissiveでも`GCS_MIMIC_SIGNED_URLS=verify`でRailsの署名付きURLを検証できます。
+起動時に生成した鍵はエミュレーターが知らないため、そのURLは`InvalidAccessKeyId`で失敗します。
 V4でブラウザー向けの最終host・portを署名する場合は、明示的に`EmulatorGcs`アダプターを選びます。
 署名後にhostを書き換えません。`just check-active-storage-strict`では、JWTによる送受信と
 V2/V4ダイレクトアップロードCORSの3シナリオが成功しました。

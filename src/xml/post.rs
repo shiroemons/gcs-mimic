@@ -269,8 +269,8 @@ fn check_policy_window(
 /// Check every condition against the submitted form and require a condition for every
 /// field. Returns the inclusive content-length-range, if any.
 ///
-/// `signed_at` is the x-goog-date of a verified signature. It is absent in the permissive
-/// profile, which ignores policy credentials.
+/// `signed_at` is the x-goog-date of a verified signature. It is absent when policy
+/// credentials are ignored (permissive mode with `signed_urls=ignore`).
 fn check_policy(
     encoded: &str,
     fields: &BTreeMap<String, String>,
@@ -612,10 +612,11 @@ pub(crate) async fn respond(
     let range = fields
         .get("policy")
         .map(|policy| {
-            let signed_at = caller
-                .is_some_and(|_| version == Some(Version::V4))
-                .then(|| signature::parse_timestamp(&fields["x-goog-date"]).ok())
-                .flatten();
+            // A verified signature leaves no caller in permissive mode, so ask the profile.
+            let signed_at = (state.auth.signed_urls() == auth::SignedUrls::Verify
+                && version == Some(Version::V4))
+            .then(|| signature::parse_timestamp(&fields["x-goog-date"]).ok())
+            .flatten();
             check_policy(
                 policy,
                 fields,

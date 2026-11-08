@@ -163,7 +163,26 @@ fn fields(
     extras: &[(&str, &str)],
     extra_conditions: &[Value],
 ) -> Vec<(String, String)> {
-    let date = timestamp(SystemTime::now()).unwrap();
+    fields_signed_at(
+        signer,
+        bucket,
+        name,
+        extras,
+        extra_conditions,
+        SystemTime::now(),
+    )
+}
+
+/// V4 form fields whose `x-goog-date` is `signed_at`; the policy still expires an hour from now.
+fn fields_signed_at(
+    signer: Signer<'_>,
+    bucket: &str,
+    name: &str,
+    extras: &[(&str, &str)],
+    extra_conditions: &[Value],
+    signed_at: SystemTime,
+) -> Vec<(String, String)> {
+    let date = timestamp(signed_at).unwrap();
     let scope = format!("{}/auto/storage/goog4_request", &date[..8]);
     let (id, algorithm) = match signer {
         Signer::Rsa(id) => (id, "GOOG4-RSA-SHA256"),
@@ -1063,6 +1082,98 @@ fn policy_credentials_never_mix_with_headers_or_partial_versions_and_anonymous_e
             .body,
         b"public anonymous"
     );
+}
+
+/// Permissive `signed_urls=verify` checks policy signatures and their x-goog-date window as
+/// strict mode does, without any signer permission; the default profile ignores both.
+#[test]
+fn permissive_verification_checks_policy_signatures_and_their_date_window() {
+    use gcs_mimic::auth::test_signer;
+    let launch = |dir: &TestDir, options: &[&str]| {
+        Server::launch(
+            http_command(&dir.0.join("data"))
+                .args(["--api-base-url", "http://127.0.0.1:4443"])
+                .args(options),
+        )
+    };
+    let early = SystemTime::now() + Duration::from_secs(1200);
+    let stale = SystemTime::now() - Duration::from_secs(8 * 86400);
+    let dir = TestDir::new();
+    let server = launch(&dir, &["--signed-urls", "verify"]);
+    server.bucket("policy-bucket");
+    let key = server.key("unregistered@example.invalid");
+    let rsa = Signer::Rsa(test_signer::ID);
+    for (name, form) in [
+        ("rsa", fields(rsa, "policy-bucket", "rsa", &[], &[])),
+        (
+            "hmac",
+            fields(Signer::Hmac(&key), "policy-bucket", "hmac", &[], &[]),
+        ),
+        (
+            "v2",
+            v2_fields(
+                rsa,
+                Some("policy-bucket"),
+                "v2",
+                SystemTime::now() + Duration::from_secs(3600),
+            ),
+        ),
+    ] {
+        server
+            .post("policy-bucket", &form, name.as_bytes())
+            .expect(204);
+        assert_eq!(
+            server
+                .request("GET", &format!("/policy-bucket/{name}"), "", b"")
+                .body,
+            name.as_bytes()
+        );
+    }
+    let unknown = fields(
+        Signer::Rsa("unknown@example.invalid"),
+        "policy-bucket",
+        "denied",
+        &[],
+        &[],
+    );
+    let mut tampered = fields(rsa, "policy-bucket", "denied", &[], &[]);
+    for (field, value) in &mut tampered {
+        if field == "x-goog-signature" {
+            value.replace_range(..2, if value.starts_with("00") { "11" } else { "00" });
+        }
+    }
+    let rejected = [
+        (unknown, 403, "InvalidAccessKeyId"),
+        (tampered.clone(), 403, "SignatureDoesNotMatch"),
+        (
+            fields_signed_at(rsa, "policy-bucket", "denied", &[], &[], early),
+            400,
+            "InvalidPolicyDocument",
+        ),
+        (
+            fields_signed_at(rsa, "policy-bucket", "denied", &[], &[], stale),
+            400,
+            "InvalidPolicyDocument",
+        ),
+    ];
+    for (form, status, code) in &rejected {
+        error(
+            &server.post("policy-bucket", form, b"denied"),
+            *status,
+            code,
+        );
+    }
+    server
+        .request("GET", "/policy-bucket/denied", "", b"")
+        .expect(404);
+    let ignoring_dir = TestDir::new();
+    let ignoring = launch(&ignoring_dir, &[]);
+    ignoring.bucket("policy-bucket");
+    for (form, _, _) in rejected {
+        ignoring
+            .post("policy-bucket", &form, b"ignored")
+            .expect(204);
+    }
 }
 
 declare_server!();

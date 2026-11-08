@@ -2,7 +2,7 @@
 
 use crate::config_input::Fix as SettingFix;
 use crate::{
-    auth::{AuthMode, TestSigner},
+    auth::{AuthMode, SignedUrls, TestSigner},
     bucket::bucket_location,
     config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
@@ -248,6 +248,9 @@ pub struct Config {
     /// The explicit `test_signer` setting; [`Config::effective_test_signer`] applies the
     /// profile's default.
     pub test_signer: Option<TestSigner>,
+    /// The explicit `signed_urls` setting; [`Config::effective_signed_urls`] applies the
+    /// profile's default.
+    pub signed_urls: Option<SignedUrls>,
 }
 
 impl Default for Config {
@@ -321,6 +324,7 @@ impl Default for Config {
             cors_fallback: CorsFallback::None,
             identity_file: None,
             test_signer: None,
+            signed_urls: None,
         }
     }
 }
@@ -331,6 +335,11 @@ impl Config {
     /// Whether the built-in test signer exists, after the profile's default.
     pub fn effective_test_signer(&self) -> TestSigner {
         TestSigner::resolve(self.test_signer, self.auth_mode)
+    }
+
+    /// Whether signed XML requests verify, after the profile's default.
+    pub fn effective_signed_urls(&self) -> SignedUrls {
+        SignedUrls::resolve(self.signed_urls, self.auth_mode)
     }
 
     pub fn healthcheck_url(&self) -> String {
@@ -615,7 +624,8 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CompatProfile
         | Setting::CorsFallback
         | Setting::IdentityFile
-        | Setting::TestSigner => apply_access_setting(config, setting, &value),
+        | Setting::TestSigner
+        | Setting::SignedUrls => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
         | Setting::MaxGrpcStreams
         | Setting::MaxObjectBytes
@@ -831,6 +841,7 @@ fn apply_access_setting(
             config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
         }
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
+        Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -1038,7 +1049,10 @@ impl ConfigurationReport {
             self.invalid.insert("local_creator_email".into());
         }
         // Strict mode records the registered caller, so a creator address would be silently unused.
-        if (config.auth_mode == AuthMode::Strict || config.identity_file.is_some())
+        // A permissive identity file that only verifies signatures leaves the creator in use.
+        if (config.auth_mode == AuthMode::Strict
+            || (config.identity_file.is_some()
+                && config.effective_signed_urls() == SignedUrls::Ignore))
             && !config.local_creator_email.is_empty()
             && let Some(input) = settings.get("local_creator_email")
             && !self.invalid.contains("local_creator_email")
@@ -1256,7 +1270,14 @@ impl ConfigurationReport {
                 self.invalid.insert("admin_principal".into());
             }
         }
-        // Reject mismatched profiles so a registry is never silently ignored or missing.
+        self.check_profile_pairing(settings);
+    }
+
+    /// Rejects mismatched profiles, so a registry is never silently ignored or missing and a
+    /// signature setting never claims what the profile does not do.
+    fn check_profile_pairing(&mut self, settings: &Settings) {
+        let config = &self.config;
+        let verifying = config.effective_signed_urls() == SignedUrls::Verify;
         match (config.auth_mode, &config.identity_file) {
             (AuthMode::Strict, None) if !self.invalid.contains("identity_file") => {
                 if let Some(input) = settings.get("auth_mode") {
@@ -1264,13 +1285,24 @@ impl ConfigurationReport {
                 }
                 self.invalid.insert("identity_file".into());
             }
-            (AuthMode::Permissive, Some(_)) if !self.invalid.contains("auth_mode") => {
+            (AuthMode::Permissive, Some(_))
+                if !verifying && !self.any_invalid(&["auth_mode", "signed_urls"]) =>
+            {
                 if let Some(input) = settings.get("identity_file") {
-                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict; select strict mode or remove the registry setting."));
+                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict, or signed_urls=verify to verify signatures with its public keys; select strict mode, set signed_urls=verify or remove the registry setting."));
                 }
                 self.invalid.insert("identity_file".into());
             }
             _ => {}
+        }
+        // Strict callers are the signers, so their signatures cannot go unverified.
+        if config.auth_mode == AuthMode::Strict
+            && config.signed_urls == Some(SignedUrls::Ignore)
+            && !self.any_invalid(&["auth_mode", "signed_urls"])
+            && let Some(input) = settings.get(Setting::SignedUrls.as_str())
+        {
+            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_urls=ignore requires auth_mode=permissive; strict mode always verifies signatures. Remove the setting or use signed_urls=verify."));
+            self.invalid.insert("signed_urls".into());
         }
     }
 
@@ -1745,6 +1777,70 @@ mod tests {
             "test_signer",
             &["", "true", "Disabled", "off"],
             "enabled or disabled",
+        );
+    }
+
+    #[test]
+    fn signed_urls_default_by_profile_and_pair_identity_files_with_verification() {
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"signed_urls":"verify"}"#).unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_SIGNED_URLS".into(), "ignore".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--signed-urls", "verify"],
+            [
+                None,
+                Some(SignedUrls::Verify),
+                Some(SignedUrls::Ignore),
+                Some(SignedUrls::Verify),
+            ],
+            Config::load,
+            |config| config.signed_urls,
+        );
+        let empty = BTreeMap::new();
+        let load = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+            Config::load(&args, &empty)
+        };
+        let effective = |args: &[&str]| load(args).unwrap().effective_signed_urls();
+        let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"];
+        assert_eq!(effective(&[]), SignedUrls::Ignore);
+        assert_eq!(effective(&strict), SignedUrls::Verify);
+        assert_eq!(
+            effective(&[&strict[..], &["--signed-urls", "verify"]].concat()),
+            SignedUrls::Verify
+        );
+        let error = load(&[&strict[..], &["--signed-urls", "ignore"]].concat())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("--signed-urls: signed_urls=ignore requires auth_mode=permissive"),
+            "{error}"
+        );
+        let keys = ["--identity-file", "ids.json", "--signed-urls", "verify"];
+        let config = load(&keys).unwrap();
+        assert_eq!(config.auth_mode, AuthMode::Permissive);
+        assert_eq!(config.effective_signed_urls(), SignedUrls::Verify);
+        // The creator still labels permissive writes when the file only verifies signatures.
+        let creator = ["--local-creator-email", "writer@example.invalid"];
+        assert!(load(&[&keys[..], &creator].concat()).is_ok());
+        for args in [
+            &["--identity-file", "ids.json"][..],
+            &["--identity-file", "ids.json", "--signed-urls", "ignore"],
+        ] {
+            let error = load(args).unwrap_err().to_string();
+            assert!(
+                error.contains("identity_file requires auth_mode=strict, or signed_urls=verify"),
+                "{error}"
+            );
+        }
+        assert_rejected(
+            "signed_urls",
+            &["", "true", "Verify", "strict"],
+            "ignore or verify",
         );
     }
 

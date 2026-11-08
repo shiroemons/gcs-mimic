@@ -45,7 +45,7 @@ mod tests {
             signer.acl_entity().as_deref(),
             Some("user-test-signer@gcs-mimic.invalid")
         );
-        assert_eq!(registry.signing_keys[ID].len(), 1);
+        assert_eq!(registry.signing_keys.get(ID).unwrap().len(), 1);
         assert_eq!(registry.tokens.len(), 1);
     }
 
@@ -66,7 +66,7 @@ mod tests {
             signer.acl_entity().as_deref(),
             Some("user-signer-alias@example.invalid")
         );
-        assert_eq!(registry.signing_keys[ID].len(), 2);
+        assert_eq!(registry.signing_keys.get(ID).unwrap().len(), 2);
         assert_eq!(registry.tokens["signer-token"], 0);
     }
 

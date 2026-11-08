@@ -335,7 +335,9 @@ An explicit `disabled` is honored in both profiles.
   built-in signer. An identity file entry with its ID is an ordinary identity
   with only the file's own keys. Signatures made with the published key fail
   with 403 `InvalidAccessKeyId` and its JWTs with 401.
-- **Permissive mode** ignores signatures, so the setting changes nothing there.
+- **Permissive mode** ignores signatures by default. With `signed_urls=verify`
+  the built-in key verifies them unless `test_signer=disabled`; see
+  [verifying signed requests in permissive mode](#verifying-signed-requests-in-permissive-mode).
 
 The ready event's `identities` counts only the identity file's entries. To use
 the signer with strict mode, enable it explicitly:
@@ -511,7 +513,51 @@ create grant. As a local extension, a form without `policy` can instead use an
 `Authorization` header and the authenticated principal's permissions; this is
 not a verified Google form authentication contract. The permissive
 profile ignores policy credentials as it does for signed URLs, but still
-enforces the policy conditions and expiration.
+enforces the policy conditions and expiration. With `signed_urls=verify` it
+verifies policy signatures and applies the `x-goog-date` window as strict mode
+does, without checking the signer's permissions.
+
+## Verifying signed requests in permissive mode
+
+By default, permissive mode accepts signed requests without checking their
+signatures (`signed_urls=ignore`). `signed_urls=verify` (CLI `--signed-urls`,
+environment `GCS_MIMIC_SIGNED_URLS`, JSON `signed_urls`) makes permissive mode
+verify every XML request that carries signing query parameters, a signature
+`Authorization` header or a signed POST policy exactly as strict mode does: V2
+query and header signatures, V4 query and header RSA and HMAC signatures,
+`AWS4-HMAC-SHA256`, signed `aws-chunked` uploads and V2/V4 POST policies with
+their `x-goog-date` window. Failures get the strict XML errors, such as 403
+`SignatureDoesNotMatch` for a changed request or header, 403
+`InvalidAccessKeyId` for an unknown key and 400 `ExpiredToken` after expiry;
+V2 expiry is checked too. The ready event reports `"signed_urls"`.
+
+A verified signature then gets permissive access: no IAM or ACL check runs,
+because permissive mode does not authorize unsigned requests either, and a
+signed request must not be stricter than an unsigned one. A signer without
+permission is therefore rejected only in strict mode. Unsigned requests and
+JSON API routes are unchanged.
+
+Signatures verify with these keys:
+
+- the [built-in test signer](#built-in-test-signer), enabled by default in
+  permissive mode;
+- ACTIVE HMAC keys created through the JSON API. Their service account needs
+  no identity entry, since nothing is authorized by identity;
+- RSA public keys from an identity file. Permissive mode accepts
+  `identity_file` only with `signed_urls=verify`, and its identities may declare
+  only `id` and `public_keys` (and an empty or absent `tokens`).
+  `project_roles`, `acl_entity`, non-empty `tokens` and
+  `public_access_prevention_projects` require `auth_mode=strict` and fail
+  startup, as does an identity without `public_keys`.
+
+```sh
+GCS_MIMIC_SIGNED_URLS=verify gcs-mimic serve --scheme http
+gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
+  --object my-object --method GET --expires 15m
+```
+
+Strict mode always verifies: `signed_urls=verify` is accepted there, and
+`signed_urls=ignore` with `auth_mode=strict` fails startup.
 
 Uploads use the same streaming write path as XML PUT. Success returns 204 by
 default, an empty 200, a 201 `PostResponse` XML document with `Location`,

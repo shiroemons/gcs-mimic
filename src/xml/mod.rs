@@ -148,7 +148,7 @@ pub(crate) async fn authenticate_upload_target<'a>(
             .authenticate_streaming(catalog, method, uri, headers, clock)
             .await
             .map_err(signature_error)?;
-        Ok((Some(caller), Some(streaming)))
+        Ok((caller, Some(streaming)))
     } else {
         authenticate_target(authentication)
             .await

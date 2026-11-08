@@ -291,6 +291,11 @@ To let any origin read XML/public URLs of buckets without rules, as
 fake-gcs-server did, add `GCS_MIMIC_CORS_FALLBACK=allow-all`; see
 [CORS fallback](slices/cors-fallback.md).
 
+By default the server accepts signed URLs without checking their signatures.
+To reject changed, expired or unknown-key signed requests while keeping
+permissive access, add `GCS_MIMIC_SIGNED_URLS=verify`; see
+[verifying signed requests in permissive mode](signed-urls.md#verifying-signed-requests-in-permissive-mode).
+
 ## Initialize bucket settings
 
 For a source checkout, the supplied `config/buckets.json` creates two buckets

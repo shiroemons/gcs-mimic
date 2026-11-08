@@ -41537,11 +41537,25 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores Authorization credentials and performs no permission checks; historical XML V2 queries retain shape checks without signature or expiry verification, while V4 credential shape is ignored. The ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md and docs/en/slices/xml-v4-signatures.md; evidence: docs/en/evidence/strict-auth.md. The opt-in signed_urls=verify (default ignore in permissive mode; strict always verifies and rejects an explicit ignore) verifies signed XML requests exactly as strict mode does, with the built-in test signer, ACTIVE catalog HMAC keys and identity-file public keys, then grants permissive access without IAM or ACL checks; unsigned requests and JSON routes are unchanged. With it, identity_file is accepted in permissive mode for id and public_keys only. Contract: docs/en/signed-urls.md#verifying-signed-requests-in-permissive-mode; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {
+          "id": "DESIGN-001-VERIFY",
+          "description": "With signed_urls=verify, permissive mode verifies V2 query RSA/HMAC, V4 query and header RSA/HMAC, AWS4-HMAC-SHA256, signed aws-chunked uploads and V2/V4 POST policies with their x-goog-date window, using the built-in test signer, ACTIVE HMAC keys without identity entries and identity-file public keys. Changed, expired, header-changed and unknown-key requests get the strict XML errors (403 SignatureDoesNotMatch, 400 ExpiredToken, 403 InvalidAccessKeyId), including V2 expiry, and create nothing; verified requests succeed without any grant and return no caller; test_signer=disabled makes the built-in key unknown; unsigned and JSON requests are unchanged, and the default ignore keeps accepting unverifiable signatures.",
+          "result": "PASS",
+          "test_ids": [
+            "verified_signatures_get_permissive_access_without_any_grant",
+            "rejected_signatures_get_the_strict_errors_and_change_nothing",
+            "identity_file_keys_verify_and_a_disabled_test_signer_is_unknown",
+            "the_default_ignore_profile_still_accepts_unverifiable_signatures",
+            "permissive_verification_checks_policy_signatures_and_their_date_window",
+            "auth::signature::tests::permissive_verification_applies_strict_checks_and_returns_no_caller",
+            "auth::signing_keys::tests::load_selects_the_profile_and_its_signers"
+          ]
+        },
         {
           "id": "DESIGN-001-DEFAULT",
           "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully. Credentials are not verified; XML V2 queries retain their historical shape checks while V4 shape is ignored.",
@@ -41554,11 +41568,14 @@
         },
         {
           "id": "DESIGN-001-SELECTION",
-          "description": "auth_mode follows CLI > environment > JSON file > default precedence; unknown or miscased modes, an empty identity_file, strict without identity_file and identity_file with permissive fail before readiness, catalog creation or listener binding.",
+          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it.",
           "result": "PASS",
           "test_ids": [
             "config::tests::authentication_profile_precedence_and_validation",
-            "auth_http_startup_rejects_invalid_profiles_and_registries"
+            "auth_http_startup_rejects_invalid_profiles_and_registries",
+            "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
+            "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
+            "startup_pairs_identity_files_and_signed_urls_with_the_profile"
           ]
         }
       ],
@@ -41567,9 +41584,47 @@
         "auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation",
         "auth::tests::strict_caller_resolution",
         "config::tests::authentication_profile_precedence_and_validation",
-        "auth_http_startup_rejects_invalid_profiles_and_registries"
+        "auth_http_startup_rejects_invalid_profiles_and_registries",
+        "verified_signatures_get_permissive_access_without_any_grant",
+        "rejected_signatures_get_the_strict_errors_and_change_nothing",
+        "identity_file_keys_verify_and_a_disabled_test_signer_is_unknown",
+        "the_default_ignore_profile_still_accepts_unverifiable_signatures",
+        "permissive_verification_checks_policy_signatures_and_their_date_window",
+        "auth::signature::tests::permissive_verification_applies_strict_checks_and_returns_no_caller",
+        "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
+        "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
+        "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
+        "startup_pairs_identity_files_and_signed_urls_with_the_profile"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "verified_signatures_get_permissive_access_without_any_grant",
+            "rejected_signatures_get_the_strict_errors_and_change_nothing",
+            "identity_file_keys_verify_and_a_disabled_test_signer_is_unknown",
+            "the_default_ignore_profile_still_accepts_unverifiable_signatures",
+            "permissive_verification_checks_policy_signatures_and_their_date_window",
+            "startup_pairs_identity_files_and_signed_urls_with_the_profile",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- signed_urls signing_keys permissive_verification config::tests",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "auth::signature::tests::permissive_verification_applies_strict_checks_and_returns_no_caller",
+            "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
+            "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
+            "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
+            "config::tests::authentication_profile_precedence_and_validation"
+          ]
+        },
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib permissive_v4_ignores_shape","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -41587,7 +41642,7 @@
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "DESIGN-002",
@@ -46628,7 +46683,7 @@
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "V4 RSA/HMAC-SHA256 and V2 RSA-SHA256/HMAC-SHA1 authenticate exact base64 policy bytes through the shared bounded verifier and registered signer authorization. V4 HMAC derives its key from the literal secret and four scope components; V2 HMAC uses the literal secret directly. V2 has its own credential exemptions, optional bucket condition and expiration; it does not inherit V4 date/scope limits. Native cases establish variant cores and named boundary/failure subsets, while complete credential, authority, stream, filename, strict-client and provider cases retain pending acceptance. Permissive mode ignores credentials but enforces conditions and expiration. Usage: docs/en/signed-urls.md#signed-post-policy-form-uploads; contract and exact commands: docs/en/slices/xml-post-policy-variants.md.",
+      "notes": "V4 RSA/HMAC-SHA256 and V2 RSA-SHA256/HMAC-SHA1 authenticate exact base64 policy bytes through the shared bounded verifier and registered signer authorization. V4 HMAC derives its key from the literal secret and four scope components; V2 HMAC uses the literal secret directly. V2 has its own credential exemptions, optional bucket condition and expiration; it does not inherit V4 date/scope limits. Native cases establish variant cores and named boundary/failure subsets, while complete credential, authority, stream, filename, strict-client and provider cases retain pending acceptance. Permissive mode ignores credentials but enforces conditions and expiration; with signed_urls=verify it verifies policy signatures and the x-goog-date window as strict mode does, without signer permission checks (DESIGN-001). Usage: docs/en/signed-urls.md#signed-post-policy-form-uploads; contract and exact commands: docs/en/slices/xml-post-policy-variants.md.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",

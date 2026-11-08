@@ -195,7 +195,10 @@ default and warns at startup when it is enabled), set `client_email` to
 `test-signer@gcs-mimic.invalid` and `private_key` to the published
 `fixtures/signing/test-only-private.pem`, then grant that identity bucket IAM or
 declare it with project roles in the identity file. Its private key is public,
-so anyone can authenticate as it; use it only for local tests.
+so anyone can authenticate as it; use it only for local tests. The same
+credentials let permissive mode check Rails' signed URLs with
+`GCS_MIMIC_SIGNED_URLS=verify`; a key generated at boot is unknown to the
+emulator there, so its URLs fail with `InvalidAccessKeyId`.
 
 Stock GCS service URLs use the scoped V2 flow. For final-origin V4 URLs, including
 `cache_control` direct uploads and distinct Compose/browser origins, explicitly

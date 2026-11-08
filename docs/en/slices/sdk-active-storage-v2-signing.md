@@ -16,7 +16,7 @@ parent feature still remains PARTIAL.
 | --- | --- | --- |
 | V2-DETECT | Require exactly one nonempty GoogleAccessId, Expires and Signature; reject mixed V2/V4 credentials, missing fields and duplicates with XML 400. | PASS |
 | V2-EXPIRY | Parse unsigned Unix seconds; strict expiry uses the injected clock and XML 400 ExpiredToken; malformed/negative values return 400. | PASS |
-| V2-PERMISSIVE | Like V4, ignore signature credentials and expiry in permissive mode; retain V2 structural validation. | PASS |
+| V2-PERMISSIVE | Like V4, ignore signature credentials and expiry in permissive mode; retain V2 structural validation. This is the default `signed_urls=ignore`; `signed_urls=verify` verifies them as strict mode does. | PASS |
 | V2-STRICT | Verify RSA-SHA256 using registered public keys and the official verb/MD5/type/expiry/extension-header/resource string; reuse V4 signer permissions and failures. | PASS |
 | V2-GET | Unchanged Go/Ruby path-style signed GET downloads exact private bytes; method, resource and signed-header changes fail. | PASS |
 | V2-PUT | Unchanged signed PUT preserves bytes; changed/missing signed Content-Type or MD5 fails; existing streaming XML PUT validates body MD5 before publication. | PASS |

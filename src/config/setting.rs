@@ -65,6 +65,7 @@ super::string_enum! {
         CorsFallback => "cors_fallback",
         IdentityFile => "identity_file",
         TestSigner => "test_signer",
+        SignedUrls => "signed_urls",
         PubsubEmulatorHost => "pubsub_emulator_host",
         EventPubsubProjectId => "event_pubsub_project_id",
         EventPubsubTopic => "event_pubsub_topic",
@@ -136,6 +137,7 @@ impl Setting {
             | Self::CorsFallback
             | Self::IdentityFile
             | Self::TestSigner
+            | Self::SignedUrls
             | Self::PubsubEmulatorHost
             | Self::EventPubsubProjectId
             | Self::EventPubsubTopic

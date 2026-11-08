@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::{
+    auth::{Profile, Registry, SigningKeys},
     bucket::CatalogError,
     storage::{Catalog, failure::BackendCause},
 };
@@ -98,11 +99,48 @@ pub(super) enum Key {
     Hmac(String),
 }
 
+/// Where a signed request's RSA keys come from, and whom a verified signature makes the caller.
+pub(super) enum Signers<'a> {
+    /// Strict: the signer must be a registered identity, which becomes the caller.
+    Registered(&'a Registry),
+    /// Permissive `signed_urls=verify`: any known key verifies, and access stays permissive,
+    /// because an unsigned request is not authorized by identity either.
+    Keys(&'a SigningKeys),
+}
+
+impl<'a> Signers<'a> {
+    pub(super) fn keys(&self) -> &'a SigningKeys {
+        match self {
+            Self::Registered(registry) => &registry.signing_keys,
+            Self::Keys(keys) => keys,
+        }
+    }
+
+    fn caller(&self, signer: &str) -> Result<Option<Caller<'a>>, Failure> {
+        match self {
+            Self::Registered(registry) => registry
+                .identity(signer)
+                .map(|identity| Some(Caller::Principal(identity)))
+                .ok_or(Failure::UnknownSigner),
+            Self::Keys(_) => Ok(None),
+        }
+    }
+}
+
 pub(crate) fn has_header(headers: &HeaderMap) -> bool {
     v4::has_header(headers) || v2::has_header(headers)
 }
 
 impl Auth {
+    /// `None` when XML signing credentials are ignored, as in default permissive mode.
+    pub(super) fn signers(&self) -> Option<Signers<'_>> {
+        match &self.profile {
+            Profile::Permissive => None,
+            Profile::VerifyingPermissive(keys) => Some(Signers::Keys(keys)),
+            Profile::Strict(registry) => Some(Signers::Registered(registry)),
+        }
+    }
+
     pub(crate) async fn authenticate_xml_resource<'a>(
         &'a self,
         catalog: &Catalog,
@@ -131,7 +169,7 @@ impl Auth {
             // Only the ordinary PUT adapter carries the authenticated chunk-verifier state.
             return Err(Failure::Malformed.into());
         }
-        let Some(registry) = &self.registry else {
+        let Some(signers) = self.signers() else {
             // Preserve historical V2 shape checks; permissive V4 credentials are ignored.
             if matches!(kind, SignatureKind::V2Query) {
                 v2::validate_query_shape(uri)?;
@@ -142,7 +180,7 @@ impl Auth {
         let prepared = if matches!(kind, SignatureKind::V2Query | SignatureKind::V2Header) {
             let mut prepared = v2::prepare_resource(method, uri, headers, clock.now(), resource)?;
             prepared.algorithm = if matches!(kind, SignatureKind::V2Query)
-                && registry.signing_keys.contains_key(&prepared.signer)
+                && signers.keys().contains(&prepared.signer)
             {
                 Algorithm::Rsa
             } else {
@@ -152,14 +190,15 @@ impl Auth {
         } else {
             v4::prepare(method, uri, headers, clock.now())?
         };
-        self.verify_prepared(catalog, prepared).await.map(Some)
+        self.verify_prepared(catalog, prepared).await
     }
 
+    /// The caller is `None` when a verified signature leaves access permissive.
     pub(super) async fn verify_prepared<'a>(
         &'a self,
         catalog: &Catalog,
         prepared: v4::Prepared,
-    ) -> Result<Caller<'a>, VerificationError> {
+    ) -> Result<Option<Caller<'a>>, VerificationError> {
         let (caller, key) = self.verification_key(catalog, &prepared).await?;
         if !self.verifiers.run(move || verify(key, &prepared)).await? {
             return Err(Failure::Mismatch.into());
@@ -167,33 +206,30 @@ impl Auth {
         Ok(caller)
     }
 
+    /// RSA keys come from the active signers; HMAC keys from the catalog, whose ACTIVE key
+    /// alone is enough when a verified signature authorizes nothing by identity.
     pub(super) async fn verification_key<'a>(
         &'a self,
         catalog: &Catalog,
         prepared: &Prepared,
-    ) -> Result<(Caller<'a>, Key), VerificationError> {
-        let registry = self.registry.as_ref().ok_or(Failure::UnknownSigner)?;
-        let (signer, key) = if prepared.algorithm == v4::Algorithm::Rsa {
-            (
-                prepared.signer.clone(),
-                Key::Rsa(
-                    registry
-                        .signing_keys
-                        .get(&prepared.signer)
-                        .ok_or(Failure::UnknownSigner)?
-                        .clone(),
-                ),
-            )
-        } else {
-            let (signer, secret) = catalog
-                .active_hmac_key(&prepared.signer)
-                .await
-                .map_err(VerificationError::Catalog)?
+    ) -> Result<(Option<Caller<'a>>, Key), VerificationError> {
+        let signers = self.signers().ok_or(Failure::UnknownSigner)?;
+        if prepared.algorithm == v4::Algorithm::Rsa {
+            let keys = signers
+                .keys()
+                .get(&prepared.signer)
                 .ok_or(Failure::UnknownSigner)?;
-            (signer, Key::Hmac(secret))
-        };
-        let identity = registry.identity(&signer).ok_or(Failure::UnknownSigner)?;
-        Ok((Caller::Principal(identity), key))
+            return Ok((
+                signers.caller(&prepared.signer)?,
+                Key::Rsa(Arc::clone(keys)),
+            ));
+        }
+        let (signer, secret) = catalog
+            .active_hmac_key(&prepared.signer)
+            .await
+            .map_err(VerificationError::Catalog)?
+            .ok_or(Failure::UnknownSigner)?;
+        Ok((signers.caller(&signer)?, Key::Hmac(secret)))
     }
 }
 

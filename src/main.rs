@@ -108,7 +108,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
-  --identity-file PATH         none (strict-mode JSON identity registry, at most 16 MiB)
+  --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
+  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; permissive verify checks signed XML requests, then grants permissive access)
   --test-signer MODE           enabled when permissive, disabled when strict (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
@@ -365,7 +366,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
     let mut auth = Auth::permissive();
-    if report.valid(&["auth_mode", "identity_file", "test_signer"]) {
+    if report.valid(&["auth_mode", "identity_file", "test_signer", "signed_urls"]) {
         match Auth::load(&report.config) {
             Ok(loaded) => auth = loaded,
             Err(error) => report.diagnostics.errors.push(Diagnostic::new(
@@ -999,7 +1000,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "45c6d4ab3f28050660536ca938e4e54c26559574d3392dbce4166025c12dc2ea"
+            "0ae9f24bbf66ea261cfcdaa03f94ce1a10ee6c4a2061437780f8b53f5c896be0"
         );
     }
 

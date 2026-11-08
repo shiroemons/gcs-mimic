@@ -27,7 +27,7 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 
 | Behavior | Expected result |
 | --- | --- |
-| Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked |
+| Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked. A later opt-in, `signed_urls=verify`, verifies signed XML requests first without adding permission checks; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Profile selection | `--auth-mode` / `GCS_MIMIC_AUTH_MODE` / JSON `auth_mode` follow the existing CLI > environment > file > default precedence; other values fail startup |
 | Profile/registry pairing | `strict` without `identity_file` and `identity_file` with `permissive` fail before the catalog opens or the listener binds |
 | Registry validation | Unknown keys, limits, duplicate IDs/tokens, invalid project IDs, unknown or basic roles and malformed/oversized files fail startup without a partial load; tokens are never echoed |

@@ -80,6 +80,7 @@ pub(crate) struct ReadyEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     identities: Option<usize>,
     test_signer: &'static str,
+    signed_urls: &'static str,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
     scheme: &'static str,
@@ -140,6 +141,7 @@ impl ReadyEvent {
             auth_mode: auth.mode().as_str(),
             identities: auth.identity_count(),
             test_signer: config.effective_test_signer().as_str(),
+            signed_urls: auth.signed_urls().as_str(),
             seed,
             buckets_file,
             scheme: config.scheme.as_str(),

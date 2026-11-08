@@ -7,7 +7,9 @@ the public SubjectPublicKeyInfo PEM; the private key is read only by local signe
 This pair is also the key of the built-in test signer
 `test-signer@gcs-mimic.invalid`: `src/auth/test_signer.rs` embeds both files into
 every gcs-mimic binary and image. Strict mode accepts signatures made with this
-private key only with `test_signer=enabled`, because anyone can sign with it.
+private key only with `test_signer=enabled`, because anyone can sign with it;
+permissive mode with `signed_urls=verify` accepts them unless
+`test_signer=disabled`.
 The container build copies these
 two files for that embedding; do not add another copy of the key elsewhere. See
 [the built-in test signer](../../docs/en/signed-urls.md#built-in-test-signer).
