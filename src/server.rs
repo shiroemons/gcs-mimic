@@ -174,8 +174,9 @@ const CLOSE_BUDGET: Duration = Duration::from_secs(5);
 
 /// The response for a request whose deadline expires before its handler answers. The
 /// connection picks it when the deadline expires, from the limit that expired: the request's
-/// route alone cannot tell a silent client from a slow server. Cloud Storage documents every
-/// status used here as retryable.
+/// route alone cannot tell a silent client from a slow server. Cloud Storage documents 408 and
+/// 503 as retryable; the XML API documents a silent socket as 400 `RequestTimeout`, which
+/// clients do not retry, and this reply matches that.
 struct DeadlineReply {
     api: ReplyApi,
     payload: Payload,
@@ -209,6 +210,21 @@ enum Expiry {
     ObjectRequest,
 }
 
+impl Expiry {
+    /// The JSON error for this expiry on a request that sends `payload`, naming the setting that
+    /// bounds the expired limit.
+    fn json_error(self, payload: Payload) -> JsonError {
+        match (self, payload) {
+            (Self::BodyInactivity, Payload::Upload | Payload::Other) => request_body_silent(),
+            // Only a transfer's whole-request limit reports a broken upload: a server that is
+            // slow to answer an upload is still a server-side timeout.
+            (Self::ObjectRequest, Payload::Upload) => upload_timed_out(),
+            (Self::ObjectRequest, Payload::Other) => object_request_timed_out(),
+            (Self::Request, Payload::Upload | Payload::Other) => request_timed_out(),
+        }
+    }
+}
+
 fn request_timed_out() -> JsonError {
     JsonError::service_unavailable(
         "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
@@ -232,6 +248,13 @@ fn upload_timed_out() -> JsonError {
         StatusCode::REQUEST_TIMEOUT,
         "uploadBrokenConnection",
         "The upload timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large uploads (0 disables it).",
+    )
+}
+
+/// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
+fn object_request_timed_out() -> JsonError {
+    JsonError::service_unavailable(
+        "The request timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large transfers (0 disables it).",
     )
 }
 
@@ -271,28 +294,17 @@ impl DeadlineReply {
         Self { api, payload }
     }
 
-    fn json_error(&self, expiry: Expiry) -> JsonError {
-        match (expiry, self.payload) {
-            (Expiry::BodyInactivity, Payload::Upload | Payload::Other) => request_body_silent(),
-            // Only a transfer's whole-request limit reports a broken upload: a server that is
-            // slow to answer an upload is still a server-side timeout.
-            (Expiry::ObjectRequest, Payload::Upload) => upload_timed_out(),
-            (Expiry::ObjectRequest, Payload::Other)
-            | (Expiry::Request, Payload::Upload | Payload::Other) => request_timed_out(),
-        }
-    }
-
     fn xml_error(&self, expiry: Expiry) -> xml::Error {
         match expiry {
             // The XML API lists a silent socket under 400, apart from the JSON API's 408.
             Expiry::BodyInactivity => xml::Error::request_timeout(XML_REQUEST_BODY_SILENT),
-            Expiry::Request | Expiry::ObjectRequest => self.json_error(expiry).into(),
+            Expiry::Request | Expiry::ObjectRequest => expiry.json_error(self.payload).into(),
         }
     }
 
     fn response(self, expiry: Expiry) -> Response<ResponseBody> {
         let mut response = match self.api {
-            ReplyApi::Json => boxed(self.json_error(expiry).into_response()),
+            ReplyApi::Json => boxed(expiry.json_error(self.payload).into_response()),
             ReplyApi::Xml(body) => boxed(self.xml_error(expiry).response(body)),
         };
         response.headers_mut().insert(
@@ -642,7 +654,7 @@ pub(crate) fn new_batch_part_activity() -> watch::Sender<ObjectActivity> {
 /// Resolves once a batch part has claimed its timeout, as the connection's watchdog does for a
 /// whole request. Progress renews the request limit; an enforced object deadline does not; and
 /// neither fires during a catalog wait, whose detached work could commit behind the timeout reply.
-pub(crate) async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>, limit: TimeLimit) {
+async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>, limit: TimeLimit) -> Expiry {
     let mut progress = activity.subscribe();
     let mut request_deadline = limit.deadline();
     loop {
@@ -661,16 +673,17 @@ pub(crate) async fn batch_part_expired(activity: &watch::Sender<ObjectActivity>,
             }
             () = tokio::time::sleep_until(at), if current.stage != RequestStage::AwaitingCatalog => {
                 if claim_expiry(activity, expiry) == ExpiryClaim::Granted {
-                    return;
+                    return expiry;
                 }
             }
         }
     }
 }
 
-/// What a batch part answers once [`batch_part_expired`] has claimed its timeout.
-pub(crate) fn batch_part_timeout() -> Response<ResponseBody> {
-    boxed(request_timed_out().into_response())
+/// What a batch part answers once [`batch_part_expired`] has claimed its timeout. A part's body
+/// is already buffered, so it is never an upload.
+fn batch_part_timeout(expiry: Expiry) -> Response<ResponseBody> {
+    boxed(expiry.json_error(Payload::Other).into_response())
 }
 
 /// A catalog wait in progress, during which request deadlines are paused. Dropping it ends the

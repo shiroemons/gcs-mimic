@@ -199,30 +199,41 @@ async fn the_handler_learns_of_a_claimed_expiry_from_the_shared_channel() {
 #[tokio::test]
 async fn the_timeout_reply_names_the_limit_that_expired() {
     use http_body_util::BodyExt;
-    /// The status, the error code or reason, and the setting the message names.
+    /// The status, the error code or reason, and the setting the message tells the client to
+    /// raise. "raise" keeps `request_timeout_ms` from matching inside `object_request_timeout_ms`.
     type Expected = (u16, &'static str, &'static str);
     const JSON_SILENT: Expected = (
         408,
         r#""uploadBrokenConnection""#,
-        "body_inactivity_timeout_ms",
+        "raise body_inactivity_timeout_ms",
     );
     const JSON_UPLOAD: Expected = (
         408,
         r#""uploadBrokenConnection""#,
-        "object_request_timeout_ms",
+        "raise object_request_timeout_ms",
     );
-    const JSON_SERVER: Expected = (503, r#""backendError""#, "request_timeout_ms");
+    const JSON_TRANSFER: Expected = (503, r#""backendError""#, "raise object_request_timeout_ms");
+    const JSON_SERVER: Expected = (503, r#""backendError""#, "raise request_timeout_ms");
     const XML_SILENT: Expected = (
         400,
         "<Code>RequestTimeout</Code>",
-        "body_inactivity_timeout_ms",
+        "raise body_inactivity_timeout_ms",
     );
     const XML_UPLOAD: Expected = (
         408,
         "<Code>uploadBrokenConnection</Code>",
-        "object_request_timeout_ms",
+        "raise object_request_timeout_ms",
     );
-    const XML_SERVER: Expected = (503, "<Code>ServiceUnavailable</Code>", "request_timeout_ms");
+    const XML_TRANSFER: Expected = (
+        503,
+        "<Code>ServiceUnavailable</Code>",
+        "raise object_request_timeout_ms",
+    );
+    const XML_SERVER: Expected = (
+        503,
+        "<Code>ServiceUnavailable</Code>",
+        "raise request_timeout_ms",
+    );
     let xml = ReplyApi::Xml(xml::ErrorBody::Include);
     let cases = [
         (
@@ -247,7 +258,7 @@ async fn the_timeout_reply_names_the_limit_that_expired() {
             ReplyApi::Json,
             Payload::Other,
             Expiry::ObjectRequest,
-            JSON_SERVER,
+            JSON_TRANSFER,
         ),
         (
             ReplyApi::Json,
@@ -255,11 +266,13 @@ async fn the_timeout_reply_names_the_limit_that_expired() {
             Expiry::Request,
             JSON_SERVER,
         ),
+        (ReplyApi::Json, Payload::Other, Expiry::Request, JSON_SERVER),
         (xml, Payload::Other, Expiry::BodyInactivity, XML_SILENT),
         (xml, Payload::Upload, Expiry::BodyInactivity, XML_SILENT),
         (xml, Payload::Upload, Expiry::ObjectRequest, XML_UPLOAD),
-        (xml, Payload::Other, Expiry::ObjectRequest, XML_SERVER),
+        (xml, Payload::Other, Expiry::ObjectRequest, XML_TRANSFER),
         (xml, Payload::Upload, Expiry::Request, XML_SERVER),
+        (xml, Payload::Other, Expiry::Request, XML_SERVER),
     ];
     for (api, payload, expiry, (status, code, setting)) in cases {
         let response = DeadlineReply { api, payload }.response(expiry);
