@@ -152,7 +152,15 @@ anonymous caller; everything after that is the same strict decision code, so
 IAM, ACLs, public access prevention and object owners follow that identity.
 Presented credentials, including invalid ones and the query parameters above,
 resolve exactly as on the main listener, and a request with `Origin` or a
-`Sec-Fetch-Site` other than `none` gets 403 before routing. Both settings require
+`Sec-Fetch-Site` other than `none` gets 403 before routing. Because a DNS
+rebinding page sends neither header on a plain HTTP GET to its own rebound name,
+the listener also accepts only a Host that such a page cannot use: an IP
+literal, `localhost` or a `.localhost` name, a single-label name, or a name in
+`trusted_allowed_hosts`. Any other Host, or none, gets 421 `misdirected`, with or
+without credentials. The checks run once per request the listener receives, so
+batch parts inherit their envelope's admission, and every response it sends
+carries `Cross-Origin-Resource-Policy: same-origin` and
+`X-Content-Type-Options: nosniff`. Both settings require
 strict mode and each other, and startup checks the principal against the loaded
 registry as it does `admin_principal`. gRPC has no trusted listener. See the
 [Compose example and warnings](../container-usage.md#keep-private-buckets-private-with-a-trusted-listener).

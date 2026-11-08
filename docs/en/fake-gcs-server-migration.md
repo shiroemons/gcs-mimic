@@ -289,7 +289,10 @@ without that change, add a trusted listener on the Compose network, for example
 application services at `STORAGE_EMULATOR_HOST=gcs:4444`. Requests without
 credentials there act as that identity under the same authorization; requests
 with credentials authenticate as on the main listener, and browser-initiated
-requests get 403. Never publish that port. See the
+requests get 403. To keep DNS rebinding pages out, the Host must be an IP
+literal, a `localhost` name or a single-label name such as `gcs`; list a dotted
+service alias in `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`, and any other Host gets 421.
+Never publish that port. See the
 [Compose example](container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
 
 ### Rails Active Storage

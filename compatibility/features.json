@@ -55833,7 +55833,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -55843,10 +55843,11 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-101-CONFIG",
-          "description": "Both settings require auth_mode=strict and each other; trusted_listen is a numeric IP:port, port 0 allowed, rejected with unix_socket and when it equals listen, the scheme=both HTTP listener or grpc_listen at a nonzero port; trusted_principal uses the identity id format; each failure names its setting; the help digest pins the option lines.",
+          "description": "Both settings require auth_mode=strict and each other; trusted_listen is a numeric IP:port, port 0 allowed, rejected with unix_socket and when it equals listen, the scheme=both HTTP listener or grpc_listen at a nonzero port; trusted_principal uses the identity id format; trusted_allowed_hosts requires trusted_listen and holds up to 32 normalized DNS names without schemes, ports or wildcards; each failure names its setting; the help digest pins the option lines.",
           "result": "PASS",
           "test_ids": [
             "config::tests::a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address",
+            "config::tests::trusted_allowed_hosts_need_the_listener_and_name_dns_hosts",
             "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
             "help_output_keeps_its_exact_bytes"
           ]
@@ -55880,11 +55881,17 @@
         },
         {
           "id": "DESIGN-101-BROWSER",
-          "description": "Any Origin header, including null, and Sec-Fetch-Site other than none get 403 naming the trusted listener before routing on JSON, XML and probe routes; Sec-Fetch-Site none passes; the main listener answers the same requests as before; management uses the same shared check.",
+          "description": "Any Origin header, including null, and Sec-Fetch-Site other than none get 403 naming the trusted listener before routing on JSON, XML and probe routes; Sec-Fetch-Site none passes. Against DNS rebinding, Hosts 127.0.0.1:PORT, [::1]:PORT, localhost, app.localhost, a single label such as gcs and a trusted_allowed_hosts name pass, while evil.example:PORT and a missing Host get 421 misdirected naming trusted_allowed_hosts, also with a presented token, and duplicate Host fields get 400. Every trusted-listener response, errors included, carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. The main listener answers the same requests, under any Host, as before and without those headers; management uses the same shared browser check and Host parser.",
           "result": "PASS",
           "test_ids": [
             "browser_initiated_requests_are_refused_on_the_trusted_listener_only",
+            "foreign_host_names_are_misdirected_on_the_trusted_listener_even_with_credentials",
+            "trusted_responses_refuse_cross_origin_embedding_and_public_ones_are_unchanged",
             "server::browser::tests::only_the_trusted_listener_refuses_browser_initiated_requests",
+            "server::browser::tests::the_trusted_listener_admits_only_hosts_a_rebinding_page_cannot_name",
+            "server::browser::tests::trusted_responses_refuse_cross_origin_embedding_and_sniffing",
+            "server::host::tests::the_request_target_wins_and_malformed_hosts_name_nothing",
+            "server::host::tests::literals_and_single_labels_are_told_apart_from_dotted_names",
             "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate"
           ]
         },
@@ -55926,7 +55933,14 @@
         "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate",
         "batch_parts_and_management_follow_the_listener_of_their_request",
         "server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles",
-        "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+        "config::tests::trusted_allowed_hosts_need_the_listener_and_name_dns_hosts",
+        "foreign_host_names_are_misdirected_on_the_trusted_listener_even_with_credentials",
+        "trusted_responses_refuse_cross_origin_embedding_and_public_ones_are_unchanged",
+        "server::browser::tests::the_trusted_listener_admits_only_hosts_a_rebinding_page_cannot_name",
+        "server::browser::tests::trusted_responses_refuse_cross_origin_embedding_and_sniffing",
+        "server::host::tests::the_request_target_wins_and_malformed_hosts_name_nothing",
+        "server::host::tests::literals_and_single_labels_are_told_apart_from_dotted_names"
       ],
       "verification": [
         {
@@ -55989,11 +56003,55 @@
           "test_ids": [
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
           ]
+        },
+        {
+          "command": "cargo test --locked --lib server:: (Host rule and response headers)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "server::browser::tests::only_the_trusted_listener_refuses_browser_initiated_requests",
+            "server::browser::tests::the_trusted_listener_admits_only_hosts_a_rebinding_page_cannot_name",
+            "server::browser::tests::trusted_responses_refuse_cross_origin_embedding_and_sniffing",
+            "server::host::tests::the_request_target_wins_and_malformed_hosts_name_nothing",
+            "server::host::tests::literals_and_single_labels_are_told_apart_from_dotted_names",
+            "server::admin::guard::tests::management_guards_run_before_every_route_specific_gate"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib config:: (trusted_allowed_hosts)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "config::tests::trusted_allowed_hosts_need_the_listener_and_name_dns_hosts"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_xml_auth trusted_listener (Host rule and response headers)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "foreign_host_names_are_misdirected_on_the_trusted_listener_even_with_credentials",
+            "trusted_responses_refuse_cross_origin_embedding_and_public_ones_are_unchanged",
+            "browser_initiated_requests_are_refused_on_the_trusted_listener_only",
+            "batch_parts_and_management_follow_the_listener_of_their_request"
+          ]
+        },
+        {
+          "command": "cargo test --locked --bin gcs-mimic (help with trusted_allowed_hosts)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "help_output_keeps_its_exact_bytes"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The documented Compose example and an unmodified Go storage client against the trusted listener have not been run. The browser refusal relies on Origin and Sec-Fetch-Site: browsers send Sec-Fetch-Site only to loopback and HTTPS addresses and no Origin for a plain link or image GET, so it does not stop every browser request and keeping the port unpublished remains the protection. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "The documented Compose example and an unmodified Go storage client against the trusted listener have not been run. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-08"
