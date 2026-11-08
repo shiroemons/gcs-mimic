@@ -55878,7 +55878,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md and the complete Compose recipe examples/strict-local, which scripts/smoke-containers.sh runs with the built image.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -55959,8 +55959,16 @@
           ]
         },
         {
+          "id": "DESIGN-101-COMPOSE",
+          "description": "The strict local recipe examples/strict-local/compose.yaml, the block its README shows, starts with the image built from the checkout, inline identity and bucket files and only the main listener published: ready reports strict mode, the enabled test signer and its startup warning, lenient signed host ports, trusted_listen and trusted_principal outside listeners and two created buckets. From another container on the Compose network, Host gcs:4444 without credentials lists both buckets, reads the public bucket's allUsers policy and the private bucket's policy without allUsers, uploads to and reads back from the private bucket and uploads to the public one. From the host, the main listener without credentials answers 401 for the private object through JSON and XML, serves the public object through both, and returns Access-Control-Allow-Origin for the configured frontend origin. A built-in signer URL signed for http://localhost without the port, as Go storage signs, and one signed for http://localhost:PORT both read the private object at localhost:PORT, the first logging signature_host_port_omitted; a changed X-Goog-Expires gets 403 SignatureDoesNotMatch; a signed PUT passes its CORS preflight for content-type and writes the private bucket. On the trusted listener an Origin header gets 403 and Host evil.example:4444 gets 421. docker compose run test-signer credentials prints the signer's key file. Recreating the container with another FRONTEND_PORT reconciles both buckets, after which the public bucket allows the new origin and no longer the old one. Requests are sent with curl.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:strict-local:linux/arm64"
+          ]
+        },
+        {
           "id": "DESIGN-101-PENDING",
-          "description": "Run the documented Compose example with the image (inline identity file, unpublished trusted port, an application container on gcs:4444, a browser on the published main port) and an unmodified Go storage client with STORAGE_EMULATOR_HOST against the trusted listener. gRPC stays out of scope.",
+          "description": "Run an unmodified Go storage client with STORAGE_EMULATOR_HOST against the trusted listener, and a browser against the recipe's published main listener. gRPC stays out of scope.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -55985,7 +55993,8 @@
         "server::browser::tests::the_trusted_listener_admits_only_hosts_a_rebinding_page_cannot_name",
         "server::browser::tests::trusted_responses_refuse_cross_origin_embedding_and_sniffing",
         "server::host::tests::the_request_target_wins_and_malformed_hosts_name_nothing",
-        "server::host::tests::literals_and_single_labels_are_told_apart_from_dotted_names"
+        "server::host::tests::literals_and_single_labels_are_told_apart_from_dotted_names",
+        "scripts/smoke-containers.sh:strict-local:linux/arm64"
       ],
       "verification": [
         {
@@ -56092,11 +56101,20 @@
           "test_ids": [
             "help_output_keeps_its_exact_bytes"
           ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 (strict local recipe)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "scripts/smoke-containers.sh:strict-local:linux/arm64"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The documented Compose example and an unmodified Go storage client against the trusted listener have not been run. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "An unmodified Go storage client against the trusted listener has not been run. The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl, so no browser enforces CORS or meets the trusted listener's browser checks. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-08"
