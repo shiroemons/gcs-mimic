@@ -148,7 +148,7 @@ impl IoCause {
     }
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
-    pub(crate) fn memory_budget(&self) -> Option<MemoryBudget> {
+    pub fn memory_budget(&self) -> Option<MemoryBudget> {
         crate::error::causes(self.source()?).find_map(|cause| {
             cause
                 .downcast_ref::<MemoryExhausted>()
@@ -159,7 +159,7 @@ impl IoCause {
 
 /// A `backend=memory` budget, each with its own remedy when it runs out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MemoryBudget {
+pub enum MemoryBudget {
     /// Object bytes, bounded by `memory_max_bytes`.
     Blobs,
     /// Catalog database pages, bounded by `memory_catalog_max_bytes`.

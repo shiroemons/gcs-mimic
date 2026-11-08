@@ -6,6 +6,8 @@ pub(crate) use catalog::test_fixtures;
 #[cfg(test)]
 mod catalog_tests;
 pub(crate) mod failure;
+/// The binary's startup diagnostics name the remedy of the budget a seed filled.
+pub use failure::MemoryBudget;
 mod lock;
 mod memory;
 #[cfg(test)]
