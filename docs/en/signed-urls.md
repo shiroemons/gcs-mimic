@@ -267,7 +267,9 @@ a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
 `signed_host_port=lenient`. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
-for example when every worktree publishes a different port, start the server
+for example when every worktree publishes a different port, start a server that
+verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
+elsewhere the setting is a startup error because it would change nothing)
 with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, JSON
 `signed_host_port`). A V4 signature that does not match the actual Host is then
 checked once more with the port removed from the canonical host and accepted

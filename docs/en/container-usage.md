@@ -67,7 +67,8 @@ Public and signed URLs must still use the address reachable by their recipient.
 Go storage drops a non-default port when it signs a URL, so its signed URLs for
 `localhost:4443` fail with 403 `SignatureDoesNotMatch`. If a default port is not
 an option, for example because each worktree publishes its own port, set
-`GCS_MIMIC_SIGNED_HOST_PORT=lenient`; see [signed URLs](signed-urls.md).
+`GCS_MIMIC_SIGNED_HOST_PORT=lenient` on a server that verifies signatures
+(strict mode, or `GCS_MIMIC_SIGNED_URLS=verify`); see [signed URLs](signed-urls.md).
 
 Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
 that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.

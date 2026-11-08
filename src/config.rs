@@ -1309,6 +1309,16 @@ impl ConfigurationReport {
             self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_urls=ignore requires auth_mode=permissive; strict mode always verifies signatures. Remove the setting or use signed_urls=verify."));
             self.invalid.insert("signed_urls".into());
         }
+        // Lenient only widens how a signature verifies, so it would claim an effect where nothing
+        // is verified.
+        if config.signed_host_port == SignedHostPort::Lenient
+            && !verifying
+            && !self.any_invalid(&["auth_mode", "signed_urls", "signed_host_port"])
+            && let Some(input) = settings.get(Setting::SignedHostPort.as_str())
+        {
+            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_host_port=lenient has no effect while signatures are ignored; set signed_urls=verify or auth_mode=strict, or remove the setting."));
+            self.invalid.insert("signed_host_port".into());
+        }
     }
 
     /// Strict mode authenticates the built-in signer only on request; say what that exposes.
@@ -1687,7 +1697,12 @@ mod tests {
         assert_eq!(Config::default().signed_host_port, SignedHostPort::Exact);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
-        std::fs::write(&file, r#"{"signed_host_port":"lenient"}"#).unwrap();
+        // Lenient needs signatures to verify, which permissive mode does only when asked.
+        std::fs::write(
+            &file,
+            r#"{"signed_host_port":"lenient","signed_urls":"verify"}"#,
+        )
+        .unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_SIGNED_HOST_PORT".into(), "exact".into())]);
         assert_precedence(
@@ -1704,8 +1719,13 @@ mod tests {
             |config| config.signed_host_port,
         );
         let identities = dir.0.join("identities.json");
+        let lenient = |mode: &[&str]| {
+            let mut args = mode.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+            args.extend(["--signed-host-port".into(), "lenient".into()]);
+            Config::load(&args, &BTreeMap::new())
+        };
         for mode in [
-            &["--auth-mode", "permissive"][..],
+            &["--auth-mode", "permissive", "--signed-urls", "verify"][..],
             &[
                 "--auth-mode",
                 "strict",
@@ -1713,15 +1733,21 @@ mod tests {
                 identities.to_str().unwrap(),
             ],
         ] {
-            let mut args = mode.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-            args.extend(["--signed-host-port".into(), "lenient".into()]);
             assert_eq!(
-                Config::load(&args, &BTreeMap::new())
-                    .unwrap()
-                    .signed_host_port,
+                lenient(mode).unwrap().signed_host_port,
                 SignedHostPort::Lenient
             );
         }
+        // Permissive mode ignores signatures by default, so lenient would change nothing there.
+        let error = lenient(&["--auth-mode", "permissive"])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(
+                "--signed-host-port: signed_host_port=lenient has no effect while signatures are ignored"
+            ),
+            "{error}"
+        );
         assert_rejected(
             "signed_host_port",
             &["", "true", "Lenient", "EXACT", "ignore-port"],
