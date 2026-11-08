@@ -174,6 +174,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
     (50, sync_state::deletions::history::SCHEMA, None),
     (51, policies::RAISED_BINDINGS_SCHEMA, None),
+    (52, admin::initialization::SCHEMA, None),
 ];
 
 #[expect(
@@ -350,4 +351,5 @@ pub(super) const MIGRATIONS: &[(i64, Migration)] = &[
         Migration::Statements(sync_state::deletions::history::SCHEMA),
     ),
     (51, Migration::Statements(policies::RAISED_BINDINGS_SCHEMA)),
+    (52, Migration::Statements(admin::initialization::SCHEMA)),
 ];

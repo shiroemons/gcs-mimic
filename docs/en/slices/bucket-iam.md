@@ -58,7 +58,9 @@ Responses contain `kind: "storage#policy"`,
 `resourceId: "projects/_/buckets/{bucket}"`, `version: 1`, `etag` and
 `bindings: [{role, members}]`. Unconditional input versions 0, 1, 3 and omitted
 versions normalize to 1. `bindings` is required; explicit `[]` clears the policy.
-Each binding must name a role and at least one member. A Go SDK `SetPolicy` with
+Each binding must name a role and carry a `members` array. A binding whose
+array is empty grants nothing and is dropped from the stored policy without an
+error, as Cloud Storage did when recorded on 2026-10-31. A Go SDK `SetPolicy` with
 zero bindings omits the field and is rejected, as required by this Discovery
 snapshot; send an explicit empty array to clear a policy over HTTP.
 
@@ -68,8 +70,14 @@ managed-folder roles also apply to buckets, while Project-only
 `roles/storage.hmacKeyAdmin` and `roles/storage.expressModeUserAccess` return
 400 `invalid`. Project-level identity registry grants are unchanged.
 Supported members are
-`user:<id>`, `serviceAccount:<id>` and the convenience members
+`user:<id>`, `serviceAccount:<id>`, the public principal sets `allUsers` and
+`allAuthenticatedUsers`, and the convenience members
 `projectOwner:<project>`, `projectEditor:<project>`, `projectViewer:<project>`.
+What a public grant allows is specified in
+[public object reads](public-object-reads.md). While
+[public access prevention](public-access-prevention.md) is enforced on the
+bucket or its parent project, a policy that names a public principal set
+returns 412 `conditionNotMet` and changes nothing.
 Local IDs follow the registry's 1..=254-byte visible-ASCII rule, and comparison
 with a registry identity ID is exact and case-sensitive. Unknown local IDs may
 be bound in advance; they match no caller until that identity is registered.
@@ -92,11 +100,13 @@ the same role are stored and returned in their submitted order, without merging
 or deduplication. The official setIamPolicy and Policy references checked above
 do not specify their normalization; this preservation is the supported local
 behavior, with cloud normalization parity unverified.
-No policy update increases bucket
-metageneration. An opaque base64 etag changes on every successful set, including
-identical sets. An omitted or empty-string etag overwrites, following the
-ProtoJSON bytes default. Malformed base64 returns 400 `invalid`; standard and
-URL-safe encodings, with or without padding, compare as the same bytes.
+Every accepted policy update advances the bucket metageneration and its
+`updated` time, including a replay of the current policy, as Cloud Storage did
+when recorded on 2026-10-31. An opaque base64 etag changes on every
+successful set, including identical sets. An omitted or empty-string etag
+overwrites, following the ProtoJSON bytes default. Malformed base64 returns
+400 `invalid`; standard and URL-safe encodings, with or without padding,
+compare as the same bytes.
 The local decoder also accepts mixed standard/URL-safe alphabets, but rejects
 non-zero trailing bits with 400 `invalid`. Cloud parity for these malformed
 inputs is unverified; acceptance of mixed alphabets is not a cloud compatibility
@@ -122,9 +132,10 @@ and validates policies and etags identically, without permission checks.
 | Condition | Result |
 | --- | --- |
 | Malformed JSON | 400 `parseError` |
-| Invalid policy shape, version, role/member, non-bucket-grantable role, malformed base64 etag, empty binding or excessive principals | 400 `invalid` |
+| Invalid policy shape, version, role/member, non-bucket-grantable role, malformed base64 etag, binding without a `members` array or excessive principals | 400 `invalid` |
 | Malformed/unknown/duplicate query or invalid bucket path | Existing 400 query/path error |
-| Recognized public/group/domain/federated/deleted member, basic/custom role, condition | 501 `notImplemented` |
+| Recognized group/domain/federated/deleted member, basic/custom role, condition | 501 `notImplemented` |
+| `allUsers` or `allAuthenticatedUsers` while public access prevention is enforced | 412 `conditionNotMet`; no mutation |
 | Requester billing/common unsupported query semantics | 501 `notImplemented` |
 | Audit logging configuration | 501 `notImplemented` |
 | Oversized body | Existing 413 `uploadTooLarge` |
@@ -195,12 +206,17 @@ separate integration work. No cloud differential request was made.
 
 ## Excluded scope
 
-`testIamPermissions`; `allUsers`/`allAuthenticatedUsers`; groups, domains,
-workforce/workload/federated and deleted principals; binding conditions;
-custom/basic role grants; bucket/object/default ACLs; organization/folder
-inheritance and deny policies; UBLA transitions and UBLA-dependent default
-object-role bindings; public access prevention; XML; signed URLs; real Google
-token verification; policy propagation delays and cloud differential evidence.
+Groups, domains, workforce/workload/federated and deleted principals; binding
+conditions; custom/basic role grants; organization/folder inheritance and deny
+policies; UBLA transitions and UBLA-dependent default object-role bindings; XML;
+signed URLs; real Google token verification; policy propagation delays and
+cloud differential evidence. This slice also left out `testIamPermissions`,
+the effect of `allUsers`/`allAuthenticatedUsers` grants, public access
+prevention and bucket/object/default ACLs; later slices specify them in
+[testIamPermissions](sdk-test-permissions.md),
+[public object reads](public-object-reads.md),
+[public access prevention](public-access-prevention.md) and
+[JSON ACLs](json-acl.md).
 Default object ACLs are separate from non-UBLA bucket IAM and are not synthesized.
 The inherited project scope is the local registry only. SPEC-017's error wording,
 missing-bucket and check-order uncertainties remain open for their original rows.

@@ -295,11 +295,27 @@ volumesへ`./buckets.json:/buckets.json:ro`を追記します。ファイルは�
 APIで削除したバケットは次回起動時に再作成します。既存projectが異なる場合は
 所有者を保ち、stderrで警告し、readyの`project_mismatches`へ件数を出します。
 
+新しいバケットには、項目に
+`"iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}`
+と書いてIAMポリシーを付けられます。`setIamPolicy`と同じく既定のポリシーを置き換えるので、
+既定のlegacyバインディングが必要なら一緒に書きます。公開アクセス防止が公開メンバーを
+拒否する場合は、何も変更せずに起動を止めます。
+
+バケットの作成後に項目を編集すると、次回起動はバケットを保ったまま、まだ異なる
+フィールドをstderrで警告し、readyの`unapplied`へ件数を出します。Composeを再起動しても
+残るボリュームなどで既存バケットへ反映するには、`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`
+を指定します。各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、変更した
+バケット数をreadyの`reconciled`へ出します。項目が書かないフィールドはAPIでの変更を保ち、
+バケットのロケーションは変わりません。
+
 選択順は`--buckets-file PATH`、`GCS_MIMIC_BUCKETS_FILE`、サーバーJSONの
-`buckets_file`です。エントリの`project`、ファイルの`project`、`seed_project`
+`buckets_file`です。`buckets_file_mode`（`--buckets-file-mode`、
+`GCS_MIMIC_BUCKETS_FILE_MODE`、既定`create`）も同じ順で選び、`buckets_file`なしで
+指定すると起動を止めます。エントリの`project`、ファイルの`project`、`seed_project`
 （既定`local-project`）の順に所有projectを決めます。
-strictでもローカル管理として初期化し、API権限は付与しません。
-IAMポリシー、ACL、lifecycle、UBLA、未知フィールドは空・無効でも拒否します。
+strictでもローカル管理として初期化し、項目が書いたポリシー以外のAPI権限は付与しません。
+ACL、lifecycle、UBLA、`iam`、`bindings`以外のポリシー項目、未知フィールドは
+空・無効でも拒否します。
 0.8.0以降は`softDeletePolicy`を指定できます。既定ではsoft deleteが無効なので、使うバケットで`retentionDurationSeconds`に1秒以上を指定します。
 JSON APIの固定CORSとXMLのバケット別CORSは別です。
 各項目の上限は16MiB、ファイルの上限は1GiBです。`max_buckets_per_batch`を指定すると、バケット数はその値までになり、ファイルの上限は許可したバケットあたり1KiB（最低32MiB）になります。

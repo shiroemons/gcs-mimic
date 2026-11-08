@@ -94,6 +94,17 @@ impl Policy {
         })
     }
 
+    /// Whether any binding grants `allUsers` or `allAuthenticatedUsers`, which public access
+    /// prevention refuses to store.
+    pub(crate) fn names_public_principal(&self) -> bool {
+        self.bindings.iter().any(|binding| {
+            binding
+                .members
+                .iter()
+                .any(|member| matches!(member.as_str(), "allUsers" | "allAuthenticatedUsers"))
+        })
+    }
+
     pub(crate) fn bindings_json(&self) -> Value {
         Value::Array(
             self.bindings

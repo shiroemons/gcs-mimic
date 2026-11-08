@@ -36,6 +36,7 @@ pub(crate) mod imported_identity;
 pub(crate) use imported_identity::ImportedIdentity;
 
 mod import_publication;
+pub(crate) mod initialization;
 mod reset;
 
 #[cfg(test)]
@@ -151,6 +152,9 @@ pub struct BucketDefinition(BucketRecord);
 impl BucketDefinition {
     pub(in crate::storage) fn into_record(self) -> BucketRecord {
         self.0
+    }
+    pub(crate) fn record(&self) -> &BucketRecord {
+        &self.0
     }
     pub fn new(record: BucketRecord) -> Result<Self, AdminError> {
         BucketName::new(record.name.clone())?;

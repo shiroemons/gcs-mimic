@@ -89,9 +89,17 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+/// Restores schema 51, before buckets recorded the initialization file entry they came from.
+pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS bucket_file_entries;")
+        .unwrap();
+}
+
 /// Restores the schema 50 policy table, whose bindings are checked at 64 KiB. Fixtures built at
 /// older versions may have no such table, or already have this one.
 pub(crate) fn downgrade_policy_bindings_schema(connection: &rusqlite::Connection) {
+    downgrade_bucket_file_entries_schema(connection);
     let rebuilt: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = 'bucket_policies' AND sql NOT LIKE '%65536%')",

@@ -209,7 +209,7 @@ for platform in "$@"; do
   service=$("${init_compose[@]}" ps --quiet gcs)
   address=$("${init_compose[@]}" port gcs 4443)
   docker inspect "$service" | jq -e '.[0].Mounts | any(.Destination == "/buckets.json" and .RW == false)' >/dev/null
-  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0})' >/dev/null
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/initialized-assets" | jq -e '.versioning.enabled and .cors[0].origin == ["https://browser.example"]' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X PATCH \
@@ -218,7 +218,7 @@ for platform in "$@"; do
   "${init_compose[@]}" stop --timeout 15
   "${init_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
   address=$("${init_compose[@]}" port gcs 4443)
-  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0})' >/dev/null
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/initialized-assets" | jq -e '.labels.owner == "api"' >/dev/null
   "${init_compose[@]}" down --volumes

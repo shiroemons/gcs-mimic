@@ -31,7 +31,7 @@ impl Catalog {
     pub(super) async fn update_bucket(
         &self,
         name: &str,
-        mut update: BucketMetadataUpdate,
+        update: BucketMetadataUpdate,
         conditions: BucketConditions,
         access: &BucketAccess,
         mode: BucketWrite,
@@ -42,97 +42,182 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let mut record = select_bucket(&transaction, &name)?
-                .ok_or(CatalogError::NotFound)?;
-            check_access(&transaction, &name, &record.project, &access)?;
-            let pap = update.public_access_prevention_enforced.unwrap_or(record.public_access_prevention_enforced);
-            if pap != record.public_access_prevention_enforced
-                && let BucketAccess::Policy { identity, project, .. } = &access
-            {
-                check_access(&transaction, &name, &record.project, &BucketAccess::Policy {
-                    identity: identity.clone(), project: project.clone(), permission: crate::auth::Permission::BucketsSetIam,
-                })?;
-            }
-            if !conditions.hold(record.metageneration) {
-                return Err(CatalogError::PreconditionFailed);
-            }
-            // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
-            // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
-            if matches!(mode, BucketWrite::Patch) && update.is_empty() {
-                return Ok(record);
-            }
-            if update
-                .location
-                .as_ref()
-                .is_some_and(|location| !location.eq_ignore_ascii_case(&record.location))
-            {
-                return Err(CatalogError::UnsupportedMetadata("location".into()));
-            }
-            apply_uniform_access(
-                &mut record,
-                update.uniform_bucket_level_access_enabled,
-                clock.now(),
-            )?;
-            if update.object_retention_enabled.is_some_and(|enabled| enabled != record.object_retention_enabled) {
-                return Err(CatalogError::InvalidMetadata("objectRetention can only be enabled when the bucket is created (enableObjectRetention=true) and can never be disabled; omit objectRetention".into()));
-            }
-            if let Some(retention) = update.soft_delete_retention {
-                apply_soft_delete_retention(&mut record, retention, clock.now());
-            }
-            apply_retention_policy(&mut record, &update, conditions.if_metageneration_match, clock.now())?;
-            validate_retention_expiration(&transaction, &record)?;
-            bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
-            if let Some(labels) = update.labels.take() {
-                apply_labels(&mut record, labels, mode, update.labels_mode)?;
-            }
-            if record.labels.len() > 64 {
-                return Err(CatalogError::InvalidMetadata(
-                    "A bucket can have at most 64 labels".into(),
-                ));
-            }
-            apply_plain_settings(&mut record, &mut update)?;
-            record.metageneration = record
-                .metageneration
-                .checked_add(1)
-                .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
-            let updated = unix_micros(clock.now())?;
-            record.updated = system_time_micros(updated)?;
-            record.uniform_bucket_level_access_locked_time = record.uniform_bucket_level_access_locked_time
-                .map(|time| unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))).transpose()?;
-            transaction
-                .prepare_cached(UPDATE_BUCKET)?
-                .execute(
-                    params![
-                        name,
-                        serde_json::to_string(&record.labels).map_err(unavailable)?,
-                        record.storage_class,
-                        record.versioning_enabled,
-                        record.default_event_based_hold,
-                        record.metageneration,
-                        updated,
-                        cors_value(&record.cors).to_string(),
-                        record.public_access_prevention_enforced,
-                        record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
-                        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
-                        record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
-                        record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
-                        record.versioning_configured,
-                    ],
-                )?;
-            for (target, entries) in [
-                (acl::ResolvedAclTarget::Bucket(&name), update.acl),
-                (acl::ResolvedAclTarget::DefaultObject(&name), update.default_object_acl),
-            ] {
-                if let Some(entries) = entries {
-                    acl::replace_resource_acl(&transaction, target, &entries, &access, principals.as_ref())?;
-                }
-            }
-            change_journal::append(&transaction, change_journal::origin(&access), change_journal::ChangeKind::BucketUpdate, &name, None)?;
+            let change = BucketChange {
+                name: &name,
+                update,
+                conditions,
+                access: &access,
+                mode,
+            };
+            let record =
+                update_in_transaction(&transaction, change, clock.as_ref(), principals.as_ref())?;
             transaction.commit()?;
             Ok(record)
         })
         .await
     }
+}
+
+/// One bucket metadata write.
+pub(super) struct BucketChange<'a> {
+    pub(super) name: &'a str,
+    pub(super) update: BucketMetadataUpdate,
+    pub(super) conditions: BucketConditions,
+    pub(super) access: &'a BucketAccess,
+    pub(super) mode: BucketWrite,
+}
+
+/// Applies `change` as a PATCH or PUT does, journal entry included, inside the caller's
+/// transaction; the caller commits.
+pub(super) fn update_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    change: BucketChange<'_>,
+    clock: &dyn Clock,
+    principals: Option<&principals::Profile>,
+) -> Result<BucketRecord, CatalogError> {
+    let BucketChange {
+        name,
+        mut update,
+        conditions,
+        access,
+        mode,
+    } = change;
+    let mut record = select_bucket(transaction, name)?.ok_or(CatalogError::NotFound)?;
+    check_access(transaction, name, &record.project, access)?;
+    let pap = update
+        .public_access_prevention_enforced
+        .unwrap_or(record.public_access_prevention_enforced);
+    if pap != record.public_access_prevention_enforced
+        && let BucketAccess::Policy {
+            identity, project, ..
+        } = access
+    {
+        check_access(
+            transaction,
+            name,
+            &record.project,
+            &BucketAccess::Policy {
+                identity: identity.clone(),
+                project: project.clone(),
+                permission: crate::auth::Permission::BucketsSetIam,
+            },
+        )?;
+    }
+    if !conditions.hold(record.metageneration) {
+        return Err(CatalogError::PreconditionFailed);
+    }
+    // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
+    // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
+    if matches!(mode, BucketWrite::Patch) && update.is_empty() {
+        return Ok(record);
+    }
+    if update
+        .location
+        .as_ref()
+        .is_some_and(|location| !location.eq_ignore_ascii_case(&record.location))
+    {
+        return Err(CatalogError::UnsupportedMetadata("location".into()));
+    }
+    apply_uniform_access(
+        &mut record,
+        update.uniform_bucket_level_access_enabled,
+        clock.now(),
+    )?;
+    if update
+        .object_retention_enabled
+        .is_some_and(|enabled| enabled != record.object_retention_enabled)
+    {
+        return Err(CatalogError::InvalidMetadata("objectRetention can only be enabled when the bucket is created (enableObjectRetention=true) and can never be disabled; omit objectRetention".into()));
+    }
+    if let Some(retention) = update.soft_delete_retention {
+        apply_soft_delete_retention(&mut record, retention, clock.now());
+    }
+    apply_retention_policy(
+        &mut record,
+        &update,
+        conditions.if_metageneration_match,
+        clock.now(),
+    )?;
+    validate_retention_expiration(transaction, &record)?;
+    bucket_autoclass::update(transaction, &mut record, &update, clock.now())?;
+    if let Some(labels) = update.labels.take() {
+        apply_labels(&mut record, labels, mode, update.labels_mode)?;
+    }
+    if record.labels.len() > 64 {
+        return Err(CatalogError::InvalidMetadata(
+            "A bucket can have at most 64 labels".into(),
+        ));
+    }
+    apply_plain_settings(&mut record, &mut update)?;
+    record.metageneration = record
+        .metageneration
+        .checked_add(1)
+        .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
+    let updated = unix_micros(clock.now())?;
+    record.updated = system_time_micros(updated)?;
+    record.uniform_bucket_level_access_locked_time = record
+        .uniform_bucket_level_access_locked_time
+        .map(|time| {
+            unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
+        })
+        .transpose()?;
+    store_bucket(transaction, &record, updated)?;
+    for (target, entries) in [
+        (acl::ResolvedAclTarget::Bucket(name), update.acl),
+        (
+            acl::ResolvedAclTarget::DefaultObject(name),
+            update.default_object_acl,
+        ),
+    ] {
+        if let Some(entries) = entries {
+            acl::replace_resource_acl(transaction, target, &entries, access, principals)?;
+        }
+    }
+    change_journal::append(
+        transaction,
+        change_journal::origin(access),
+        change_journal::ChangeKind::BucketUpdate,
+        name,
+        None,
+    )?;
+    Ok(record)
+}
+
+fn store_bucket(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &BucketRecord,
+    updated: i64,
+) -> Result<(), CatalogError> {
+    transaction.prepare_cached(UPDATE_BUCKET)?.execute(params![
+        record.name,
+        serde_json::to_string(&record.labels).map_err(unavailable)?,
+        record.storage_class,
+        record.versioning_enabled,
+        record.default_event_based_hold,
+        record.metageneration,
+        updated,
+        cors_value(&record.cors).to_string(),
+        record.public_access_prevention_enforced,
+        record
+            .uniform_bucket_level_access_locked_time
+            .map(unix_micros)
+            .transpose()?,
+        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
+        record
+            .retention_policy
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(unavailable)?,
+        record
+            .soft_delete_policy
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(unavailable)?,
+        record.versioning_configured,
+    ])?;
+    Ok(())
 }
 
 /// Whether a bucket metadata write merges into (PATCH) or replaces (PUT) stored labels.

@@ -168,10 +168,23 @@ impl Catalog {
 /// its creation time (documented in docs/en/slices/bucket-soft-delete-restore.md).
 const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
 
+/// Inserts a bucket with the default policy of its owning project, as an API insert does.
 pub(super) fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
     default_soft_delete_retention: Option<NonZeroU64>,
+) -> Result<(), CatalogError> {
+    let policy = Policy::default_for(&record.project);
+    insert_bucket_with_policy(transaction, record, default_soft_delete_retention, &policy)
+}
+
+/// Inserts a bucket that starts with `policy` instead of the default one. The caller derives the
+/// bucket ACL from a policy other than the default before the transaction commits.
+pub(super) fn insert_bucket_with_policy(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &mut BucketRecord,
+    default_soft_delete_retention: Option<NonZeroU64>,
+    policy: &Policy,
 ) -> Result<(), CatalogError> {
     // A server default gives a new bucket that names no policy that retention, with effectiveTime
     // at the creation time, as Cloud Storage does with its seven days. An explicit policy, zero
@@ -257,11 +270,7 @@ pub(super) fn insert_bucket_in_transaction(
         [record.generation],
     )?;
     bucket_autoclass::insert(transaction, record)?;
-    insert_policy(
-        transaction,
-        &record.name,
-        &Policy::default_for(&record.project),
-    )?;
+    insert_policy(transaction, &record.name, policy)?;
     sql::exec(
         transaction,
         "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",

@@ -115,6 +115,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--max-sync-entries` | `GCS_MIMIC_MAX_SYNC_ENTRIES` | 0 (unlimited) | 0–2^64−1; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. Time grows with the tree. A positive value stops there and names the setting. Without one, a tree past 10,000 entries logs `sync_tree_large` once per process |
 | `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | 0 (unlimited) | 0–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk still stops at 1024 levels, which keeps its descriptors bounded and is deeper than any object name can nest |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved. At most 1 GiB, or with `max_buckets_per_batch` set, 1 KiB per allowed bucket and at least 32 MiB |
+| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `create` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file`. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner. See [bucket initialization](slices/bucket-initialization.md) |
 | `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one `--buckets-file` or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
@@ -230,9 +231,9 @@ or seed commit wait and then run against the state it left. A client that stays 
 without sending its upload body holds up a reset for up to `catalog_wait_timeout_ms`, and new
 uploads wait behind the reset meanwhile. The reset then answers 503 and changes nothing.
 
-Older catalogs migrate automatically, one way and in order, to the current schema 51;
-the log names the versions. A binary supporting only schema 50 cannot open a directory
-migrated to 51. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
+Older catalogs migrate automatically, one way and in order, to the current schema 52;
+the log names the versions. A binary supporting only schema 51 cannot open a directory
+migrated to 52. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
 data directory before upgrading, and restore it with its matching executable to roll back.
 Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs are rejected
 without changing their data; automatic recovery of deleted v2 generations is unavailable.
@@ -250,18 +251,23 @@ target/debug/gcs-mimic serve --scheme http --buckets-file config/buckets.json
 
 This creates `initialized-assets` with XML CORS and versioning and
 `initialized-private` in a different project with PAP enforced. The stdout ready
-event includes `buckets_file` with `created`, `existing` and `project_mismatches`.
+event includes `buckets_file` with `created`, `existing`, `project_mismatches`,
+`unapplied` and `reconciled`.
 Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
 The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
 using CLI > environment > config. Relative paths use the process working directory.
 
 Restart with the same data directory to retain API changes and object versions;
-only missing buckets are created, even if settings in the file change. Removed
+only missing buckets are created, even if settings in the file change, and an
+edited entry that was not applied warns on stderr and counts as `unapplied`.
+`--buckets-file-mode reconcile` instead writes each entry's written fields to its
+existing bucket, except its location and owner. Removed
 entries remain stored. Different existing projects warn without changing owners.
 Initialization runs before seed, using local administrative authority in strict
-and permissive modes, and grants no API permissions. Invalid entries stop startup
-with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
-and unknown fields are rejected even when empty or disabled. Limits are
+and permissive modes, and grants no API permissions beyond an entry's
+`iamPolicy`. Invalid entries stop startup with complete diagnostics and no ready
+event. ACLs, lifecycle, UBLA, `iam`, policy fields other than `bindings` and
+unknown fields are rejected even when empty or disabled. Limits are
 16 MiB per entry and a file of 1 GiB. With `max_buckets_per_batch` set, the file instead
 has 1 KiB per allowed bucket and at least 32 MiB. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).

@@ -126,7 +126,7 @@ use bucket_list::bucket_metadata_charge;
 #[cfg(test)]
 use bucket_update::BucketWrite;
 pub(super) use buckets::select_bucket;
-use buckets::{insert_bucket_in_transaction, read_bucket};
+use buckets::{insert_bucket_in_transaction, insert_bucket_with_policy, read_bucket};
 use connection::ConnectionUnavailable;
 #[cfg(test)]
 use open::immutable_catalog_uri;
@@ -144,7 +144,7 @@ use schema::{MIGRATIONS, initialize_catalog, validate_schema, validate_schema_ve
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 51;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 52;
 // A literal macro lets per-request queries build static SQL with concat!, which
 // the connection's prepared statement cache reuses without formatting.
 macro_rules! bucket_columns {
