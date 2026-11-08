@@ -75,8 +75,12 @@ gcs_emulator: # development and test
 ```
 
 - **`universe_domain`で、RailsがGoogleに接続しなくなります。** これはGoogle Cloudの公開クラウド以外のクラウド向けの設定です。`googleapis.com`以外の値にすると、googleauthはGoogleのOAuthにトークンを取りに行かず、自分でトークンに署名します。これがないと、アップロードのたびに`oauth2.googleapis.com`へ接続しようとして失敗します。2か所に同じ値を書いてください。
-- **鍵は使い捨てです。** 開発・テストのときだけ起動時に生成し、ローカルのURLの署名に使います。Googleの認証情報ではありません。
+- **鍵は使い捨てです。** 開発・テストのときだけ起動時に生成し、ローカルのURLの署名に使います。Googleの認証情報ではありません。エミュレーターが知らない鍵のため、strictでは拒否されます。[手順6](#6-strictで本番に近い確認をする)では、代わりに組み込みのテスト署名者を使います。
 - `endpoint`の末尾の`/`は残します。
+- **`public: true`ではエミュレーターに届きません。**
+  `public: true`のサービスでは、Railsは各オブジェクトの公開URLを返します。
+  google-cloud-storage 1.62.1はこのURLを`endpoint`にかかわらず常に`https://storage.googleapis.com`で組み立てるため、ローカルのアプリの公開ファイルはエミュレーターから読み込まれません。
+  確認済みの回避策は、まだここに記載していません。
 
 ## 3. 環境ごとに項目を選ぶ
 
@@ -96,15 +100,19 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 
 両方で`gcs.localhost`という名前を使います。
 ブラウザは`*.localhost`を自分のマシンに送り、ComposeのネットワークエイリアスはDocker内でエミュレーターに送るので、Railsとブラウザが同じURLを使えます。
+ポートも両方で同じにする必要があるため、エミュレーターはコンテナ内でも公開するポートで待ち受けます。
+そのポートは`GCS_MIMIC_PORT`で選べるので、ワークツリーやプロジェクトごとに別のポートを使えます。
 
 ```yaml
 services:
   gcs:
     image: ghcr.io/shiroemons/gcs-mimic:0.13.0
     ports:
-      - "127.0.0.1:4443:4443" # the host port must equal the container port
+      # The host port equals the container port, so one URL works on both sides.
+      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
     environment:
       GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_LISTEN: 0.0.0.0:${GCS_MIMIC_PORT:-4443}
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - ./buckets.json:/buckets.json:ro
@@ -114,11 +122,18 @@ services:
           - gcs.localhost
   web: # your Rails service
     environment:
-      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:4443/
+      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/
 ```
 
+4443番が使用中なら、ワークツリーの`.env`などで`GCS_MIMIC_PORT`を設定します。Composeがファイル内で置き換えます。
+Composeネットワーク上のほかのサービスも、`http://gcs:${GCS_MIMIC_PORT:-4443}`でエミュレーターに届きます。
+Railsのポートもワークツリーごとに変わる場合は、バケット文書のCORSのoriginもそれに合わせる必要があります。
+0.13.0より新しいリリースでは、`GCS_MIMIC_BUCKETS_FILE`の代わりに`GCS_MIMIC_BUCKETS`へ文書をインラインで書くと、Composeがそこでもポートを置き換えます。
+例えば、自分で決めた変数を使って`"origin": ["http://localhost:${RAILS_PORT:-3000}"]`と書きます。
+インラインの文書は、このような変更を次の起動時に既存のバケットにも反映します。
+
 これで、画像の表示、ダイレクトアップロード、Rails自身のアップロードがすべて動きます。
-同じポート番号で公開できない場合は、Rails経由でファイルを配信します。ダイレクトアップロードには、ブラウザから届く`endpoint`が引き続き必要です。
+ホスト側とコンテナ側を同じポート番号にできない場合は、Rails経由でファイルを配信します。ダイレクトアップロードには、ブラウザから届く`endpoint`が引き続き必要です。
 
 ```ruby
 # config/environments/development.rb
@@ -149,6 +164,82 @@ steps:
 ```
 
 これらのコマンドは、GitHubのホステッドランナーと同じくホストにポートを公開したイメージに対して確認しました。ワークフロー自体はGitHub上では実行していません。
+
+## 6. strictで本番に近い確認をする
+
+手順2の項目は起動時に生成した鍵で署名するため、既定のpermissiveプロファイルでしか受け付けられません。
+strictはCloud Storageと同じようにすべてのリクエストを認可します。署名付きURLなしで非公開オブジェクトを要求したブラウザーは401を受け取り、Railsにはエミュレーターが知っている鍵が必要です。
+Railsには、gcs-mimicに同梱している組み込みのテスト署名者`test-signer@gcs-mimic.invalid`の鍵を渡します。鍵の生成も登録も不要です。
+0.13.0より新しいリリースが必要です。
+
+手順1または手順4の`gcs`サービスに、設定を2つ足します。
+
+```yaml
+    environment:
+      GCS_MIMIC_AUTH_MODE: strict
+      GCS_MIMIC_TEST_SIGNER: enabled
+```
+
+この場合、strictでもID文書はいりません。
+署名者には、バケット文書のプロジェクトと`GCS_MIMIC_SEED_PROJECT`（既定は`local-project`）に対する`roles/storage.objectUser`が付きます。
+このロールで下に挙げたRailsの操作はすべて動きますが、バケットは作れません。そのため、アプリのバケットは手順1のバケット文書で作ります。
+起動時に、署名者の秘密鍵が公開されていることを警告します。
+別のロールを付けるには、`GCS_MIMIC_IDENTITIES`または`GCS_MIMIC_IDENTITY_FILE`に`test-signer@gcs-mimic.invalid`を`project_roles`付きで宣言します。宣言すると、`GCS_MIMIC_TEST_SIGNER`なしでも署名者が有効になります。
+
+署名者の鍵を、サービスが使うイメージから取り出してアプリに保存します。
+
+```sh
+docker compose run --rm gcs test-signer credentials | jq -r .private_key > config/gcs-mimic-test-signer.pem
+```
+
+手順2の`gcs_emulator`の認証情報を書き換えます。
+
+```yaml
+gcs_emulator: # development and test
+  service: GCS
+  project: local-project
+  bucket: <%= ENV.fetch("GCS_EMULATOR_BUCKET", "local-bucket") %>
+  endpoint: <%= ENV.fetch("GCS_EMULATOR_ENDPOINT", "http://localhost:4443/") %>
+  universe_domain: gcs-emulator.invalid
+  credentials:
+    type: service_account
+    project_id: local-project
+    client_email: test-signer@gcs-mimic.invalid
+    universe_domain: gcs-emulator.invalid
+    private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
+```
+
+`credentials`には、`test-signer credentials`が出力する項目を書きます。
+Google以外の`universe_domain: gcs-emulator.invalid`も含むため、googleauthはGoogleのOAuthに問い合わせず、公開済みの鍵で自分でトークンに署名します。
+鍵は公開されていて、誰でもこのIDで署名できます。ローカルの開発とテストだけで使い、共有サーバーやGoogleの認証情報には使いません。
+permissiveではトークンを無視するため、同じ項目がpermissiveでも動きます。
+
+**どの待受を使うか。** エミュレーターがほかのサーバー向けに[信頼済みリスナー](container-usage.md#信頼済みリスナーで非公開バケットを守る)を持つ場合でも、`endpoint`にはブラウザーが届くメインの待受を指定します。
+Railsは常に自分のトークンを送るため、どちらの待受でも署名者として認証されます。
+ただし、`endpoint`はRailsがブラウザーに渡すURL（`url`のリダイレクト先とダイレクトアップロードのURL）のoriginにもなります。
+信頼済みリスナーのポートは公開せず、ブラウザーからのリクエストも拒否します。
+Railsをコンテナで動かす場合は、手順4のとおり`gcs.localhost`を使います。
+
+**V2とV4のURL。** 標準の`service: GCS`は、ダウンロードとダイレクトアップロードにV2のURLを署名します。
+V2の署名はhostを含まないため、これらのURLは`endpoint`が指すどのアドレスでも検証に通ります。ワークツリーごとのポートを使う`gcs.localhost`も同じです。
+V4のURLを使う場合は、`EmulatorGcs`アダプターを選びます。
+[emulator_gcs_service.rb](../../sdk-tests/ruby/active_storage/lib/active_storage/service/emulator_gcs_service.rb)をアプリの`lib/active_storage/service/`にコピーし、`lib`をロードパスに含め、`public_endpoint`にブラウザーが使うoriginだけを指定します。
+
+```yaml
+gcs_emulator:
+  service: EmulatorGcs
+  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", "http://localhost:4443") %>
+  # project, bucket, endpoint, universe_domain and credentials as above
+```
+
+アダプターはURLを出力する前に`public_endpoint`のhostとportを署名するため、`signed_host_port=lenient`なしで検証に通ります。署名後にhostを書き換えません。
+ダイレクトアップロードでは`x-goog-content-length-range`も署名し、サービスに`cache_control`を設定した場合は`Cache-Control`も署名します。
+Railsをコンテナで動かす場合は、`endpoint`と`public_endpoint`のどちらも`gcs.localhost:${GCS_MIMIC_PORT:-4443}`を指します。
+
+strictのRailsテスト（`sdk-tests/ruby/active_storage/run-strict.sh`）は、同じ認証情報を使い、署名者が`roles/storage.objectUser`だけを持つstrictのサーバーに対して実行しています。
+JWTによるアップロードとダウンロード、V2の署名付きGET、標準のV2と`EmulatorGcs`アダプターのV4によるダイレクトアップロード、
+attach、variantsのprefixを含む`purge`、`delete_prefixed`、`blob.update!`による`content_type`の変更、`Blob.compose`、公開バケットを確認しています。
+Goのサーバー・ブラウザー・Railsを含むアプリ全体では、[strictのローカル構成（英語）](../../examples/strict-local/README.md)から始めてください。
 
 ## 確認済みのこと
 
@@ -189,8 +280,8 @@ docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
 同じ認証情報を使えば、permissiveでも`GCS_MIMIC_SIGNED_URLS=verify`でRailsの署名付きURLを検証できます。
 起動時に生成した鍵はエミュレーターが知らないため、そのURLは`InvalidAccessKeyId`で失敗します。
 V4でブラウザー向けの最終host・portを署名する場合は、明示的に`EmulatorGcs`アダプターを選びます。
-署名後にhostを書き換えません。`just check-active-storage-strict`では、JWTによる送受信と
-V2/V4ダイレクトアップロードCORSの3シナリオが成功しました。
+署名後にhostを書き換えません。`just check-active-storage-strict`は2つの構成で実行し、どちらも7ケースすべてが成功しました。
+1つは鍵を登録する構成、もう1つは`roles/storage.objectUser`だけを持つ組み込みのテスト署名者の構成です（[手順6](#6-strictで本番に近い確認をする)）。
 匿名の非公開読込と署名ヘッダー改変の拒否も維持しています。
 これはRailsモデルとNet::HTTPの検証で、strictの実RailsブラウザーUIは未確認です。
 GoogleのOAuth発行・検証を再現する機能ではありません。
