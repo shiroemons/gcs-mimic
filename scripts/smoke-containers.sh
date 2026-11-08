@@ -380,4 +380,117 @@ for platform in "$@"; do
   docker volume rm "$volume" >/dev/null
   volume=
   echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, skipped colon names, external create ingestion at restart and clean shutdown"
+
+  # The strict local recipe must work as written: application servers on the unpublished trusted
+  # listener, the host and browsers on the published main listener, URLs signed by the test signer.
+  # COMPOSE_FILE also points the failure cleanup at this project's file.
+  project="gcs-mimic-strict-local-${arch}-$$"
+  export COMPOSE_FILE=examples/strict-local/compose.yaml GCS_MIMIC_PORT=0
+  unset FRONTEND_PORT
+  docker compose -p "$project" config --quiet
+  docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  address=$(docker compose -p "$project" port gcs 4443)
+  [[ $address == 127.0.0.1:* ]] || exit 1
+  docker inspect "$service" | jq -e '.[0].HostConfig.PortBindings | keys == ["4443/tcp"]' >/dev/null
+  # Assert effective behavior, not the recipe's setting names, so that the recipe can drop settings
+  # whose defaults come to match.
+  docker logs "$service" 2>&1 | jq -se '
+    any(.event == "diagnostics" and any(.diagnostics[]; .fix | contains("test-signer@gcs-mimic.invalid is published")))
+    and any(.event == "ready" and .auth_mode == "strict" and .identities == 2 and .test_signer == "enabled"
+      and .signed_urls == "verify" and .signed_host_port == "lenient"
+      and .listeners == [{listen: "0.0.0.0:4443", scheme: "http"}]
+      and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "app@example.invalid"
+      and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+  strict_peer() {
+    docker run --rm --read-only --network "${project}_default" "$peer_image" \
+      --disable --noproxy '*' --silent --show-error --max-time 5 "$@"
+  }
+  # Without credentials the trusted listener acts as the application identity.
+  strict_peer --fail 'http://gcs:4444/storage/v1/b?project=local-project' \
+    | jq -e '[.items[].name] == ["app-private", "app-public"]' >/dev/null
+  strict_peer --fail http://gcs:4444/storage/v1/b/app-public/iam \
+    | jq -e '.bindings == [{role: "roles/storage.objectViewer", members: ["allUsers"]}]' >/dev/null
+  strict_peer --fail http://gcs:4444/storage/v1/b/app-private/iam \
+    | jq -e 'all(.bindings[].members[]; . != "allUsers")' >/dev/null
+  strict_peer --fail -H 'Content-Type: text/plain' --data-binary 'private bytes' \
+    'http://gcs:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=docs%2Fprivate.txt' \
+    | jq -e '.name == "docs/private.txt"' >/dev/null
+  [[ $(strict_peer --fail 'http://gcs:4444/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media') == 'private bytes' ]] || exit 1
+  strict_peer --fail -H 'Content-Type: text/plain' --data-binary 'public bytes' \
+    'http://gcs:4444/upload/storage/v1/b/app-public/o?uploadType=media&name=hello.txt' \
+    | jq -e '.name == "hello.txt"' >/dev/null
+  # Without credentials the main listener is anonymous: allUsers reads, private objects stay closed.
+  expect_status GET '/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media' 401
+  expect_status GET /app-private/docs/private.txt 401
+  expect_status GET '/storage/v1/b/app-public/o/hello.txt?alt=media' 200
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -D "$work/strict-headers" -o "$work/strict-body" -H 'Origin: http://localhost:3000' \
+    "http://$address/app-public/hello.txt"
+  [[ $(cat "$work/strict-body") == 'public bytes' ]] || exit 1
+  tr -d '\r' < "$work/strict-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3000' >/dev/null
+  port=${address##*:}
+  strict_sign() {
+    docker compose -p "$project" exec -T gcs gcs-mimic url sign --expires 5m "$@"
+  }
+  # The Host must say localhost, as a browser's does, so connect it to the published address.
+  strict_local() {
+    curl --disable --noproxy '*' --silent --show-error --max-time 5 \
+      --resolve "localhost:$port:127.0.0.1" "$@"
+  }
+  # Go storage signs the host without its port, then sends the URL with the port.
+  signed=$(strict_sign --base-url http://localhost --bucket app-private --object docs/private.txt --method GET)
+  [[ $signed == 'http://localhost/app-private/docs/private.txt?'* ]] || exit 1
+  [[ $(strict_local --fail "http://localhost:$port${signed#http://localhost}") == 'private bytes' ]] || exit 1
+  docker logs "$service" 2>&1 | jq -se 'any(.event == "signature_host_port_omitted")' >/dev/null
+  signed=$(strict_sign --base-url "http://localhost:$port" --bucket app-private --object docs/private.txt --method GET)
+  [[ $(strict_local --fail "$signed") == 'private bytes' ]] || exit 1
+  [[ $signed == *'&X-Goog-Expires=300&'* ]] || exit 1
+  code=$(strict_local -o "$work/strict-body" -w '%{http_code}' "${signed/X-Goog-Expires=300/X-Goog-Expires=299}")
+  [[ $code == 403 ]] || exit 1
+  grep -F '<Code>SignatureDoesNotMatch</Code>' "$work/strict-body" >/dev/null
+  # A browser upload: the private bucket's CORS admits the preflight, the signature the PUT.
+  signed=$(strict_sign --base-url "http://localhost:$port" --bucket app-private --object uploads/browser.txt \
+    --method PUT --header 'content-type:text/plain')
+  strict_local --fail -D "$work/strict-headers" -o /dev/null -X OPTIONS -H 'Origin: http://localhost:3000' \
+    -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type' "$signed"
+  tr -d '\r' < "$work/strict-headers" | grep -Fxi 'access-control-allow-headers: content-type' >/dev/null
+  code=$(strict_local -D "$work/strict-headers" -o /dev/null -w '%{http_code}' -X PUT \
+    -H 'Origin: http://localhost:3000' -H 'Content-Type: text/plain' --data-binary 'signed upload' "$signed")
+  [[ $code == 200 ]] || exit 1
+  tr -d '\r' < "$work/strict-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3000' >/dev/null
+  [[ $(strict_peer --fail 'http://gcs:4444/storage/v1/b/app-private/o/uploads%2Fbrowser.txt?alt=media') == 'signed upload' ]] || exit 1
+  # The trusted listener refuses browser-initiated requests and Host names a rebinding page can use.
+  code=$(strict_peer -o /dev/null -w '%{http_code}' -H 'Origin: http://evil.example' \
+    'http://gcs:4444/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media')
+  [[ $code == 403 ]] || exit 1
+  code=$(strict_peer -o /dev/null -w '%{http_code}' -H 'Host: evil.example:4444' \
+    'http://gcs:4444/storage/v1/b/app-private/o/docs%2Fprivate.txt?alt=media')
+  [[ $code == 421 ]] || exit 1
+  docker compose -p "$project" run --rm gcs test-signer credentials >"$work/test-signer.json"
+  jq -e '.client_email == "test-signer@gcs-mimic.invalid"
+    and (.private_key | startswith("-----BEGIN PRIVATE KEY-----\n"))' "$work/test-signer.json" >/dev/null
+  # An edited bucket file reaches the existing volume once Compose recreates the container.
+  export FRONTEND_PORT=3001
+  docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  address=$(docker compose -p "$project" port gcs 4443)
+  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -D "$work/strict-headers" -o "$work/strict-body" -H 'Origin: http://localhost:3001' \
+    "http://$address/app-public/hello.txt"
+  [[ $(cat "$work/strict-body") == 'public bytes' ]] || exit 1
+  tr -d '\r' < "$work/strict-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3001' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -D "$work/strict-headers" -o /dev/null -H 'Origin: http://localhost:3000' \
+    "http://$address/app-public/hello.txt"
+  if tr -d '\r' < "$work/strict-headers" | grep -i '^access-control-allow-origin:'; then
+    echo 'The reconciled bucket still allows the old origin' >&2
+    exit 1
+  fi
+  unset FRONTEND_PORT
+  docker compose -p "$project" down --volumes
+  project=
+  export COMPOSE_FILE=compose.yaml:compose.http.yaml
+  echo "PASS: $platform strict local recipe: ready with test signer and trusted listener, credential-free trusted reads and writes, anonymous main listener with allUsers and CORS, portless and exact signed GET, tampered query, signed PUT, browser and Host refusals, test signer credentials, bucket file reconcile"
 done
