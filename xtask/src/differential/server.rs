@@ -47,6 +47,11 @@ pub(crate) struct LocalServer {
 impl LocalServer {
     /// Starts the native profile on loopback ports chosen by the OS (HTTP and
     /// plaintext gRPC) and waits for its ready event.
+    ///
+    /// The recorded buckets have no CORS configuration, so the permissive
+    /// allow-all fallback stays off: it answers as if every bucket allowed every
+    /// origin, which adds `Vary: Origin` to XML reads that Cloud Storage leaves
+    /// without one.
     pub(crate) fn start(binary: &Path, work: &Path) -> Result<Self> {
         let pubsub = pubsub::Stub::start().map_err(|e| format!("Pub/Sub stub: {e}"))?;
         let log = work.join("server.log");
@@ -55,6 +60,7 @@ impl LocalServer {
             .env("PUBSUB_EMULATOR_HOST", &pubsub.endpoint)
             .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
             .args(["--grpc-listen", "127.0.0.1:0"])
+            .args(["--cors-fallback", "none"])
             .args(["--compat-profile", "native", "--data-dir"])
             .arg(work.join("data"))
             .stdout(File::create(&log).map_err(|e| format!("server log: {e}"))?)

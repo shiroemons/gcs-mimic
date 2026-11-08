@@ -657,6 +657,10 @@ exercises gcs-mimic's configured-emulator existence check; it never contacts
 Google Pub/Sub. Other topic lookups and publish requests are refused by the
 stand-in.
 
+The local server also runs with `--cors-fallback none`. The recorded buckets
+have no CORS configuration, and the permissive allow-all fallback would add
+`Vary: Origin` to XML reads that Cloud Storage answers without one.
+
 ```sh
 cargo xtask differential validate            # parse and check the case files, no network
 cargo xtask differential run                 # self-check: gcs-mimic only
