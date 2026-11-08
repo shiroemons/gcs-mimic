@@ -1141,7 +1141,10 @@ impl Auth {
             }
         };
         Ok(Self {
-            signed_host_port: verification.signed_host_port,
+            signed_host_port: signature::SignedHostPort::resolve(
+                verification.signed_host_port,
+                test_signer,
+            ),
             test_signer,
             ..Self::with_profile(profile)
         })
@@ -1150,6 +1153,12 @@ impl Auth {
     /// Whether the built-in test signer exists, as loading settled it.
     pub fn test_signer(&self) -> TestSigner {
         self.test_signer
+    }
+
+    /// Whether V4 verification also accepts a canonical host without the request's port, after
+    /// the default that the settled test signer selects.
+    pub fn signed_host_port(&self) -> signature::SignedHostPort {
+        self.signed_host_port
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.

@@ -113,7 +113,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file or --identities)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
-  --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
+  --signed-host-port MODE      lenient where the test signer is enabled, else exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
   --identities JSON            none (the --identity-file registry itself, with the same format and limits; not with --identity-file)
   --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "76d8e0a96819496b4a12680b4474d3323528e1b0a6bf57f6e699d24d2e1c0b62"
+            "d94139cba974cc34813d0c3ed3676bb0443b84da0f6cc9554bf08ae9ceaab4c0"
         );
     }
 

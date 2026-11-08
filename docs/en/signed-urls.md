@@ -270,20 +270,26 @@ Go storage v1.70.0 omits non-default ports from canonical Host. A server that
 verifies signatures, like the strict journey above, therefore rejects its URLs
 for a host:port endpoint with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
-`signed_host_port=lenient`. The default permissive server does not check
+`signed_host_port=lenient`, which is already the default wherever the
+[built-in test signer](#built-in-test-signer) is enabled: its published key
+marks a local test, so tolerating a signer that drops the port changes nothing
+that matters there. The default permissive server does not check
 signatures, so those URLs work there. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start a server that
 verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
-elsewhere the setting is a startup error because it would change nothing)
-with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, JSON
-`signed_host_port`). A V4 signature that does not match the actual Host is then
+elsewhere an explicit `lenient` is a startup error because it would change
+nothing) with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`,
+JSON `signed_host_port`), or enable the test signer. An explicit `exact` wins
+over that default and is accepted everywhere, and the ready event reports the
+effective value. A V4 signature that does not match the actual Host is then
 checked once more with the port removed from the canonical host and accepted
 only if that matches. The host name, method, path, query, signed headers,
 payload rule and time window stay bound, and an IPv6 literal keeps its brackets.
 V2 signatures and POST policies do not sign Host and are unaffected. The first
 such match in a process logs one `signature_host_port_omitted` warning without
-the URL or credentials. The default `exact` keeps verification unchanged. The
+the URL or credentials. `exact`, the default without the test signer, keeps
+verification unchanged. The
 Node.js signer drops the port the same way; see the
 [Node.js SDK notes](../../sdk-tests/node/README.md). Ruby Storage 1.62.1 signs
 `storage.googleapis.com` by default even with an emulator endpoint. Its pinned
@@ -291,7 +297,8 @@ test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_k
 bucket_bound_hostname:)` with an explicit bucket/name File path because
 bucket-bound signing removes the normal bucket prefix. This preserves host:port
 before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
-SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Exact verification stays the default.
+SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Exact verification stays the
+default where the test signer is disabled.
 PAP suppresses stored `allUsers` and `allAuthenticatedUsers` grants in strict mode;
 explicit signer grants remain usable. The journey compares the policy before,
 during and after enforcement, shows public reactivation with `inherited`, then
@@ -426,11 +433,12 @@ url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOption
 ```
 
 Go storage drops a non-default port from the Host it signs, so a URL for
-`localhost:4443` does not match the request's `Host: localhost:4443`. A server
-that verifies signatures, as one using the built-in signer does, rejects it with
-403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
-`gcs-mimic url sign`, or set `signed_host_port=lenient`, which tolerates the
-missing port.
+`localhost:4443` does not match the request's `Host: localhost:4443`. Exact
+verification rejects it with 403 `SignatureDoesNotMatch`, but a server with the
+built-in signer enabled defaults to `signed_host_port=lenient`, which tolerates
+the missing port, so the URL above verifies there unless `signed_host_port=exact`
+is set. Elsewhere, use a default-port endpoint, sign with `gcs-mimic url sign`,
+or set `signed_host_port=lenient`.
 
 Rails Active Storage takes the same credentials in `config/storage.yml`. Save
 the key in the app, for example with

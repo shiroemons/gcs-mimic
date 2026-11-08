@@ -150,7 +150,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
         ),
         Failure::MismatchWithHostPort => Error::new(
             XmlCode::SignatureDoesNotMatch,
-            "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it.",
+            "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it, which is already the default where the built-in test signer is enabled.",
         ),
         Failure::Expired => Error::new(XmlCode::ExpiredToken, "The request signature has expired."),
         Failure::NotYetValid => Error::new(

@@ -15,7 +15,9 @@ use std::borrow::Cow;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Verification {
     pub test_signer: TestSignerChoice,
-    pub signed_host_port: SignedHostPort,
+    /// The explicit `signed_host_port`; loading applies the default that the settled test signer
+    /// selects, with [`SignedHostPort::resolve`].
+    pub signed_host_port: Option<SignedHostPort>,
 }
 
 /// Only valid pairings of `auth_mode`, `signed_urls` and the identity document exist as values,
@@ -171,7 +173,7 @@ impl AuthProfile {
             (AuthMode::Permissive, None | Some(SignedUrls::Ignore), identities) => {
                 let mismatches: Vec<_> = [
                     identities.map(|source| Mismatch::IdentitiesIgnored(source.form())),
-                    (config.signed_host_port == SignedHostPort::Lenient)
+                    (config.signed_host_port == Some(SignedHostPort::Lenient))
                         .then_some(Mismatch::LenientIgnored),
                     (config.test_signer == Some(TestSigner::Enabled))
                         .then_some(Mismatch::TestSignerIgnored),

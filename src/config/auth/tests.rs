@@ -1,5 +1,5 @@
 use crate::{
-    auth::{TestSigner, test_signer},
+    auth::{TestSigner, signature::SignedHostPort, test_signer},
     config::{Config, ConfigurationReport},
     diagnostics::{Diagnostic, DiagnosticSource},
     test_support::TestDir,
@@ -234,6 +234,96 @@ fn permissive_test_signer_defaults_ignore_the_identity_document() {
         assert_eq!(auth.test_signer(), expected, "{args:?}");
         assert!(report.diagnostics.warnings.is_empty(), "{args:?}");
     }
+}
+
+/// The published key marks a local test, so the host port is lenient wherever the built-in
+/// signer is enabled; an explicit value wins, and an explicit lenient where nothing verifies
+/// still fails validation.
+#[test]
+fn the_host_port_is_lenient_by_default_where_the_test_signer_is_enabled() {
+    let dir = TestDir::new();
+    let [declared, undeclared] = [true, false].map(|declared| {
+        let path = dir.0.join(format!("identities-{declared}.json"));
+        std::fs::write(&path, registry(declared)).unwrap();
+        path.to_str().unwrap().to_owned()
+    });
+    fn strict(path: &str) -> Vec<&str> {
+        vec!["--auth-mode", "strict", "--identity-file", path]
+    }
+    for (base, extra, test_signer, signed_host_port) in [
+        (
+            strict(&declared),
+            &[][..],
+            TestSigner::Enabled,
+            SignedHostPort::Lenient,
+        ),
+        (
+            strict(&declared),
+            &["--signed-host-port", "exact"],
+            TestSigner::Enabled,
+            SignedHostPort::Exact,
+        ),
+        (
+            strict(&undeclared),
+            &["--test-signer", "enabled"],
+            TestSigner::Enabled,
+            SignedHostPort::Lenient,
+        ),
+        (
+            strict(&undeclared),
+            &[],
+            TestSigner::Disabled,
+            SignedHostPort::Exact,
+        ),
+        (
+            strict(&undeclared),
+            &["--signed-host-port", "lenient"],
+            TestSigner::Disabled,
+            SignedHostPort::Lenient,
+        ),
+        (
+            vec!["--signed-urls", "verify"],
+            &[],
+            TestSigner::Enabled,
+            SignedHostPort::Lenient,
+        ),
+        (
+            vec!["--signed-urls", "verify"],
+            &["--test-signer", "disabled"],
+            TestSigner::Disabled,
+            SignedHostPort::Exact,
+        ),
+        (vec![], &[], TestSigner::Disabled, SignedHostPort::Exact),
+        (
+            vec![],
+            &["--signed-host-port", "exact"],
+            TestSigner::Disabled,
+            SignedHostPort::Exact,
+        ),
+    ] {
+        let args = [base, extra.to_vec()].concat();
+        let mut report = report(&args);
+        let auth = report.load_auth();
+        assert!(
+            !report.diagnostics.is_err(),
+            "{args:?}: {}",
+            report.diagnostics
+        );
+        assert_eq!(auth.test_signer(), test_signer, "{args:?}");
+        assert_eq!(auth.signed_host_port(), signed_host_port, "{args:?}");
+    }
+    let errors = Config::preflight(
+        &strings(&["--signed-host-port", "lenient"]),
+        &BTreeMap::new(),
+    )
+    .diagnostics
+    .errors;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .fix
+            .contains("has no effect while signatures are ignored")
+    );
 }
 
 #[test]

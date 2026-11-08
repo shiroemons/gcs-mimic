@@ -111,17 +111,28 @@ mod tests {
         let auth = Auth::load(&AuthProfile::Permissive).unwrap();
         assert!(matches!(auth.profile, Profile::Permissive));
         assert_eq!(auth.signed_urls(), SignedUrls::Ignore);
-        for (test_signer, identity_file, signed_host_port) in [
-            (TestSigner::Enabled, false, SignedHostPort::Exact),
-            (TestSigner::Disabled, false, SignedHostPort::Lenient),
-            (TestSigner::Enabled, true, SignedHostPort::Lenient),
-            (TestSigner::Disabled, true, SignedHostPort::Exact),
+        // An explicit host-port setting wins; without one, the settled signer selects it.
+        for (test_signer, identity_file, configured, signed_host_port) in [
+            (
+                TestSigner::Enabled,
+                false,
+                Some(SignedHostPort::Exact),
+                SignedHostPort::Exact,
+            ),
+            (
+                TestSigner::Disabled,
+                false,
+                Some(SignedHostPort::Lenient),
+                SignedHostPort::Lenient,
+            ),
+            (TestSigner::Enabled, true, None, SignedHostPort::Lenient),
+            (TestSigner::Disabled, true, None, SignedHostPort::Exact),
         ] {
             let auth = Auth::load(&AuthProfile::VerifyingPermissive {
                 identities: identity_file.then(|| DocumentSource::File(path.clone())),
                 verification: Verification {
                     test_signer: TestSignerChoice::Fixed(test_signer),
-                    signed_host_port,
+                    signed_host_port: configured,
                 },
             })
             .unwrap();
@@ -144,7 +155,7 @@ mod tests {
             identities: DocumentSource::File(path),
             verification: Verification {
                 test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
-                signed_host_port: SignedHostPort::Lenient,
+                signed_host_port: Some(SignedHostPort::Lenient),
             },
         })
         .unwrap_err();

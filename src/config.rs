@@ -271,8 +271,10 @@ pub struct Config {
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
     pub cors_fallback: CorsFallback,
-    /// Whether V4 verification also accepts a canonical host without the request Host's port.
-    pub signed_host_port: SignedHostPort,
+    /// The explicit `signed_host_port` setting, whether V4 verification also accepts a canonical
+    /// host without the request Host's port; loading applies the default, lenient wherever the
+    /// built-in test signer is enabled.
+    pub signed_host_port: Option<SignedHostPort>,
     /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
     pub identities: Option<DocumentSource>,
     /// The explicit `test_signer` setting; validation selects the profile's default with
@@ -357,7 +359,7 @@ impl Default for Config {
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
             cors_fallback: CorsFallback::None,
-            signed_host_port: SignedHostPort::Exact,
+            signed_host_port: None,
             identities: None,
             test_signer: None,
             signed_urls: None,
@@ -882,7 +884,7 @@ fn apply_access_setting(
         Setting::AuthMode => config.auth_mode = value.parse()?,
         Setting::CompatProfile => config.compat_profile = value.parse()?,
         Setting::CorsFallback => config.cors_fallback = value.parse()?,
-        Setting::SignedHostPort => config.signed_host_port = value.parse()?,
+        Setting::SignedHostPort => config.signed_host_port = Some(value.parse()?),
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
         Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
         _ => return Err(unknown_setting()),
@@ -2016,9 +2018,11 @@ mod tests {
         assert_eq!(errors[0].key, "--grpc-listen");
     }
 
+    /// Only an explicit value is configuration; loading applies the default that the settled
+    /// test signer selects, which config::auth::tests covers.
     #[test]
-    fn signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes() {
-        assert_eq!(Config::default().signed_host_port, SignedHostPort::Exact);
+    fn signed_host_port_follows_precedence_in_both_auth_modes() {
+        assert_eq!(Config::default().signed_host_port, None);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         // Lenient needs signatures to verify, which permissive mode does only when asked.
@@ -2034,10 +2038,10 @@ mod tests {
             &env,
             &["--signed-host-port", "lenient"],
             [
-                SignedHostPort::Exact,
-                SignedHostPort::Lenient,
-                SignedHostPort::Exact,
-                SignedHostPort::Lenient,
+                None,
+                Some(SignedHostPort::Lenient),
+                Some(SignedHostPort::Exact),
+                Some(SignedHostPort::Lenient),
             ],
             Config::load,
             |config| config.signed_host_port,
@@ -2059,7 +2063,7 @@ mod tests {
         ] {
             assert_eq!(
                 lenient(mode).unwrap().signed_host_port,
-                SignedHostPort::Lenient
+                Some(SignedHostPort::Lenient)
             );
         }
         // Permissive mode ignores signatures by default, so lenient would change nothing there.
@@ -2071,6 +2075,14 @@ mod tests {
                 "--signed-host-port: signed_host_port=lenient has no effect while signatures are ignored"
             ),
             "{error}"
+        );
+        // An explicit exact claims nothing, so it is accepted whatever is verified.
+        let exact = ["--signed-host-port", "exact"].map(str::to_owned);
+        assert_eq!(
+            Config::load(&exact, &BTreeMap::new())
+                .unwrap()
+                .signed_host_port,
+            Some(SignedHostPort::Exact)
         );
         assert_rejected(
             "signed_host_port",
@@ -2230,7 +2242,7 @@ mod tests {
             profile(&["--signed-urls", "verify", "--signed-host-port", "lenient"]),
             Some(AuthProfile::VerifyingPermissive {
                 identities: None,
-                verification: verification(TestSigner::Enabled, SignedHostPort::Lenient),
+                verification: verification(TestSigner::Enabled, Some(SignedHostPort::Lenient)),
             })
         );
         assert_eq!(
@@ -2244,7 +2256,7 @@ mod tests {
             ]),
             Some(AuthProfile::Strict {
                 identities: DocumentSource::File("ids.json".into()),
-                verification: verification(TestSigner::Enabled, SignedHostPort::Exact),
+                verification: verification(TestSigner::Enabled, None),
             })
         );
         for args in [
