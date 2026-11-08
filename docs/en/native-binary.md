@@ -119,7 +119,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | 0 (unlimited) | 0–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk still stops at 1024 levels, which keeps its descriptors bounded and is deeper than any object name can nest |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved. At most 1 GiB, or with `max_buckets_per_batch` set, 1 KiB per allowed bucket and at least 32 MiB |
 | `--buckets` | `GCS_MIMIC_BUCKETS` | none | JSON key `buckets`; the `buckets_file` document itself, with the same format, limits and validation, so a Compose file can hold it in `environment:`. In the JSON config file the value is the document object or a string containing it. Naming it with `buckets_file` fails startup. Diagnostics name `buckets` and the entry path, never the document text |
-| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `create` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file` or `buckets`, and governs both. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner. See [bucket initialization](slices/bucket-initialization.md) |
+| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `reconcile` for `buckets`, `create` for `buckets_file` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file` or `buckets`, and governs both; an explicit value wins. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner, and leaves the members an entry does not write to the API. An inline document defaults to `reconcile` because the file that starts the server, such as `compose.yaml`, is then the source of truth. See [bucket initialization](slices/bucket-initialization.md) |
 | `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one buckets document (`buckets_file` or `buckets`) or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 1024 | 1–1048576; total across listeners, including TLS handshakes. Startup raises the soft open-file limit to three per connection plus 64, and warns when it cannot |
@@ -281,10 +281,13 @@ fails startup. gcs-mimic reads the value as plain text, but Compose expands `${V
 in it first, so write a literal `$` as `$$`.
 
 Restart with the same data directory to retain API changes and object versions;
-only missing buckets are created, even if settings in the file change, and an
-edited entry that was not applied warns on stderr and counts as `unapplied`.
+with a file, only missing buckets are created, even if settings in the file change,
+and an edited entry that was not applied warns on stderr and counts as `unapplied`.
 `--buckets-file-mode reconcile` instead writes each entry's written fields to its
-existing bucket, except its location and owner. Removed
+existing bucket, except its location and owner. That is the default for the inline
+`buckets` document, which lives in the file that starts the server: an edit to it
+applies at the next start, while members the entry does not write keep their API
+values. `--buckets-file-mode create` keeps the file behavior for it. Removed
 entries remain stored. Different existing projects warn without changing owners.
 Initialization runs before seed, using local administrative authority in strict
 and permissive modes, and grants no API permissions beyond an entry's

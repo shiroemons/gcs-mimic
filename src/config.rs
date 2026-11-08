@@ -133,15 +133,28 @@ string_enum! {
 }
 
 string_enum! {
-    /// What a start does with an existing bucket that the buckets file names.
+    no_default
+    /// What a start does with an existing bucket that the buckets document names; see
+    /// [`BucketsFileMode::resolve`] for the default.
     pub enum BucketsFileMode {
         /// Creates missing buckets only; existing ones keep every setting.
-        #[default]
         Create => "create",
         /// Also applies the members each entry writes to its existing bucket.
         Reconcile => "reconcile",
     }
     "buckets_file_mode must be create or reconcile"
+}
+
+impl BucketsFileMode {
+    /// An explicit setting wins. An inline document lives in the file that starts the server,
+    /// such as compose.yaml, which is then the source of truth, so its edits apply; a separate
+    /// buckets file only creates what is missing, as it always has.
+    pub(crate) fn resolve(configured: Option<Self>, form: Form) -> Self {
+        configured.unwrap_or(match form {
+            Form::File => Self::Create,
+            Form::Inline => Self::Reconcile,
+        })
+    }
 }
 
 string_enum! {
@@ -221,7 +234,9 @@ pub struct Config {
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
-    pub buckets_file_mode: BucketsFileMode,
+    /// The explicit `buckets_file_mode`, which governs both document settings;
+    /// [`BucketsFileMode::resolve`] applies the default for the document's form.
+    pub buckets_file_mode: Option<BucketsFileMode>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
     /// Local management routes are disabled unless the operator explicitly enables them.
@@ -320,7 +335,7 @@ impl Default for Config {
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
             buckets: None,
-            buckets_file_mode: BucketsFileMode::Create,
+            buckets_file_mode: None,
             api_base_url: None,
             public_base_url: None,
             admin_enabled: false,
@@ -831,7 +846,7 @@ fn apply_storage_setting(
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
         }
-        Setting::BucketsFileMode => config.buckets_file_mode = value.parse()?,
+        Setting::BucketsFileMode => config.buckets_file_mode = Some(value.parse()?),
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -2612,13 +2627,18 @@ mod tests {
             &env,
             &["--buckets-file-mode", "reconcile"],
             [
-                BucketsFileMode::Create,
-                BucketsFileMode::Reconcile,
-                BucketsFileMode::Create,
-                BucketsFileMode::Reconcile,
+                None,
+                Some(BucketsFileMode::Reconcile),
+                Some(BucketsFileMode::Create),
+                Some(BucketsFileMode::Reconcile),
             ],
             Config::load,
             |config| config.buckets_file_mode,
+        );
+        // A file creates what is missing unless asked; config::document::tests covers inline.
+        assert_eq!(
+            BucketsFileMode::resolve(None, Form::File),
+            BucketsFileMode::Create
         );
         assert_rejected(
             "buckets_file_mode",

@@ -86,7 +86,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --max-sync-depth N           0 (0..1024; directory levels below sync_dir, counting the bucket; 0 is unlimited)
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 GiB, or 1 KiB per allowed bucket and at least 32 MiB under a bucket limit)
   --buckets JSON               none (the --buckets-file document itself, with the same format and limits; not with --buckets-file)
-  --buckets-file-mode MODE     create (create|reconcile; reconcile also applies each entry's written fields to its existing bucket; requires --buckets-file or --buckets)
+  --buckets-file-mode MODE     reconcile for --buckets, create for --buckets-file (create|reconcile; reconcile also applies each entry's written fields to its existing bucket; requires --buckets-file or --buckets)
   --max-buckets-per-batch N    0 (buckets one buckets document or one seed may declare, not all buckets; memory grows with them; 0 is unlimited)
   --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "d94139cba974cc34813d0c3ed3676bb0443b84da0f6cc9554bf08ae9ceaab4c0"
+            "34906cb00fe913d4ff7080d60119269e981814ace37a607a0e7ec96f660e2f76"
         );
     }
 

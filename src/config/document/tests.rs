@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    config::{AuthProfile, read_public_base_url, test_support::assert_precedence},
+    config::{AuthProfile, BucketsFileMode, read_public_base_url, test_support::assert_precedence},
     diagnostics::DiagnosticSource,
     test_support::TestDir,
 };
@@ -278,6 +278,49 @@ fn the_buckets_mode_accepts_either_document_setting() {
     .errors;
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].key, "--buckets");
+}
+
+/// An inline document lives where the server is started, so its edits apply by default; a file
+/// keeps creating only what is missing. An explicit mode wins for both.
+#[test]
+fn the_buckets_mode_defaults_by_where_the_document_comes_from() {
+    let empty = BTreeMap::new();
+    for (args, form, expected) in [
+        (
+            &["--buckets", BUCKETS][..],
+            Form::Inline,
+            BucketsFileMode::Reconcile,
+        ),
+        (
+            &["--buckets-file", "b.json"],
+            Form::File,
+            BucketsFileMode::Create,
+        ),
+        (
+            &["--buckets", BUCKETS, "--buckets-file-mode", "create"],
+            Form::Inline,
+            BucketsFileMode::Create,
+        ),
+        (
+            &[
+                "--buckets-file",
+                "b.json",
+                "--buckets-file-mode",
+                "reconcile",
+            ],
+            Form::File,
+            BucketsFileMode::Reconcile,
+        ),
+    ] {
+        let config = Config::load(&strings(args), &empty).unwrap();
+        let source = config.buckets.as_ref().unwrap();
+        assert_eq!(source.form(), form, "{args:?}");
+        assert_eq!(
+            BucketsFileMode::resolve(config.buckets_file_mode, source.form()),
+            expected,
+            "{args:?}"
+        );
+    }
 }
 
 #[test]

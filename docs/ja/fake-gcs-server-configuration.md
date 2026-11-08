@@ -188,7 +188,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`） | 起動のたびに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。reseedのルートはない |
 | 初期ファイルのContent-Type | `GCS_MIMIC_SEED_CONTENT_TYPE` | 既定は拡張子から決める`extension`。`octet-stream`で以前の既定値に戻す |
 | 初期バケットのproject | `GCS_MIMIC_SEED_PROJECT` | 所有projectを指定 |
-| 起動時に作るバケット | `GCS_MIMIC_BUCKETS`（JSON文書をそのまま書く。Composeの`environment:`向け）または`GCS_MIMIC_BUCKETS_FILE`（パス）、`GCS_MIMIC_BUCKETS_FILE_MODE` | 移行元は初期ファイルのディレクトリからだけバケットを作る。文書は各バケットと設定を書き、初期ファイルの前に全体を検証する。両方の設定を書くと起動に失敗する。Composeは値の中の`${VAR}`を展開するので、`$`そのものは`$$`と書く。[バケット初期化（英語）](../en/slices/bucket-initialization.md)を参照 |
+| 起動時に作るバケット | `GCS_MIMIC_BUCKETS`（JSON文書をそのまま書く。Composeの`environment:`向け）または`GCS_MIMIC_BUCKETS_FILE`（パス）、`GCS_MIMIC_BUCKETS_FILE_MODE` | 移行元は初期ファイルのディレクトリからだけバケットを作る。文書は各バケットと設定を書き、初期ファイルの前に全体を検証する。両方の設定を書くと起動に失敗する。文書をそのまま書いた場合の既定は`GCS_MIMIC_BUCKETS_FILE_MODE=reconcile`で、`compose.yaml`での変更は次の起動で既存のバケットにも反映される。ファイルの場合の既定は`create`。Composeは値の中の`${VAR}`を展開するので、`$`そのものは`$$`と書く。[バケット初期化（英語）](../en/slices/bucket-initialization.md)を参照 |
 | 永続データ保存先 | `GCS_MIMIC_DATA_DIR` | 旧保存先の直接流用は不可 |
 | 証明書 | `GCS_MIMIC_TLS_CERT` | 対応する鍵も必要 |
 | 秘密鍵 | `GCS_MIMIC_TLS_KEY` | 対応する証明書も必要 |

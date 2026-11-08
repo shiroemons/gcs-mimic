@@ -1659,6 +1659,65 @@ fn an_inline_document_initializes_buckets_from_every_source() {
     assert!(fix.contains("buckets and buckets_file"), "{fix}");
 }
 
+/// An inline document lives in the file that starts the server, so an edit to it applies to an
+/// existing data directory without naming the mode, while an explicit create keeps waiting.
+#[test]
+fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() {
+    let dir = TestDir::new();
+    let document = |env: &str| {
+        json!({"version":1,"project":"project-a","buckets":[
+            {"name":"edited-bucket","labels":{"env":env}}]})
+        .to_string()
+    };
+    let server = Server::start(command(&dir.0).env("GCS_MIMIC_BUCKETS", document("dev")));
+    counts(&server, 1, 0, 0);
+    // An API change to a member the entry does not write is kept.
+    server.json(
+        "PATCH",
+        "/storage/v1/b/edited-bucket",
+        json!({"versioning":{"enabled":true}}),
+    );
+    server.stop();
+
+    let server = Server::start(
+        command(&dir.0)
+            .env("GCS_MIMIC_BUCKETS", document("prod"))
+            .env("GCS_MIMIC_BUCKETS_FILE_MODE", "create"),
+    );
+    applied(&server, json!({"existing":1,"unapplied":1}));
+    assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
+    let fix = warnings(&server.stop())[0]["fix"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(fix.contains("buckets_file_mode=reconcile"), "{fix}");
+
+    let server = Server::start(command(&dir.0).env("GCS_MIMIC_BUCKETS", document("prod")));
+    applied(&server, json!({"existing":1,"reconciled":1}));
+    let reconciled = bucket(&server, "edited-bucket");
+    assert_eq!(reconciled["labels"], json!({"env":"prod"}));
+    assert_eq!(reconciled["versioning"], json!({"enabled":true}));
+    assert!(warnings(&server.stop()).is_empty());
+
+    // The same edit in a file still waits unless the mode is named.
+    let file = TestDir::new();
+    input(
+        &file.0,
+        json!([{"name":"file-bucket","labels":{"env":"dev"}}]),
+    );
+    let server = Server::start(&mut selected(&file.0));
+    counts(&server, 1, 0, 0);
+    server.stop();
+    input(
+        &file.0,
+        json!([{"name":"file-bucket","labels":{"env":"prod"}}]),
+    );
+    let server = Server::start(&mut selected(&file.0));
+    applied(&server, json!({"existing":1,"unapplied":1}));
+    assert_eq!(labels(&server, "file-bucket"), json!({"env":"dev"}));
+    server.stop();
+}
+
 #[test]
 fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it() {
     let dir = TestDir::new();

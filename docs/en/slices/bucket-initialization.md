@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Startup application updated on **2026-10-25** for `bucket-initialization`. CLI/environment/config selectors load the bounded parser and invoke one administrative initialization transaction before seed. Updated on **2026-11-08**: an entry may write `iamPolicy`, catalog schema 52 records the entry each bucket came from, a start warns about an edited entry it did not apply, and the opt-in `buckets_file_mode=reconcile` applies written fields to existing buckets ([entry records and reconcile mode](#entry-records-and-reconcile-mode)). JSON-BUCKETS-002, JSON-BUCKETS-008 and DESIGN-062 remain PARTIAL for their broader scope. BEHAVIOR-BUCKET-009 remains IMPLEMENTED. The [feature ledger](../../../compatibility/features.json) owns all status and evidence.
+Startup application updated on **2026-10-25** for `bucket-initialization`. CLI/environment/config selectors load the bounded parser and invoke one administrative initialization transaction before seed. Updated on **2026-11-08**: an entry may write `iamPolicy`, catalog schema 52 records the entry each bucket came from, a start warns about an edited entry it did not apply, and the `buckets_file_mode=reconcile`, opt-in for `buckets_file` and the default for the inline `buckets` setting, applies written fields to existing buckets ([entry records and reconcile mode](#entry-records-and-reconcile-mode)). JSON-BUCKETS-002, JSON-BUCKETS-008 and DESIGN-062 remain PARTIAL for their broader scope. BEHAVIOR-BUCKET-009 remains IMPLEMENTED. The [feature ledger](../../../compatibility/features.json) owns all status and evidence.
 
 ## Baseline, sources and ownership
 
@@ -24,7 +24,7 @@ The following selectors are implemented together with startup application:
 | Environment | `GCS_MIMIC_BUCKETS_FILE=PATH`, or `GCS_MIMIC_BUCKETS=JSON` |
 | Flat JSON server config | `"buckets_file":"PATH"`, or `"buckets"` holding the document object or a string that contains it |
 | Default | Unset; no file discovery or implicit initialization |
-| Mode | `--buckets-file-mode`, `GCS_MIMIC_BUCKETS_FILE_MODE` or `"buckets_file_mode"`: `create` (default) or `reconcile`, with the same precedence. It governs both document settings, and keeps its name. Naming a mode without `buckets_file` or `buckets` fails startup with a diagnostic for the mode's key. |
+| Mode | `--buckets-file-mode`, `GCS_MIMIC_BUCKETS_FILE_MODE` or `"buckets_file_mode"`: `create` or `reconcile`, with the same precedence. The default is `create` for `buckets_file` and `reconcile` for the inline `buckets` ([why](#entry-records-and-reconcile-mode)); an explicit value wins for both. It governs both document settings, and keeps its name. Naming a mode without `buckets_file` or `buckets` fails startup with a diagnostic for the mode's key. |
 
 Use CLI > environment > config file > unset. Duplicate CLI options remain errors. An explicit empty/non-string path is invalid, not disabled.
 
@@ -142,7 +142,9 @@ The agreed startup sequence is config validation → TLS/identity → catalog re
 
 Catalog schema 52 adds `bucket_file_entries`, which records for each bucket the entry it was created or last reconciled from, or found to match, as a SHA-256 digest, together with the set of members the latest recorded entry wrote, one bit per member. The digest covers the members the entry writes, normalized as stored: sorted keys and label keys, the canonical location, the storage class name, the soft delete retention as an integer, and the policy's grants merged per role with members sorted and repeats removed. `"us"` and `"US"`, `"5"` and `5`, or reordered bindings therefore give one digest. It leaves out `name`, which selects the bucket, and `project`: ownership never changes, has its own mismatch warning, and moving `project` between an entry and the file root would otherwise look like an edit. A null member, an empty `location`, `versioning:{}`, `iamConfiguration:{}` and `softDeletePolicy:{}` write nothing. A row references its bucket with `ON DELETE CASCADE`, so deleting, soft deleting or resetting a bucket removes it in the same transaction, and a restored or recreated bucket starts without one. A catalog at schema 51 migrates automatically and one way when it opens; releases that support only schema 51 can no longer open the data directory.
 
-In the default `create` mode, an existing bucket owned by the entry's project is never changed:
+`create` is the default for `buckets_file`. The inline `buckets` setting defaults to `reconcile` instead: its document lives in the file that starts the server, such as `compose.yaml`, which is then the source of truth, so an edit there applies at the next start. Members an entry does not write keep their API values in both modes. An explicit `buckets_file_mode` wins for either setting, and its name is kept although it governs the inline form too.
+
+In `create` mode, an existing bucket owned by the entry's project is never changed:
 
 - Without a recorded entry (created through the API, or by a release before schema 52 such as 0.13.0 on the first start after an upgrade) each written member is compared with the bucket. A difference emits one stderr `warn` diagnostic for `buckets[i]` naming the differing members and counts in `unapplied` on that start; either way the current entry becomes the record, so the warning is not repeated.
 - With the same recorded entry nothing happens, even when the API changed the bucket.
