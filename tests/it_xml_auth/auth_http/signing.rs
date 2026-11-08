@@ -514,8 +514,17 @@ fn an_out_of_range_expiry_names_the_parameter_and_its_range() {
         SystemTime::now(),
         HeaderMap::new(),
     );
-    // Go storage signs a duration under one second as X-Goog-Expires=0.
-    for expires in ["0", "604801"] {
+    // Go storage signs a duration under one second as X-Goog-Expires=0, so only zero names that.
+    for (expires, message) in [
+        (
+            "0",
+            "<Message>X-Goog-Expires must be a whole number of seconds from 1 to 604800; 0 usually means the signer's expiry was less than one second away.</Message>",
+        ),
+        (
+            "604801",
+            "<Message>X-Goog-Expires must be a whole number of seconds from 1 to 604800.</Message>",
+        ),
+    ] {
         let reply = send(
             &server,
             "GET",
@@ -524,9 +533,7 @@ fn an_out_of_range_expiry_names_the_parameter_and_its_range() {
         );
         error(&reply, 400, "InvalidAuthentication");
         assert!(
-            String::from_utf8_lossy(&reply.body).contains(
-                "<Message>X-Goog-Expires must be a whole number of seconds from 1 to 604800.</Message>"
-            ),
+            String::from_utf8_lossy(&reply.body).contains(message),
             "{}",
             String::from_utf8_lossy(&reply.body)
         );

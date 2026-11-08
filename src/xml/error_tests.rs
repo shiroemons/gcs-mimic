@@ -131,3 +131,51 @@ async fn typed_json_errors_keep_the_xml_status_code_and_document() {
         );
     }
 }
+
+/// An unknown signer's answer says where this profile looks for keys, and a zero expiry names
+/// its likely cause, so a client can tell what to change.
+#[test]
+fn signature_errors_explain_unknown_signers_and_a_zero_expiry() {
+    use crate::auth::signature::{
+        ExpiresParameter, Failure, InvalidExpires, KeyLookup, VerificationError,
+    };
+    let message = |failure| signature_error(VerificationError::Signature(failure)).message;
+    let unknown = |lookup| {
+        let error = signature_error(VerificationError::Signature(Failure::UnknownSigner(lookup)));
+        assert_eq!(error.code, XmlCode::InvalidAccessKeyId);
+        error.message
+    };
+    assert_eq!(
+        unknown(KeyLookup::Registry),
+        "The signing key or its registered identity is unknown or inactive."
+    );
+    let permissive = unknown(KeyLookup::PermissiveKeys);
+    assert!(!permissive.contains("registered identity"), "{permissive}");
+    for source in [
+        "identity file public_keys",
+        "HMAC keys created through the JSON API",
+        "the built-in test signer",
+    ] {
+        assert!(permissive.contains(source), "{permissive}");
+    }
+    assert_eq!(
+        unknown(KeyLookup::DisabledTestSigner),
+        "test-signer@gcs-mimic.invalid is the built-in test signer, which is disabled; set test_signer=enabled."
+    );
+    assert!(unknown(KeyLookup::Ignored).contains("set signed_urls=verify"));
+    for (parameter, name) in [
+        (ExpiresParameter::Google, "X-Goog-Expires"),
+        (ExpiresParameter::Aws, "X-Amz-Expires"),
+    ] {
+        assert_eq!(
+            message(Failure::ExpiresOutOfRange(parameter, InvalidExpires::Zero)),
+            format!(
+                "{name} must be a whole number of seconds from 1 to 604800; 0 usually means the signer's expiry was less than one second away."
+            )
+        );
+        assert_eq!(
+            message(Failure::ExpiresOutOfRange(parameter, InvalidExpires::Other)),
+            format!("{name} must be a whole number of seconds from 1 to 604800.")
+        );
+    }
+}

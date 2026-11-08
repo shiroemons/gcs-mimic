@@ -100,8 +100,9 @@ pub enum Failure {
     /// The V4 expiry parameter is present but not a whole number of seconds within
     /// `1..=MAX_EXPIRES`. Go storage turns a duration under one second into `0`, so the
     /// response names the range instead of a generic parameter error.
-    ExpiresOutOfRange(ExpiresParameter),
-    UnknownSigner,
+    ExpiresOutOfRange(ExpiresParameter, InvalidExpires),
+    /// No key the profile knows belongs to the signer; the lookup names where keys come from.
+    UnknownSigner(KeyLookup),
     Mismatch,
     /// While `signed_host_port` is exact, a V4 signature matches the request only without the
     /// port that its Host names, as Go storage signs, so the response suggests the lenient
@@ -125,6 +126,28 @@ impl fmt::Display for ExpiresParameter {
             Self::Aws => "X-Amz-Expires",
         })
     }
+}
+
+/// How an expiry value falls outside its range. Zero has a likely cause worth naming: a signer
+/// that rounds a lifetime under one second down to zero seconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InvalidExpires {
+    Zero,
+    Other,
+}
+
+/// Where verification looked for a signer's key, so the error can say what to register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyLookup {
+    /// Strict mode: registered identities and their keys.
+    Registry,
+    /// Permissive `signed_urls=verify`: identity file public keys, catalog HMAC keys and the
+    /// built-in test signer.
+    PermissiveKeys,
+    /// The signer is the built-in test signer, which is disabled.
+    DisabledTestSigner,
+    /// Signatures are ignored, so no key exists to verify one.
+    Ignored,
 }
 
 crate::config::string_enum! {

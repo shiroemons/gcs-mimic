@@ -88,8 +88,30 @@ pub(crate) async fn authenticate_target<'a>(
     }
 }
 
+/// The InvalidAccessKeyId answer, naming where the profile looks for `key`s so that the client
+/// knows what to register or enable.
+fn unknown_signer(lookup: crate::auth::signature::KeyLookup, key: &str) -> Error {
+    use crate::auth::signature::KeyLookup;
+    let message = match lookup {
+        KeyLookup::Registry => {
+            format!("The {key} or its registered identity is unknown or inactive.")
+        }
+        KeyLookup::PermissiveKeys => format!(
+            "The {key} is unknown or inactive. With signed_urls=verify, keys come from identity file public_keys, HMAC keys created through the JSON API and the built-in test signer."
+        ),
+        KeyLookup::DisabledTestSigner => format!(
+            "{} is the built-in test signer, which is disabled; set test_signer=enabled.",
+            crate::auth::test_signer::ID
+        ),
+        KeyLookup::Ignored => format!(
+            "No {key} can verify this request because signatures are ignored; set signed_urls=verify, or send the request unsigned."
+        ),
+    };
+    Error::new(XmlCode::InvalidAccessKeyId, message)
+}
+
 fn signature_error(failure: crate::auth::signature::VerificationError) -> Error {
-    use crate::auth::signature::{Failure, MAX_EXPIRES, VerificationError};
+    use crate::auth::signature::{Failure, InvalidExpires, MAX_EXPIRES, VerificationError};
     let failure = match failure {
         VerificationError::Signature(failure) => failure,
         VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
@@ -106,14 +128,18 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
         ),
         // Cloud Storage's answer to this case is not recorded, so only the message changes.
-        Failure::ExpiresOutOfRange(parameter) => Error::new(
+        Failure::ExpiresOutOfRange(parameter, value) => Error::new(
             XmlCode::InvalidAuthentication,
-            format!("{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}."),
+            match value {
+                InvalidExpires::Zero => format!(
+                    "{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}; 0 usually means the signer's expiry was less than one second away."
+                ),
+                InvalidExpires::Other => format!(
+                    "{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}."
+                ),
+            },
         ),
-        Failure::UnknownSigner => Error::new(
-            XmlCode::InvalidAccessKeyId,
-            "The signing key or its registered identity is unknown or inactive.",
-        ),
+        Failure::UnknownSigner(lookup) => unknown_signer(lookup, "signing key"),
         Failure::Mismatch => Error::new(
             XmlCode::SignatureDoesNotMatch,
             "The request signature does not match.",

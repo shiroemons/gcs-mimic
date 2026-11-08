@@ -180,7 +180,10 @@ async fn permissive_verification_applies_strict_checks_and_returns_no_caller() {
     );
     for (signer, expected) in [
         (crate::auth::test_signer::ID, Ok(None)),
-        ("unknown@example.invalid", Err(Failure::UnknownSigner)),
+        (
+            "unknown@example.invalid",
+            Err(Failure::UnknownSigner(KeyLookup::PermissiveKeys)),
+        ),
     ] {
         let url = sign_url(SignUrlRequest {
             url: "http://localhost:4443/bucket/object",
@@ -386,7 +389,7 @@ async fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_heade
             now
         )
         .await,
-        Err(Failure::UnknownSigner)
+        Err(Failure::UnknownSigner(KeyLookup::Registry))
     );
     let get = v2_signed("GET", path, "1060", "", "", "");
     for invalid in ["AA=A", "AAAA=", "A===", "AB==", "!!!!", "éé", ""] {
@@ -835,19 +838,19 @@ async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
         &Method::GET,
         HeaderMap::new(),
     );
-    for expires in [
-        "604801",
-        "0",
-        "-1",
-        "+60",
-        "18446744073709551616",
-        "1.5",
-        "60s",
+    for (expires, value) in [
+        ("604801", InvalidExpires::Other),
+        ("0", InvalidExpires::Zero),
+        ("-1", InvalidExpires::Other),
+        ("+60", InvalidExpires::Other),
+        ("18446744073709551616", InvalidExpires::Other),
+        ("1.5", InvalidExpires::Other),
+        ("60s", InvalidExpires::Other),
     ] {
         let changed = url.replace("X-Goog-Expires=60", &format!("X-Goog-Expires={expires}"));
         assert_eq!(
             verify(&changed, &Method::GET, HeaderMap::new(), now).await,
-            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google)),
+            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google, value)),
             "{changed}"
         );
     }
@@ -877,7 +880,7 @@ async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
             now
         )
         .await,
-        Err(Failure::UnknownSigner)
+        Err(Failure::UnknownSigner(KeyLookup::Registry))
     );
     for parameter in PARAMETERS {
         let (base, query) = url.split_once('?').unwrap();
@@ -897,20 +900,27 @@ async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
             Err(Failure::Malformed)
         );
     }
-    let unknown = sign_url(SignUrlRequest {
-        url: "http://localhost/bucket/object",
-        method: &Method::GET,
-        signer: "unknown@example.invalid",
-        private_key: PRIVATE,
-        expires: 60,
-        now,
-        headers: HeaderMap::new(),
-    })
-    .unwrap();
-    assert_eq!(
-        verify(&unknown, &Method::GET, HeaderMap::new(), now).await,
-        Err(Failure::UnknownSigner)
-    );
+    // Strict mode without the built-in signer names it as disabled, not merely unknown.
+    for (signer, lookup) in [
+        ("unknown@example.invalid", KeyLookup::Registry),
+        (crate::auth::test_signer::ID, KeyLookup::DisabledTestSigner),
+    ] {
+        let unknown = sign_url(SignUrlRequest {
+            url: "http://localhost/bucket/object",
+            method: &Method::GET,
+            signer,
+            private_key: PRIVATE,
+            expires: 60,
+            now,
+            headers: HeaderMap::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            verify(&unknown, &Method::GET, HeaderMap::new(), now).await,
+            Err(Failure::UnknownSigner(lookup)),
+            "{signer}"
+        );
+    }
     for expires in [0, 604801, u64::MAX] {
         assert!(
             sign_url(SignUrlRequest {
