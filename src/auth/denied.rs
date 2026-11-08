@@ -137,9 +137,21 @@ impl Denied {
         self.principal == Principal::Anonymous
     }
 
+    /// The same refusal attributed to an anonymous caller, keeping the permission and resource.
+    pub(crate) fn into_anonymous(mut self: Box<Self>) -> Box<Self> {
+        self.principal = Principal::Anonymous;
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn permission(&self) -> Permission {
         self.permission
+    }
+
+    /// The `authorization_denied` event's fields, as `log` writes them.
+    #[cfg(test)]
+    pub(crate) fn event_value(&self) -> serde_json::Value {
+        serde_json::to_value(self.event()).unwrap()
     }
 
     /// Writes the `authorization_denied` debug event. The level check comes first, so a run
@@ -304,7 +316,7 @@ mod tests {
                 )
             );
             assert_eq!(
-                serde_json::to_value(denied.event()).unwrap(),
+                denied.event_value(),
                 serde_json::json!({
                     "principal": "viewer@example.invalid",
                     "anonymous": false,
@@ -318,7 +330,7 @@ mod tests {
     #[test]
     fn the_event_names_the_principal_permission_resource_and_location_only() {
         let viewer = identity("viewer@example.invalid");
-        let event = |denied: Box<Denied>| serde_json::to_value(denied.event()).unwrap();
+        let event = |denied: Box<Denied>| denied.event_value();
         assert_eq!(
             event(Denied::new(
                 Some(&viewer),

@@ -527,7 +527,10 @@ impl JsonError {
             if denied.is_anonymous() {
                 error.message = denied.to_string();
             }
-            error.denied = Some(denied);
+            // A refusal can name a stored principal, such as the identity a resumable session
+            // keeps. The response answers the anonymous caller, so the logged event names that
+            // caller too rather than an identity the request never presented.
+            error.denied = Some(denied.into_anonymous());
         }
         error
     }
@@ -1198,6 +1201,31 @@ mod tests {
             assert_eq!(error.value(), login_required.value());
             assert_eq!(error.kind, ErrorKind::Required);
         }
+    }
+
+    /// The logged event names the anonymous caller the response answers, with the refused
+    /// permission and resource, even when the refusal named a stored principal.
+    #[test]
+    fn an_anonymous_callers_refusal_logs_the_anonymous_caller() {
+        let event = |error: JsonError| {
+            error
+                .for_anonymous_caller()
+                .denied
+                .map(|denied| denied.event_value())
+        };
+        let anonymous = json!({"anonymous": true, "permission": "storage.buckets.get",
+            "resource": "bucket", "bucket": "bucket"});
+        assert_eq!(
+            event(JsonError::from(CatalogError::Denied(denied(None)))),
+            Some(anonymous.clone())
+        );
+        assert_eq!(
+            event(JsonError::from(ObjectError::Denied(denied(Some(
+                "snapshot@example.invalid"
+            ))))),
+            Some(anonymous)
+        );
+        assert_eq!(event(JsonError::from(ObjectError::LockedRetention)), None);
     }
 
     #[test]
