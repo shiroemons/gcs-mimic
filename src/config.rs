@@ -1411,17 +1411,18 @@ impl ConfigurationReport {
             settings.contains_key(listen),
             settings.contains_key(principal),
         );
-        let rejected = match (self.config.auth_mode, named) {
-            (_, (false, false)) => return,
-            (AuthMode::Permissive, _) if self.valid(&["auth_mode"]) => [listen, principal]
+        let collision = self.trusted_listen_collision();
+        let rejected = match (self.config.auth_mode, named, collision) {
+            (_, (false, false), _) => return,
+            (AuthMode::Permissive, _, _) if self.valid(&["auth_mode"]) => [listen, principal]
                 .map(|name| {
                     (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
                 })
                 .to_vec(),
-            (AuthMode::Strict, (false, true)) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
-            (AuthMode::Strict, (true, _)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
+            (AuthMode::Strict, (false, true), _) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
+            (AuthMode::Strict, (true, _), Some((setting, example))) => vec![(listen, format!("trusted_listen must differ from {}, which binds the same address; choose a port that no other listener uses, for example {example}.", setting.as_str()))],
             // An invalid auth_mode was already reported, and a valid strict listener stays.
-            (AuthMode::Permissive | AuthMode::Strict, _) => return,
+            (AuthMode::Permissive | AuthMode::Strict, _, _) => return,
         };
         for (name, fix) in rejected {
             if let Some(input) = settings.get(name)
@@ -1450,26 +1451,39 @@ impl ConfigurationReport {
         }
     }
 
-    /// Port 0 picks a free port for each listener, so only a fixed port can collide.
-    fn trusted_listen_collides(&self) -> bool {
+    /// The listener setting whose address `trusted_listen` repeats, with an address on the same
+    /// IP whose port no listener uses. Port 0 picks a free port for each listener, so only a
+    /// fixed port can collide. The example starts above 4443 and 4444, the main and trusted ports
+    /// that the recipes and the README already use, the second also for gRPC.
+    fn trusted_listen_collision(&self) -> Option<(Setting, SocketAddr)> {
         let config = &self.config;
-        config.unix_socket.is_none()
-            && self.valid(&[
+        if config.unix_socket.is_some()
+            || !self.valid(&[
                 "trusted_listen",
                 "listen",
                 "listen_http",
                 "grpc_listen",
                 "scheme",
             ])
-            && config.trusted_listen.is_some_and(|address| {
-                address.port() != 0
-                    && [
-                        Some(config.listen),
-                        config.effective_listen_http(),
-                        config.grpc_listen,
-                    ]
-                    .contains(&Some(address))
-            })
+        {
+            return None;
+        }
+        let address = config
+            .trusted_listen
+            .filter(|address| address.port() != 0)?;
+        let others = [
+            (Setting::Listen, Some(config.listen)),
+            (Setting::ListenHttp, config.effective_listen_http()),
+            (Setting::GrpcListen, config.grpc_listen),
+        ];
+        let (setting, _) = others.iter().find(|(_, other)| *other == Some(address))?;
+        let taken = |port: u16| {
+            others
+                .iter()
+                .any(|(_, other)| other.is_some_and(|other| other.port() == port))
+        };
+        let port = (4445..=u16::MAX).find(|port| !taken(*port)).unwrap_or(4445);
+        Some((*setting, SocketAddr::new(address.ip(), port)))
     }
 
     fn check_admin_auth(&mut self, settings: &Settings) {
@@ -1800,7 +1814,7 @@ mod tests {
                     "0.0.0.0:4443",
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen, which binds the same address; choose a port that no other listener uses, for example 0.0.0.0:4445.",
             ),
             (
                 with(&["--trusted-listen", "gcs:4444", app[0], app[1]]),
@@ -1827,7 +1841,7 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen, which binds",
             ),
             (
                 with(&[
@@ -1839,8 +1853,9 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from listen_http, which binds the same address; choose a port that no other listener uses, for example 127.0.0.1:4445.",
             ),
+            // The example skips a port another listener already uses.
             (
                 with(&[
                     "--grpc-listen",
@@ -1851,7 +1866,7 @@ mod tests {
                     app[1],
                 ]),
                 "--trusted-listen",
-                "must differ from listen",
+                "must differ from grpc_listen, which binds the same address; choose a port that no other listener uses, for example 127.0.0.1:4446.",
             ),
         ] {
             let error = load(&options).unwrap_err();
