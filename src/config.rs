@@ -127,6 +127,18 @@ string_enum! {
 }
 
 string_enum! {
+    /// What a start does with an existing bucket that the buckets file names.
+    pub enum BucketsFileMode {
+        /// Creates missing buckets only; existing ones keep every setting.
+        #[default]
+        Create => "create",
+        /// Also applies the members each entry writes to its existing bucket.
+        Reconcile => "reconcile",
+    }
+    "buckets_file_mode must be create or reconcile"
+}
+
+string_enum! {
     pub enum Scheme {
         Http => "http",
         #[default]
@@ -199,6 +211,7 @@ pub struct Config {
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
     pub buckets_file: Option<PathBuf>,
+    pub buckets_file_mode: BucketsFileMode,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
     /// Local management routes are disabled unless the operator explicitly enables them.
@@ -280,6 +293,7 @@ impl Default for Config {
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
             buckets_file: None,
+            buckets_file_mode: BucketsFileMode::Create,
             api_base_url: None,
             public_base_url: None,
             admin_enabled: false,
@@ -401,6 +415,7 @@ impl Config {
         report.apply_settings(&settings);
         report.config.runtime_endpoints =
             RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
+        report.check_buckets_file(&settings);
         report.check_sync(&settings);
         report.check_backend(&settings);
         report.check_tls(&settings);
@@ -597,7 +612,8 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::BucketsFile => apply_storage_setting(config, setting, &value),
+        | Setting::BucketsFile
+        | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::LocalCreatorEmail
@@ -777,6 +793,7 @@ fn apply_storage_setting(
             }
             config.buckets_file = Some(PathBuf::from(value));
         }
+        Setting::BucketsFileMode => config.buckets_file_mode = value.parse()?,
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -968,6 +985,22 @@ impl ConfigurationReport {
                         .push(Diagnostic::new(input.source, &input.key, fix));
                 }
             }
+        }
+    }
+
+    /// The mode only changes what a buckets file does, so naming it without one is a mistake.
+    fn check_buckets_file(&mut self, settings: &Settings) {
+        let mode = Setting::BucketsFileMode.as_str();
+        if self.config.buckets_file.is_none()
+            && !self.invalid.contains(Setting::BucketsFile.as_str())
+            && let Some(input) = settings.get(mode)
+            && self.invalid.insert(mode.to_owned())
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "This setting requires buckets_file; supply --buckets-file PATH or remove this setting.",
+            ));
         }
     }
 
@@ -1906,6 +1939,73 @@ mod tests {
             |config| config.buckets_file,
         );
         assert_eq!(Config::default().buckets_file, None);
+    }
+
+    #[test]
+    fn buckets_file_mode_defaults_to_create_and_requires_a_buckets_file() {
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"buckets_file":"buckets.json","buckets_file_mode":"reconcile"}"#,
+        )
+        .unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE_MODE".into(), "create".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--buckets-file-mode", "reconcile"],
+            [
+                BucketsFileMode::Create,
+                BucketsFileMode::Reconcile,
+                BucketsFileMode::Create,
+                BucketsFileMode::Reconcile,
+            ],
+            Config::load,
+            |config| config.buckets_file_mode,
+        );
+        assert_rejected(
+            "buckets_file_mode",
+            &["", "Reconcile", "merge", "true"],
+            "create or reconcile",
+        );
+        // Each source of the mode is refused alone, and the fix names the missing setting.
+        std::fs::write(&file, r#"{"buckets_file_mode":"create"}"#).unwrap();
+        for (key, args, env) in [
+            (
+                "--buckets-file-mode",
+                vec!["--buckets-file-mode".to_owned(), "reconcile".into()],
+                BTreeMap::new(),
+            ),
+            (
+                "GCS_MIMIC_BUCKETS_FILE_MODE",
+                vec![],
+                BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE_MODE".into(), "reconcile".into())]),
+            ),
+            (
+                "buckets_file_mode",
+                vec!["--config".into(), file.to_str().unwrap().into()],
+                BTreeMap::new(),
+            ),
+        ] {
+            let errors = Config::load(&args, &env).unwrap_err().errors;
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert_eq!(errors[0].key, key);
+            assert!(
+                errors[0].fix.contains("requires buckets_file"),
+                "{errors:?}"
+            );
+        }
+        // An invalid selector is reported once, without a second error about the mode.
+        let errors = Config::load(
+            &["--buckets-file", "", "--buckets-file-mode", "reconcile"].map(str::to_owned),
+            &BTreeMap::new(),
+        )
+        .unwrap_err()
+        .errors;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].key, "--buckets-file");
     }
 
     #[test]

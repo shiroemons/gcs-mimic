@@ -38,6 +38,7 @@ super::string_enum! {
         DefaultLocation => "default_location",
         DefaultSoftDeleteRetentionSeconds => "default_soft_delete_retention_seconds",
         BucketsFile => "buckets_file",
+        BucketsFileMode => "buckets_file_mode",
         ApiBaseUrl => "api_base_url",
         PublicBaseUrl => "public_base_url",
         AdminEnabled => "admin_enabled",
@@ -123,6 +124,7 @@ impl Setting {
             | Self::DefaultLocation
             | Self::DefaultSoftDeleteRetentionSeconds
             | Self::BucketsFile
+            | Self::BucketsFileMode
             | Self::ApiBaseUrl
             | Self::PublicBaseUrl
             | Self::AdminEnabled

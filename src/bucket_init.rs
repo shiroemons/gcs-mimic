@@ -1149,8 +1149,11 @@ pub enum InitOutcome {
         created: usize,
         existing: usize,
         project_mismatches: usize,
-        /// Existing buckets whose entry changed since it was recorded and that still differ.
+        /// Existing buckets that still differ in a member their entry writes: in create mode one
+        /// whose entry changed since it was recorded, in reconcile mode one whose location differs.
         unapplied: usize,
+        /// Existing buckets that reconcile mode changed.
+        reconciled: usize,
     },
 }
 
@@ -1175,6 +1178,7 @@ pub async fn apply(
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
     let bucket_limit = config.max_buckets_per_batch;
+    let mode = config.buckets_file_mode;
     let entries = crate::task::run_blocking("bucket-initializer", move || {
         load(
             &path,
@@ -1198,7 +1202,7 @@ pub async fn apply(
     let report = catalog
         .admin(Origin::BucketInit)
         .initialize_buckets(targets, move |observed| {
-            plan::plan(prepared, observed, bucket_limit)
+            plan::plan(prepared, observed, bucket_limit, mode)
         })
         .await
         .map_err(|error| match error {

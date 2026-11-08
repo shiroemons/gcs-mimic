@@ -1,13 +1,18 @@
 //! Decides from what the catalog holds what one start does for each entry. The catalog runs the
 //! plan inside the transaction that applies it, so a rejected plan changes nothing.
 
-use super::{Collected, InitEntry, InitOutcome, Reason, Written, written::Member};
+use super::{
+    Collected, InitEntry, InitOutcome, Reason, Written,
+    written::{self, Member},
+};
 use crate::{
     auth::{Policy, PublicAccess},
+    bucket::BucketRecord,
+    config::BucketsFileMode,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     storage::admin::{
         AdminError, BucketDefinition,
-        initialization::{Creation, InitTarget, Observed, Planned, Stored},
+        initialization::{Creation, InitTarget, Observed, Planned, Reconciliation, Stored},
     },
 };
 use std::num::NonZeroUsize;
@@ -83,6 +88,7 @@ pub(super) struct Report {
     existing: usize,
     project_mismatches: usize,
     unapplied: usize,
+    reconciled: usize,
     pub(super) warnings: Diagnostics,
 }
 
@@ -93,6 +99,7 @@ impl Report {
             existing: self.existing,
             project_mismatches: self.project_mismatches,
             unapplied: self.unapplied,
+            reconciled: self.reconciled,
         }
     }
 
@@ -118,87 +125,179 @@ impl Report {
         self.warn(
             format!("buckets[{index}]"),
             format!(
-                "This entry changed after its bucket was created from it, and existing settings are kept: the bucket still differs in {fields}. Change the bucket through the API to match, or restore the entry.{location}"
+                "This entry changed after its bucket was created or last reconciled, and existing settings are kept: the bucket still differs in {fields}. Set buckets_file_mode=reconcile to apply the written fields, change the bucket through the API, or restore the entry.{location}"
             ),
+        );
+    }
+
+    fn location_kept(&mut self, index: usize) {
+        self.unapplied += 1;
+        self.warn(
+            format!("buckets[{index}].location"),
+            "An existing bucket keeps its location, so reconcile mode left it; delete and recreate the bucket to move it, or write the bucket's current location.",
         );
     }
 }
 
-/// Plans each entry in file order: a missing bucket is created, and an existing one is kept.
+/// Plans each entry in file order. A missing bucket is created; an existing one is kept, or in
+/// reconcile mode given what its entry writes.
 pub(super) fn plan(
     entries: Vec<Prepared>,
     observed: Vec<Observed>,
     bucket_limit: Option<NonZeroUsize>,
+    mode: BucketsFileMode,
 ) -> Result<(Vec<Planned>, Report), PlanError> {
-    let mut report = Report::default();
-    let mut rejected = Collected::new(bucket_limit);
-    let mut planned = Vec::with_capacity(entries.len());
-    for (index, (entry, observed)) in entries.into_iter().zip(observed).enumerate() {
-        let step = match observed.existing {
-            Some(stored) => {
-                report.existing += 1;
-                existing(&mut report, index, &entry, &stored)
-            }
-            None => {
-                if public_access_refused(&entry.creation, observed.parent) {
-                    rejected.record(
-                        Reason::Native,
-                        format!("buckets[{index}].iamPolicy"),
-                        PUBLIC_ACCESS_FIX,
-                    );
-                }
-                report.created += 1;
-                Planned::Create(Box::new(entry.creation))
-            }
+    let mut run = Run {
+        report: Report::default(),
+        rejected: Collected::new(bucket_limit),
+        mode,
+    };
+    let planned = entries
+        .into_iter()
+        .zip(observed)
+        .enumerate()
+        .map(|(index, (entry, observed))| run.step(index, entry, observed))
+        .collect::<Result<Vec<_>, _>>()?;
+    if run.rejected.is_err() {
+        return Err(PlanError::Rejected(run.rejected.finish()));
+    }
+    Ok((planned, run.report))
+}
+
+/// Whether public members may be granted: neither the bucket nor its parent project prevents it.
+fn public_access(bucket: &BucketRecord, parent: PublicAccess) -> PublicAccess {
+    if bucket.public_access_prevention_enforced {
+        PublicAccess::Prevented
+    } else {
+        parent
+    }
+}
+
+struct Run {
+    report: Report,
+    /// Entries whose stored state refuses them; every entry is checked before any is applied.
+    rejected: Collected,
+    mode: BucketsFileMode,
+}
+
+impl Run {
+    fn step(
+        &mut self,
+        index: usize,
+        entry: Prepared,
+        observed: Observed,
+    ) -> Result<Planned, PlanError> {
+        let Some(stored) = observed.existing else {
+            let creation = entry.creation;
+            let access = public_access(creation.definition.record(), observed.parent);
+            self.refuse_public_policy(index, creation.policy.as_ref(), access);
+            self.report.created += 1;
+            return Ok(Planned::Create(Box::new(creation)));
         };
-        planned.push(step);
+        self.report.existing += 1;
+        if stored.record.project != entry.creation.definition.record().project {
+            // The entry describes another owner's bucket, so it is not this bucket's entry.
+            self.report.project_mismatches += 1;
+            self.report
+                .warn(format!("buckets[{index}].project"), PROJECT_FIX);
+            return Ok(Planned::Keep);
+        }
+        match self.mode {
+            BucketsFileMode::Create => Ok(self.keep(index, &entry, &stored)),
+            BucketsFileMode::Reconcile => self.reconcile(index, entry, &stored, observed.parent),
+        }
     }
-    if rejected.is_err() {
-        return Err(PlanError::Rejected(rejected.finish()));
-    }
-    Ok((planned, report))
-}
 
-fn public_access_refused(creation: &Creation, parent: PublicAccess) -> bool {
-    let prevented = creation
-        .definition
-        .record()
-        .public_access_prevention_enforced
-        || parent == PublicAccess::Prevented;
-    prevented
-        && creation
-            .policy
-            .as_ref()
-            .is_some_and(Policy::names_public_principal)
-}
-
-/// Keeps an existing bucket. Its recorded entry moves only to an entry that the bucket matches,
-/// so a changed entry keeps warning until the bucket or the entry is brought back in line.
-fn existing(report: &mut Report, index: usize, entry: &Prepared, stored: &Stored) -> Planned {
-    let wanted = entry.creation.definition.record();
-    if stored.record.project != wanted.project {
-        // The entry describes another owner's bucket, so it is not this bucket's entry.
-        report.project_mismatches += 1;
-        report.warn(format!("buckets[{index}].project"), PROJECT_FIX);
-        return Planned::Keep;
+    fn refuse_public_policy(
+        &mut self,
+        index: usize,
+        policy: Option<&Policy>,
+        access: PublicAccess,
+    ) {
+        if access == PublicAccess::Prevented && policy.is_some_and(Policy::names_public_principal) {
+            self.rejected.record(
+                Reason::Native,
+                format!("buckets[{index}].iamPolicy"),
+                PUBLIC_ACCESS_FIX,
+            );
+        }
     }
-    let current = entry.creation.digest;
-    match stored.digest {
-        // The API or an older release created the bucket, so no earlier entry exists to compare
-        // with: the current one becomes the baseline without a warning.
-        None => Planned::Record(current),
-        Some(recorded) if recorded == current => Planned::Keep,
-        Some(_) => {
-            let differing: Vec<_> = entry
-                .written
-                .differences(wanted, entry.creation.policy.as_ref(), stored)
-                .collect();
-            if differing.is_empty() {
-                Planned::Record(current)
-            } else {
-                report.unapplied(index, &differing);
-                Planned::Keep
+
+    /// Keeps an existing bucket. Its recorded entry moves only to an entry that the bucket
+    /// matches, so a changed entry keeps warning until the bucket or the entry is brought back
+    /// in line.
+    fn keep(&mut self, index: usize, entry: &Prepared, stored: &Stored) -> Planned {
+        let current = entry.creation.digest;
+        match stored.digest {
+            // The API or an older release created the bucket, so no earlier entry exists to
+            // compare with: the current one becomes the baseline without a warning.
+            None => Planned::Record(current),
+            Some(recorded) if recorded == current => Planned::Keep,
+            Some(_) => {
+                let differing: Vec<_> = entry
+                    .written
+                    .differences(
+                        entry.creation.definition.record(),
+                        entry.creation.policy.as_ref(),
+                        stored,
+                    )
+                    .collect();
+                if differing.is_empty() {
+                    Planned::Record(current)
+                } else {
+                    self.report.unapplied(index, &differing);
+                    Planned::Keep
+                }
             }
         }
+    }
+
+    /// Writes each member the entry writes whose value the bucket does not hold, whether or not
+    /// the entry changed, so an API change to a written member is undone and one to any other
+    /// member stays. An unchanged bucket gets no write at all.
+    fn reconcile(
+        &mut self,
+        index: usize,
+        entry: Prepared,
+        stored: &Stored,
+        parent: PublicAccess,
+    ) -> Result<Planned, PlanError> {
+        let Prepared { creation, written } = entry;
+        let wanted = creation.definition.record();
+        let mut differing: Vec<_> = written
+            .differences(wanted, creation.policy.as_ref(), stored)
+            .collect();
+        if let Some(location) = differing
+            .iter()
+            .position(|member| *member == Member::Location)
+        {
+            differing.remove(location);
+            self.report.location_kept(index);
+        }
+        let current = creation.digest;
+        if differing.is_empty() {
+            return Ok(if stored.digest == Some(current) {
+                Planned::Keep
+            } else {
+                Planned::Record(current)
+            });
+        }
+        let policy = creation
+            .policy
+            .filter(|_| differing.contains(&Member::IamPolicy));
+        // Public access prevention as it stands once this entry is applied.
+        let prevention = if written.contains(Member::PublicAccessPrevention) {
+            wanted
+        } else {
+            &stored.record
+        };
+        self.refuse_public_policy(index, policy.as_ref(), public_access(prevention, parent));
+        let update = written::patch(&differing, wanted)?;
+        self.report.reconciled += 1;
+        Ok(Planned::Reconcile(Box::new(Reconciliation {
+            update,
+            policy,
+            digest: current,
+        })))
     }
 }

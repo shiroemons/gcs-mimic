@@ -1,10 +1,14 @@
-//! The members a bucket entry writes. A start compares only these with an existing bucket, so a
-//! member the entry omits stays whatever the API made it.
+//! The members a bucket entry writes. A start compares only these with an existing bucket and
+//! reconcile mode applies only these, so a member the entry omits stays whatever the API made it.
 
 use crate::{
     auth::Policy,
-    bucket::{BucketRecord, cors_value},
-    storage::admin::initialization::{EntryDigest, Stored},
+    bucket::{BucketMetadataUpdate, BucketRecord, SoftDeleteRetention, cors_value},
+    object::MapMode,
+    storage::admin::{
+        AdminError,
+        initialization::{EntryDigest, Stored},
+    },
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -74,6 +78,51 @@ impl Member {
         }
     }
 
+    /// Sets the member in a PATCH to the value the entry writes, as `parse_bucket_patch` would
+    /// read it, except that labels replace the whole map. Returns whether the PATCH carries it:
+    /// the location never changes and the policy has a write of its own.
+    fn patch(
+        self,
+        wanted: &BucketRecord,
+        update: &mut BucketMetadataUpdate,
+    ) -> Result<bool, AdminError> {
+        match self {
+            Self::Location | Self::IamPolicy => return Ok(false),
+            Self::StorageClass => update.storage_class = Some(wanted.storage_class),
+            Self::Labels => {
+                update.labels = Some(Some(
+                    wanted
+                        .labels
+                        .iter()
+                        .map(|(key, value)| (key.clone(), Some(value.clone())))
+                        .collect(),
+                ));
+                update.labels_mode = MapMode::Replace;
+            }
+            Self::Cors => update.cors = Some(wanted.cors.clone()),
+            Self::Versioning => {
+                update.versioning_enabled = Some(wanted.versioning_enabled);
+                update.versioning_configured = Some(wanted.versioning_configured);
+            }
+            Self::DefaultEventBasedHold => {
+                update.default_event_based_hold = Some(wanted.default_event_based_hold);
+            }
+            Self::PublicAccessPrevention => {
+                update.public_access_prevention_enforced =
+                    Some(wanted.public_access_prevention_enforced);
+            }
+            Self::SoftDeletePolicy => {
+                // Validation accepted the retention, so a failure here is a broken invariant.
+                let retention = retention(wanted)
+                    .and_then(|seconds| i64::try_from(seconds).ok())
+                    .and_then(|seconds| SoftDeleteRetention::try_from(seconds).ok())
+                    .ok_or_else(|| AdminError::Invalid("invalid soft delete retention".into()))?;
+                update.soft_delete_retention = Some(retention);
+            }
+        }
+        Ok(true)
+    }
+
     /// Whether the existing bucket holds another value than the entry writes.
     fn differs(self, wanted: &BucketRecord, policy: Option<&Policy>, stored: &Stored) -> bool {
         let record = &stored.record;
@@ -128,7 +177,26 @@ impl FromIterator<Member> for Written {
     }
 }
 
+/// The PATCH that writes `members` with the values of `wanted`, or `None` when no member is part
+/// of a bucket update.
+pub(crate) fn patch(
+    members: &[Member],
+    wanted: &BucketRecord,
+) -> Result<Option<BucketMetadataUpdate>, AdminError> {
+    let mut update = BucketMetadataUpdate::default();
+    let mut carried = false;
+    for member in members {
+        carried |= member.patch(wanted, &mut update)?;
+    }
+    update.touched = carried;
+    Ok(carried.then_some(update))
+}
+
 impl Written {
+    pub(crate) fn contains(&self, member: Member) -> bool {
+        self.0.contains(&member)
+    }
+
     /// Digests the written members and their normalized values, leaving out `name` and `project`:
     /// the name selects the bucket, and the project is ownership, which the run compares on its own
     /// and never changes.

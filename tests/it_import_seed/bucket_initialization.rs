@@ -115,7 +115,8 @@ fn counts(server: &Server, created: usize, existing: usize, mismatches: usize) {
 /// Ready reports every count, zeros included; `nonzero` names the counts that are not zero.
 fn applied(server: &Server, nonzero: Value) {
     let mut expected = json!({
-        "outcome":"applied","created":0,"existing":0,"project_mismatches":0,"unapplied":0
+        "outcome":"applied","created":0,"existing":0,"project_mismatches":0,"unapplied":0,
+        "reconciled":0
     });
     for (count, value) in nonzero.as_object().unwrap() {
         assert!(expected.get(count).is_some(), "unknown count {count}");
@@ -901,6 +902,259 @@ fn a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning() 
     );
 }
 
+fn reconciling(root: &Path) -> Command {
+    let mut command = selected(root);
+    command.args(["--buckets-file-mode", "reconcile"]);
+    command
+}
+
+fn bucket(server: &Server, name: &str) -> Value {
+    server.json("GET", &format!("/storage/v1/b/{name}"), Value::Null)
+}
+
+fn policy(server: &Server, name: &str) -> Value {
+    server.json("GET", &format!("/storage/v1/b/{name}/iam"), Value::Null)
+}
+
+#[test]
+fn reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api() {
+    let dir = TestDir::new();
+    let entry = json!({"name":"tuned-bucket","labels":{"env":"dev"},
+        "cors":[{"origin":["https://one.example"],"method":["GET"]}],
+        "versioning":{"enabled":true},"storageClass":"STANDARD","defaultEventBasedHold":false,
+        "softDeletePolicy":{"retentionDurationSeconds":"0"},
+        "iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["user:reader@example.invalid"]}]}});
+    input(&dir.0, json!([entry]));
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 1, 0, 0);
+    let written = bucket(&server, "tuned-bucket");
+    let written_policy = policy(&server, "tuned-bucket");
+    // Written members change, and so does lifecycle, which no entry can write.
+    let lifecycle = json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":30}}]});
+    server.json(
+        "PATCH",
+        "/storage/v1/b/tuned-bucket",
+        json!({"labels":{"env":"api","team":"api"},"storageClass":"NEARLINE","cors":[],
+            "versioning":{"enabled":false},"defaultEventBasedHold":true,"lifecycle":lifecycle,
+            "softDeletePolicy":{"retentionDurationSeconds":"86400"}}),
+    );
+    server.json(
+        "PUT",
+        "/storage/v1/b/tuned-bucket/iam",
+        json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}),
+    );
+    let changed = bucket(&server, "tuned-bucket");
+    server.stop();
+
+    // Create mode keeps every API change while the entry is unchanged.
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":1}));
+    assert_eq!(bucket(&server, "tuned-bucket"), changed);
+    server.stop();
+
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":1,"reconciled":1}));
+    let reconciled = bucket(&server, "tuned-bucket");
+    for member in [
+        "labels",
+        "cors",
+        "versioning",
+        "storageClass",
+        "defaultEventBasedHold",
+    ] {
+        assert_eq!(reconciled[member], written[member], "{member}");
+    }
+    assert_eq!(
+        reconciled["softDeletePolicy"]["retentionDurationSeconds"],
+        "0"
+    );
+    assert_eq!(reconciled["lifecycle"], changed["lifecycle"]);
+    // A bucket update and a policy write together are one change to the bucket.
+    let advanced = changed["metageneration"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap()
+        + 1;
+    assert_eq!(reconciled["metageneration"], advanced.to_string());
+    let reconciled_policy = policy(&server, "tuned-bucket");
+    assert_eq!(reconciled_policy["bindings"], written_policy["bindings"]);
+    assert!(warnings(&server.stop()).is_empty());
+
+    // Nothing differs any more, so a further start writes nothing.
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":1}));
+    assert_eq!(bucket(&server, "tuned-bucket"), reconciled);
+    assert_eq!(policy(&server, "tuned-bucket"), reconciled_policy);
+    server.stop();
+}
+
+#[test]
+fn an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([{"name":"edited-bucket","labels":{"env":"dev"}},{"name":"policy-bucket"}]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 2, 0, 0);
+    let before = bucket(&server, "policy-bucket");
+    server.stop();
+    input(
+        &dir.0,
+        json!([
+            {"name":"edited-bucket","labels":{"env":"prod"}},
+            {"name":"policy-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}}
+        ]),
+    );
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":2,"unapplied":2}));
+    assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
+    let fix = warnings(&server.stop())[0]["fix"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(fix.contains("buckets_file_mode=reconcile"), "{fix}");
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(&server, json!({"existing":2,"reconciled":2}));
+    assert_eq!(labels(&server, "edited-bucket"), json!({"env":"prod"}));
+    // A policy alone is one change too, and it replaces the default policy.
+    let after = bucket(&server, "policy-bucket");
+    let advanced = before["metageneration"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap()
+        + 1;
+    assert_eq!(after["metageneration"], advanced.to_string());
+    assert_eq!(
+        policy(&server, "policy-bucket")["bindings"],
+        json!([{"role":"roles/storage.objectViewer","members":["allUsers"]}])
+    );
+    server.stop();
+    // The reconciled entries are the recorded ones now.
+    let server = Server::start(&mut selected(&dir.0));
+    applied(&server, json!({"existing":2}));
+    assert!(warnings(&server.stop()).is_empty());
+}
+
+#[test]
+fn reconcile_keeps_the_location_and_another_owners_bucket() {
+    let dir = TestDir::new();
+    input(&dir.0, json!([{"name":"placed-bucket","location":"US"}]));
+    let server = Server::start(&mut selected(&dir.0));
+    counts(&server, 1, 0, 0);
+    server.json(
+        "POST",
+        "/storage/v1/b?project=project-b",
+        json!({"name":"owned-bucket","labels":{"owner":"b"}}),
+    );
+    let owned = bucket(&server, "owned-bucket");
+    server.stop();
+    input(
+        &dir.0,
+        json!([
+            {"name":"placed-bucket","location":"EU","labels":{"env":"dev"}},
+            {"name":"owned-bucket","labels":{"owner":"a"}}
+        ]),
+    );
+    let server = Server::start(&mut reconciling(&dir.0));
+    applied(
+        &server,
+        json!({"existing":2,"project_mismatches":1,"unapplied":1,"reconciled":1}),
+    );
+    let placed = bucket(&server, "placed-bucket");
+    assert_eq!(placed["location"], "US");
+    assert_eq!(placed["labels"], json!({"env":"dev"}));
+    assert_eq!(bucket(&server, "owned-bucket"), owned);
+    let keys: Vec<_> = warnings(&server.stop())
+        .iter()
+        .map(|warning| warning["key"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(keys, ["buckets[0].location", "buckets[1].project"]);
+}
+
+#[test]
+fn reconcile_checks_public_access_prevention_against_stored_state_before_any_change() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([
+            {"name":"guarded-bucket","iamConfiguration":{"publicAccessPrevention":"enforced"}},
+            {"name":"other-bucket"}
+        ]),
+    );
+    let identity = strict_identity(&dir.0);
+    let strict = |command: &mut Command| {
+        command
+            .args(["--auth-mode", "strict", "--identity-file"])
+            .arg(&identity);
+    };
+    let mut start = selected(&dir.0);
+    strict(&mut start);
+    let server = Server::start(&mut start);
+    counts(&server, 2, 0, 0);
+    server.stop();
+    let public = json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]});
+    input(
+        &dir.0,
+        json!([{"name":"guarded-bucket","iamPolicy":public},{"name":"other-bucket","labels":{"env":"dev"}}]),
+    );
+    let mut refused = reconciling(&dir.0);
+    strict(&mut refused);
+    let event = diagnostic(&refused.output().unwrap());
+    assert_eq!(
+        event["diagnostics"][0]["key"], "buckets[0].iamPolicy",
+        "{event}"
+    );
+    let server = Server::start(&mut command(&dir.0));
+    assert_eq!(labels(&server, "other-bucket"), Value::Null);
+    server.stop();
+    // Writing inherited in the same entry lifts the prevention the policy would meet.
+    input(
+        &dir.0,
+        json!([
+            {"name":"guarded-bucket","iamConfiguration":{"publicAccessPrevention":"inherited"},"iamPolicy":public},
+            {"name":"other-bucket","labels":{"env":"dev"}}
+        ]),
+    );
+    let mut accepted = reconciling(&dir.0);
+    strict(&mut accepted);
+    // Strict mode applies the file with local authority: no token is involved.
+    let server = Server::start(&mut accepted);
+    applied(&server, json!({"existing":2,"reconciled":2}));
+    let auth = "Authorization: Bearer admin\r\n";
+    assert_eq!(
+        server
+            .request(
+                "POST",
+                "/upload/storage/v1/b/guarded-bucket/o?uploadType=media&name=file",
+                auth,
+                "public"
+            )
+            .0,
+        200
+    );
+    assert_eq!(server.request("GET", "/guarded-bucket/file", "", "").0, 200);
+    server.stop();
+}
+
+#[test]
+fn the_mode_without_a_buckets_file_fails_startup() {
+    let dir = TestDir::new();
+    let output = command(&dir.0)
+        .args(["--buckets-file-mode", "reconcile"])
+        .output()
+        .unwrap();
+    let event = diagnostic(&output);
+    assert_eq!(event["diagnostics"][0]["key"], "--buckets-file-mode");
+    assert!(
+        event.to_string().contains("requires buckets_file"),
+        "{event}"
+    );
+    assert!(!dir.0.join("data").exists());
+}
+
 fn acl_grants(server: &Server, bucket: &str) -> Vec<(String, String)> {
     server.json("GET", &format!("/storage/v1/b/{bucket}/acl"), Value::Null)["items"]
         .as_array()
@@ -981,13 +1235,21 @@ fn a_memory_backend_starts_buckets_with_their_file_policy() {
         &dir.0,
         json!([{"name":"memory-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}}]),
     );
-    let server = Server::start(selected(&dir.0).args(["--backend", "memory"]));
-    counts(&server, 1, 0, 0);
-    assert_eq!(
-        server.json("GET", "/storage/v1/b/memory-bucket/iam", Value::Null)["bindings"],
-        json!([{"role":"roles/storage.objectViewer","members":["allUsers"]}])
-    );
-    server.stop();
+    for mode in ["create", "reconcile"] {
+        let server = Server::start(selected(&dir.0).args([
+            "--backend",
+            "memory",
+            "--buckets-file-mode",
+            mode,
+        ]));
+        // A RAM catalog starts empty, so every start creates the bucket again.
+        counts(&server, 1, 0, 0);
+        assert_eq!(
+            server.json("GET", "/storage/v1/b/memory-bucket/iam", Value::Null)["bindings"],
+            json!([{"role":"roles/storage.objectViewer","members":["allUsers"]}])
+        );
+        server.stop();
+    }
     assert!(!dir.0.join("data").exists());
 }
 

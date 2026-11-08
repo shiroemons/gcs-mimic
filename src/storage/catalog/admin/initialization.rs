@@ -6,13 +6,18 @@
 //! the observation a plan relies on and the writes it asks for.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use super::{Admin, AdminError, AdminGrant, BucketDefinition, Origin};
+use super::{Admin, AdminError, AdminGrant, BucketDefinition};
 use crate::{
     auth::{Policy, PublicAccess},
-    bucket::{BucketRecord, CatalogError},
+    bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
+    clock::Clock,
     storage::catalog::{
-        acl, bucket_columns, change_journal, insert_bucket_with_policy, policies,
-        principals::Profile, read_bucket, sql, unavailable,
+        acl, bucket_columns,
+        bucket_update::{self, BucketChange, BucketWrite},
+        change_journal, insert_bucket_with_policy,
+        policies::{self, Metageneration, PolicyWrite},
+        principals::Profile,
+        read_bucket, sql, unavailable, unix_micros,
     },
 };
 use rusqlite::{
@@ -92,6 +97,8 @@ pub(crate) struct Stored {
 /// What the run does for one target, in the order of the targets.
 pub(crate) enum Planned {
     Create(Box<Creation>),
+    /// Brings an existing bucket in line with its entry and records the entry.
+    Reconcile(Box<Reconciliation>),
     /// Keeps the bucket and records the entry it now matches.
     Record(EntryDigest),
     Keep,
@@ -104,10 +111,22 @@ pub(crate) struct Creation {
     pub(crate) digest: EntryDigest,
 }
 
+/// The writes that make an existing bucket hold what its entry writes. Each part writes only
+/// what differs; the plan sets at least one of them.
+pub(crate) struct Reconciliation {
+    /// Applied as a PATCH applies it.
+    pub(crate) update: Option<BucketMetadataUpdate>,
+    /// Replaces the policy as setIamPolicy does.
+    pub(crate) policy: Option<Policy>,
+    pub(crate) digest: EntryDigest,
+}
+
 /// What every applied step shares.
 struct Apply<'a> {
     transaction: &'a Transaction<'a>,
-    origin: Origin,
+    /// The local administrative authority, whose origin every journal entry names.
+    access: BucketAccess,
+    clock: &'a dyn Clock,
     default_retention: Option<NonZeroU64>,
     principals: Option<&'a Profile>,
 }
@@ -129,6 +148,7 @@ impl Admin {
             return Err(AdminError::Invalid("duplicate bucket name".into()).into());
         }
         let grant = self.grant.clone();
+        let clock = self.catalog.0.clock.clone();
         let default_retention = self.catalog.default_soft_delete_retention();
         let principals = self.catalog.0.principals.get().cloned();
         self.catalog
@@ -142,7 +162,8 @@ impl Admin {
                 }
                 let apply = Apply {
                     transaction: &transaction,
-                    origin: grant.origin(),
+                    access: BucketAccess::Admin(grant),
+                    clock: clock.as_ref(),
                     default_retention,
                     principals: principals.as_ref(),
                 };
@@ -211,9 +232,53 @@ impl Apply<'_> {
     fn step(&self, target: &InitTarget, step: Planned) -> Result<(), CatalogError> {
         match step {
             Planned::Create(creation) => self.create(target, *creation),
+            Planned::Reconcile(reconciliation) => self.reconcile(&target.name, *reconciliation),
             Planned::Record(digest) => self.record(&target.name, digest),
             Planned::Keep => Ok(()),
         }
+    }
+
+    /// Writes through the same steps as a PATCH and a setIamPolicy, journal entries included. A
+    /// bucket that changes in both advances its metageneration once, as one change.
+    fn reconcile(
+        &self,
+        bucket: &str,
+        Reconciliation {
+            update,
+            policy,
+            digest,
+        }: Reconciliation,
+    ) -> Result<(), CatalogError> {
+        let metageneration = match update {
+            Some(update) => {
+                let change = BucketChange {
+                    name: bucket,
+                    update,
+                    conditions: Default::default(),
+                    access: &self.access,
+                    mode: BucketWrite::Patch,
+                };
+                bucket_update::update_in_transaction(
+                    self.transaction,
+                    change,
+                    self.clock,
+                    self.principals,
+                )?;
+                Metageneration::Advanced
+            }
+            None => Metageneration::Advance {
+                updated: unix_micros(self.clock.now())?,
+            },
+        };
+        if let Some(mut policy) = policy {
+            let write = PolicyWrite {
+                bucket,
+                access: &self.access,
+                metageneration,
+            };
+            policies::replace_policy(self.transaction, write, &mut policy, self.principals)?;
+        }
+        self.record(bucket, digest)
     }
 
     fn record(&self, bucket: &str, digest: EntryDigest) -> Result<(), CatalogError> {
@@ -260,7 +325,7 @@ impl Apply<'_> {
         }
         change_journal::append(
             self.transaction,
-            self.origin,
+            change_journal::origin(&self.access),
             change_journal::ChangeKind::BucketCreate,
             &record.name,
             None,

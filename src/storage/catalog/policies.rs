@@ -351,27 +351,76 @@ impl Catalog {
             if policy.etag.is_some() && policy.etag != current.etag {
                 return Err(CatalogError::PreconditionFailed);
             }
-            if public_access_prevention(&transaction, &bucket)? && policy.names_public_principal() {
-                return Err(CatalogError::PublicAccessPrevention);
-            }
-            super::acl::replace_from_policy(&transaction, &bucket, &policy, principals.as_ref())?;
-            // Every accepted policy write advanced the bucket metageneration on Cloud Storage,
-            // including a replay of the current policy (recorded 2026-10-31).
-            let updated = super::unix_micros(clock.now())?;
-            advance_acl_revision(&transaction, &bucket, updated)?;
-            store_policy(&transaction, &bucket, &mut policy)?;
-            super::change_journal::append(
+            let step = Metageneration::Advance {
+                updated: super::unix_micros(clock.now())?,
+            };
+            replace_policy(
                 &transaction,
-                super::change_journal::origin(&access),
-                super::change_journal::ChangeKind::Iam,
-                &bucket,
-                None,
+                PolicyWrite {
+                    bucket: &bucket,
+                    access: &access,
+                    metageneration: step,
+                },
+                &mut policy,
+                principals.as_ref(),
             )?;
             transaction.commit()?;
             Ok(policy)
         })
         .await
     }
+}
+
+/// How a policy write moves the bucket metageneration.
+#[derive(Clone, Copy)]
+pub(super) enum Metageneration {
+    /// Advances it and sets `updated`, in Unix microseconds.
+    Advance { updated: i64 },
+    /// A bucket update earlier in the same transaction advanced it, and one change to a bucket
+    /// advances it once.
+    Advanced,
+}
+
+/// Where a policy goes and on whose behalf.
+#[derive(Clone, Copy)]
+pub(super) struct PolicyWrite<'a> {
+    pub(super) bucket: &'a str,
+    pub(super) access: &'a BucketAccess,
+    pub(super) metageneration: Metageneration,
+}
+
+/// Replaces the stored policy as setIamPolicy does once its preconditions hold: refuses public
+/// members under public access prevention, derives the bucket ACL, stores the policy with a new
+/// etag and journals the change. The caller authorizes and commits.
+pub(super) fn replace_policy(
+    connection: &Connection,
+    write: PolicyWrite<'_>,
+    policy: &mut Policy,
+    principals: Option<&super::principals::Profile>,
+) -> Result<(), CatalogError> {
+    let PolicyWrite {
+        bucket,
+        access,
+        metageneration,
+    } = write;
+    if public_access_prevention(connection, bucket)? && policy.names_public_principal() {
+        return Err(CatalogError::PublicAccessPrevention);
+    }
+    super::acl::replace_from_policy(connection, bucket, policy, principals)?;
+    // Every accepted policy write advanced the bucket metageneration on Cloud Storage,
+    // including a replay of the current policy (recorded 2026-10-31).
+    match metageneration {
+        Metageneration::Advance { updated } => advance_acl_revision(connection, bucket, updated)?,
+        Metageneration::Advanced => {}
+    }
+    store_policy(connection, bucket, policy)?;
+    super::change_journal::append(
+        connection,
+        super::change_journal::origin(access),
+        super::change_journal::ChangeKind::Iam,
+        bucket,
+        None,
+    )
 }
 
 pub(super) fn public_access_prevention(
