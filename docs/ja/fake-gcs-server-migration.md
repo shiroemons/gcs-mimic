@@ -272,6 +272,7 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 | 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
 | ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。コンテナからの接続先`http://gcs:4443`は変えない。 |
 | 取り消しの`curl --fail`が499で失敗する | JSON resumableの取り消し成功は499 | 上の例のように`%{http_code}`で検査し、取り消しに限って499を成功とする。 |
+| リクエストが終わらず、クライアントの接続が使われたままで、ログにも何も出ない | クライアントがリクエスト本文（`Content-Length`またはchunked）を宣言したまま送信を止めている。`body_inactivity_timeout_ms`の既定値0では期限切れが起きないため、サーバーは待ち続け、ログに書くこともない | 該当するクライアントを見つけるには、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`を例えば`30000`に設定する。その時間本文が届かないと、JSONは408 `uploadBrokenConnection`、XMLは400 `RequestTimeout`で失敗し、サーバーは`connection_timeout`の警告を記録する。遅いクライアントを切らないよう、既定値は0のまま。 |
 
 英語版と同じく、移行元の比較ではコピー再実行・preflight・取り消し後の応答とRubyメタデータに
 差が残っています。アプリのコードを変えずに全面移行できるとは主張しません。

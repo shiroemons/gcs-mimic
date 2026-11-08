@@ -280,6 +280,12 @@ for `-public-host`, `-external-url`, `-data` and related settings.
 The [environment reference](fake-gcs-server-configuration.md) covers all 19
 source variables, including Docker entrypoint precedence and missing equivalents.
 
+A client that announces a request body and stops sending it holds its connection
+silently: the default `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` of 0 sets no limit, so
+nothing expires and nothing is logged. To find such a client, set it, for example
+to `30000`; that silent request then fails with JSON 408 `uploadBrokenConnection`
+or XML 400 `RequestTimeout`, and the server logs a `connection_timeout` warning.
+
 Bucket settings belong to each bucket. For example, create a bucket with its
 own CORS rules using the JSON API:
 

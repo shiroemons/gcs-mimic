@@ -250,6 +250,11 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 Composeの環境変数かCLIで指定します。設定名の対応は
 [設定・環境変数](fake-gcs-server-configuration.md)を参照してください。
 
+リクエスト本文を宣言したまま送信を止めたクライアントは、何も記録されないまま接続を使い続けます。
+`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`の既定値0では上限がなく、期限切れもログも起きないためです。
+該当するクライアントを見つけるには、例えば`30000`を設定します。その時間本文が届かないリクエストは
+JSONでは408 `uploadBrokenConnection`、XMLでは400 `RequestTimeout`で失敗し、サーバーは`connection_timeout`の警告を記録します。
+
 CORSなどはバケットごとにJSON APIで設定します。
 
 ```sh

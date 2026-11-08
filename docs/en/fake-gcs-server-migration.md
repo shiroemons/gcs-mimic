@@ -302,6 +302,7 @@ refresh the token at Google. The entry works only with the permissive profile.
 | Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
+| A request never finishes, a client's connections stay in use, and the server logs nothing | The client announced a request body (`Content-Length` or chunked) and stopped sending it. With the default `body_inactivity_timeout_ms` of 0 no limit expires, so the server keeps waiting and has nothing to log | To find such clients, set `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`, for example to `30000`. A body silent that long then fails with JSON 408 `uploadBrokenConnection` or XML 400 `RequestTimeout`, and the server logs a `connection_timeout` warning. The default stays 0 so a slow client is never cut off. |
 
 ## Goal and current state
 
