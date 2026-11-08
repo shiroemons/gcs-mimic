@@ -142,6 +142,8 @@ readinessより前に、起動のたびに初期ファイルを反映します�
 APIで削除したオブジェクトは次回の起動時に再作成し、初期ファイルの編集も次回の起動時に反映します。
 初期ファイルのディレクトリは監視しないため、コンテナを再起動してください。
 0.8.0以降は、`--admin-enabled true`で管理APIを有効にすると`/_internal/reseed`でも反映できます（[一括反映とreseed（英語）](../en/slices/atomic-seed-reseed.md)）。
+設定した上限を超えるツリーや、取り込めない名前を含むツリーのreseedは400を返し、問題の種類を示します。
+`Retry-After: 1`付きの503を返すのは、やり直せば完了しうる場合だけです。
 
 Content-Typeは、固定の対応表を使ってファイルの拡張子から決めます（例: `.png`は`image/png`）。
 以前の既定値どおりすべて`application/octet-stream`にするには、`GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`を指定します。

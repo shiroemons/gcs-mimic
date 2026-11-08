@@ -76,28 +76,101 @@ async fn reseed(
     )?))
 }
 
+/// Classifies a reseed failure by whether another attempt can succeed. A tree that breaks a
+/// configured limit, or holds content the emulator cannot import, fails the same way every time,
+/// so it answers 400 without `Retry-After`. Only work a later attempt may finish answers 503.
+/// Messages are fixed: they never echo a fixture path or an on-disk name.
 fn failure(error: &SeedError) -> JsonError {
     match error {
-        SeedError::Admin(AdminError::Precondition) => JsonError::new(
+        // The label names the fixture entry, which stays in diagnostics only.
+        SeedError::Entry { source, .. } | SeedError::Import(source) => failure(source),
+        SeedError::Admin(error) => admin_failure(error),
+        SeedError::EntryLimit { limit } => JsonError::invalid(format!(
+            "Reseed made no changes because the fixture tree has more than {limit} entries; raise max_seed_entries or reduce the tree"
+        )),
+        SeedError::DepthLimit { limit } => JsonError::invalid(format!(
+            "Reseed made no changes because the fixture tree has more than {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
+        )),
+        SeedError::BucketLimit { limit } => JsonError::invalid(format!(
+            "Reseed made no changes because the fixture tree has more than {limit} buckets; raise max_buckets_per_batch or reduce the tree"
+        )),
+        SeedError::BucketName(_) => JsonError::invalid(
+            "Reseed made no changes because a top-level fixture directory is not a valid bucket name",
+        ),
+        SeedError::ObjectName(_) => JsonError::invalid(
+            "Reseed made no changes because a fixture file path is not a valid object name",
+        ),
+        SeedError::NonUtf8Name => {
+            JsonError::invalid("Reseed made no changes because a fixture name is not UTF-8")
+        }
+        SeedError::UnsupportedFile => JsonError::invalid(
+            "Reseed made no changes because a fixture entry is neither a regular file nor a directory, such as a symlink",
+        ),
+        SeedError::FileLimit => JsonError::invalid(
+            "Reseed made no changes because a fixture file is not a regular file or exceeds max_object_bytes",
+        ),
+        SeedError::NotDirectory => JsonError::invalid(
+            "Reseed made no changes because seed_dir is not a directory; it must be a directory, not a symlink",
+        ),
+        SeedError::Overlap => {
+            JsonError::invalid("Reseed made no changes because seed_dir and data_dir overlap")
+        }
+        SeedError::MissingRoot => {
+            JsonError::invalid("Configure seed_dir at startup before reseeding")
+        }
+        SeedError::Io(error) if error.kind() == std::io::ErrorKind::InvalidFilename => {
+            JsonError::invalid(
+                "Reseed made no changes because a fixture path exceeds this platform's path length limit",
+            )
+        }
+        // Reading the tree can succeed once a file settles or a resource frees up, and a walk
+        // stops early only on shutdown or a panic. A path outside the root is an invariant the
+        // walker keeps, so it is a server fault, not the fixture's.
+        SeedError::Io(_) | SeedError::WalkStopped | SeedError::RelativePath(_) => retry(),
+    }
+}
+
+fn admin_failure(error: &AdminError) -> JsonError {
+    match error {
+        AdminError::Precondition => JsonError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Reseed made no changes because import or synchronization state is active",
         ),
-        SeedError::Admin(AdminError::Hold) => JsonError::new(
+        AdminError::Hold => JsonError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             "Reseed made no changes because an object is protected by a hold or retention",
         ),
-        SeedError::Admin(AdminError::Invalid(_) | AdminError::SeedProjectMismatch) => {
-            JsonError::invalid_argument("Invalid fixture state; reseed made no changes")
+        // Includes fixture metadata past the budget that max_seed_entries sets.
+        AdminError::Invalid(_) | AdminError::SeedProjectMismatch => {
+            JsonError::invalid("Invalid fixture state; reseed made no changes")
         }
-        SeedError::Admin(AdminError::Busy { .. }) => JsonError::service_unavailable(
+        AdminError::TooLarge => JsonError::invalid(
+            "Reseed made no changes because a fixture file exceeds max_object_bytes",
+        ),
+        AdminError::Busy { .. } => JsonError::service_unavailable(
             "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
         ),
-        _ => JsonError::service_unavailable(
-            "Reseed failed; inspect local fixture/storage diagnostics and retry",
-        ),
+        // A source that changed while it was read, a closing catalog and storage failures are not
+        // the fixture tree's fault; another attempt can succeed once they pass.
+        AdminError::SourceChanged { .. }
+        | AdminError::Checksum
+        | AdminError::BodyAborted(_)
+        | AdminError::NotFound
+        | AdminError::Closed
+        | AdminError::DiskFull(_)
+        | AdminError::Io(_)
+        | AdminError::Corrupt(_)
+        | AdminError::Forbidden
+        | AdminError::Backend(_) => retry(),
     }
+}
+
+fn retry() -> JsonError {
+    JsonError::service_unavailable(
+        "Reseed failed; inspect local fixture/storage diagnostics and retry",
+    )
 }
 
 #[cfg(test)]
@@ -122,13 +195,13 @@ mod tests {
             (
                 AdminError::Invalid("invalid".into()),
                 StatusCode::BAD_REQUEST,
-                "invalidArgument",
+                "invalid",
                 "Invalid fixture state; reseed made no changes",
             ),
             (
                 AdminError::SeedProjectMismatch,
                 StatusCode::BAD_REQUEST,
-                "invalidArgument",
+                "invalid",
                 "Invalid fixture state; reseed made no changes",
             ),
             (
@@ -146,6 +219,91 @@ mod tests {
         }
         let error = failure(&SeedError::Io(std::io::ErrorKind::PermissionDenied.into()));
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    /// Limits and fixture content arrive wrapped in the entry that met them, and the startup
+    /// import wraps everything once more; the wrappers decide nothing and the label never leaks.
+    #[test]
+    fn failures_retrying_cannot_fix_answer_400_through_their_wrappers() {
+        use std::io::ErrorKind;
+        let wrapped = |error: SeedError| SeedError::Entry {
+            label: "secret-bucket/private-name".into(),
+            source: Box::new(error),
+        };
+        let invalid_name = || AdminError::Invalid("bad name".into());
+        for (error, names) in [
+            (SeedError::EntryLimit { limit: 3 }, "max_seed_entries"),
+            (SeedError::DepthLimit { limit: 2 }, "max_seed_depth"),
+            (
+                wrapped(SeedError::BucketLimit { limit: 1 }),
+                "max_buckets_per_batch",
+            ),
+            (
+                wrapped(SeedError::BucketName(invalid_name())),
+                "bucket name",
+            ),
+            (
+                wrapped(SeedError::ObjectName(JsonError::invalid("bad"))),
+                "object name",
+            ),
+            (wrapped(SeedError::NonUtf8Name), "UTF-8"),
+            (wrapped(SeedError::UnsupportedFile), "regular file"),
+            (wrapped(SeedError::FileLimit), "max_object_bytes"),
+            (
+                wrapped(SeedError::Admin(AdminError::TooLarge)),
+                "max_object_bytes",
+            ),
+            (
+                wrapped(SeedError::Admin(AdminError::Invalid(
+                    "seed metadata exceeds 8 MiB; raise max_seed_entries".into(),
+                ))),
+                "Invalid fixture state",
+            ),
+            (SeedError::NotDirectory, "not a directory"),
+            (SeedError::Overlap, "overlap"),
+            (SeedError::MissingRoot, "seed_dir"),
+            (
+                SeedError::Import(Box::new(wrapped(SeedError::Io(
+                    ErrorKind::InvalidFilename.into(),
+                )))),
+                "path length",
+            ),
+        ] {
+            let reply = failure(&error);
+            assert_eq!(
+                (reply.status, reply.reason),
+                (StatusCode::BAD_REQUEST, "invalid"),
+                "{error}"
+            );
+            assert!(reply.message.contains(names), "{error}: {}", reply.message);
+            assert!(!reply.message.contains("secret"), "{}", reply.message);
+            assert!(!reply.message.contains("private"), "{}", reply.message);
+        }
+    }
+
+    #[test]
+    fn only_failures_a_later_attempt_can_finish_answer_503() {
+        for error in [
+            SeedError::Io(std::io::ErrorKind::Interrupted.into()),
+            SeedError::WalkStopped,
+            SeedError::Entry {
+                label: "test-bucket/value".into(),
+                source: Box::new(SeedError::Admin(AdminError::SourceChanged {
+                    fields: vec!["size".into()],
+                })),
+            },
+            SeedError::Admin(AdminError::Busy {
+                retry_after: std::time::Duration::from_secs(1),
+            }),
+            SeedError::Admin(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
+            SeedError::Admin(AdminError::Closed),
+        ] {
+            assert_eq!(
+                failure(&error).status,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{error}"
+            );
+        }
     }
 
     #[tokio::test]
