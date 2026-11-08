@@ -162,6 +162,18 @@ crate::config::string_enum! {
     "signed_host_port must be exact or lenient"
 }
 
+impl SignedHostPort {
+    /// An explicit setting wins. Where the built-in test signer exists the setup is a local
+    /// test whose signing key is public anyway, so accepting a signer that drops the port changes
+    /// nothing that matters there; elsewhere a signature names the Host it was sent to.
+    pub fn resolve(configured: Option<Self>, test_signer: super::TestSigner) -> Self {
+        configured.unwrap_or(match test_signer {
+            super::TestSigner::Enabled => Self::Lenient,
+            super::TestSigner::Disabled => Self::Exact,
+        })
+    }
+}
+
 /// Which `host` value a canonical request carries.
 #[derive(Clone, Copy)]
 enum CanonicalHost {

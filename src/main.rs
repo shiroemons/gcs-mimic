@@ -1,7 +1,6 @@
 use gcs_mimic::{
-    auth::{Auth, TrustedPrincipalError},
     clock::{Clock, SystemClock},
-    config::{Config, ConfigurationReport},
+    config::Config,
     config_input::{Fix as UrlFix, MAX_CLI_ARGS, UrlStyle, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
@@ -64,7 +63,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
   --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
-  --trusted-principal ID       none (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; required with it)
+  --trusted-principal ID       built-in trusted-app@gcs-mimic.invalid with roles/storage.admin in the buckets document's projects and seed_project (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; requires it)
   --trusted-allowed-hosts LIST none (comma-separated dotted DNS names --trusted-listen also accepts as Host, such as a service alias; at most 32; requires --trusted-listen)
   --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
@@ -86,8 +85,9 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --max-sync-entries N         0 (files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory; 0 is unlimited)
   --max-sync-depth N           0 (0..1024; directory levels below sync_dir, counting the bucket; 0 is unlimited)
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 GiB, or 1 KiB per allowed bucket and at least 32 MiB under a bucket limit)
-  --buckets-file-mode MODE     create (create|reconcile; reconcile also applies each entry's written fields to its existing bucket; requires --buckets-file)
-  --max-buckets-per-batch N    0 (buckets one --buckets-file or one seed may declare, not all buckets; memory grows with them; 0 is unlimited)
+  --buckets JSON               none (the --buckets-file document itself, with the same format and limits; not with --buckets-file)
+  --buckets-file-mode MODE     reconcile for --buckets, create for --buckets-file (create|reconcile; reconcile also applies each entry's written fields to its existing bucket; requires --buckets-file or --buckets)
+  --max-buckets-per-batch N    0 (buckets one buckets document or one seed may declare, not all buckets; memory grows with them; 0 is unlimited)
   --api-base-url URL           Each request's Host, else the bound listener (set to fix the advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
@@ -110,13 +110,14 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --object-request-timeout-ms N 0 (0 disables; absolute upload/media deadline)
   --catalog-wait-timeout-ms N  120000 (0 disables; upload admission, advisory and commit waits, a busy upload session, and reset, reseed and seed waits)
   --shutdown-timeout-ms N      5000 (0 disables; waits for unfinished requests without a limit)
-  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file or --identities unless --trusted-listen has no --trusted-principal or --test-signer is enabled)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
-  --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
-  --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
+  --cors-fallback MODE         allow-all when permissive, none when strict (none|allow-all; XML/public CORS for buckets without stored rules)
+  --signed-host-port MODE      lenient where the test signer is enabled, else exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
+  --identities JSON            none (the --identity-file registry itself, with the same format and limits; not with --identity-file)
   --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
-  --test-signer MODE           enabled with permissive --signed-urls verify, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
+  --test-signer MODE           enabled with permissive --signed-urls verify or when strict identities declare its id, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; undeclared in strict mode it holds roles/storage.objectUser in the buckets document's projects and seed_project; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -177,8 +178,8 @@ type, project_id local-project, client_email, private_key and the non-Google uni
 gcs-emulator.invalid, which keeps Google auth libraries from requesting tokens from Google.
 The private key is published with gcs-mimic, so anyone can sign as this identity; use it only
 for local tests. The server accepts its signatures in permissive mode with signed_urls=verify,
-and in strict mode only with test_signer=enabled. No configuration, environment or network
-is read.";
+and in strict mode with test_signer=enabled or when the identity document declares this id.
+No configuration, environment or network is read.";
 
 fn main() -> ExitCode {
     #[cfg(target_env = "musl")]
@@ -394,23 +395,12 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
             )),
         }
     }
-    // Load the registry before binding so a bad identity file never reaches readiness.
-    let mut auth = Auth::permissive();
-    match report.auth_profile().map(Auth::load) {
-        Some(Ok(loaded)) => auth = loaded,
-        Some(Err(error)) => report.diagnostics.errors.push(Diagnostic::new(
-            DiagnosticSource::Identity,
-            "identity_file",
-            error.to_string(),
-        )),
-        // Validation already reported why no profile was selected.
-        None => {}
-    }
+    // Load the registry before binding so a bad identity document never reaches readiness.
+    let mut auth = report.load_auth();
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
     }
-    resolve_principals(&mut report, &mut auth);
     // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
         auth = auth.with_local_creator_email(&report.config.local_creator_email);
@@ -492,34 +482,6 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         startup::serve(config, auth, acceptor, shutdown).await
     })?;
     Ok(())
-}
-
-/// Checks the principals that settings name against the loaded registry, and makes requests
-/// without credentials on the trusted listener act as `trusted_principal`.
-fn resolve_principals(report: &mut ConfigurationReport, auth: &mut Auth) {
-    if report.valid(&["admin_principal"])
-        && let (Some(principal), Some(principals)) =
-            (&report.config.admin_principal, auth.principals())
-        && !principals.iter().any(|identity| identity.id() == principal)
-    {
-        report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "admin_principal",
-            format!("admin_principal {principal:?} is not an id in identity_file; use one of its identities.")));
-    }
-    if report.valid(&["trusted_principal"])
-        && let Some(principal) = report.config.trusted_principal.as_deref()
-    {
-        match auth.trust_principal(principal) {
-            Ok(()) => {}
-            // Startup already fails then: the setting was rejected for permissive mode, or the
-            // identity file did not load.
-            Err(TrustedPrincipalError::RequiresStrict) => {}
-            Err(TrustedPrincipalError::Unknown) => report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Identity,
-                "trusted_principal",
-                format!("trusted_principal {principal:?} is not an id in identity_file; use one of its identities, or the built-in test signer with test_signer=enabled."),
-            )),
-        }
-    }
 }
 
 fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
@@ -1051,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "a57612d9eeae8ffde515d6794da5d50ed332b27324928cdb46bdf4c52a83244a"
+            "3f22670a37040ac0270325d034ec245607dc0fb7d4e2bf0c1e625b786f53d15a"
         );
     }
 

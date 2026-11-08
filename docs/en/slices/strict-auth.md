@@ -29,7 +29,7 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 | --- | --- |
 | Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked. A later opt-in, `signed_urls=verify`, verifies signed XML requests first without adding permission checks; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Profile selection | `--auth-mode` / `GCS_MIMIC_AUTH_MODE` / JSON `auth_mode` follow the existing CLI > environment > file > default precedence; other values fail startup |
-| Profile/registry pairing | `strict` without `identity_file` and `identity_file` with `permissive` fail before the catalog opens or the listener binds. The later `signed_urls=verify` opt-in accepts `identity_file` in permissive mode for `id` and `public_keys` only; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
+| Profile/registry pairing | `strict` without an identity document (`identity_file` or the inline `identities`) and either setting with `permissive` fail before the catalog opens or the listener binds; naming both settings fails too. Strict mode starts without a document only when the settings ask for a built-in identity, `trusted_listen` without `trusted_principal` or `test_signer=enabled`, and the error names those options. The later `signed_urls=verify` opt-in accepts the document in permissive mode for `id` and `public_keys` only; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Registry validation | Unknown keys, limits, duplicate IDs/tokens, invalid project IDs, unknown or basic roles and malformed/oversized files fail startup without a partial load; tokens are never echoed |
 | Ready event | Strict mode reports `"auth_mode":"strict"` and the registered identity count |
 | Anonymous caller | No `Authorization` header: 401 `required` with the documented example body on every supported route, including missing buckets |
@@ -54,13 +54,27 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 ### Profiles and configuration
 
 `auth_mode` is `permissive` (default) or `strict`; `identity_file` names a JSON
-identity registry. Both use the existing flat configuration precedence: CLI
-`--auth-mode` / `--identity-file`, environment `GCS_MIMIC_AUTH_MODE` /
-`GCS_MIMIC_IDENTITY_FILE`, JSON `auth_mode` / `identity_file`, then defaults. An
-empty `identity_file`, an unknown mode, `strict` without a registry or a registry
-with `permissive` fail startup before the catalog is created or the listener binds.
-Since `signed_urls=verify`, a permissive registry is accepted for its `id` and
-`public_keys` only, to verify signatures.
+identity registry, and `identities` carries the same registry inline, for example
+in a Compose service's `environment:`. They use the existing flat configuration
+precedence: CLI `--auth-mode` / `--identity-file` / `--identities`, environment
+`GCS_MIMIC_AUTH_MODE` / `GCS_MIMIC_IDENTITY_FILE` / `GCS_MIMIC_IDENTITIES`, JSON
+`auth_mode` / `identity_file` / `identities`, then defaults. In the JSON config file
+`identities` holds the registry object or a string that contains it. An empty
+`identity_file` or `identities`, both of them together, an unknown mode, `strict`
+without a registry or a registry with `permissive` fail startup before the catalog
+is created or the listener binds. Strict mode without a registry is accepted only
+where the settings ask for a built-in identity: `trusted_listen` without
+`trusted_principal` (the application identity below), or an explicit
+`test_signer=enabled`. It then starts with those identities alone and reports
+`"identities":0`; otherwise a forgotten document fails loudly instead of
+answering 401 to every request, and the error suggests both options. Since `signed_urls=verify`, a permissive registry
+is accepted for its `id` and `public_keys` only, to verify signatures.
+
+Both settings accept the same document, limits and validation. A load failure
+names the setting that supplied the registry, `identity_file` or `identities`, and
+the entry index, never a token or the document text. gcs-mimic reads an inline
+value as plain text, but Compose expands `${VAR}` in it first, so write a literal
+`$` as `$$`.
 
 Permissive mode is the existing unauthenticated local profile. It is never counted
 as strict coverage.
@@ -163,9 +177,32 @@ without credentials. The checks run once per request the listener receives, so
 batch parts inherit their envelope's admission, and every response it sends
 carries `Cross-Origin-Resource-Policy: same-origin` and
 `X-Content-Type-Options: nosniff`. Both settings require
-strict mode and each other, and startup checks the principal against the loaded
-registry as it does `admin_principal`. gRPC has no trusted listener. See the
+strict mode, `trusted_principal` requires `trusted_listen`, and startup checks a
+named principal against the loaded registry as it does `admin_principal`. gRPC
+has no trusted listener. See the
 [Compose example and warnings](../container-usage.md#keep-private-buckets-private-with-a-trusted-listener).
+
+Without `trusted_principal`, the listener's requests without credentials act as
+the built-in application identity `trusted-app@gcs-mimic.invalid`, which differs
+from the permissive creator `local-user@gcs-mimic.invalid` and from the test
+signer. It holds `roles/storage.admin` in the effective `seed_project` and in
+every project the buckets document names (its top-level `project` and each
+entry's, from `buckets_file` or `buckets`), so the application's servers can
+read and write private buckets there and create buckets only in those projects;
+a bucket in any other project gets 403. Name an explicit identity with
+`trusted_principal` to cover other projects. The identity has no token and no
+key, so no request on the main listener can act as it, and objects it writes
+record it as owner like any identity. An identity document entry with its ID
+replaces the implicit grants with its own roles, tokens and ACL entity: an
+explicit declaration always wins. Its authority is only as private as the port:
+keep the trusted listener off published ports. The ready event reports the
+effective `trusted_principal`.
+
+The built-in test signer `test-signer@gcs-mimic.invalid`, when enabled and not
+declared, holds `roles/storage.objectUser` in the same projects. That role reads
+and writes objects, including what Rails does, but administers no IAM policy or
+ACL, because anyone can sign with the published key; see
+[signed URLs](../signed-urls.md#built-in-test-signer).
 
 ### Errors
 

@@ -39,6 +39,7 @@ super::string_enum! {
         DefaultLocation => "default_location",
         DefaultSoftDeleteRetentionSeconds => "default_soft_delete_retention_seconds",
         BucketsFile => "buckets_file",
+        Buckets => "buckets",
         BucketsFileMode => "buckets_file_mode",
         ApiBaseUrl => "api_base_url",
         PublicBaseUrl => "public_base_url",
@@ -69,6 +70,7 @@ super::string_enum! {
         CorsFallback => "cors_fallback",
         SignedHostPort => "signed_host_port",
         IdentityFile => "identity_file",
+        Identities => "identities",
         TestSigner => "test_signer",
         SignedUrls => "signed_urls",
         PubsubEmulatorHost => "pubsub_emulator_host",
@@ -131,6 +133,7 @@ impl Setting {
             | Self::DefaultLocation
             | Self::DefaultSoftDeleteRetentionSeconds
             | Self::BucketsFile
+            | Self::Buckets
             | Self::BucketsFileMode
             | Self::ApiBaseUrl
             | Self::PublicBaseUrl
@@ -146,6 +149,7 @@ impl Setting {
             | Self::CorsFallback
             | Self::SignedHostPort
             | Self::IdentityFile
+            | Self::Identities
             | Self::TestSigner
             | Self::SignedUrls
             | Self::PubsubEmulatorHost

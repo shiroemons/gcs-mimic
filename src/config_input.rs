@@ -869,7 +869,7 @@ mod tests {
         ));
         assert!(matches!(
             config.cors_fallback,
-            crate::config::CorsFallback::AllowAll
+            Some(crate::config::CorsFallback::AllowAll)
         ));
         assert_eq!(config.default_location, "ASIA-NORTHEAST1");
         let warned: Vec<_> = report

@@ -9,6 +9,7 @@ use crate::{
     time_limit::TimeLimit,
     url::PublicOrigin,
 };
+use serde_json::value::RawValue;
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
@@ -17,6 +18,7 @@ use std::{
 };
 
 mod auth;
+mod document;
 mod notifications;
 mod runtime;
 mod setting;
@@ -25,7 +27,9 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
-pub use auth::{AuthProfile, Verification};
+pub use auth::{AuthProfile, TrustedCaller, Verification};
+pub use document::DocumentSource;
+pub(crate) use document::{DocumentKind, Form};
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
@@ -118,26 +122,70 @@ string_enum! {
 }
 
 string_enum! {
+    no_default
     /// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
-    /// rules, so `AllowAll` exists only as a fake-gcs-server migration aid.
+    /// rules, so `AllowAll` exists only as a local convenience and fake-gcs-server migration aid;
+    /// see [`CorsFallbackChoice::select`] for the default.
     pub enum CorsFallback {
-        #[default]
         None => "none",
         AllowAll => "allow-all",
     }
     "cors_fallback must be none or allow-all"
 }
 
+/// The effective CORS fallback and what chose it, since only a default that allows every origin
+/// is worth noting when it lets through a request that Cloud Storage would refuse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorsFallbackChoice {
+    /// The `cors_fallback` setting.
+    Explicit(CorsFallback),
+    /// The authentication mode's default.
+    Default(CorsFallback),
+}
+
+impl CorsFallbackChoice {
+    /// An explicit setting wins. Otherwise permissive mode allows every origin, as
+    /// fake-gcs-server does: its users want browser access without configuration, and CORS never
+    /// grants access. Strict mode follows Cloud Storage, which has no fallback, so a
+    /// production-like setup still catches a bucket that lacks `cors` rules.
+    pub fn select(configured: Option<CorsFallback>, mode: AuthMode) -> Self {
+        match (configured, mode) {
+            (Some(fallback), _) => Self::Explicit(fallback),
+            (None, AuthMode::Permissive) => Self::Default(CorsFallback::AllowAll),
+            (None, AuthMode::Strict) => Self::Default(CorsFallback::None),
+        }
+    }
+
+    pub fn fallback(self) -> CorsFallback {
+        match self {
+            Self::Explicit(fallback) | Self::Default(fallback) => fallback,
+        }
+    }
+}
+
 string_enum! {
-    /// What a start does with an existing bucket that the buckets file names.
+    no_default
+    /// What a start does with an existing bucket that the buckets document names; see
+    /// [`BucketsFileMode::resolve`] for the default.
     pub enum BucketsFileMode {
         /// Creates missing buckets only; existing ones keep every setting.
-        #[default]
         Create => "create",
         /// Also applies the members each entry writes to its existing bucket.
         Reconcile => "reconcile",
     }
     "buckets_file_mode must be create or reconcile"
+}
+
+impl BucketsFileMode {
+    /// An explicit setting wins. An inline document lives in the file that starts the server,
+    /// such as compose.yaml, which is then the source of truth, so its edits apply; a separate
+    /// buckets file only creates what is missing, as it always has.
+    pub(crate) fn resolve(configured: Option<Self>, form: Form) -> Self {
+        configured.unwrap_or(match form {
+            Form::File => Self::Create,
+            Form::Inline => Self::Reconcile,
+        })
+    }
 }
 
 string_enum! {
@@ -215,8 +263,11 @@ pub struct Config {
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
-    pub buckets_file: Option<PathBuf>,
-    pub buckets_file_mode: BucketsFileMode,
+    /// The bucket initialization document, from `buckets_file` or `buckets`.
+    pub buckets: Option<DocumentSource>,
+    /// The explicit `buckets_file_mode`, which governs both document settings;
+    /// [`BucketsFileMode::resolve`] applies the default for the document's form.
+    pub buckets_file_mode: Option<BucketsFileMode>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
     /// Local management routes are disabled unless the operator explicitly enables them.
@@ -265,13 +316,18 @@ pub struct Config {
     pub shutdown_timeout: TimeLimit,
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
-    pub cors_fallback: CorsFallback,
-    /// Whether V4 verification also accepts a canonical host without the request Host's port.
-    pub signed_host_port: SignedHostPort,
-    /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
-    pub identity_file: Option<PathBuf>,
-    /// The explicit `test_signer` setting; [`Config::effective_test_signer`] applies the
-    /// profile's default.
+    /// The explicit `cors_fallback` setting; [`Config::effective_cors_fallback`] applies the
+    /// authentication mode's default.
+    pub cors_fallback: Option<CorsFallback>,
+    /// The explicit `signed_host_port` setting, whether V4 verification also accepts a canonical
+    /// host without the request Host's port; loading applies the default, lenient wherever the
+    /// built-in test signer is enabled.
+    pub signed_host_port: Option<SignedHostPort>,
+    /// The identity registry, from `identity_file` or `identities`; loaded once at startup.
+    pub identities: Option<DocumentSource>,
+    /// The explicit `test_signer` setting; validation selects the profile's default with
+    /// [`TestSignerChoice::select`](crate::auth::TestSignerChoice::select), which loading the
+    /// identity document settles in strict mode.
     pub test_signer: Option<TestSigner>,
     /// The explicit `signed_urls` setting; [`Config::effective_signed_urls`] applies the
     /// profile's default.
@@ -311,8 +367,8 @@ impl Default for Config {
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
-            buckets_file: None,
-            buckets_file_mode: BucketsFileMode::Create,
+            buckets: None,
+            buckets_file_mode: None,
             api_base_url: None,
             public_base_url: None,
             admin_enabled: false,
@@ -350,9 +406,9 @@ impl Default for Config {
             shutdown_timeout: TimeLimit::from_millis(5_000),
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
-            cors_fallback: CorsFallback::None,
-            signed_host_port: SignedHostPort::Exact,
-            identity_file: None,
+            cors_fallback: None,
+            signed_host_port: None,
+            identities: None,
             test_signer: None,
             signed_urls: None,
         }
@@ -362,18 +418,16 @@ impl Default for Config {
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
 
-    /// Whether the built-in test signer exists, after the profile's default.
-    pub fn effective_test_signer(&self) -> TestSigner {
-        TestSigner::resolve(
-            self.test_signer,
-            self.auth_mode,
-            self.effective_signed_urls(),
-        )
-    }
-
     /// Whether signed XML requests verify, after the profile's default.
     pub fn effective_signed_urls(&self) -> SignedUrls {
         SignedUrls::resolve(self.signed_urls, self.auth_mode)
+    }
+
+    /// XML/public CORS for buckets without stored rules, after the authentication mode's
+    /// default. Derived from the final mode, so a configuration built in code agrees with one
+    /// that validation produced.
+    pub fn effective_cors_fallback(&self) -> CorsFallbackChoice {
+        CorsFallbackChoice::select(self.cors_fallback, self.auth_mode)
     }
 
     pub fn healthcheck_url(&self) -> String {
@@ -450,10 +504,12 @@ impl Config {
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
             auth_profile: None,
+            settings: Settings::new(),
         };
         report.apply_settings(&settings);
         report.config.runtime_endpoints =
             RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
+        report.check_document_sources(&settings);
         report.check_buckets_file(&settings);
         report.check_sync(&settings);
         report.check_backend(&settings);
@@ -465,6 +521,7 @@ impl Config {
         report.check_auth(&settings);
         report.check_trusted_listener(&settings);
         report.check_notifications(&settings);
+        report.settings = settings;
         report
     }
 }
@@ -498,17 +555,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
     match read_config(&selector.value) {
         Ok(values) => {
             for (key, value) in values {
-                let text = if key == "default_location" && value.is_null() {
-                    Some(String::new())
-                } else if matches!(key.as_str(), "sync_delete_guard" | "admin_enabled")
-                    && value.is_boolean()
-                {
-                    Some(value.to_string())
-                } else if key == "buckets_file" {
-                    value.as_str().map(str::to_owned)
-                } else {
-                    setting_text(&value)
-                };
+                let text = member_text(&key, &value);
                 if !inputs.push(Input {
                     source: DiagnosticSource::Config,
                     key: key.clone(),
@@ -525,10 +572,11 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                 }
                 if text.is_none() {
                     invalid_file_fields.insert(key.clone());
+                    let fix = member_fix(&key);
                     inputs.diagnostics.errors.push(Diagnostic::new(
                         DiagnosticSource::Config,
                         key,
-                        CONFIG_VALUE_FIX,
+                        fix,
                     ));
                     inputs.entries.pop();
                 }
@@ -653,8 +701,11 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::BucketsFile
         | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
+        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, &value),
+        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, &value),
+        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, &value),
+        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, &value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::TrustedPrincipal
@@ -665,7 +716,6 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CompatProfile
         | Setting::CorsFallback
         | Setting::SignedHostPort
-        | Setting::IdentityFile
         | Setting::TestSigner
         | Setting::SignedUrls => apply_access_setting(config, setting, &value),
         Setting::MaxConnections
@@ -836,15 +886,7 @@ fn apply_storage_setting(
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
         }
-        Setting::BucketsFile => {
-            if value.is_empty() {
-                return Err(
-                    "buckets_file must not be empty; use buckets.json or omit the setting".into(),
-                );
-            }
-            config.buckets_file = Some(PathBuf::from(value));
-        }
-        Setting::BucketsFileMode => config.buckets_file_mode = value.parse()?,
+        Setting::BucketsFileMode => config.buckets_file_mode = Some(value.parse()?),
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -896,11 +938,8 @@ fn apply_access_setting(
         }
         Setting::AuthMode => config.auth_mode = value.parse()?,
         Setting::CompatProfile => config.compat_profile = value.parse()?,
-        Setting::CorsFallback => config.cors_fallback = value.parse()?,
-        Setting::SignedHostPort => config.signed_host_port = value.parse()?,
-        Setting::IdentityFile => {
-            config.identity_file = Some(PathBuf::from(non_empty(setting.as_str(), value)?))
-        }
+        Setting::CorsFallback => config.cors_fallback = Some(value.parse()?),
+        Setting::SignedHostPort => config.signed_host_port = Some(value.parse()?),
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
         Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
         _ => return Err(unknown_setting()),
@@ -1013,6 +1052,9 @@ pub struct ConfigurationReport {
     invalid: BTreeSet<String>,
     /// Set by validation only when the authentication settings are valid and agree.
     auth_profile: Option<AuthProfile>,
+    /// The inputs validation read, so that a diagnostic after loading can still name the one
+    /// that caused it.
+    settings: Settings,
 }
 
 impl ConfigurationReport {
@@ -1058,18 +1100,18 @@ impl ConfigurationReport {
         }
     }
 
-    /// The mode only changes what a buckets file does, so naming it without one is a mistake.
+    /// The mode only changes what a buckets document does, so naming it without one is a mistake.
     fn check_buckets_file(&mut self, settings: &Settings) {
         let mode = Setting::BucketsFileMode.as_str();
-        if self.config.buckets_file.is_none()
-            && !self.invalid.contains(Setting::BucketsFile.as_str())
+        if self.config.buckets.is_none()
+            && self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
             && let Some(input) = settings.get(mode)
             && self.invalid.insert(mode.to_owned())
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
-                "This setting requires buckets_file; supply --buckets-file PATH or remove this setting.",
+                "This setting requires buckets_file or buckets; supply --buckets-file PATH or the document itself with --buckets JSON, or remove this setting.",
             ));
         }
     }
@@ -1130,9 +1172,9 @@ impl ConfigurationReport {
             self.invalid.insert("local_creator_email".into());
         }
         // Strict mode records the registered caller, so a creator address would be silently unused.
-        // A permissive identity file that only verifies signatures leaves the creator in use.
+        // A permissive identity document that only verifies signatures leaves the creator in use.
         if (config.auth_mode == AuthMode::Strict
-            || (config.identity_file.is_some()
+            || (config.identities.is_some()
                 && config.effective_signed_urls() == SignedUrls::Ignore))
             && !config.local_creator_email.is_empty()
             && let Some(input) = settings.get("local_creator_email")
@@ -1330,7 +1372,6 @@ impl ConfigurationReport {
 
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
-        self.warn_strict_test_signer(settings);
         let config = &self.config;
         if let Some(input) = settings.get("admin_principal")
             && !self.invalid.contains("admin_principal")
@@ -1355,8 +1396,9 @@ impl ConfigurationReport {
     }
 
     /// The trusted listener only changes who a request without credentials acts as, which
-    /// matters only where strict mode judges anonymous requests, and either half of the pair
-    /// alone would claim an effect it does not have.
+    /// matters only where strict mode judges anonymous requests. Without `trusted_principal` it
+    /// acts as the built-in application identity, but a principal without the listener would
+    /// claim an effect it does not have.
     fn check_trusted_listener(&mut self, settings: &Settings) {
         self.check_trusted_allowed_hosts(settings);
         let listen = Setting::TrustedListen.as_str();
@@ -1372,10 +1414,9 @@ impl ConfigurationReport {
                     (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
                 })
                 .to_vec(),
-            (AuthMode::Strict, (true, false)) => vec![(listen, "trusted_listen requires trusted_principal; set --trusted-principal to the registered identity that requests without credentials act as.".to_owned())],
             (AuthMode::Strict, (false, true)) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
-            (AuthMode::Strict, (true, true)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
-            // An invalid auth_mode was already reported, and a valid strict pair stays.
+            (AuthMode::Strict, (true, _)) if self.trusted_listen_collides() => vec![(listen, "trusted_listen must differ from listen, listen_http and grpc_listen; choose another port, for example 0.0.0.0:4444.".to_owned())],
+            // An invalid auth_mode was already reported, and a valid strict listener stays.
             (AuthMode::Permissive | AuthMode::Strict, _) => return,
         };
         for (name, fix) in rejected {
@@ -1427,24 +1468,6 @@ impl ConfigurationReport {
             })
     }
 
-    /// Strict mode authenticates the built-in signer only on request; say what that exposes.
-    fn warn_strict_test_signer(&mut self, settings: &Settings) {
-        if self.config.auth_mode == AuthMode::Strict
-            && self.config.effective_test_signer() == TestSigner::Enabled
-            && self.valid(&["auth_mode", "test_signer"])
-            && let Some(input) = settings.get(Setting::TestSigner.as_str())
-        {
-            self.diagnostics.warnings.push(Diagnostic::new(
-                input.source,
-                &input.key,
-                format!(
-                    "test_signer=enabled in strict mode: the private key of {} is published, so anyone can authenticate as that identity and reach allAuthenticatedUsers grants and anything granted to it. Use it only for local tests.",
-                    crate::auth::test_signer::ID
-                ),
-            ));
-        }
-    }
-
     fn check_admin_auth(&mut self, settings: &Settings) {
         if self.config.auth_mode == AuthMode::Strict
             && self.config.admin_enabled
@@ -1467,13 +1490,16 @@ pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
         )
     })?;
     let mut public_base = None;
-    for (key, value) in entries {
+    for (key, raw) in entries {
+        let invalid = || Diagnostic::new(DiagnosticSource::Config, &key, member_fix(&key));
+        // The server validates a document; this helper only checks that the member may hold one.
+        if document::holds_document(&key) {
+            document::member_text(&raw).ok_or_else(invalid)?;
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(raw.get()).map_err(|_| invalid())?;
         if setting_text(&value).is_none() {
-            return Err(Diagnostic::new(
-                DiagnosticSource::Config,
-                key,
-                CONFIG_VALUE_FIX,
-            ));
+            return Err(invalid());
         }
         if key == "public_base_url" {
             public_base = Some(
@@ -1497,6 +1523,32 @@ fn setting_text(value: &serde_json::Value) -> Option<String> {
         .or_else(|| value.as_u64().map(|v| v.to_string()))
 }
 
+/// The setting value a config file member supplies, or `None` for a JSON type its setting does
+/// not take.
+fn member_text(key: &str, raw: &RawValue) -> Option<String> {
+    if document::holds_document(key) {
+        return document::member_text(raw);
+    }
+    let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
+    if key == "default_location" && value.is_null() {
+        Some(String::new())
+    } else if matches!(key, "sync_delete_guard" | "admin_enabled") && value.is_boolean() {
+        Some(value.to_string())
+    } else if key == "buckets_file" {
+        value.as_str().map(str::to_owned)
+    } else {
+        setting_text(&value)
+    }
+}
+
+fn member_fix(key: &str) -> &'static str {
+    if document::holds_document(key) {
+        document::MEMBER_FIX
+    } else {
+        CONFIG_VALUE_FIX
+    }
+}
+
 enum ConfigReadError {
     Unreadable,
     TooLarge,
@@ -1515,7 +1567,8 @@ impl ConfigReadError {
     }
 }
 
-fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigReadError> {
+/// The members of a config file as written, so that a document member keeps its exact text.
+fn read_config(path: &str) -> Result<Vec<(String, Box<RawValue>)>, ConfigReadError> {
     let bytes =
         crate::bounded_file::read(Path::new(path), 65_536).map_err(|error| match error {
             crate::bounded_file::ReadError::Limit => ConfigReadError::TooLarge,
@@ -1593,7 +1646,7 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix
 mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
-    use crate::test_support::TestDir;
+    use crate::{auth::TestSignerChoice, test_support::TestDir};
 
     #[test]
     fn strict_admin_requires_an_instance_principal_and_hosts_are_validated() {
@@ -1676,7 +1729,7 @@ mod tests {
     }
 
     #[test]
-    fn a_trusted_listener_needs_strict_mode_its_principal_and_its_own_address() {
+    fn a_trusted_listener_needs_strict_mode_and_its_own_address() {
         let strict = [
             "--auth-mode",
             "strict",
@@ -1734,12 +1787,17 @@ mod tests {
                 "--trusted-principal",
                 "requires auth_mode=strict",
             ),
-            (
-                with(&["--trusted-listen", "0.0.0.0:4444"]),
-                "--trusted-listen",
-                "requires trusted_principal",
-            ),
             (with(&app), "--trusted-principal", "requires trusted_listen"),
+            (
+                with(&[
+                    "--listen",
+                    "0.0.0.0:4443",
+                    "--trusted-listen",
+                    "0.0.0.0:4443",
+                ]),
+                "--trusted-listen",
+                "must differ from listen",
+            ),
             (
                 with(&["--trusted-listen", "gcs:4444", app[0], app[1]]),
                 "--trusted-listen",
@@ -1819,6 +1877,32 @@ mod tests {
             "unknown@example.invalid",
         ]))
         .unwrap();
+        // Without a principal the listener acts as the built-in application identity.
+        let alone = with(&["--trusted-listen", "0.0.0.0:4444"]);
+        let args: Vec<String> = alone.iter().map(|option| (*option).to_owned()).collect();
+        let report = Config::preflight(&args, &BTreeMap::new());
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(matches!(
+            report.auth_profile(),
+            Some(AuthProfile::Strict {
+                trusted: TrustedCaller::BuiltIn,
+                ..
+            })
+        ));
+        let report = Config::preflight(
+            &paired
+                .iter()
+                .map(|option| (*option).to_owned())
+                .collect::<Vec<_>>(),
+            &BTreeMap::new(),
+        );
+        assert!(matches!(
+            report.auth_profile(),
+            Some(AuthProfile::Strict {
+                trusted: TrustedCaller::Named(principal),
+                ..
+            }) if principal == "app@example.invalid"
+        ));
     }
 
     #[test]
@@ -2020,9 +2104,11 @@ mod tests {
         assert_eq!(errors[0].key, "--grpc-listen");
     }
 
+    /// Only an explicit value is configuration; loading applies the default that the settled
+    /// test signer selects, which config::auth::tests covers.
     #[test]
-    fn signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes() {
-        assert_eq!(Config::default().signed_host_port, SignedHostPort::Exact);
+    fn signed_host_port_follows_precedence_in_both_auth_modes() {
+        assert_eq!(Config::default().signed_host_port, None);
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         // Lenient needs signatures to verify, which permissive mode does only when asked.
@@ -2038,10 +2124,10 @@ mod tests {
             &env,
             &["--signed-host-port", "lenient"],
             [
-                SignedHostPort::Exact,
-                SignedHostPort::Lenient,
-                SignedHostPort::Exact,
-                SignedHostPort::Lenient,
+                None,
+                Some(SignedHostPort::Lenient),
+                Some(SignedHostPort::Exact),
+                Some(SignedHostPort::Lenient),
             ],
             Config::load,
             |config| config.signed_host_port,
@@ -2063,7 +2149,7 @@ mod tests {
         ] {
             assert_eq!(
                 lenient(mode).unwrap().signed_host_port,
-                SignedHostPort::Lenient
+                Some(SignedHostPort::Lenient)
             );
         }
         // Permissive mode ignores signatures by default, so lenient would change nothing there.
@@ -2076,6 +2162,14 @@ mod tests {
             ),
             "{error}"
         );
+        // An explicit exact claims nothing, so it is accepted whatever is verified.
+        let exact = ["--signed-host-port", "exact"].map(str::to_owned);
+        assert_eq!(
+            Config::load(&exact, &BTreeMap::new())
+                .unwrap()
+                .signed_host_port,
+            Some(SignedHostPort::Exact)
+        );
         assert_rejected(
             "signed_host_port",
             &["", "true", "Lenient", "EXACT", "ignore-port"],
@@ -2086,9 +2180,10 @@ mod tests {
     }
 
     #[test]
-    fn cors_fallback_defaults_to_none_with_precedence_in_both_profiles() {
+    fn cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles() {
         let empty = BTreeMap::new();
-        let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
+        let load =
+            |args: &[String], env| Config::load(args, env).unwrap().effective_cors_fallback();
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
@@ -2099,18 +2194,43 @@ mod tests {
             &env,
             &["--cors-fallback", "allow-all"],
             [
-                CorsFallback::None,
-                CorsFallback::AllowAll,
-                CorsFallback::None,
-                CorsFallback::AllowAll,
+                None,
+                Some(CorsFallback::AllowAll),
+                Some(CorsFallback::None),
+                Some(CorsFallback::AllowAll),
             ],
             Config::load,
             |config| config.cors_fallback,
         );
+        // Permissive mode allows every origin by default, as fake-gcs-server does; strict mode
+        // follows Cloud Storage. An explicit value wins in both.
+        let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
+        for (mode, default) in [
+            (&[][..], CorsFallback::AllowAll),
+            (&strict[..], CorsFallback::None),
+        ] {
+            assert_eq!(
+                load(mode, &empty),
+                CorsFallbackChoice::Default(default),
+                "{mode:?}"
+            );
+            for explicit in [CorsFallback::None, CorsFallback::AllowAll] {
+                let mut args = mode.to_vec();
+                args.extend(["--cors-fallback".into(), explicit.as_str().into()]);
+                assert_eq!(
+                    load(&args, &empty),
+                    CorsFallbackChoice::Explicit(explicit),
+                    "{args:?}"
+                );
+            }
+        }
         for profile in ["native", "legacy-emulator"] {
             let args =
                 ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
-            assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+            assert_eq!(
+                load(&args, &empty),
+                CorsFallbackChoice::Explicit(CorsFallback::AllowAll)
+            );
         }
         assert_rejected(
             "cors_fallback",
@@ -2125,7 +2245,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it() {
+    fn test_signer_defaults_are_selected_by_profile() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
         // An explicit enabled needs signatures to verify, which permissive mode does only when asked.
@@ -2152,15 +2272,34 @@ mod tests {
         let empty = BTreeMap::new();
         let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
         let verify = ["--signed-urls", "verify"].map(str::to_owned);
-        for (args, explicit, effective) in [
-            (&[][..], None, TestSigner::Disabled),
-            (&[][..], Some("disabled"), TestSigner::Disabled),
-            (&verify[..], None, TestSigner::Enabled),
-            (&verify[..], Some("enabled"), TestSigner::Enabled),
-            (&verify[..], Some("disabled"), TestSigner::Disabled),
-            (&strict[..], None, TestSigner::Disabled),
-            (&strict[..], Some("disabled"), TestSigner::Disabled),
-            (&strict[..], Some("enabled"), TestSigner::Enabled),
+        let fixed = TestSignerChoice::Fixed;
+        // Validation selects the rule; loading settles strict mode's default against the
+        // identity document and warns there, which config::auth::tests covers.
+        for (args, explicit, choice) in [
+            (&[][..], None, None),
+            (&[][..], Some("disabled"), None),
+            (&verify[..], None, Some(fixed(TestSigner::Enabled))),
+            (
+                &verify[..],
+                Some("enabled"),
+                Some(fixed(TestSigner::Enabled)),
+            ),
+            (
+                &verify[..],
+                Some("disabled"),
+                Some(fixed(TestSigner::Disabled)),
+            ),
+            (&strict[..], None, Some(TestSignerChoice::WhenDeclared)),
+            (
+                &strict[..],
+                Some("disabled"),
+                Some(fixed(TestSigner::Disabled)),
+            ),
+            (
+                &strict[..],
+                Some("enabled"),
+                Some(fixed(TestSigner::Enabled)),
+            ),
         ] {
             let mut args = args.to_vec();
             args.extend(
@@ -2171,24 +2310,16 @@ mod tests {
             );
             let report = Config::preflight(&args, &empty);
             assert!(!report.diagnostics.is_err(), "{args:?}");
-            assert_eq!(report.config.effective_test_signer(), effective, "{args:?}");
-            let warnings: Vec<_> = report
-                .diagnostics
-                .warnings
-                .iter()
-                .filter(|warning| warning.key == "--test-signer")
-                .collect();
-            if args.contains(&"strict".to_owned()) && effective == TestSigner::Enabled {
-                assert_eq!(warnings.len(), 1, "{args:?}");
-                assert!(warnings[0].fix.contains("allAuthenticatedUsers"));
-                assert!(
-                    warnings[0]
-                        .fix
-                        .contains("test-signer@gcs-mimic.invalid is published")
-                );
-            } else {
-                assert!(warnings.is_empty(), "{args:?}: {warnings:?}");
-            }
+            let selected = match report.auth_profile() {
+                Some(AuthProfile::Permissive) => None,
+                Some(
+                    AuthProfile::VerifyingPermissive { verification, .. }
+                    | AuthProfile::Strict { verification, .. },
+                ) => Some(verification.test_signer),
+                None => panic!("{args:?}: no profile"),
+            };
+            assert_eq!(selected, choice, "{args:?}");
+            assert!(report.diagnostics.warnings.is_empty(), "{args:?}");
         }
         // Where signatures are ignored an enabled signer would promise what never happens.
         let ignored = ["--test-signer", "enabled"].map(str::to_owned);
@@ -2215,15 +2346,15 @@ mod tests {
             Config::preflight(&args, &empty).auth_profile().cloned()
         };
         let verification = |test_signer, signed_host_port| Verification {
-            test_signer,
+            test_signer: TestSignerChoice::Fixed(test_signer),
             signed_host_port,
         };
         assert_eq!(profile(&[]), Some(AuthProfile::Permissive));
         assert_eq!(
             profile(&["--signed-urls", "verify", "--signed-host-port", "lenient"]),
             Some(AuthProfile::VerifyingPermissive {
-                identity_file: None,
-                verification: verification(TestSigner::Enabled, SignedHostPort::Lenient),
+                identities: None,
+                verification: verification(TestSigner::Enabled, Some(SignedHostPort::Lenient)),
             })
         );
         assert_eq!(
@@ -2236,8 +2367,9 @@ mod tests {
                 "enabled"
             ]),
             Some(AuthProfile::Strict {
-                identity_file: "ids.json".into(),
-                verification: verification(TestSigner::Enabled, SignedHostPort::Exact),
+                identities: Some(DocumentSource::File("ids.json".into())),
+                verification: verification(TestSigner::Enabled, None),
+                trusted: TrustedCaller::Anonymous,
             })
         );
         for args in [
@@ -2538,7 +2670,7 @@ mod tests {
             ),
         ] {
             let loaded = Config::load(&args, &env).unwrap();
-            assert!(loaded.buckets_file.is_some());
+            assert!(matches!(loaded.buckets, Some(DocumentSource::File(_))));
             let args = if source == DiagnosticSource::Cli {
                 vec!["--buckets-file".into(), "".into()]
             } else {
@@ -2567,14 +2699,14 @@ mod tests {
             &["--buckets-file", "cli.json"],
             [
                 None,
-                Some("file.json".into()),
-                Some("env.json".into()),
-                Some("cli.json".into()),
+                Some(DocumentSource::File("file.json".into())),
+                Some(DocumentSource::File("env.json".into())),
+                Some(DocumentSource::File("cli.json".into())),
             ],
             Config::load,
-            |config| config.buckets_file,
+            |config| config.buckets,
         );
-        assert_eq!(Config::default().buckets_file, None);
+        assert_eq!(Config::default().buckets, None);
     }
 
     #[test]
@@ -2593,13 +2725,18 @@ mod tests {
             &env,
             &["--buckets-file-mode", "reconcile"],
             [
-                BucketsFileMode::Create,
-                BucketsFileMode::Reconcile,
-                BucketsFileMode::Create,
-                BucketsFileMode::Reconcile,
+                None,
+                Some(BucketsFileMode::Reconcile),
+                Some(BucketsFileMode::Create),
+                Some(BucketsFileMode::Reconcile),
             ],
             Config::load,
             |config| config.buckets_file_mode,
+        );
+        // A file creates what is missing unless asked; config::document::tests covers inline.
+        assert_eq!(
+            BucketsFileMode::resolve(None, Form::File),
+            BucketsFileMode::Create
         );
         assert_rejected(
             "buckets_file_mode",
@@ -3744,7 +3881,7 @@ mod tests {
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let defaults = load_http(&[], &BTreeMap::new()).unwrap();
         assert_eq!(defaults.auth_mode, AuthMode::Permissive);
-        assert_eq!(defaults.identity_file, None);
+        assert_eq!(defaults.identities, None);
         std::fs::write(
             &file,
             r#"{"auth_mode":"strict","identity_file":"file-ids.json"}"#,
@@ -3759,12 +3896,12 @@ mod tests {
             &["--identity-file", "cli-ids.json"],
             [
                 None,
-                Some("file-ids.json".into()),
-                Some("env-ids.json".into()),
-                Some("cli-ids.json".into()),
+                Some(DocumentSource::File("file-ids.json".into())),
+                Some(DocumentSource::File("env-ids.json".into())),
+                Some(DocumentSource::File("cli-ids.json".into())),
             ],
             load_http,
-            |config| config.identity_file,
+            |config| config.identities,
         );
         // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
         let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);

@@ -394,11 +394,15 @@ in both settings. A fresh unregistered key
 generated at each boot cannot authenticate to that strict registry. Instead of
 registering a key, you can use the
 [built-in test signer](signed-urls.md#built-in-test-signer): start the emulator
-with `GCS_MIMIC_TEST_SIGNER=enabled` (strict mode leaves it disabled by
-default and warns at startup when it is enabled), set `client_email` to
-`test-signer@gcs-mimic.invalid` and `private_key` to the published key, then
-grant that identity bucket IAM or declare it with project roles in the identity
-file. Save the key from the emulator itself, which needs no repository checkout:
+with `GCS_MIMIC_TEST_SIGNER=enabled`, and the signer reads and writes objects in
+the buckets document's projects and `seed_project` without a grant, or declare
+`test-signer@gcs-mimic.invalid` with project roles in the identity document,
+which also enables it (strict mode leaves it disabled otherwise and warns at
+startup when it is enabled). A bucket in another project needs bucket IAM for
+it. Set
+`client_email` to `test-signer@gcs-mimic.invalid` and `private_key` to the
+published key. Save the key from the emulator itself, which needs no
+repository checkout:
 
 ```sh
 docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
@@ -432,7 +436,8 @@ Limits of the recipe:
   `GCS_MIMIC_AUTH_MODE=strict` uploads fail with `401 Invalid Credentials` and
   the emulator log shows one `auth_self_signed_jwt_rejected` warning. Strict
   mode accepts only the documented registered JWT subset described above, which
-  includes the built-in test signer only with `GCS_MIMIC_TEST_SIGNER=enabled`.
+  includes the built-in test signer only when the identity document declares it
+  or `GCS_MIMIC_TEST_SIGNER=enabled`.
 - The recipe relies on googleauth signing its own token outside
   `googleapis.com`. Checked with googleauth 1.17.6 and 1.17.7; pin your
   versions and recheck after upgrades.

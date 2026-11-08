@@ -31,7 +31,10 @@ fn strict_synchronization_requires_a_registry_and_keeps_strict_authentication() 
     let config = Config::load(&args, &BTreeMap::new()).unwrap();
     assert_eq!(config.auth_mode, gcs_mimic::auth::AuthMode::Strict);
     assert_eq!(config.sync_dir, Some(root.0.join("tree")));
-    assert_eq!(config.identity_file, Some(registry));
+    assert_eq!(
+        config.identities,
+        Some(gcs_mimic::config::DocumentSource::File(registry))
+    );
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
