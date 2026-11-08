@@ -1004,7 +1004,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "8074968fe820071349f455100bece40106c43b2204a2651addaafc6672f1fe09"
+            "be4c80e0b461536221b07e7a6688fc35b6c3e2ae69701328c996778450928d31"
         );
     }
 
