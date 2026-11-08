@@ -951,11 +951,11 @@
         "depends_on": ["onboarding-state-contract", "bucket-xml-cors"],
         "feature_ids": ["JSON-BUCKETS-002", "JSON-BUCKETS-008", "BEHAVIOR-BUCKET-009", "DESIGN-062"],
         "completion_conditions": [
-          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and the file, max_buckets_per_batch and 16 MiB entry limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
-          "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
-          "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
+          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and the file, max_buckets_per_batch and 16 MiB entry limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/lifecycle settings and IAM fields other than iamPolicy.bindings, and authorize initialization as local administration in both auth modes before mutation.",
+          "By default create missing buckets only, optionally with an iamPolicy that replaces the default policy in the creation transaction; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts, warning about an edited entry that was not applied.",
+          "Removing an entry does not delete a bucket; one batched lookup and one administrative transaction plan and apply the whole run, so a public policy refused by public access prevention fails before any write. Precommit failure rolls back the run, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches/unapplied/reconciled counts. The opt-in buckets_file_mode=reconcile applies only the differing written members of existing buckets, except location and owner. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES, BUCKET-INIT-IAM-POLICY, BUCKET-INIT-UNAPPLIED, BUCKET-INIT-RECONCILE and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
         ],
-        "deferred_scope": "Continuous file reconciliation of existing bucket policies is not the initializer contract. Directory synchronization and source-state import are independent tracks."
+        "deferred_scope": "Reconciliation outside startup, file watching, ACL members and lifecycle are not the initializer contract. Directory synchronization and source-state import are independent tracks."
       },
       {
         "id": "directory-synchronization",
@@ -4445,7 +4445,7 @@
         {"id":"RETENTION-METADATA-CONTRIBUTION","description":"Get returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "id": "BUCKET-INIT-INDEPENDENT-SETTINGS",
-          "description": "Initialized buckets independently enforce XML CORS allow/deny, version history, default holds and PAP rejection of public grants. Native labels/location/class survive legacy startup and native reopen without claiming legacy rendering parity. Strict/permissive API checks grant no implicit authority. Contract and evidence: docs/en/slices/bucket-initialization.md.",
+          "description": "Initialized buckets independently enforce XML CORS allow/deny, version history, default holds and PAP rejection of public grants. Native labels/location/class survive legacy startup and native reopen without claiming legacy rendering parity. Strict/permissive API checks grant no implicit authority; an entry's iamPolicy grants only what it writes, covered by BUCKET-INIT-IAM-POLICY. Contract and evidence: docs/en/slices/bucket-initialization.md.",
           "result": "PASS",
           "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata"]
         },
@@ -7287,9 +7287,21 @@
         {"id":"LIFECYCLE-PATCH-REPLACE","description":"PATCH replaces the full lifecycle list, advances metageneration once and preserves failed conditioned mutations. Null/empty settings clear configuration. Metadata only; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
           "id": "BUCKET-INIT-PRESERVE-API-CHANGES",
-          "description": "API PATCH metadata, IAM policy, exact object metadata/timestamps/revisions, bytes and versions survive restart and changed/removed entries. Stale conditions still fail. Different-project recreation warns without mutation; explicit deletion is recreated at next startup. Contract and evidence: docs/en/slices/bucket-initialization.md.",
+          "description": "In the default create mode, API PATCH metadata, IAM policy, exact object metadata/timestamps/revisions, bytes and versions survive restart and changed/removed entries; an edited entry warns instead of applying. Stale conditions still fail. Different-project recreation warns without mutation; explicit deletion is recreated at next startup. Contract and evidence: docs/en/slices/bucket-initialization.md.",
           "result": "PASS",
           "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
+        },
+        {
+          "id": "BUCKET-INIT-UNAPPLIED",
+          "description": "Catalog schema 52 records a digest of each bucket's normalized written entry members, without name or project; equivalent spellings share a digest. In create mode an edited entry whose bucket still differs warns once per entry on every start, naming fields without values, and ready counts it as unapplied; a bucket the API brought in line, an unchanged entry and an API-only change stay silent, and a bucket without a record adopts the entry silently. Deleting, soft deleting or resetting a bucket removes its record in the same transaction, restore starts without one, and released data directories upgrade. Contract: docs/en/slices/bucket-initialization.md#entry-records-and-reconcile-mode.",
+          "result": "PASS",
+          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_digest_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources"]
+        },
+        {
+          "id": "BUCKET-INIT-RECONCILE",
+          "description": "The opt-in buckets_file_mode=reconcile (CLI, environment, config; requires buckets_file) writes, through the PATCH and setIamPolicy paths, exactly the written members whose stored value differs: API changes to them are undone and others stay, labels and cors replace the whole value, metageneration advances once per changed bucket, and an unchanged restart writes nothing. A different location warns and stays, another project's bucket is untouched, a public policy refused by stored or parent public access prevention fails startup before any write, and strict mode needs no token. Ready counts reconciled buckets. Contract: docs/en/slices/bucket-initialization.md#entry-records-and-reconcile-mode.",
+          "result": "PASS",
+          "test_ids": ["reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api", "an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode", "reconcile_keeps_the_location_and_another_owners_bucket", "reconcile_checks_public_access_prevention_against_stored_state_before_any_change", "the_mode_without_a_buckets_file_fails_startup", "buckets_file_mode_defaults_to_create_and_requires_a_buckets_file"]
         },
         {
           "id": "PATCH-LABELS",
@@ -7547,6 +7559,20 @@
         }
       ],
       "test_ids": [
+        "a_changed_entry_warns_on_every_start_until_the_bucket_matches_it",
+        "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning",
+        "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled",
+        "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing",
+        "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one",
+        "record_replaces_the_digest_without_touching_the_bucket",
+        "default_location_applies_to_new_api_and_initializer_buckets_only",
+        "supported_release_data_directories_upgrade_without_changing_resources",
+        "reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api",
+        "an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode",
+        "reconcile_keeps_the_location_and_another_owners_bucket",
+        "reconcile_checks_public_access_prevention_against_stored_state_before_any_change",
+        "the_mode_without_a_buckets_file_fails_startup",
+        "buckets_file_mode_defaults_to_create_and_requires_a_buckets_file",
         "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others",
         "bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile",
         "bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage",
@@ -7638,6 +7664,13 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/bucket-initialization.md",
           "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
+        },
+        {
+          "command": "cargo test --locked --test it_import_seed (88 passed); cargo test --locked --lib -- storage:: config:: bucket_init auth:: json:: grpc:: server::buckets (1321 passed)",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["a_changed_entry_warns_on_every_start_until_the_bucket_matches_it", "a_bucket_without_a_recorded_entry_adopts_the_current_one_without_a_warning", "entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled", "a_created_bucket_records_its_entry_and_a_rejected_plan_changes_nothing", "deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts_without_one", "record_replaces_the_digest_without_touching_the_bucket", "default_location_applies_to_new_api_and_initializer_buckets_only", "supported_release_data_directories_upgrade_without_changing_resources", "reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api", "an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode", "reconcile_keeps_the_location_and_another_owners_bucket", "reconcile_checks_public_access_prevention_against_stored_state_before_any_change", "the_mode_without_a_buckets_file_fails_startup", "buckets_file_mode_defaults_to_create_and_requires_a_buckets_file"]
         },
         {
           "command": "just check",
@@ -49365,7 +49398,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Post-ready directory synchronization now includes native Linux/macOS observation, conditional create/edit ingestion, continuous API export and revision-bound external deletion controls. Conflict recovery and strict synchronization remain under integration, with final Linux/SDK/container evidence pending. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
+      "notes": "Read-only seed input, create-missing bucket initialization and historical SDK/container evidence remain in docs/en/slices/seed.md and docs/en/slices/bucket-initialization.md. Bucket file entries may write an initial iamPolicy, edited entries that were not applied warn, and the opt-in buckets_file_mode=reconcile applies written fields to existing buckets at startup. Current startup replay stages the complete tree and publishes atomically: differing protected fixtures fail the whole replay, identical fixtures keep generations, and non-fixture objects remain untouched. Disk reseed merges; RAM reseed replaces. Explicit source import preserves its declared metadata subset and quiesced memory snapshots preserve retained history; seed metadata files remain literal bodies. Post-ready directory synchronization now includes native Linux/macOS observation, conditional create/edit ingestion, continuous API export and revision-bound external deletion controls. Conflict recovery and strict synchronization remain under integration, with final Linux/SDK/container evidence pending. See docs/en/slices/atomic-seed-reseed.md, docs/en/slices/source-state-preservation.md, docs/en/slices/source-memory-snapshot.md and docs/en/evidence/migration-integration.md. No complete source-fixture equivalence or performance improvement is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -49447,7 +49480,7 @@
         },
         {
           "id": "BUCKET-INIT-VALIDATION",
-          "description": "All supplied/inherited projects and entry-over-file-over-seed_project precedence, decoded global duplicate names, repeated JSON members at every depth, nested closed schema, typo/output-only/iam/policy/ACL/lifecycle and disabled UBLA rejection pass. Native field/final parsing is reused independently of the active profile, with injected microsecond Clock and unchanged API acceptance. Owner init-parser.",
+          "description": "All supplied/inherited projects and entry-over-file-over-seed_project precedence, decoded global duplicate names, repeated JSON members at every depth, nested closed schema, typo/output-only/iam/entry-level bindings/ACL/lifecycle and disabled UBLA rejection pass; iam and bindings advise iamPolicy.bindings, which BUCKET-INIT-IAM-POLICY covers. Native field/final parsing is reused independently of the active profile, with injected microsecond Clock and unchanged API acceptance. Owner init-parser.",
           "result": "PASS",
           "test_ids": [
             "native_settings_project_precedence_and_injected_microseconds",
@@ -49512,6 +49545,12 @@
           "description": "Native initializer process journeys and both source-built container architectures pass, including read-only Compose file mounts, ready counts and API-mutation persistence. Pinned Go and Ruby SDK suites pass; Ruby also runs after configured initialization in strict/permissive modes. English/Japanese guides, migration and README describe the delivered subset.",
           "result": "PASS",
           "test_ids": ["container-bucket-initialization", "initializer_precedes_seed_and_empty_file_is_applied", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
+        },
+        {
+          "id": "BUCKET-INIT-IAM-POLICY",
+          "description": "An entry's iamPolicy accepts only bindings, validated with the setIamPolicy role, member and 1,500-occurrence rules; empty bindings are dropped, and version, etag, auditConfigs, conditions, unknown members and invalid roles/members fail at their own keys without echoing values. A new bucket stores the written policy instead of the default one in its creation transaction, at metageneration 1, with the policy and bucket ACL a setIamPolicy of the same policy gives. Strict anonymous reads follow it, a bucket without one stays private, the memory backend applies it, and entry or parent-project public access prevention refuses a public policy before any bucket is created. Contract: docs/en/slices/bucket-initialization.md.",
+          "result": "PASS",
+          "test_ids": ["iam_policy_keeps_the_written_bindings_and_drops_empty_ones_like_set_iam_policy", "iam_policy_reports_each_invalid_part_at_its_own_key_without_echoing_values", "a_file_policy_replaces_the_default_policy_as_set_iam_policy_does", "strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private", "public_access_prevention_refuses_a_public_file_policy_before_any_mutation", "a_memory_backend_starts_buckets_with_their_file_policy", "validation_reports_all_entries_before_seed_or_mutation"]
         },
         {
           "id": "sync-initial-export",
@@ -49691,9 +49730,16 @@
         "admin_names_generations_and_permissions_are_validated",
         "admin_ensure_batches_preserve_identity_order_and_rollback",
         "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
-        "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
+        "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+        "iam_policy_keeps_the_written_bindings_and_drops_empty_ones_like_set_iam_policy",
+        "iam_policy_reports_each_invalid_part_at_its_own_key_without_echoing_values",
+        "a_file_policy_replaces_the_default_policy_as_set_iam_policy_does",
+        "strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private",
+        "public_access_prevention_refuses_a_public_file_policy_before_any_mutation",
+        "a_memory_backend_starts_buckets_with_their_file_policy"
       ],
       "verification": [
+        {"command":"cargo test --locked --test it_import_seed bucket_initialization (26 passed); cargo test --locked --lib bucket_init (35 passed)","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/bucket-initialization.md","test_ids":["iam_policy_keeps_the_written_bindings_and_drops_empty_ones_like_set_iam_policy","iam_policy_reports_each_invalid_part_at_its_own_key_without_echoing_values","a_file_policy_replaces_the_default_policy_as_set_iam_policy_does","strict_public_reads_follow_the_file_policy_and_buckets_without_one_stay_private","public_access_prevention_refuses_a_public_file_policy_before_any_mutation","a_memory_backend_starts_buckets_with_their_file_policy","validation_reports_all_entries_before_seed_or_mutation"]},
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart","a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it","the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor","a_large_bucket_entry_starts_and_survives_a_restart","sync_tree_limits_default_to_unlimited_and_mean_nothing_without_a_sync_dir","one_directory_may_hold_as_many_entries_as_the_tree_limit_allows","every_walker_applies_the_same_depth_limit","no_depth_limit_accepts_what_export_can_create_past_the_former_default"]},
         {
           "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",

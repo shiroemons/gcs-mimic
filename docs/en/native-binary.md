@@ -225,9 +225,9 @@ or seed commit wait and then run against the state it left. A client that stays 
 without sending its upload body holds up a reset for up to `catalog_wait_timeout_ms`, and new
 uploads wait behind the reset meanwhile. The reset then answers 503 and changes nothing.
 
-Older catalogs migrate automatically, one way and in order, to the current schema 51;
-the log names the versions. A binary supporting only schema 50 cannot open a directory
-migrated to 51. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
+Older catalogs migrate automatically, one way and in order, to the current schema 52;
+the log names the versions. A binary supporting only schema 51 cannot open a directory
+migrated to 52. Version 0.8.0 used schema 48 and 0.7.0 schema 35. Back up the stopped
 data directory before upgrading, and restore it with its matching executable to roll back.
 Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs are rejected
 without changing their data; automatic recovery of deleted v2 generations is unavailable.
@@ -245,18 +245,23 @@ target/debug/gcs-mimic serve --scheme http --buckets-file config/buckets.json
 
 This creates `initialized-assets` with XML CORS and versioning and
 `initialized-private` in a different project with PAP enforced. The stdout ready
-event includes `buckets_file` with `created`, `existing` and `project_mismatches`.
+event includes `buckets_file` with `created`, `existing`, `project_mismatches`,
+`unapplied` and `reconciled`.
 Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
 The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
 using CLI > environment > config. Relative paths use the process working directory.
 
 Restart with the same data directory to retain API changes and object versions;
-only missing buckets are created, even if settings in the file change. Removed
+only missing buckets are created, even if settings in the file change, and an
+edited entry that was not applied warns on stderr and counts as `unapplied`.
+`--buckets-file-mode reconcile` instead writes each entry's written fields to its
+existing bucket, except its location and owner. Removed
 entries remain stored. Different existing projects warn without changing owners.
 Initialization runs before seed, using local administrative authority in strict
-and permissive modes, and grants no API permissions. Invalid entries stop startup
-with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
-and unknown fields are rejected even when empty or disabled. Limits are
+and permissive modes, and grants no API permissions beyond an entry's
+`iamPolicy`. Invalid entries stop startup with complete diagnostics and no ready
+event. ACLs, lifecycle, UBLA, `iam`, policy fields other than `bindings` and
+unknown fields are rejected even when empty or disabled. Limits are
 16 MiB per entry and a file of 1 GiB. With `max_buckets_per_batch` set, the file instead
 has 1 KiB per allowed bucket and at least 32 MiB. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).

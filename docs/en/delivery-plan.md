@@ -25,7 +25,7 @@ The ledger's order is a selection preference; only `depends_on` blocks a track.
 | First | Distribution | Release notes, workflow execution, registry access and consumer guide | Existing basic API/public-read gates and release policy |
 | First | Configuration | CLI/env validation, advertised/public endpoints and host routing | Freeze each affected source configuration contract |
 | Next | Shared state integration | Bucket identity, initialization authority, readiness and mutation interface | Existing runtime and bucket update behavior |
-| Next | Bucket initializer | File parser and create-missing orchestration | Shared state contract and initialization schema |
+| Next | Bucket initializer | File parser, create-missing orchestration, initial IAM policy and opt-in reconcile mode | Shared state contract and initialization schema |
 | Next | Directory synchronization | Watch/rescan adapter and API write-back | Shared state contract and sync conflict/name/recovery design |
 | Next | Seed and source import | Read-only source readers, manifests and preservation reports | Scoped source storage contract and existing ingestion |
 | Then | Rails and reference coverage | Isolated client/protocol/profile slices | Their own ledger prerequisites; no blanket initializer/sync gate |
@@ -479,8 +479,10 @@ flowchart TD
 
 For settings, document equivalent uses through native `GCS_MIMIC_*` options;
 identical flag names and suffixes are not required. The version-1 multi-bucket
-initialization file creates missing buckets and preserves existing API settings
-on restart. See the [initializer contract](slices/bucket-initialization.md);
+initialization file creates missing buckets, optionally with an IAM policy, and
+by default preserves existing API settings on restart, warning about edited
+entries it did not apply; `buckets_file_mode=reconcile` applies them instead.
+See the [initializer contract](slices/bucket-initialization.md);
 broader shared-state crash injection remains pending. Seed input and persistent
 destination remain separate. Existing
 source-build Compose `GCS_MIMIC_PORT` publishes a host port; do not reinterpret

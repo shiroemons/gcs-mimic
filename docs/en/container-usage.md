@@ -319,11 +319,28 @@ edit them through the API. Removing an entry never deletes a bucket. A deleted
 bucket can be recreated at the next startup. A different existing project emits
 a warning and increments ready's `project_mismatches`, preserving its owner.
 
+An entry can give a new bucket its IAM policy with
+`"iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}`.
+The policy replaces the default one, as `setIamPolicy` does, so write the legacy
+bindings too if you need them. Startup fails before any change when public access
+prevention refuses a public member.
+
+When you edit an entry after its bucket exists, the next startup keeps the
+bucket, warns on stderr which fields still differ and increments ready's
+`unapplied`. To apply the written fields to existing buckets, for example on a
+volume that outlives Compose restarts, set `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`.
+Each startup then writes only the fields an entry sets whose value differs and
+counts the changed buckets in ready's `reconciled`; fields an entry omits keep
+their API changes, and a bucket's location never changes. The mode also reads
+`--buckets-file-mode` or server JSON `buckets_file_mode`, defaults to `create`,
+and fails startup when no buckets file is selected.
+
 Entry `project` overrides file `project`, then `GCS_MIMIC_SEED_PROJECT`
-(default `local-project`). Initializer v1 rejects IAM policies, ACLs, lifecycle,
-UBLA and unknown fields, including disabled or empty unsupported settings.
-Initialization is local administration in both auth modes and grants no API
-permissions. CORS applies to XML; JSON uses its fixed defaults.
+(default `local-project`). Initializer v1 rejects ACLs, lifecycle, UBLA, `iam`,
+policy fields other than `bindings` and unknown fields, including disabled or
+empty unsupported settings. Initialization is local administration in both auth
+modes and grants no API permissions beyond the policy an entry writes. CORS
+applies to XML; JSON uses its fixed defaults.
 See the [schema, limits and ready counts](slices/bucket-initialization.md).
 
 ## Further setup

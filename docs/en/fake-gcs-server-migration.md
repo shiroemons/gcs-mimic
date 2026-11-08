@@ -42,7 +42,7 @@ each native setting; this walkthrough uses the native names. See
 | `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
-| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the buckets file is the way to give buckets CORS or versioning settings. |
+| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the buckets file is the way to give buckets CORS, versioning or IAM policy settings. |
 
 The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
 
@@ -116,7 +116,7 @@ For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 Keeping the `./data:/data:ro` mount alone also works: the image seeds it on every
 startup, so empty directories, including ones added later, become buckets. This
 walkthrough removes that mount and uses the file instead, which can also carry
-bucket settings such as CORS and versioning. Restart creates
+bucket settings such as CORS, versioning and an IAM policy. Restart creates
 only missing entries, preserves existing objects and API settings, and does not
 delete buckets removed from the file. Add future bucket names to this file and
 restart. Object fixtures use a separate [seed directory](container-usage.md#load-local-files).
@@ -173,6 +173,49 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 For a second worktree use, for example, project `assets-migration-two` and
 `GCS_MIMIC_PORT=24443`; project-scoped volumes keep state separate. Stop with
 `docker compose down` using the same file/project. The named volume retains data.
+
+### Bucket file inside compose.yaml
+
+The bucket file can live in the Compose file itself, so no separate
+`buckets.json` is needed. A top-level `configs:` entry with inline `content:`
+defines the file, and the service's `configs:` mounts it at `target`, the path
+`GCS_MIMIC_BUCKETS_FILE` names. Inline `content` needs Docker Compose 2.23.1 or
+later, according to the
+[Compose configs reference](https://docs.docker.com/reference/compose-file/configs/).
+Add these lines to the `gcs` service above, in place of the `buckets.json` mount:
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
+    configs:
+      - source: gcs_buckets
+        target: /etc/gcs-mimic/buckets.json
+configs:
+  gcs_buckets:
+    content: |
+      {"version": 1, "buckets": [
+        {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
+          "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
+         "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
+        {"name": "app-exports"}
+      ]}
+```
+
+Compose, not gcs-mimic, expands `${FRONTEND_PORT:-8081}` when it creates the
+config, following its [interpolation rules](https://docs.docker.com/reference/compose-file/interpolation/);
+gcs-mimic reads the result as plain JSON and expands nothing. Write a literal `$`
+as `$$`. `iamPolicy` gives a new bucket its policy, replacing the default one as
+`setIamPolicy` does; releases up to 0.13.0 reject it as unsupported.
+
+The named volume outlives `docker compose down`, so its buckets already exist on
+the next start. An edited `content` is then reported, not applied: a stderr
+warning names the fields that still differ and ready counts the bucket as
+`unapplied`. To apply the edit to existing buckets, add
+`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to the service environment; each start
+then writes only the fields an entry sets whose value differs, and fields it
+omits keep their API changes. Releases up to 0.13.0 do not know this setting.
 
 ### Cross-origin upload and reading
 
@@ -521,16 +564,21 @@ bucket permissions or CORS.
 The `--buckets-file PATH` extension reads a version-1 JSON initialization file
 listing multiple buckets and their individual settings. On startup, create only
 missing buckets. Existing bucket settings and objects survive unchanged, even
-when the file differs; removing an entry does not delete its bucket. This keeps
-restart from undoing API changes. Changing an existing bucket remains an API
-operation. Select it with `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`;
-CLI overrides environment, then config. See the [runnable example](container-usage.md#initialize-bucket-settings).
+when the file differs, and an edited entry that was not applied warns on stderr;
+removing an entry does not delete its bucket. This keeps restart from undoing
+API changes. Changing an existing bucket remains an API operation unless the
+opt-in `buckets_file_mode=reconcile` applies each entry's written fields to it at
+startup. Select the file with `GCS_MIMIC_BUCKETS_FILE` or server JSON
+`buckets_file`, and the mode with `GCS_MIMIC_BUCKETS_FILE_MODE` or
+`buckets_file_mode`; CLI overrides environment, then config. See the
+[runnable example](container-usage.md#initialize-bucket-settings).
 
 The initializer always uses native field validation and local administrative
-authority, including in strict mode. It grants no subsequent API permissions.
-It validates the whole file before one atomic create-missing batch, rejects
-duplicate names, IAM policies, lifecycle and unknown fields, and retries without
-overwriting committed buckets. Existing project mismatches warn without moving
+authority, including in strict mode. It grants no subsequent API permissions
+beyond the `iamPolicy` an entry writes. It validates the whole file before one
+atomic transaction, rejects duplicate names, policy fields other than
+`bindings`, lifecycle and unknown fields, and retries without overwriting
+committed buckets. Existing project mismatches warn without moving
 ownership. This differs from API insertion and legacy response rendering;
 the [contract](slices/bucket-initialization.md) specifies limits and supported fields.
 

@@ -50,7 +50,7 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 | `-host 0.0.0.0 -port 4443` | 指定なし | イメージは最初から`0.0.0.0:4443`で待ち受けます。ループバックだけで待ち受けると他のコンテナから接続できないため、この既定が必要です。 |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | 指定なし | resumableのLocationなど、サーバーが返すリンクは各リクエストのHostに従います。コンテナのSDKは`gcs:4443`を、ホストは公開ポートを受け取ります。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
 | `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。`-backend memory`は上限付きのRAM保存に読み替えますが、この手順では使いません。 |
-| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORSやバージョニングを設定するには、バケットファイルを使います。 |
+| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORS、バージョニング、IAMポリシーを設定するには、バケットファイルを使います。 |
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
 
@@ -95,7 +95,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 
 `./data:/data:ro`のマウントだけでも動きます。イメージは起動のたびにこれをseedとして反映するため、
 後から足したものも含めて空のディレクトリがバケットになります。この手順ではそのマウントを外してファイルを渡します。
-ファイルにはCORSやバージョニングなどのバケットの設定も書けます。
+ファイルにはCORS、バージョニング、IAMポリシーなどのバケットの設定も書けます。
 再起動時は未作成のバケットだけを追加し、既存のオブジェクトやAPIで変更した設定を保ちます。
 ファイルから項目を消してもバケットは削除しません。次のバケットはファイルに追加して再起動します。
 オブジェクトの初期ファイルは別の[初期ファイルのディレクトリ](container-usage.md#初期ファイルを読み込む)で扱います。
@@ -149,6 +149,47 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 2つ目なら`COMPOSE_PROJECT_NAME=assets-migration-two`、`GCS_MIMIC_PORT=24443`が例です。
 内部ポートは4443のままです。名前付きボリュームもプロジェクト別です。
 同じファイル・プロジェクトを指定して`docker compose down`で停止すると、データは残ります。
+
+### バケットファイルをcompose.yamlに書く
+
+バケットファイルはComposeファイルの中にも書けるので、別の`buckets.json`は要りません。
+トップレベルの`configs:`に`content:`でファイルの中身を書き、サービスの`configs:`で
+`target`のパスへマウントします。`GCS_MIMIC_BUCKETS_FILE`にはそのパスを指定します。
+[Composeのconfigsリファレンス](https://docs.docker.com/reference/compose-file/configs/)によると、
+`content`はDocker Compose 2.23.1以降で使えます。
+上の`gcs`サービスへ、`buckets.json`のマウントの代わりに次を追加します。
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
+    configs:
+      - source: gcs_buckets
+        target: /etc/gcs-mimic/buckets.json
+configs:
+  gcs_buckets:
+    content: |
+      {"version": 1, "buckets": [
+        {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
+          "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
+         "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
+        {"name": "app-exports"}
+      ]}
+```
+
+`${FRONTEND_PORT:-8081}`を展開するのはgcs-mimicではなくComposeで、configを作るときに
+[変数展開の規則](https://docs.docker.com/reference/compose-file/interpolation/)に従います。
+gcs-mimicは結果をそのままJSONとして読み、何も展開しません。`$`そのものは`$$`と書きます。
+`iamPolicy`は新しいバケットにポリシーを付け、`setIamPolicy`と同じく既定のポリシーを置き換えます。
+0.13.0までのリリースは未対応として拒否します。
+
+名前付きボリュームは`docker compose down`の後も残るので、次回起動ではバケットが既にあります。
+このとき`content`を編集しても適用はせず、まだ異なるフィールドをstderrで警告し、
+readyの`unapplied`に数えます。既存バケットへ反映するには、サービスのenvironmentに
+`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`を追加します。各起動は項目が書いたフィールドのうち
+値が異なるものだけを書き込み、書かないフィールドはAPIでの変更を保ちます。
+0.13.0までのリリースはこの設定を知りません。
 
 ## 別オリジンからアップロード・読み取りする
 
