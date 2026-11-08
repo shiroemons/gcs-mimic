@@ -107,6 +107,7 @@ mod batch;
 mod browser;
 mod buckets;
 mod context;
+mod host;
 mod ingress;
 mod objects;
 mod routing;
@@ -827,6 +828,17 @@ struct Listening {
     role: ListenerRole,
 }
 
+impl Listening {
+    /// Adds the headers the listener's role requires to every response its service produces,
+    /// errors and timeout replies included.
+    fn mark_response(self, headers: &mut hyper::HeaderMap) {
+        match self.role {
+            ListenerRole::Trusted => browser::protect_trusted_response(headers),
+            ListenerRole::Public => {}
+        }
+    }
+}
+
 #[cfg(unix)]
 pub async fn serve_with_unix_and_drain(
     listener: unix::Listener,
@@ -1328,13 +1340,14 @@ impl ConnectionService {
                 endpoints.for_request(listening.scheme, request.uri(), request.headers())
             }
             Err(_) => {
-                return Ok(boxed(
+                let mut response = boxed(
                     JsonError::service_unavailable(
                         "Runtime endpoint state is unavailable; restart the emulator",
                     )
                     .into_response(),
-                )
-                .map(|body| finished.track(body)));
+                );
+                listening.mark_response(response.headers_mut());
+                return Ok(response.map(|body| finished.track(body)));
             }
         };
         let timeout_reply = DeadlineReply::new(&request, &config, endpoints.snapshot());
@@ -1347,15 +1360,25 @@ impl ConnectionService {
             activity: &activity,
             listener: listening.role,
         };
+        // Checked once per request the listener receives, before routing: batch parts arrive
+        // inside an envelope that already passed, and name no Host of their own.
+        let admitted = browser::refuse_on_trusted_listener(
+            listening.role,
+            &request,
+            &config.trusted_allowed_hosts,
+        );
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.
-        let mut response = tokio::select! {
-            biased;
-            response = json::with_format(
-                format,
-                routing::respond(request.map(|body| RequestBody::transport(body, activity.clone())), ctx),
-            ) => response,
-            expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
+        let mut response = match admitted {
+            Err(error) => boxed(error.into_response()),
+            Ok(()) => tokio::select! {
+                biased;
+                response = json::with_format(
+                    format,
+                    routing::respond(request.map(|body| RequestBody::transport(body, activity.clone())), ctx),
+                ) => response,
+                expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
+            },
         };
         // Handlers stop reading a body early only to reject it, and hyper then
         // closes the connection. Announcing the close keeps a pooled client from
@@ -1366,6 +1389,7 @@ impl ConnectionService {
                 hyper::header::HeaderValue::from_static("close"),
             );
         }
+        listening.mark_response(response.headers_mut());
         activity.send_modify(|progress| progress.stage = RequestStage::Responded);
         Ok(response.map(|body| finished.track(body)))
     }

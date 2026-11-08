@@ -223,6 +223,9 @@ pub struct Config {
     pub admin_allowed_hosts: Vec<String>,
     /// The registered identity that requests without credentials on `trusted_listen` act as.
     pub trusted_principal: Option<String>,
+    /// Dotted DNS names the trusted listener also accepts as Host, beyond IP literals,
+    /// `localhost` names and single-label names.
+    pub trusted_allowed_hosts: Vec<String>,
     /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
     /// authentication; empty disables it. Never an authorization input.
     pub local_creator_email: String,
@@ -314,6 +317,7 @@ impl Default for Config {
             admin_principal: None,
             admin_allowed_hosts: Vec::new(),
             trusted_principal: None,
+            trusted_allowed_hosts: Vec::new(),
             local_creator_email: DEFAULT_LOCAL_CREATOR_EMAIL.into(),
             runtime_endpoints: RuntimeEndpoints::default(),
             pubsub_emulator_host: None,
@@ -647,6 +651,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::TrustedPrincipal
+        | Setting::TrustedAllowedHosts
         | Setting::LocalCreatorEmail
         | Setting::AdminEnabled
         | Setting::AuthMode
@@ -844,7 +849,10 @@ fn apply_access_setting(
     value: &str,
 ) -> Result<(), SettingFix> {
     match setting {
-        Setting::AdminAllowedHosts => config.admin_allowed_hosts = admin_hosts(value)?,
+        Setting::AdminAllowedHosts => config.admin_allowed_hosts = allowed_hosts(setting, value)?,
+        Setting::TrustedAllowedHosts => {
+            config.trusted_allowed_hosts = allowed_hosts(setting, value)?;
+        }
         Setting::AdminPrincipal => {
             if !crate::auth::valid_principal_id(value) {
                 return Err(
@@ -893,7 +901,9 @@ fn apply_access_setting(
     Ok(())
 }
 
-fn admin_hosts(value: &str) -> Result<Vec<String>, SettingFix> {
+/// The DNS names an allow-list `setting` names, normalized as request hosts compare.
+fn allowed_hosts(setting: Setting, value: &str) -> Result<Vec<String>, SettingFix> {
+    let name = setting.as_str();
     let mut hosts = Vec::new();
     if value.is_empty() {
         return Ok(hosts);
@@ -901,11 +911,11 @@ fn admin_hosts(value: &str) -> Result<Vec<String>, SettingFix> {
     for host in value.split(',') {
         let host = host.trim().to_ascii_lowercase();
         let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
-        validate_dns_name(&host).map_err(
-            |_| "admin_allowed_hosts requires comma-separated DNS names without ports or schemes",
-        )?;
+        validate_dns_name(&host).map_err(|_| {
+            format!("{name} requires comma-separated DNS names without ports or schemes")
+        })?;
         if hosts.len() == 32 {
-            return Err("admin_allowed_hosts supports at most 32 names".into());
+            return Err(format!("{name} supports at most 32 names").into());
         }
         if !hosts.contains(&host) {
             hosts.push(host);
@@ -1382,6 +1392,7 @@ impl ConfigurationReport {
     /// matters only where strict mode judges anonymous requests, and either half of the pair
     /// alone would claim an effect it does not have.
     fn check_trusted_listener(&mut self, settings: &Settings) {
+        self.check_trusted_allowed_hosts(settings);
         let listen = Setting::TrustedListen.as_str();
         let principal = Setting::TrustedPrincipal.as_str();
         let named = (
@@ -1409,6 +1420,22 @@ impl ConfigurationReport {
                     .errors
                     .push(Diagnostic::new(input.source, &input.key, fix));
             }
+        }
+    }
+
+    /// The list only widens the Host names the trusted listener accepts, so without that
+    /// listener it would claim an effect it does not have.
+    fn check_trusted_allowed_hosts(&mut self, settings: &Settings) {
+        let name = Setting::TrustedAllowedHosts.as_str();
+        if !settings.contains_key(Setting::TrustedListen.as_str())
+            && let Some(input) = settings.get(name)
+            && self.invalid.insert(name.to_owned())
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "trusted_allowed_hosts requires trusted_listen; set --trusted-listen IP:PORT or remove the setting.",
+            ));
         }
     }
 
@@ -1826,6 +1853,82 @@ mod tests {
             "unknown@example.invalid",
         ]))
         .unwrap();
+    }
+
+    #[test]
+    fn trusted_allowed_hosts_need_the_listener_and_name_dns_hosts() {
+        let load = |extra: &[&str]| {
+            let mut args = vec![
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                "identities.json",
+            ];
+            args.extend_from_slice(extra);
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            Config::load(&args, &BTreeMap::new())
+        };
+        let pair = [
+            "--trusted-listen",
+            "0.0.0.0:4444",
+            "--trusted-principal",
+            "app@example.invalid",
+        ];
+        let with_hosts = |value: &'static str| {
+            let mut args = pair.to_vec();
+            args.extend(["--trusted-allowed-hosts", value]);
+            load(&args)
+        };
+        assert_eq!(
+            with_hosts("Storage.Compose.Example., other.example,storage.compose.example")
+                .unwrap()
+                .trusted_allowed_hosts,
+            ["storage.compose.example", "other.example"]
+        );
+        assert!(load(&pair).unwrap().trusted_allowed_hosts.is_empty());
+        assert!(Config::default().trusted_allowed_hosts.is_empty());
+        let error = load(&["--trusted-allowed-hosts", "storage.compose.example"]).unwrap_err();
+        assert!(
+            error
+                .errors
+                .iter()
+                .any(|error| error.key == "--trusted-allowed-hosts"
+                    && error.fix.contains("requires trusted_listen")),
+            "{error}"
+        );
+        for value in [
+            "http://storage.example",
+            "storage.example:4444",
+            "*.example",
+            "storage.example,",
+            "127.0.0.1",
+            "bad host",
+        ] {
+            let error = with_hosts(value).unwrap_err();
+            assert!(
+                error
+                    .errors
+                    .iter()
+                    .any(|error| error.key == "--trusted-allowed-hosts"
+                        && error
+                            .fix
+                            .contains("trusted_allowed_hosts requires comma-separated DNS names")),
+                "{value}: {error}"
+            );
+        }
+        let many = (0..33)
+            .map(|index| format!("host{index}.example"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut args = pair.to_vec();
+        args.extend(["--trusted-allowed-hosts", many.as_str()]);
+        let error = load(&args).unwrap_err();
+        assert!(
+            error.errors.iter().any(|error| error
+                .fix
+                .contains("trusted_allowed_hosts supports at most 32 names")),
+            "{error}"
+        );
     }
 
     #[test]

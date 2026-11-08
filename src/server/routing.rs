@@ -33,10 +33,6 @@ pub(super) async fn respond(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    if let Err(error) = super::browser::refuse_on_trusted_listener(ctx.listener, request.headers())
-    {
-        return boxed(error.into_response());
-    }
     if let Some((uri, kind)) = resumable_protocol_path(&request, ctx) {
         *request.uri_mut() = uri;
         request.extensions_mut().insert(kind);

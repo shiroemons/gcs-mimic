@@ -62,8 +62,9 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
-  --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403; never publish it)
+  --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
   --trusted-principal ID       none (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; required with it)
+  --trusted-allowed-hosts LIST none (comma-separated dotted DNS names --trusted-listen also accepts as Host, such as a service alias; at most 32; requires --trusted-listen)
   --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
@@ -1027,7 +1028,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "73a884e8c43c04dac42d87e7d208670d174a28d06ee86e4f502c359b642841a8"
+            "e0350230141d8c38291cd063fc0149499621b158724002be8db85d9adc3ed19a"
         );
     }
 

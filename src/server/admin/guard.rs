@@ -3,10 +3,10 @@
 use crate::{
     config::{Config, EndpointSnapshot},
     json::JsonError,
-    server::{RequestBody, RequestCtx, browser},
+    server::{RequestBody, RequestCtx, browser, host},
     url::PublicOrigin,
 };
-use hyper::{Request, StatusCode, http::uri::Authority};
+use hyper::{Request, StatusCode};
 
 pub(super) fn browser_or_misdirected(
     request: &Request<RequestBody>,
@@ -31,45 +31,15 @@ pub(super) fn browser_or_misdirected(
     Ok(())
 }
 
-fn normalized_host(authority: &Authority) -> String {
-    let host = authority.host().to_ascii_lowercase();
-    host.strip_suffix('.').unwrap_or(&host).to_owned()
-}
-
 fn request_host(request: &Request<RequestBody>) -> Result<Option<String>, JsonError> {
-    let invalid =
-        || JsonError::invalid_argument("Require at most one valid management Host authority");
-    let mut hosts = request.headers().get_all("host").iter();
-    let host = hosts.next();
-    if hosts.next().is_some() {
-        return Err(invalid());
-    }
-    let authority = match request.uri().authority() {
-        Some(authority) => authority.clone(),
-        None => match host {
-            Some(host) => host
-                .to_str()
-                .ok()
-                .and_then(|v| v.parse::<Authority>().ok())
-                .ok_or_else(invalid)?,
-            None => return Ok(None),
-        },
-    };
-    if authority.as_str().contains('@')
-        || authority.host().is_empty()
-        || (authority.port().is_some() && authority.port_u16().is_none())
-    {
-        return Err(invalid());
-    }
-    Ok(Some(normalized_host(&authority)))
+    host::of_request(request.uri(), request.headers()).map_err(|host::InvalidHost| {
+        JsonError::invalid_argument("Require at most one valid management Host authority")
+    })
 }
 
 fn local_host(host: &str) -> bool {
-    host.trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<std::net::IpAddr>()
-        .is_ok()
-        || !host.contains('.')
+    host::is_ip_literal(host)
+        || host::is_single_label(host)
         || [
             "localhost",
             "internal",
@@ -101,7 +71,7 @@ fn host_allowed(host: &str, config: &Config, endpoints: &EndpointSnapshot) -> bo
                     .as_ref()
                     .map(PublicOrigin::authority),
             )
-            .any(|authority| normalized_host(authority) == host)
+            .any(|authority| host::normalized(authority) == host)
 }
 
 #[cfg(test)]
@@ -132,7 +102,7 @@ mod tests {
             assert!(!local_host(host), "{host}");
         }
         assert_eq!(
-            normalized_host(&"LOCALHOST.:4443".parse().unwrap()),
+            host::normalized(&"LOCALHOST.:4443".parse().unwrap()),
             "localhost"
         );
     }
