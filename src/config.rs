@@ -353,7 +353,11 @@ impl Config {
 
     /// Whether the built-in test signer exists, after the profile's default.
     pub fn effective_test_signer(&self) -> TestSigner {
-        TestSigner::resolve(self.test_signer, self.auth_mode)
+        TestSigner::resolve(
+            self.test_signer,
+            self.auth_mode,
+            self.effective_signed_urls(),
+        )
     }
 
     /// Whether signed XML requests verify, after the profile's default.
@@ -1795,7 +1799,12 @@ mod tests {
     fn test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
-        std::fs::write(&file, r#"{"test_signer":"disabled"}"#).unwrap();
+        // An explicit enabled needs signatures to verify, which permissive mode does only when asked.
+        std::fs::write(
+            &file,
+            r#"{"test_signer":"disabled","signed_urls":"verify"}"#,
+        )
+        .unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_TEST_SIGNER".into(), "enabled".into())]);
         assert_precedence(
@@ -1813,9 +1822,13 @@ mod tests {
         );
         let empty = BTreeMap::new();
         let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
+        let verify = ["--signed-urls", "verify"].map(str::to_owned);
         for (args, explicit, effective) in [
-            (&[][..], None, TestSigner::Enabled),
+            (&[][..], None, TestSigner::Disabled),
             (&[][..], Some("disabled"), TestSigner::Disabled),
+            (&verify[..], None, TestSigner::Enabled),
+            (&verify[..], Some("enabled"), TestSigner::Enabled),
+            (&verify[..], Some("disabled"), TestSigner::Disabled),
             (&strict[..], None, TestSigner::Disabled),
             (&strict[..], Some("disabled"), TestSigner::Disabled),
             (&strict[..], Some("enabled"), TestSigner::Enabled),
@@ -1848,6 +1861,15 @@ mod tests {
                 assert!(warnings.is_empty(), "{args:?}: {warnings:?}");
             }
         }
+        // Where signatures are ignored an enabled signer would promise what never happens.
+        let ignored = ["--test-signer", "enabled"].map(str::to_owned);
+        let error = Config::load(&ignored, &empty).unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "--test-signer: test_signer=enabled has no effect while signatures are ignored"
+            ),
+            "{error}"
+        );
         assert_rejected(
             "test_signer",
             &["", "true", "Disabled", "off"],
@@ -1893,6 +1915,7 @@ mod tests {
             &["--auth-mode", "strict"][..],
             &["--identity-file", "ids.json"],
             &["--signed-host-port", "lenient"],
+            &["--test-signer", "enabled"],
             &[
                 "--auth-mode",
                 "strict",

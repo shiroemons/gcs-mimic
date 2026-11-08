@@ -222,11 +222,13 @@ crate::config::string_enum! {
 impl TestSigner {
     /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
     /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
-    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there.
-    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
-        configured.unwrap_or(match mode {
-            AuthMode::Permissive => Self::Enabled,
-            AuthMode::Strict => Self::Disabled,
+    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there
+    /// and is enabled wherever signatures verify; where they are ignored it would do nothing.
+    pub fn resolve(configured: Option<Self>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+        configured.unwrap_or(match (mode, signed_urls) {
+            (AuthMode::Permissive, SignedUrls::Verify) => Self::Enabled,
+            (AuthMode::Permissive, SignedUrls::Ignore)
+            | (AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::Disabled,
         })
     }
 }

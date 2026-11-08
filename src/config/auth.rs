@@ -37,6 +37,7 @@ pub(super) enum Mismatch {
     StrictIgnoringSignatures,
     IdentityFileIgnored,
     LenientIgnored,
+    TestSignerIgnored,
 }
 
 impl Mismatch {
@@ -47,6 +48,7 @@ impl Mismatch {
             Self::StrictIgnoringSignatures => Setting::SignedUrls,
             Self::IdentityFileIgnored => Setting::IdentityFile,
             Self::LenientIgnored => Setting::SignedHostPort,
+            Self::TestSignerIgnored => Setting::TestSigner,
         }
     }
 
@@ -54,9 +56,10 @@ impl Mismatch {
     fn invalidates(self) -> Setting {
         match self {
             Self::StrictWithoutIdentityFile => Setting::IdentityFile,
-            Self::StrictIgnoringSignatures | Self::IdentityFileIgnored | Self::LenientIgnored => {
-                self.reported_at()
-            }
+            Self::StrictIgnoringSignatures
+            | Self::IdentityFileIgnored
+            | Self::LenientIgnored
+            | Self::TestSignerIgnored => self.reported_at(),
         }
     }
 
@@ -72,6 +75,9 @@ impl Mismatch {
                 Setting::SignedUrls,
                 Setting::SignedHostPort,
             ],
+            Self::TestSignerIgnored => {
+                &[Setting::AuthMode, Setting::SignedUrls, Setting::TestSigner]
+            }
         }
     }
 
@@ -90,6 +96,10 @@ impl Mismatch {
             // nothing is verified.
             Self::LenientIgnored => {
                 "signed_host_port=lenient has no effect while signatures are ignored; set signed_urls=verify or auth_mode=strict, or remove the setting."
+            }
+            // An explicit disabled stays accepted: it is already true where nothing verifies.
+            Self::TestSignerIgnored => {
+                "test_signer=enabled has no effect while signatures are ignored; set signed_urls=verify or auth_mode=strict, or remove the setting."
             }
         }
     }
@@ -145,6 +155,8 @@ impl AuthProfile {
                         .then_some(Mismatch::IdentityFileIgnored),
                     (config.signed_host_port == SignedHostPort::Lenient)
                         .then_some(Mismatch::LenientIgnored),
+                    (config.test_signer == Some(TestSigner::Enabled))
+                        .then_some(Mismatch::TestSignerIgnored),
                 ]
                 .into_iter()
                 .flatten()

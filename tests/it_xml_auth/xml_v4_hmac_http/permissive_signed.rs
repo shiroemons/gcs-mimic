@@ -280,6 +280,7 @@ fn the_default_ignore_profile_still_accepts_unverifiable_signatures() {
     let dir = TestDir::new();
     let server = permissive(&dir, &[]);
     assert_eq!(server.ready["signed_urls"], "ignore");
+    assert_eq!(server.ready["test_signer"], "disabled");
     server.bucket("test-bucket");
     let now = SystemTime::now();
     bare(&server, "PUT", &unsigned("/test-bucket/object"), b"bytes").expect(200);
@@ -383,6 +384,10 @@ fn startup_pairs_identity_files_and_signed_urls_with_the_profile() {
             vec!["--signed-urls", "verify", "--identity-file", &missing_keys],
             "missing required field: public_keys".into(),
         ),
+        (
+            vec!["--test-signer", "enabled"],
+            "test_signer=enabled has no effect while signatures are ignored".into(),
+        ),
     ];
     for (path, field) in [&roles, &alias, &tokens, &pap] {
         cases.push((
@@ -425,4 +430,9 @@ fn startup_pairs_identity_files_and_signed_urls_with_the_profile() {
         let server = permissive(&data, args);
         assert_eq!(server.ready["signed_urls"], "verify", "{args:?}");
     }
+    // An explicit disabled is already true where nothing verifies, so it stays accepted.
+    let data = TestDir::new();
+    let server = permissive(&data, &["--test-signer", "disabled"]);
+    assert_eq!(server.ready["signed_urls"], "ignore");
+    assert_eq!(server.ready["test_signer"], "disabled");
 }

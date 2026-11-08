@@ -295,7 +295,8 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["memory_catalog_max_bytes"], 16 * 1024 * 1024);
         assert_eq!(ready["auth_mode"], "permissive");
         assert!(ready.get("identities").is_none());
-        assert_eq!(ready["test_signer"], "enabled");
+        // Signatures are ignored by default, so the built-in signer would do nothing.
+        assert_eq!(ready["test_signer"], "disabled");
         assert_eq!(ready["signed_urls"], "ignore");
         assert_eq!(ready["max_connections"], 1024);
         assert_eq!(ready["max_object_bytes"], 5 * 1024_u64.pow(4));

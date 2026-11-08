@@ -112,7 +112,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
   --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; permissive verify checks signed XML requests, then grants permissive access)
-  --test-signer MODE           enabled when permissive, disabled when strict (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; local tests only)
+  --test-signer MODE           enabled with permissive --signed-urls verify, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -1002,7 +1002,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "be4c80e0b461536221b07e7a6688fc35b6c3e2ae69701328c996778450928d31"
+            "a1722f7bc5b66af7b4f1f3d52cf7ddede4d93062a2f64e587e9be01ea749b2ad"
         );
     }
 

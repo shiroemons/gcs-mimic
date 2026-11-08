@@ -329,10 +329,14 @@ and the ready event reports the effective value as `"test_signer"`:
 
 | Profile | Default | Why |
 | --- | --- | --- |
-| `permissive` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
+| `permissive` with `signed_urls=verify` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
+| `permissive` with the default `signed_urls=ignore` | `disabled` | No signature is verified, so the signer would do nothing |
 | `strict` | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
 
-An explicit `disabled` is honored in both profiles.
+An explicit `disabled` is accepted everywhere. An explicit `enabled` in
+permissive mode with `signed_urls=ignore` fails startup ("test_signer=enabled has
+no effect while signatures are ignored"), because it would promise a
+verification that never happens.
 
 - **Strict mode with `test_signer=enabled`**: startup emits one warning before
   readiness that the signer's private key is published, so anyone can
@@ -351,8 +355,9 @@ An explicit `disabled` is honored in both profiles.
   built-in signer. An identity file entry with its ID is an ordinary identity
   with only the file's own keys. Signatures made with the published key fail
   with 403 `InvalidAccessKeyId` and its JWTs with 401.
-- **Permissive mode** ignores signatures by default. With `signed_urls=verify`
-  the built-in key verifies them unless `test_signer=disabled`; see
+- **Permissive mode** ignores signatures by default, so the signer is disabled.
+  With `signed_urls=verify` the built-in key verifies them unless
+  `test_signer=disabled`; see
   [verifying signed requests in permissive mode](#verifying-signed-requests-in-permissive-mode).
 
 The ready event's `identities` counts only the identity file's entries. To use
@@ -555,8 +560,8 @@ JSON API routes are unchanged.
 
 Signatures verify with these keys:
 
-- the [built-in test signer](#built-in-test-signer), enabled by default in
-  permissive mode;
+- the [built-in test signer](#built-in-test-signer), enabled by default when
+  permissive mode verifies signatures;
 - ACTIVE HMAC keys created through the JSON API. Their service account needs
   no identity entry, since nothing is authorized by identity;
 - RSA public keys from an identity file. Permissive mode accepts
