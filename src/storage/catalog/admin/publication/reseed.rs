@@ -404,17 +404,14 @@ fn commit(
             }
             Some(_) => {}
             None => {
-                crate::storage::catalog::insert_bucket_in_transaction(
+                let creation = crate::storage::catalog::BucketCreation::default_policy(
+                    batch.admin.origin(),
+                    batch.admin.catalog.default_soft_delete_retention(),
+                );
+                crate::storage::catalog::create_bucket_in_transaction(
                     &transaction,
                     &mut record.clone(),
-                    batch.admin.catalog.default_soft_delete_retention(),
-                )?;
-                crate::storage::catalog::change_journal::append(
-                    &transaction,
-                    batch.admin.origin(),
-                    crate::storage::catalog::change_journal::ChangeKind::BucketCreate,
-                    &record.name,
-                    None,
+                    creation,
                 )?;
                 counts.buckets += 1;
             }

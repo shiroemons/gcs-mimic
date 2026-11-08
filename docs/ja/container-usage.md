@@ -308,6 +308,11 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 バケット数をreadyの`reconciled`へ出します。項目が書かないフィールドはAPIでの変更を保ち、
 バケットのロケーションは変わりません。
 
+項目からフィールドを消しても、どちらのモードでもバケットは元に戻りません。`allUsers`の
+`iamPolicy`を消してもバケットは公開のままで、次回起動で一度だけ`iamPolicy`を書かなくなった
+ことを警告します。望む値、たとえば`"iamPolicy":{"bindings":[]}`を書いてください。
+0.13.0から更新した最初の起動でも、項目と異なる既存バケットごとに一度だけ警告します。
+
 選択順は`--buckets-file PATH`、`GCS_MIMIC_BUCKETS_FILE`、サーバーJSONの
 `buckets_file`です。`buckets_file_mode`（`--buckets-file-mode`、
 `GCS_MIMIC_BUCKETS_FILE_MODE`、既定`create`）も同じ順で選び、`buckets_file`なしで

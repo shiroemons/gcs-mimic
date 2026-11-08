@@ -9,7 +9,10 @@ use crate::{
     test_support::TestDir,
 };
 
-const DIGEST: EntryDigest = EntryDigest::new([7; 32]);
+const DIGEST: RecordedEntry = RecordedEntry {
+    digest: EntryDigest::new([7; 32]),
+    members: MemberBits::new(0b101),
+};
 
 fn target(name: &str) -> InitTarget {
     InitTarget {
@@ -32,7 +35,7 @@ async fn create(catalog: &Catalog, name: &str) {
             let creation = Creation {
                 definition,
                 policy: None,
-                digest: DIGEST,
+                entry: DIGEST,
             };
             Ok::<_, AdminError>((vec![Planned::Create(Box::new(creation))], ()))
         })
@@ -40,17 +43,28 @@ async fn create(catalog: &Catalog, name: &str) {
         .unwrap();
 }
 
-/// The digest a start would observe for `name`, or `None` when the bucket is missing.
-async fn observed_digest(catalog: &Catalog, name: &str) -> Option<Option<EntryDigest>> {
+/// Runs one plan step for `name` that changes nothing but the recorded entry.
+async fn record(catalog: &Catalog, name: &str, update: EntryUpdate) {
+    catalog
+        .admin(Origin::BucketInit)
+        .initialize_buckets(vec![target(name)], move |_| {
+            Ok::<_, AdminError>((vec![Planned::Record(update)], ()))
+        })
+        .await
+        .unwrap();
+}
+
+/// The entry a start would observe for `name`, or `None` when the bucket is missing.
+async fn observed_digest(catalog: &Catalog, name: &str) -> Option<Option<RecordedEntry>> {
     catalog
         .admin(Origin::BucketInit)
         .initialize_buckets(vec![target(name)], |observed| {
-            let digest = observed
+            let entry = observed
                 .into_iter()
                 .next()
                 .and_then(|observed| observed.existing)
-                .map(|stored| stored.digest);
-            Ok::<_, AdminError>((vec![Planned::Keep], digest))
+                .map(|stored| stored.entry);
+            Ok::<_, AdminError>((vec![Planned::Keep], entry))
         })
         .await
         .unwrap()
@@ -133,7 +147,7 @@ async fn deleting_or_soft_deleting_a_bucket_forgets_its_entry_and_restore_starts
 }
 
 #[tokio::test]
-async fn record_replaces_the_digest_without_touching_the_bucket() {
+async fn record_replaces_the_entry_or_its_members_without_touching_the_bucket() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     create(&catalog, "kept-bucket").await;
@@ -142,17 +156,24 @@ async fn record_replaces_the_digest_without_touching_the_bucket() {
         .await
         .unwrap()
         .unwrap();
-    let replaced = EntryDigest::new([9; 32]);
-    catalog
-        .admin(Origin::BucketInit)
-        .initialize_buckets(vec![target("kept-bucket")], move |_| {
-            Ok::<_, AdminError>((vec![Planned::Record(replaced)], ()))
-        })
-        .await
-        .unwrap();
+    let replaced = RecordedEntry {
+        digest: EntryDigest::new([9; 32]),
+        members: MemberBits::new(0b1),
+    };
+    record(&catalog, "kept-bucket", EntryUpdate::Matched(replaced)).await;
     assert_eq!(
         observed_digest(&catalog, "kept-bucket").await,
         Some(Some(replaced))
+    );
+    // Only the members move, so the recorded digest still reports the difference.
+    let members = MemberBits::new(0b110);
+    record(&catalog, "kept-bucket", EntryUpdate::Members(members)).await;
+    assert_eq!(
+        observed_digest(&catalog, "kept-bucket").await,
+        Some(Some(RecordedEntry {
+            digest: replaced.digest,
+            members
+        }))
     );
     assert_eq!(
         catalog
@@ -162,5 +183,12 @@ async fn record_replaces_the_digest_without_touching_the_bucket() {
             .unwrap(),
         before
     );
+    // A bucket without a record gets none from a members-only update.
+    catalog
+        .insert_bucket(definition("api-bucket").into_record())
+        .await
+        .unwrap();
+    record(&catalog, "api-bucket", EntryUpdate::Members(members)).await;
+    assert_eq!(observed_digest(&catalog, "api-bucket").await, Some(None));
     catalog.close().await.unwrap();
 }
