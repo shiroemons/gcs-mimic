@@ -41621,7 +41621,7 @@
         },
         {
           "id": "DESIGN-001-SELECTION",
-          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it. Validation alone selects the profile that startup loads: settings that disagree, including signed_host_port=lenient or an explicit test_signer=enabled while signatures are ignored, leave no profile, and loading reports only identity file contents.",
+          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without an identity document unless the settings ask for a built-in identity (trusted_listen without trusted_principal, or an explicit test_signer=enabled), strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it. Validation alone selects the profile that startup loads: settings that disagree, including signed_host_port=lenient or an explicit test_signer=enabled while signatures are ignored, leave no profile, and loading reports only identity file contents.",
           "result": "PASS",
           "test_ids": [
             "config::tests::authentication_profile_precedence_and_validation",
@@ -47240,7 +47240,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-045-TEST-SIGNER",
-          "description": "test_signer defaults to enabled in permissive mode with signed_urls=verify and in strict mode when the identity document (identity_file or identities) declares test-signer@gcs-mimic.invalid, and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Validation selects the rule (an explicit or profile value, or strict mode's declaration rule) and loading settles the declaration rule against the document. Strict mode without such an entry, or with test_signer=disabled, has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and under test_signer=disabled an entry with its ID stays an ordinary identity without the key. A strict signer that is enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use, keyed to the test_signer input when that enabled it and otherwise to the identity setting's input, whose message names the declaration and test_signer=disabled; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity entry it holds roles/storage.objectUser in seed_project and in every project the buckets document names, which the warning states: signed GET and PUT there succeed while a bucket IAM policy change and an ACL change on another identity's object or the bucket get 403, and in other projects its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity instead and gains the built-in key; an alias naming it fails startup; identities counts only document entries.",
+          "description": "test_signer defaults to enabled in permissive mode with signed_urls=verify and in strict mode when the identity document (identity_file or identities) declares test-signer@gcs-mimic.invalid, and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Validation selects the rule (an explicit or profile value, or strict mode's declaration rule) and loading settles the declaration rule against the document. An explicit test_signer=enabled also lets strict mode start without an identity document, with identities 0. Strict mode without such an entry, or with test_signer=disabled, has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and under test_signer=disabled an entry with its ID stays an ordinary identity without the key. A strict signer that is enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use, keyed to the test_signer input when that enabled it and otherwise to the identity setting's input, whose message names the declaration and test_signer=disabled; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity entry it holds roles/storage.objectUser in seed_project and in every project the buckets document names, which the warning states: signed GET and PUT there succeed while a bucket IAM policy change and an ACL change on another identity's object or the bucket get 403, and in other projects its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity instead and gains the built-in key; an alias naming it fails startup; identities counts only document entries.",
           "result": "PASS",
           "test_ids": [
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
@@ -47249,6 +47249,7 @@
             "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
             "an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_nothing",
             "auth::test_signer::tests::an_undeclared_signer_reads_and_writes_objects_in_the_implicit_projects_only",
+            "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
             "a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode",
             "auth::test_signer::tests::an_undeclared_signer_exists_without_project_roles_or_tokens",
             "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
@@ -47353,6 +47354,7 @@
         "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
         "an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_nothing",
         "auth::test_signer::tests::an_undeclared_signer_reads_and_writes_objects_in_the_implicit_projects_only",
+        "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
         "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
         "credentials_print_a_service_account_key_file_for_the_built_in_signer",
         "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
@@ -47371,6 +47373,7 @@
             "strict_mode_has_no_built_in_signer_by_default_or_when_disabled",
             "a_declared_signer_enables_the_built_in_key_by_default_and_warns_at_its_setting",
             "an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_nothing",
+            "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
             "a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode"
           ]
         },
@@ -56050,6 +56053,16 @@
           ]
         },
         {
+          "id": "DESIGN-101-WITHOUT-IDENTITIES",
+          "description": "Strict mode starts without identity_file or identities when trusted_listen names no trusted_principal, or when test_signer=enabled is explicit; ready then reports identities 0 and the effective trusted_principal and test signer, the built-in application reads and writes the buckets document's private bucket on the trusted listener while the main listener answers 401. Otherwise, including an explicit test_signer=disabled or a named trusted_principal, startup fails before readiness with one auth_mode diagnostic that names identity_file or identities, trusted_listen without trusted_principal and test_signer enabled; an invalid test_signer value is reported alone. Validation decides it, so loading never re-checks the pairing.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_mode_starts_without_identities_for_the_built_in_app",
+            "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
+            "config::auth::tests::strict_mode_starts_without_identities_only_for_a_requested_built_in"
+          ]
+        },
+        {
           "id": "DESIGN-101-PRINCIPAL",
           "description": "The principal must name an identity of the loaded registry, including the built-in test signer only when it is enabled; an unknown principal stops startup before the data directory is created; permissive mode cannot trust a principal; without a trusted principal the trusted role stays anonymous.",
           "result": "PASS",
@@ -56126,6 +56139,9 @@
         "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
         "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
         "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity",
+        "strict_mode_starts_without_identities_for_the_built_in_app",
+        "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
+        "config::auth::tests::strict_mode_starts_without_identities_only_for_a_requested_built_in",
         "config::unix_tests::unix_socket_configuration_has_no_implicit_tcp_or_tls_fallback",
         "help_output_keeps_its_exact_bytes",
         "auth::tests::the_trusted_listener_changes_only_requests_without_credentials",
@@ -56179,6 +56195,17 @@
             "auth::built_in::tests::the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_listener",
             "auth::built_in::tests::a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants",
             "auth::built_in::tests::an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- config:: auth:: bucket_init; cargo test --locked --test it_xml_auth",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/slices/strict-auth.md",
+          "test_ids": [
+            "strict_mode_starts_without_identities_for_the_built_in_app",
+            "strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer",
+            "config::auth::tests::strict_mode_starts_without_identities_only_for_a_requested_built_in"
           ]
         },
         {

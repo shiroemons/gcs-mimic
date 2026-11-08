@@ -2301,7 +2301,7 @@ mod tests {
                 "enabled"
             ]),
             Some(AuthProfile::Strict {
-                identities: DocumentSource::File("ids.json".into()),
+                identities: Some(DocumentSource::File("ids.json".into())),
                 verification: verification(TestSigner::Enabled, None),
                 trusted: TrustedCaller::Anonymous,
             })

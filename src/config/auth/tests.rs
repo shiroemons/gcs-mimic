@@ -435,6 +435,78 @@ fn a_declared_app_entry_replaces_the_implicit_grants() {
     }
 }
 
+/// Strict mode may start with built-in identities only where the settings ask for one;
+/// otherwise a forgotten document fails loudly instead of answering 401 to everything.
+#[test]
+fn strict_mode_starts_without_identities_only_for_a_requested_built_in() {
+    let empty = BTreeMap::new();
+    for (args, test_signer, trusted) in [
+        (
+            &["--trusted-listen", "127.0.0.1:0"][..],
+            TestSigner::Disabled,
+            Some(TRUSTED_APP_ID),
+        ),
+        (&["--test-signer", "enabled"], TestSigner::Enabled, None),
+        (
+            &[
+                "--test-signer",
+                "enabled",
+                "--trusted-listen",
+                "127.0.0.1:0",
+                "--trusted-principal",
+                test_signer::ID,
+            ],
+            TestSigner::Enabled,
+            Some(test_signer::ID),
+        ),
+    ] {
+        let args = [&["--auth-mode", "strict"][..], args].concat();
+        let mut report = report(&args);
+        let auth = report.load_auth();
+        assert!(
+            !report.diagnostics.is_err(),
+            "{args:?}: {}",
+            report.diagnostics
+        );
+        assert_eq!(auth.identity_count(), Some(0), "{args:?}");
+        assert_eq!(auth.test_signer(), test_signer, "{args:?}");
+        assert_eq!(auth.trusted_principal(), trusted, "{args:?}");
+    }
+    for args in [
+        &[][..],
+        &["--test-signer", "disabled"],
+        &[
+            "--trusted-listen",
+            "127.0.0.1:0",
+            "--trusted-principal",
+            "app@example.invalid",
+        ],
+    ] {
+        let args = [&["--auth-mode", "strict"][..], args].concat();
+        let report = Config::preflight(&strings(&args), &empty);
+        assert_eq!(report.auth_profile(), None, "{args:?}");
+        let errors = &report.diagnostics.errors;
+        assert_eq!(errors.len(), 1, "{args:?}: {errors:?}");
+        assert_eq!(errors[0].key, "--auth-mode");
+        for expected in [
+            "requires identity_file or identities",
+            "--trusted-listen without --trusted-principal",
+            "--test-signer enabled",
+        ] {
+            assert!(errors[0].fix.contains(expected), "{errors:?}");
+        }
+    }
+    // An invalid test_signer already explains the missing document.
+    let errors = Config::preflight(
+        &strings(&["--auth-mode", "strict", "--test-signer", "maybe"]),
+        &empty,
+    )
+    .diagnostics
+    .errors;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].key, "--test-signer");
+}
+
 #[test]
 fn unknown_principals_name_the_setting_that_supplied_the_registry() {
     let dir = TestDir::new();

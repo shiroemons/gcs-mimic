@@ -157,7 +157,7 @@ mod tests {
         // Loading reports only identity file contents; the pairing rules belong to validation.
         let error = Auth::load(
             &AuthProfile::Strict {
-                identities: DocumentSource::File(path),
+                identities: Some(DocumentSource::File(path)),
                 verification: Verification {
                     test_signer: TestSignerChoice::Fixed(TestSigner::Disabled),
                     signed_host_port: Some(SignedHostPort::Lenient),

@@ -29,7 +29,7 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 | --- | --- |
 | Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked. A later opt-in, `signed_urls=verify`, verifies signed XML requests first without adding permission checks; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Profile selection | `--auth-mode` / `GCS_MIMIC_AUTH_MODE` / JSON `auth_mode` follow the existing CLI > environment > file > default precedence; other values fail startup |
-| Profile/registry pairing | `strict` without an identity document (`identity_file` or the inline `identities`) and either setting with `permissive` fail before the catalog opens or the listener binds; naming both settings fails too. The later `signed_urls=verify` opt-in accepts the document in permissive mode for `id` and `public_keys` only; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
+| Profile/registry pairing | `strict` without an identity document (`identity_file` or the inline `identities`) and either setting with `permissive` fail before the catalog opens or the listener binds; naming both settings fails too. Strict mode starts without a document only when the settings ask for a built-in identity, `trusted_listen` without `trusted_principal` or `test_signer=enabled`, and the error names those options. The later `signed_urls=verify` opt-in accepts the document in permissive mode for `id` and `public_keys` only; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Registry validation | Unknown keys, limits, duplicate IDs/tokens, invalid project IDs, unknown or basic roles and malformed/oversized files fail startup without a partial load; tokens are never echoed |
 | Ready event | Strict mode reports `"auth_mode":"strict"` and the registered identity count |
 | Anonymous caller | No `Authorization` header: 401 `required` with the documented example body on every supported route, including missing buckets |
@@ -62,7 +62,12 @@ precedence: CLI `--auth-mode` / `--identity-file` / `--identities`, environment
 `identities` holds the registry object or a string that contains it. An empty
 `identity_file` or `identities`, both of them together, an unknown mode, `strict`
 without a registry or a registry with `permissive` fail startup before the catalog
-is created or the listener binds. Since `signed_urls=verify`, a permissive registry
+is created or the listener binds. Strict mode without a registry is accepted only
+where the settings ask for a built-in identity: `trusted_listen` without
+`trusted_principal` (the application identity below), or an explicit
+`test_signer=enabled`. It then starts with those identities alone and reports
+`"identities":0`; otherwise a forgotten document fails loudly instead of
+answering 401 to every request, and the error suggests both options. Since `signed_urls=verify`, a permissive registry
 is accepted for its `id` and `public_keys` only, to verify signatures.
 
 Both settings accept the same document, limits and validation. A load failure

@@ -411,6 +411,59 @@ fn an_undeclared_signer_reads_and_writes_the_setups_buckets_but_administers_noth
     );
 }
 
+/// An explicitly enabled signer needs no identity document; without one and without any other
+/// built-in identity, strict mode refuses to start and names the ways to fix that.
+#[test]
+fn strict_mode_starts_without_identities_only_for_an_explicitly_enabled_signer() {
+    let data = TestDir::new();
+    let buckets = json!({"version":1,"buckets":[{"name":"signer-bucket"}]}).to_string();
+    let args = [
+        "--auth-mode",
+        "strict",
+        "--test-signer",
+        "enabled",
+        "--buckets",
+        buckets.as_str(),
+    ];
+    let (server, ready) = Server::start_with_stderr(&data, &args, Stdio::null());
+    assert_eq!(ready["identities"], 0, "{ready}");
+    assert_eq!(ready["test_signer"], "enabled");
+    assert_eq!(ready["signed_host_port"], "lenient");
+    // The bucket inherits seed_project, where the signer holds its implicit role.
+    for method in [Method::PUT, Method::GET] {
+        let url = sign(
+            &server,
+            &method,
+            "/signer-bucket/signed.txt",
+            test_signer::ID,
+            SystemTime::now(),
+            HeaderMap::new(),
+        );
+        send(&server, method.as_str(), &url, "").success();
+    }
+    for options in [&[][..], &["--test-signer", "disabled"]] {
+        let data = TestDir::new();
+        let output = common::server_command()
+            .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
+            .args(["--auth-mode", "strict"])
+            .args(options)
+            .arg("--data-dir")
+            .arg(&data.0)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{options:?}");
+        assert!(output.stdout.is_empty(), "{options:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for expected in [
+            "auth_mode=strict requires identity_file or identities",
+            "--trusted-listen without --trusted-principal",
+            "--test-signer enabled",
+        ] {
+            assert!(stderr.contains(expected), "{options:?}: {stderr}");
+        }
+    }
+}
+
 #[test]
 fn a_self_signed_jwt_from_an_enabled_built_in_signer_authenticates_in_strict_mode() {
     let (_config, _data, server, _ready) =

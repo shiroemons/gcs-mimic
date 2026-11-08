@@ -652,21 +652,25 @@ impl std::error::Error for RegistryError {
 /// `identity_file` for a file and `identities` for the inline document.
 #[derive(Debug)]
 pub struct IdentityError {
-    form: Form,
+    /// `None` when strict mode started without a document, with built-in identities only.
+    form: Option<Form>,
     source: RegistryError,
 }
 
 impl IdentityError {
-    fn new(document: &DocumentSource, source: RegistryError) -> Self {
+    fn new(document: Option<&DocumentSource>, source: RegistryError) -> Self {
         Self {
-            form: document.form(),
+            form: document.map(DocumentSource::form),
             source,
         }
     }
 
-    /// The setting that supplied the document.
+    /// The setting that supplied the document. Without one only the built-in identities exist,
+    /// so a failure concerns the strict profile itself.
     pub(crate) fn setting(&self) -> Setting {
-        DocumentKind::Identities.setting(self.form)
+        self.form.map_or(Setting::AuthMode, |form| {
+            DocumentKind::Identities.setting(form)
+        })
     }
 }
 
@@ -722,13 +726,16 @@ fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryErr
 impl Registry {
     /// Strict mode's principals, with the built-in test signer when `signer` settles to enabled.
     fn load_principals(
-        source: &DocumentSource,
+        source: Option<&DocumentSource>,
         signer: TestSignerChoice,
         trusted: &TrustedCaller,
         projects: &BTreeSet<String>,
     ) -> Result<(Self, TestSigner), IdentityError> {
         let load = || {
-            let mut registry = Self::parse(&read_identities(source)?)?;
+            let mut registry = match source {
+                Some(source) => Self::parse(&read_identities(source)?)?,
+                None => Self::without_document(),
+            };
             let signer = signer.settle(|| registry.declares(test_signer::ID));
             match signer {
                 TestSigner::Enabled => registry.add_test_signer(projects)?,
@@ -755,7 +762,7 @@ impl Registry {
             Some(source) => {
                 read_identities(source)
                     .and_then(|bytes| Self::parse_for(&bytes, IdentityUse::SigningKeys))
-                    .map_err(|error| IdentityError::new(source, error))?
+                    .map_err(|error| IdentityError::new(Some(source), error))?
                     .signing_keys
             }
             None => SigningKeys::default(),
@@ -770,6 +777,20 @@ impl Registry {
 
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
         Self::parse_for(bytes, IdentityUse::Principals)
+    }
+
+    /// A strict registry without an identity document, where only the built-in identities that
+    /// loading adds will exist.
+    fn without_document() -> Self {
+        Self {
+            identities: Vec::new(),
+            declared: 0,
+            ids: HashMap::new(),
+            tokens: HashMap::new(),
+            signing_keys: SigningKeys::default(),
+            public_access_prevention_projects: Vec::new(),
+            trusted: None,
+        }
     }
 
     fn parse_for(bytes: &[u8], usage: IdentityUse) -> Result<Self, RegistryError> {
@@ -1147,7 +1168,7 @@ impl Auth {
                 trusted,
             } => {
                 let (registry, signer) = Registry::load_principals(
-                    identities,
+                    identities.as_ref(),
                     verification.test_signer,
                     trusted,
                     implicit_projects,
@@ -2327,7 +2348,7 @@ mod tests {
                 (DocumentSource::Inline(document), "identities: "),
             ] {
                 let error = Registry::load_principals(
-                    &source,
+                    Some(&source),
                     TestSignerChoice::WhenDeclared,
                     &TrustedCaller::Anonymous,
                     &BTreeSet::new(),
@@ -2427,7 +2448,7 @@ mod tests {
         document.push_str(&" ".repeat(limit - document.len()));
         let load = |source: &DocumentSource| {
             Registry::load_principals(
-                source,
+                Some(source),
                 TestSignerChoice::WhenDeclared,
                 &TrustedCaller::Anonymous,
                 &BTreeSet::new(),

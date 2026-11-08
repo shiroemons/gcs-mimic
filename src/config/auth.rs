@@ -53,9 +53,11 @@ pub enum AuthProfile {
         identities: Option<DocumentSource>,
         verification: Verification,
     },
-    /// Registered principals and their grants authorize every request.
+    /// Registered principals and their grants authorize every request. Without an identity
+    /// document only built-in identities exist, which validation allows only where one of them
+    /// was asked for.
     Strict {
-        identities: DocumentSource,
+        identities: Option<DocumentSource>,
         verification: Verification,
         trusted: TrustedCaller,
     },
@@ -100,7 +102,14 @@ impl Mismatch {
     /// Settings whose own invalid value already explains the mismatch.
     fn depends_on(self) -> &'static [Setting] {
         match self {
-            Self::StrictWithoutIdentities => IDENTITY_SETTINGS,
+            // An invalid built-in request already explains why none started the registry.
+            Self::StrictWithoutIdentities => &[
+                Setting::IdentityFile,
+                Setting::Identities,
+                Setting::TestSigner,
+                Setting::TrustedListen,
+                Setting::TrustedPrincipal,
+            ],
             Self::StrictIgnoringSignatures => &[Setting::AuthMode, Setting::SignedUrls],
             Self::IdentitiesIgnored(_) => &[
                 Setting::AuthMode,
@@ -121,8 +130,10 @@ impl Mismatch {
 
     fn fix(self) -> Cow<'static, str> {
         match self {
+            // Without a registry every request would answer 401, so a forgotten document fails
+            // here unless a built-in identity was asked for.
             Self::StrictWithoutIdentities => {
-                "auth_mode=strict requires identity_file or identities; provide --identity-file identities.json or the registry itself with --identities JSON.".into()
+                "auth_mode=strict requires identity_file or identities; provide --identity-file identities.json or the registry itself with --identities JSON. To start with built-in identities only, set --trusted-listen without --trusted-principal, or --test-signer enabled.".into()
             }
             Self::StrictIgnoringSignatures => {
                 "signed_urls=ignore requires auth_mode=permissive; strict mode always verifies signatures. Remove the setting or use signed_urls=verify.".into()
@@ -156,6 +167,14 @@ const PROFILE_SETTINGS: [Setting; 6] = [
 ];
 
 impl AuthProfile {
+    /// Whether strict mode may start without an identity document: the settings ask for a
+    /// built-in identity, the trusted listener's application or an explicitly enabled test
+    /// signer, so the server has a caller to authorize.
+    fn built_in_only(config: &Config) -> bool {
+        TrustedCaller::select(config) == TrustedCaller::BuiltIn
+            || config.test_signer == Some(TestSigner::Enabled)
+    }
+
     /// The profile the configuration selects, or every setting that contradicts it.
     pub(super) fn select(config: &Config) -> Result<Self, Vec<Mismatch>> {
         let verification = Verification {
@@ -173,21 +192,21 @@ impl AuthProfile {
         ) {
             (AuthMode::Strict, Some(SignedUrls::Ignore), identities) => {
                 let mut mismatches = vec![Mismatch::StrictIgnoringSignatures];
-                if identities.is_none() {
+                if identities.is_none() && !Self::built_in_only(config) {
                     mismatches.push(Mismatch::StrictWithoutIdentities);
                 }
                 Err(mismatches)
             }
-            (AuthMode::Strict, None | Some(SignedUrls::Verify), Some(identities)) => {
-                Ok(Self::Strict {
-                    identities: identities.clone(),
-                    verification,
-                    trusted: TrustedCaller::select(config),
-                })
-            }
-            (AuthMode::Strict, None | Some(SignedUrls::Verify), None) => {
+            (AuthMode::Strict, None | Some(SignedUrls::Verify), None)
+                if !Self::built_in_only(config) =>
+            {
                 Err(vec![Mismatch::StrictWithoutIdentities])
             }
+            (AuthMode::Strict, None | Some(SignedUrls::Verify), identities) => Ok(Self::Strict {
+                identities: identities.cloned(),
+                verification,
+                trusted: TrustedCaller::select(config),
+            }),
             (AuthMode::Permissive, Some(SignedUrls::Verify), identities) => {
                 Ok(Self::VerifyingPermissive {
                     identities: identities.cloned(),
@@ -265,9 +284,8 @@ impl ConfigurationReport {
         let Some(profile) = &self.auth_profile else {
             return Auth::permissive();
         };
-        // Only a strict registry has principals for a setting to name, and built-in identities
-        // with implicit roles.
-        let (registry, implicit_projects) = match profile {
+        // Only strict mode has built-in identities with implicit roles.
+        let (document, implicit_projects) = match profile {
             AuthProfile::Strict {
                 identities,
                 verification,
@@ -284,19 +302,19 @@ impl ConfigurationReport {
                         TestSignerChoice::Fixed(TestSigner::Disabled),
                     ) => BTreeSet::new(),
                 };
-                (Some(identities.form()), projects)
+                (identities.as_ref(), projects)
             }
-            AuthProfile::Permissive | AuthProfile::VerifyingPermissive { .. } => {
-                (None, BTreeSet::new())
+            AuthProfile::VerifyingPermissive { identities, .. } => {
+                (identities.as_ref(), BTreeSet::new())
             }
+            AuthProfile::Permissive => (None, BTreeSet::new()),
         };
+        // The setting that supplied the identity document, which messages name.
+        let registry = document.map(|source| DocumentKind::Identities.setting(source.form()));
         match Auth::load(profile, &implicit_projects) {
             Ok(mut auth) => {
-                if let Some(form) = registry {
-                    let registry = DocumentKind::Identities.setting(form);
-                    self.warn_strict_test_signer(&auth, registry, &implicit_projects);
-                    self.resolve_principals(&mut auth, registry);
-                }
+                self.warn_strict_test_signer(&auth, registry, &implicit_projects);
+                self.resolve_principals(&mut auth, registry);
                 auth
             }
             Err(error) => {
@@ -316,12 +334,13 @@ impl ConfigurationReport {
     fn warn_strict_test_signer(
         &mut self,
         auth: &Auth,
-        registry: Setting,
+        registry: Option<Setting>,
         projects: &BTreeSet<String>,
     ) {
-        match auth.test_signer() {
-            TestSigner::Enabled => {}
-            TestSigner::Disabled => return,
+        // Permissive mode authorizes nothing by identity, so the published key exposes nothing.
+        match (auth.mode(), auth.test_signer()) {
+            (AuthMode::Strict, TestSigner::Enabled) => {}
+            (AuthMode::Permissive, _) | (AuthMode::Strict, TestSigner::Disabled) => return,
         }
         let id = test_signer::ID;
         let implicit = if auth.declares(id) {
@@ -337,13 +356,13 @@ impl ConfigurationReport {
                     .join(", ")
             )
         };
-        let (setting, cause, remedy) = match self.config.test_signer {
-            Some(_) => (
+        let (setting, cause, remedy) = match (self.config.test_signer, registry) {
+            (Some(_), _) => (
                 Setting::TestSigner,
                 "test_signer=enabled in strict mode".to_owned(),
                 "",
             ),
-            None => (
+            (None, Some(registry)) => (
                 registry,
                 format!(
                     "{} declares {id}, so strict mode enables the built-in test signer",
@@ -351,6 +370,8 @@ impl ConfigurationReport {
                 ),
                 ", or set test_signer=disabled to keep the entry without the built-in key",
             ),
+            // Without a document nothing declares the signer, so only test_signer enables it.
+            (None, None) => return,
         };
         if let Some(input) = self.settings.get(setting.as_str()) {
             self.diagnostics.warnings.push(Diagnostic::new(
@@ -363,11 +384,19 @@ impl ConfigurationReport {
         }
     }
 
-    /// Checks the principals that settings name against the loaded registry, which `registry`
-    /// supplied, and makes requests without credentials on the trusted listener act as
+    /// Checks the principals that settings name against the loaded registry, whose document
+    /// `registry` supplied, and makes requests without credentials on the trusted listener act as
     /// `trusted_principal`.
-    fn resolve_principals(&mut self, auth: &mut Auth, registry: Setting) {
-        let registry = registry.as_str();
+    fn resolve_principals(&mut self, auth: &mut Auth, registry: Option<Setting>) {
+        let unknown = match registry {
+            Some(registry) => format!(
+                "is not an id in {}; use one of its identities",
+                registry.as_str()
+            ),
+            None => {
+                "is not a registered identity; declare it in identity_file or identities".to_owned()
+            }
+        };
         if self.valid(&[Setting::AdminPrincipal.as_str()])
             && let (Some(principal), Some(principals)) =
                 (&self.config.admin_principal, auth.principals())
@@ -376,9 +405,7 @@ impl ConfigurationReport {
             self.diagnostics.errors.push(Diagnostic::new(
                 DiagnosticSource::Identity,
                 Setting::AdminPrincipal.as_str(),
-                format!(
-                    "admin_principal {principal:?} is not an id in {registry}; use one of its identities."
-                ),
+                format!("admin_principal {principal:?} {unknown}."),
             ));
         }
         if self.valid(&[Setting::TrustedPrincipal.as_str()])
@@ -392,7 +419,7 @@ impl ConfigurationReport {
                     DiagnosticSource::Identity,
                     Setting::TrustedPrincipal.as_str(),
                     format!(
-                        "trusted_principal {principal:?} is not an id in {registry}; use one of its identities, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
+                        "trusted_principal {principal:?} {unknown}, the built-in test signer with test_signer=enabled, or omit trusted_principal to act as the built-in {TRUSTED_APP_ID}."
                     ),
                 )),
             }

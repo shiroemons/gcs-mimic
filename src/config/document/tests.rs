@@ -203,7 +203,7 @@ fn inline_identities_pair_with_the_profile_like_an_identity_file() {
     assert!(matches!(
         report.auth_profile(),
         Some(AuthProfile::Strict {
-            identities: DocumentSource::Inline(_),
+            identities: Some(DocumentSource::Inline(_)),
             ..
         })
     ));

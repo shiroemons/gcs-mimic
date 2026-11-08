@@ -206,6 +206,41 @@ fn the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener() {
         .expect(403);
 }
 
+/// The trusted listener's application identity needs no identity document, so strict mode can
+/// start with built-in identities only.
+#[test]
+fn strict_mode_starts_without_identities_for_the_built_in_app() {
+    let data = TestDir::new();
+    let buckets = json!({"version":1,"project":"project-a","buckets":[{"name":"private-bucket"}]});
+    let server = common::process::Server::launch(
+        http_command(&data.0)
+            .args(["--auth-mode", "strict", "--trusted-listen", "127.0.0.1:0"])
+            .env("GCS_MIMIC_BUCKETS", buckets.to_string()),
+    );
+    let ready = &server.ready;
+    assert_eq!(ready["auth_mode"], "strict");
+    assert_eq!(ready["identities"], 0, "{ready}");
+    assert_eq!(ready["test_signer"], "disabled");
+    assert_eq!(ready["trusted_principal"], "trusted-app@gcs-mimic.invalid");
+    let fixture = Fixture {
+        trusted: ready["trusted_listen"].as_str().unwrap().to_owned(),
+        server,
+        _config: TestDir::new(),
+        _data: data,
+    };
+    let media = "/upload/storage/v1/b/private-bucket/o?uploadType=media&name=object.txt";
+    fixture.main("POST", media, "", b"from the app").expect(401);
+    fixture
+        .trusted("POST", media, "", b"from the app")
+        .expect(200);
+    let read = fixture.trusted("GET", &format!("{PRIVATE}?alt=media"), "", b"");
+    read.expect(200);
+    assert_eq!(read.body, b"from the app");
+    fixture
+        .main("GET", &format!("{PRIVATE}?alt=media"), "", b"")
+        .expect(401);
+}
+
 fn part_statuses(reply: &Reply) -> Vec<String> {
     String::from_utf8_lossy(&reply.body)
         .lines()

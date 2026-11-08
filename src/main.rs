@@ -110,7 +110,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --object-request-timeout-ms N 0 (0 disables; absolute upload/media deadline)
   --catalog-wait-timeout-ms N  120000 (0 disables; upload admission, advisory and commit waits, a busy upload session, and reset, reseed and seed waits)
   --shutdown-timeout-ms N      5000 (0 disables; waits for unfinished requests without a limit)
-  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file or --identities)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file or --identities unless --trusted-listen has no --trusted-principal or --test-signer is enabled)
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --signed-host-port MODE      lenient where the test signer is enabled, else exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "45ea7d2f270c7d52fadc5a20a759ccd82f1599151bc6189fcf9a9f81a7a93a0f"
+            "c56bf1b48632def5d5a5eed0c71f9ff03205edb7c3fbf8b103ca92bd1c331873"
         );
     }
 

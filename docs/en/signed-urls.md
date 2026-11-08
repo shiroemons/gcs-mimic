@@ -468,10 +468,10 @@ gcs_emulator:
     private_key: <%= File.read(Rails.root.join("config/gcs-mimic-test-signer.pem")).dump if Rails.env.local? %>
 ```
 
-In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`: the
-signer then reads and writes objects in the buckets document's projects and
-`seed_project`, and a bucket elsewhere needs a grant for
-`user:test-signer@gcs-mimic.invalid`. To choose its roles yourself, declare the
+In strict mode, start the server with `GCS_MIMIC_TEST_SIGNER=enabled`, which
+also lets strict mode start without an identity document: the signer then reads
+and writes objects in the buckets document's projects and `seed_project`, and a
+bucket elsewhere needs a grant for `user:test-signer@gcs-mimic.invalid`. To choose its roles yourself, declare the
 signer with project roles in the identity document, which also enables it.
 
 ## Legacy V2 HMAC and header signatures

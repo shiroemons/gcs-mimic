@@ -137,7 +137,7 @@ becomes `debug`, and `fatal` or `panic` become `error`.
 | `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait, the wait for a busy upload session, and the wait of a reset, reseed, publication or management call for its turn |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 0 waits for unfinished requests without a limit |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 5497558138880 (5 TiB) | 1–5497558138880 (5 TiB); also caps gzip upload expansion, so lower it on a shared or exposed server |
-| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity document (`identity_file` or `identities`), which permissive accepts only with `signed_urls=verify` |
+| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity document (`identity_file` or `identities`), which permissive accepts only with `signed_urls=verify`, unless the settings ask for a built-in identity: `trusted_listen` without `trusted_principal`, or `test_signer=enabled`. Then strict starts with the built-in identities only, and ready reports `"identities":0` |
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
 | `--signed-host-port` | `GCS_MIMIC_SIGNED_HOST_PORT` | `lenient` where the built-in test signer is enabled, otherwise `exact` | `exact` or `lenient`; JSON key `signed_host_port`; an explicit value wins. `lenient` also accepts a V4 signature whose canonical host omits the port of the request Host, as Go storage signs; every other signed part stays bound. An explicit `lenient` requires signature verification (strict, or `signed_urls=verify`); `exact` is always accepted. Ready reports the effective value. See [signed URLs](signed-urls.md) |
@@ -171,7 +171,8 @@ must publish the second HTTP port explicitly. TLS clients still need CA trust
 and a matching SAN, as described in the HTTPS section.
 
 The identity document is read once at startup; an invalid registry, `strict` without
-`identity_file` or `identities`, or either setting while permissive mode ignores
+`identity_file` or `identities` (unless a built-in identity was asked for, as the
+`--auth-mode` row says), or either setting while permissive mode ignores
 signatures fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
