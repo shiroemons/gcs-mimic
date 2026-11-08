@@ -1163,7 +1163,7 @@ fn permissive_verification_checks_policy_signatures_and_their_date_window() {
         assert!(
             *code != "InvalidAccessKeyId"
                 || String::from_utf8_lossy(&reply.body)
-                    .contains("The policy signing key is unknown or inactive. With signed_urls=verify, keys come from identity file public_keys"),
+                    .contains("The policy signing key is unknown or inactive. With signed_urls=verify, keys come from the public_keys of the identity document (identity_file or identities)"),
             "{}",
             String::from_utf8_lossy(&reply.body)
         );

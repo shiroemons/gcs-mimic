@@ -190,7 +190,7 @@ fn rejected_signatures_get_the_strict_errors_and_change_nothing() {
         assert!(
             body_contains(
                 &reply,
-                "keys come from identity file public_keys, HMAC keys created through the JSON API and the built-in test signer"
+                "keys come from the public_keys of the identity document (identity_file or identities), HMAC keys created through the JSON API and the built-in test signer"
             ),
             "{}",
             String::from_utf8_lossy(&reply.body)
