@@ -126,7 +126,11 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
 
 1. Update the root package version and Cargo.lock together according to the
    [release policy](release-policy.md). Reconcile the feature ledger, compatibility
-   restrictions and migration instructions.
+   restrictions and migration instructions. In the same commit, set the default
+   image of `examples/strict-local/compose.yaml`, the copy in its README and
+   `examples/full-stack/compose.yaml` to the new version: the tag publishes those
+   recipes as they are, and they use settings that only the new release has.
+   `scripts/check-docs.sh` fails until they match the manifest.
 2. Write `docs/en/releases/X.Y.Z.md` with final changes, compatibility impact,
    tested platforms and known limitations. Confirm the first-release roadmap
    requirements manually; the existence of a notes file does not prove them.
