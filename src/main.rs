@@ -52,6 +52,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
+       gcs-mimic test-signer credentials (prints the published built-in test signer's service account JSON)
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -165,6 +166,16 @@ Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no
 Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
 No config file is read unless --config PATH is explicit; its public_base_url supplies the default
 base, overridden by --base-url. No environment, Google IAM call or permission change occurs.";
+
+const TEST_SIGNER_HELP: &str = "Usage: gcs-mimic test-signer credentials
+
+Prints a service account key file for the built-in test signer test-signer@gcs-mimic.invalid:
+type, project_id local-project, client_email, private_key and the non-Google universe_domain
+gcs-emulator.invalid, which keeps Google auth libraries from requesting tokens from Google.
+The private key is published with gcs-mimic, so anyone can sign as this identity; use it only
+for local tests. The server accepts its signatures in permissive mode with signed_urls=verify,
+and in strict mode only with test_signer=enabled. No configuration, environment or network
+is read.";
 
 fn main() -> ExitCode {
     #[cfg(target_env = "musl")]
@@ -330,6 +341,20 @@ fn run() -> Result<(), CliError> {
         [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
             url_command(rest, url_sign)
         }
+        [command, help] if command == "test-signer" && help == "--help" => {
+            println!("{TEST_SIGNER_HELP}");
+            Ok(())
+        }
+        [command, kind] if command == "test-signer" && kind == "credentials" => {
+            println!("{}", gcs_mimic::auth::test_signer::service_account_json());
+            Ok(())
+        }
+        [command, ..] if command == "test-signer" => Err(Diagnostics::error(
+            DiagnosticSource::Cli,
+            "command",
+            format!("Invalid test-signer command; use gcs-mimic test-signer credentials.\n{TEST_SIGNER_HELP}"),
+        )
+        .into()),
         [command, rest @ ..] if command == "serve" => serve(rest),
         _ => Err(Diagnostics::error(
             DiagnosticSource::Cli,
@@ -629,7 +654,7 @@ fn signing_credentials<'a>(
     match (options.get("--signer"), options.get("--private-key")) {
         (None, None) => Ok((
             test_signer::ID,
-            std::borrow::Cow::Borrowed(test_signer::PRIVATE_KEY_PEM),
+            std::borrow::Cow::Borrowed(test_signer::PRIVATE_KEY_PEM.as_bytes()),
         )),
         (Some(signer), Some(path)) => {
             let key = gcs_mimic::bounded_file::read(Path::new(path), 16_384).map_err(|error| {
@@ -1002,7 +1027,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "a1722f7bc5b66af7b4f1f3d52cf7ddede4d93062a2f64e587e9be01ea749b2ad"
+            "4977353babb530d1555d37a3f3d906512bbdd0f58231971d2c5241d108ca098f"
         );
     }
 

@@ -269,6 +269,13 @@ fake-gcs-serverのように、ルールのないバケットのXML・公開URL�
 
 既定では、署名を検証せずに署名付きURLを受け付けます。permissiveのまま、変更・期限切れ・未知の鍵の署名付きリクエストを拒否するには、
 `GCS_MIMIC_SIGNED_URLS=verify`を追加します（[permissiveでの署名検証](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)、英語）。
+この構成では組み込みのテスト署名者を受け付けます。イメージにはリポジトリが含まれないため、公開済みの鍵はイメージ自身がサービスアカウントの鍵ファイルとして出力します。
+
+```sh
+docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+```
+
+秘密鍵は公開されているため、ローカルのテストだけで使います（[組み込みのテスト署名者](../en/signed-urls.md#built-in-test-signer)、英語）。
 
 ## 初期バケット設定ファイルを使う
 

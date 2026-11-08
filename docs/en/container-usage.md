@@ -302,6 +302,16 @@ By default the server accepts signed URLs without checking their signatures.
 To reject changed, expired or unknown-key signed requests while keeping
 permissive access, add `GCS_MIMIC_SIGNED_URLS=verify`; see
 [verifying signed requests in permissive mode](signed-urls.md#verifying-signed-requests-in-permissive-mode).
+Such a server then accepts the built-in test signer, whose published key the
+image prints as a service account key file; the image holds no copy of the
+repository:
+
+```sh
+docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+```
+
+Its private key is public, so use it only for local tests; see the
+[built-in test signer](signed-urls.md#built-in-test-signer).
 
 ## Initialize bucket settings
 

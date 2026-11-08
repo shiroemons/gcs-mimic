@@ -47128,7 +47128,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled only in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored and its published key would let anyone authenticate in strict mode and reach allAuthenticatedUsers grants; an explicit enabled while signatures are ignored fails startup; strict test_signer=enabled warns at startup, then knows the signer without an identity file entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled only in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored and its published key would let anyone authenticate in strict mode and reach allAuthenticatedUsers grants; an explicit enabled while signatures are ignored fails startup; strict test_signer=enabled warns at startup, then knows the signer without an identity file entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -47157,6 +47157,17 @@
             "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
             "an_enabled_declared_signer_keeps_its_tokens_and_project_roles"
+          ]
+        },
+        {
+          "id": "DESIGN-045-CREDENTIALS",
+          "description": "gcs-mimic test-signer credentials prints the built-in signer as a service account key file (type, project_id local-project, client_email, private_key and universe_domain gcs-emulator.invalid) without reading configuration, environment or network. The output parses as JSON, its private key signs what the embedded public key verifies, a URL signed with it verifies on a permissive signed_urls=verify server while a changed signature does not, and other test-signer arguments fail without output.",
+          "result": "PASS",
+          "test_ids": [
+            "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+            "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+            "unknown_test_signer_arguments_are_rejected",
+            "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
           ]
         },
         {
@@ -47227,7 +47238,11 @@
         "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
         "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
         "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
-        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
+        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
+        "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+        "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+        "unknown_test_signer_arguments_are_rejected",
+        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
       ],
       "verification": [
         {
@@ -47252,7 +47267,19 @@
             "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
             "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
             "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
-            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it"
+            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
+            "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_process",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+            "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+            "unknown_test_signer_arguments_are_rejected"
           ]
         },
         {

@@ -376,23 +376,26 @@ gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
   --object my-object --method GET --expires 15m
 ```
 
-Apps that read a service-account key file can use a file built from the
-published key. This uses the non-Google universe from the
+`gcs-mimic test-signer credentials` prints the signer as a service account key
+file, so binary and image users need no repository checkout. It contains
+`type`, `project_id` (`local-project`), `client_email`, `private_key` and the
+non-Google `universe_domain` (`gcs-emulator.invalid`) from the
 [Rails guide](rails-active-storage.md#2-add-an-emulator-entry-to-configstorageyml),
-which keeps Google auth libraries from requesting tokens from Google:
+which keeps Google auth libraries from requesting tokens from Google. The
+command reads no configuration, environment or network. The image's entrypoint
+is `gcs-mimic`, so `docker run` takes the same arguments; 0.13.0 and earlier
+images do not have the command:
 
 ```sh
-jq -n --rawfile key fixtures/signing/test-only-private.pem '{
-  type: "service_account", project_id: "local-project",
-  client_email: "test-signer@gcs-mimic.invalid", private_key: $key,
-  universe_domain: "gcs-emulator.invalid"
-}' > test-signer.json
+gcs-mimic test-signer credentials > test-signer.json
+docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+jq -r .private_key test-signer.json > test-signer.pem
 ```
 
 Go signs with the same key through `SignedURLOptions`:
 
 ```go
-key, err := os.ReadFile("fixtures/signing/test-only-private.pem")
+key, err := os.ReadFile("test-signer.pem")
 if err != nil {
     return err
 }
@@ -413,9 +416,9 @@ with 403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
 `gcs-mimic url sign`, or set the separate setting `signed_host_port=lenient`,
 which tolerates the missing port.
 
-Rails Active Storage takes the same credentials in `config/storage.yml`. Copy
-`fixtures/signing/test-only-private.pem` into the app, for example as
-`config/gcs-mimic-test-signer.pem`:
+Rails Active Storage takes the same credentials in `config/storage.yml`. Save
+the key in the app, for example with
+`gcs-mimic test-signer credentials | jq -r .private_key > config/gcs-mimic-test-signer.pem`:
 
 ```yaml
 gcs_emulator:

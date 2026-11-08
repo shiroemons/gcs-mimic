@@ -34,7 +34,7 @@ fn v2(server: &Server, path: &str) -> String {
         + 60;
     let hex = sign_policy(
         &format!("GET\n\n\n{expires}\n{path}"),
-        test_signer::PRIVATE_KEY_PEM,
+        test_signer::PRIVATE_KEY_PEM.as_bytes(),
     )
     .unwrap();
     let bytes: Vec<_> = hex

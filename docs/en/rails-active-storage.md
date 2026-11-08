@@ -192,9 +192,17 @@ registering a key, you can use the
 [built-in test signer](signed-urls.md#built-in-test-signer): start the emulator
 with `GCS_MIMIC_TEST_SIGNER=enabled` (strict mode leaves it disabled by
 default and warns at startup when it is enabled), set `client_email` to
-`test-signer@gcs-mimic.invalid` and `private_key` to the published
-`fixtures/signing/test-only-private.pem`, then grant that identity bucket IAM or
-declare it with project roles in the identity file. Its private key is public,
+`test-signer@gcs-mimic.invalid` and `private_key` to the published key, then
+grant that identity bucket IAM or declare it with project roles in the identity
+file. Save the key from the emulator itself, which needs no repository checkout:
+
+```sh
+docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
+  | jq -r .private_key > config/gcs-mimic-test-signer.pem
+```
+
+Use a tag newer than 0.13.0, which lacks the command, and read the file as in
+the [signer's `storage.yml` example](signed-urls.md#built-in-test-signer). Its private key is public,
 so anyone can authenticate as it; use it only for local tests. The same
 credentials let permissive mode check Rails' signed URLs with
 `GCS_MIMIC_SIGNED_URLS=verify`; a key generated at boot is unknown to the

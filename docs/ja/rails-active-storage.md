@@ -174,9 +174,18 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 起動ごとに生成した未登録の鍵ではstrict認証できません。
 鍵を登録する代わりに、[組み込みのテスト署名者（英語）](../en/signed-urls.md#built-in-test-signer)も使えます。
 エミュレーターを`GCS_MIMIC_TEST_SIGNER=enabled`で起動します（strictでは既定で無効で、有効にすると起動時に警告が出ます）。
-`client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの
-`fixtures/signing/test-only-private.pem`にし、そのIDにバケットのIAMで権限を付けるか、
-IDファイルにプロジェクトロール付きで宣言します。秘密鍵は公開されていて誰でもこのIDで認証できるため、ローカルのテストだけで使います。
+`client_email`を`test-signer@gcs-mimic.invalid`に、`private_key`を公開済みの鍵にし、
+そのIDにバケットのIAMで権限を付けるか、IDファイルにプロジェクトロール付きで宣言します。
+秘密鍵は公開されていて誰でもこのIDで認証できるため、ローカルのテストだけで使います。
+鍵はエミュレーター自身から取り出せるため、リポジトリのチェックアウトは不要です。
+
+```sh
+docker run --rm ghcr.io/shiroemons/gcs-mimic:IMAGE_TAG test-signer credentials \
+  | jq -r .private_key > config/gcs-mimic-test-signer.pem
+```
+
+0.13.0にはこのコマンドがないため、それより新しいタグを使います。
+ファイルは[署名者の`storage.yml`の例（英語）](../en/signed-urls.md#built-in-test-signer)のように読み込みます。
 同じ認証情報を使えば、permissiveでも`GCS_MIMIC_SIGNED_URLS=verify`でRailsの署名付きURLを検証できます。
 起動時に生成した鍵はエミュレーターが知らないため、そのURLは`InvalidAccessKeyId`で失敗します。
 V4でブラウザー向けの最終host・portを署名する場合は、明示的に`EmulatorGcs`アダプターを選びます。

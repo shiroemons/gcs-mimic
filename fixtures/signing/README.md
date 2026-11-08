@@ -9,9 +9,10 @@ This pair is also the key of the built-in test signer
 every gcs-mimic binary and image. Strict mode accepts signatures made with this
 private key only with `test_signer=enabled`, because anyone can sign with it;
 permissive mode with `signed_urls=verify` accepts them unless
-`test_signer=disabled`.
-The container build copies these
-two files for that embedding; do not add another copy of the key elsewhere. See
+`test_signer=disabled`. `gcs-mimic test-signer credentials` prints the embedded
+private key as a service account key file for users without this repository.
+The container build copies these two files for that embedding; do not add
+another copy of the key elsewhere. See
 [the built-in test signer](../../docs/en/signed-urls.md#built-in-test-signer).
 
 ```sh
