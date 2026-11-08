@@ -13,6 +13,7 @@ use crate::{
     storage::{
         Catalog,
         admin::{AdminError, Origin},
+        failure::MemoryBudget,
     },
 };
 use serde::{
@@ -1215,14 +1216,31 @@ pub async fn apply(
 
 fn initialization_failure(error: &AdminError) -> std::io::Error {
     let reason = match error {
-        // A RAM catalog fills long before a disk does: its budget is 16 MiB by default.
-        AdminError::DiskFull(_) => "disk full; with backend memory, raise memory_catalog_max_bytes",
+        // Each store names its own remedy: a disk has no RAM budget, and RAM no data directory.
+        AdminError::DiskFull(cause) => match cause.memory_budget() {
+            None => "disk full; free space in the data directory",
+            Some(MemoryBudget::Catalog) => {
+                "memory catalog full; restart with a larger memory_catalog_max_bytes"
+            }
+            Some(MemoryBudget::Blobs) => {
+                "memory object budget full; restart with a larger memory_max_bytes"
+            }
+        },
         AdminError::Busy { .. } => "administrative admission timed out",
         AdminError::Closed => "catalog closed",
         AdminError::Corrupt(_) => "catalog corrupt",
         AdminError::Io(_) => "storage I/O failure",
         AdminError::Invalid(_) => "invalid bucket definition",
-        _ => "catalog operation failed",
+        AdminError::Precondition
+        | AdminError::Hold
+        | AdminError::SeedProjectMismatch
+        | AdminError::SourceChanged { .. }
+        | AdminError::NotFound
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::Forbidden
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => "catalog operation failed",
     };
     std::io::Error::other(Diagnostics::error(
         DiagnosticSource::Initializer,
@@ -2847,13 +2865,32 @@ mod tests {
     }
 
     #[test]
-    fn a_full_catalog_names_the_budget_of_a_memory_backend() {
-        let failure = initialization_failure(&AdminError::DiskFull(
-            std::io::ErrorKind::StorageFull.into(),
-        ));
+    fn a_full_store_names_only_the_running_backends_remedy() {
+        use crate::storage::failure::{IoCause, MemoryExhausted};
+        let full = |budget: Option<MemoryBudget>| {
+            let error = match budget {
+                None => std::io::Error::from(std::io::ErrorKind::StorageFull),
+                Some(budget) => std::io::Error::new(
+                    std::io::ErrorKind::StorageFull,
+                    MemoryExhausted::new(budget),
+                ),
+            };
+            initialization_failure(&AdminError::DiskFull(IoCause::from(error))).to_string()
+        };
+        let disk = full(None);
         assert!(
-            failure.to_string().contains("memory_catalog_max_bytes"),
-            "{failure}"
+            disk.contains("free space in the data directory") && !disk.contains("memory_"),
+            "{disk}"
+        );
+        let catalog = full(Some(MemoryBudget::Catalog));
+        assert!(
+            catalog.contains("memory_catalog_max_bytes") && !catalog.contains("data directory"),
+            "{catalog}"
+        );
+        let blobs = full(Some(MemoryBudget::Blobs));
+        assert!(
+            blobs.contains("memory_max_bytes") && !blobs.contains("memory_catalog_max_bytes"),
+            "{blobs}"
         );
     }
 
