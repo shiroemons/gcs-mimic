@@ -50,7 +50,7 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 | `-host 0.0.0.0 -port 4443` | 指定なし | イメージは最初から`0.0.0.0:4443`で待ち受けます。ループバックだけで待ち受けると他のコンテナから接続できないため、この既定が必要です。 |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | 指定なし | resumableのLocationなど、サーバーが返すリンクは各リクエストのHostに従います。コンテナのSDKは`gcs:4443`を、ホストは公開ポートを受け取ります。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
 | `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。`-backend memory`は上限付きのRAM保存に読み替えますが、この手順では使いません。 |
-| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORS、バージョニング、IAMポリシーを設定するには、バケットファイルを使います。 |
+| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント、または同じ文書をインラインで書く`GCS_MIMIC_BUCKETS`（[後述](#バケットファイルをcomposeyamlに書く)） | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORS、バージョニング、IAMポリシーを設定するには、バケットの文書を使います。 |
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
 
@@ -152,50 +152,64 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 
 ### バケットファイルをcompose.yamlに書く
 
-バケットファイルはComposeファイルの中にも書けるので、別の`buckets.json`は要りません。
-トップレベルの`configs:`に`content:`でファイルの中身を書き、サービスの`configs:`で
-`target`のパスへマウントします。`GCS_MIMIC_BUCKETS_FILE`にはそのパスを指定します。
-[Composeのconfigsリファレンス](https://docs.docker.com/reference/compose-file/configs/)によると、
-`content`はDocker Compose 2.23.1以降で使えます。
-また、サービスに`read_only: true`を付けないでください。Composeは中身をコンテナへコピーするため、読み取り専用のコンテナでは作成を拒否します。
-上の`gcs`サービスへ、`buckets.json`のマウントの代わりに次を追加します。
+バケットの文書はComposeファイルの中にも書けるので、別の`buckets.json`は要りません。
+`GCS_MIMIC_BUCKETS_FILE`と`buckets.json`のマウントの代わりに、サービスのenvironmentへ`GCS_MIMIC_BUCKETS`として書きます。2つの設定は同時に使えません。
+これが推奨の形で、0.13.0より新しいリリースが必要です。
 
 ```yaml
 services:
   gcs:
     environment:
-      GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
-    configs:
-      - source: gcs_buckets
-        target: /etc/gcs-mimic/buckets.json
-configs:
-  gcs_buckets:
-    content: |
-      {"version": 1, "buckets": [
-        {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
-          "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
-         "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
-        {"name": "app-exports"}
-      ]}
+      GCS_MIMIC_BUCKETS: |
+        {"version": 1, "buckets": [
+          {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
+            "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
+           "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
+          {"name": "app-exports"}
+        ]}
 ```
 
-`${FRONTEND_PORT:-8081}`を展開するのはgcs-mimicではなくComposeで、configを作るときに
+`${FRONTEND_PORT:-8081}`を展開するのはgcs-mimicではなくComposeで、
 [変数展開の規則](https://docs.docker.com/reference/compose-file/interpolation/)に従います。
 gcs-mimicは結果をそのままJSONとして読み、何も展開しません。`$`そのものは`$$`と書きます。
 `iamPolicy`は新しいバケットにポリシーを付け、`setIamPolicy`と同じく既定のポリシーを置き換えます。
 0.13.0までのリリースは未対応として拒否します。
 
 名前付きボリュームは`docker compose down`の後も残るので、次回起動ではバケットが既にあります。
-このとき`content`を編集しても適用はせず、まだ異なるフィールドをstderrで警告し、
-readyの`unapplied`に数えます。既存バケットへ反映するには、サービスのenvironmentに
-`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`を追加します。各起動は項目が書いたフィールドのうち
-値が異なるものだけを書き込み、書かないフィールドはAPIでの変更を保ちます。
-0.13.0までのリリースはこの設定を知りません。
-編集した`content`をサーバーが読むのは、作り直したコンテナだけです。
-Docker Compose 5.6.1では、`docker compose up -d`だけでは動いているコンテナをそのまま使い、`docker compose restart`では古い中身のままなので、`docker compose up -d --force-recreate gcs`を実行します。
-`content`からフィールドを消しても元には戻りません。上の`iamPolicy`を消しても
+インラインの文書ではこうしたバケットにも反映します。`GCS_MIMIC_BUCKETS_FILE_MODE`の既定値が`reconcile`なので、
+各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、書かないフィールドはAPIでの変更を保ち、
+変更したバケット数をreadyの`buckets_file.reconciled`に数えます。既存バケットをそのまま残すには、モードを`create`にします。
+値はサービスのenvironmentの一部なので、編集した後は`docker compose up -d`だけでComposeがコンテナを作り直し、次の起動で反映します。
+`docker compose restart`では古い値のままです。
+フィールドを消しても元には戻りません。上の`iamPolicy`を消しても
 `app-images`は公開のままで、`iamPolicy`を書かなくなったことを一度だけ警告します。
 望むポリシーを項目に書くまで、この状態が続きます。
+
+別の方法として、トップレベルの`configs:`に`content:`で、`GCS_MIMIC_BUCKETS_FILE`が指すファイルの中身を書くこともできます。
+サービスの`configs:`で`target`のパスへマウントします。
+[Composeのconfigsリファレンス](https://docs.docker.com/reference/compose-file/configs/)によると、
+`content`はDocker Compose 2.23.1以降で使えます。
+また、サービスに`read_only: true`を付けないでください。Composeは中身をコンテナへコピーするため、読み取り専用のコンテナでは作成を拒否します。
+バケットファイルの既定値は`create`で、既存バケットの編集はstderrの警告とreadyの`unapplied`で知らせるだけなので、
+反映するには`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`を追加します。
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
+      GCS_MIMIC_BUCKETS_FILE_MODE: reconcile
+    configs:
+      - source: gcs_buckets
+        target: /etc/gcs-mimic/buckets.json
+configs:
+  gcs_buckets:
+    content: |
+      {"version": 1, "buckets": [{"name": "app-images"}, {"name": "app-exports"}]}
+```
+
+編集した`content`をサーバーが読むのは、作り直したコンテナだけです。
+Docker Compose 5.6.1では、`docker compose up -d`だけでは動いているコンテナをそのまま使い、`docker compose restart`では古い中身のままなので、`docker compose up -d --force-recreate gcs`を実行します。
 
 ## 別オリジンからアップロード・読み取りする
 
@@ -218,17 +232,18 @@ curl --fail "$api/assets/browser.txt"
 
 シナリオでは12本の並行アップロードと本文一致も確認します。
 生HTTPでの確認は実ブラウザーのCORS制御の検証ではありません。
-path-styleの匿名GETは既定のpermissiveで本文を返しますが、XMLを別オリジンからfetchする場合は
-バケットのCORS設定が別途必要です。strictではCORSを許可しても権限は増えません。
+path-styleの匿名GETは既定のpermissiveで本文を返します。XMLを別オリジンからfetchする場合は
+バケットのCORSルールに従い、ルールのないバケットでは下のフォールバックに従います。strictではCORSを許可しても権限は増えません。
 [GoogleのCORS仕様](https://docs.cloud.google.com/storage/docs/cross-origin)も参照してください。
 
 fake-gcs-serverはすべてのルートに同じワイルドカードのCORSを返すため、
 `$api/assets/browser.txt`のようなpath-styleの公開URLを設定なしでfetchできました。
-gcs-mimicでは、バケットに`cors`を設定するまでこのfetchはCORSエラーになります。
-移行中にこれまでの挙動を保つには、サーバーの環境変数に`GCS_MIMIC_CORS_FALLBACK=allow-all`を追加します。
-適用されるのはCORSルールを保存していないバケットだけで、権限は変わりません。
-無効のまま、Origin付きのXMLリクエストがルールのないバケットに届くと、
-バケットごとに1回だけ`cors_unconfigured`の警告をログに出します。
+既定のpermissiveプロファイルでは、gcs-mimicでもそのままfetchできます。
+`GCS_MIMIC_CORS_FALLBACK`の既定値が`allow-all`で、CORSルールを保存していないバケットのXML・公開URLではどのオリジンも許可するからです。
+こうした別オリジンのリクエストは、バケットごとに最初の1回だけinfoレベルでログに出すので、ルールが必要になるバケットを確認できます。
+ルールのあるバケットは常にそのルールに従い、フォールバックで権限は変わりません。
+strictモードの既定値はCloud Storageと同じ`none`で、バケットに`cors`を設定するまでfetchはCORSエラーになります。
+[strict localレシピ](../../examples/strict-local/README.md)（英語）は、バケットごとにこのルールを書いています。
 詳しくは[CORSフォールバックの仕様](../en/slices/cors-fallback.md)（英語）を参照してください。
 
 ブラウザーのアドレスで開始したresumableセッションのLocationは、そのアドレスになります。
@@ -256,24 +271,27 @@ strictの署名URLは最終的に利用者がアクセスするURLで署名し�
 
 | 目的 | 構成 | 設定 |
 | --- | --- | --- |
-| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認しない | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
-| 署名URLはCloud Storageと同じく確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify`。Go storageが署名したURLには`GCS_MIMIC_SIGNED_HOST_PORT=lenient`も追加 |
-| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード | [strict localレシピ](../../examples/strict-local/README.md)（英語）をそのままコピー |
+| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーのコードは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
+| strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify` |
 
 まずはこの手順と同じ既定の構成で始めてください。
-署名URLや非公開バケットを本番に近い形で確認したくなったら、strict localレシピをそのまま貼り付けます。
-コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各部分の意味はレシピのREADMEで説明しています。
-permissiveの`verify`は、strictモードをまだ使えないときの途中段階としてだけ使ってください。
+本番に近い形で確認するには、strict localレシピのとおりに信頼済みリスナー付きのstrictモードを使います。
+コンテナのスモークテストがこのブロックをそのままイメージで動かしており、各行の意味と、レシピが前提にしている既定値はレシピのREADMEで説明しています。
+permissiveの`verify`は、strictモードをまだ使えない構成のための途中段階にすぎません。
 不正な署名は拒否しますが、検証に通ったリクエストも署名のないリクエストもすべて許可するので、非公開バケットが非公開のままかは確認できません。
 表の2行目と3行目の構成には、0.13.0より新しいリリースが必要です。
+2つのプロファイルとfake-gcs-serverの挙動は、[Dockerで使う](container-usage.md#fake-gcs-serverとの違い構成別)で項目ごとに比べています。
 
 ### アプリのサーバーを変えずにstrictモードにする
 
 fake-gcs-serverは権限を確認しないため、strictモードに移ると、アプリのサーバー側のクライアントすべてに認証情報が必要になります。
 認証情報のないリクエストは`allUsers`の権限しか使えないからです。
-[strict localレシピ](../../examples/strict-local/README.md)（英語）を使うと、この変更は要りません。
-アプリのサービスは、Composeネットワーク内の信頼済みリスナーである`STORAGE_EMULATOR_HOST=gcs:4444`に接続し、そこでは認証情報のないリクエストが登録済みのIDとして扱われます。
+[strict localレシピ](../../examples/strict-local/README.md)（英語）を使うと、この変更は要りません。上の`gcs`サービスをレシピのサービスに置き換えます。
+アプリのサービスは、Composeネットワーク内の信頼済みリスナーである`STORAGE_EMULATOR_HOST=gcs:4444`に接続し、そこでは認証情報のないリクエストが組み込みの`trusted-app@gcs-mimic.invalid`として扱われます。このIDはバケットのprojectで`roles/storage.admin`を持ちます。
 ブラウザーは公開したポートを使い、公開バケットは`allUsers`で読め、非公開バケットは署名URLでだけ使えます。
+IDの文書、証明書、鍵の生成はいずれも要りません。
+Go API、Rails、フロントエンドをつなぐ例は[アプリ全体の例](../../examples/full-stack/README.md)（英語）にあります。
 信頼済みリスナーのポートは公開しないでください。
 [信頼済みリスナーの節](container-usage.md#信頼済みリスナーで非公開バケットを守る)で確認の内容を説明しています。
 認証情報付きのリクエストはメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になり、IPリテラル、`localhost`の名前、`gcs`のようなドットのない名前、`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`に書いた名前以外のHostは421になります。
@@ -289,8 +307,9 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 
 以前のレシピは、アプリのコードでトークンと1日の有効期限を設定してサービスを組み立てていました。
 期限が切れるとgoogleauthがGoogleにトークンを更新しに行くため、置き換えました。
-この項目はpermissiveプロファイルでだけ使えます。
-信頼済みリスナーを使っても変わりません。この項目は常に自分のトークンを送り、メインのリスナーと同じく認証されるので、strictモードでは署名者の登録が必要です。
+起動時に鍵を生成するこの項目は、permissiveプロファイルでだけ使えます。
+信頼済みリスナーを使っても変わりません。この項目は常に自分のトークンを送り、メインのリスナーと同じく認証されるので、strictモードではサーバーが知っている署名者が必要です。
+strict localレシピはそのために組み込みのテスト署名者を有効にしており、それを使う項目をREADMEで示しています。
 
 ## 移行で困ったとき
 

@@ -42,7 +42,7 @@ each native setting; this walkthrough uses the native names. See
 | `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
-| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the buckets file is the way to give buckets CORS, versioning or IAM policy settings. |
+| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount, or the same document inline in `GCS_MIMIC_BUCKETS` ([below](#bucket-file-inside-composeyaml)) | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the bucket document is the way to give buckets CORS, versioning or IAM policy settings. |
 
 The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
 
@@ -176,55 +176,71 @@ For a second worktree use, for example, project `assets-migration-two` and
 
 ### Bucket file inside compose.yaml
 
-The bucket file can live in the Compose file itself, so no separate
-`buckets.json` is needed. A top-level `configs:` entry with inline `content:`
-defines the file, and the service's `configs:` mounts it at `target`, the path
-`GCS_MIMIC_BUCKETS_FILE` names. Inline `content` needs Docker Compose 2.23.1 or
-later, according to the
+The bucket document can live in the Compose file itself, so no separate
+`buckets.json` is needed. Write it into the service's environment as
+`GCS_MIMIC_BUCKETS`, in place of `GCS_MIMIC_BUCKETS_FILE` and the `buckets.json`
+mount; the two settings cannot be combined. This is the recommended form, and
+it needs a release newer than 0.13.0:
+
+```yaml
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS: |
+        {"version": 1, "buckets": [
+          {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
+            "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
+           "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
+          {"name": "app-exports"}
+        ]}
+```
+
+Compose, not gcs-mimic, expands `${FRONTEND_PORT:-8081}`, following its
+[interpolation rules](https://docs.docker.com/reference/compose-file/interpolation/);
+gcs-mimic reads the result as plain JSON and expands nothing. Write a literal `$`
+as `$$`. `iamPolicy` gives a new bucket its policy, replacing the default one as
+`setIamPolicy` does; releases up to 0.13.0 reject it as unsupported.
+
+The named volume outlives `docker compose down`, so its buckets already exist on
+the next start. The inline document reconciles them: `GCS_MIMIC_BUCKETS_FILE_MODE`
+defaults to `reconcile` for it, so each start writes the fields an entry sets
+whose value differs, fields it omits keep their API changes, and ready counts the
+changed buckets in `buckets_file.reconciled`. Set the mode to `create` to keep
+existing buckets as they are. The value is part of the service's environment, so
+after an edit a plain `docker compose up -d` recreates the container and the next
+start applies it; `docker compose restart` keeps the old value. Deleting a field
+never resets it: removing the `iamPolicy` above leaves `app-images` public, with
+a one-time warning that `iamPolicy` is no longer written, until the entry writes
+the policy you want.
+
+Alternatively, a top-level `configs:` entry with inline `content:` can hold the
+file that `GCS_MIMIC_BUCKETS_FILE` names; the service's `configs:` mounts it at
+`target`. Inline `content` needs Docker Compose 2.23.1 or later, according to the
 [Compose configs reference](https://docs.docker.com/reference/compose-file/configs/),
 and a service without `read_only: true`: Compose copies the content into the
-container and refuses a read-only one.
-Add these lines to the `gcs` service above, in place of the `buckets.json` mount:
+container and refuses a read-only one. A bucket file defaults to `create`, which
+only reports an edit of an existing bucket as `unapplied` with a stderr warning,
+so add `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to apply edits:
 
 ```yaml
 services:
   gcs:
     environment:
       GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
+      GCS_MIMIC_BUCKETS_FILE_MODE: reconcile
     configs:
       - source: gcs_buckets
         target: /etc/gcs-mimic/buckets.json
 configs:
   gcs_buckets:
     content: |
-      {"version": 1, "buckets": [
-        {"name": "app-images", "cors": [{"origin": ["http://localhost:${FRONTEND_PORT:-8081}"],
-          "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}],
-         "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}},
-        {"name": "app-exports"}
-      ]}
+      {"version": 1, "buckets": [{"name": "app-images"}, {"name": "app-exports"}]}
 ```
 
-Compose, not gcs-mimic, expands `${FRONTEND_PORT:-8081}` when it creates the
-config, following its [interpolation rules](https://docs.docker.com/reference/compose-file/interpolation/);
-gcs-mimic reads the result as plain JSON and expands nothing. Write a literal `$`
-as `$$`. `iamPolicy` gives a new bucket its policy, replacing the default one as
-`setIamPolicy` does; releases up to 0.13.0 reject it as unsupported.
-
-The named volume outlives `docker compose down`, so its buckets already exist on
-the next start. An edited `content` is then reported, not applied: a stderr
-warning names the fields that still differ and ready counts the bucket as
-`unapplied`. To apply the edit to existing buckets, add
-`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to the service environment; each start
-then writes only the fields an entry sets whose value differs, and fields it
-omits keep their API changes. Releases up to 0.13.0 do not know this setting.
 The server reads the edited `content` only in a recreated container: with Docker
 Compose 5.6.1 a plain `docker compose up -d` keeps the running container and
 `docker compose restart` keeps the old content, so run
 `docker compose up -d --force-recreate gcs`.
-Deleting a field from `content` never resets it: removing the `iamPolicy` above
-leaves `app-images` public, with a one-time warning that `iamPolicy` is no
-longer written, until the entry writes the policy you want.
 
 ### Cross-origin upload and reading
 
@@ -247,19 +263,22 @@ curl --fail "$api/assets/browser.txt"
 
 The scenario also verifies twelve concurrent browser-role uploads and exact
 reads. Raw HTTP does not verify browser enforcement. Path-style anonymous GET
-returns bytes in this permissive profile; XML cross-origin fetch uses separate
-bucket CORS rules. CORS never grants access in strict mode. See
+returns bytes in this permissive profile; XML cross-origin fetch follows the
+bucket's CORS rules, or the fallback below for a bucket without them. CORS never
+grants access in strict mode. See
 [Google's CORS distinction](https://docs.cloud.google.com/storage/docs/cross-origin).
 
 fake-gcs-server answers every route with one wildcard CORS policy, so a page
 that fetches path-style public URLs such as `$api/assets/browser.txt` worked
-without configuration. In gcs-mimic that cross-origin fetch fails until the
-bucket has `cors` rules. To keep the source behavior while migrating, add
-`GCS_MIMIC_CORS_FALLBACK=allow-all` to the server environment. It applies only to
-buckets without stored rules and never changes authorization. The server logs
-one `cors_unconfigured` warning per bucket when an Origin-bearing XML request
-reaches a bucket without rules while the fallback is off. See
-[CORS fallback](slices/cors-fallback.md).
+without configuration. In the default permissive profile it still does:
+`GCS_MIMIC_CORS_FALLBACK` defaults to `allow-all`, which allows any origin on the
+XML and public routes of buckets without stored rules. The first such
+cross-origin request for each bucket is logged once at info level, so you can
+see which buckets would need rules. Buckets with rules always follow them, and
+the fallback never changes authorization. Strict mode defaults to `none`, as
+Cloud Storage behaves: a browser fetch fails until the bucket has `cors` rules,
+which the [strict local recipe](../../examples/strict-local/README.md) writes for
+each bucket. See [CORS fallback](slices/cors-fallback.md).
 
 A resumable session started from the browser address gets a Location on that address.
 A session URI also works through any other address of the server, so a server that
@@ -287,28 +306,34 @@ rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 
 | Goal | Setup | Settings |
 | --- | --- | --- |
-| Behave like fake-gcs-server: every request is allowed and no signature is checked | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
-| Check signed URLs as Cloud Storage does while everything else stays open | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify`, plus `GCS_MIMIC_SIGNED_HOST_PORT=lenient` for URLs that Go storage signs |
-| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener | Copy the [strict local recipe](../../examples/strict-local/README.md) as it is |
+| Behave like fake-gcs-server: every request is allowed, no signature is checked and browsers read every bucket | The default permissive profile | `GCS_MIMIC_SCHEME=http` |
+| Production-like access: private buckets stay private, public ones open through `allUsers`, browsers use signed URLs, application servers keep their code | Strict mode with a trusted listener: the [strict local recipe](../../examples/strict-local/README.md) | `GCS_MIMIC_SCHEME=http`, `GCS_MIMIC_AUTH_MODE=strict`, `GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444` (never published) and `GCS_MIMIC_BUCKETS` with each bucket's policy and CORS rules, plus `GCS_MIMIC_TEST_SIGNER=enabled` when the application signs URLs |
+| Only while strict mode is not possible yet: check signed URLs, allow everything else | Permissive with signature verification | `GCS_MIMIC_SCHEME=http` and `GCS_MIMIC_SIGNED_URLS=verify` |
 
-Start with the default, which this walkthrough uses. When signed URLs or private
-buckets need production-like checks, paste the strict local recipe as it is: the
-container smoke test runs that exact block with the image, and its README
-explains each part. Use permissive `verify` only as a step on the way, when strict
-mode is not an option yet: it rejects a bad signature, but it grants every
-verified and every unsigned request, so it cannot show that a private bucket
-stays private. The last two rows need a release newer than 0.13.0.
+Start with the default, which this walkthrough uses. For production-like checks,
+use strict mode with the trusted listener, as the strict local recipe sets it
+up: the container smoke test runs that exact block with the image, and its README
+explains each line and the defaults it relies on. Permissive `verify` is only a
+step for setups that cannot use strict mode yet: it rejects a bad signature, but
+it grants every verified and every unsigned request, so it cannot show that a
+private bucket stays private. The last two rows need a release newer than
+0.13.0. [Container usage](container-usage.md#how-the-setups-differ-from-fake-gcs-server)
+compares the two profiles with fake-gcs-server behavior by behavior.
 
 ### Strict mode without changing application servers
 
 fake-gcs-server checks no permissions, so application servers that move to
 strict mode would otherwise need credentials in every client: anonymous requests
 then reach only `allUsers` grants. The
-[strict local recipe](../../examples/strict-local/README.md) avoids that change.
-Its application services use `STORAGE_EMULATOR_HOST=gcs:4444`, a trusted listener
-on the Compose network where requests without credentials act as a registered
-identity, while browsers use the published port: public buckets through
-`allUsers`, private ones only through signed URLs. Never publish the trusted
+[strict local recipe](../../examples/strict-local/README.md) avoids that change;
+paste its `gcs` service in place of the one above. Its application services use
+`STORAGE_EMULATOR_HOST=gcs:4444`, a trusted listener on the Compose network where
+requests without credentials act as the built-in `trusted-app@gcs-mimic.invalid`,
+with `roles/storage.admin` on the buckets' project, while browsers use the
+published port: public buckets through `allUsers`, private ones only through
+signed URLs. It needs no identity document, certificate or generated key. The
+[full application example](../../examples/full-stack/README.md) shows a Go API,
+Rails and a frontend wired to it. Never publish the trusted
 port. The [trusted listener section](container-usage.md#keep-private-buckets-private-with-a-trusted-listener)
 explains its checks: requests with credentials authenticate as on the main
 listener, browser-initiated requests get 403, and a Host other than an IP
@@ -328,10 +353,11 @@ keep the production entry for production. See the
 
 An earlier recipe built the service in application code with a preset token
 and a one-day expiry. It is replaced: after the expiry, googleauth tried to
-refresh the token at Google. The entry works only with the permissive profile.
-A trusted listener does not change that: the entry always sends its own token,
-which authenticates as on the main listener, so strict mode needs its signer
-registered.
+refresh the token at Google. The entry, with its key generated at boot, works
+only with the permissive profile. A trusted listener does not change that: the
+entry always sends its own token, which authenticates as on the main listener,
+so strict mode needs a signer the server knows. The strict local recipe enables
+the built-in test signer for this, and its README shows the entry that uses it.
 
 ### Migration troubleshooting
 
@@ -561,7 +587,7 @@ and native `GCS_MIMIC_*` environment variables.
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
-| `-cors-headers` | Remove it. Only for browser reads of XML/public URLs: bucket `cors`, or `--cors-fallback allow-all` / `GCS_MIMIC_CORS_FALLBACK=allow-all` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. See [CORS fallback](slices/cors-fallback.md) |
+| `-cors-headers` | Remove it. Permissive mode already allows browser reads of XML/public URLs of buckets without rules (`cors_fallback` defaults to `allow-all`); strict mode and buckets with rules use bucket `cors` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. Strict mode defaults to `none`. See [CORS fallback](slices/cors-fallback.md) |
 | `-location` | `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, JSON `default_location` | Native accepts official regional/predefined dual-region and `US`, `EU`, `ASIA` names, case-insensitively; API/initializer nonempty location wins. Legacy profile retains fixed `US-CENTRAL1` and rejects the global default. No physical placement or configurable dual-region simulation; see [location contract](slices/sdk-regional-locations.md). |
 | `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` since 0.8.0 | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
 
