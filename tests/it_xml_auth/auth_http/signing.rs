@@ -343,24 +343,30 @@ fn message(reply: &Reply) -> String {
     body[start..end].to_owned()
 }
 
-const HOST_PORT_HINT: &str = "The request signature does not match. If the signer omitted the port from Host, as Go storage does, set signed_host_port=lenient.";
+const HOST_PORT_HINT: &str = "The request signature does not match. It matches this request without the port in Host, as Go storage signs; set signed_host_port=lenient to accept it.";
+
+const PLAIN_MISMATCH: &str = "The request signature does not match.";
 
 #[test]
 fn exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting() {
     let (_config, _data, server, ready) = fixture_with(&[], Stdio::inherit());
     assert_eq!(ready["signed_host_port"], "exact");
     let host = server.address.rsplit_once(':').unwrap().0.to_owned();
-    let portless = sign_without_port(
-        &server,
-        &host,
-        &Method::GET,
-        "/iam-bucket/object",
-        "viewer@example.invalid",
-    );
-    let reply = send(&server, "GET", &portless, "");
-    error(&reply, 403, "SignatureDoesNotMatch");
-    assert_eq!(message(&reply), HOST_PORT_HINT);
-    // A tampered query on a host:port request gets the same hint, since its cause is unknown.
+    for (method, path, signer) in [
+        ("GET", "/iam-bucket/object", "viewer@example.invalid"),
+        ("PUT", "/iam-bucket/exact-put", "admin@example.invalid"),
+    ] {
+        let portless = sign_without_port(&server, &host, &method.parse().unwrap(), path, signer);
+        let reply = send(&server, method, &portless, "");
+        error(&reply, 403, "SignatureDoesNotMatch");
+        assert_eq!(message(&reply), HOST_PORT_HINT);
+    }
+}
+
+#[test]
+fn exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request() {
+    let (_config, _data, server, _) = fixture_with(&[], Stdio::inherit());
+    let host = server.address.rsplit_once(':').unwrap().0.to_owned();
     let exact = sign(
         &server,
         &Method::GET,
@@ -373,9 +379,34 @@ fn exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_set
         send(&server, "GET", &exact, "").success().body,
         b"hello world"
     );
-    let reply = send(&server, "GET", &format!("{exact}&extra=1"), "");
-    error(&reply, 403, "SignatureDoesNotMatch");
-    assert_eq!(message(&reply), HOST_PORT_HINT);
+    let portless = sign_without_port(
+        &server,
+        &host,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+    );
+    let (prefix, signature) = exact.rsplit_once('=').unwrap();
+    let tampered = format!(
+        "{prefix}={}{}",
+        if signature.starts_with("00") {
+            "01"
+        } else {
+            "00"
+        },
+        &signature[2..]
+    );
+    // Each request names a port, but no signature matches it without that port either.
+    for changed in [
+        format!("{exact}&extra=1"),
+        exact.replace("/object?", "/other?"),
+        tampered,
+        format!("{portless}&extra=1"),
+    ] {
+        let reply = send(&server, "GET", &changed, "");
+        error(&reply, 403, "SignatureDoesNotMatch");
+        assert_eq!(message(&reply), PLAIN_MISMATCH, "{changed}");
+    }
 }
 
 #[test]
@@ -450,7 +481,7 @@ fn lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once(
     ] {
         let reply = send(&server, "GET", &changed, "");
         error(&reply, 403, "SignatureDoesNotMatch");
-        assert_eq!(message(&reply), "The request signature does not match.");
+        assert_eq!(message(&reply), PLAIN_MISMATCH);
     }
     let warnings = stderr_events(&mut server)
         .into_iter()

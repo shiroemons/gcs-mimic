@@ -214,9 +214,11 @@ impl Auth {
 /// Process-wide, so an operator notices a lenient match without one line per request.
 static WARNED_PORTLESS_HOST: AtomicBool = AtomicBool::new(false);
 
-/// Checks a signature over the canonical request as sent and, when `signed_host_port` is
-/// lenient and the request Host names an explicit port, once more over the same request without
-/// that port. Every other part of the canonical request stays bound either way.
+/// Checks a signature over the canonical request as sent and, when that fails and the request
+/// Host names an explicit port, once more over the same request without that port. A lenient
+/// verifier accepts that match; an exact one reports it, so the hint never accompanies a
+/// signature that fails for another reason. Every other part of the canonical request stays
+/// bound either way, and the second check runs only for a request that already failed.
 pub(super) fn verify_host_forms(
     host_port: SignedHostPort,
     prepared: &Prepared,
@@ -228,13 +230,15 @@ pub(super) fn verify_host_forms(
     let Some(portless) = &prepared.portless else {
         return Err(Failure::Mismatch);
     };
+    if !signs(portless) {
+        return Err(Failure::Mismatch);
+    }
     match host_port {
         SignedHostPort::Exact => Err(Failure::MismatchWithHostPort),
-        SignedHostPort::Lenient if signs(portless) => {
+        SignedHostPort::Lenient => {
             warn_portless_host();
             Ok(())
         }
-        SignedHostPort::Lenient => Err(Failure::Mismatch),
     }
 }
 
@@ -558,11 +562,14 @@ mod tests {
         let ported = prepare("examplebucket.s3.amazonaws.com:4443");
         assert_eq!(check(Exact, &ported), Err(Failure::MismatchWithHostPort));
         assert_eq!(check(Lenient, &ported), Ok(()));
+        // Matching neither form, these get no port hint and no lenient acceptance.
         let other = prepare("otherbucket.s3.amazonaws.com:4443");
-        assert_eq!(check(Lenient, &other), Err(Failure::Mismatch));
         let mut tampered = prepare("examplebucket.s3.amazonaws.com:4443");
         tampered.signature[0] ^= 1;
-        assert_eq!(check(Lenient, &tampered), Err(Failure::Mismatch));
+        for host_port in [Exact, Lenient] {
+            assert_eq!(check(host_port, &other), Err(Failure::Mismatch));
+            assert_eq!(check(host_port, &tampered), Err(Failure::Mismatch));
+        }
     }
 
     #[tokio::test]

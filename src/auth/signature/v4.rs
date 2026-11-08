@@ -189,8 +189,8 @@ pub(super) fn prepare(
     let canonical =
         |host| canonical_with_payload(method, uri, headers, &query, signed, &payload, host);
     let as_sent = canonical(CanonicalHost::AsSent)?;
-    // Go storage drops an explicit port from the canonical host. A mismatch names that cause,
-    // and a lenient verifier retries with this form.
+    // Go storage drops an explicit port from the canonical host. A signature that fails as sent
+    // is checked against this form too: exact names the port as the cause, lenient accepts.
     let without_port = canonical(CanonicalHost::WithoutPort)?;
     Ok(Prepared {
         signer: credential.signer.into(),

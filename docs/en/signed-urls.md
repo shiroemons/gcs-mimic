@@ -263,8 +263,9 @@ The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
 signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
 Go storage v1.70.0 omits non-default ports from canonical Host, so its URLs for
-a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when the request Host
-names a port, the message suggests `signed_host_port=lenient`. Prefer the helper
+a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when a signature
+matches the request only without its port, the message says so and suggests
+`signed_host_port=lenient`. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start the server
 with `--signed-host-port lenient` (`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, JSON

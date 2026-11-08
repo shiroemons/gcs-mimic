@@ -527,7 +527,6 @@ async fn delete_signatures_bind_method_host_raw_path_and_generation() {
             .await
             .is_ok()
     );
-    // Exact verification of a Host with an explicit port suggests the lenient setting.
     for changed in [
         url.replace("a%2Fb", "a/b"),
         url.replace("generation=123", "generation=124"),
@@ -535,12 +534,12 @@ async fn delete_signatures_bind_method_host_raw_path_and_generation() {
     ] {
         assert_eq!(
             verify(&changed, &Method::DELETE, HeaderMap::new(), now).await,
-            Err(Failure::MismatchWithHostPort)
+            Err(Failure::Mismatch)
         );
     }
     assert_eq!(
         verify(&url, &Method::GET, HeaderMap::new(), now).await,
-        Err(Failure::MismatchWithHostPort)
+        Err(Failure::Mismatch)
     );
     assert!(
         sign_url(SignUrlRequest {
@@ -598,7 +597,7 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
             .await
             .is_ok()
     );
-    // Exact verification of a Host with an explicit port suggests the lenient setting.
+    // None of these tampered requests verifies without the port either, so none gets the hint.
     for changed in [
         url.replace("/bucket/", "/other-bucket/"),
         url.replace("/object?", "/other?"),
@@ -610,22 +609,21 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     ] {
         assert_eq!(
             verify(&changed, &Method::GET, headers.clone(), now).await,
-            Err(Failure::MismatchWithHostPort),
+            Err(Failure::Mismatch),
             "{changed}"
         );
     }
     for method in [Method::HEAD, Method::PUT, Method::DELETE] {
         assert_eq!(
             verify(&url, &method, headers.clone(), now).await,
-            Err(Failure::MismatchWithHostPort)
+            Err(Failure::Mismatch)
         );
     }
     headers.insert("x-required", "changed".parse().unwrap());
     assert_eq!(
         verify(&url, &Method::GET, headers.clone(), now).await,
-        Err(Failure::MismatchWithHostPort)
+        Err(Failure::Mismatch)
     );
-    // A missing signed header fails before any signature is checked.
     headers.remove("x-required");
     assert_eq!(
         verify(&url, &Method::GET, headers, now).await,
@@ -641,7 +639,7 @@ async fn signed_method_resource_query_host_port_headers_and_hex_are_bound() {
     headers.insert("x-required", "value".parse().unwrap());
     assert_eq!(
         verify(&changed, &Method::GET, headers.clone(), now).await,
-        Err(Failure::MismatchWithHostPort)
+        Err(Failure::Mismatch)
     );
     assert_eq!(
         verify(&format!("{prefix}=zz"), &Method::GET, headers.clone(), now).await,
@@ -729,18 +727,23 @@ async fn lenient_host_port_accepts_only_a_signature_that_omits_the_request_port(
         format!("{portless}&extra=x"),
         tampered,
     ] {
-        assert_eq!(
-            verify_host_port(Lenient, &changed, required.clone()).await,
-            Err(Failure::Mismatch),
-            "{changed}"
-        );
+        // These match neither form, so exact gives no port hint and lenient does not accept.
+        for host_port in [Exact, Lenient] {
+            assert_eq!(
+                verify_host_port(host_port, &changed, required.clone()).await,
+                Err(Failure::Mismatch),
+                "{host_port:?} {changed}"
+            );
+        }
     }
     let mut changed = required.clone();
     changed.insert("x-required", "changed".parse().unwrap());
-    assert_eq!(
-        verify_host_port(Lenient, &portless, changed).await,
-        Err(Failure::Mismatch)
-    );
+    for host_port in [Exact, Lenient] {
+        assert_eq!(
+            verify_host_port(host_port, &portless, changed.clone()).await,
+            Err(Failure::Mismatch)
+        );
+    }
     // A Host without a port has nothing to omit, so both settings answer alike.
     let without_port = exact.replace("localhost:4443", "localhost");
     for host_port in [Exact, Lenient] {

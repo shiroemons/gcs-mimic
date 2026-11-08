@@ -45260,7 +45260,7 @@
         },
         {
           "id": "DESIGN-033-SIGNED-HOST-PORT",
-          "description": "signed_host_port (CLI, environment, config file; exact by default, invalid values rejected with the accepted choices) is reported as ready field signed_host_port. With exact, a V4 mismatch on a Host that names an explicit port answers 403 SignatureDoesNotMatch whose message names signed_host_port=lenient; a missing signed header and a portless Host keep the plain message. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs stand in for the Go SDK, whose suite runs only the default; see SPEC-GO-SIGNER-PORT.",
+          "description": "signed_host_port (CLI, environment, config file; exact by default, invalid values rejected with the accepted choices) is reported as ready field signed_host_port. With exact, a V4 signature that fails over a Host naming an explicit port but matches the same request without that port answers 403 SignatureDoesNotMatch whose message says so and names signed_host_port=lenient; a tampered request on a host:port Host, a missing signed header and a portless Host keep the plain message in both modes. With the local opt-in lenient, a V4 signature that fails over the actual Host is checked once more with only the port removed from the canonical host, for RSA, HMAC, Authorization-header AWS4-HMAC-SHA256 and the aws-chunked seed; the host name, method, path, query, signed headers, payload rule, time window and absolute-form authority stay bound, an exact host:port signature still verifies, a tampered signature fails, signer permissions still apply to GET and PUT, and the first portless match logs one signature_host_port_omitted warning without URL, signature or credential. Locally signed portless URLs stand in for the Go SDK, whose suite runs only the default; see SPEC-GO-SIGNER-PORT.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port",
@@ -45271,6 +45271,7 @@
             "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
             "config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes",
             "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
+            "signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request",
             "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"
           ]
         }
@@ -45286,6 +45287,7 @@
         "auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain",
         "config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes",
         "signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting",
+        "signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request",
         "signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
@@ -45301,7 +45303,7 @@
         "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
-        {"command":"cargo test --locked --lib auth::signature && cargo test --locked --lib signed_host_port && cargo test --locked --test it_xml_auth","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port","auth::signature::tests::only_an_explicit_port_is_removed_from_a_host","auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding","auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound","auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port","auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain","config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes","signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting","signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"]},
+        {"command":"cargo test --locked --lib auth::signature && cargo test --locked --lib signed_host_port && cargo test --locked --test it_xml_auth","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::lenient_host_port_accepts_only_a_signature_that_omits_the_request_port","auth::signature::tests::only_an_explicit_port_is_removed_from_a_host","auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding","auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound","auth::signature::verify::tests::lenient_host_port_retries_an_hmac_signature_only_without_the_request_port","auth::signature::streaming::tests::a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain","config::tests::signed_host_port_defaults_to_exact_with_precedence_in_both_auth_modes","signing::exact_signed_host_port_rejects_a_signature_without_the_port_and_names_the_setting","signing::exact_signed_host_port_keeps_the_plain_message_for_a_tampered_ported_request","signing::lenient_signed_host_port_accepts_a_signature_without_the_port_and_warns_once"]},
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",

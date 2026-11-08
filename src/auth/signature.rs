@@ -103,9 +103,9 @@ pub enum Failure {
     ExpiresOutOfRange(ExpiresParameter),
     UnknownSigner,
     Mismatch,
-    /// A V4 signature does not match a request whose Host has an explicit port while
-    /// `signed_host_port` is exact. A signer that omits that port from the canonical host, as
-    /// Go storage does, fails this way, so the response suggests the lenient setting.
+    /// While `signed_host_port` is exact, a V4 signature matches the request only without the
+    /// port that its Host names, as Go storage signs, so the response suggests the lenient
+    /// setting.
     MismatchWithHostPort,
     Expired,
     NotYetValid,

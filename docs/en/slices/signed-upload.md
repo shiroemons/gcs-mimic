@@ -78,8 +78,9 @@ SPEC-GO-SIGNER-PORT records canonical Host port omission: unmodified default-por
 URLs pass through a guarded local dialer; independent explicit-port download
 signatures are separate evidence. The opt-in `signed_host_port=lenient` setting
 also accepts a signed PUT whose canonical host omits the request's port, with
-every other signed part still bound; the default `exact` rejects it, and its
-message names the setting. See the
+every other signed part still bound; the default `exact` rejects it with a
+message that names the setting, which it does only when the signature matches
+without the port. See the
 [signed download contract](signed-download.md#pinned-go-sdk-endpoint-limitation).
 SPEC-RUBY-SIGNER-ENDPOINT records Ruby's fixed
 default canonical Host and its supported bucket-bound option with an explicit
