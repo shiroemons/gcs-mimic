@@ -517,7 +517,7 @@ fn legacy_outcome(name: &str, values: &BTreeMap<&str, &str>) -> Option<String> {
                 .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
             format!("use GCS_MIMIC_PUBLIC_BASE_URL={example}; path-style URLs work with any Host")
         }
-        "cors_headers" => "browsers may read public URLs from any origin, as in fake-gcs-server; JSON requests already allow every valid header; use GCS_MIMIC_CORS_FALLBACK=allow-all".into(),
+        "cors_headers" => "remove this setting: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON requests already allow every valid header".into(),
         "event_pubsub_project_id" | "event_pubsub_topic" | "event_bucket" | "event_object_prefix" | "event_list" => format!("use GCS_MIMIC_{} and an explicit PUBSUB_EMULATOR_HOST; only local emulator delivery is enabled", name.to_ascii_uppercase()),
         "scheme" | "host" | "port" | "port_http" | "external_url" | "data" | "cert_location"
         | "private_key_location" | "location" | "log_level" => legacy_advice(name, values),
@@ -593,8 +593,9 @@ fn legacy_advice(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "filesystem_root" => "use GCS_MIMIC_DATA_DIR=data only for native storage; the source format differs. Retain the old root for the separately delivered Import conversion; never mount it as native data".into(),
         "backend" => "the backend selector and memory mode are unsupported; remove this setting and use the default disk-backed native catalog".into(),
         "cert_location" | "private_key_location" => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
-        // Removal comes first: JSON-only callers need nothing else, and allow-all departs from Cloud Storage.
-        "cors_headers" => "remove this setting; JSON preflight already allows every valid requested header. Only if browsers read XML/public URLs of buckets without stored CORS rules, also set GCS_MIMIC_CORS_FALLBACK=allow-all or --cors-fallback allow-all".into(),
+        // Permissive mode already falls back to allow-all, and strict mode should keep Cloud
+        // Storage's bucket rules, so neither needs a replacement setting.
+        "cors_headers" => "remove this setting: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON preflight already allows every valid requested header".into(),
         "location" => match bucket_location(value) {
             Ok((location, _)) => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={location} or --default-location {location}; applies only to new buckets without a nonempty location; legacy-emulator global location defaults remain unsupported"),
             Err(_) => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with a supported GCS_MIMIC_DEFAULT_LOCATION, for example US or ASIA-NORTHEAST1; legacy-emulator global location defaults remain unsupported".into(),
@@ -1013,7 +1014,7 @@ mod tests {
         for expected in [
             "<IP_ADDRESS>:<PORT_0_TO_65535>",
             "GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1",
-            "GCS_MIMIC_CORS_FALLBACK=allow-all",
+            "permissive mode already allows every origin, strict mode follows each bucket's cors rules",
         ] {
             assert!(text.contains(expected), "{text}");
         }
@@ -1034,6 +1035,9 @@ mod tests {
             .unwrap()
             .fix;
         assert!(cors.starts_with("fake-gcs-server input is accepted;"));
+        // The alias still selects allow-all, but the advice is to remove it, not to restate it.
+        assert!(cors.contains("remove this setting"), "{cors}");
+        assert!(!cors.contains("GCS_MIMIC_CORS_FALLBACK"), "{cors}");
     }
 
     #[test]

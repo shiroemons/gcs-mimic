@@ -289,9 +289,10 @@ legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付�
 UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のUX-003はPARTIALです。
 このスライスでは全体のCORS設定を追加していません。
 後続のDESIGN-100で、CORSルールのないバケットの扱いを選ぶ`GCS_MIMIC_CORS_FALLBACK`（`none`・`allow-all`）を追加しました。
-`FAKE_GCS_CORS_HEADERS`は引き続き起動エラーとし、まず削除するよう案内します。JSON APIはもともと正しい形式のヘッダーをすべて許可するためです。
-ブラウザからCORSルールのないバケットのXML・公開URLを読む場合に限り、`GCS_MIMIC_CORS_FALLBACK=allow-all`も案内します。
-その後、permissiveでは`allow-all`が既定になり、strictでは`none`のままです。
+`FAKE_GCS_CORS_HEADERS`は引き続き起動エラーとし、削除するよう案内します。代わりの設定は案内しません。
+permissiveはもともとすべてのオリジンを許可します（`cors_fallback`の既定が`allow-all`）。
+strictはCloud Storageと同じくバケットの`cors`ルールに従います。
+JSON APIは正しい形式のヘッダーをすべて許可します。
 
 リポジトリのComposeで使う`GCS_MIMIC_PORT`はホスト側の公開ポート用です。
 サーバー自身の環境変数ではなく、バイナリへ渡しても待受設定にはなりません。
