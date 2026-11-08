@@ -76,7 +76,10 @@ fn signature_error(failure: signature::VerificationError) -> Error {
             XmlCode::SignatureDoesNotMatch,
             "The policy signature does not match.",
         ),
-        Failure::Malformed | Failure::Expired | Failure::NotYetValid => Error::invalid(
+        Failure::Malformed
+        | Failure::ExpiresOutOfRange(_)
+        | Failure::Expired
+        | Failure::NotYetValid => Error::invalid(
             "Invalid policy credentials; use exactly one supported signing version with its required fields and signature encoding.",
         ),
     }

@@ -658,12 +658,25 @@ async fn malformed_duplicate_scope_duration_and_unknown_signer_are_rejected() {
         &Method::GET,
         HeaderMap::new(),
     );
+    for expires in [
+        "604801",
+        "0",
+        "-1",
+        "+60",
+        "18446744073709551616",
+        "1.5",
+        "60s",
+    ] {
+        let changed = url.replace("X-Goog-Expires=60", &format!("X-Goog-Expires={expires}"));
+        assert_eq!(
+            verify(&changed, &Method::GET, HeaderMap::new(), now).await,
+            Err(Failure::ExpiresOutOfRange("X-Goog-Expires")),
+            "{changed}"
+        );
+    }
+    // An empty expiry is a missing parameter, not a value out of range.
     for changed in [
-        url.replace("X-Goog-Expires=60", "X-Goog-Expires=604801"),
-        url.replace("X-Goog-Expires=60", "X-Goog-Expires=0"),
-        url.replace("X-Goog-Expires=60", "X-Goog-Expires=-1"),
-        url.replace("X-Goog-Expires=60", "X-Goog-Expires=+60"),
-        url.replace("X-Goog-Expires=60", "X-Goog-Expires=18446744073709551616"),
+        url.replace("X-Goog-Expires=60", "X-Goog-Expires="),
         url.replace("%2F20261023%2F", "%2F20261022%2F"),
         url.replace("%2Fstorage%2F", "%2Fwrong%2F"),
         url.replace("X-Goog-SignedHeaders=host", "X-Goog-SignedHeaders=Host"),

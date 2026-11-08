@@ -45133,14 +45133,27 @@
           "test_ids": [
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "id": "DESIGN-032-EXPIRES-MESSAGE",
+          "description": "A present, nonempty X-Goog-Expires or X-Amz-Expires that is not an ASCII-decimal integer from 1 to 604800 (0, 604801, -1, +60, 2^64, 1.5, 60s, abc) keeps 400 InvalidAuthentication, and its Message names the parameter of the request's algorithm and the range, as for the X-Goog-Expires=0 that Go storage signs for a duration under one second. A missing or empty expiry keeps the generic signing-parameter message. Cloud Storage's answer is not recorded, so status and code stay local; see docs/en/slices/signed-download.md.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
+            "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
+          ]
         }
       ],
       "test_ids": [
         "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew",
         "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
+        "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib auth::signature && cargo test --locked --test it_xml_auth signing::","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected","auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm","signing::an_out_of_range_expiry_names_the_parameter_and_its_range"]},
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",
@@ -45178,7 +45191,7 @@
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-11-08"
     },
     {
       "id": "DESIGN-033",

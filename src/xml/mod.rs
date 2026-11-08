@@ -89,7 +89,7 @@ pub(crate) async fn authenticate_target<'a>(
 }
 
 fn signature_error(failure: crate::auth::signature::VerificationError) -> Error {
-    use crate::auth::signature::{Failure, VerificationError};
+    use crate::auth::signature::{Failure, MAX_EXPIRES, VerificationError};
     let failure = match failure {
         VerificationError::Signature(failure) => failure,
         VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
@@ -105,6 +105,13 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
             XmlCode::InvalidAuthentication,
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
         ),
+        // Cloud Storage's answer to this case is not recorded, so only the message changes.
+        Failure::ExpiresOutOfRange(parameter) => {
+            return Error::new(
+                XmlCode::InvalidAuthentication,
+                format!("{parameter} must be a whole number of seconds from 1 to {MAX_EXPIRES}."),
+            );
+        }
         Failure::UnknownSigner => (
             XmlCode::InvalidAccessKeyId,
             "The signing key or its registered identity is unknown or inactive.",

@@ -296,6 +296,40 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
 }
 
 #[test]
+fn an_out_of_range_expiry_names_the_parameter_and_its_range() {
+    let (_config, _data, server) = fixture();
+    let url = sign(
+        &server,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+        SystemTime::now(),
+        HeaderMap::new(),
+    );
+    // Go storage signs a duration under one second as X-Goog-Expires=0.
+    for expires in ["0", "604801"] {
+        let reply = send(
+            &server,
+            "GET",
+            &url.replace("X-Goog-Expires=60", &format!("X-Goog-Expires={expires}")),
+            "",
+        );
+        error(&reply, 400, "InvalidAuthentication");
+        assert!(
+            String::from_utf8_lossy(&reply.body).contains(
+                "<Message>X-Goog-Expires must be a whole number of seconds from 1 to 604800.</Message>"
+            ),
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+    }
+    // A missing expiry keeps the generic signing-parameter message.
+    let reply = send(&server, "GET", &url.replace("&X-Goog-Expires=60", ""), "");
+    error(&reply, 400, "InvalidAuthentication");
+    assert!(String::from_utf8_lossy(&reply.body).contains("Invalid V2/V4 signing parameters"));
+}
+
+#[test]
 fn signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names() {
     let (_config, _data, server) = fixture();
     let now = SystemTime::now();

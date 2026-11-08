@@ -37,6 +37,7 @@ For an absolute-form request target, its authority must exactly match the actual
 | Condition | Status/code |
 | --- | --- |
 | Missing, malformed, duplicate signing fields or unsupported algorithm; mixed Authorization | 400 InvalidAuthentication |
+| `X-Goog-Expires` or `X-Amz-Expires` present but not a whole number of seconds from 1 to 604800 | 400 InvalidAuthentication; the message names the parameter and the range |
 | Unknown signer or no registered RSA key | 403 InvalidAccessKeyId |
 | Cryptographic mismatch or missing signed header | 403 SignatureDoesNotMatch |
 | Too early beyond the documented skew | 403 RequestTimeTooSkewed |
@@ -45,6 +46,8 @@ For an absolute-form request target, its authority must exactly match the actual
 | Valid signature with unsupported operation/query/header | 400 InvalidArgument |
 
 HEAD keeps the normal XML status and headers with no body. The documented status catalog supports these names/statuses, but precise messages, precedence and query-specific early/expiry mappings remain local choices in SPEC-SIGNING-EDGES; this is not a claim of complete provider wire parity.
+
+An out-of-range expiry answers, for example, `X-Goog-Expires must be a whole number of seconds from 1 to 604800.` Go storage signs a duration under one second as `X-Goog-Expires=0`, which a generic signing-parameter message would not explain. An empty or missing expiry keeps the generic message. Cloud Storage's answer to an out-of-range expiry is not recorded, so only the message differs from other malformed fields.
 
 ## Local helper
 

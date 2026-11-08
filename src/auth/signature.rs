@@ -97,6 +97,10 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Malformed,
+    /// The named V4 expiry parameter is present but not a whole number of seconds within
+    /// `1..=MAX_EXPIRES`. Go storage turns a duration under one second into `0`, so the
+    /// response names the range instead of a generic parameter error.
+    ExpiresOutOfRange(&'static str),
     UnknownSigner,
     Mismatch,
     Expired,

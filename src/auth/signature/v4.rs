@@ -23,6 +23,14 @@ impl Algorithm {
             "X-Goog-"
         }
     }
+
+    fn expires_parameter(self) -> &'static str {
+        if self == Self::AwsHmac {
+            "X-Amz-Expires"
+        } else {
+            "X-Goog-Expires"
+        }
+    }
 }
 
 pub(crate) fn has_header(headers: &HeaderMap) -> bool {
@@ -247,7 +255,7 @@ fn query_fields(query: &BTreeMap<String, String>) -> Result<Fields<'_>, Failure>
         .ok()
         .filter(|n| (1..=MAX_EXPIRES).contains(n))
         .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
-        .ok_or(Failure::Malformed)?;
+        .ok_or(Failure::ExpiresOutOfRange(algorithm.expires_parameter()))?;
     Ok((
         algorithm,
         required("Credential")?,
