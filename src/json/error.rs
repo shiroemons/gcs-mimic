@@ -2,7 +2,7 @@ use crate::{
     auth::AuthFailure,
     bucket::CatalogError,
     object::ObjectError,
-    storage::failure::{BackendCause, BackendFailure},
+    storage::failure::{BackendCause, BackendFailure, IoCause, MemoryBudget},
 };
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
@@ -274,10 +274,21 @@ impl ErrorLocation {
 }
 
 impl JsonError {
-    fn storage_capacity() -> Self {
-        Self::service_unavailable(
-            "Storage capacity exhausted; for backend=memory release objects/readers or restart with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), and for backend=disk free disk space; data kept by soft delete also uses capacity until it expires, so set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions and leave default_soft_delete_retention_seconds at 0 to free later deletions at once; retry with generation preconditions after capacity is available",
-        )
+    /// Names only the remedy for the storage that ran out: a disk backend never has a RAM budget
+    /// to raise, and a memory backend has no data directory to free.
+    fn storage_capacity(cause: &IoCause) -> Self {
+        Self::service_unavailable(match cause.memory_budget() {
+            None => {
+                "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions"
+            }
+            // Deleting does not free what soft delete retains, which can be what filled RAM.
+            Some(MemoryBudget::Blobs) => {
+                "Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)"
+            }
+            Some(MemoryBudget::Catalog) => {
+                "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)"
+            }
+        })
     }
 
     fn backend(backend: &BackendCause) -> Self {
@@ -740,7 +751,7 @@ impl From<CatalogError> for JsonError {
             }
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
-                Self::storage_capacity()
+                Self::storage_capacity(&cause)
             }
             CatalogError::Unavailable(cause) | CatalogError::Corrupt(cause) => {
                 Self::catalog_backend(&cause)
@@ -926,7 +937,7 @@ impl From<ObjectError> for JsonError {
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(&cause),
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
-                Self::storage_capacity()
+                Self::storage_capacity(&cause)
             }
             ObjectError::Io(kind) => Self::service_unavailable(format!(
                 "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
@@ -1001,6 +1012,72 @@ mod tests {
         let mut bare = vec![b'x'; QUOTED_BODY_LIMIT];
         bare.push(b'x');
         assert!(parse(&bare).message.len() < 1024);
+    }
+
+    /// A tester whose Docker disk filled under `backend=disk` was told about RAM budgets first;
+    /// each storage that can run out now names only its own remedy.
+    #[test]
+    fn storage_capacity_names_only_the_remedy_of_the_storage_that_ran_out() {
+        use crate::storage::failure::MemoryExhausted;
+        let memory = |budget| {
+            IoCause::from(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                MemoryExhausted::new(budget),
+            ))
+        };
+        let disk = || IoCause::from(std::io::ErrorKind::StorageFull);
+        for (cause, names, omits) in [
+            (
+                disk(),
+                &[
+                    "data directory",
+                    "softDeletePolicy.retentionDurationSeconds",
+                    "generation preconditions",
+                ][..],
+                &[
+                    "memory_max_bytes",
+                    "memory_catalog_max_bytes",
+                    "backend=",
+                    "default_soft_delete_retention_seconds",
+                ][..],
+            ),
+            (
+                memory(MemoryBudget::Blobs),
+                &[
+                    "delete objects",
+                    "softDeletePolicy.retentionDurationSeconds",
+                    "memory_max_bytes",
+                    "restart loses RAM data",
+                ][..],
+                &[
+                    "memory_catalog_max_bytes",
+                    "data directory",
+                    "default_soft_delete_retention_seconds",
+                ][..],
+            ),
+            (
+                memory(MemoryBudget::Catalog),
+                &["memory_catalog_max_bytes", "restart loses RAM data"][..],
+                &["memory_max_bytes", "data directory", "softDeletePolicy"][..],
+            ),
+        ] {
+            let object = JsonError::from(ObjectError::Io(cause.clone()));
+            let catalog = JsonError::from(CatalogError::Io(cause));
+            assert_eq!(object.message, catalog.message);
+            assert_eq!(object.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(object.reason, "backendError");
+            let message = &object.message;
+            assert!(
+                message.starts_with("Storage capacity exhausted;"),
+                "{message}"
+            );
+            for name in names {
+                assert!(message.contains(name), "{name}: {message}");
+            }
+            for name in omits {
+                assert!(!message.contains(name), "{name}: {message}");
+            }
+        }
     }
 
     #[test]

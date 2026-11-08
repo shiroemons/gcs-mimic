@@ -310,7 +310,10 @@ A 503 remains possible in these cases:
 
 - A request that outlasts `catalog_wait_timeout_ms` (default 120000), including one waiting
   for a busy session such as a resent XML multipart part number or a completion, or a handler
-  that outlasts `request_timeout_ms` (default 180000).
+  that outlasts `request_timeout_ms` (default 180000). A pause while the client sends a request
+  body never counts against `request_timeout_ms`; only `body_inactivity_timeout_ms`, disabled
+  by default, bounds it, and answers JSON 408 `uploadBrokenConnection` or XML 400
+  `RequestTimeout`.
 - `max_resumable_sessions` or `max_rewrite_sessions` that you set.
 - I/O failures and shutdown.
 

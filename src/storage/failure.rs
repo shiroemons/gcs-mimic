@@ -8,6 +8,7 @@ use crate::bucket::CatalogError;
 use crate::object::ObjectError;
 use std::{
     borrow::Cow,
+    cell::Cell,
     error::Error,
     fmt, io,
     num::TryFromIntError,
@@ -145,6 +146,113 @@ impl IoCause {
             .as_deref()
             .map(|error| error as &(dyn Error + 'static))
     }
+
+    /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
+    pub(crate) fn memory_budget(&self) -> Option<MemoryBudget> {
+        crate::error::causes(self.source()?).find_map(|cause| {
+            cause
+                .downcast_ref::<MemoryExhausted>()
+                .map(|exhausted| exhausted.budget)
+        })
+    }
+}
+
+/// A `backend=memory` budget, each with its own remedy when it runs out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MemoryBudget {
+    /// Object bytes, bounded by `memory_max_bytes`.
+    Blobs,
+    /// Catalog database pages, bounded by `memory_catalog_max_bytes`.
+    Catalog,
+}
+
+/// A `backend=memory` budget that ran out. It travels inside the `StorageFull` failure, so a reply
+/// can name the setting to raise from the failure's type instead of its text.
+#[derive(Debug)]
+pub(crate) struct MemoryExhausted {
+    budget: MemoryBudget,
+    /// The failure that reported it, such as SQLite's full database.
+    source: Option<Source>,
+}
+
+impl MemoryExhausted {
+    pub(crate) fn new(budget: MemoryBudget) -> Self {
+        Self {
+            budget,
+            source: None,
+        }
+    }
+}
+
+impl fmt::Display for MemoryExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self.budget {
+            MemoryBudget::Blobs => {
+                "RAM blob byte budget exhausted; delete objects or increase memory_max_bytes"
+            }
+            MemoryBudget::Catalog => {
+                "RAM catalog page budget exhausted; increase memory_catalog_max_bytes"
+            }
+        })
+    }
+}
+
+impl Error for MemoryExhausted {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.source
+            .as_deref()
+            .map(|error| error as &(dyn Error + 'static))
+    }
+}
+
+/// Where the pages of the catalog database that a job on this thread uses live.
+#[derive(Clone, Copy)]
+enum CatalogPages {
+    Disk,
+    Memory,
+}
+
+thread_local! {
+    /// SQLite reports a memory catalog's page budget and a full disk with the same code, and
+    /// only the job running on the connection knows which database it uses.
+    static CATALOG_PAGES: Cell<CatalogPages> = const { Cell::new(CatalogPages::Disk) };
+}
+
+/// Marks the calling thread as running a job on a memory catalog's connection until dropped, so
+/// a full database there reports the `memory_catalog_max_bytes` budget instead of a full disk.
+#[must_use = "dropping the guard ends the memory catalog job"]
+pub(in crate::storage) struct MemoryCatalogJob {
+    previous: CatalogPages,
+}
+
+impl MemoryCatalogJob {
+    pub(in crate::storage) fn enter() -> Self {
+        Self {
+            previous: CATALOG_PAGES.replace(CatalogPages::Memory),
+        }
+    }
+}
+
+impl Drop for MemoryCatalogJob {
+    fn drop(&mut self) {
+        CATALOG_PAGES.set(self.previous);
+    }
+}
+
+/// A full SQLite database: the disk, or on a memory catalog its page budget.
+fn full_database(error: rusqlite::Error) -> IoCause {
+    let error: Source = Arc::new(error);
+    let source: Source = match CATALOG_PAGES.get() {
+        CatalogPages::Disk => error,
+        CatalogPages::Memory => Arc::new(MemoryExhausted {
+            budget: MemoryBudget::Catalog,
+            source: Some(error),
+        }),
+    };
+    IoCause {
+        kind: io::ErrorKind::StorageFull,
+        source: Some(source),
+    }
 }
 
 /// Plain failures retain the kind-only message; contextual failures also identify their entry.
@@ -232,10 +340,7 @@ impl StorageCause for rusqlite::Error {
             | Error::InvalidColumnType(..)
             | Error::Utf8Error(..) => Classified::Corrupt(self.into_cause()),
             Error::SqliteFailure(failure, _) if failure.code == ErrorCode::DiskFull => {
-                Classified::Io(IoCause {
-                    kind: io::ErrorKind::StorageFull,
-                    source: Some(Arc::new(self)),
-                })
+                Classified::Io(full_database(self))
             }
             _ => Classified::Unavailable(self.into_cause()),
         }

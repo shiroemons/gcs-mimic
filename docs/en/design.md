@@ -132,8 +132,8 @@ has no upper bound.
 | Setting | Default | What it bounds |
 | --- | --- | --- |
 | `header_read_timeout_ms` | 30000 | A request head on a new connection, or once a next request has started; warns when it stalls. Also the gRPC handshake and the HTTP/2 ping wait. |
-| `body_inactivity_timeout_ms` | 0 (disabled) | Silence while a streamed request body or a response body is in flight, and silence on an open gRPC stream. Each progressing chunk renews it. |
-| `request_timeout_ms` | 180000 | The handler's time before its response starts, which also bounds a small request body. |
+| `body_inactivity_timeout_ms` | 0 (disabled) | Silence while a request body on any route or a response body is in flight, and silence on an open gRPC stream. Each progressing chunk renews it. Every JSON document may reach 16 MiB, so no request body counts as one that arrives at once. |
+| `request_timeout_ms` | 180000 | The handler's time before its response starts. Time spent waiting for request body bytes never counts against it. |
 | `keep_alive_timeout_ms` | 120000 | Idle time between requests on one connection, longer than the Go SDK's 90-second idle pool; the connection then closes without a warning or lingering. Also idle gRPC connections. |
 | `object_request_timeout_ms` | 0 (disabled) | A whole object upload or media request from dispatch; never renews on chunks. Accepting 5 TiB objects rules out a fixed bound on a transfer. |
 | `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, the wait for a busy session, and the wait of a reset, reseed, publication or management call for its turn. It bounds waiting only: a reseed may then take as long as its tree needs. |
@@ -161,9 +161,14 @@ later client waits behind the one being served. When a stream did race the GOAWA
 client waits for another connection to end, which `keep_alive_timeout_ms` bounds; it does not fail.
 
 A deadline that expires before the handler answers cancels the handler without
-publication and answers with a retryable status that Cloud Storage documents: object
-uploads (`/upload/...` and XML PUT/POST with a body) receive 408 `uploadBrokenConnection`,
-and other requests receive 503 `backendError`. Once a response head has been sent, expiry
+publication and answers with a retryable status that Cloud Storage documents. The
+connection picks the reply when the deadline expires, from the limit that expired, because
+the route alone cannot tell a silent client from a slow server. A request body silent past
+`body_inactivity_timeout_ms` receives JSON 408 `uploadBrokenConnection` or XML 400
+`RequestTimeout`, the XML API's code for a socket not written to in time. An object upload
+(`/upload/...` and XML PUT/POST with a body) past `object_request_timeout_ms` receives 408
+`uploadBrokenConnection` in both APIs. Any other expiry, such as a handler with no response
+ready within `request_timeout_ms`, receives 503 `backendError`. Once a response head has been sent, expiry
 can only truncate the body, as for a media download after its headers.
 The catalog wait is capped by any remaining `object_request_timeout_ms` budget; expiry returns
 503 `backendError`. Timeout settings use CLI > environment > JSON > default precedence.

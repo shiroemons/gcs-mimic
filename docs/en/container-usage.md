@@ -139,7 +139,9 @@ deletes an object. An object deleted through the API is recreated on the next
 restart, and edits to seed files apply on the next restart. Seed input is not
 watched. Restart the container, or enable local administration
 (`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener) and use the opt-in
-[reseed endpoint](slices/atomic-seed-reseed.md).
+[reseed endpoint](slices/atomic-seed-reseed.md). A reseed of a tree that breaks a
+configured limit or holds names it cannot import answers 400 and names the problem;
+only work a later attempt can finish answers 503 with `Retry-After: 1`.
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`

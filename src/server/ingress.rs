@@ -1,6 +1,6 @@
 //! Transport input normalization before API routing and operation authorization.
 
-use super::{BodyPace, BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx};
+use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx};
 use crate::json::JsonError;
 use flate2::read::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
@@ -27,7 +27,7 @@ pub(crate) enum RequestBody {
 
 /// A request body arriving from the client. Every adapter reads through here, so the
 /// connection's watchdog learns from one place when a request is waiting on the client:
-/// a stalled upload is then bounded by body inactivity, not by the request deadline.
+/// a stalled body on any route is then bounded by body inactivity, not by the request deadline.
 pub(crate) struct TransportBody {
     body: Incoming,
     activity: watch::Sender<ObjectActivity>,
@@ -62,14 +62,14 @@ impl Body for TransportBody {
         match &polled {
             Poll::Pending => this.report(BodyRead::Pending),
             Poll::Ready(Some(Ok(_))) => {
-                this.report(if this.body.is_end_stream() {
+                let read = if this.body.is_end_stream() {
                     BodyRead::NotPending
                 } else {
                     BodyRead::Pending
-                });
-                // Frames of a small body do not renew its deadline, which bounds the whole read.
+                };
+                // Notifying even when the state is unchanged makes every frame renew the limit.
                 this.activity
-                    .send_if_modified(|progress| progress.body_pace == BodyPace::ClientPaced);
+                    .send_modify(|progress| progress.body_read = read);
             }
             Poll::Ready(Some(Err(_)) | None) => this.report(BodyRead::NotPending),
         }

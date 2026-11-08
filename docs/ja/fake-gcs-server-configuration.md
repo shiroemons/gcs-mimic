@@ -56,7 +56,7 @@ XMLマルチパートの異なるパート番号は同時に書き込めます�
 
 503が残るのは次の場合です。
 
-- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの同じパート番号の再送やCompleteのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。
+- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの同じパート番号の再送やCompleteのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。クライアントがリクエスト本文の送信を止めている時間は`request_timeout_ms`に数えません。これを区切るのは既定で無効の`body_inactivity_timeout_ms`だけで、超えるとJSONは408 `uploadBrokenConnection`、XMLは400 `RequestTimeout`を返します。
 - 自分で指定した`max_resumable_sessions`、`max_rewrite_sessions`を超えたとき。
 - I/O障害と停止処理の間。
 

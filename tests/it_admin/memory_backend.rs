@@ -1059,12 +1059,12 @@ fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_nam
     exhausted.json_reason(503, "backendError");
     let message: Value = serde_json::from_slice(&exhausted.body).unwrap();
     let message = message["error"]["message"].as_str().unwrap();
-    for needle in [
-        "soft delete",
-        "default_soft_delete_retention_seconds",
-        "softDeletePolicy",
-    ] {
+    // Retained deletions filled the blob budget, so the remedy names soft delete and that budget.
+    for needle in ["soft delete", "softDeletePolicy", "memory_max_bytes"] {
         assert!(message.contains(needle), "{needle}: {message}");
+    }
+    for absent in ["memory_catalog_max_bytes", "data directory"] {
+        assert!(!message.contains(absent), "{absent}: {message}");
     }
     server.stop();
 }

@@ -92,6 +92,14 @@ impl Inner {
             return Err(ConnectionUnavailable::Closed);
         };
         let connection = &mut resources.connection;
+        // A memory catalog's full database is its page budget; the operation's own error types
+        // cannot tell it from a full disk.
+        let _pages = match self.backend.kind() {
+            crate::config::Backend::Memory => {
+                Some(crate::storage::failure::MemoryCatalogJob::enter())
+            }
+            crate::config::Backend::Disk => None,
+        };
         let changes_before = connection.total_changes();
         // The connection is checked after an unwind before anyone reuses it, so
         // observing it mid-operation is harmless.

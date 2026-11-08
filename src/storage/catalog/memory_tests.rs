@@ -624,7 +624,12 @@ async fn exhaust_catalog_pages(admin: &admin::Admin) {
             .await
         {
             Ok(_) => {}
-            Err(AdminError::DiskFull(_)) => {
+            Err(AdminError::DiskFull(cause)) => {
+                // The reply must name memory_catalog_max_bytes, not a disk to free.
+                assert_eq!(
+                    cause.memory_budget(),
+                    Some(crate::storage::failure::MemoryBudget::Catalog)
+                );
                 exhausted = true;
                 break;
             }

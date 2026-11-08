@@ -3,7 +3,7 @@
 //! Handlers receive these structs instead of long parameter lists, so adding shared
 //! request state changes one definition rather than every signature on the call path.
 
-use super::{BodyPace, ObjectActivity, State, authorize_bucket, await_upload_catalog};
+use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
 use crate::{
     auth::Caller,
     bucket::BucketAccess,
@@ -49,28 +49,19 @@ pub(crate) enum DeadlineWatch {
 }
 
 impl<'a> RequestCtx<'a> {
-    /// Starts an object request deadline of `object_request_timeout_ms` from now. An enforced
-    /// route transfers object data, so its request body runs at the client's pace.
+    /// Starts an object request deadline of `object_request_timeout_ms` from now.
     pub(crate) fn start_object_deadline(self, watch: DeadlineWatch) -> Instant {
         let deadline = self.config.object_request_timeout.deadline();
-        let (watched, pace) = match watch {
-            DeadlineWatch::Enforced => (Some(deadline), BodyPace::ClientPaced),
-            DeadlineWatch::CatalogOnly => (None, BodyPace::Bounded),
+        let watched = match watch {
+            DeadlineWatch::Enforced => Some(deadline),
+            DeadlineWatch::CatalogOnly => None,
         };
         // An expiry the connection already claimed stays visible to later catalog waits.
         self.activity.send_modify(|progress| {
             progress.end_catalog_wait();
             progress.deadline = watched;
-            progress.body_pace = pace;
         });
         deadline
-    }
-
-    /// Lets body inactivity bound this request's body instead of the request deadline, for a
-    /// route that is not an enforced object transfer but can still receive megabytes.
-    pub(crate) fn stream_request_body(self) {
-        self.activity
-            .send_modify(|progress| progress.body_pace = BodyPace::ClientPaced);
     }
 
     /// Stops watching the object request deadline once the handler has answered.

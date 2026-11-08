@@ -40,6 +40,11 @@ fn xml_codes_preserve_exceptional_statuses_and_spelling() {
             "uploadBrokenConnection",
         ),
         (
+            XmlCode::RequestTimeout,
+            StatusCode::BAD_REQUEST,
+            "RequestTimeout",
+        ),
+        (
             XmlCode::MissingContentLength,
             StatusCode::LENGTH_REQUIRED,
             "MissingContentLength",

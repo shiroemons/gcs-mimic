@@ -274,9 +274,13 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
         std::fs::create_dir(source.0.join("new-empty-bucket")).unwrap();
         std::fs::create_dir(source.0.join("z-Invalid")).unwrap();
         std::fs::write(source.0.join("z-Invalid/bad"), b"invalid").unwrap();
-        server
-            .request("POST", "/_internal/reseed", "", b"")
-            .expect(503);
+        // Retrying cannot fix the tree, so the reply is a client error without Retry-After.
+        let rejected = server.request("POST", "/_internal/reseed", "", b"");
+        rejected.json_reason(400, "invalid");
+        assert!(!rejected.headers.contains_key("retry-after"));
+        let message = rejected.json()["error"]["message"].to_string();
+        assert!(message.contains("not a valid bucket name"), "{message}");
+        assert!(!message.contains("z-Invalid"), "{message}");
         assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), old);
         assert_eq!(
             server
@@ -340,6 +344,87 @@ fn configured_reseed_is_atomic_and_uses_disk_merge_or_ram_replacement() {
                 .body,
             b"seed"
         );
+    }
+}
+
+/// A tree that grew past a configured limit after startup fails the same way on every attempt:
+/// reseed answers 400 naming the setting, without Retry-After or any path, and changes nothing.
+#[test]
+fn reseed_past_a_configured_limit_answers_400_naming_the_setting() {
+    /// A limit the startup tree fits, and how the tree then grows past it.
+    struct PastLimit {
+        setting: &'static str,
+        limit: &'static str,
+        grow: fn(&std::path::Path),
+    }
+    let cases = [
+        PastLimit {
+            setting: "max_seed_entries",
+            limit: "3",
+            grow: |root| {
+                for name in ["first-extra", "second-extra"] {
+                    std::fs::write(root.join("test-bucket").join(name), b"seed").unwrap();
+                }
+            },
+        },
+        PastLimit {
+            setting: "max_seed_depth",
+            limit: "1",
+            grow: |root| {
+                std::fs::create_dir_all(root.join("test-bucket/level-one/level-two")).unwrap();
+                std::fs::write(root.join("test-bucket/level-one/level-two/deep"), b"seed").unwrap();
+            },
+        },
+        PastLimit {
+            setting: "max_buckets_per_batch",
+            limit: "1",
+            grow: |root| std::fs::create_dir(root.join("second-bucket")).unwrap(),
+        },
+    ];
+    for PastLimit {
+        setting,
+        limit,
+        grow,
+    } in cases
+    {
+        let (data, source) = (TestDir::new(), TestDir::new());
+        std::fs::create_dir(source.0.join("test-bucket")).unwrap();
+        std::fs::write(source.0.join("test-bucket/value"), b"seed").unwrap();
+        let flag = format!("--{}", setting.replace('_', "-"));
+        let server = Server::start(
+            &data,
+            &[
+                "--admin-enabled",
+                "true",
+                "--seed-dir",
+                source.0.to_str().unwrap(),
+                &flag,
+                limit,
+            ],
+        );
+        let before = server.request("GET", OBJECT, "", b"").json_ok();
+        grow(&source.0);
+        let rejected = server.request("POST", "/_internal/reseed", "", b"");
+        rejected.json_reason(400, "invalid");
+        assert!(
+            !rejected.headers.contains_key("retry-after"),
+            "{setting}: {:?}",
+            rejected.headers
+        );
+        let message = rejected.json()["error"]["message"].to_string();
+        assert!(message.contains(setting), "{setting}: {message}");
+        for leaked in [
+            source.0.to_str().unwrap(),
+            "extra",
+            "level-",
+            "second-bucket",
+        ] {
+            assert!(!message.contains(leaked), "{setting}: {message}");
+        }
+        assert_eq!(server.request("GET", OBJECT, "", b"").json_ok(), before);
+        server
+            .request("GET", "/storage/v1/b/second-bucket", "", b"")
+            .expect(404);
     }
 }
 

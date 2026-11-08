@@ -38,6 +38,8 @@ pub(super) enum XmlCode {
     AccessDenied,
     PreconditionFailed,
     UploadBrokenConnection,
+    /// The XML API lists a socket that was not read from or written to in time under 400.
+    RequestTimeout,
     Csek(CsekError),
 }
 
@@ -98,6 +100,7 @@ impl XmlCode {
             | Self::InvalidPolicyDocument
             | Self::EntityTooSmall
             | Self::ContentLengthRangeInHeaderIsInvalid
+            | Self::RequestTimeout
             | Self::Csek(_) => StatusCode::BAD_REQUEST,
         }
     }
@@ -138,6 +141,7 @@ impl XmlCode {
             Self::AccessDenied => "AccessDenied",
             Self::PreconditionFailed => "PreconditionFailed",
             Self::UploadBrokenConnection => "uploadBrokenConnection",
+            Self::RequestTimeout => "RequestTimeout",
             Self::Csek(error) => error.xml_code(),
         }
     }

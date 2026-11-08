@@ -96,7 +96,6 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }
     let deadline = ctx.start_object_deadline(super::DeadlineWatch::CatalogOnly);
-    ctx.stream_request_body();
     let admission =
         tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
             .await
