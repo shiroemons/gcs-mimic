@@ -138,6 +138,20 @@ begin
       blob.purge
     end
   end
+  if provisioned
+    run_case.call("AS-STRICT-NO-BUCKET-ADMIN") do
+      # The identity of a provisioned run may hold only object roles: the test signer's key is public.
+      principal = configuration.fetch("credentials").fetch("client_email")
+      [["storage.buckets.create", -> { storage.create_bucket("#{bucket.name}-denied") }],
+       ["storage.buckets.getIamPolicy", -> { public_bucket.policy }]].each do |permission, call|
+        call.call
+        raise "#{principal} was allowed #{permission}"
+      rescue Google::Cloud::PermissionDeniedError => e
+        assert(e.message.include?(principal) && e.message.include?(permission),
+          "denial does not name #{principal} and #{permission}: #{e.message}")
+      end
+    end
+  end
   run_case.call("AS-STRICT-ATTACH-PURGE") do
     # Purging an image also deletes its variants/KEY/ prefix, which lists the bucket.
     service = ActiveStorage::Blob.service

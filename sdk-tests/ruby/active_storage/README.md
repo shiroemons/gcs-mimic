@@ -109,15 +109,21 @@ service in development and test for entries that set an `endpoint`
 (AS-STRICT-PUBLIC-URL-INITIALIZER). That case loads it last, checks the stock
 entry and a variant key, and checks that an entry without an endpoint keeps the
 Google URL. It does not remove OAuth authorization or rewrite signed URLs.
-The runner then repeats the same scenario against a second strict server started
-with `--test-signer enabled`, whose identity file declares only
-`test-signer@gcs-mimic.invalid` with the local-project `roles/storage.objectUser`
-role and no keys, as the
-[strict local recipe](../../../examples/strict-local/README.md) grants it. That
-role cannot create buckets or change their settings, so the server creates
-`app-private` (PAP enforced, the direct-upload CORS rule) and `app-public` from
+The runner then repeats the same scenario against two more strict servers started
+with `--test-signer enabled`, where `test-signer@gcs-mimic.invalid` holds only
+`roles/storage.objectUser` on local-project, as the
+[strict local recipe](../../../examples/strict-local/README.md) grants it. The
+first server has no identity document, so the signer gets that role implicitly;
+it also runs `--trusted-listen 127.0.0.1:0` with the built-in trusted principal,
+which Rails never uses because it always presents its own JWT. The second
+declares the signer with that role and no keys in an identity file. The runner
+prints each server's ready-event identity and listener summary. That role cannot
+create buckets or change their settings, so both servers create `app-private`
+(PAP enforced, the direct-upload CORS rule) and `app-public` from
 [strict-buckets.json](strict-buckets.json), and `strict.rb` uses them without
-looking them up and deletes only their objects.
+looking them up and deletes only their objects. On these servers
+AS-STRICT-NO-BUCKET-ADMIN also checks that bucket creation and reading a bucket's
+IAM policy fail with 403 messages that name the signer and the permission.
 `strict.rb gcs_emulator_test_signer` selects the documented
 [built-in test signer recipe](../../../docs/en/signed-urls.md#built-in-test-signer):
 `client_email: test-signer@gcs-mimic.invalid` and the private key that
