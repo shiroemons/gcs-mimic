@@ -1089,6 +1089,12 @@ For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 
 ## Strict local authentication
 
+This journey presents tokens from a fixture registry to check each role. For an
+application whose servers send no credentials and whose browsers use signed
+URLs, use the [strict local recipe](../../examples/strict-local/README.md)
+instead: it adds a trusted listener and, for signed URLs, the built-in test
+signer, and needs a release newer than 0.13.0.
+
 If local administration is enabled, set `admin_principal` to a visible-ASCII ID
 present in the selected identity registry. An explicit administrative principal
 requires `auth_mode=strict` and `admin_enabled=true`; invalid combinations and

@@ -137,7 +137,13 @@ test READMEs.
   `bucketBoundHostname`. See the [signed URL guide](signed-urls.md) and each
   SDK's test README.
 - These examples use the default permissive profile, which accepts any
-  request. To check local bearer tokens and permissions, see
+  request and, by default, any signed URL without checking it. In releases
+  newer than 0.13.0, `GCS_MIMIC_SIGNED_URLS=verify` checks signatures while
+  every request stays allowed. For production-like access, where private
+  buckets stay private and these anonymous clients keep working on your
+  servers through a trusted listener, see the
+  [strict local recipe](../../examples/strict-local/README.md). To check local
+  bearer tokens and permissions, see
   [strict authentication](getting-started.md#strict-local-authentication).
 - To use HTTPS, trust the development CA as described in
   [local HTTPS](local-https.md).
