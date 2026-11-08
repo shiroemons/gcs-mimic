@@ -55918,7 +55918,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md and the complete Compose recipe examples/strict-local, which scripts/smoke-containers.sh runs with the built image.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (identity file, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as. Both require auth_mode=strict and each other; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md and the complete Compose recipe examples/strict-local, which scripts/smoke-containers.sh runs with the built image.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -56007,8 +56007,16 @@
           ]
         },
         {
+          "id": "DESIGN-101-GO-SDK",
+          "description": "The pinned Go storage v1.70.0 client, created with STORAGE_EMULATOR_HOST set to the trusted listener and no credentials, so the SDK adds option.WithoutAuthentication, acts as trusted_principal: it creates a bucket whose IAM policy grants nothing to allUsers or allAuthenticatedUsers, uploads an object whose owner is the principal, reads it with the SDK's default XML media reads, lists and deletes objects, and finishes a three-chunk resumable upload whose Location and every chunk request stay on the trusted listener. JSON metadata, JSON media and XML reads of the same object without credentials on the main listener answer 401.",
+          "result": "PASS",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
+        },
+        {
           "id": "DESIGN-101-PENDING",
-          "description": "Run an unmodified Go storage client with STORAGE_EMULATOR_HOST against the trusted listener, and a browser against the recipe's published main listener. gRPC stays out of scope.",
+          "description": "Run a browser against the recipe's published main listener. gRPC stays out of scope.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -56151,10 +56159,36 @@
           "test_ids": [
             "scripts/smoke-containers.sh:strict-local:linux/arm64"
           ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.311.0",
+          "transport": "HTTP JSON metadata, XML media reads, multipart and resumable uploads on the trusted listener through STORAGE_EMULATOR_HOST without credentials; anonymous JSON and XML reads on the main listener answer 401",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/trusted-listener.md",
+          "test_ids": [
+            "TestTrustedListenerServesTheEmulatorHostClient"
+          ]
         }
       ],
       "known_deviations": [
-        "An unmodified Go storage client against the trusted listener has not been run. The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl, so no browser enforces CORS or meets the trusted listener's browser checks. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl, so no browser enforces CORS or meets the trusted listener's browser checks. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-08"

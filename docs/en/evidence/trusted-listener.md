@@ -8,9 +8,10 @@ with Rust 1.99.1 on macOS arm64, including the Host rule and response headers
 that keep DNS rebinding pages and cross-origin embeds out. The container smoke
 test also ran the [strict local recipe](../../../examples/strict-local/README.md)
 with the image built from the checkout; see [Container recipe](#container-recipe).
-No SDK, browser or real-cloud run was performed: an unmodified Go storage client
-against the trusted listener and a browser remain unverified, which keeps the row
-PARTIAL. gRPC has no trusted listener.
+The same day the pinned Go storage client ran unmodified against the trusted
+listener; see [Go SDK run](#go-sdk-run). No browser or real-cloud run was
+performed: a browser remains unverified, which keeps the row PARTIAL. gRPC has
+no trusted listener.
 
 ## Commands
 
