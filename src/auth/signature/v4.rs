@@ -257,12 +257,16 @@ fn query_fields(query: &BTreeMap<String, String>) -> Result<Fields<'_>, Failure>
             .ok_or(Failure::Malformed)
     };
     let raw = required("Expires")?;
-    let expires = raw
+    let out_of_range = |value| Failure::ExpiresOutOfRange(algorithm.expires_parameter(), value);
+    let expires = match raw
         .parse::<u64>()
         .ok()
-        .filter(|n| (1..=MAX_EXPIRES).contains(n))
         .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
-        .ok_or(Failure::ExpiresOutOfRange(algorithm.expires_parameter()))?;
+    {
+        Some(seconds @ 1..=MAX_EXPIRES) => seconds,
+        Some(0) => return Err(out_of_range(InvalidExpires::Zero)),
+        Some(_) | None => return Err(out_of_range(InvalidExpires::Other)),
+    };
     Ok((
         algorithm,
         required("Credential")?,

@@ -68,17 +68,14 @@ fn signature_error(failure: signature::VerificationError) -> Error {
         }
     };
     match failure {
-        Failure::UnknownSigner => Error::new(
-            XmlCode::InvalidAccessKeyId,
-            "The policy signing key or its registered identity is unknown or inactive.",
-        ),
+        Failure::UnknownSigner(lookup) => super::unknown_signer(lookup, "policy signing key"),
         // A policy does not sign Host, so a port never explains its mismatch.
         Failure::Mismatch | Failure::MismatchWithHostPort => Error::new(
             XmlCode::SignatureDoesNotMatch,
             "The policy signature does not match.",
         ),
         Failure::Malformed
-        | Failure::ExpiresOutOfRange(_)
+        | Failure::ExpiresOutOfRange(..)
         | Failure::Expired
         | Failure::NotYetValid => Error::invalid(
             "Invalid policy credentials; use exactly one supported signing version with its required fields and signature encoding.",

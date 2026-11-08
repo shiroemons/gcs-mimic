@@ -622,6 +622,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
     if matches!(args, [flag] if matches!(flag.as_str(), "--help" | "--version"))
         || matches!(args, [command, flag] if command == "serve" && flag == "--help")
         || matches!(args, [command, kind, flag] if command == "url" && matches!(kind.as_str(), "public" | "sign") && flag == "--help")
+        || matches!(args, [command, flag] if command == "test-signer" && flag == "--help")
     {
         return Diagnostics::default();
     }
@@ -629,7 +630,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
         Some("serve") => (1, CliCommand::Serve),
         Some("url") => (2.min(args.len()), CliCommand::Helper),
         Some("healthcheck") => (1, CliCommand::Helper),
-        Some("tls") => (2.min(args.len()), CliCommand::Helper),
+        Some("tls" | "test-signer") => (2.min(args.len()), CliCommand::Helper),
         _ => (0, CliCommand::Helper),
     };
     let mut inputs = Inputs::default();

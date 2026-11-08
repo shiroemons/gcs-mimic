@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod auth;
 mod notifications;
 mod runtime;
 mod setting;
@@ -24,6 +25,7 @@ mod storage;
 mod test_support;
 #[cfg(test)]
 mod unix_tests;
+pub use auth::{AuthProfile, Verification};
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
@@ -358,7 +360,11 @@ impl Config {
 
     /// Whether the built-in test signer exists, after the profile's default.
     pub fn effective_test_signer(&self) -> TestSigner {
-        TestSigner::resolve(self.test_signer, self.auth_mode)
+        TestSigner::resolve(
+            self.test_signer,
+            self.auth_mode,
+            self.effective_signed_urls(),
+        )
     }
 
     /// Whether signed XML requests verify, after the profile's default.
@@ -439,6 +445,7 @@ impl Config {
                 .into_iter()
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
+            auth_profile: None,
         };
         report.apply_settings(&settings);
         report.config.runtime_endpoints =
@@ -994,6 +1001,8 @@ pub struct ConfigurationReport {
     pub config: Config,
     pub diagnostics: Diagnostics,
     invalid: BTreeSet<String>,
+    /// Set by validation only when the authentication settings are valid and agree.
+    auth_profile: Option<AuthProfile>,
 }
 
 impl ConfigurationReport {
@@ -1333,49 +1342,6 @@ impl ConfigurationReport {
             }
         }
         self.check_profile_pairing(settings);
-    }
-
-    /// Rejects mismatched profiles, so a registry is never silently ignored or missing and a
-    /// signature setting never claims what the profile does not do.
-    fn check_profile_pairing(&mut self, settings: &Settings) {
-        let config = &self.config;
-        let verifying = config.effective_signed_urls() == SignedUrls::Verify;
-        match (config.auth_mode, &config.identity_file) {
-            (AuthMode::Strict, None) if !self.invalid.contains("identity_file") => {
-                if let Some(input) = settings.get("auth_mode") {
-                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "auth_mode=strict requires identity_file; provide --identity-file identities.json."));
-                }
-                self.invalid.insert("identity_file".into());
-            }
-            (AuthMode::Permissive, Some(_))
-                if !verifying && !self.any_invalid(&["auth_mode", "signed_urls"]) =>
-            {
-                if let Some(input) = settings.get("identity_file") {
-                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict, or signed_urls=verify to verify signatures with its public keys; select strict mode, set signed_urls=verify or remove the registry setting."));
-                }
-                self.invalid.insert("identity_file".into());
-            }
-            _ => {}
-        }
-        // Strict callers are the signers, so their signatures cannot go unverified.
-        if config.auth_mode == AuthMode::Strict
-            && config.signed_urls == Some(SignedUrls::Ignore)
-            && !self.any_invalid(&["auth_mode", "signed_urls"])
-            && let Some(input) = settings.get(Setting::SignedUrls.as_str())
-        {
-            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_urls=ignore requires auth_mode=permissive; strict mode always verifies signatures. Remove the setting or use signed_urls=verify."));
-            self.invalid.insert("signed_urls".into());
-        }
-        // Lenient only widens how a signature verifies, so it would claim an effect where nothing
-        // is verified.
-        if config.signed_host_port == SignedHostPort::Lenient
-            && !verifying
-            && !self.any_invalid(&["auth_mode", "signed_urls", "signed_host_port"])
-            && let Some(input) = settings.get(Setting::SignedHostPort.as_str())
-        {
-            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "signed_host_port=lenient has no effect while signatures are ignored; set signed_urls=verify or auth_mode=strict, or remove the setting."));
-            self.invalid.insert("signed_host_port".into());
-        }
     }
 
     /// The trusted listener only changes who a request without credentials acts as, which
@@ -2059,7 +2025,12 @@ mod tests {
     fn test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
-        std::fs::write(&file, r#"{"test_signer":"disabled"}"#).unwrap();
+        // An explicit enabled needs signatures to verify, which permissive mode does only when asked.
+        std::fs::write(
+            &file,
+            r#"{"test_signer":"disabled","signed_urls":"verify"}"#,
+        )
+        .unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_TEST_SIGNER".into(), "enabled".into())]);
         assert_precedence(
@@ -2077,9 +2048,13 @@ mod tests {
         );
         let empty = BTreeMap::new();
         let strict = ["--auth-mode", "strict", "--identity-file", "ids.json"].map(str::to_owned);
+        let verify = ["--signed-urls", "verify"].map(str::to_owned);
         for (args, explicit, effective) in [
-            (&[][..], None, TestSigner::Enabled),
+            (&[][..], None, TestSigner::Disabled),
             (&[][..], Some("disabled"), TestSigner::Disabled),
+            (&verify[..], None, TestSigner::Enabled),
+            (&verify[..], Some("enabled"), TestSigner::Enabled),
+            (&verify[..], Some("disabled"), TestSigner::Disabled),
             (&strict[..], None, TestSigner::Disabled),
             (&strict[..], Some("disabled"), TestSigner::Disabled),
             (&strict[..], Some("enabled"), TestSigner::Enabled),
@@ -2112,11 +2087,73 @@ mod tests {
                 assert!(warnings.is_empty(), "{args:?}: {warnings:?}");
             }
         }
+        // Where signatures are ignored an enabled signer would promise what never happens.
+        let ignored = ["--test-signer", "enabled"].map(str::to_owned);
+        let error = Config::load(&ignored, &empty).unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "--test-signer: test_signer=enabled has no effect while signatures are ignored"
+            ),
+            "{error}"
+        );
         assert_rejected(
             "test_signer",
             &["", "true", "Disabled", "off"],
             "enabled or disabled",
         );
+    }
+
+    /// Validation alone decides the profile, so loading never re-checks the pairing.
+    #[test]
+    fn validation_selects_the_profile_only_for_agreeing_authentication_settings() {
+        let empty = BTreeMap::new();
+        let profile = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+            Config::preflight(&args, &empty).auth_profile().cloned()
+        };
+        let verification = |test_signer, signed_host_port| Verification {
+            test_signer,
+            signed_host_port,
+        };
+        assert_eq!(profile(&[]), Some(AuthProfile::Permissive));
+        assert_eq!(
+            profile(&["--signed-urls", "verify", "--signed-host-port", "lenient"]),
+            Some(AuthProfile::VerifyingPermissive {
+                identity_file: None,
+                verification: verification(TestSigner::Enabled, SignedHostPort::Lenient),
+            })
+        );
+        assert_eq!(
+            profile(&[
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                "ids.json",
+                "--test-signer",
+                "enabled"
+            ]),
+            Some(AuthProfile::Strict {
+                identity_file: "ids.json".into(),
+                verification: verification(TestSigner::Enabled, SignedHostPort::Exact),
+            })
+        );
+        for args in [
+            &["--auth-mode", "strict"][..],
+            &["--identity-file", "ids.json"],
+            &["--signed-host-port", "lenient"],
+            &["--test-signer", "enabled"],
+            &[
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                "ids.json",
+                "--signed-urls",
+                "ignore",
+            ],
+            &["--signed-urls", "verify", "--test-signer", "sometimes"],
+        ] {
+            assert_eq!(profile(args), None, "{args:?}");
+        }
     }
 
     #[test]

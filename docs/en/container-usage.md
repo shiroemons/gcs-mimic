@@ -64,11 +64,13 @@ request and the scheme of its connection, so a caller gets back the address it
 connected to and the host and other containers can share one server, whichever
 host port is published. You do not need `GCS_MIMIC_API_BASE_URL` for this.
 Public and signed URLs must still use the address reachable by their recipient.
-Go storage drops a non-default port when it signs a URL, so its signed URLs for
-`localhost:4443` fail with 403 `SignatureDoesNotMatch`. If a default port is not
-an option, for example because each worktree publishes its own port, set
-`GCS_MIMIC_SIGNED_HOST_PORT=lenient` on a server that verifies signatures
-(strict mode, or `GCS_MIMIC_SIGNED_URLS=verify`); see [signed URLs](signed-urls.md).
+Go storage drops a non-default port when it signs a URL. The default permissive
+server does not check signatures, so such URLs for `localhost:4443` work there.
+A server that verifies signatures (strict mode, or `GCS_MIMIC_SIGNED_URLS=verify`)
+rejects them with 403 `SignatureDoesNotMatch` unless it sets
+`GCS_MIMIC_SIGNED_HOST_PORT=lenient`, for example because each worktree
+publishes its own port and a default port is not an option; see
+[signed URLs](signed-urls.md).
 
 Set `GCS_MIMIC_API_BASE_URL` to fix one address for every caller. A reverse proxy
 that rewrites Host needs it, because `Forwarded` and `X-Forwarded-*` are ignored.
@@ -309,6 +311,18 @@ By default the server accepts signed URLs without checking their signatures.
 To reject changed, expired or unknown-key signed requests while keeping
 permissive access, add `GCS_MIMIC_SIGNED_URLS=verify`; see
 [verifying signed requests in permissive mode](signed-urls.md#verifying-signed-requests-in-permissive-mode).
+It also covers `Authorization` header signatures and POST policies, so S3-style
+clients that sign with made-up HMAC keys are rejected once it is on.
+Such a server then accepts the built-in test signer, whose published key the
+image prints as a service account key file; the image holds no copy of the
+repository:
+
+```sh
+docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+```
+
+Its private key is public, so use it only for local tests; see the
+[built-in test signer](signed-urls.md#built-in-test-signer).
 
 ## Initialize bucket settings
 

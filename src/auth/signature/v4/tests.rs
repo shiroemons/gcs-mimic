@@ -157,12 +157,15 @@ fn credential_prefix_scope_header_duplicates_and_streaming_fields_fail_closed() 
             Err(Failure::Malformed)
         ));
     }
-    for expires in ["604801", "0"] {
+    for (expires, value) in [
+        ("604801", InvalidExpires::Other),
+        ("0", InvalidExpires::Zero),
+    ] {
         let bad = raw.replace("Expires=60", &format!("Expires={expires}"));
-        assert!(matches!(
-            prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now),
-            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Google))
-        ));
+        assert_eq!(
+            prepare(&Method::GET, &bad.parse().unwrap(), &query_headers, now).err(),
+            Some(Failure::ExpiresOutOfRange(ExpiresParameter::Google, value))
+        );
     }
     assert!(matches!(
         prepare(&Method::GET, &query(), &good, now),
@@ -183,11 +186,18 @@ fn an_out_of_range_expiry_names_the_parameter_of_its_algorithm() {
         format!("/bucket/object?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key%2F20261023%2Fauto%2Fs3%2Faws4_request&X-Amz-Date={DATE}&X-Amz-Expires={expires}&X-Amz-SignedHeaders=host&X-Amz-Signature=00").parse().unwrap()
     };
     assert!(prepare(&Method::GET, &aws("60"), &headers, now).is_ok());
-    for expires in ["0", "604801", "-1", "abc"] {
-        assert!(matches!(
-            prepare(&Method::GET, &aws(expires), &headers, now),
-            Err(Failure::ExpiresOutOfRange(ExpiresParameter::Aws))
-        ));
+    for (expires, value) in [
+        ("0", InvalidExpires::Zero),
+        ("00", InvalidExpires::Zero),
+        ("604801", InvalidExpires::Other),
+        ("-1", InvalidExpires::Other),
+        ("abc", InvalidExpires::Other),
+    ] {
+        assert_eq!(
+            prepare(&Method::GET, &aws(expires), &headers, now).err(),
+            Some(Failure::ExpiresOutOfRange(ExpiresParameter::Aws, value)),
+            "{expires}"
+        );
     }
     assert!(matches!(
         prepare(&Method::GET, &aws(""), &headers, now),

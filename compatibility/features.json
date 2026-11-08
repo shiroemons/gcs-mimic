@@ -41582,7 +41582,7 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-001-VERIFY",
-          "description": "With signed_urls=verify, permissive mode verifies V2 query RSA/HMAC, V4 query and header RSA/HMAC, AWS4-HMAC-SHA256, signed aws-chunked uploads and V2/V4 POST policies with their x-goog-date window, using the built-in test signer, ACTIVE HMAC keys without identity entries and identity-file public keys. Changed, expired, header-changed and unknown-key requests get the strict XML errors (403 SignatureDoesNotMatch, 400 ExpiredToken, 403 InvalidAccessKeyId), including V2 expiry, and create nothing; verified requests succeed without any grant and return no caller; test_signer=disabled makes the built-in key unknown; unsigned and JSON requests are unchanged, and the default ignore keeps accepting unverifiable signatures.",
+          "description": "With signed_urls=verify, permissive mode verifies V2 query RSA/HMAC, V4 query and header RSA/HMAC, AWS4-HMAC-SHA256, signed aws-chunked uploads and V2/V4 POST policies with their x-goog-date window, using the built-in test signer, ACTIVE HMAC keys without identity entries and identity-file public keys. Changed, expired, header-changed and unknown-key requests get the strict XML errors (403 SignatureDoesNotMatch, 400 ExpiredToken, 403 InvalidAccessKeyId), including V2 expiry, and create nothing; an unknown key's message names identity file public_keys, HMAC keys created through the JSON API and the built-in test signer instead of a registered identity, and a disabled built-in signer's names test_signer=enabled; verified requests succeed without any grant and return no caller; test_signer=disabled makes the built-in key unknown; unsigned and JSON requests are unchanged, and the default ignore keeps accepting unverifiable signatures.",
           "result": "PASS",
           "test_ids": [
             "verified_signatures_get_permissive_access_without_any_grant",
@@ -41606,14 +41606,15 @@
         },
         {
           "id": "DESIGN-001-SELECTION",
-          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it.",
+          "description": "auth_mode and signed_urls follow CLI > environment > JSON file > default precedence; unknown or miscased values, an empty identity_file, strict without identity_file, strict with an explicit signed_urls=ignore and identity_file with permissive unless signed_urls=verify fail before readiness, catalog creation or listener binding. A permissive identity file declaring project_roles, acl_entity, non-empty tokens or public_access_prevention_projects, or an identity without public_keys, fails with a diagnostic naming auth_mode=strict or public_keys; local_creator_email stays valid with it. Validation alone selects the profile that startup loads: settings that disagree, including signed_host_port=lenient or an explicit test_signer=enabled while signatures are ignored, leave no profile, and loading reports only identity file contents.",
           "result": "PASS",
           "test_ids": [
             "config::tests::authentication_profile_precedence_and_validation",
             "auth_http_startup_rejects_invalid_profiles_and_registries",
             "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
             "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-            "startup_pairs_identity_files_and_signed_urls_with_the_profile"
+            "startup_pairs_identity_files_and_signed_urls_with_the_profile",
+            "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
           ]
         }
       ],
@@ -41632,7 +41633,8 @@
         "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
         "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
         "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-        "startup_pairs_identity_files_and_signed_urls_with_the_profile"
+        "startup_pairs_identity_files_and_signed_urls_with_the_profile",
+        "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
       ],
       "verification": [
         {
@@ -41660,7 +41662,8 @@
             "auth::signing_keys::tests::load_selects_the_profile_and_its_signers",
             "config::tests::signed_urls_default_by_profile_and_pair_identity_files_with_verification",
             "auth::signing_keys::tests::a_permissive_identity_file_supplies_only_ids_and_public_keys",
-            "config::tests::authentication_profile_precedence_and_validation"
+            "config::tests::authentication_profile_precedence_and_validation",
+            "config::tests::validation_selects_the_profile_only_for_agreeing_authentication_settings"
           ]
         },
         {"command":"CARGO_BUILD_JOBS=4 cargo test --lib permissive_v4_ignores_shape","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::signature::tests::permissive_v4_ignores_shape_while_v2_retains_its_historical_validation"]},
@@ -45229,12 +45232,13 @@
         },
         {
           "id": "DESIGN-032-EXPIRES-MESSAGE",
-          "description": "A present, nonempty X-Goog-Expires or X-Amz-Expires that is not an ASCII-decimal integer from 1 to 604800 (0, 604801, -1, +60, 2^64, 1.5, 60s, abc) keeps 400 InvalidAuthentication, and its Message names the parameter of the request's algorithm and the range, as for the X-Goog-Expires=0 that Go storage signs for a duration under one second. A missing or empty expiry keeps the generic signing-parameter message. Cloud Storage's answer is not recorded, so status and code stay local; see docs/en/slices/signed-download.md.",
+          "description": "A present, nonempty X-Goog-Expires or X-Amz-Expires that is not an ASCII-decimal integer from 1 to 604800 (0, 604801, -1, +60, 2^64, 1.5, 60s, abc) keeps 400 InvalidAuthentication, and its Message names the parameter of the request's algorithm and the range, as for the X-Goog-Expires=0 that Go storage signs for a duration under one second. Only a zero value (0 or 00) adds that likely cause: the signer's expiry was less than one second away. A missing or empty expiry keeps the generic signing-parameter message. Cloud Storage's answer is not recorded, so status and code stay local; see docs/en/slices/signed-download.md.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
             "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
-            "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
+            "signing::an_out_of_range_expiry_names_the_parameter_and_its_range",
+            "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
           ]
         }
       ],
@@ -45243,9 +45247,21 @@
         "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
-        "signing::an_out_of_range_expiry_names_the_parameter_and_its_range"
+        "signing::an_out_of_range_expiry_names_the_parameter_and_its_range",
+        "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- auth:: xml:: config::",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm",
+            "xml::error_tests::signature_errors_explain_unknown_signers_and_a_zero_expiry"
+          ]
+        },
         {"command":"cargo test --locked --lib auth::signature && cargo test --locked --test it_xml_auth signing::","result":"PASS","verified_at":"2026-11-08","artifact":"docs/en/slices/signed-download.md","test_ids":["auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected","auth::signature::v4::tests::an_out_of_range_expiry_names_the_parameter_of_its_algorithm","signing::an_out_of_range_expiry_names_the_parameter_and_its_range"]},
         {
           "command": "cargo test --workspace --locked --offline",
@@ -47133,14 +47149,14 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled in permissive mode and disabled in strict mode, because its published key would let anyone authenticate and reach allAuthenticatedUsers grants; strict test_signer=enabled warns at startup, then knows the signer without an identity file entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. The built-in test signer test-signer@gcs-mimic.invalid embeds the published fixture key pair. test_signer defaults to enabled only in permissive mode with signed_urls=verify, because it does nothing where signatures are ignored and its published key would let anyone authenticate in strict mode and reach allAuthenticatedUsers grants; an explicit enabled while signatures are ignored fails startup; strict test_signer=enabled warns at startup, then knows the signer without an identity file entry and without project roles, and a declared entry keeps its own grants and gains the built-in key. url sign uses it when both --signer and --private-key are omitted, and gcs-mimic test-signer credentials prints its service account key file for binary and image users. Contract: docs/en/signed-urls.md#built-in-test-signer; evidence: docs/en/evidence/signed-request-verification.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-045-TEST-SIGNER",
-          "description": "test_signer defaults to enabled in permissive mode and disabled in strict mode; an explicit value wins and the ready event reports the effective value. Strict mode by default or with test_signer=disabled has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and an identity file entry with its ID stays an ordinary identity without the key. Strict test_signer=enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity file entry it has no project roles, so its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity and gains the built-in key; an alias naming it fails startup; identities counts only file entries.",
+          "description": "test_signer defaults to enabled only in permissive mode with signed_urls=verify and to disabled otherwise; an explicit value wins, except that an explicit enabled while signatures are ignored fails startup, and the ready event reports the effective value. Strict mode by default or with test_signer=disabled has no built-in signer: signatures with the published key get 403 InvalidAccessKeyId and its JWT 401, and an identity file entry with its ID stays an ordinary identity without the key. Strict test_signer=enabled emits one startup warning naming the published key, allAuthenticatedUsers grants and local-test-only use; then V4 and V2 RSA signed URLs and self-signed JWTs from test-signer@gcs-mimic.invalid verify with the embedded key. Without an identity file entry it has no project roles, so its signatures get 403 AccessDenied until a bucket grant names it; a declared entry keeps its tokens, project roles and ACL entity and gains the built-in key; an alias naming it fails startup; identities counts only file entries.",
           "result": "PASS",
           "test_ids": [
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
@@ -47162,6 +47178,17 @@
             "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
             "an_enabled_undeclared_signer_verifies_v4_and_v2_needs_a_grant_and_warns",
             "an_enabled_declared_signer_keeps_its_tokens_and_project_roles"
+          ]
+        },
+        {
+          "id": "DESIGN-045-CREDENTIALS",
+          "description": "gcs-mimic test-signer credentials prints the built-in signer as a service account key file (type, project_id local-project, client_email, private_key and universe_domain gcs-emulator.invalid) without reading configuration, environment or network. The output parses as JSON, its private key signs what the embedded public key verifies, a URL signed with it verifies on a permissive signed_urls=verify server while a changed signature does not, and other test-signer arguments fail without output.",
+          "result": "PASS",
+          "test_ids": [
+            "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+            "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+            "unknown_test_signer_arguments_are_rejected",
+            "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
           ]
         },
         {
@@ -47232,7 +47259,11 @@
         "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
         "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
         "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
-        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials"
+        "tests::signing_defaults_to_the_built_in_test_signer_only_without_both_credentials",
+        "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+        "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+        "unknown_test_signer_arguments_are_rejected",
+        "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
       ],
       "verification": [
         {
@@ -47257,7 +47288,19 @@
             "auth::test_signer::tests::a_declared_signer_keeps_its_grants_and_tokens_and_gains_the_built_in_key",
             "auth::test_signer::tests::an_alias_naming_the_signer_fails_instead_of_sharing_its_acl_entity",
             "auth::test_signer::tests::the_embedded_key_pair_signs_and_verifies",
-            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it"
+            "config::tests::test_signer_defaults_by_profile_and_warns_when_strict_mode_enables_it",
+            "auth::test_signer::tests::the_service_account_key_signs_what_the_embedded_public_key_verifies"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_process",
+          "result": "PASS",
+          "verified_at": "2026-11-08",
+          "artifact": "docs/en/evidence/signed-request-verification.md",
+          "test_ids": [
+            "credentials_print_a_service_account_key_file_for_the_built_in_signer",
+            "a_url_signed_with_the_printed_key_verifies_against_the_embedded_public_key",
+            "unknown_test_signer_arguments_are_rejected"
           ]
         },
         {

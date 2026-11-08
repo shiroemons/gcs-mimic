@@ -29,6 +29,7 @@ pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
 
+use crate::config::AuthProfile;
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
@@ -221,11 +222,13 @@ crate::config::string_enum! {
 impl TestSigner {
     /// An explicit setting wins. Otherwise strict mode leaves the signer out: anyone can sign
     /// with its published key, so it would turn `allAuthenticatedUsers` grants into public
-    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there.
-    pub fn resolve(configured: Option<Self>, mode: AuthMode) -> Self {
-        configured.unwrap_or(match mode {
-            AuthMode::Permissive => Self::Enabled,
-            AuthMode::Strict => Self::Disabled,
+    /// access. Permissive mode authorizes nothing by identity, so the signer grants nothing there
+    /// and is enabled wherever signatures verify; where they are ignored it would do nothing.
+    pub fn resolve(configured: Option<Self>, mode: AuthMode, signed_urls: SignedUrls) -> Self {
+        configured.unwrap_or(match (mode, signed_urls) {
+            (AuthMode::Permissive, SignedUrls::Verify) => Self::Enabled,
+            (AuthMode::Permissive, SignedUrls::Ignore)
+            | (AuthMode::Strict, SignedUrls::Ignore | SignedUrls::Verify) => Self::Disabled,
         })
     }
 }
@@ -1021,36 +1024,37 @@ impl Auth {
         }
     }
 
-    /// The profile a validated configuration selects, with its identity file read once and the
-    /// built-in test signer added when the configuration enables it.
-    pub fn load(config: &crate::config::Config) -> Result<Self, RegistryError> {
-        let invalid = |reason: &str| RegistryError::Invalid {
-            entry: None,
-            reason: reason.into(),
+    /// Loads the profile that configuration validation selected, reading its identity file once
+    /// and adding the built-in test signer when the profile enables it. Validation owns the
+    /// pairing rules; only identity file contents can fail here.
+    pub fn load(profile: &AuthProfile) -> Result<Self, RegistryError> {
+        let (profile, verification) = match profile {
+            AuthProfile::Permissive => return Ok(Self::permissive()),
+            AuthProfile::VerifyingPermissive {
+                identity_file,
+                verification,
+            } => (
+                Profile::VerifyingPermissive(Registry::load_signing_keys(
+                    identity_file.as_deref(),
+                    verification.test_signer,
+                )?),
+                verification,
+            ),
+            AuthProfile::Strict {
+                identity_file,
+                verification,
+            } => (
+                Profile::Strict(Registry::load_principals(
+                    identity_file,
+                    verification.test_signer,
+                )?),
+                verification,
+            ),
         };
-        let signer = config.effective_test_signer();
-        let path = config.identity_file.as_deref();
-        let profile = match (config.auth_mode, config.effective_signed_urls(), path) {
-            (AuthMode::Strict, SignedUrls::Verify, Some(path)) => {
-                Profile::Strict(Registry::load_principals(path, signer)?)
-            }
-            (AuthMode::Strict, SignedUrls::Verify, None) => {
-                return Err(invalid("auth_mode=strict requires identity_file"));
-            }
-            (AuthMode::Strict, SignedUrls::Ignore, _) => {
-                return Err(invalid("signed_urls=ignore requires auth_mode=permissive"));
-            }
-            (AuthMode::Permissive, SignedUrls::Verify, path) => {
-                Profile::VerifyingPermissive(Registry::load_signing_keys(path, signer)?)
-            }
-            (AuthMode::Permissive, SignedUrls::Ignore, Some(_)) => {
-                return Err(invalid(
-                    "identity_file requires auth_mode=strict or signed_urls=verify",
-                ));
-            }
-            (AuthMode::Permissive, SignedUrls::Ignore, None) => Profile::Permissive,
-        };
-        Ok(Self::with_profile(profile))
+        Ok(Self {
+            signed_host_port: verification.signed_host_port,
+            ..Self::with_profile(profile)
+        })
     }
 
     /// Permissive verification with an identity file's keys and the built-in test signer.
@@ -1079,9 +1083,13 @@ impl Auth {
     }
 
     /// Selects whether V4 verification also accepts a signature whose canonical host omits the
-    /// port that the request Host names.
+    /// port that the request Host names; [`Auth::load`] sets it from the configuration.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_signed_host_port(mut self, signed_host_port: signature::SignedHostPort) -> Self {
+    pub(crate) fn with_signed_host_port(
+        mut self,
+        signed_host_port: signature::SignedHostPort,
+    ) -> Self {
         self.signed_host_port = signed_host_port;
         self
     }

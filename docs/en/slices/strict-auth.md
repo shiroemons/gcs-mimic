@@ -29,7 +29,7 @@ All pages were checked on 2026-10-22; each displayed "Last updated 2026-10-21 UT
 | --- | --- |
 | Default profile | `permissive`; the ready event reports `"auth_mode":"permissive"`; any `Authorization` header or credential query parameter is ignored and no permission is checked. A later opt-in, `signed_urls=verify`, verifies signed XML requests first without adding permission checks; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Profile selection | `--auth-mode` / `GCS_MIMIC_AUTH_MODE` / JSON `auth_mode` follow the existing CLI > environment > file > default precedence; other values fail startup |
-| Profile/registry pairing | `strict` without `identity_file` and `identity_file` with `permissive` fail before the catalog opens or the listener binds |
+| Profile/registry pairing | `strict` without `identity_file` and `identity_file` with `permissive` fail before the catalog opens or the listener binds. The later `signed_urls=verify` opt-in accepts `identity_file` in permissive mode for `id` and `public_keys` only; see [signed URLs](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | Registry validation | Unknown keys, limits, duplicate IDs/tokens, invalid project IDs, unknown or basic roles and malformed/oversized files fail startup without a partial load; tokens are never echoed |
 | Ready event | Strict mode reports `"auth_mode":"strict"` and the registered identity count |
 | Anonymous caller | No `Authorization` header: 401 `required` with the documented example body on every supported route, including missing buckets |
@@ -59,6 +59,8 @@ identity registry. Both use the existing flat configuration precedence: CLI
 `GCS_MIMIC_IDENTITY_FILE`, JSON `auth_mode` / `identity_file`, then defaults. An
 empty `identity_file`, an unknown mode, `strict` without a registry or a registry
 with `permissive` fail startup before the catalog is created or the listener binds.
+Since `signed_urls=verify`, a permissive registry is accepted for its `id` and
+`public_keys` only, to verify signatures.
 
 Permissive mode is the existing unauthenticated local profile. It is never counted
 as strict coverage.

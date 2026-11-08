@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::{
-    auth::{Profile, Registry, SigningKeys},
+    auth::{Profile, Registry, SigningKeys, test_signer},
     bucket::CatalogError,
     storage::{Catalog, failure::BackendCause},
 };
@@ -130,9 +130,24 @@ impl<'a> Signers<'a> {
             Self::Registered(registry) => registry
                 .identity(signer)
                 .map(|identity| Some(Caller::Principal(identity)))
-                .ok_or(Failure::UnknownSigner),
+                .ok_or_else(|| self.unknown(signer)),
             Self::Keys(_) => Ok(None),
         }
+    }
+
+    /// Without the built-in key the signer's own ID is unknown, which says what to enable;
+    /// otherwise the failure names where this profile looks for keys.
+    fn unknown(&self, signer: &str) -> Failure {
+        Failure::UnknownSigner(
+            if signer == test_signer::ID && !self.keys().contains(signer) {
+                KeyLookup::DisabledTestSigner
+            } else {
+                match self {
+                    Self::Registered(_) => KeyLookup::Registry,
+                    Self::Keys(_) => KeyLookup::PermissiveKeys,
+                }
+            },
+        )
     }
 }
 
@@ -227,12 +242,15 @@ impl Auth {
         catalog: &Catalog,
         prepared: &Prepared,
     ) -> Result<(Option<Caller<'a>>, Key), VerificationError> {
-        let signers = self.signers().ok_or(Failure::UnknownSigner)?;
+        // Only a signed aws-chunked upload asks for a key while signatures are ignored.
+        let signers = self
+            .signers()
+            .ok_or(Failure::UnknownSigner(KeyLookup::Ignored))?;
         if prepared.algorithm == v4::Algorithm::Rsa {
             let keys = signers
                 .keys()
                 .get(&prepared.signer)
-                .ok_or(Failure::UnknownSigner)?;
+                .ok_or_else(|| signers.unknown(&prepared.signer))?;
             return Ok((
                 signers.caller(&prepared.signer)?,
                 Key::Rsa(Arc::clone(keys)),
@@ -242,7 +260,7 @@ impl Auth {
             .active_hmac_key(&prepared.signer)
             .await
             .map_err(VerificationError::Catalog)?
-            .ok_or(Failure::UnknownSigner)?;
+            .ok_or_else(|| signers.unknown(&prepared.signer))?;
         Ok((signers.caller(&signer)?, Key::Hmac(secret)))
     }
 }

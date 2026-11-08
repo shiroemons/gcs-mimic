@@ -11,9 +11,16 @@ use super::signature::PublicKey;
 pub const ID: &str = "test-signer@gcs-mimic.invalid";
 
 /// The published private key. It is public, so it must never sign anything but local tests.
-pub const PRIVATE_KEY_PEM: &[u8] = include_bytes!("../../fixtures/signing/test-only-private.pem");
+pub const PRIVATE_KEY_PEM: &str = include_str!("../../fixtures/signing/test-only-private.pem");
 
 const PUBLIC_KEY_PEM: &str = include_str!("../../fixtures/signing/test-only-public.pem");
+
+/// The project the credentials name, the emulator's default seed and guide project.
+const PROJECT_ID: &str = "local-project";
+
+/// A universe other than `googleapis.com` makes Google auth libraries sign their own tokens
+/// instead of asking Google OAuth for one; the Rails guide uses the same value.
+const UNIVERSE_DOMAIN: &str = "gcs-emulator.invalid";
 
 #[expect(
     clippy::expect_used,
@@ -21,6 +28,19 @@ const PUBLIC_KEY_PEM: &str = include_str!("../../fixtures/signing/test-only-publ
 )]
 pub(super) fn public_key() -> PublicKey {
     PublicKey::parse(PUBLIC_KEY_PEM).expect("the embedded test signer key is an RSA SPKI PEM")
+}
+
+/// The signer as a service account key file. Images and binaries hold no copy of the repository,
+/// so this is how their users get the published key.
+pub fn service_account_json() -> String {
+    let credentials = serde_json::json!({
+        "type": "service_account",
+        "project_id": PROJECT_ID,
+        "client_email": ID,
+        "private_key": PRIVATE_KEY_PEM,
+        "universe_domain": UNIVERSE_DOMAIN,
+    });
+    format!("{credentials:#}")
 }
 
 #[cfg(test)]
@@ -89,10 +109,26 @@ mod tests {
     #[test]
     fn the_embedded_key_pair_signs_and_verifies() {
         let message = "test signer message";
-        let signature = crate::auth::signature::sign_policy(message, PRIVATE_KEY_PEM).unwrap();
+        let signature =
+            crate::auth::signature::sign_policy(message, PRIVATE_KEY_PEM.as_bytes()).unwrap();
         let bytes = crate::hex::decode::<256>(&signature).unwrap();
         let key = public_key();
         assert!(key.verify(message.as_bytes(), &bytes));
         assert!(!key.verify(b"another message", &bytes));
+    }
+
+    #[test]
+    fn the_service_account_key_signs_what_the_embedded_public_key_verifies() {
+        let credentials: serde_json::Value = serde_json::from_str(&service_account_json()).unwrap();
+        assert_eq!(credentials["type"], "service_account");
+        assert_eq!(credentials["client_email"], ID);
+        assert_eq!(credentials["project_id"], "local-project");
+        assert_eq!(credentials["universe_domain"], "gcs-emulator.invalid");
+        let private_key = credentials["private_key"].as_str().unwrap();
+        let message = "signed with the printed key";
+        let signature =
+            crate::auth::signature::sign_policy(message, private_key.as_bytes()).unwrap();
+        let bytes = crate::hex::decode::<256>(&signature).unwrap();
+        assert!(public_key().verify(message.as_bytes(), &bytes));
     }
 }

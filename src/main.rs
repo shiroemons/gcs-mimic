@@ -52,6 +52,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
+       gcs-mimic test-signer credentials (prints the published built-in test signer's service account JSON)
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -113,8 +114,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --signed-host-port MODE      exact (exact|lenient; lenient also accepts a V4 signature whose host omits the request's port, as Go storage signs)
   --identity-file PATH         none (JSON identity registry, at most 16 MiB; strict mode, or only id and public_keys with --signed-urls verify)
-  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; permissive verify checks signed XML requests, then grants permissive access)
-  --test-signer MODE           enabled when permissive, disabled when strict (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; local tests only)
+  --signed-urls MODE           ignore when permissive, verify when strict (ignore|verify; covers signed URLs, V2/V4/AWS4 Authorization headers and POST policies; permissive verify rejects bad or unknown-key signatures, such as S3 clients' made-up HMAC keys, then grants permissive access)
+  --test-signer MODE           enabled with permissive --signed-urls verify, else disabled (enabled|disabled; built-in test-signer@gcs-mimic.invalid, whose private key is published; strict enabling warns; enabled needs signatures to verify; local tests only)
   --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
   --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
   --event-pubsub-topic ID       none (global notification topic name)
@@ -167,6 +168,16 @@ Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no
 Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
 No config file is read unless --config PATH is explicit; its public_base_url supplies the default
 base, overridden by --base-url. No environment, Google IAM call or permission change occurs.";
+
+const TEST_SIGNER_HELP: &str = "Usage: gcs-mimic test-signer credentials
+
+Prints a service account key file for the built-in test signer test-signer@gcs-mimic.invalid:
+type, project_id local-project, client_email, private_key and the non-Google universe_domain
+gcs-emulator.invalid, which keeps Google auth libraries from requesting tokens from Google.
+The private key is published with gcs-mimic, so anyone can sign as this identity; use it only
+for local tests. The server accepts its signatures in permissive mode with signed_urls=verify,
+and in strict mode only with test_signer=enabled. No configuration, environment or network
+is read.";
 
 fn main() -> ExitCode {
     #[cfg(target_env = "musl")]
@@ -332,6 +343,20 @@ fn run() -> Result<(), CliError> {
         [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
             url_command(rest, url_sign)
         }
+        [command, help] if command == "test-signer" && help == "--help" => {
+            println!("{TEST_SIGNER_HELP}");
+            Ok(())
+        }
+        [command, kind] if command == "test-signer" && kind == "credentials" => {
+            println!("{}", gcs_mimic::auth::test_signer::service_account_json());
+            Ok(())
+        }
+        [command, ..] if command == "test-signer" => Err(Diagnostics::error(
+            DiagnosticSource::Cli,
+            "command",
+            format!("Invalid test-signer command; use gcs-mimic test-signer credentials.\n{TEST_SIGNER_HELP}"),
+        )
+        .into()),
         [command, rest @ ..] if command == "serve" => serve(rest),
         _ => Err(Diagnostics::error(
             DiagnosticSource::Cli,
@@ -370,15 +395,15 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     // Load the registry before binding so a bad identity file never reaches readiness.
     let mut auth = Auth::permissive();
-    if report.valid(&["auth_mode", "identity_file", "test_signer", "signed_urls"]) {
-        match Auth::load(&report.config) {
-            Ok(loaded) => auth = loaded,
-            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Identity,
-                "identity_file",
-                error.to_string(),
-            )),
-        }
+    match report.auth_profile().map(Auth::load) {
+        Some(Ok(loaded)) => auth = loaded,
+        Some(Err(error)) => report.diagnostics.errors.push(Diagnostic::new(
+            DiagnosticSource::Identity,
+            "identity_file",
+            error.to_string(),
+        )),
+        // Validation already reported why no profile was selected.
+        None => {}
     }
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
@@ -392,9 +417,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());
     }
-    auth = auth
-        .with_verifier_budget(report.config.max_blocking_threads)
-        .with_signed_host_port(report.config.signed_host_port);
+    auth = auth.with_verifier_budget(report.config.max_blocking_threads);
     report
         .diagnostics
         .warnings
@@ -654,7 +677,7 @@ fn signing_credentials<'a>(
     match (options.get("--signer"), options.get("--private-key")) {
         (None, None) => Ok((
             test_signer::ID,
-            std::borrow::Cow::Borrowed(test_signer::PRIVATE_KEY_PEM),
+            std::borrow::Cow::Borrowed(test_signer::PRIVATE_KEY_PEM.as_bytes()),
         )),
         (Some(signer), Some(path)) => {
             let key = gcs_mimic::bounded_file::read(Path::new(path), 16_384).map_err(|error| {
@@ -1027,7 +1050,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "73a884e8c43c04dac42d87e7d208670d174a28d06ee86e4f502c359b642841a8"
+            "9f76290ec75be05d782362ff9a745db17db71fe9686d0f1ec0bb51b733ac58cb"
         );
     }
 

@@ -1157,10 +1157,15 @@ fn permissive_verification_checks_policy_signatures_and_their_date_window() {
         ),
     ];
     for (form, status, code) in &rejected {
-        error(
-            &server.post("policy-bucket", form, b"denied"),
-            *status,
-            code,
+        let reply = server.post("policy-bucket", form, b"denied");
+        error(&reply, *status, code);
+        // Nothing is registered in permissive mode, so the answer names where keys come from.
+        assert!(
+            *code != "InvalidAccessKeyId"
+                || String::from_utf8_lossy(&reply.body)
+                    .contains("The policy signing key is unknown or inactive. With signed_urls=verify, keys come from identity file public_keys"),
+            "{}",
+            String::from_utf8_lossy(&reply.body)
         );
     }
     server

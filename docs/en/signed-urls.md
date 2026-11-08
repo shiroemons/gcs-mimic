@@ -266,10 +266,12 @@ the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
 The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
 signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
-Go storage v1.70.0 omits non-default ports from canonical Host, so its URLs for
-a host:port endpoint fail with 403 `SignatureDoesNotMatch`; when a signature
+Go storage v1.70.0 omits non-default ports from canonical Host. A server that
+verifies signatures, like the strict journey above, therefore rejects its URLs
+for a host:port endpoint with 403 `SignatureDoesNotMatch`; when a signature
 matches the request only without its port, the message says so and suggests
-`signed_host_port=lenient`. Prefer the helper
+`signed_host_port=lenient`. The default permissive server does not check
+signatures, so those URLs work there. Prefer the helper
 for local ports or expose a default-port endpoint. Where that is impractical,
 for example when every worktree publishes a different port, start a server that
 verifies signatures (strict mode, or permissive mode with `signed_urls=verify`;
@@ -333,10 +335,14 @@ and the ready event reports the effective value as `"test_signer"`:
 
 | Profile | Default | Why |
 | --- | --- | --- |
-| `permissive` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
+| `permissive` with `signed_urls=verify` | `enabled` | Permissive mode authorizes nothing by identity, so the signer grants nothing |
+| `permissive` with the default `signed_urls=ignore` | `disabled` | No signature is verified, so the signer would do nothing |
 | `strict` | `disabled` | Anyone can sign with the published key, so the signer would turn `allAuthenticatedUsers` grants into public access |
 
-An explicit `disabled` is honored in both profiles.
+An explicit `disabled` is accepted everywhere. An explicit `enabled` in
+permissive mode with `signed_urls=ignore` fails startup ("test_signer=enabled has
+no effect while signatures are ignored"), because it would promise a
+verification that never happens.
 
 - **Strict mode with `test_signer=enabled`**: startup emits one warning before
   readiness that the signer's private key is published, so anyone can
@@ -354,9 +360,13 @@ An explicit `disabled` is honored in both profiles.
 - **Strict mode by default or with `test_signer=disabled`**: there is no
   built-in signer. An identity file entry with its ID is an ordinary identity
   with only the file's own keys. Signatures made with the published key fail
-  with 403 `InvalidAccessKeyId` and its JWTs with 401.
-- **Permissive mode** ignores signatures by default. With `signed_urls=verify`
-  the built-in key verifies them unless `test_signer=disabled`; see
+  with 403 `InvalidAccessKeyId`, whose message says that the built-in test
+  signer is disabled and names `test_signer=enabled` (or with 403
+  `SignatureDoesNotMatch` when that entry declares other `public_keys`), and its
+  JWTs with 401.
+- **Permissive mode** ignores signatures by default, so the signer is disabled.
+  With `signed_urls=verify` the built-in key verifies them unless
+  `test_signer=disabled`; see
   [verifying signed requests in permissive mode](#verifying-signed-requests-in-permissive-mode).
 
 The ready event's `identities` counts only the identity file's entries. To use
@@ -375,23 +385,26 @@ gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
   --object my-object --method GET --expires 15m
 ```
 
-Apps that read a service-account key file can use a file built from the
-published key. This uses the non-Google universe from the
+`gcs-mimic test-signer credentials` prints the signer as a service account key
+file, so binary and image users need no repository checkout. It contains
+`type`, `project_id` (`local-project`), `client_email`, `private_key` and the
+non-Google `universe_domain` (`gcs-emulator.invalid`) from the
 [Rails guide](rails-active-storage.md#2-add-an-emulator-entry-to-configstorageyml),
-which keeps Google auth libraries from requesting tokens from Google:
+which keeps Google auth libraries from requesting tokens from Google. The
+command reads no configuration, environment or network. The image's entrypoint
+is `gcs-mimic`, so `docker run` takes the same arguments; 0.13.0 and earlier
+images do not have the command:
 
 ```sh
-jq -n --rawfile key fixtures/signing/test-only-private.pem '{
-  type: "service_account", project_id: "local-project",
-  client_email: "test-signer@gcs-mimic.invalid", private_key: $key,
-  universe_domain: "gcs-emulator.invalid"
-}' > test-signer.json
+gcs-mimic test-signer credentials > test-signer.json
+docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+jq -r .private_key test-signer.json > test-signer.pem
 ```
 
 Go signs with the same key through `SignedURLOptions`:
 
 ```go
-key, err := os.ReadFile("fixtures/signing/test-only-private.pem")
+key, err := os.ReadFile("test-signer.pem")
 if err != nil {
     return err
 }
@@ -407,14 +420,15 @@ url, err := storage.SignedURL("my-bucket", "my-object", &storage.SignedURLOption
 ```
 
 Go storage drops a non-default port from the Host it signs, so a URL for
-`localhost:4443` does not match the request's `Host: localhost:4443` and fails
-with 403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
-`gcs-mimic url sign`, or set the separate setting `signed_host_port=lenient`,
-which tolerates the missing port.
+`localhost:4443` does not match the request's `Host: localhost:4443`. A server
+that verifies signatures, as one using the built-in signer does, rejects it with
+403 `SignatureDoesNotMatch`. Use a default-port endpoint, sign with
+`gcs-mimic url sign`, or set `signed_host_port=lenient`, which tolerates the
+missing port.
 
-Rails Active Storage takes the same credentials in `config/storage.yml`. Copy
-`fixtures/signing/test-only-private.pem` into the app, for example as
-`config/gcs-mimic-test-signer.pem`:
+Rails Active Storage takes the same credentials in `config/storage.yml`. Save
+the key in the app, for example with
+`gcs-mimic test-signer credentials | jq -r .private_key > config/gcs-mimic-test-signer.pem`:
 
 ```yaml
 gcs_emulator:
@@ -537,6 +551,15 @@ enforces the policy conditions and expiration. With `signed_urls=verify` it
 verifies policy signatures and applies the `x-goog-date` window as strict mode
 does, without checking the signer's permissions.
 
+Uploads use the same streaming write path as XML PUT. Success returns 204 by
+default, an empty 200, a 201 `PostResponse` XML document with `Location`,
+`Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
+is used unchanged). Fields before the file have no limit on their number or
+individual size and share a total of 16 MiB, and custom metadata keeps its
+documented 8 KiB. Exact provider error wording, redirect query parameters and
+browser CORS for `POST /BUCKET` are not verified; see
+`compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).
+
 ## Verifying signed requests in permissive mode
 
 By default, permissive mode accepts signed requests without checking their
@@ -549,7 +572,16 @@ query and header signatures, V4 query and header RSA and HMAC signatures,
 their `x-goog-date` window. Failures get the strict XML errors, such as 403
 `SignatureDoesNotMatch` for a changed request or header, 403
 `InvalidAccessKeyId` for an unknown key and 400 `ExpiredToken` after expiry;
-V2 expiry is checked too. The ready event reports `"signed_urls"`.
+V2 expiry is checked too. An `InvalidAccessKeyId` message names where this
+mode looks for keys, or says that the built-in test signer is disabled. The
+ready event reports `"signed_urls"`.
+
+Despite its name, the setting is not limited to signed URLs. It covers every
+signature the XML API accepts, including `Authorization` header signatures
+(`GOOG1`, `AWS`, `GOOG4-*` and `AWS4-HMAC-SHA256`) and POST policies. S3-style
+clients that sign with made-up HMAC keys, which the default accepts, are
+rejected with 403 `InvalidAccessKeyId` once `verify` is on; create HMAC keys
+through the JSON API for them, or keep the default.
 
 A verified signature then gets permissive access: no IAM or ACL check runs,
 because permissive mode does not authorize unsigned requests either, and a
@@ -559,8 +591,8 @@ JSON API routes are unchanged.
 
 Signatures verify with these keys:
 
-- the [built-in test signer](#built-in-test-signer), enabled by default in
-  permissive mode;
+- the [built-in test signer](#built-in-test-signer), enabled by default when
+  permissive mode verifies signatures;
 - ACTIVE HMAC keys created through the JSON API. Their service account needs
   no identity entry, since nothing is authorized by identity;
 - RSA public keys from an identity file. Permissive mode accepts
@@ -578,12 +610,3 @@ gcs-mimic url sign --base-url http://localhost:4443 --bucket my-bucket \
 
 Strict mode always verifies: `signed_urls=verify` is accepted there, and
 `signed_urls=ignore` with `auth_mode=strict` fails startup.
-
-Uploads use the same streaming write path as XML PUT. Success returns 204 by
-default, an empty 200, a 201 `PostResponse` XML document with `Location`,
-`Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
-is used unchanged). Fields before the file have no limit on their number or
-individual size and share a total of 16 MiB, and custom metadata keeps its
-documented 8 KiB. Exact provider error wording, redirect query parameters and
-browser CORS for `POST /BUCKET` are not verified; see
-`compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).

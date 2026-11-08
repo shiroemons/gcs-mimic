@@ -34,7 +34,7 @@ fn v2(server: &Server, path: &str) -> String {
         + 60;
     let hex = sign_policy(
         &format!("GET\n\n\n{expires}\n{path}"),
-        test_signer::PRIVATE_KEY_PEM,
+        test_signer::PRIVATE_KEY_PEM.as_bytes(),
     )
     .unwrap();
     let bytes: Vec<_> = hex
@@ -213,8 +213,31 @@ fn strict_mode_has_no_built_in_signer_by_default_or_when_disabled() {
                 v2(&server, "/iam-bucket/object"),
                 cli_signed(&server, "object"),
             ] {
-                error(&send(&server, "GET", &url, ""), 403, "InvalidAccessKeyId");
+                let reply = send(&server, "GET", &url, "");
+                error(&reply, 403, "InvalidAccessKeyId");
+                // The answer names the setting rather than an unknown registered identity.
+                assert!(
+                    String::from_utf8_lossy(&reply.body).contains(
+                        "test-signer@gcs-mimic.invalid is the built-in test signer, which is disabled; set test_signer=enabled."
+                    ),
+                    "{}",
+                    String::from_utf8_lossy(&reply.body)
+                );
             }
+            let unknown = sign(
+                &server,
+                &Method::GET,
+                "/iam-bucket/object",
+                "unknown@example.invalid",
+                SystemTime::now(),
+                HeaderMap::new(),
+            );
+            let reply = send(&server, "GET", &unknown, "");
+            error(&reply, 403, "InvalidAccessKeyId");
+            assert!(
+                String::from_utf8_lossy(&reply.body)
+                    .contains("The signing key or its registered identity is unknown or inactive.")
+            );
             let path = "/storage/v1/b/iam-bucket/o/object?alt=media";
             server
                 .get(&jwt::bearer(test_signer::ID), path)

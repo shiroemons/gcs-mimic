@@ -60,6 +60,10 @@ fn bare(server: &Server, method: &str, signed: &Signed, body: &[u8]) -> Reply {
     xml_v2_hmac::send(server, method, signed, body, "localhost")
 }
 
+fn body_contains(reply: &Reply, text: &str) -> bool {
+    String::from_utf8_lossy(&reply.body).contains(text)
+}
+
 fn unsigned(path: &str) -> Signed {
     Signed {
         path: path.into(),
@@ -167,25 +171,31 @@ fn rejected_signatures_get_the_strict_errors_and_change_nothing() {
         id: "GOOG1UNKNOWNACCESSKEY".into(),
         secret: key.secret.clone(),
     };
-    for aws in [false, true] {
-        let signed = sign(&unknown, "PUT", "/test-bucket/unknown", aws, true, &[], now);
-        error(
-            &server.signed("PUT", &signed, b"x"),
-            403,
-            "InvalidAccessKeyId",
-        );
-    }
     let unknown_rsa = rsa_v4(
         "PUT",
         "/test-bucket/unknown",
         "unknown@example.invalid",
         now,
     );
-    error(
-        &bare(&server, "PUT", &unknown_rsa, b"x"),
-        403,
-        "InvalidAccessKeyId",
-    );
+    // Nothing is registered in permissive mode, so the answer names where keys come from.
+    for reply in [false, true]
+        .map(|aws| {
+            let signed = sign(&unknown, "PUT", "/test-bucket/unknown", aws, true, &[], now);
+            server.signed("PUT", &signed, b"x")
+        })
+        .into_iter()
+        .chain([bare(&server, "PUT", &unknown_rsa, b"x")])
+    {
+        error(&reply, 403, "InvalidAccessKeyId");
+        assert!(
+            body_contains(
+                &reply,
+                "keys come from identity file public_keys, HMAC keys created through the JSON API and the built-in test signer"
+            ),
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+    }
     let expired_v2 = rsa_v2(
         "PUT",
         "/test-bucket/expired",
@@ -268,11 +278,12 @@ fn identity_file_keys_verify_and_a_disabled_test_signer_is_unknown() {
     );
     assert_eq!(bare(&server, "GET", &get, b"").body, b"file bytes");
     let built_in = rsa_v4("GET", "/test-bucket/file", test_signer::ID, now);
-    error(
-        &bare(&server, "GET", &built_in, b""),
-        403,
-        "InvalidAccessKeyId",
-    );
+    let reply = bare(&server, "GET", &built_in, b"");
+    error(&reply, 403, "InvalidAccessKeyId");
+    assert!(body_contains(
+        &reply,
+        "test-signer@gcs-mimic.invalid is the built-in test signer, which is disabled; set test_signer=enabled."
+    ));
 }
 
 #[test]
@@ -280,6 +291,7 @@ fn the_default_ignore_profile_still_accepts_unverifiable_signatures() {
     let dir = TestDir::new();
     let server = permissive(&dir, &[]);
     assert_eq!(server.ready["signed_urls"], "ignore");
+    assert_eq!(server.ready["test_signer"], "disabled");
     server.bucket("test-bucket");
     let now = SystemTime::now();
     bare(&server, "PUT", &unsigned("/test-bucket/object"), b"bytes").expect(200);
@@ -307,6 +319,16 @@ fn the_default_ignore_profile_still_accepts_unverifiable_signatures() {
     ] {
         assert_eq!(bare(&server, "GET", &signed, b"").body, b"bytes");
     }
+    // A signed aws-chunked upload carries chunk signatures that only a verified key can check.
+    let key = server.key("unregistered@example.invalid");
+    let signed = xml_v4_streaming::headers(&key, "/test-bucket/chunked", 3, Some("aws-chunked"));
+    let body = xml_v4_streaming::chain(&key, &signed, &[b"abc"]);
+    let reply = xml_v4_streaming::send(&server, &signed, &body, None, false);
+    error(&reply, 403, "InvalidAccessKeyId");
+    assert!(body_contains(
+        &reply,
+        "because signatures are ignored; set signed_urls=verify"
+    ));
 }
 
 #[test]
@@ -383,6 +405,10 @@ fn startup_pairs_identity_files_and_signed_urls_with_the_profile() {
             vec!["--signed-urls", "verify", "--identity-file", &missing_keys],
             "missing required field: public_keys".into(),
         ),
+        (
+            vec!["--test-signer", "enabled"],
+            "test_signer=enabled has no effect while signatures are ignored".into(),
+        ),
     ];
     for (path, field) in [&roles, &alias, &tokens, &pap] {
         cases.push((
@@ -425,4 +451,9 @@ fn startup_pairs_identity_files_and_signed_urls_with_the_profile() {
         let server = permissive(&data, args);
         assert_eq!(server.ready["signed_urls"], "verify", "{args:?}");
     }
+    // An explicit disabled is already true where nothing verifies, so it stays accepted.
+    let data = TestDir::new();
+    let server = permissive(&data, &["--test-signer", "disabled"]);
+    assert_eq!(server.ready["signed_urls"], "ignore");
+    assert_eq!(server.ready["test_signer"], "disabled");
 }
