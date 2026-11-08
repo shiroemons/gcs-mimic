@@ -6,7 +6,7 @@
 
 use super::{Config, ConfigurationReport, Diagnostic, Setting, SettingFix, Settings};
 use serde_json::value::RawValue;
-use std::{fmt, path::PathBuf};
+use std::{fmt, path::PathBuf, sync::Arc};
 
 /// The fix for a config file member that holds neither a document object nor a string.
 pub(super) const MEMBER_FIX: &str =
@@ -17,8 +17,10 @@ pub(super) const MEMBER_FIX: &str =
 pub enum DocumentSource {
     /// A path the document is read from when it loads; a relative one names the working directory.
     File(PathBuf),
-    /// The document text itself.
-    Inline(String),
+    /// The document text itself: an identity registry of up to 16 MiB or a buckets document of
+    /// up to 1 GiB. Shared, because validation tries every setting on a copy of the
+    /// configuration, which must not copy the text with it.
+    Inline(Arc<str>),
 }
 
 impl DocumentSource {
@@ -94,7 +96,7 @@ impl DocumentKind {
         }
         *self.source(config) = Some(match form {
             Form::File => DocumentSource::File(PathBuf::from(value)),
-            Form::Inline => DocumentSource::Inline(value.to_owned()),
+            Form::Inline => DocumentSource::Inline(Arc::from(value)),
         });
         Ok(())
     }

@@ -2293,7 +2293,7 @@ mod tests {
         // Inline text is held to the same limit, and the fix names the inline setting.
         let inline = |extra| {
             super::load(
-                &DocumentSource::Inline(fill(extra)),
+                &DocumentSource::Inline(fill(extra).into()),
                 "seed-project",
                 &FixedClock,
                 "US",
@@ -2439,7 +2439,7 @@ mod tests {
             assert!(!errors.to_string().contains("secret"));
             // The inline form names its own setting and never echoes the text either.
             if let Ok(text) = std::str::from_utf8(bytes) {
-                let inline = DocumentSource::Inline(text.to_owned());
+                let inline = DocumentSource::Inline(text.into());
                 let errors = super::load(&inline, "seed-project", &FixedClock, "US", named(LIMIT))
                     .unwrap_err();
                 assert_eq!(errors.errors.len(), 1);

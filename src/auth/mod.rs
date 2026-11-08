@@ -2392,7 +2392,7 @@ mod tests {
             std::fs::write(&path, &document).unwrap();
             for (source, setting) in [
                 (DocumentSource::File(path), "identity_file: "),
-                (DocumentSource::Inline(document), "identities: "),
+                (DocumentSource::Inline(document.into()), "identities: "),
             ] {
                 let error = Registry::load_principals(
                     Some(&source),
@@ -2506,7 +2506,7 @@ mod tests {
         let file = DocumentSource::File(path.clone());
         assert_eq!(load(&file).unwrap().len(), 1);
         assert_eq!(
-            load(&DocumentSource::Inline(document.clone()))
+            load(&DocumentSource::Inline(document.as_str().into()))
                 .unwrap()
                 .len(),
             1
@@ -2518,7 +2518,7 @@ mod tests {
             "identity_file exceeds 16 MiB"
         );
         assert_eq!(
-            load(&DocumentSource::Inline(document))
+            load(&DocumentSource::Inline(document.into()))
                 .unwrap_err()
                 .to_string(),
             "identities exceeds 16 MiB"

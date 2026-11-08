@@ -666,11 +666,13 @@ fn rejected_setting_fix(name: &str) -> &'static str {
 
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
 /// caller applies it to a candidate copy and keeps the copy only on success.
-fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+/// `value` is borrowed: an inline document may be 1 GiB, and only the setting that stores it
+/// needs its own copy.
+fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
     let setting = key.parse::<Setting>().map_err(|_| unknown_setting())?;
     match setting {
         Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
-            storage::apply(config, setting, &value)
+            storage::apply(config, setting, value)
         }
         Setting::PubsubEmulatorHost
         | Setting::EventPubsubProjectId
@@ -687,9 +689,9 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::UnixSocket
         | Setting::TlsCert
         | Setting::TlsKey
-        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, &value),
+        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, value),
         Setting::ApiBaseUrl | Setting::PublicBaseUrl | Setting::XmlVirtualHostDomains => {
-            apply_url_setting(config, setting, &value)
+            apply_url_setting(config, setting, value)
         }
         Setting::DataDir
         | Setting::SeedDir
@@ -701,11 +703,11 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::BucketsFileMode => apply_storage_setting(config, setting, &value),
-        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, &value),
-        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, &value),
-        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, &value),
-        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, &value),
+        | Setting::BucketsFileMode => apply_storage_setting(config, setting, value),
+        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
+        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
+        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, value),
+        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, value),
         Setting::AdminPrincipal
         | Setting::AdminAllowedHosts
         | Setting::TrustedPrincipal
@@ -717,7 +719,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::CorsFallback
         | Setting::SignedHostPort
         | Setting::TestSigner
-        | Setting::SignedUrls => apply_access_setting(config, setting, &value),
+        | Setting::SignedUrls => apply_access_setting(config, setting, value),
         Setting::MaxConnections
         | Setting::MaxGrpcStreams
         | Setting::MaxObjectBytes
@@ -729,7 +731,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::MaxSyncEntries
         | Setting::MaxSyncDepth
         | Setting::WorkerThreads
-        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, &value),
+        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, value),
         Setting::ConnectionTimeoutMs
         | Setting::HeaderReadTimeoutMs
         | Setting::BodyInactivityTimeoutMs
@@ -737,7 +739,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | Setting::KeepAliveTimeoutMs
         | Setting::ObjectRequestTimeoutMs
         | Setting::CatalogWaitTimeoutMs
-        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, &value),
+        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, value),
         Setting::Config => Err(unknown_setting()),
     }
 }
@@ -1088,7 +1090,7 @@ impl ConfigurationReport {
                 continue;
             }
             let mut candidate = self.config.clone();
-            match apply_setting(&mut candidate, key, input.value.clone()) {
+            match apply_setting(&mut candidate, key, &input.value) {
                 Ok(()) => self.config = candidate,
                 Err(SettingFix(fix)) => {
                     self.invalid.insert(key.clone());
