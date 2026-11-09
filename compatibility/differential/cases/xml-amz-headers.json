@@ -1,0 +1,18 @@
+{
+  "id": "xml-amz-headers",
+  "description": "x-amz-* headers with an x-goog-* equivalent on OAuth-authenticated XML requests: metadata, ACL, storage class, copy and listing without a project.",
+  "steps": [
+    {"name": "put-amz-meta", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-amz-meta-origin": "amz"}, "body_text": "x"},
+    {"name": "head-after-amz-meta", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "compare": {"only_headers": ["x-goog-meta-origin", "x-amz-meta-origin"]}},
+    {"name": "put-both-meta-spellings", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-amz-meta-origin": "amz", "x-goog-meta-origin": "goog"}, "body_text": "x"},
+    {"name": "head-after-both", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "compare": {"only_headers": ["x-goog-meta-origin", "x-amz-meta-origin"]}},
+    {"name": "put-amz-acl", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-amz-acl": "private"}, "body_text": "x"},
+    {"name": "put-amz-storage-class", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-amz-storage-class": "STANDARD"}, "body_text": "x"},
+    {"name": "copy-amz-source", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-amz-copy-source": "/{bucket}/{object}"}},
+    {"name": "copy-amz-replace-metadata", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-amz-copy-source": "/{bucket}/{object}", "x-amz-metadata-directive": "REPLACE", "x-amz-meta-origin": "copied", "Content-Type": "text/x-copied"}},
+    {"name": "head-after-copy", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object2}", "compare": {"only_headers": ["x-goog-meta-origin", "x-amz-meta-origin", "content-type"]}},
+    {"name": "list-buckets-without-project", "protocol": "xml", "method": "GET", "path": "/", "compare": {"body": "ignore"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup2", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false, "always": true}
+  ]
+}

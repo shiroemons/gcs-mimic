@@ -1,0 +1,22 @@
+{
+  "id": "xml-predefined-acl",
+  "description": "XML object PUT with x-goog-acl before and after uniform bucket-level access, and an invalid canned ACL.",
+  "bucket": "own",
+  "steps": [
+    {"name": "put-private", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "private"}, "body_text": "x"},
+    {"name": "acl-after-private", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "put-bucket-owner-read", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "bucket-owner-read"}, "body_text": "x"},
+    {"name": "acl-after-bucket-owner-read", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "put-bucket-owner-full-control", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "bucket-owner-full-control"}, "body_text": "x"},
+    {"name": "acl-after-bucket-owner-full-control", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "put-project-private", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "project-private"}, "body_text": "x"},
+    {"name": "acl-after-project-private", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "put-json-spelling", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "projectPrivate"}, "body_text": "x"},
+    {"name": "put-invalid", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "not-a-canned-acl"}, "body_text": "x"},
+    {"name": "enable-uniform-access", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "iamConfiguration/uniformBucketLevelAccess/enabled"}, "body": {"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": true}}}, "compare": false},
+    {"name": "put-private-under-uniform", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-acl": "private"}, "body_text": "x"},
+    {"name": "put-plain-under-uniform", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "x"},
+    {"name": "cleanup-object", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-object2", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false, "always": true}
+  ]
+}

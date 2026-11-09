@@ -1,0 +1,16 @@
+{
+  "id": "obj-unencoded-name",
+  "description": "Object paths whose reserved characters are not percent-encoded: an equals sign and a slash, on the metadata and media download routes. Only statuses compare: an unknown route answers plain text on Cloud Storage and JSON locally.",
+  "compare": {"only_headers": [], "body": "ignore"},
+  "steps": [
+    {"name": "upload-equals", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}=x"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "upload-slash", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}/nested"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "get-equals-encoded", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%3Dx", "query": {"fields": "size"}},
+    {"name": "get-equals-raw", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}=x", "query": {"fields": "size"}},
+    {"name": "download-equals-raw", "method": "GET", "path": "/download/storage/v1/b/{bucket}/o/{object}=x", "query": {"alt": "media"}},
+    {"name": "get-slash-raw", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/nested", "query": {"fields": "size"}},
+    {"name": "download-slash-raw", "method": "GET", "path": "/download/storage/v1/b/{bucket}/o/{object}/nested", "query": {"alt": "media"}},
+    {"name": "cleanup-equals", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%3Dx", "compare": false, "always": true},
+    {"name": "cleanup-slash", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%2Fnested", "compare": false, "always": true}
+  ]
+}

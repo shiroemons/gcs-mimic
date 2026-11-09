@@ -1,0 +1,12 @@
+{
+  "id": "obj-json-response-overrides",
+  "description": "XML-style response-content-* query parameters sent to the JSON API media and metadata routes.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "media-disposition", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media", "response-content-disposition": "attachment"}, "compare": {"only_headers": ["content-type", "content-disposition"]}},
+    {"name": "media-type", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media", "response-content-type": "application/x-test"}, "compare": {"only_headers": ["content-type", "content-disposition"]}},
+    {"name": "download-disposition", "method": "GET", "path": "/download/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media", "response-content-disposition": "attachment"}, "compare": {"only_headers": ["content-type", "content-disposition"]}},
+    {"name": "metadata-disposition", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "size", "response-content-disposition": "attachment"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

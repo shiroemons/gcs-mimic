@@ -16992,6 +16992,18 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-010-METADATA-VALUES",
+          "description": "Custom metadata follows Cloud Storage as recorded on 2026-11-09: numbers and booleans are stored as text, objects and arrays are dropped while other keys apply, and an empty map or one that drops every value clears the map on PATCH. Floating-point values and integers beyond 64 bits use the service's text form, including 0.0E for a float zero and 16 significant digits from 2^64 upward.",
+          "result": "PASS",
+          "test_ids": [
+            "custom_metadata_values_http::numbers_and_booleans_are_stored_as_strings",
+            "custom_metadata_values_http::object_and_array_values_are_dropped_while_other_keys_apply",
+            "custom_metadata_values_http::patch_clears_the_map_when_every_supplied_value_is_dropped",
+            "custom_metadata_values_http::the_size_limit_counts_the_stored_text_of_a_converted_value",
+            "custom_metadata_values_http::every_body_that_writes_metadata_uses_the_same_value_rules"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-010-PENDING",
           "description": "Implement broader bucket policies, object IAM/ACLs, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity; unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and combined/missing-selected-resource/body-validation/authorization precedence; SPEC-012/015/017 exact error/header/input parity.",
           "result": "PENDING",
@@ -17142,6 +17154,11 @@
         }
       ],
       "test_ids": [
+        "custom_metadata_values_http::numbers_and_booleans_are_stored_as_strings",
+        "custom_metadata_values_http::object_and_array_values_are_dropped_while_other_keys_apply",
+        "custom_metadata_values_http::patch_clears_the_map_when_every_supplied_value_is_dropped",
+        "custom_metadata_values_http::the_size_limit_counts_the_stored_text_of_a_converted_value",
+        "custom_metadata_values_http::every_body_that_writes_metadata_uses_the_same_value_rules",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "all_conditions_generation_selectors_and_conditioned_races",
         "invalid_and_unsupported_metadata_never_mutates_objects",
@@ -17196,6 +17213,7 @@
         "concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"
       ],
       "verification": [
+        {"command":"cargo +1.99.1 test --locked --offline --test it_objects custom_metadata_values","result":"PASS","verified_at":"2026-11-09","artifact":"docs/en/evidence/client-compat-0.16.0.md","test_ids":["custom_metadata_values_http::numbers_and_booleans_are_stored_as_strings","custom_metadata_values_http::object_and_array_values_are_dropped_while_other_keys_apply","custom_metadata_values_http::patch_clears_the_map_when_every_supplied_value_is_dropped","custom_metadata_values_http::the_size_limit_counts_the_stored_text_of_a_converted_value","custom_metadata_values_http::every_body_that_writes_metadata_uses_the_same_value_rules"]},
         {"command":"cargo test --test http_metadata_etag --test object_metadata_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-metadata-if-match.md","test_ids":["metadata_if_match_checks_returned_etag_and_query_conditions_atomically","metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation","metadata_if_match_preserves_missing_resource_and_strict_permission_errors","concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -17484,7 +17502,7 @@
         "SPEC-METADATA-IF-MATCH: metadata PUT/PATCH/override If-Match passes the scoped local SDK extension, comparing strong validators atomically in the existing transaction. Four dedicated wire tests, twenty-two existing metadata/read regressions and the unchanged .NET SDK pass. Official JSON headers document GET support only; actual Google metadata-write semantics remain unverified. If-None-Match, standalone dates/If-Range and unrelated writes retain rejection. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-11-09",
       "http_method": "PATCH",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -23639,14 +23657,15 @@
         {"id":"batch-wire","description":"Validate malformed later parts before any mutation; verify mixed per-part statuses, IDs, encoded names, credential/query overrides, connection-slot independence and the request bounds of 100 calls and 10,000,000 bytes.","result":"PASS","test_ids":["batch-wire"]},
         {"id":"batch-absolute-origin","description":"Accept absolute part request lines whose normalized scheme and authority equal the advertised API endpoint and whose path continues below its prefix with /storage/v1/; reject other hosts, schemes, ports, userinfo and prefixes for the whole envelope before any part runs.","result":"PASS","test_ids":["batch-absolute-origin"]},
         {"id":"batch-admission","description":"Bound active request/response envelopes to two per server; queue excess envelopes without reading their bodies, resume on permit release, return local 503 when the request or batch admission deadline expires (whichever comes first), close the connection for a request timeout and release admission when the response is consumed or dropped.","result":"PASS","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]},
-        {"id":"batch-final-profiles","description":"Execute final combined SDK workflows and reconcile remaining provider/profile field and malformed-input edges.","result":"PENDING","test_ids":["batch-final-profiles"]}
+        {"id":"batch-final-profiles","description":"Execute final combined SDK workflows and reconcile remaining provider/profile field and malformed-input edges.","result":"PENDING","test_ids":["batch-final-profiles"]},
+        {"id":"batch-line-endings","description":"Accept the framings Cloud Storage accepted on 2026-11-09: CRLF with or without the blank line after inner headers, LF-only lines and a request line directly before the delimiter. The opening delimiter's line ending selects later delimiters, so an LF-only boundary line inside a CRLF envelope stays body content. Bodies keep every byte except the delimiter's own line ending, and the header, part, preamble and epilogue limits still apply.","result":"PASS","test_ids":["batch_deletes_under_each_recorded_line_ending_form","batch_passes_part_bodies_intact_in_both_line_endings","batch_recognizes_delimiters_only_at_line_starts","batch_keeps_body_bytes_up_to_the_delimiter_line_ending","batch_line_ending_tolerance_keeps_limits_and_rejections","bodies_keep_every_byte_except_the_delimiter_line_ending","a_part_ending_before_its_blank_line_has_an_empty_body"]}
       ],
-      "test_ids": ["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts", "a_departed_reader_cancels_the_remaining_parts", "a_part_past_the_request_limit_answers_alone_and_later_parts_still_run", "batch_answers_full_object_lists_past_the_former_response_limits", "batch-wire", "batch-absolute-origin", "batch-final-profiles", "server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body", "server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"],
-      "verification": [{"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
+      "test_ids": ["batch_deletes_under_each_recorded_line_ending_form", "batch_passes_part_bodies_intact_in_both_line_endings", "batch_recognizes_delimiters_only_at_line_starts", "batch_keeps_body_bytes_up_to_the_delimiter_line_ending", "batch_line_ending_tolerance_keeps_limits_and_rejections", "bodies_keep_every_byte_except_the_delimiter_line_ending", "a_part_ending_before_its_blank_line_has_an_empty_body", "each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts", "a_departed_reader_cancels_the_remaining_parts", "a_part_past_the_request_limit_answers_alone_and_later_parts_still_run", "batch_answers_full_object_lists_past_the_former_response_limits", "batch-wire", "batch-absolute-origin", "batch-final-profiles", "server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body", "server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"],
+      "verification": [{"command":"cargo +1.99.1 test --locked --offline --test it_protocol http_batch && cargo +1.99.1 test --locked --offline --lib batch","result":"PASS","verified_at":"2026-11-09","artifact":"docs/en/evidence/client-compat-0.16.0.md","test_ids":["batch_deletes_under_each_recorded_line_ending_form","batch_passes_part_bodies_intact_in_both_line_endings","batch_recognizes_delimiters_only_at_line_starts","batch_keeps_body_bytes_up_to_the_delimiter_line_ending","batch_line_ending_tolerance_keeps_limits_and_rejections","bodies_keep_every_byte_except_the_delimiter_line_ending","a_part_ending_before_its_blank_line_has_an_empty_body"]},{"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["each_part_leaves_as_its_own_chunk_and_a_stalled_reader_holds_back_later_parts","a_departed_reader_cancels_the_remaining_parts","a_part_past_the_request_limit_answers_alone_and_later_parts_still_run","batch_answers_full_object_lists_past_the_former_response_limits"]},{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]},{"command":"CARGO_BUILD_JOBS=4 cargo test --lib server::batch::tests -- --test-threads=4","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/http-batch.md","test_ids":["server::batch::tests::batch_admission_bounds_envelopes_before_reading_the_body","server::batch::tests::batch_response_holds_capacity_until_consumed_or_dropped"]}],
       "sdk_evidence": [],
       "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Two active envelopes per server is a local resource bound; excess envelopes wait without reading their bodies until the earlier of the request_timeout_ms deadline and object_request_timeout_ms admission deadline. Both return 503 backendError; the request deadline also closes the connection. A response leaves chunked, one part at a time, with no total limit; a part's 1 GiB limit sits above what documented limits allow and may return responseTooLarge after an operation completed. A client that stops reading holds back later parts, and a part's own timeout answers 503 in place while later parts run. Full provider/profile edges and final SDK integration remain pending.", "Absolute part URLs on a foreign origin fail the whole envelope with a local 400; Cloud Storage behavior for foreign origins is unobserved. An advertised host that the public-origin rules reject, such as a name with an underscore, accepts only relative parts."],
       "implemented_in": null,
-      "last_verified": "2026-11-04"
+      "last_verified": "2026-11-09"
     },
     {
       "id": "BEHAVIOR-COMMON-009",
@@ -35258,9 +35277,24 @@
             "signing::length_range::signature_binds_the_range_and_malformed_ranges_fail",
             "xml-content-length-range"
           ]
+        },
+        {
+          "id": "EXT-XML-022-CANNED-ACL",
+          "description": "x-goog-acl with the XML value names sets the same ACL as the JSON predefinedAcl on PUT, resumable and multipart initiation and copy. An invalid or JSON-spelled value and uniform bucket-level access answer 400 InvalidArgument with the Details recorded from Cloud Storage on 2026-11-09.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_canned::xml_canned_acl_values_produce_the_recorded_entries_on_every_write",
+            "xml_canned::xml_canned_acl_applies_to_a_copy_that_replaces_metadata",
+            "xml_canned::xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing",
+            "xml_canned::xml_canned_acl_under_uniform_access_answers_the_recorded_error"
+          ]
         }
       ],
       "test_ids": [
+        "xml_canned::xml_canned_acl_values_produce_the_recorded_entries_on_every_write",
+        "xml_canned::xml_canned_acl_applies_to_a_copy_that_replaces_metadata",
+        "xml_canned::xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing",
+        "xml_canned::xml_canned_acl_under_uniform_access_answers_the_recorded_error",
         "wire_parity_http::xml_listing_matches_the_recorded_document",
         "wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header",
         "wire_parity_http::xml_range_errors_of_a_public_object_are_private",
@@ -35308,6 +35342,7 @@
         "xml-content-length-range"
       ],
       "verification": [
+        {"command":"cargo +1.99.1 test --locked --offline --test it_xml_auth xml_canned","result":"PASS","verified_at":"2026-11-09","artifact":"docs/en/evidence/client-compat-0.16.0.md","test_ids":["xml_canned::xml_canned_acl_values_produce_the_recorded_entries_on_every_write","xml_canned::xml_canned_acl_applies_to_a_copy_that_replaces_metadata","xml_canned::xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing","xml_canned::xml_canned_acl_under_uniform_access_answers_the_recorded_error"]},
         {"command":"cargo test --lib xml::put && cargo test --test it_xml_auth length_range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml::put::length_range::tests::malformed_values_report_the_recorded_reason","xml::put::length_range::tests::accepts_the_signed_decimal_forms_cloud_storage_accepted","xml::put::length_range::tests::bounds_are_inclusive_and_name_the_failed_side","signing::length_range::signed_range_admits_inclusive_sizes_and_rejects_others_before_publication","signing::length_range::signature_binds_the_range_and_malformed_ranges_fail"]},
         {"command":"cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter xml-content-length-range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml-content-length-range"]},
         {"command":"CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- cleanup_waits_for_owned_work compose_copy_and_rewrite_failures_are_classified --test-threads=2","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-put-object.md","test_ids":["cleanup_waits_for_owned_work_before_its_first_journal_entry","compose_copy_and_rewrite_failures_are_classified_and_never_publish"]},
@@ -35529,14 +35564,14 @@
         }
       ],
       "known_deviations": [
-        "Full official PUT remains PARTIAL: ACLs, encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
+        "Full official PUT remains PARTIAL: encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
         "SPEC-XML-PUT-EDGES: CRC32C malformed values use local 400 InvalidDigest rather than the separately documented InvalidCrc, and all checksum mismatches use BadDigest; duplicate/conflicting declarations, non-ASCII/custom metadata accounting, framing/trailers, exact headers and mixed-error precedence need provider evidence.",
         "Existing SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017 local addressing, unknown-input, ETag and authentication/permission precedence rules apply unchanged; retry tokens require generation match without response replay.",
         "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and actual signed-browser execution remain unverified.",
         "Go storage v1.70.0 OpenWriter uses JSON Objects.Insert; ordinary Go Writer uses JSON; official SignedURL PUT adds XML write coverage."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-11-04"
+      "last_verified": "2026-11-09"
     },
     {
       "id": "EXT-XML-023",
@@ -43869,14 +43904,15 @@
       "acceptance_cases": [
         {"id": "UBLA-PREDEFINED-ACL", "description": "Bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl and object insert/copy/rewrite/compose predefinedAcl/destinationPredefinedAcl return 400 with removal guidance under enabled UBLA, shared unsupported otherwise, without mutation.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"id":"ACL-USER-COMPARISON-BOUNDARY","description":"The shared ACL user matcher folds ASCII domain case only; local-part/non-email case and byte-exact ACL duplicate detection remain unchanged under SPEC-PRINCIPAL-EMAIL-CASE.","result":"PASS","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]},
-        {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []}
+        {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []},
+        {"id": "XML-CANNED-ACL-INTERACTIONS", "description": "XML x-goog-acl is rechecked against uniform access at publication, needs an identified caller, answers 412 under public access prevention, and a failed ACL write publishes nothing, on every XML write path.", "result": "PASS", "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes"]}
       ],
-      "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections", "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"],
-      "verification": [{"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}, {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]}],
+      "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes", "xml::uniform_access_metadata_and_predefined_acl_rejections", "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"],
+      "verification": [{"command": "cargo +1.99.1 test --locked --offline --test it_xml_auth xml_canned", "result": "PASS", "verified_at": "2026-11-09", "artifact": "docs/en/evidence/client-compat-0.16.0.md", "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes"]}, {"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}, {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]}],
       "sdk_evidence": [],
       "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice.", "SPEC-PRINCIPAL-EMAIL-CASE: ACL-entry duplicates retain byte-exact detection while user grants ignore only domain case; local-part matching and provider duplicate behavior remain unverified."],
       "implemented_in": "d17d6127202117aaf976aa5a2269f72aa928be41",
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-09"
     },
     {
       "id": "DESIGN-020",
@@ -45996,9 +46032,30 @@
             "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
             "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
           ]
+        },
+        {
+          "id": "DESIGN-035-NAME-CASE",
+          "description": "V4 X-Goog-* and X-Amz-* query names match in any ASCII case, as gsutil signurl and gcloud storage sign-url send them. The canonical query keeps names as sent, so changing only a name's case fails verification. Names differing only in case and mixed families are malformed; V2 names stay exact.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::v4::tests::parameter_names_parse_to_their_family_and_field_in_any_ascii_case",
+            "auth::signature::v4::tests::query_names_match_in_any_ascii_case_and_are_signed_as_sent",
+            "auth::signature::v4::tests::the_case_of_a_query_name_is_part_of_what_is_signed",
+            "auth::signature::v4::tests::query_names_differing_only_in_case_and_mixed_families_are_malformed",
+            "auth::signature::tests::v2_query_names_stay_exact_in_case",
+            "xml::error_tests::signing_parameters_ignore_ascii_case_only_for_v4_names",
+            "signing::cli_query_names::mixed_case_names_verify_when_signed_in_the_spelling_sent"
+          ]
         }
       ],
       "test_ids": [
+        "auth::signature::v4::tests::parameter_names_parse_to_their_family_and_field_in_any_ascii_case",
+        "auth::signature::v4::tests::query_names_match_in_any_ascii_case_and_are_signed_as_sent",
+        "auth::signature::v4::tests::the_case_of_a_query_name_is_part_of_what_is_signed",
+        "auth::signature::v4::tests::query_names_differing_only_in_case_and_mixed_families_are_malformed",
+        "auth::signature::tests::v2_query_names_stay_exact_in_case",
+        "xml::error_tests::signing_parameters_ignore_ascii_case_only_for_v4_names",
+        "signing::cli_query_names::mixed_case_names_verify_when_signed_in_the_spelling_sent",
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/ResponseOverrides",
         "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
@@ -46018,6 +46075,21 @@
         "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --lib -- auth::signature xml::error_tests && cargo +1.99.1 test --locked --offline --test it_xml_auth cli_query_names",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "auth::signature::v4::tests::parameter_names_parse_to_their_family_and_field_in_any_ascii_case",
+            "auth::signature::v4::tests::query_names_match_in_any_ascii_case_and_are_signed_as_sent",
+            "auth::signature::v4::tests::the_case_of_a_query_name_is_part_of_what_is_signed",
+            "auth::signature::v4::tests::query_names_differing_only_in_case_and_mixed_families_are_malformed",
+            "auth::signature::tests::v2_query_names_stay_exact_in_case",
+            "xml::error_tests::signing_parameters_ignore_ascii_case_only_for_v4_names",
+            "signing::cli_query_names::mixed_case_names_verify_when_signed_in_the_spelling_sent"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked --offline",
           "result": "PASS",
@@ -46178,11 +46250,12 @@
         }
       ],
       "known_deviations": [
+        "Lowercase and mixed-case V4 query names were compared with Cloud Storage using a temporary HMAC key on 2026-11-09, including 403 when only a name's case changes and 400 ExcessHeaderValues for a repeated name. gsutil signurl and gcloud storage sign-url themselves were not run.",
         "SPEC-SIGNING-EDGES: duplicate decoded names and percent-encoded aliases reject locally; exact provider duplicate/ambiguous query semantics remain unverified.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
       "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-11-09"
     },
     {
       "id": "DESIGN-036",
@@ -47123,9 +47196,24 @@
           "description": "Virtual-host signed initiation, V4 HMAC and header-signed initiation, V2 signed initiation, and Google's exact error codes for a rejected signed POST.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-042-LOWERCASE-NAMES",
+          "description": "URLs in the byte format of gsutil signurl and gcloud storage sign-url, with lowercase V4 query names and the signature first, authorize GET, HEAD, PUT, DELETE and resumable POST; tampering, expiry and case-only duplicates keep their failures. Permissive servers accept and bind the same names.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::cli_query_names::cli_shaped_urls_authorize_get_head_put_delete_and_resumable_post",
+            "signing::cli_query_names::cli_shaped_urls_keep_tamper_expiry_and_ambiguity_failures",
+            "xml_v4_hmac_http::permissive_signed::lowercase_v4_query_names_verify_and_stay_bound_for_both_families",
+            "xml_v4_hmac_http::permissive_signed::ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation"
+          ]
         }
       ],
       "test_ids": [
+        "signing::cli_query_names::cli_shaped_urls_authorize_get_head_put_delete_and_resumable_post",
+        "signing::cli_query_names::cli_shaped_urls_keep_tamper_expiry_and_ambiguity_failures",
+        "xml_v4_hmac_http::permissive_signed::lowercase_v4_query_names_verify_and_stay_bound_for_both_families",
+        "xml_v4_hmac_http::permissive_signed::ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::v4::tests::signed_url_post_only_starts_a_resumable_upload_with_a_signed_header",
         "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
@@ -47133,6 +47221,18 @@
         "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test it_xml_auth -- cli_query_names permissive_signed",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "signing::cli_query_names::cli_shaped_urls_authorize_get_head_put_delete_and_resumable_post",
+            "signing::cli_query_names::cli_shaped_urls_keep_tamper_expiry_and_ambiguity_failures",
+            "xml_v4_hmac_http::permissive_signed::lowercase_v4_query_names_verify_and_stay_bound_for_both_families",
+            "xml_v4_hmac_http::permissive_signed::ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation"
+          ]
+        },
         {
           "command": "cargo test --locked --test auth_http signing::resumable && cargo test --locked --lib -- signed_url_post_only signed_method_resource_query",
           "result": "PASS",
@@ -47154,7 +47254,7 @@
         "The .NET SignedUrlResumableUpload pass is recorded only in docs/en/evidence/signed-resumable.txt; the scorecard probe is not part of this change."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-31"
+      "last_verified": "2026-11-09"
     },
     {
       "id": "DESIGN-043",
@@ -59826,9 +59926,9 @@
       "interface": "gsutil",
       "phase": "P7",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/gsutil_install"
       ],
@@ -59837,14 +59937,66 @@
       "notes": "Optional compatibility for existing scripts, with a pinned standalone gsutil and isolated configuration. Current documentation states gsutil will be unbundled from Google Cloud CLI after March 2027. Do not prioritize it over gcloud storage or imply that all gsutil operations are current GCS APIs.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "AUDIT-006-ANONYMOUS-KEY",
+          "description": "The JSON API accepts and ignores the key parameter that anonymous gsutil sends on every request, in both compatibility profiles; key is never a credential under strict authentication. gsutil 5.38 over TLS ran mb, cp in both directions, ls and stat.",
+          "result": "PASS",
+          "test_ids": [
+            "api_key_http::api_key_is_accepted_and_ignored_on_every_json_route",
+            "api_key_http::a_resumable_upload_initiated_with_an_api_key_completes",
+            "api_key_http::api_key_is_accepted_under_the_legacy_emulator_profile",
+            "api_key_http::api_key_is_not_a_credential_under_strict_authentication",
+            "api_key_http::api_key_keeps_anonymous_access_to_a_public_object_under_strict_authentication",
+            "gsutil-anonymous-tls-workflow"
+          ]
+        },
+        {
+          "id": "AUDIT-006-REMAINING",
+          "description": "gsutil rm, rb, bucket-to-bucket cp, rsync and authenticated gsutil.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "api_key_http::api_key_is_accepted_and_ignored_on_every_json_route",
+        "api_key_http::a_resumable_upload_initiated_with_an_api_key_completes",
+        "api_key_http::api_key_is_accepted_under_the_legacy_emulator_profile",
+        "api_key_http::api_key_is_not_a_credential_under_strict_authentication",
+        "api_key_http::api_key_keeps_anonymous_access_to_a_public_object_under_strict_authentication",
+        "gsutil-anonymous-tls-workflow"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test it_objects api_key_http",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "api_key_http::api_key_is_accepted_and_ignored_on_every_json_route",
+            "api_key_http::a_resumable_upload_initiated_with_an_api_key_completes",
+            "api_key_http::api_key_is_accepted_under_the_legacy_emulator_profile",
+            "api_key_http::api_key_is_not_a_credential_under_strict_authentication",
+            "api_key_http::api_key_keeps_anonymous_access_to_a_public_object_under_strict_authentication"
+          ]
+        },
+        {
+          "command": "gsutil 5.38 without credentials against gcs-mimic over TLS, in the native and legacy-emulator profiles: mb, cp up and down (cmp equal), ls, stat",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "gsutil-anonymous-tls-workflow"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Cloud Storage accepted a made-up key value with an OAuth token (recorded 2026-11-09). An anonymous request with a key was not recorded; an invalid key on such a request may fail there, while gcs-mimic never checks the value."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-11-09"
     },
     {
       "id": "AUDIT-007",
@@ -59854,9 +60006,9 @@
       "interface": "XML interoperability",
       "phase": "P3",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/interoperability",
         "https://docs.cloud.google.com/storage/docs/aws-simple-migration",
@@ -59867,14 +60019,79 @@
       "notes": "Verify the GCS-supported subset using pinned S3-capable clients and local HMAC credentials. Include supported signature/header and ACL syntax differences. Do not claim full Amazon S3 compatibility merely because GCS exposes an XML API.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "AUDIT-007-AMZ-HEADERS",
+          "description": "Under an AWS signature, x-amz-* headers with an x-goog-* equivalent (metadata, ACL, storage class, copy source and directive, project and date) are mapped after verification, for V2, AWS4 header, AWS4 query and aws-chunked requests; other x-amz-* headers are ignored, both spellings together answer 400 ExcessHeaderValues, reads return custom metadata as x-amz-meta-*, as recorded on 2026-11-09, and tampering is 403. Without an AWS signature, metadata, ACL and class are ignored and a copy source is 400 Missing copy source, as an OAuth request was recorded on 2026-11-09.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_amz_headers::aws4_header_and_query_signatures_apply_amz_metadata_class_and_acl",
+            "xml_amz_headers::aws4_chunked_upload_stores_amz_metadata",
+            "xml_amz_headers::aws4_copy_maps_the_source_directive_and_source_conditions",
+            "xml_amz_headers::aws4_amz_acl_applies_at_multipart_and_resumable_initiation",
+            "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
+            "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
+            "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
+            "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+            "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
+            "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
+            "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
+            "xml_amz_headers::aws_v2_signature_matches_aws4_for_amz_metadata_class_acl_and_copy",
+            "xml_amz_headers::permissive_server_reads_amz_headers_by_signature_form"
+          ]
+        },
+        {
+          "id": "AUDIT-007-S3-CLIENTS",
+          "description": "Pinned S3-capable clients such as s5cmd.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "xml_amz_headers::aws4_header_and_query_signatures_apply_amz_metadata_class_and_acl",
+        "xml_amz_headers::aws4_chunked_upload_stores_amz_metadata",
+        "xml_amz_headers::aws4_copy_maps_the_source_directive_and_source_conditions",
+        "xml_amz_headers::aws4_amz_acl_applies_at_multipart_and_resumable_initiation",
+        "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
+        "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
+        "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
+        "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+        "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
+        "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
+        "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
+        "xml_amz_headers::aws_v2_signature_matches_aws4_for_amz_metadata_class_acl_and_copy",
+        "xml_amz_headers::permissive_server_reads_amz_headers_by_signature_form"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test it_xml_auth xml_amz_headers",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "xml_amz_headers::aws4_header_and_query_signatures_apply_amz_metadata_class_and_acl",
+            "xml_amz_headers::aws4_chunked_upload_stores_amz_metadata",
+            "xml_amz_headers::aws4_copy_maps_the_source_directive_and_source_conditions",
+            "xml_amz_headers::aws4_amz_acl_applies_at_multipart_and_resumable_initiation",
+            "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
+            "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
+            "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
+            "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+            "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
+            "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
+            "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
+            "xml_amz_headers::aws_v2_signature_matches_aws4_for_amz_metadata_class_acl_and_copy",
+            "xml_amz_headers::permissive_server_reads_amz_headers_by_signature_form"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Compared with Cloud Storage for AWS4 header signatures only (2026-11-09, curl with a temporary HMAC key). V2 AWS and query signatures share the mapping by inference. Customer-key encryption and grant headers stay refused because their provider answers are unrecorded."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-11-09"
     },
     {
       "id": "AUDIT-008",

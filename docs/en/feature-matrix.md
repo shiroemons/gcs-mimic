@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 89 | 0 | 73 | 39 | 0 | 0 |
-| project_requirement | 96 | 24 | 0 | 42 | 30 | 0 | 0 |
+| project_requirement | 96 | 22 | 0 | 44 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
 | behavior | 90 | 68 | 39 | 4 | 0 | 0 |
-| project_requirement | 24 | 0 | 0 | 0 | 1 | 71 |
+| project_requirement | 22 | 0 | 0 | 0 | 1 | 73 |
 
 ## api_operation
 
@@ -832,7 +832,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-005 | gcloud storage command integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| AUDIT-006 | Legacy gsutil compatibility scope | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-006 | Legacy gsutil compatibility scope | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 
 ### Container distribution
 
@@ -954,7 +954,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-002 | Official .NET SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 2 |
-| AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| AUDIT-007 | S3-compatible client subset validation | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 2 |

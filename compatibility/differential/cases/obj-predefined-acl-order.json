@@ -1,0 +1,13 @@
+{
+  "id": "obj-predefined-acl-order",
+  "description": "The order of object ACL entries after a JSON upload with a predefined ACL: the object owner first, then the canned entries.",
+  "bucket": "own",
+  "steps": [
+    {"name": "upload-project-private", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "predefinedAcl": "projectPrivate", "fields": "size"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200},
+    {"name": "acl-project-private", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "upload-bucket-owner-read", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object2}", "predefinedAcl": "bucketOwnerRead", "fields": "size"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200},
+    {"name": "acl-bucket-owner-read", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}/acl", "query": {"fields": "items(entity,role)"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup2", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false, "always": true}
+  ]
+}

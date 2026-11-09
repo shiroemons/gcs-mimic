@@ -1,0 +1,13 @@
+{
+  "id": "json-key-parameter",
+  "description": "The global key query parameter on authenticated JSON requests, with a value that is not a real API key.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "object-get", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "size", "key": "not-a-real-key"}},
+    {"name": "object-list", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"fields": "kind", "maxResults": "1", "key": "not-a-real-key"}},
+    {"name": "bucket-get", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "kind", "key": "not-a-real-key"}},
+    {"name": "upload-with-key", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object2}", "fields": "size", "key": "not-a-real-key"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x"},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup2", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false, "always": true}
+  ]
+}

@@ -40,9 +40,34 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "GLOBAL-KEY-IGNORED",
+          "description": "Every JSON route, upload and batch part accepts key and ignores its value; it is never a credential under strict authentication and does not bind a rewrite token. Cloud Storage answered 200 for a made-up value with an OAuth token on 2026-11-09. An anonymous request with a key was not recorded.",
+          "result": "PASS",
+          "test_ids": [
+            "api_key_is_accepted_and_ignored_on_every_json_route",
+            "api_key_is_not_a_credential_under_strict_authentication",
+            "a_rewrite_continuation_ignores_a_changed_or_missing_api_key",
+            "batch_accepts_and_ignores_an_api_key_on_the_envelope_and_its_parts"
+          ]
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test it_objects api_key && cargo +1.99.1 test --locked --offline --test it_objects a_rewrite_continuation && cargo +1.99.1 test --locked --offline --test it_protocol http_batch",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "api_key_is_accepted_and_ignored_on_every_json_route",
+            "api_key_is_not_a_credential_under_strict_authentication",
+            "a_rewrite_continuation_ignores_a_changed_or_missing_api_key",
+            "batch_accepts_and_ignores_an_api_key_on_the_envelope_and_its_parts"
+          ]
+        }
+      ]
     },
     {
       "id": "PARAM:GLOBAL:oauth_token",

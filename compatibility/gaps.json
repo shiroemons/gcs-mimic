@@ -1422,9 +1422,9 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/apis/docs/system-parameters"
       ],
-      "observed_at": "2026-11-01",
+      "observed_at": "2026-11-09",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "The recorded Cloud Storage session ignored the undeclared query parameter append=false only on a bucket insert and a bucket PATCH (SPEC-JSON-UNKNOWN-QUERY). Object methods and the other non-bucket JSON methods were not recorded. Locally they still answer 400 invalidParameter 'Unknown query parameter for this method: <name>' in both profiles (the shared finish in src/json/query.rs), a conservative local choice rather than an observed Cloud Storage response.",
+      "observed_evidence": "On 2026-11-09 Cloud Storage answered 200 to response-content-disposition and response-content-type on an object GET and a media download without applying them, so gcs-mimic ignores those two on object GET and HEAD (case obj-json-response-overrides). The recorded Cloud Storage session ignored the undeclared query parameter append=false only on a bucket insert and a bucket PATCH (SPEC-JSON-UNKNOWN-QUERY). Object methods and the other non-bucket JSON methods were not recorded. Locally they still answer 400 invalidParameter 'Unknown query parameter for this method: <name>' in both profiles (the shared finish in src/json/query.rs), a conservative local choice rather than an observed Cloud Storage response.",
       "required_resolution": "Record an undeclared query parameter on an object get, insert, patch and delete and on a list method. If Cloud Storage ignores it as it does on buckets, accept it in the native profile and keep the legacy-emulator profile at 400; otherwise keep the 400 and record its wording."
     },
     {

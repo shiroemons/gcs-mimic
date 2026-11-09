@@ -1,0 +1,23 @@
+{
+  "id": "batch-part-framing",
+  "description": "Batch delete parts in framings clients actually send: CRLF with no blank line after the inner headers, LF-only lines, and the blank-line control. Only statuses compare: each side picks its own multipart boundary and envelope headers, and the per-object GET after each batch shows whether the delete happened.",
+  "compare": {"only_headers": [], "body": "ignore"},
+  "steps": [
+    {"name": "upload-a", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-a"}, "headers": {"Content-Type": "text/plain"}, "body_text": "a", "compare": false, "expect_status": 200},
+    {"name": "upload-b", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-b"}, "headers": {"Content-Type": "text/plain"}, "body_text": "b", "compare": false, "expect_status": 200},
+    {"name": "upload-c", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-c"}, "headers": {"Content-Type": "text/plain"}, "body_text": "c", "compare": false, "expect_status": 200},
+    {"name": "upload-d", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-d"}, "headers": {"Content-Type": "text/plain"}, "body_text": "d", "compare": false, "expect_status": 200},
+    {"name": "batch-crlf-blank-line", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "multipart/mixed; boundary=framing"}, "body_text": "--framing\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <a>\r\n\r\nDELETE /storage/v1/b/{bucket}/o/{object}-a HTTP/1.1\r\n\r\n\r\n--framing--\r\n"},
+    {"name": "get-a", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-a", "query": {"fields": "name"}},
+    {"name": "batch-crlf-no-blank-line", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "multipart/mixed; boundary=framing"}, "body_text": "--framing\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <b>\r\n\r\nDELETE /storage/v1/b/{bucket}/o/{object}-b HTTP/1.1\r\nAccept: application/json\r\n\r\n--framing--\r\n"},
+    {"name": "get-b", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-b", "query": {"fields": "name"}},
+    {"name": "batch-lf-only", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "multipart/mixed; boundary=framing"}, "body_text": "--framing\nContent-Type: application/http\nContent-Transfer-Encoding: binary\nContent-ID: <c>\n\nDELETE /storage/v1/b/{bucket}/o/{object}-c HTTP/1.1\n\n\n--framing--\n"},
+    {"name": "get-c", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-c", "query": {"fields": "name"}},
+    {"name": "batch-request-line-only", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "multipart/mixed; boundary=framing"}, "body_text": "--framing\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <d>\r\n\r\nDELETE /storage/v1/b/{bucket}/o/{object}-d HTTP/1.1\r\n--framing--\r\n"},
+    {"name": "get-d", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-d", "query": {"fields": "name"}},
+    {"name": "cleanup-a", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-a", "compare": false, "always": true},
+    {"name": "cleanup-b", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-b", "compare": false, "always": true},
+    {"name": "cleanup-c", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-c", "compare": false, "always": true},
+    {"name": "cleanup-d", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-d", "compare": false, "always": true}
+  ]
+}

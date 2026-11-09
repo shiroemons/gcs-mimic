@@ -1,0 +1,11 @@
+{
+  "id": "obj-metadata-number-forms",
+  "description": "How custom metadata stores JSON numbers beyond 64 bits and in other zero and floating-point spellings.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "patch-integers", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{\"metadata\":{{\"u64max\":18446744073709551615,\"over\":18446744073709551616,\"big\":123456789012345678901234567890,\"neg\":-123456789012345678901234567890}}}}"},
+    {"name": "patch-zeros", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{\"metadata\":{{\"zero\":0,\"zero1\":0.0,\"zero2\":0.00,\"negzero\":-0.0,\"zeroexp\":0e0,\"zeroe5\":0.0e5}}}}"},
+    {"name": "patch-floats", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{\"metadata\":{{\"tenth\":0.1,\"two\":2.0,\"hundred\":100.0,\"small\":1e-7,\"million\":1e6,\"large\":1e21,\"huge\":1.5e300,\"long\":0.1234567890123456789}}}}"},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

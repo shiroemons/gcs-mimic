@@ -27200,16 +27200,3234 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "batch-part-framing",
+      "steps": [
+        {
+          "fingerprint": "d7e55452be731c62",
+          "name": "upload-a",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=batch-part-framing-1-a&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "wdBDMA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/batch-part-framing-1-a/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "DMF1ucDxtqgxw5niaXcmYQ==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/batch-part-framing-1-a?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "batch-part-framing-1-a",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/batch-part-framing-1-a",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "fa7732a71171b24a",
+          "name": "upload-b",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=batch-part-framing-1-b&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "0oCwxA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/batch-part-framing-1-b/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "kutf/uauL+w61xx3dTFXjw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/batch-part-framing-1-b?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "batch-part-framing-1-b",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/batch-part-framing-1-b",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "723ad8866b7a6452",
+          "name": "upload-c",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=batch-part-framing-1-c&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "IOszxw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/batch-part-framing-1-c/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "SooI8J03tzeVZJA4QItfMw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/batch-part-framing-1-c?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "batch-part-framing-1-c",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/batch-part-framing-1-c",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f096eea6260a493a",
+          "name": "upload-d",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=batch-part-framing-1-d&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "9CFXLA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/batch-part-framing-1-d/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "gnfgkQ11AZW0SHl2FuCRrQ==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/batch-part-framing-1-d?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "batch-part-framing-1-d",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/batch-part-framing-1-d",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f82e022b187860f5",
+          "name": "batch-crlf-blank-line",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "--batch_E14JIZj2k7sBU9zYJOerW-wqxO0ON8_A\r\nContent-Type: application/http\r\nContent-ID: <response-a>\r\n\r\nHTTP/1.1 204 No Content\r\nContent-Type: application/json\r\nDate: Mon, 09 Nov 2026 10:51:42 GMT\r\nCache-Control: no-cache, no-store, max-age=0, must-revalidate\r\nExpires: Mon, 01 Jan 1990 00:00:00 GMT\r\nContent-Length: 0\r\n\r\n\r\n--batch_E14JIZj2k7sBU9zYJOerW-wqxO0ON8_A--\r\n"
+            },
+            "headers": {
+              "accept-ranges": "none",
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "multipart/mixed; boundary=batch_E14JIZj2k7sBU9zYJOerW-wqxO0ON8_A",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "X-Origin, Origin,Accept-Encoding",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-harness-body-framing": "chunked",
+              "x-xss-protection": "1; mode=block"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7d20047a47a5e05f",
+          "name": "get-a",
+          "request": "GET /storage/v1/b/<bucket>/o/batch-part-framing-1-a?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-a",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-a"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "708538b6d09775d0",
+          "name": "batch-crlf-no-blank-line",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "--batch_nzKzc7O1k2LcLx_aicyQ9uAT5TmOnNAN\r\nContent-Type: application/http\r\nContent-ID: <response-b>\r\n\r\nHTTP/1.1 204 No Content\r\nContent-Type: application/json\r\nDate: Mon, 09 Nov 2026 10:51:44 GMT\r\nCache-Control: no-cache, no-store, max-age=0, must-revalidate\r\nExpires: Mon, 01 Jan 1990 00:00:00 GMT\r\nContent-Length: 0\r\n\r\n\r\n--batch_nzKzc7O1k2LcLx_aicyQ9uAT5TmOnNAN--\r\n"
+            },
+            "headers": {
+              "accept-ranges": "none",
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "multipart/mixed; boundary=batch_nzKzc7O1k2LcLx_aicyQ9uAT5TmOnNAN",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "X-Origin, Origin,Accept-Encoding",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-harness-body-framing": "chunked",
+              "x-xss-protection": "1; mode=block"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "52d338bf0ea1e726",
+          "name": "get-b",
+          "request": "GET /storage/v1/b/<bucket>/o/batch-part-framing-1-b?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-b",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-b"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "488624286ba84f8a",
+          "name": "batch-lf-only",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "--batch_68ISRh7-kM28alPNBxv-INF6WyqBqibf\r\nContent-Type: application/http\r\nContent-ID: <response-c>\r\n\r\nHTTP/1.1 204 No Content\r\nContent-Type: application/json\r\nDate: Mon, 09 Nov 2026 10:51:46 GMT\r\nCache-Control: no-cache, no-store, max-age=0, must-revalidate\r\nExpires: Mon, 01 Jan 1990 00:00:00 GMT\r\nContent-Length: 0\r\n\r\n\r\n--batch_68ISRh7-kM28alPNBxv-INF6WyqBqibf--\r\n"
+            },
+            "headers": {
+              "accept-ranges": "none",
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "multipart/mixed; boundary=batch_68ISRh7-kM28alPNBxv-INF6WyqBqibf",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "X-Origin, Origin,Accept-Encoding",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-harness-body-framing": "chunked",
+              "x-xss-protection": "1; mode=block"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ca8c1376a71aa33d",
+          "name": "get-c",
+          "request": "GET /storage/v1/b/<bucket>/o/batch-part-framing-1-c?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-c",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-c"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "61e337d19a6cd86f",
+          "name": "batch-request-line-only",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "--batch_2BtwBK_yUxgBXdHgIS1tjV1yaOHp_Hlq\r\nContent-Type: application/http\r\nContent-ID: <response-d>\r\n\r\nHTTP/1.1 204 No Content\r\nContent-Type: application/json\r\nDate: Mon, 09 Nov 2026 10:51:48 GMT\r\nCache-Control: no-cache, no-store, max-age=0, must-revalidate\r\nExpires: Mon, 01 Jan 1990 00:00:00 GMT\r\nContent-Length: 0\r\n\r\n\r\n--batch_2BtwBK_yUxgBXdHgIS1tjV1yaOHp_Hlq--\r\n"
+            },
+            "headers": {
+              "accept-ranges": "none",
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "multipart/mixed; boundary=batch_2BtwBK_yUxgBXdHgIS1tjV1yaOHp_Hlq",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "X-Origin, Origin,Accept-Encoding",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-harness-body-framing": "chunked",
+              "x-xss-protection": "1; mode=block"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3df6121118efefec",
+          "name": "get-d",
+          "request": "GET /storage/v1/b/<bucket>/o/batch-part-framing-1-d?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-d",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-d"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "a0bbe3460d614cde",
+          "name": "cleanup-a",
+          "request": "DELETE /storage/v1/b/<bucket>/o/batch-part-framing-1-a",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-a",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-a"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "95d695090f99b189",
+          "name": "cleanup-b",
+          "request": "DELETE /storage/v1/b/<bucket>/o/batch-part-framing-1-b",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-b",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-b"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "885c41abefb8cf9c",
+          "name": "cleanup-c",
+          "request": "DELETE /storage/v1/b/<bucket>/o/batch-part-framing-1-c",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-c",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-c"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "872bd14636a207df",
+          "name": "cleanup-d",
+          "request": "DELETE /storage/v1/b/<bucket>/o/batch-part-framing-1-d",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/batch-part-framing-1-d",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/batch-part-framing-1-d"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-json-response-overrides",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-json-response-overrides-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-json-response-overrides-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-json-response-overrides-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-json-response-overrides-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-json-response-overrides-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "fb9a171297d29d89",
+          "name": "media-disposition",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-json-response-overrides-1?alt=media&response-content-disposition=attachment",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "x"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==,md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1cac34146805bf0b",
+          "name": "media-type",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-json-response-overrides-1?alt=media&response-content-type=application%2Fx-test",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "x"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==,md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c63b2e01e4f35f88",
+          "name": "download-disposition",
+          "request": "GET /download/storage/v1/b/<bucket>/o/obj-json-response-overrides-1?alt=media&response-content-disposition=attachment",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "x"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==,md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "65748139b3220584",
+          "name": "metadata-disposition",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-json-response-overrides-1?fields=size&response-content-disposition=attachment",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-json-response-overrides-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-metadata-scalars",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-metadata-scalars-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-metadata-scalars-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-metadata-scalars-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-metadata-scalars-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-metadata-scalars-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "86a0ecddd372795b",
+          "name": "patch-number-and-bool",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-scalars-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "b": "true",
+                  "f": "1.5",
+                  "n": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-patch",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-scalars-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "b": "true",
+                  "f": "1.5",
+                  "n": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5003aa16d806ecc4",
+          "name": "patch-nested-object",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-scalars-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "853303f546a29e44",
+          "name": "patch-array",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-scalars-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b47bf1aff4315316",
+          "name": "multipart-number",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=metadata&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "b": "false",
+                  "n": "7"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-scalars-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-scalars-2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-unencoded-name",
+      "steps": [
+        {
+          "fingerprint": "1f3f81ce0d956c5a",
+          "name": "upload-equals",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-unencoded-name-1%3Dx&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-unencoded-name-1=x/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-unencoded-name-1=x?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-unencoded-name-1=x",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-unencoded-name-1=x",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3f199ffd29f396e3",
+          "name": "upload-slash",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-unencoded-name-1%2Fnested&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-unencoded-name-1/nested/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-unencoded-name-1%2Fnested?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-unencoded-name-1/nested",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-unencoded-name-1%2Fnested",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "32ec03384711ab0f",
+          "name": "get-equals-encoded",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-unencoded-name-1%3Dx?fields=size",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "54f6f96a713c2e06",
+          "name": "get-equals-raw",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-unencoded-name-1=x?fields=size",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e8d24419d1088c2e",
+          "name": "download-equals-raw",
+          "request": "GET /download/storage/v1/b/<bucket>/o/obj-unencoded-name-1=x?alt=media",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "x"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==,md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "43e998d024bb423b",
+          "name": "get-slash-raw",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-unencoded-name-1/nested?fields=size",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Not Found"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "e1ff0a9c0dd43411",
+          "name": "download-slash-raw",
+          "request": "GET /download/storage/v1/b/<bucket>/o/obj-unencoded-name-1/nested?alt=media",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Not Found"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "6f6d31413442d098",
+          "name": "cleanup-equals",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unencoded-name-1%3Dx",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "4515781a9110f7d8",
+          "name": "cleanup-slash",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unencoded-name-1%2Fnested",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "xml-amz-headers",
+      "steps": [
+        {
+          "fingerprint": "ce19a0a80e5d67b8",
+          "name": "put-amz-meta",
+          "request": "PUT /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e0aaa2ed066f4f58",
+          "name": "head-after-amz-meta",
+          "request": "HEAD /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9664c104f6443471",
+          "name": "put-both-meta-spellings",
+          "request": "PUT /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e0aaa2ed066f4f58",
+          "name": "head-after-both",
+          "request": "HEAD /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-meta-origin": "goog",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "52e82c4e5d77cd0f",
+          "name": "put-amz-acl",
+          "request": "PUT /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8c51ce0de5c9f199",
+          "name": "put-amz-storage-class",
+          "request": "PUT /<bucket>/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4755e3f93947ebe2",
+          "name": "copy-amz-source",
+          "request": "PUT /<bucket>/xml-amz-headers-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Missing copy source"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "64fd8f919721dbfd",
+          "name": "copy-amz-replace-metadata",
+          "request": "PUT /<bucket>/xml-amz-headers-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Missing copy source"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "cddefca68c35bf3e",
+          "name": "head-after-copy",
+          "request": "HEAD /<bucket>/xml-amz-headers-2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "6361317b0cd35d5a",
+          "name": "list-buckets-without-project",
+          "request": "GET /",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Project ID must be included with this request"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-amz-headers-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-amz-headers-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/xml-amz-headers-2",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/xml-amz-headers-2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "xml-predefined-acl",
+      "steps": [
+        {
+          "fingerprint": "e300320f3f32a63d",
+          "name": "put-private",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "88198d6bda9849f1",
+          "name": "acl-after-private",
+          "request": "GET /storage/v1/b/<bucket>/o/xml-predefined-acl-1/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6d6d79bcef99aa05",
+          "name": "put-bucket-owner-read",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "88198d6bda9849f1",
+          "name": "acl-after-bucket-owner-read",
+          "request": "GET /storage/v1/b/<bucket>/o/xml-predefined-acl-1/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "role": "READER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8061b7dbbf18314a",
+          "name": "put-bucket-owner-full-control",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "88198d6bda9849f1",
+          "name": "acl-after-bucket-owner-full-control",
+          "request": "GET /storage/v1/b/<bucket>/o/xml-predefined-acl-1/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "role": "OWNER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "bc9bf7f0f2712565",
+          "name": "put-project-private",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "88198d6bda9849f1",
+          "name": "acl-after-project-private",
+          "request": "GET /storage/v1/b/<bucket>/o/xml-predefined-acl-1/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "role": "READER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "55e0ae402f5dc2c0",
+          "name": "put-json-spelling",
+          "request": "PUT /<bucket>/xml-predefined-acl-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid canned acl: projectPrivate"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "47b4dc3c41bf5d06",
+          "name": "put-invalid",
+          "request": "PUT /<bucket>/xml-predefined-acl-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid canned acl: not-a-canned-acl"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "509940bb1a5f87ee",
+          "name": "enable-uniform-access",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration%2FuniformBucketLevelAccess%2Fenabled",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "uniformBucketLevelAccess": {
+                    "enabled": true
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e300320f3f32a63d",
+          "name": "put-private-under-uniform",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "0d37ddbb77544b57",
+          "name": "put-plain-under-uniform",
+          "request": "PUT /<bucket>/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup-object",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-predefined-acl-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup-object2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-predefined-acl-2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/xml-predefined-acl-2",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/xml-predefined-acl-2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "json-key-parameter",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=json-key-parameter-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/json-key-parameter-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/json-key-parameter-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "json-key-parameter-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/json-key-parameter-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b7645000d255d485",
+          "name": "object-get",
+          "request": "GET /storage/v1/b/<bucket>/o/json-key-parameter-1?fields=size&key=not-a-real-key",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1b15dd7b347da08e",
+          "name": "object-list",
+          "request": "GET /storage/v1/b/<bucket>/o?fields=kind&key=not-a-real-key&maxResults=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#objects"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d3d1e215971db714",
+          "name": "bucket-get",
+          "request": "GET /storage/v1/b/<bucket>?fields=kind&key=not-a-real-key",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#bucket"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "2969ad8bfd822458",
+          "name": "upload-with-key",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=size&key=not-a-real-key&name=json-key-parameter-2&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/json-key-parameter-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/json-key-parameter-2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-metadata-nonscalar",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-metadata-nonscalar-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-metadata-nonscalar-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-metadata-nonscalar-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed-1",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5acadba56dc43852",
+          "name": "patch-mixed-scalar-and-object",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-mixed",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed-2",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5003aa16d806ecc4",
+          "name": "patch-object-only",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-object",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed-3",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "76a5e88605864a55",
+          "name": "patch-empty-object-value",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed-4",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1d723574e2d21bc0",
+          "name": "patch-array-mixed",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-array",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed-5",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1",
+                  "new": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0fb21f14f8bdd7a0",
+          "name": "patch-number-spellings",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "12345678901234567890",
+                  "exp": "1000.0",
+                  "f": "false",
+                  "keep": "1",
+                  "neg": "-1",
+                  "new": "2",
+                  "trail": "1.5",
+                  "zero": "0.0E"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-spellings",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "12345678901234567890",
+                  "exp": "1000.0",
+                  "f": "false",
+                  "keep": "1",
+                  "neg": "-1",
+                  "new": "2",
+                  "trail": "1.5",
+                  "zero": "0.0E"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4ae48f5b3e7ce20e",
+          "name": "patch-null-scalar-mix",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "12345678901234567890",
+                  "exp": "1000.0",
+                  "f": "false",
+                  "n": "2",
+                  "neg": "-1",
+                  "new": "2",
+                  "trail": "1.5",
+                  "zero": "0.0E"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f9d024f75fd3f4a9",
+          "name": "put-mixed-object",
+          "request": "PUT /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "v"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a2074c57c525113f",
+          "name": "put-number",
+          "request": "PUT /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "b": "true",
+                  "n": "3"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "832d6a623a282ec9",
+          "name": "multipart-mixed-object",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=metadata&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "v"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "118d53cdff597b97",
+          "name": "copy-number",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1/copyTo/b/<bucket>/o/obj-metadata-nonscalar-2?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "n": "4"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "bd2143f7ce8cdd10",
+          "name": "copy-mixed-object",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1/copyTo/b/<bucket>/o/obj-metadata-nonscalar-2?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "v"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-nonscalar-2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-metadata-empty-map",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-metadata-empty-map-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-metadata-empty-map-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-metadata-empty-map-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-metadata-empty-map-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-metadata-empty-map-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "82a927fe0fdc6144",
+          "name": "seed",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-empty-map-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "keep": "1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e4b057bda0ae25d8",
+          "name": "patch-empty-map",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-empty-map-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4fbf698353204423",
+          "name": "get-after-empty-map",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-metadata-empty-map-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-empty-map-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-metadata-number-forms",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-metadata-number-forms-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-metadata-number-forms-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-metadata-number-forms-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-metadata-number-forms-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-metadata-number-forms-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a2dc289708edc03a",
+          "name": "patch-integers",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-number-forms-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "1.234567890123457E29",
+                  "neg": "-1.234567890123457E29",
+                  "over": "1.844674407370955E19",
+                  "u64max": "18446744073709551615"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7919122fc170f321",
+          "name": "patch-zeros",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-number-forms-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "1.234567890123457E29",
+                  "neg": "-1.234567890123457E29",
+                  "negzero": "-0.0E",
+                  "over": "1.844674407370955E19",
+                  "u64max": "18446744073709551615",
+                  "zero": "0",
+                  "zero1": "0.0E",
+                  "zero2": "0.0E",
+                  "zeroe5": "0.0E",
+                  "zeroexp": "0.0E"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f2c4a8b32e45d142",
+          "name": "patch-floats",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-number-forms-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "big": "1.234567890123457E29",
+                  "huge": "1.5E300",
+                  "hundred": "100.0",
+                  "large": "1.0E21",
+                  "long": "0.12345678901234568",
+                  "million": "1000000.0",
+                  "neg": "-1.234567890123457E29",
+                  "negzero": "-0.0E",
+                  "over": "1.844674407370955E19",
+                  "small": "1.0E-7",
+                  "tenth": "0.1",
+                  "two": "2.0",
+                  "u64max": "18446744073709551615",
+                  "zero": "0",
+                  "zero1": "0.0E",
+                  "zero2": "0.0E",
+                  "zeroe5": "0.0E",
+                  "zeroexp": "0.0E"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-number-forms-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-metadata-number-bounds",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-metadata-number-bounds-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-metadata-number-bounds-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-metadata-number-bounds-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-metadata-number-bounds-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-metadata-number-bounds-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9018689216bbf8e6",
+          "name": "patch-bounds",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-metadata-number-bounds-1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "a": "0.001",
+                  "b": "9.9E-4",
+                  "c": "9999999.0",
+                  "d": "1.0E7",
+                  "e": "1.23456785E7",
+                  "f": "1.0E10",
+                  "g": "1.5E18",
+                  "h": "1.844674407370955E19",
+                  "i": "1.234567890123457E29",
+                  "j": "-2.5",
+                  "k": "-1.0E-4",
+                  "l": "9223372036854775808"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-metadata-number-bounds-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "obj-predefined-acl-order",
+      "steps": [
+        {
+          "fingerprint": "8561e32326643c47",
+          "name": "upload-project-private",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=size&name=obj-predefined-acl-order-1&predefinedAcl=projectPrivate&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "88198d6bda9849f1",
+          "name": "acl-project-private",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-predefined-acl-order-1/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "role": "READER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "61f2863cfdcfa4fe",
+          "name": "upload-bucket-owner-read",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=size&name=obj-predefined-acl-order-2&predefinedAcl=bucketOwnerRead&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "size": "1"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "12472468858c0ac7",
+          "name": "acl-bucket-owner-read",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-predefined-acl-order-2/acl?fields=items%28entity%2Crole%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "role": "READER"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-predefined-acl-order-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ed92899872f79c10",
+          "name": "cleanup2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-predefined-acl-order-2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
     }
   ],
   "format": 2,
-  "generated": "2026-11-04",
+  "generated": "2026-11-09",
   "recorded_dates": [
     "2026-11-01",
     "2026-11-02",
-    "2026-11-04"
+    "2026-11-04",
+    "2026-11-09"
   ],
-  "requests": 855,
+  "requests": 1024,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

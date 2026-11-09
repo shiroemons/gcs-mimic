@@ -1,0 +1,9 @@
+{
+  "id": "obj-metadata-number-bounds",
+  "description": "Where custom metadata switches a floating-point number between plain and scientific text.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "patch-bounds", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{\"metadata\":{{\"a\":0.001,\"b\":0.00099,\"c\":9999999.0,\"d\":1e7,\"e\":12345678.5,\"f\":1e10,\"g\":1.5e18,\"h\":1.8446744073709552e19,\"i\":1.2345678901234568e29,\"j\":-2.5,\"k\":-1e-4,\"l\":9223372036854775808}}}}"},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}
