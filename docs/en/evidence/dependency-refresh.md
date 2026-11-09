@@ -639,3 +639,11 @@ all reads, which hid most of what musl's allocator cost; see the
 - The Java Testcontainers scenario passed against an image built from the SDK update alone, before it joined the read path changes.
 - The Java scorecard probe, run alone against this source's gcs-mimic with the scorecard's TLS front, gRPC listener and test CA, passed all 70 cases, the same cases as the recorded `2026-10-31-2` run. The full scorecard was not run, so no results directory is added.
 - `cargo test -p xtask --locked` passed 222 tests, including the check of the actual Maven pins.
+
+## Image digest refresh: 2026-11-09T03:43:55Z
+
+`cargo xtask dependencies update-images` found these images rebuilt under an unchanged version tag. The checks of the pull request that adopts them are the validation; this record does not establish a result by itself.
+
+| Input | Previous | Proposed | Changed manifests |
+| --- | --- | --- | --- |
+| rust:1.99.1-slim-trixie | `sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5` | `sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7` | None on the declared platforms |

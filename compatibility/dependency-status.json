@@ -245,8 +245,8 @@
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie", "stable_codename": "trixie",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
         "stable_codename_note": "The scratch runtime has no Debian base, so this build image carries the Debian stable codename check: a newer stable generation is detected even though the slim-trixie alias stays on Debian 13.",
-        "digest": "sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5",
-        "latest_verified_digest": "sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5",
+        "digest": "sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7",
+        "latest_verified_digest": "sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7",
         "verification_status": "ADOPTED",
         "update_scope": "Registry inspection on 2026-11-06 found the 1.99.1-slim-trixie and slim-trixie index rebuilt with new linux/amd64 and linux/arm64 platform digests (images created 2026-11-05). Rust stays 1.99.1; both platform images record the Debian snapshot 20261104T212339Z, so the musl and socat snapshot timestamps advance to it while the package versions stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-06. Earlier: registry inspection on 2026-11-05 found the 1.99.1-slim-trixie and slim-trixie index rebuilt again with only the linux/riscv64 image and its attestation changed; the linux/amd64 and linux/arm64 platform digests below are unchanged, so the musl and socat snapshot timestamps stay the same. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-05. Earlier: registry inspection on 2026-11-04 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie (created 2026-11-03, docker-rust revision f6c59bee4a6e34a154c2122895ecd7833507f705) with new linux/amd64 and linux/arm64 platform digests. Rust stays 1.99.1 and both platform images still record the Debian snapshot 20261027T000000Z, so the socat snapshot timestamp is unchanged. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
