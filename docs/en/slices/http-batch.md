@@ -58,6 +58,19 @@ including quoted values and trailing delimiter whitespace. Header folding,
 non-binary transfer encoding, duplicate framing headers, incorrect Content-Length,
 HTTP trailers, compressed batch envelopes and non-HTTP/1.1 parts are rejected.
 
+Line endings follow the Cloud Storage observation below rather than RFC 2046's CRLF-only
+grammar. LF is accepted wherever CRLF is: on delimiter lines, part MIME headers, inner
+request lines and inner headers. A delimiter counts only at the start of a line. The
+opening delimiter line's ending selects how later delimiters are found, so in a CRLF
+envelope an LF-only `--boundary` line is body content, and in an LF envelope a CR before
+the delimiter's LF stays in the body. Only the delimiter's own line ending is removed from
+a body, so a CRLF envelope that closes with an LF-only delimiter never closes and answers
+400. An inner header block may omit its blank line where the part ends, including directly
+after the request line; such a part has an empty body, and a declared Content-Length must
+still match it. The MIME block keeps its required blank line. The rules for mixed line
+endings in one envelope are local behavior: Cloud Storage was observed on the four forms
+below only.
+
 One bounded blocking parser job runs at a time. Validated request bodies retain
 shared slices of the bounded envelope, rather than duplicate object bodies.
 Each part's response leaves as soon as it is ready. A part may buffer up to 1 GiB, above the
@@ -85,6 +98,11 @@ observation on 2026-10-31 answered absolute parts on its own endpoint normally
 ([evidence](../evidence/http-batch-absolute-targets.md)); foreign origins were
 not observed, so the local 400 for them is a safety choice.
 
+A Cloud Storage observation on 2026-11-09 answered a DELETE part with outer 200 and inner
+`HTTP/1.1 204 No Content`, and removed the object, in four framings: CRLF with a blank line
+before the delimiter's CRLF; CRLF with the blank line sharing the delimiter's CRLF, as
+OpenDAL sends it; LF throughout; and the request line followed directly by the delimiter.
+
 Checked on 2026-10-30:
 
 - [Google batch contract](https://docs.cloud.google.com/storage/docs/batch),
@@ -107,7 +125,15 @@ overrides, rejected inherited/inner query credentials, one connection slot,
 invalid targets/headers/lengths and full-envelope validation before deletion.
 `batch_answers_full_object_lists_past_the_former_response_limits` covers full object lists, and
 `server::batch::tests` cover parts leaving as their own chunks, a stalled reader, a departed
-reader and a part past its limit.
+reader and a part past its limit. The observed line-ending forms, CRLF and LF request bodies,
+delimiter detection only at line starts, retained trailing body bytes and the header, preamble,
+epilogue and call limits under LF framing are covered by the
+`batch_deletes_under_each_recorded_line_ending_form`,
+`batch_passes_part_bodies_intact_in_both_line_endings`,
+`batch_recognizes_delimiters_only_at_line_starts`,
+`batch_keeps_body_bytes_up_to_the_delimiter_line_ending` and
+`batch_line_ending_tolerance_keeps_limits_and_rejections` wire tests;
+`server::batch::parse::tests` assert the body bytes each part hands its handler.
 
 On 2026-10-30, cargo check --tests passed and cargo test --test http_batch
 passed all four wire tests. SDK, container and full integration execution are

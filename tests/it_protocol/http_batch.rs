@@ -19,6 +19,25 @@ fn envelope(parts: &[String]) -> Vec<u8> {
     format!("{}--batch-boundary--\r\n", parts.concat()).into_bytes()
 }
 
+/// Rewrites a CRLF envelope with LF line endings throughout, as some clients frame one.
+fn lf(envelope: &[u8]) -> Vec<u8> {
+    String::from_utf8(envelope.to_vec())
+        .unwrap()
+        .replace("\r\n", "\n")
+        .into_bytes()
+}
+
+fn upload(server: &Server, name: &str) {
+    server
+        .request(
+            "POST",
+            &format!("/upload/storage/v1/b/batch-bucket/o?uploadType=media&name={name}"),
+            "",
+            b"content",
+        )
+        .status(200);
+}
+
 fn setup(server: &Server, auth: &str) {
     server
         .request(
@@ -281,25 +300,351 @@ fn batch_validates_the_whole_envelope_before_mutating() {
         ),
     ];
     for invalid in invalid_parts {
+        let crlf = envelope(&[first.clone(), invalid]);
+        for body in [lf(&crlf), crlf] {
+            server
+                .request("POST", "/batch/storage/v1", TYPE, &body)
+                .status(400);
+            server
+                .request("GET", &format!("{BUCKET}/o/object"), "", b"")
+                .status(200);
+        }
+    }
+    let missing_close = first.as_bytes();
+    for body in [lf(missing_close), missing_close.to_vec()] {
         server
-            .request(
-                "POST",
-                "/batch/storage/v1",
-                TYPE,
-                &envelope(&[first.clone(), invalid]),
-            )
+            .request("POST", "/batch/storage/v1", TYPE, &body)
             .status(400);
         server
             .request("GET", &format!("{BUCKET}/o/object"), "", b"")
             .status(200);
     }
-    let missing_close = first.as_bytes();
+}
+
+/// The framing variants recorded against Cloud Storage on 2026-11-09 (blank line kept, shared
+/// with the delimiter's CRLF, and absent), in CRLF and in LF, plus a CRLF inner request wrapped in
+/// LF MIME framing, whose delimiter line ending is LF.
+#[test]
+fn batch_deletes_under_each_recorded_line_ending_form() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let mime = "--batch-boundary\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <a>\r\n\r\n";
+    let target = format!("{BUCKET}/o/object");
+    let forms = [
+        (
+            "blank line then delimiter CRLF",
+            "\r\n\r\n\r\n",
+            "\r\n\r\n\n",
+        ),
+        (
+            "headers sharing the delimiter CRLF",
+            "\r\nAccept: application/json\r\n\r\n",
+            "\r\nAccept: application/json\r\n\r\n",
+        ),
+        ("request line then delimiter", "\r\n", "\r\n"),
+        (
+            "headers then delimiter",
+            "\r\nAccept: application/json\r\n",
+            "\r\nAccept: application/json\r\n",
+        ),
+    ];
+    for (name, tail, mixed_tail) in forms {
+        let crlf = format!("{mime}DELETE {target} HTTP/1.1{tail}--batch-boundary--\r\n");
+        let mixed = format!("DELETE {target} HTTP/1.1{mixed_tail}--batch-boundary--\n");
+        for (framing, body) in [
+            ("crlf", crlf.clone().into_bytes()),
+            ("lf", lf(crlf.as_bytes())),
+            (
+                "lf mime around crlf request",
+                [lf(mime.as_bytes()), mixed.into_bytes()].concat(),
+            ),
+        ] {
+            upload(&server, "object");
+            let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
+            reply.status(200);
+            assert_eq!(
+                statuses(&reply.body),
+                ["HTTP/1.1 204 No Content"],
+                "{name}, {framing}: {}",
+                reply.body
+            );
+            assert!(reply.body.contains("Content-Type: application/http\r\n"));
+            assert!(reply.body.contains("Content-ID: <response-a>\r\n"));
+            server.request("GET", &target, "", b"").status(404);
+        }
+    }
+}
+
+#[test]
+fn batch_passes_part_bodies_intact_in_both_line_endings() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let object = format!("{BUCKET}/o/object");
+    let declared = r#"{"metadata":{"key":"declared"}}"#;
+    let undeclared = "{\r\n\r\n  \"metadata\": {\"other\": \"undeclared\"}\r\n}";
+    let envelope = |bucket: &str| {
+        envelope(&[
+            part(
+                Some("<patch>"),
+                "PATCH",
+                &object,
+                &format!(
+                    "Content-Type: application/json\r\nContent-Length: {}\r\n",
+                    declared.len()
+                ),
+                declared,
+            ),
+            part(
+                Some("<multiline>"),
+                "PATCH",
+                &object,
+                "Content-Type: application/json\r\n",
+                undeclared,
+            ),
+            part(
+                Some("<create>"),
+                "POST",
+                "/storage/v1/b?project=project-a",
+                "Content-Type: application/json\r\n",
+                &format!(r#"{{"name":"{bucket}"}}"#),
+            ),
+        ])
+    };
+    for (bucket, body) in [
+        ("created-crlf", envelope("created-crlf")),
+        ("created-lf", lf(&envelope("created-lf"))),
+    ] {
+        let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
+        reply.status(200);
+        assert_eq!(
+            statuses(&reply.body),
+            ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK", "HTTP/1.1 200 OK"],
+            "{bucket}: {}",
+            reply.body
+        );
+        let metadata = server.request("GET", &object, "", b"").json();
+        assert_eq!(metadata["metadata"]["key"], "declared", "{bucket}");
+        assert_eq!(metadata["metadata"]["other"], "undeclared", "{bucket}");
+        server
+            .request("GET", &format!("/storage/v1/b/{bucket}"), "", b"")
+            .status(200);
+    }
+}
+
+#[test]
+fn batch_recognizes_delimiters_only_at_line_starts() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let object = format!("{BUCKET}/o/object");
+    let value = "x--batch-boundary--y--batch-boundary";
+    let mid_line = envelope(&[part(
+        None,
+        "PATCH",
+        &object,
+        "Content-Type: application/json\r\n",
+        &format!(r#"{{"metadata":{{"key":"{value}"}}}}"#),
+    )]);
+    // A preamble line that merely contains the delimiter is not the opening delimiter.
+    let preamble = [
+        b"preamble x--batch-boundary\r\n".as_slice(),
+        mid_line.as_slice(),
+    ]
+    .concat();
+    for body in [lf(&mid_line), lf(&preamble), mid_line.clone(), preamble] {
+        let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
+        reply.status(200);
+        assert_eq!(statuses(&reply.body), ["HTTP/1.1 200 OK"], "{}", reply.body);
+        assert_eq!(
+            server.request("GET", &object, "", b"").json()["metadata"]["key"],
+            value
+        );
+    }
+    // In a CRLF envelope an LF-only delimiter line is body content: nothing after it runs as a
+    // part, and Content-Length sees the whole body.
+    let hidden = format!(
+        "{{\"metadata\":{{\"key\":\"hidden\"}}}}\n--batch-boundary\nContent-Type: application/http\n\nDELETE {object} HTTP/1.1\n\n"
+    );
+    let body = envelope(&[part(
+        None,
+        "PATCH",
+        &object,
+        &format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            hidden.len()
+        ),
+        &hidden,
+    )]);
+    let reply = server.request("POST", "/batch/storage/v1", TYPE, &body);
+    reply.status(200);
+    assert_eq!(
+        statuses(&reply.body),
+        ["HTTP/1.1 400 Bad Request"],
+        "{}",
+        reply.body
+    );
+    let kept = server.request("GET", &object, "", b"");
+    kept.status(200);
+    assert_eq!(kept.json()["metadata"]["key"], value);
+    // A later CRLF envelope delimiter given as LF only is not one, so the closing never arrives.
+    let lf_close = format!(
+        "{}\n--batch-boundary--\n",
+        part(None, "GET", &object, "", "").trim_end_matches("\r\n")
+    );
     server
-        .request("POST", "/batch/storage/v1", TYPE, missing_close)
+        .request("POST", "/batch/storage/v1", TYPE, lf_close.as_bytes())
         .status(400);
-    server
-        .request("GET", &format!("{BUCKET}/o/object"), "", b"")
-        .status(200);
+}
+
+/// JSON tolerates trailing whitespace, so a matching Content-Length proves which bytes of a body
+/// survived: only the delimiter's own line ending may be removed.
+#[test]
+fn batch_keeps_body_bytes_up_to_the_delimiter_line_ending() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let object = format!("{BUCKET}/o/object");
+    let patch = |key: &str, tail: &str| {
+        let body = format!(r#"{{"metadata":{{"key":"{key}"}}}}{tail}"#);
+        let headers = format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        (body, headers)
+    };
+    let cases: [(&str, &str, bool); 6] = [
+        ("crlf-lf", "\n", false),
+        ("crlf-cr", "\r", false),
+        ("crlf-crlf", "\r\n", false),
+        ("lf-lf", "\n", true),
+        ("lf-cr", "\r", true),
+        ("lf-crlf", "\r\n", true),
+    ];
+    for (key, tail, lf_framed) in cases {
+        let (body, headers) = patch(key, tail);
+        let framed = if lf_framed {
+            let head = part(None, "PATCH", &object, &headers, "").replace("\r\n", "\n");
+            let head = head.strip_suffix('\n').unwrap();
+            format!("{head}{body}\n--batch-boundary--\n").into_bytes()
+        } else {
+            envelope(&[part(None, "PATCH", &object, &headers, &body)])
+        };
+        let reply = server.request("POST", "/batch/storage/v1", TYPE, &framed);
+        reply.status(200);
+        assert_eq!(
+            statuses(&reply.body),
+            ["HTTP/1.1 200 OK"],
+            "{key}: {}",
+            reply.body
+        );
+        assert_eq!(
+            server.request("GET", &object, "", b"").json()["metadata"]["key"],
+            key
+        );
+    }
+}
+
+#[test]
+fn batch_line_ending_tolerance_keeps_limits_and_rejections() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let object = format!("{BUCKET}/o/object");
+    let get = part(None, "GET", &format!("{object}?fields=name"), "", "");
+    let check = |status: u16, body: &[u8]| {
+        server
+            .request("POST", "/batch/storage/v1", TYPE, body)
+            .status(status);
+    };
+
+    // The 8 KiB inner header block holds whether the block ends with a blank line or the part.
+    let padded = |filler: usize| format!("X-Long: {}\r\n", "x".repeat(filler));
+    for (filler, status) in [(8184, 200), (8185, 400)] {
+        let full = envelope(&[part(None, "GET", BUCKET, &padded(filler), "")]);
+        check(status, &full);
+        check(status, &lf(&full));
+        let at_delimiter = format!(
+            "--batch-boundary\r\nContent-Type: application/http\r\n\r\nGET {BUCKET} HTTP/1.1\r\n{}--batch-boundary--\r\n",
+            padded(filler)
+        );
+        check(status, at_delimiter.as_bytes());
+        check(status, &lf(at_delimiter.as_bytes()));
+    }
+    // The MIME block has the same limit, which LF lines reach with a longer value because the
+    // block holds 75 other bytes in CRLF and 73 in LF. Without a blank line it holds no request.
+    let mime = |filler: usize| {
+        envelope(&[get.replace(
+            "Content-Type: application/http\r\n",
+            &format!("Content-Type: application/http\r\n{}", padded(filler)),
+        )])
+    };
+    for (filler, status) in [(8117, 200), (8118, 400)] {
+        check(status, &mime(filler));
+    }
+    for (filler, status) in [(8119, 200), (8120, 400)] {
+        check(status, &lf(&mime(filler)));
+    }
+    let no_request =
+        b"--batch-boundary\r\nContent-Type: application/http\r\n--batch-boundary--\r\n";
+    check(400, no_request);
+    check(400, &lf(no_request));
+
+    let headers = |count: usize| {
+        (0..count)
+            .map(|index| format!("X-Header-{index}: value\r\n"))
+            .collect::<String>()
+    };
+    for (count, status) in [(64, 200), (65, 400)] {
+        let body = envelope(&[part(None, "GET", BUCKET, &headers(count), "")]);
+        check(status, &lf(&body));
+    }
+
+    let single = envelope(std::slice::from_ref(&get));
+    let preamble = |length: usize| format!("{}\n", "x".repeat(length - 1)).into_bytes();
+    for (length, status) in [(4096, 200), (4097, 400)] {
+        check(status, &[preamble(length), lf(&single)].concat());
+        check(status, &[lf(&single), vec![b'x'; length]].concat());
+    }
+
+    let hundred = lf(&envelope(&vec![get.clone(); 100]));
+    let reply = server.request("POST", "/batch/storage/v1", TYPE, &hundred);
+    reply.status(200);
+    assert_eq!(reply.body.matches("HTTP/1.1 200 OK").count(), 100);
+    check(400, &lf(&envelope(&vec![get.clone(); 101])));
+
+    let delete = part(None, "DELETE", &object, "", "");
+    let framed = String::from_utf8(lf(delete.as_bytes())).unwrap();
+    for malformed in [
+        // Delimiter lines that only begin like one.
+        format!("{framed}--batch-boundaryx\n"),
+        format!("{framed}--batch-boundary--x\n"),
+        format!("{framed}--batch-boundary-"),
+        format!("{framed}--batch-boundary\r"),
+        // No opening delimiter at a line start, or one that is cut short.
+        format!("x{framed}--batch-boundary--\n"),
+        "--batch-boundary\rContent-Type: application/http\n\n".to_owned(),
+        // Parts without a usable request line.
+        "--batch-boundary\nContent-Type: application/http\n\n\n--batch-boundary--\n".to_owned(),
+        format!(
+            "--batch-boundary\nContent-Type: application/http\n\nDELETE {object}\n\n\n--batch-boundary--\n"
+        ),
+        format!(
+            "--batch-boundary\nContent-Type: application/http\n\nDELETE {object} HTTP/1.0\n\n\n--batch-boundary--\n"
+        ),
+        // A MIME block whose Content-Type is not application/http.
+        format!(
+            "--batch-boundary\nContent-ID: <a>\n\nDELETE {object} HTTP/1.1\n\n\n--batch-boundary--\n"
+        ),
+        // A Content-Length that the empty body at the delimiter does not satisfy.
+        format!(
+            "--batch-boundary\nContent-Type: application/http\n\nPATCH {object} HTTP/1.1\nContent-Length: 2\n--batch-boundary--\n"
+        ),
+    ] {
+        check(400, malformed.as_bytes());
+    }
+    server.request("GET", &object, "", b"").status(200);
 }
 
 #[test]
