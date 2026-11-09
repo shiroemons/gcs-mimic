@@ -134,7 +134,7 @@ cd gcs-mimic
 docker compose build
 ```
 
-The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`; registry examples use an exact published version such as `ghcr.io/shiroemons/gcs-mimic:0.15.0`.
+The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`; registry examples use an exact published version such as `ghcr.io/shiroemons/gcs-mimic:0.16.0`.
 
 ## 2. Stable proposed CLI and configuration contract
 
