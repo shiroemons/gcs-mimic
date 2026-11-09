@@ -286,7 +286,9 @@ and [Docker usage](container-usage.md#mirror-objects-to-a-host-directory).
 Disk persistence does not imply equivalent crash or power-loss guarantees.
 CPU, memory, throughput and image size are not ranked across products in general. One equivalent
 comparison with fake-gcs-server, limited to object reads at local scale, is recorded in the
-[read path measurement](evidence/read-path-performance.md).
+[read path measurement](evidence/read-path-performance.md). The later
+[0.14.0 comparison](evidence/product-comparison-0.14.0.md) adds
+gcp-storage-emulator, uploads and memory on one host.
 
 gcs-mimic stores metadata in SQLite and object bytes in opaque immutable files.
 The storage investigation in `storage-backends.md` compares filesystem,

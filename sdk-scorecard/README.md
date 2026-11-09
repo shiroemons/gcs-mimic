@@ -204,6 +204,11 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
+The [2026-11-08 comparison](results/2026-11-08/summary.md) is the latest. It
+executes 1,359 cases (453 per product, 448 of them scored) from a clean checkout
+of the `v0.14.0` tag at `ad9bca82`. gcs-mimic scores **100**, fake-gcs-server
+**39.8** and gcp-storage-emulator **37.7**, the same as the 2026-10-31 run.
+
 The [final 2026-10-31 eight-SDK comparison](results/2026-10-31-2/summary.md)
 executes 1,359 cases (453 per product) from clean source `35de4e1`. gcs-mimic
 scores **100**: Go **57/57**; Ruby, Node.js, PHP and Python each **51/51**; Java
