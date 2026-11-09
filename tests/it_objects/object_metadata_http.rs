@@ -560,7 +560,6 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             ("null", "invalidArgument"),
             (r#"{"contentType":7}"#, "invalidArgument"),
             (r#"{"customTime":"invalid"}"#, "invalid"),
-            (r#"{"metadata":{"a":false}}"#, "invalidArgument"),
             (r#"{"contentLanguage":"en\r\nx-bad: true"}"#, "invalid"),
         ] {
             server

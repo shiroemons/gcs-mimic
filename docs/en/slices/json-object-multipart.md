@@ -82,8 +82,10 @@ acceptance scope, rather than treating every third part as malformed.
 Metadata supports `name`, `contentType`, `contentEncoding`, `contentDisposition`,
 `contentLanguage`, `cacheControl`, `metadata`, `md5Hash` and `crc32c`. Fixed fields
 and custom keys/values reuse the [metadata slice](json-object-metadata.md) validation:
-Unicode custom metadata and empty values survive; control characters or wrong types
-fail 400; empty custom keys and non-ASCII fixed header values fail 501 locally.
+Unicode custom metadata and empty values survive; non-string custom values are
+stored as text or dropped as that slice describes; control characters or wrong
+fixed-field types fail 400; empty custom keys and non-ASCII fixed header values
+fail 501 locally.
 Content-Language retains the 100-character limit. The custom map is capped at
 8192 UTF-8 key/value bytes for non-null entries; null entries are absent from the
 new map. Excess is rejected after bounded metadata parsing, before media input

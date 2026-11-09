@@ -3,6 +3,7 @@ mod common;
 mod it_objects {
     mod api_key_http;
     mod basic_contract_http;
+    mod custom_metadata_values_http;
     mod object_compose_http;
     mod object_copy_http;
     mod object_hold_http;

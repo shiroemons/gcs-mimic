@@ -700,7 +700,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         (b"[]", "invalidArgument"),
         (br#"{"contentType":7}"#, "invalidArgument"),
         (br#"{"bucket":null}"#, "invalidArgument"),
-        (br#"{"metadata":{"k":false}}"#, "invalidArgument"),
         (br#"{"contentLanguage":""}"#, "invalidArgument"),
     ] {
         server

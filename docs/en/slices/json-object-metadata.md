@@ -12,7 +12,7 @@ BEHAVIOR-OBJECT-002, BEHAVIOR-OBJECT-006 and BEHAVIOR-COMMON-011.
 | --- | --- |
 | PATCH/PUT encoded object path | 200 full Object resource; identical body/generation/checksums/creation time |
 | PATCH fixed metadata | Only supplied fields change; null clears a supplied field |
-| PATCH custom metadata | Merge keys; null removes one key; metadata:null clears the map |
+| PATCH custom metadata | Merge keys; null removes one key; metadata:null clears the map; numbers and booleans are stored as strings; object and array values are dropped, and a PATCH that drops every supplied value clears the map |
 | PUT writable metadata | Replace the set; omitted fields reset, content type defaults to application/octet-stream |
 | Four generation/metageneration conditions | Matching comparisons succeed; failed comparisons return 412 conditionNotMet atomically |
 | generation selector | Live generation succeeds; other generations return 404 notFound |
@@ -38,8 +38,21 @@ method boundaries. This slice does not change listing.
 Supported fixed fields are `contentType`, `contentEncoding`, `contentDisposition`,
 `contentLanguage` and `cacheControl`. Custom `metadata` preserves key spelling and
 Unicode strings. Null clears a fixed field or the entire custom map; null map values
-delete individual keys. Empty map PATCH is a no-op; PUT replaces the map. Empty custom
-values are stored as empty strings. The final merged custom key/value UTF-8 size is
+delete individual keys. An empty map clears the custom metadata on PATCH, as Cloud Storage
+did (recorded 2026-11-09); PUT replaces the map. Empty custom values are stored as empty
+strings.
+
+Non-string custom values follow Cloud Storage as recorded on 2026-11-09, on PATCH, PUT,
+multipart and resumable inserts, copy, rewrite and compose. Numbers and booleans are
+stored as text: `1` is `"1"`, `1.50` is `"1.5"`, `1e3` is `"1000.0"`, `true` is
+`"true"`. Object and array values are dropped without an error and the other keys still
+apply; a PATCH that drops every value it supplied clears the map, as an empty map does.
+Integers within 64 bits keep their digits. Other numbers are doubles written as Cloud
+Storage writes them: plain from `0.001` up to `10^7`, scientific outside that (`9.9E-4`,
+`1.0E7`), 16 significant digits from `2^64` upward (`1.844674407370955E19`), and `"0.0E"`
+or `"-0.0E"` for a float zero.
+
+The final merged custom key/value UTF-8 size is
 limited to 8192 bytes, including retained keys. The JSON body has the existing 64 KiB cap.
 Invalid types, control characters in fixed fields and empty `contentLanguage` return
 400 `invalidArgument`; malformed JSON returns 400 `parseError`. Oversized JSON returns

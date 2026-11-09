@@ -209,42 +209,95 @@ fn hold(body: &Map<String, Value>, key: &str) -> Option<bool> {
 type CustomMetadataUpdate = Option<Option<BTreeMap<String, Option<String>>>>;
 
 fn custom_metadata(body: &Map<String, Value>) -> Result<CustomMetadataUpdate, JsonError> {
-    body.get("metadata")
+    match body.get("metadata") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::Object(entries)) => custom_metadata_entries(entries).map(Some),
         // A value that is neither an object nor null was ignored (recorded for a string).
-        .filter(|value| value.is_null() || value.is_object())
-        .map(|value| {
-            if value.is_null() {
-                return Ok(None);
-            }
-            let entries = value
-                .as_object()
-                .ok_or_else(|| JsonError::invalid_argument("metadata must be an object or null"))?;
-            entries
-                .iter()
-                .map(|(key, value)| {
-                    if key.is_empty() {
-                        return Err(JsonError::unsupported_object("empty custom metadata key"));
-                    }
-                    let value = if value.is_null() {
-                        None
-                    } else {
-                        Some(
-                            value
-                                .as_str()
-                                .ok_or_else(|| {
-                                    JsonError::invalid_argument(
-                                        "Metadata values must be strings or null",
-                                    )
-                                })?
-                                .to_owned(),
-                        )
-                    };
-                    Ok((key.clone(), value))
-                })
-                .collect::<Result<_, JsonError>>()
-                .map(Some)
-        })
-        .transpose()
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => Ok(None),
+    }
+}
+
+/// The entries of a `metadata` object. `None` clears the stored map: Cloud Storage did that for
+/// an object with no entries and when it had dropped every supplied value (recorded 2026-11-09).
+fn custom_metadata_entries(
+    entries: &Map<String, Value>,
+) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
+    let mut changes = BTreeMap::new();
+    for (key, value) in entries {
+        if key.is_empty() {
+            return Err(JsonError::unsupported_object("empty custom metadata key"));
+        }
+        let change = match CustomMetadataValue::from(value) {
+            CustomMetadataValue::Store(text) => Some(text),
+            CustomMetadataValue::Remove => None,
+            CustomMetadataValue::Drop => continue,
+        };
+        changes.insert(key.clone(), change);
+    }
+    Ok((!changes.is_empty()).then_some(changes))
+}
+
+/// The text Cloud Storage stored for a JSON number on 2026-11-09. Integers within 64 bits keep
+/// their digits. Anything else is a double, written like Java's `Double.toString`: plain from
+/// 0.001 up to 10^7 and scientific outside that.
+fn custom_metadata_number(number: &serde_json::Number) -> String {
+    match number.as_f64() {
+        Some(value) if number.is_f64() => custom_metadata_float(value),
+        Some(_) | None => number.to_string(),
+    }
+}
+
+fn custom_metadata_float(value: f64) -> String {
+    /// From here up Cloud Storage kept 16 significant digits instead of the shortest text.
+    const SIXTEEN_DIGITS_FROM: f64 = 18_446_744_073_709_551_616.0;
+    if value.classify() == std::num::FpCategory::Zero {
+        // Cloud Storage's own text for a zero, for every spelling recorded.
+        return if value.is_sign_negative() {
+            "-0.0E"
+        } else {
+            "0.0E"
+        }
+        .to_owned();
+    }
+    let magnitude = value.abs();
+    if (1e-3..1e7).contains(&magnitude) {
+        return format!("{value:?}");
+    }
+    let scientific = if magnitude >= SIXTEEN_DIGITS_FROM {
+        format!("{value:.15E}")
+    } else {
+        format!("{value:E}")
+    };
+    let Some((mantissa, exponent)) = scientific.split_once('E') else {
+        return scientific;
+    };
+    let digits = mantissa.trim_end_matches('0').trim_end_matches('.');
+    let fraction = if digits.contains('.') { "" } else { ".0" };
+    format!("{digits}{fraction}E{exponent}")
+}
+
+/// What one supplied custom metadata value does to its key, as recorded from Cloud Storage on
+/// 2026-11-09.
+enum CustomMetadataValue {
+    /// A scalar, kept as its text.
+    Store(String),
+    /// A `null`, which removes the key.
+    Remove,
+    /// An object or array, discarded without failing the request.
+    Drop,
+}
+
+impl From<&Value> for CustomMetadataValue {
+    fn from(value: &Value) -> Self {
+        match value {
+            Value::Null => Self::Remove,
+            Value::Bool(flag) => Self::Store(flag.to_string()),
+            Value::Number(number) => Self::Store(custom_metadata_number(number)),
+            Value::String(text) => Self::Store(text.clone()),
+            Value::Array(_) | Value::Object(_) => Self::Drop,
+        }
+    }
 }
 
 fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>, JsonError> {
