@@ -24,10 +24,31 @@ A local Google Cloud Storage emulator for development and CI, written in Rust.
 
 ```sh
 # Start the emulator
-docker run -d --name gcs-mimic \
-  -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.14.0
+
+# Check that it answers; -k because it uses a built-in development certificate
+curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
+```
+
+It answers with an empty bucket list.
+
+- The port is published on `127.0.0.1` only, because the emulator accepts
+  unauthenticated requests by default.
+- Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
+  is removed.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.14.0`.
+- To trust the certificate instead of using `-k`, see
+  [local HTTPS](docs/en/local-https.md).
+
+### Use HTTP
+
+SDK clients connect over plain HTTP without trusting a certificate, and the
+examples below use it. Start the emulator again with `--scheme http`:
+
+```sh
+docker rm -f gcs-mimic
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
+  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 
 # Create a bucket
 curl --retry 5 --retry-all-errors \
@@ -45,17 +66,25 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 The last command prints `hello`.
 
-- The port is published on `127.0.0.1` only, because the emulator accepts
-  unauthenticated requests by default.
-- Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
-  is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.14.0`.
-- Without `GCS_MIMIC_SCHEME=http`, the emulator serves HTTPS with a built-in
-  development certificate; see [local HTTPS](docs/en/local-https.md).
+### Common options
+
+Add options after `serve`.
+
+| Option | What it does | In a Compose `environment:` |
+| --- | --- | --- |
+| `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |
+| `--port 9000` | Port to listen on. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
+| `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
+| `--backend memory` | Keep everything in RAM, up to 64 MiB of objects by default | `GCS_MIMIC_BACKEND: memory` |
+| `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
+
+Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level
+directories become buckets and files become objects. Run
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` for every option.
 
 ## Connect your SDK
 
-The examples connect from the host. From a Compose service, use
+The examples connect from the host to the HTTP server above. From a Compose service, use
 `http://SERVICE:4443` with the emulator's service name, such as
 `http://gcs:4443`. Clients are anonymous and never contact Google.
 [SDK setup](docs/en/sdk-setup.md) has the tested versions, gRPC, signed URLs and
@@ -408,9 +437,9 @@ case the SDK has no public API for; it is excluded from that SDK's denominator.
 
 gcs-mimic takes its everyday ergonomics from fake-gcs-server, so most container
 setups move with a few changed lines: replace the image and mount a new data
-volume at `/var/lib/gcs-mimic`. Most flags, `FAKE_GCS_*` variables and the
-`./data:/data` mount keep working, and each old setting logs its `GCS_MIMIC_*`
-name.
+volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data`
+mount keep working. Versions after 0.14.0 do not read `FAKE_GCS_*` variables, so
+set the matching flag or `GCS_MIMIC_*` variable instead.
 
 It is not a drop-in replacement for every setup. Check these first:
 
@@ -423,6 +452,8 @@ It is not a drop-in replacement for every setup. Check these first:
   that covers a subset of the API.
 - **Testcontainers modules and wrappers that hard-code the `fake-gcs-server`
   binary** need an adapter.
+- **Listing buckets needs `?project=`,** as on Cloud Storage. SDKs send it
+  already; add it to your `curl` commands.
 
 The [migration guide](docs/en/migrate-from-fake-gcs-server.md) has the swap, the
 full list and what to do instead.

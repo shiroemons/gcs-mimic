@@ -75,11 +75,10 @@ The resulting binary needs no Rust, Python, curl or Go installation. CLI overrid
 `GCS_MIMIC_CONFIG`. Config files are capped at 64 KiB; invalid settings fail before
 readiness. The current configuration is JSON; future TOML settings are unavailable.
 Independent configuration, TLS and identity errors are collected into stderr
-JSON diagnostic batches before catalog access; warnings precede errors. Known
-fake-gcs-server inputs are translated with a warning naming their `GCS_MIMIC_*`
-replacement, inputs without an equivalent fail with native migration advice,
-unknown `FAKE_GCS_*` names warn, and native values preserve their existing
-precedence. See
+JSON diagnostic batches before catalog access; warnings precede errors. Flags
+that stand for a native setting are translated, and warn only when the
+translation leaves something to know. Native values preserve their existing
+precedence. Versions after 0.14.0 do not read `FAKE_GCS_*` variables. See
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
 for the bounded input, redaction and `/data` inspection rules.
 
@@ -90,13 +89,18 @@ Debug adds connection completion, info includes seeding/stopping, warn includes
 transport failures/timeouts and deferred cleanup, and error includes lock-release
 failure. Validation diagnostics, including input warnings, remain visible at
 every level. Stdout `ready` and `stopped` are always emitted for automation.
-Empty/unknown levels fail before catalog access. Legacy `FAKE_GCS_LOG_LEVEL`
-and `-log-level` are translated with a warning: `warning` becomes `warn`, `trace`
-becomes `debug`, and `fatal` or `panic` become `error`.
+Empty/unknown levels fail before catalog access.
+
+Versions after 0.14.0 accept every server option with one or two hyphens, with
+its value after a space or `=`, and without the word `serve` when the first
+argument is an option.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
+| `--port` | Port of `GCS_MIMIC_LISTEN` | `4443` | 0–65535; keeps the listen IP, so a binary stays on loopback. 0.14.0 binds `0.0.0.0` instead |
+| `--port-http` | Port of `GCS_MIMIC_LISTEN_HTTP` | `8000` | HTTP port with `scheme=both`; keeps the IP of `listen_http`, or else of `listen`; ignored with a warning for other schemes |
+| `--host` | IP of `GCS_MIMIC_LISTEN` | `127.0.0.1` | Numeric IP or `localhost`; keeps the listen port |
 | `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |
 | `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
 | `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |

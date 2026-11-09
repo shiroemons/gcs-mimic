@@ -25,10 +25,27 @@
 
 ```sh
 # エミュレーターを起動する
-docker run -d --name gcs-mimic \
-  -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.14.0
+
+# 応答を確かめる。組み込みの開発用証明書を使うので-kを付ける
+curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
+```
+
+空のバケット一覧が返ります。
+
+- 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
+- コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.14.0`
+- `-k`を使わず証明書を信頼するには、[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
+
+### HTTPで使う
+
+SDKは証明書を信頼しなくても使えるHTTPで接続します。以降の例もHTTPです。`--scheme http`を付けて起動し直します。
+
+```sh
+docker rm -f gcs-mimic
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
+  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 
 # バケットを作る
 curl --retry 5 --retry-all-errors \
@@ -46,14 +63,23 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 最後のコマンドが`hello`を表示します。
 
-- 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
-- コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.14.0`
-- `GCS_MIMIC_SCHEME=http`を外すと、組み込みの開発用証明書でHTTPSになります。[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
+### よく使うオプション
+
+`serve`の後ろに付けます。
+
+| オプション | 内容 | Composeの`environment:`では |
+| --- | --- | --- |
+| `--scheme http` | `https`（既定）、`http`、`both` | `GCS_MIMIC_SCHEME: http` |
+| `--port 9000` | 待ち受けるポート。同じポートを`-p 127.0.0.1:9000:9000`で公開します | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
+| `--port-http 8000` | `--scheme both`のときのHTTPポート。このポートも公開します | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
+| `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で64 MiBまでです | `GCS_MIMIC_BACKEND: memory` |
+| `--log-level debug` | `debug`、`info`、`warn`、`error` | `GCS_MIMIC_LOG_LEVEL: debug` |
+
+ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`で確認できます。
 
 ## SDKから接続する
 
-例はホストから接続する場合です。Composeのサービスからは、エミュレーターのサービス名を使って`http://サービス名:4443`（例: `http://gcs:4443`）に接続します。
+例は上のHTTPサーバーにホストから接続する場合です。Composeのサービスからは、エミュレーターのサービス名を使って`http://サービス名:4443`（例: `http://gcs:4443`）に接続します。
 クライアントは匿名で接続し、Googleには接続しません。
 検証したバージョン、gRPC、署名付きURL、strict認証は[SDKの設定](sdk-setup.md)を、下の各クライアントの実行可能なプログラムは[examples/（英語）](../../examples/README.md)を参照してください。
 
@@ -370,7 +396,8 @@ n/aはSDKに公開APIがないケースで、そのSDKの分母から除きま�
 
 gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいるので、多くのコンテナ構成は数行の変更で移行できます。
 イメージを替え、`/var/lib/gcs-mimic`に新しいデータ用ボリュームを付けます。
-フラグ、`FAKE_GCS_*`環境変数、`./data:/data`のマウントは多くがそのまま動き、旧設定は`GCS_MIMIC_*`の名前付きでログに出ます。
+コマンドラインのフラグと`./data:/data`のマウントは多くがそのまま動きます。
+0.14.0より後のバージョンは`FAKE_GCS_*`環境変数を読まないので、対応するフラグか`GCS_MIMIC_*`環境変数に置き換えてください。
 
 ただし、すべての構成でそのまま置き換えられるわけではありません。先に次の点を確認してください。
 
@@ -378,6 +405,7 @@ gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいる�
 - **イメージにシェルはなく、rootでも動きません。** `docker exec … sh`、シェルのヘルスチェック、シェルのentrypointは動かなくなります。
 - **Goのテストに`fakestorage`を組み込んでいる場合**は、APIの一部に対応した子プロセス方式に移ります。
 - **`fake-gcs-server`実行ファイルを決め打ちしたTestcontainersのモジュールやラッパー**には、アダプターが必要です。
+- **バケットの一覧には`?project=`が必要です。** Cloud Storageと同じ動作で、SDKは最初から送ります。`curl`では付けてください。
 
 手順、全項目、代わりの方法は[移行ガイド](migrate-from-fake-gcs-server.md)にあります。
 

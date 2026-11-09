@@ -129,8 +129,8 @@ wrapper PID in the volume name; a disk whose PID is still alive is left alone.
 If the RAM disk cannot be created, the wrapper warns and continues serially. On
 other platforms the wrapper changes nothing. A timing-sensitive failure can
 appear with or without the RAM disk; treat it as a test defect either way. These settings use the `GCSM_TEST_` prefix
-because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
-setting and rejects unknown names.
+because the server reads every `GCS_MIMIC_` variable as its own setting and
+rejects unknown names.
 
 `bash scripts/sdk-go.sh` alone runs only the Go suite. CI's `sdk-go` job passes
 `--with-clients` (Go plus the Java, .NET and Rust clients), and a separate

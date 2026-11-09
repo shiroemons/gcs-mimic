@@ -43,8 +43,8 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。
 移行前のCompose全体は[英語版の例](../en/fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)を参照してください。
-0.7.0以降は、古いフラグと`FAKE_GCS_*`も書き換えずに動き、置き換え先を警告で表示します。
-この手順ではnativeの名前を使います。[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
+0.7.0以降は、古いフラグも書き換えずに動きます。0.14.0より後のバージョンは`FAKE_GCS_*`環境変数を読みません。
+この手順ではnativeの名前を使います。[オプションの別名（英語）](../en/slices/option-aliases.md)を参照してください。
 
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
 | --- | --- | --- |
@@ -322,8 +322,9 @@ strict localレシピはそのために組み込みのテスト署名者を有�
 
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
-| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | [撤回したリリース](release-policy.md#撤回したリリース)（0.6.0以前）は旧設定名を読み替えない | 現行版に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
-| `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
+| `FAKE_GCS_*`環境変数が効かない | 0.14.0より後のバージョンは読みません | 対応するフラグか`GCS_MIMIC_*`環境変数を設定する。 |
+| `-scheme`で起動が止まる | [撤回したリリース](release-policy.md#撤回したリリース)（0.6.0以前）は旧設定名を読み替えない | 現行版に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
+| `-event.pubsub-topic`などの`-event.*`フラグで起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationが`GCS_MIMIC_API_BASE_URL`や`-external-url`で固定したアドレスになっている、またはプロキシがHostを書き換えている | 固定をやめてリンクを各リクエストに従わせるか、すべてのクライアントから届くアドレスを指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使う。サーバーが署名なしセッションURIをブラウザーへ渡すときは、path/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |

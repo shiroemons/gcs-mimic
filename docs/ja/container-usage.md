@@ -1,6 +1,6 @@
 # Dockerで使う
 
-最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、`-e GCS_MIMIC_SCHEME=http`でHTTPになります。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.14.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.14.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
+最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、イメージ名の後ろに`serve --scheme http`を付けるとHTTPになります。0.14.0より後のバージョンでは`serve`を省略でき、ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.14.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.14.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
 ```sh
 docker build -t gcs-mimic:local .
@@ -18,8 +18,7 @@ docker build -t gcs-mimic:local .
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
-  -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0
+  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -144,8 +143,7 @@ data/
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.14.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -326,7 +324,6 @@ Composeの`${VAR:-}`は空文字を渡します。
 空の値に意味がある設定もあります。
 `GCS_MIMIC_LOCAL_CREATOR_EMAIL`はローカルの作成者の記録を無効にし、`GCS_MIMIC_DEFAULT_LOCATION`は`US`を使います。
 `GCS_MIMIC_ADMIN_ALLOWED_HOSTS`と`GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS`は一覧が空になり、`GCS_MIMIC_PUBSUB_EMULATOR_HOST`、`GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID`、`GCS_MIMIC_EVENT_PUBSUB_TOPIC`、`GCS_MIMIC_EVENT_BUCKET`、`GCS_MIMIC_EVENT_OBJECT_PREFIX`は何も設定しません。
-`FAKE_GCS_*`はfake-gcs-serverと同じく、空の値を未設定として扱います。
 
 リクエスト本文を宣言したまま送信を止めたクライアントは、何も記録されないまま接続を使い続けます。
 `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`の既定値0では上限がなく、期限切れもログも起きないためです。

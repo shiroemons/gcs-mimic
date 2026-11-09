@@ -9,13 +9,13 @@ Origin付きなど、ブラウザー由来の管理リクエストは403で拒�
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
-サーバーの起動時、gcs-mimicは既知の`FAKE_GCS_*`と旧フラグのうち対応先があるものをnative設定に読み替え、それぞれnativeの名前を警告で案内します。
+サーバーの起動時、gcs-mimicは既知のフラグのうち対応先があるものをnative設定に読み替えます。警告が出るのは、読み替えだけでは伝わらない違いがあるときだけです。
 0.8.0以降は`filesystem`をdiskへ、`memory`を上限付きRAM保存へ対応させます。
 イベント設定は、明示したローカルPub/Subエミュレーターと完全なproject/topic設定が必要です。
 通知設定の作成では、エミュレーターを設定している場合に限り、トピックがエミュレーターに存在するかを確かめ、存在しなければCloud Storageと同じ400を返します。エミュレーターに接続できない場合は503を返し、設定は作られません。エミュレーターがないときは、トピックを確かめずに受け付けます。
 不完全なイベント設定と未知のbackendは起動を止めます。0.7.0以前にはRAM保存とイベント配信がありません。
-未知の`FAKE_GCS_*`は警告だけです。
-読み替えの一覧は[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
+0.14.0より後のバージョンは`FAKE_GCS_*`環境変数を読みません。対応するフラグか`GCS_MIMIC_*`環境変数を設定してください。
+読み替えの一覧は[オプションの別名（英語）](../en/slices/option-aliases.md)を参照してください。
 0.6.0以前は、既知19個をすべて移行案内付きのエラーにします。
 
 [English](../en/fake-gcs-server-configuration.md) ·
@@ -156,14 +156,13 @@ JSONの`log_level`、環境変数`GCS_MIMIC_LOG_LEVEL`、CLIの`--log-level`で�
 `error`にはデータディレクトリのロック解放失敗を出します。
 空文字や未対応のレベルはカタログを開く前にエラーにします。
 入力の警告・エラー診断と、stdoutの`ready`・`stopped`はレベルに関係なく表示します。
-旧`FAKE_GCS_LOG_LEVEL`と`-log-level`は引き続きエラーにし、native設定への変更を案内します。
+`-log-level`は`--log-level`と同じオプションです。
 
-未知の旧変数の値は解釈せず、非UTF-8でも警告のままです。
-既知変数・native設定の文字コード不正は、独立したCLIやファイルの不正とまとめて表示します。
+native設定の文字コード不正は、独立したCLIやファイルの不正とまとめて表示します。
 
-旧フラグはハイフン1本・2本、値の分離・`=`形式を検出します。
-nativeの`serve --scheme http`や`--object -data`の値はそのまま扱います。
-Composeの`command`はCMDを置き換えるため、サーバー引数を渡す場合は`serve`を含めてください。
+0.14.0より後のバージョンでは、サーバーのオプションはハイフン1本・2本、値の分離・`=`形式のどれでも指定でき、オプションで始まるコマンドラインは`serve`として動きます。
+0.14.0では、nativeのオプションに`serve`と`--name VALUE`の形が必要です。
+`--object -data`のような値はそのまま扱います。
 イメージの環境変数`GCS_MIMIC_LISTEN=0.0.0.0:4443`と
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`で待受と永続化の既定値を保ちます。
 変更する場合は環境変数を上書きすると、自動ヘルスチェックも同じ待受を使います。
@@ -223,7 +222,7 @@ readyの`listen`はprimaryを保持し、`listeners`に実際の待受アドレ�
 両方をポート0にすると独立して空きポートを確保します。
 どちらかのbindに失敗するとreadyを出さず、socketとカタログのlockを解放します。
 終了時には両方の待受を閉じます。ComposeではHTTPのポートも明示して公開してください。
-`FAKE_GCS_SCHEME`・`FAKE_GCS_PORT_HTTP`は上のnative設定に読み替え、その名前を警告で案内します。
+`--port-http`は上の設定のポート部分だけを変えます。both以外では警告を出して無視します。
 対象ケース`UX-003-DUAL-LISTENER`の範囲は
 [契約と検証結果](../en/slices/configuration-workflows.md#dual-listener-behavior-and-verification)に記載しています。
 親機能`UX-003`は、独立した未対応ケースが残るためPARTIALのままです。
@@ -281,7 +280,7 @@ configurable dual-regionの配置設定とRPOは未対応です。
 legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
 その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
 ほかの明示locationは拒否します。
-`FAKE_GCS_LOCATION`は引き続き起動エラーとし、対応する名前なら大文字に正規化して
+`-location`は対応する名前なら大文字に正規化して読み替えます。ヘルパーコマンドに渡すと、
 `GCS_MIMIC_COMPAT_PROFILE=native`と`GCS_MIMIC_DEFAULT_LOCATION`を案内します。
 たとえば`US-CENTRAL1`には`GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1`、
 `asia-northeast1`には`GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`を示します。
@@ -289,7 +288,7 @@ legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付�
 UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のUX-003はPARTIALです。
 このスライスでは全体のCORS設定を追加していません。
 後続のDESIGN-100で、CORSルールのないバケットの扱いを選ぶ`GCS_MIMIC_CORS_FALLBACK`（`none`・`allow-all`）を追加しました。
-`FAKE_GCS_CORS_HEADERS`は引き続き起動エラーとし、削除するよう案内します。代わりの設定は案内しません。
+`-cors-headers`は受け付けますが、削除するよう警告します。代わりの設定は案内しません。
 permissiveはもともとすべてのオリジンを許可します（`cors_fallback`の既定が`allow-all`）。
 strictはCloud Storageと同じくバケットの`cors`ルールに従います。
 JSON APIは正しい形式のヘッダーをすべて許可します。

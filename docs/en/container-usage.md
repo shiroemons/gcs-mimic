@@ -10,7 +10,7 @@ The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-
 replaces a fake-gcs-server service with the published image and initializes
 empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 
-The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves HTTPS with a built-in development certificate, and `-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`.
+The [README quick start](../../README.md#quick-start) is the shortest start: one `docker run` serves HTTPS with a built-in development certificate, and adding `serve --scheme http` after the image name selects plain HTTP. List every option with `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`.
 
 ## Docker run
 
@@ -18,8 +18,7 @@ The [README quick start](../../README.md#quick-start) is the shortest start: one
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
-  -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0
+  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -149,8 +148,7 @@ Mount it read-only at `/data`:
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.14.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -347,8 +345,10 @@ lists every option.
 ## Configure the server and buckets
 
 Server options control the listener, protocol, persistent data location and
-advertised API endpoint. Use `GCS_MIMIC_*` environment variables in Compose or
-`serve --help` to inspect native options. See the
+advertised API endpoint. Set them with `GCS_MIMIC_*` environment variables in
+Compose, or with options after the image name; `serve --help` lists them.
+Versions after 0.14.0 accept options without `serve`, with one or two hyphens,
+and as `--name=value`. See the
 [fake-gcs-server option mapping](fake-gcs-server-migration.md#startup-options-and-current-equivalents)
 for `-public-host`, `-external-url`, `-data` and related settings.
 The [environment reference](fake-gcs-server-configuration.md) covers all 19
@@ -371,7 +371,6 @@ local creator, `GCS_MIMIC_DEFAULT_LOCATION` uses `US`,
 nothing, and `GCS_MIMIC_PUBSUB_EMULATOR_HOST`,
 `GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID`, `GCS_MIMIC_EVENT_PUBSUB_TOPIC`,
 `GCS_MIMIC_EVENT_BUCKET` and `GCS_MIMIC_EVENT_OBJECT_PREFIX` configure nothing.
-`FAKE_GCS_*` variables keep fake-gcs-server's rule, where an empty value is unset.
 
 A client that announces a request body and stops sending it holds its connection
 silently: the default `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` of 0 sets no limit, so

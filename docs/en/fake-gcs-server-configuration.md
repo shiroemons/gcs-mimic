@@ -79,12 +79,13 @@ the help text. Event-list validation occurs only when notifications are enabled.
 ## Current gcs-mimic equivalents
 
 Use native names by role. When the server starts, gcs-mimic translates the
-known `FAKE_GCS_*` variables and flags that have a native equivalent, and warns
-with the native name for each one. Since 0.8.0, disk/memory selection and
-event aliases with an explicit local Pub/Sub emulator are supported. Unknown
-backends and incomplete publisher settings fail. 0.7.0 has the earlier
-limitations; see [legacy setting aliases](slices/legacy-setting-aliases.md).
-Unknown `FAKE_GCS_*` names warn without stopping startup.
+known flags that have a native equivalent, and warns only when the translation
+leaves something to know. Since 0.8.0, disk/memory selection and event aliases
+with an explicit local Pub/Sub emulator are supported. Unknown backends and
+incomplete publisher settings fail. 0.7.0 has the earlier limitations; see
+[option aliases](slices/option-aliases.md).
+Versions after 0.14.0 do not read `FAKE_GCS_*` variables; set the matching flag
+or `GCS_MIMIC_*` variable.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
 [native configuration reference](native-binary.md#native-binary-and-configuration).
@@ -92,8 +93,8 @@ generally mean “use the default.” See the
 | Source role | Current native setting | Remaining difference |
 | --- | --- | --- |
 | Scheme | `GCS_MIMIC_SCHEME` | `http`, `https` or `both`; primary HTTPS in both mode |
-| Bind host and port | `GCS_MIMIC_LISTEN` | One `IP:port` value |
-| Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; defaults to primary IP:8000 |
+| Bind host and port | `GCS_MIMIC_LISTEN`, `--listen`, `--port`, `--host` | One `IP:port` value, or one part of it; `--port` and `--host` keep the other part |
+| Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP`, `--listen-http`, `--port-http` | Requires `scheme=both`; defaults to primary IP:8000. `--port-http` is ignored with a warning for other schemes |
 | Advertised API endpoint | Nothing; `GCS_MIMIC_API_BASE_URL` to fix one | Links follow each request's Host and connection scheme, which `-external-url` could not do. The setting fixes one API origin, separate from public URL construction; a proxy that rewrites Host needs it. |
 | Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Replays on every startup; differing objects get new generations and identical objects keep theirs. Since 0.8.0, seeding adds atomic whole-tree replay and opt-in POST/PUT reseed, with disk merge and RAM replacement. `.metadata` files remain literal objects, not imported sidecars. |
 | Buckets created at startup | `GCS_MIMIC_BUCKETS` (the JSON document inline, for Compose `environment:`) or `GCS_MIMIC_BUCKETS_FILE` (a path), `GCS_MIMIC_BUCKETS_FILE_MODE` | The source creates buckets only from seed directories. The document names each bucket with its settings and is validated as a whole before seed; naming both settings fails startup. An inline document defaults to `GCS_MIMIC_BUCKETS_FILE_MODE=reconcile`, so an edit in `compose.yaml` applies to existing buckets at the next start; a file defaults to `create`. Compose expands `${VAR}` in an inline value, so write a literal `$` as `$$`. See [bucket initialization](slices/bucket-initialization.md). |
@@ -136,35 +137,32 @@ ready event or data-directory creation. Diagnostic records sort by source and
 original key; repeated keys keep encounter order. Values and material contents
 are omitted, except validated migration host/port/scheme/location/log-level
 values and HTTP(S) URLs without credentials, queries or fragments.
-Unknown legacy environment values are not decoded, including non-UTF-8 values.
-Invalid effective native/known legacy encodings join the same error batch;
-they do not hide independent CLI or material errors.
+Invalid native encodings join the same error batch; they do not hide independent
+CLI or material errors.
 
-For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
+Server flags given to a helper command name the setting they would become. For
+example, `healthcheck -host 127.0.0.2 -port 8080` recommends
 `GCS_MIMIC_LISTEN=127.0.0.2:8080`. A safe external URL retains its proxy prefix.
 Public-host advice supplies `GCS_MIMIC_PUBLIC_BASE_URL` and the opt-in legacy
 profile; native path-style Host acceptance stays unrestricted.
-`FAKE_GCS_LOCATION` recommends the corresponding native default with an uppercase
+`-location` recommends the corresponding native default with an uppercase
 supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
 `GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`, together with
 `GCS_MIMIC_COMPAT_PROFILE=native`. Unknown names are redacted and receive valid
 examples. The legacy profile's global default remains unsupported.
-For `serve`, this advice is a warning and the translated setting takes effect;
-the table in [legacy setting aliases](slices/legacy-setting-aliases.md) lists
-each translation. Unknown backends and incomplete event configuration remain
-errors. Helper commands such as `healthcheck` and `url` have no
-server settings, so legacy names given to them still fail with this advice.
+For `serve`, the translated setting takes effect and a flag warns only when the
+translation leaves something to know; the table in
+[option aliases](slices/option-aliases.md) lists each
+translation. Incomplete event configuration remains an error.
 
-Legacy option names are detected in one- and two-hyphen forms with separate or
-equals values. A command line that starts with a legacy flag, as when a
-fake-gcs-server Compose `command` replaces the image CMD, runs `serve`. Native
-`serve --scheme http` remains valid; native options require `--name VALUE`,
-so `--scheme=http` receives syntax advice. Native value positions such as
-`url public --object -data` retain their meaning. A Compose `command` with
-native options must still include `serve`. The image's
-`GCS_MIMIC_LISTEN=0.0.0.0:4443` and `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`
-environment defaults retain network access and persistence; override these values
-to change them while keeping the automatic healthcheck on the same listener.
+Versions after 0.14.0 accept every server option in one- and two-hyphen forms
+with separate or equals values, and a command line that starts with an option
+runs `serve`, as when a Compose `command` replaces the image CMD. 0.14.0 needs
+`serve` for native options and accepts only `--name VALUE` for them. Native
+value positions such as `url public --object -data` retain their meaning. The
+image's `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
+`GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic` environment defaults retain network
+access and persistence; `--port` and `--host` change one part of that listener.
 
 `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are Compose-only
 interpolation variables; keep them outside the native server environment.

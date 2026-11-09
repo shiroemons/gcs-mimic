@@ -33,10 +33,10 @@ volumes:
   source-data:
 ```
 
-Five common option groups translate as follows. Old flags and `FAKE_GCS_*`
-variables also work unchanged since 0.7.0, with a warning naming
-each native setting; this walkthrough uses the native names. See
-[legacy setting aliases](slices/legacy-setting-aliases.md).
+Five common option groups translate as follows. Old flags also work unchanged
+since 0.7.0; versions after 0.14.0 do not read `FAKE_GCS_*` variables. This
+walkthrough uses the native names. See
+[option aliases](slices/option-aliases.md).
 
 | Before | After in this walkthrough | Why |
 | --- | --- | --- |
@@ -373,8 +373,9 @@ the built-in test signer for this, and its README shows the entry that uses it.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
-| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
+| A `FAKE_GCS_*` variable has no effect | Versions after 0.14.0 do not read them | Set the matching flag or `GCS_MIMIC_*` variable. |
+| Startup rejects `-scheme` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| Startup rejects `-event.pubsub-topic` or another `-event.*` flag | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL` or `-external-url`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when a server hands an unsigned session URI to a browser. |
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
@@ -582,15 +583,15 @@ The [complete environment reference](fake-gcs-server-configuration.md) lists all
 
 `serve` translates source flags and variables with an equivalent into these
 native settings and warns for each one; see
-[legacy setting aliases](slices/legacy-setting-aliases.md) for the exact
+[option aliases](slices/option-aliases.md) for the exact
 translation and its exceptions. New configuration should use `serve --name VALUE`
 and native `GCS_MIMIC_*` environment variables.
 
 | fake-gcs-server option | Current gcs-mimic setting | Difference |
 | --- | --- | --- |
 | `-scheme http` / `https` / `both` | `--scheme`, `GCS_MIMIC_SCHEME` | Both uses primary HTTPS and a second HTTP listener with one advertised API origin |
-| `-host`, `-port` | `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | Combined listener setting; container port publication remains separate |
-| `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
+| `-host`, `-port` | `--host`, `--port`, `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | `--host` and `--port` keep the other part of the address; container port publication remains separate |
+| `-port-http` | `--port-http`, `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Applies only with `scheme=both`; default primary IP:8000. `--port-http` is ignored with a warning for other schemes |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links, which otherwise follow each request's Host; not a public-host allowlist. Removable unless a proxy rewrites Host |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed; live synchronization uses a separate `--sync-dir`. 0.7.0 and earlier lack those additions. |
@@ -626,11 +627,9 @@ and [routes and URL helpers](https://github.com/fsouza/fake-gcs-server/blob/896e
 The table is not a complete flag inventory; event and
 other source-only settings still need individually scoped decisions.
 
-Keep CLI > environment > server JSON > default precedence. Within one source,
-a translated legacy value wins over a native value of the same setting and
-warns that it overrides it: the image's own `GCS_MIMIC_LISTEN` default must not
-silently defeat an existing `FAKE_GCS_PORT`. Legacy `FAKE_GCS_*` keys do not
-select compatibility mode. Unknown names only warn. See the
+Keep CLI > environment > server JSON > default precedence. On one command line,
+a translated flag wins over a native option of the same setting and warns that
+it overrides it. See the
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics).
 
 `GCS_MIMIC_PORT` in the repository's source-build Compose file controls host

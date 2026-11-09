@@ -118,12 +118,38 @@ The browser must send the signed `Content-Type`. To make a URL without code, run
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.14.0
+  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
 curl -sS --fail --retry 30 --retry-all-errors --retry-delay 1 \
   -o /dev/null http://localhost:4443/_internal/ready
 curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=local-project'
 ```
+
+**Options.** With `docker run`, put options after `serve`. In Compose, use the variables. With 0.14.0, keep `serve` and write `--name value`. Versions after 0.14.0 also accept options without `serve`, with one or two hyphens, and as `--name=value`.
+
+| Option | Effect | Compose `environment:` |
+| --- | --- | --- |
+| `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |
+| `--port 9000` | Listening port. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
+| `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
+| `--backend memory` | Keep everything in RAM, up to 64 MiB of objects by default | `GCS_MIMIC_BACKEND: memory` |
+| `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
+
+**Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` gives the default and range of each.
+
+- General: `--config`, `--log-level`
+- Listeners: `--scheme`, `--listen`, `--listen-http`, `--grpc-listen`, `--unix-socket`, `--trusted-listen`, `--trusted-principal`, `--trusted-allowed-hosts`
+- TLS: `--tls-cert`, `--tls-key`, `--tls-handshake-timeout-ms`
+- Storage: `--data-dir`, `--backend`, `--memory-max-bytes`, `--memory-catalog-max-bytes`
+- Seed: `--seed-dir`, `--default-seed-dir`, `--seed-project`, `--seed-content-type`, `--max-seed-entries`, `--max-seed-depth`
+- Sync: `--sync-dir`, `--sync-delete-guard`, `--sync-reinitialize`, `--max-sync-entries`, `--max-sync-depth`
+- Buckets: `--buckets`, `--buckets-file`, `--buckets-file-mode`, `--max-buckets-per-batch`, `--default-location`, `--default-soft-delete-retention-seconds`
+- URLs: `--api-base-url`, `--public-base-url`, `--xml-virtual-host-domains`
+- Admin: `--admin-enabled`, `--admin-principal`, `--admin-allowed-hosts`
+- Access: `--auth-mode`, `--compat-profile`, `--cors-fallback`, `--signed-urls`, `--signed-host-port`, `--identity-file`, `--identities`, `--test-signer`, `--local-creator-email`
+- Limits: `--max-connections`, `--max-grpc-streams`, `--max-object-bytes`, `--max-resumable-sessions`, `--max-rewrite-sessions`, `--worker-threads`, `--max-blocking-threads`
+- Timeouts: `--header-read-timeout-ms`, `--body-inactivity-timeout-ms`, `--request-timeout-ms`, `--connection-timeout-ms`, `--keep-alive-timeout-ms`, `--object-request-timeout-ms`, `--catalog-wait-timeout-ms`, `--shutdown-timeout-ms`
+- Notifications: `--pubsub-emulator-host`, `--event-pubsub-project-id`, `--event-pubsub-topic`, `--event-bucket`, `--event-object-prefix`, `--event-list`
 
 **GitHub Actions.** The `curl` commands were checked against the image with the port published on the host. The workflow itself has not been run on GitHub.
 
@@ -194,7 +220,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.1, Node.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `curl: (1) Received HTTP/0.9 when not allowed`, or an HTTP client gets a garbled reply or TLS error | The server speaks HTTPS by default | Set `GCS_MIMIC_SCHEME: http` |
+| `curl: (1) Received HTTP/0.9 when not allowed`, or an HTTP client gets a garbled reply or TLS error | The server speaks HTTPS by default | Set `GCS_MIMIC_SCHEME: http`, or run `serve --scheme http` |
 | `curl: (52) Empty reply from server` or a reset right after start | Still starting | Wait for `/_internal/ready` with `--retry-all-errors` |
 | 400 `Required parameter: project` | Bucket listing without a project | Add `?project=local-project` |
 | 401 `Login Required` | Strict mode, no credentials and no `allUsers` grant | Use the trusted listener from servers, or a signed URL or public bucket from browsers |
@@ -219,7 +245,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.1, Node.
 - Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` lists every option.
 - A passing SDK scorecard means ordinary workflows work, not that the API is complete.
 
-**Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most flags, `FAKE_GCS_*` variables and the `./data:/data` mount keep working. These do not carry over:
+**Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data` mount keep working. Versions after 0.14.0 do not read `FAKE_GCS_*` variables and do not warn about them, so `FAKE_GCS_SCHEME=http` leaves the server on HTTPS; use the matching flag or `GCS_MIMIC_*` variable. These do not carry over:
 
 - Objects in a `/storage` volume. `gcs-mimic import fake-gcs-server` stops on objects uploaded through fake-gcs-server's API in 0.14.0. Stop fake-gcs-server and copy names and bytes as below, then mount `./data:/data:ro`. Content types are derived again from file extensions; generations and custom metadata are lost.
 - Shells inside the container, and running as root.
