@@ -12,6 +12,7 @@ mod it_objects {
     mod object_move_http;
     mod object_versioning_http;
     mod permissive_creator_http;
+    mod response_content_query_http;
     mod resumable_protocol_path_http;
     mod retention_roundtrip_http;
     mod rewrite_http;

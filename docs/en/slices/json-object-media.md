@@ -132,8 +132,11 @@ Decode query components once as UTF-8 (`+` means space); split raw route structu
 decoding path components (`+` is literal in a path). Keep the existing bucket parser's
 16 KiB raw-query cap and duplicate decoded-key rejection. Malformed escaping/UTF-8 and
 unknown or method-inappropriate query parameters return 400 `invalidParameter` as local
-validation rules, not an inferred upstream unknown-field policy. A raw slash is route
-structure; callers encode embedded name slashes as `%2F`.
+validation rules, not an inferred upstream unknown-field policy. The exception is
+`response-content-disposition` and `response-content-type` on object GET and HEAD, metadata
+and media alike: Cloud Storage answered those reads with 200 and the stored headers on
+2026-11-09, so both are accepted and ignored. A raw slash is route structure; callers
+encode embedded name slashes as `%2F`.
 
 | Methods | Parameter | Decision |
 | --- | --- | --- |

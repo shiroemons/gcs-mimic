@@ -415,6 +415,10 @@ fn parse_upload_query(
     }))
 }
 
+/// XML API response overrides that clients also send on JSON object reads. Cloud Storage answered
+/// those reads with 200 and the stored headers (recorded 2026-11-09), so they are ignored here.
+const IGNORED_READ_PARAMETERS: &[&str] = &["response-content-disposition", "response-content-type"];
+
 /// The object a non-upload request names, with the options already parsed from its query.
 struct QueryTarget {
     bucket: String,
@@ -458,6 +462,9 @@ fn parse_named_object_query(
         }));
     }
     if matches!(*method, Method::GET | Method::HEAD) {
+        for name in IGNORED_READ_PARAMETERS {
+            query.remove(*name);
+        }
         let soft_deleted = boolean(&mut query, "softDeleted")?;
         if soft_deleted && (target.generation.is_none() || media) {
             return Err(JsonError::invalid_argument(
