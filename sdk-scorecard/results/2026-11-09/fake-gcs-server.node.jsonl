@@ -1,0 +1,51 @@
+{"sdk":"node","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"node","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"node","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   b: '2',\n-   c: '3'\n- }\n"}
+{"sdk":"node","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"node","id":"bucket.lifecycle","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   rule: [\n-     {\n-       action: {\n-         type: 'Delete'\n-       },\n-       condition: {\n-         age: 30\n-       }\n-     }\n-   ]\n- }\n"}
+{"sdk":"node","id":"bucket.cors","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- [\n-   {\n-     maxAgeSeconds: 3600,\n-     method: [\n-       'GET'\n-     ],\n-     origin: [\n-       'https://app.example'\n-     ]\n-   }\n- ]\n"}
+{"sdk":"node","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   uniformBucketLevelAccess: {\n-     enabled: true\n-   }\n- }\n"}
+{"sdk":"node","id":"bucket.public_access_prevention","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   publicAccessPrevention: 'enforced'\n- }\n"}
+{"sdk":"node","id":"bucket.soft_delete_policy","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   retentionDurationSeconds: '864000'\n- }\n"}
+{"sdk":"node","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"AssertionError: Expected values to be partially and strictly deep-equal:\n+ actual - expected\n\n+ undefined\n- {\n-   enabled: true\n- }\n"}
+{"sdk":"node","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"Error: Not Found"}
+{"sdk":"node","id":"bucket.iam_policy","area":"bucket","pass":false,"detail":"Error: Multiple errors occurred during the request. Please see the `errors` array for complete details.\n\n    1. Not Found\n    2. Not Found\n\n\n"}
+{"sdk":"node","id":"bucket.iam_test_permissions","area":"bucket","pass":false,"detail":"Error: Multiple errors occurred during the request. Please see the `errors` array for complete details.\n\n    1. Not Found\n    2. Not Found\n\n\n"}
+{"sdk":"node","id":"bucket.acl","area":"bucket","pass":true}
+{"sdk":"node","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"Error: Not Found"}
+{"sdk":"node","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"node","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"Error: Not Found"}
+{"sdk":"node","id":"project.service_account","area":"bucket","pass":false,"detail":"Error: Multiple errors occurred during the request. Please see the `errors` array for complete details.\n\n    1. Not Found\n    2. Not Found\n\n\n"}
+{"sdk":"node","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"node","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"node","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"node","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"node","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"node","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"node","id":"object.update_metadata","area":"object","pass":false,"detail":"AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n+   a: '',\n    b: '2',\n    c: '3'\n  }\n"}
+{"sdk":"node","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"node","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"node","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"node","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"node","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"node","id":"object.list_match_glob","area":"object","pass":false,"detail":"AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    'x/a.txt',\n+   'x/b.csv',\n    'y/c.txt'\n  ]\n"}
+{"sdk":"node","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"node","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"AssertionError: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'STANDARD'\n- 'NEARLINE'\n"}
+{"sdk":"node","id":"object.compose","area":"object","pass":false,"detail":"AssertionError: Expected values to be strictly equal:\n\nNaN !== 3\n"}
+{"sdk":"node","id":"object.move","area":"object","pass":false,"detail":"Error: Object not found to be updated"}
+{"sdk":"node","id":"object.acl","area":"object","pass":true}
+{"sdk":"node","id":"object.holds","area":"object","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"object.retention","area":"object","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"node","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"node","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"node","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"AssertionError: Missing expected rejection."}
+{"sdk":"node","id":"object.soft_delete_restore","area":"object","pass":false,"detail":"AssertionError: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ []\n- [\n-   'sd.txt'\n- ]\n"}
+{"sdk":"node","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"node","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"node","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"node","id":"signed.post_policy_v4","area":"signed","pass":true}

@@ -4,8 +4,8 @@
 
 The scorecard measures workflows using the official Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust
 Cloud Storage SDKs against local emulators. Within each SDK, it runs the
-same probes, inputs and pass criteria against gcs-mimic, fake-gcs-server and
-gcp-storage-emulator. Shared case IDs across SDKs do not establish identical
+same probes, inputs and pass criteria against gcs-mimic, fake-gcs-server,
+gcp-storage-emulator and floci-gcp. Shared case IDs across SDKs do not establish identical
 inputs, assertions or endpoint adaptations. Cross-SDK equivalence is not yet
 verified, so aggregate scores are provisional.
 
@@ -99,6 +99,7 @@ differing shared case IDs across SDKs. The SDKs with unsupported cases are
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
+| floci-gcp | `floci/floci-gcp:0.12.0` |
 
 Update the pins in `run.sh` and the module files deliberately; record the
 change in the next results directory rather than rewriting old results.
@@ -131,6 +132,8 @@ change another SDK's result:
   only one that retains object versions); gRPC cases use the shared HTTP port.
 - gcp-storage-emulator: `start --in-memory`; it has no gRPC listener, so the
   gRPC cases fail by timeout.
+- floci-gcp: the default `memory` storage with `FLOCI_GCP_BASE_URL` set to the
+  public origin and no Docker socket; gRPC cases use the shared port.
 
 The frontend streams the original method, Host, escaped path, query, body and
 integrity headers. Resumable Locations from the explicit backend origin are
@@ -204,8 +207,14 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-11-08 comparison](results/2026-11-08/summary.md) is the latest. It
-executes 1,359 cases (453 per product, 448 of them scored) from a clean checkout
+The [2026-11-09 comparison](results/2026-11-09/summary.md) is the latest and
+adds floci-gcp 0.12.0. It executes 1,812 cases (453 per product, 448 of them
+scored) on the 0.16.0 source at `b0338de7`. gcs-mimic scores **100**, floci-gcp
+**77.6**, fake-gcs-server **39.8** and gcp-storage-emulator **37.7**. Its
+metadata records `source_dirty: true` because the only uncommitted change was
+adding floci-gcp to `run.sh`.
+
+The [2026-11-08 comparison](results/2026-11-08/summary.md) executes 1,359 cases (453 per product, 448 of them scored) from a clean checkout
 of the `v0.14.0` tag at `ad9bca82`. gcs-mimic scores **100**, fake-gcs-server
 **39.8** and gcp-storage-emulator **37.7**, the same as the 2026-10-31 run.
 

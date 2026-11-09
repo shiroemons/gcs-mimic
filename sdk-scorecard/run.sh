@@ -5,7 +5,7 @@
 # (for example consumed resumable sessions) cannot change another SDK's result.
 set -euo pipefail
 
-usage() { echo 'Usage: bash sdk-scorecard/run.sh [--out DIR] [EMULATOR...]  (gcs-mimic fake-gcs-server gcp-storage-emulator)'; }
+usage() { echo 'Usage: bash sdk-scorecard/run.sh [--out DIR] [EMULATOR...]  (gcs-mimic fake-gcs-server gcp-storage-emulator floci-gcp)'; }
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/sdk-scorecard/results/$(date -u +%F)"
 explicit_out=false
@@ -14,11 +14,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --help) usage; exit 0 ;;
     --out) out=${2:?--out requires a directory}; explicit_out=true; shift 2 ;;
-    gcs-mimic|fake-gcs-server|gcp-storage-emulator) emulators+=("$1"); shift ;;
+    gcs-mimic|fake-gcs-server|gcp-storage-emulator|floci-gcp) emulators+=("$1"); shift ;;
     *) usage >&2; exit 2 ;;
   esac
 done
-[[ ${#emulators[@]} -gt 0 ]] || emulators=(gcs-mimic fake-gcs-server gcp-storage-emulator)
+[[ ${#emulators[@]} -gt 0 ]] || emulators=(gcs-mimic fake-gcs-server gcp-storage-emulator floci-gcp)
 [[ -z ${SCORECARD_RUN:-} ]] || { echo 'Use SCORECARD_RUN with an individual probe; scored runs require every case.' >&2; exit 2; }
 if [[ $explicit_out == false ]]; then
   base=$out
@@ -41,6 +41,7 @@ ruby_sdk=$(sed -n 's/^    google-cloud-storage (\(.*\))$/\1/p' "$root/sdk-scorec
 # Comparison inputs are pinned so a rerun measures the same products.
 fake_image=fsouza/fake-gcs-server:1.56.1
 gcp_image=oittaa/gcp-storage-emulator:v2026.07.19
+floci_image=floci/floci-gcp:0.12.0
 php_image=composer:2.11.1@sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0
 # The Rust SDK trusts only the operating system's roots. On macOS that is the Keychain, which
 # ignores SSL_CERT_FILE, so the probe cannot trust the scorecard CA there; it runs in this
@@ -148,6 +149,13 @@ start_emulator() {
       # No gRPC listener; the gRPC cases fail against a closed port.
       grpc_endpoint="127.0.0.1:$grpc_port"
       version=$gcp_image
+      ;;
+    floci-gcp)
+      # The default memory storage starts empty, and no Docker socket is needed for Cloud Storage.
+      container=$(docker run -d -p "127.0.0.1:$backend_port:4588" -e FLOCI_GCP_BASE_URL="$endpoint" "$floci_image")
+      # gRPC shares the REST port.
+      grpc_endpoint="127.0.0.1:$backend_port"
+      version=$floci_image
       ;;
   esac
   "$work/tls-front" --origin "$endpoint" --backend "$backend" \

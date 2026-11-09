@@ -1,0 +1,55 @@
+{
+  "emulator": "gcp-storage-emulator",
+  "version": "oittaa/gcp-storage-emulator:v2026.07.19",
+  "measured_at": "2026-11-09T16:34:57Z",
+  "source_dirty": true,
+  "sdks": {
+    "go": {
+      "version": "1.70.0",
+      "runtime": "go version go1.27.3 darwin/arm64",
+      "cases": 57
+    },
+    "ruby": {
+      "version": "1.62.1",
+      "runtime": "ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [arm64-darwin27]",
+      "cases": 51
+    },
+    "node": {
+      "version": "8.4.0",
+      "runtime": "v24.22.1",
+      "cases": 51
+    },
+    "php": {
+      "version": "2.6.1",
+      "runtime": "PHP 8.5.12 (cli) (built: Nov  5 2026 18:54:25) (NTS)",
+      "image": "composer:2.11.1@sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0",
+      "cases": 51
+    },
+    "python": {
+      "version": "3.17.1",
+      "runtime": "Python 3.15.2",
+      "cases": 51
+    },
+    "java": {
+      "version": "2.78.0",
+      "runtime": "openjdk version \"27.0.1.0.2\" 2026-10-21",
+      "cases": 70
+    },
+    "dotnet": {
+      "version": "5.0.0",
+      "runtime": "dotnet SDK 10.0.403",
+      "cases": 71
+    },
+    "rust": {
+      "version": "1.21.0",
+      "runtime": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "image": "rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7",
+      "cases": 51
+    }
+  },
+  "transport": {
+    "scheme": "https",
+    "frontend": "go-stdlib",
+    "ca_sha256": "489483ec8d871b53bd196ba439c791b2542b92b5eba544e34671d9193493c3af"
+  }
+}
