@@ -24,7 +24,7 @@ A local Google Cloud Storage emulator for development and CI, written in Rust.
 
 ```sh
 # Start the emulator
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.15.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:latest
 
 # Check that it answers; -k because it uses a built-in development certificate
 curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
@@ -36,7 +36,10 @@ It answers with an empty bucket list.
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
   is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.15.0`.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:latest`.
+- `latest` is the newest release and can move to a new minor version with
+  breaking changes. In CI, pin an exact version from
+  [the releases](https://github.com/shiroemons/gcs-mimic/releases).
 - To trust the certificate instead of using `-k`, see
   [local HTTPS](docs/en/local-https.md).
 
@@ -48,7 +51,7 @@ examples below use it. Start the emulator again with `--scheme http`:
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.15.0 --scheme http
+  ghcr.io/shiroemons/gcs-mimic:latest --scheme http
 
 # Create a bucket
 curl --retry 5 --retry-all-errors \
@@ -80,7 +83,7 @@ Add options after the image name, with one or two hyphens. `--name=value` also w
 
 Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level
 directories become buckets and files become objects. Run
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.15.0 --help` for every option.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:latest --help` for every option.
 
 ## Connect your SDK
 
@@ -359,8 +362,13 @@ Start with the default and switch when a test needs those checks. See
 
 ## How it compares
 
-All three emulators cover the everyday basics. These tables are here to help you
-choose.
+The three Cloud Storage emulators in these tables all cover the everyday basics.
+The tables are here to help you choose.
+
+[floci-gcp](https://github.com/floci-io/floci-gcp) is a different kind of tool:
+one container emulates Cloud Storage together with Pub/Sub, Firestore and other
+GCP services. Consider it when your tests need several of those services at
+once. It is not in the tables because it has not been measured here.
 
 ### By the numbers
 

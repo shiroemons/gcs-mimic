@@ -25,7 +25,7 @@
 
 ```sh
 # エミュレーターを起動する
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.15.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:latest
 
 # 応答を確かめる。組み込みの開発用証明書を使うので-kを付ける
 curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
@@ -35,7 +35,8 @@ curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?projec
 
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.15.0`
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:latest`
+- `latest`は最新のリリースを指し、破壊的変更を含む新しいマイナーバージョンに進むことがあります。CIでは[リリース一覧](https://github.com/shiroemons/gcs-mimic/releases)から正確なバージョンを選んで固定してください。
 - `-k`を使わず証明書を信頼するには、[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
 ### HTTPで使う
@@ -45,7 +46,7 @@ SDKは証明書を信頼しなくても使えるHTTPで接続します。以降�
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.15.0 --scheme http
+  ghcr.io/shiroemons/gcs-mimic:latest --scheme http
 
 # バケットを作る
 curl --retry 5 --retry-all-errors \
@@ -75,7 +76,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 | `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で64 MiBまでです | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`、`info`、`warn`、`error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
-ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.15.0 --help`で確認できます。
+ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:latest --help`で確認できます。
 
 ## SDKから接続する
 
@@ -327,7 +328,9 @@ strictに証明書・鍵・サービスアカウントの準備はいりませ�
 
 ## 比べてみる
 
-3つのエミュレーターは、どれも日常の基本操作に対応しています。ここの表は選ぶときの参考用です。
+ここの表に載せた3つのCloud Storageエミュレーターは、どれも日常の基本操作に対応しています。表は選ぶときの参考用です。
+
+[floci-gcp](https://github.com/floci-io/floci-gcp)は別の種類のツールで、1つのコンテナでCloud StorageをPub/SubやFirestoreなどのGCPサービスと一緒にエミュレートします。複数のサービスを同時にテストで使うなら候補になります。ここでは測定していないため、表には含めていません。
 
 ### 数字で見る
 
