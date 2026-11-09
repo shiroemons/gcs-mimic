@@ -647,3 +647,22 @@ all reads, which hid most of what musl's allocator cost; see the
 | Input | Previous | Proposed | Changed manifests |
 | --- | --- | --- | --- |
 | rust:1.99.1-slim-trixie | `sha256:7eab7ce19273ce785e0ca7578bdf7bc1fcbae621775a8197379a04c9f6e03cd5` | `sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7` | None on the declared platforms |
+
+## Refresh: 2026-11-09 Go modules
+
+The two module updates reported by the full check before the 0.16.0 release are adopted. Neither is a release input, and `cargo xtask dependencies check --scope release` passed without them.
+
+| Input | Previous | Adopted | Manifest |
+| --- | --- | --- | --- |
+| golang.org/x/oauth2 | v0.37.0 | v0.38.0 (published 2026-11-06, revision `0f01e8215572819016fac21b005f5f32ba407798`) | `sdk-tests/go/go.mod` |
+| golang.org/x/sys | v0.49.0 | v0.50.0 (published 2026-11-06, revision `00227f1d192842e243cba7763c1f9a1fcb1c4344`) | `go/sourceexport/go.mod` |
+
+Both releases still require Go 1.26.0 and retract nothing, and their BSD-3-Clause LICENSE files are byte-identical to the previous releases. oauth2 v0.38.0 has one change, which prevents a `NewTicker` panic. x/sys v0.50.0 has ten changes: Windows system call and structure corrections, a `ppc64x` syscall fix, a `wasm32` CPU architecture, `IoctlGetUint64`, rejection of a short `SCM_CREDENTIALS` payload, Linux directory entries with zero inodes and a FreeBSD/386 `sendfile` count. `go get` and `go mod tidy` with Go 1.27.3 change no other requirement.
+
+Indirect requirements and the `examples/go` and `sdk-scorecard/go` modules are not tracked by the freshness check, so they are unchanged here.
+
+### Validation performed on 2026-11-09 for Go modules
+
+- `cargo xtask dependencies check` at `2026-11-09T14:28:30Z` exited 0 with 120 `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `go test -race ./...` in `go/sourceexport` passed.
+- `just pre-push`, which runs the Go SDK suite, passed on the 0.16.0 release source.

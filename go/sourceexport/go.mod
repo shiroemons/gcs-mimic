@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/fsouza/fake-gcs-server v1.56.1
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (

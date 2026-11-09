@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	cloud.google.com/go/storage v1.70.0
-	golang.org/x/oauth2 v0.37.0
+	golang.org/x/oauth2 v0.38.0
 	google.golang.org/api v0.311.0
 	google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab
 	google.golang.org/grpc v1.85.0
