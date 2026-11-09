@@ -31,12 +31,7 @@ struct Canonical<'a> {
 }
 
 pub(super) fn is_v2(query: Option<&str>) -> bool {
-    query.is_some_and(|query| {
-        query.split('&').any(|pair| {
-            let key = super::super::lenient_decode(pair.split('=').next().unwrap_or_default());
-            signing_param(&key) == Some(SigningParams::V2)
-        })
-    })
+    decoded_query_names(query).any(|key| signing_param(&key) == Some(SigningParams::V2))
 }
 
 #[cfg(test)]

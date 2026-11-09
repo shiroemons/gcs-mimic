@@ -18,16 +18,6 @@ pub(crate) fn legacy_aws(headers: &HeaderMap) -> bool {
         .is_some_and(|value| value.as_bytes().starts_with(b"AWS "))
 }
 
-fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Failure> {
-    if headers.get_all(name).iter().count() > 1 {
-        return Err(Failure::Malformed);
-    }
-    headers
-        .get(name)
-        .map(|value| value.to_str().map_err(|_| Failure::Malformed))
-        .transpose()
-}
-
 pub(crate) fn xml_query(
     raw: &str,
     headers: &HeaderMap,

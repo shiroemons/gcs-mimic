@@ -75,6 +75,7 @@ fn signature_error(failure: signature::VerificationError) -> Error {
             "The policy signature does not match.",
         ),
         Failure::Malformed
+        | Failure::RepeatedParameter(_)
         | Failure::ExpiresOutOfRange(..)
         | Failure::Expired
         | Failure::NotYetValid => Error::invalid(

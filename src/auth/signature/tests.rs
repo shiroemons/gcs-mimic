@@ -6,6 +6,22 @@ const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-priva
 const PUBLIC: &str = include_str!("../../../fixtures/signing/test-only-public.pem");
 const SIGNER: &str = "signer@example.invalid";
 const DATE: &str = "20261023T120000Z";
+const PARAMETERS: &[&str] = &[
+    "X-Goog-Algorithm",
+    "X-Goog-Credential",
+    "X-Goog-Date",
+    "X-Goog-Expires",
+    "X-Goog-SignedHeaders",
+    "X-Goog-Signature",
+];
+const AWS_PARAMETERS: &[&str] = &[
+    "X-Amz-Algorithm",
+    "X-Amz-Credential",
+    "X-Amz-Date",
+    "X-Amz-Expires",
+    "X-Amz-SignedHeaders",
+    "X-Amz-Signature",
+];
 
 struct Fixed(SystemTime);
 impl Clock for Fixed {
@@ -405,6 +421,37 @@ async fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_heade
         .await,
         Ok(SIGNER.into())
     );
+}
+
+#[tokio::test]
+async fn v2_query_names_stay_exact_in_case() {
+    let now = UNIX_EPOCH + Duration::from_secs(1000);
+    let url = v2_signed("GET", "/bucket/object", "1060", "", "", "");
+    for parameter in V2_PARAMETERS {
+        for spelling in [
+            parameter.to_ascii_lowercase(),
+            parameter.to_ascii_uppercase(),
+        ] {
+            let bad = url.replace(&format!("{parameter}="), &format!("{spelling}="));
+            assert_ne!(bad, url);
+            for auth in [auth(), Auth::default()] {
+                assert!(
+                    matches!(
+                        verify_with_auth(
+                            &auth,
+                            &Method::GET,
+                            &bad.parse().unwrap(),
+                            &HeaderMap::new(),
+                            now
+                        )
+                        .await,
+                        Err(Failure::Malformed)
+                    ),
+                    "{bad}"
+                );
+            }
+        }
+    }
 }
 
 #[tokio::test]

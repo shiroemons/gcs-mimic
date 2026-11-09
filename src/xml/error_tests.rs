@@ -12,6 +12,26 @@ fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
 }
 
 #[test]
+fn signing_parameters_ignore_ascii_case_only_for_v4_names() {
+    for name in [
+        "X-Goog-Algorithm",
+        "x-goog-algorithm",
+        "X-GOOG-SIGNATURE",
+        "x-goog-signedheaders",
+        "X-Amz-Date",
+        "x-amz-credential",
+        "GoogleAccessId",
+        "Expires",
+        "Signature",
+    ] {
+        assert!(signing_parameter(name), "{name}");
+    }
+    for name in ["googleaccessid", "expires", "SIGNATURE", "x-goog-other"] {
+        assert!(!signing_parameter(name), "{name}");
+    }
+}
+
+#[test]
 fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
     let endpoints = EndpointSnapshot::explicit(
         "http://localhost",

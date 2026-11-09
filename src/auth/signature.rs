@@ -16,56 +16,26 @@ use std::{
 };
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer, pem::PemObject};
 
-pub(crate) const PARAMETERS: &[&str] = &[
-    "X-Goog-Algorithm",
-    "X-Goog-Credential",
-    "X-Goog-Date",
-    "X-Goog-Expires",
-    "X-Goog-SignedHeaders",
-    "X-Goog-Signature",
-];
-pub(crate) const AWS_PARAMETERS: &[&str] = &[
-    "X-Amz-Algorithm",
-    "X-Amz-Credential",
-    "X-Amz-Date",
-    "X-Amz-Expires",
-    "X-Amz-SignedHeaders",
-    "X-Amz-Signature",
-];
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
 pub(crate) const MAX_EXPIRES: u64 = 604800;
 pub(crate) const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SigningParams {
-    GoogleV4,
-    AwsV4,
+    V4,
     V2,
-}
-
-impl SigningParams {
-    fn names(self) -> &'static [&'static str] {
-        match self {
-            Self::GoogleV4 => PARAMETERS,
-            Self::AwsV4 => AWS_PARAMETERS,
-            Self::V2 => V2_PARAMETERS,
-        }
-    }
 }
 
 /// One decoded-name predicate keeps dispatch, parsing and signing on the same families.
 pub(crate) fn signing_param(name: &[u8]) -> Option<SigningParams> {
-    [
-        SigningParams::GoogleV4,
-        SigningParams::AwsV4,
-        SigningParams::V2,
-    ]
-    .into_iter()
-    .find(|set| {
-        set.names()
-            .iter()
-            .any(|candidate| name.eq_ignore_ascii_case(candidate.as_bytes()))
-    })
+    let name = std::str::from_utf8(name).ok()?;
+    if name.parse::<V4Parameter>().is_ok() {
+        return Some(SigningParams::V4);
+    }
+    V2_PARAMETERS
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+        .then_some(SigningParams::V2)
 }
 
 pub(crate) enum Resource {
@@ -80,6 +50,7 @@ mod v4;
 mod verify;
 pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming};
 pub(crate) use v2::{legacy_aws, xml_query};
+pub use v4::{NotV4Parameter, V4Parameter};
 pub(crate) use verify::VerificationError;
 pub(crate) use verify::Verifiers;
 pub(crate) use verify::has_header;
@@ -97,6 +68,8 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Malformed,
+    /// One V4 query parameter sent under spellings that differ only in ASCII case.
+    RepeatedParameter(V4Parameter),
     /// The V4 expiry parameter is present but not a whole number of seconds within
     /// `1..=MAX_EXPIRES`. Go storage turns a duration under one second into `0`, so the
     /// response names the range instead of a generic parameter error.
@@ -424,13 +397,27 @@ pub(crate) fn resumable_start(headers: &HeaderMap) -> Result<bool, Failure> {
     Ok(true)
 }
 
+/// One header's only value, refusing a repeated header or a value that is not visible text.
+fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Failure> {
+    if headers.get_all(name).iter().count() > 1 {
+        return Err(Failure::Malformed);
+    }
+    headers
+        .get(name)
+        .map(|value| value.to_str().map_err(|_| Failure::Malformed))
+        .transpose()
+}
+
+/// The percent-decoded name of each query pair.
+fn decoded_query_names(query: Option<&str>) -> impl Iterator<Item = Vec<u8>> {
+    query
+        .into_iter()
+        .flat_map(|query| query.split('&'))
+        .map(|pair| super::lenient_decode(pair.split('=').next().unwrap_or_default()))
+}
+
 pub(crate) fn is_signed(query: Option<&str>) -> bool {
-    query.is_some_and(|query| {
-        query.split('&').any(|pair| {
-            let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
-            signing_param(&key).is_some()
-        })
-    })
+    decoded_query_names(query).any(|key| signing_param(&key).is_some())
 }
 
 fn canonical_with_payload(
@@ -566,10 +553,15 @@ pub fn encode_query_component(raw: &str) -> String {
     crate::url::encode_unreserved(raw)
 }
 
+/// The signed form of a query, which keeps every name as sent: a signer signs the spelling it
+/// sends, so normalizing a name here would break a valid signature or accept a changed one.
 fn canonical_query(query: &BTreeMap<String, String>) -> String {
     query
         .iter()
-        .filter(|(k, _)| !matches!(k.as_str(), "X-Goog-Signature" | "X-Amz-Signature"))
+        .filter(|(k, _)| {
+            !k.parse::<V4Parameter>()
+                .is_ok_and(V4Parameter::is_signature)
+        })
         .map(|(k, v)| {
             format!(
                 "{}={}",

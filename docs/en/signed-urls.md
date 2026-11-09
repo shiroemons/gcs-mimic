@@ -335,6 +335,15 @@ for a matching body; no object is changed. To bind SHA256 locally, use
 the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
 the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
 
+## Query parameter name case
+
+V4 signing query parameters (`X-Goog-*` and `X-Amz-*`) match in any ASCII case,
+because `gsutil signurl` and `gcloud storage sign-url` send them in lowercase. The
+canonical query keeps each name exactly as sent and sorts by those bytes, so a URL
+must be signed in the spelling it is sent in. Two spellings of one parameter are
+rejected, and so is mixing the Google and AWS families. V2 parameters
+(`GoogleAccessId`, `Expires`, `Signature`) remain case sensitive.
+
 ## Built-in test signer
 
 > **Warning:** the built-in test signer's private key is public. It is

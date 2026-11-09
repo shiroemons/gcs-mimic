@@ -3,6 +3,7 @@ use gcs_mimic::auth::signature::{SignUrlRequest, sign_url};
 use hyper::{HeaderMap, Method, Uri};
 use std::time::SystemTime;
 
+mod cli_query_names;
 mod jwt;
 
 const PRIVATE: &[u8] = include_bytes!("../../../fixtures/signing/test-only-private.pem");

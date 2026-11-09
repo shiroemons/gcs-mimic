@@ -34,7 +34,7 @@ fn sign_start(server: &Server, path: &str, signer: &str, values: &[(&str, &str)]
 }
 
 /// The session URI points at the advertised API origin; the test listener serves it.
-fn session_path(reply: &Reply, object_path: &str) -> String {
+pub(super) fn session_path(reply: &Reply, object_path: &str) -> String {
     reply.expect(201);
     assert!(reply.body.is_empty());
     let location: Uri = reply.headers["location"].parse().unwrap();

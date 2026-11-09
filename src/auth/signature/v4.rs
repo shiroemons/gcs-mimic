@@ -2,9 +2,149 @@
 
 pub(super) use super::verify::{Algorithm, Prepared};
 use super::*;
+use std::str::FromStr;
 
 #[cfg(test)]
 mod tests;
+
+/// Which naming of the V4 query parameters a signer used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Family {
+    Google,
+    Aws,
+}
+
+impl Family {
+    const fn other(self) -> Self {
+        match self {
+            Self::Google => Self::Aws,
+            Self::Aws => Self::Google,
+        }
+    }
+
+    const fn date_header(self) -> &'static str {
+        match self {
+            Self::Google => "x-goog-date",
+            Self::Aws => "x-amz-date",
+        }
+    }
+
+    const fn content_sha256_header(self) -> &'static str {
+        match self {
+            Self::Google => "x-goog-content-sha256",
+            Self::Aws => "x-amz-content-sha256",
+        }
+    }
+
+    const fn credential_service(self) -> [&'static str; 2] {
+        match self {
+            Self::Google => ["storage", "goog4_request"],
+            Self::Aws => ["s3", "aws4_request"],
+        }
+    }
+}
+
+impl From<Family> for ExpiresParameter {
+    fn from(family: Family) -> Self {
+        match family {
+            Family::Google => Self::Google,
+            Family::Aws => Self::Aws,
+        }
+    }
+}
+
+/// What a V4 query parameter carries: the part of its name after the family prefix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Field {
+    Algorithm,
+    Credential,
+    Date,
+    Expires,
+    SignedHeaders,
+    Signature,
+}
+
+impl FromStr for Field {
+    type Err = NotV4Parameter;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        [
+            ("Algorithm", Self::Algorithm),
+            ("Credential", Self::Credential),
+            ("Date", Self::Date),
+            ("Expires", Self::Expires),
+            ("SignedHeaders", Self::SignedHeaders),
+            ("Signature", Self::Signature),
+        ]
+        .into_iter()
+        .find_map(|(spelling, field)| name.eq_ignore_ascii_case(spelling).then_some(field))
+        .ok_or(NotV4Parameter)
+    }
+}
+
+/// A V4 signing query parameter. Its name parses in any ASCII case, because `gsutil signurl` and
+/// `gcloud storage sign-url` send lowercase names. V2 names are not V4 parameters, and their
+/// parser reads only the exact spellings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct V4Parameter {
+    family: Family,
+    field: Field,
+}
+
+impl V4Parameter {
+    pub(super) fn is_signature(self) -> bool {
+        self.field == Field::Signature
+    }
+}
+
+/// The lowercase name Cloud Storage's error details use.
+impl fmt::Display for V4Parameter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = match self.family {
+            Family::Google => "x-goog-",
+            Family::Aws => "x-amz-",
+        };
+        let field = match self.field {
+            Field::Algorithm => "algorithm",
+            Field::Credential => "credential",
+            Field::Date => "date",
+            Field::Expires => "expires",
+            Field::SignedHeaders => "signedheaders",
+            Field::Signature => "signature",
+        };
+        write!(formatter, "{prefix}{field}")
+    }
+}
+
+/// A query name that does not identify a V4 signing parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NotV4Parameter;
+
+impl fmt::Display for NotV4Parameter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("not a V4 signing query parameter")
+    }
+}
+
+impl std::error::Error for NotV4Parameter {}
+
+impl FromStr for V4Parameter {
+    type Err = NotV4Parameter;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let (family, field) = [("X-Goog-", Family::Google), ("X-Amz-", Family::Aws)]
+            .into_iter()
+            .find_map(|(prefix, family)| {
+                let (head, field) = name.split_at_checked(prefix.len())?;
+                head.eq_ignore_ascii_case(prefix).then_some((family, field))
+            })
+            .ok_or(NotV4Parameter)?;
+        Ok(Self {
+            family,
+            field: field.parse()?,
+        })
+    }
+}
 
 impl Algorithm {
     fn parse(raw: &str) -> Result<Self, Failure> {
@@ -16,11 +156,10 @@ impl Algorithm {
         }
     }
 
-    fn parameter_prefix(self) -> &'static str {
-        if self == Self::AwsHmac {
-            "X-Amz-"
-        } else {
-            "X-Goog-"
+    fn family(self) -> Family {
+        match self {
+            Self::AwsHmac => Family::Aws,
+            Self::Rsa | Self::GoogleHmac | Self::LegacyHmacSha1 => Family::Google,
         }
     }
 
@@ -31,13 +170,6 @@ impl Algorithm {
             Self::GoogleHmac => Ok("GOOG4-HMAC-SHA256"),
             Self::AwsHmac => Ok("AWS4-HMAC-SHA256"),
             Self::LegacyHmacSha1 => Err(Failure::Malformed),
-        }
-    }
-
-    fn expires_parameter(self) -> ExpiresParameter {
-        match self {
-            Self::AwsHmac => ExpiresParameter::Aws,
-            Self::Rsa | Self::GoogleHmac | Self::LegacyHmacSha1 => ExpiresParameter::Google,
         }
     }
 }
@@ -107,21 +239,24 @@ pub(super) fn prepare(
     {
         return Err(Failure::Malformed);
     }
-    let (algorithm, credential, date, signed, signature, expires) = if header {
-        header_fields(headers)?
+    let Fields {
+        algorithm,
+        credential,
+        date,
+        signed_headers: signed,
+        signature,
+        expires,
+    } = if header {
+        Fields::try_from(headers)?
     } else {
         if headers.contains_key("authorization") {
             return Err(Failure::Malformed);
         }
-        query_fields(&query)?
+        Fields::try_from(&query)?
     };
     let active = parse_timestamp(date).map_err(|_| Failure::Malformed)?;
-    let expected = if algorithm == Algorithm::AwsHmac {
-        ["s3", "aws4_request"]
-    } else {
-        ["storage", "goog4_request"]
-    };
-    let credential = CredentialScope::parse(credential, date, expected)?;
+    let family = algorithm.family();
+    let credential = CredentialScope::parse(credential, date, family.credential_service())?;
     if now
         .checked_add(Duration::from_secs(900))
         .is_none_or(|now| now < active)
@@ -154,12 +289,11 @@ pub(super) fn prepare(
             Signing::Query
         },
     )?;
-    let opposite = if algorithm == Algorithm::AwsHmac {
-        ["x-goog-date", "x-goog-content-sha256"]
-    } else {
-        ["x-amz-date", "x-amz-content-sha256"]
-    };
-    if opposite.iter().any(|name| headers.contains_key(*name)) {
+    let other = family.other();
+    if [other.date_header(), other.content_sha256_header()]
+        .iter()
+        .any(|name| headers.contains_key(*name))
+    {
         return Err(Failure::Malformed);
     }
     let hash = if streaming {
@@ -167,13 +301,7 @@ pub(super) fn prepare(
     } else {
         payload_hash(headers)?
     };
-    if header
-        && !headers.contains_key(if algorithm == Algorithm::AwsHmac {
-            "x-amz-content-sha256"
-        } else {
-            "x-goog-content-sha256"
-        })
-    {
+    if header && !headers.contains_key(family.content_sha256_header()) {
         return Err(Failure::Malformed);
     }
     let payload = if streaming {
@@ -234,92 +362,132 @@ fn supported_request(
     Ok(())
 }
 
-type Fields<'a> = (Algorithm, &'a str, &'a str, &'a str, &'a str, u64);
+/// The V4 signing inputs of one request, all present once parsing succeeds.
+struct Fields<'a> {
+    algorithm: Algorithm,
+    credential: &'a str,
+    date: &'a str,
+    signed_headers: &'a str,
+    signature: &'a str,
+    expires: u64,
+}
 
-fn query_fields(query: &BTreeMap<String, String>) -> Result<Fields<'_>, Failure> {
-    let google = query.get("X-Goog-Algorithm");
-    let aws = query.get("X-Amz-Algorithm");
-    let algorithm = Algorithm::parse(google.or(aws).ok_or(Failure::Malformed)?)?;
-    let prefix = algorithm.parameter_prefix();
-    if query.keys().any(|name| {
-        signing_param(name.as_bytes()).is_some()
-            && (!name.starts_with(prefix)
-                || !(PARAMETERS.contains(&name.as_str())
-                    || AWS_PARAMETERS.contains(&name.as_str())))
-    }) {
-        return Err(Failure::Malformed);
+/// One value per field while a query is parsed; the parser's result is a complete `Fields`.
+#[derive(Default)]
+struct QueryValues<'a> {
+    algorithm: Option<&'a str>,
+    credential: Option<&'a str>,
+    date: Option<&'a str>,
+    expires: Option<&'a str>,
+    signed_headers: Option<&'a str>,
+    signature: Option<&'a str>,
+}
+
+impl<'a> QueryValues<'a> {
+    /// Rejects a second value: spellings that differ only in case would all reach the canonical
+    /// query while only one of them supplied the value.
+    fn set(&mut self, parameter: V4Parameter, value: &'a str) -> Result<(), Failure> {
+        let slot = match parameter.field {
+            Field::Algorithm => &mut self.algorithm,
+            Field::Credential => &mut self.credential,
+            Field::Date => &mut self.date,
+            Field::Expires => &mut self.expires,
+            Field::SignedHeaders => &mut self.signed_headers,
+            Field::Signature => &mut self.signature,
+        };
+        if slot.replace(value).is_some() {
+            return Err(Failure::RepeatedParameter(parameter));
+        }
+        Ok(())
     }
-    let required = |suffix| {
-        query
-            .get(&format!("{prefix}{suffix}"))
-            .filter(|value| !value.is_empty())
-            .map(String::as_str)
-            .ok_or(Failure::Malformed)
-    };
-    let raw = required("Expires")?;
-    let out_of_range = |value| Failure::ExpiresOutOfRange(algorithm.expires_parameter(), value);
-    let expires = match raw
+}
+
+fn non_empty(value: Option<&str>) -> Result<&str, Failure> {
+    value
+        .filter(|value| !value.is_empty())
+        .ok_or(Failure::Malformed)
+}
+
+/// A lifetime in whole seconds within `1..=MAX_EXPIRES`.
+fn parse_expires(raw: &str, parameter: ExpiresParameter) -> Result<u64, Failure> {
+    let out_of_range = |value| Failure::ExpiresOutOfRange(parameter, value);
+    match raw
         .parse::<u64>()
         .ok()
         .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
     {
-        Some(seconds @ 1..=MAX_EXPIRES) => seconds,
-        Some(0) => return Err(out_of_range(InvalidExpires::Zero)),
-        Some(_) | None => return Err(out_of_range(InvalidExpires::Other)),
-    };
-    Ok((
-        algorithm,
-        required("Credential")?,
-        required("Date")?,
-        required("SignedHeaders")?,
-        required("Signature")?,
-        expires,
-    ))
+        Some(seconds @ 1..=MAX_EXPIRES) => Ok(seconds),
+        Some(0) => Err(out_of_range(InvalidExpires::Zero)),
+        Some(_) | None => Err(out_of_range(InvalidExpires::Other)),
+    }
 }
 
-fn header_fields(headers: &HeaderMap) -> Result<Fields<'_>, Failure> {
-    let mut values = headers.get_all("authorization").iter();
-    let raw = values
-        .next()
-        .ok_or(Failure::Malformed)?
-        .to_str()
-        .map_err(|_| Failure::Malformed)?;
-    if values.next().is_some() {
-        return Err(Failure::Malformed);
-    }
-    let (algorithm, fields) = raw.split_once(' ').ok_or(Failure::Malformed)?;
-    let algorithm = Algorithm::parse(algorithm)?;
-    let mut parsed = BTreeMap::new();
-    for field in fields.split(',') {
-        let (name, value) = field.trim().split_once('=').ok_or(Failure::Malformed)?;
-        if !matches!(name, "Credential" | "SignedHeaders" | "Signature")
-            || value.is_empty()
-            || parsed.insert(name, value).is_some()
-        {
+impl<'a> TryFrom<&'a BTreeMap<String, String>> for Fields<'a> {
+    type Error = Failure;
+
+    fn try_from(query: &'a BTreeMap<String, String>) -> Result<Self, Self::Error> {
+        let mut sent_family = None;
+        let mut values = QueryValues::default();
+        for (name, value) in query {
+            let Ok(parameter) = name.parse::<V4Parameter>() else {
+                continue;
+            };
+            if *sent_family.get_or_insert(parameter.family) != parameter.family {
+                return Err(Failure::Malformed);
+            }
+            values.set(parameter, value)?;
+        }
+        let QueryValues {
+            algorithm,
+            credential,
+            date,
+            expires,
+            signed_headers,
+            signature,
+        } = values;
+        let algorithm = Algorithm::parse(algorithm.ok_or(Failure::Malformed)?)?;
+        let family = algorithm.family();
+        if sent_family != Some(family) {
             return Err(Failure::Malformed);
         }
+        let expires = parse_expires(non_empty(expires)?, family.into())?;
+        Ok(Self {
+            algorithm,
+            credential: non_empty(credential)?,
+            date: non_empty(date)?,
+            signed_headers: non_empty(signed_headers)?,
+            signature: non_empty(signature)?,
+            expires,
+        })
     }
-    let required = |name| parsed.get(name).copied().ok_or(Failure::Malformed);
-    let name = if algorithm == Algorithm::AwsHmac {
-        "x-amz-date"
-    } else {
-        "x-goog-date"
-    };
-    let mut dates = headers.get_all(name).iter();
-    let date = dates
-        .next()
-        .ok_or(Failure::Malformed)?
-        .to_str()
-        .map_err(|_| Failure::Malformed)?;
-    if dates.next().is_some() {
-        return Err(Failure::Malformed);
+}
+
+impl<'a> TryFrom<&'a HeaderMap> for Fields<'a> {
+    type Error = Failure;
+
+    fn try_from(headers: &'a HeaderMap) -> Result<Self, Self::Error> {
+        let raw = single(headers, "authorization")?.ok_or(Failure::Malformed)?;
+        let (algorithm, fields) = raw.split_once(' ').ok_or(Failure::Malformed)?;
+        let algorithm = Algorithm::parse(algorithm)?;
+        let mut parsed = BTreeMap::new();
+        for field in fields.split(',') {
+            let (name, value) = field.trim().split_once('=').ok_or(Failure::Malformed)?;
+            if !matches!(name, "Credential" | "SignedHeaders" | "Signature")
+                || value.is_empty()
+                || parsed.insert(name, value).is_some()
+            {
+                return Err(Failure::Malformed);
+            }
+        }
+        let required = |name| parsed.get(name).copied().ok_or(Failure::Malformed);
+        let date = single(headers, algorithm.family().date_header())?.ok_or(Failure::Malformed)?;
+        Ok(Self {
+            algorithm,
+            credential: required("Credential")?,
+            date,
+            signed_headers: required("SignedHeaders")?,
+            signature: required("Signature")?,
+            expires: 900,
+        })
     }
-    Ok((
-        algorithm,
-        required("Credential")?,
-        date,
-        required("SignedHeaders")?,
-        required("Signature")?,
-        900,
-    ))
 }

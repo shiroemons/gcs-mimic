@@ -63,9 +63,8 @@ impl From<MalformedRange<'_>> for Error {
             Reason::NotAPair => "Invalid argument.".to_owned(),
             _ => format!("The {HEADER} header you specified was invalid"),
         };
-        let mut failure = Self::new(XmlCode::ContentLengthRangeInHeaderIsInvalid, message);
-        failure.details = Some(error.to_string());
-        failure
+        Self::new(XmlCode::ContentLengthRangeInHeaderIsInvalid, message)
+            .with_details(error.to_string())
     }
 }
 
@@ -110,21 +109,19 @@ impl LengthRange {
 
     /// The failure for a body larger than the range's maximum.
     pub(crate) fn exceeded() -> Error {
-        let mut failure = Error::new(
+        Error::new(
             XmlCode::EntityTooLarge,
             "Your proposed upload is larger than the maximum object size specified in your Policy Document.",
-        );
-        failure.details = Some("Content-length exceeds upper bound on range".to_owned());
-        failure
+        )
+        .with_details("Content-length exceeds upper bound on range")
     }
 
     fn undersized() -> Error {
-        let mut failure = Error::new(
+        Error::new(
             XmlCode::EntityTooSmall,
             "Your proposed upload is smaller than the minimum object size specified in your Policy Document.",
-        );
-        failure.details = Some("Content-length smaller than lower bound on range".to_owned());
-        failure
+        )
+        .with_details("Content-length smaller than lower bound on range")
     }
 
     pub(crate) fn check(self, size: u64) -> Result<(), Error> {

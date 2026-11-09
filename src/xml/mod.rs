@@ -127,6 +127,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
         }
     };
     match failure {
+        Failure::RepeatedParameter(parameter) => Error::excess_header_values(parameter.to_string()),
         Failure::Malformed => Error::new(
             XmlCode::InvalidAuthentication,
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
@@ -308,22 +309,35 @@ impl Error {
     /// The 416 for a Range no byte satisfies; `Details` echoes the request's Range value as
     /// Cloud Storage does (observed 2026-10-31).
     pub(crate) fn unsatisfiable_range(requested: &str) -> Self {
-        let mut error = Self::new(
+        Self::new(
             XmlCode::InvalidRange,
             "The requested range cannot be satisfied.",
-        );
-        error.details = Some(requested.to_owned());
-        error
+        )
+        .with_details(requested)
+    }
+
+    /// Adds the `Details` element, where Cloud Storage says what was wrong.
+    pub(crate) fn with_details(mut self, details: impl Into<String>) -> Self {
+        self.details = Some(details.into());
+        self
     }
 
     /// The 400 for a Range header with several ranges; `Details` echoes the header as
     /// Cloud Storage does (observed 2026-10-31).
     pub(crate) fn multiple_ranges(requested: &str) -> Self {
-        let mut error = Self::invalid("Invalid argument.");
-        error.details = Some(format!(
+        Self::invalid_argument(format!(
             "Multiple ranges are not supported; Range:{requested}"
-        ));
-        error
+        ))
+    }
+
+    /// Cloud Storage's generic 400, whose `Details` says what was wrong.
+    fn invalid_argument(details: impl Into<String>) -> Self {
+        Self::invalid("Invalid argument.").with_details(details)
+    }
+
+    /// The 400 for an input given twice, where `Details` names it (observed 2026-11-09).
+    fn excess_header_values(details: impl Into<String>) -> Self {
+        Self::new(XmlCode::ExcessHeaderValues, "Invalid argument.").with_details(details)
     }
 
     pub(crate) fn unsupported(name: &str) -> Self {
@@ -799,9 +813,11 @@ const RECOGNIZED_UNSUPPORTED_QUERY: &[&str] = &[
     "userProject",
 ];
 
+/// Query names owned by the signature layer, which operation parsing must not read as options.
+/// V4 names match in any ASCII case, as the verifier does. V2 names stay exact, matching the
+/// only spellings its parser reads.
 fn signing_parameter(key: &str) -> bool {
-    crate::auth::signature::PARAMETERS.contains(&key)
-        || crate::auth::signature::AWS_PARAMETERS.contains(&key)
+    key.parse::<crate::auth::signature::V4Parameter>().is_ok()
         || crate::auth::signature::V2_PARAMETERS.contains(&key)
 }
 

@@ -71,6 +71,98 @@ fn unsigned(path: &str) -> Signed {
     }
 }
 
+/// A V4 HMAC query signature made over lowercase parameter names, as gsutil and gcloud send them.
+fn lowercase_v4(key: &Key, aws: bool, method: &str, path: &str, now: SystemTime) -> Signed {
+    let date = timestamp(now).unwrap();
+    let (family, algorithm, scope) = if aws {
+        (
+            "x-amz-",
+            "AWS4-HMAC-SHA256",
+            format!("{}/auto/s3/aws4_request", &date[..8]),
+        )
+    } else {
+        (
+            "x-goog-",
+            "GOOG4-HMAC-SHA256",
+            format!("{}/auto/storage/goog4_request", &date[..8]),
+        )
+    };
+    let query = [
+        ("algorithm", algorithm.to_owned()),
+        ("credential", format!("{}/{scope}", key.id)),
+        ("date", date.clone()),
+        ("expires", "60".to_owned()),
+        ("signedheaders", "host".to_owned()),
+    ]
+    .map(|(name, value)| format!("{family}{name}={}", encode_query_component(&value)))
+    .join("&");
+    let canonical = format!("{method}\n{path}\n{query}\nhost:localhost\n\nhost\nUNSIGNED-PAYLOAD");
+    let hash = digest::digest(&digest::SHA256, canonical.as_bytes());
+    let message = format!("{algorithm}\n{date}\n{scope}\n{}", hex(hash.as_ref()));
+    Signed {
+        path: format!(
+            "{path}?{query}&{family}signature={}",
+            signature(key, aws, &scope, &message)
+        ),
+        headers: String::new(),
+    }
+}
+
+#[test]
+fn lowercase_v4_query_names_verify_and_stay_bound_for_both_families() {
+    let dir = TestDir::new();
+    let server = permissive(&dir, &["--signed-urls", "verify"]);
+    server.bucket("test-bucket");
+    let key = server.key("unregistered@example.invalid");
+    let now = SystemTime::now();
+    for aws in [false, true] {
+        let path = format!("/test-bucket/lowercase-{aws}");
+        let put = lowercase_v4(&key, aws, "PUT", &path, now);
+        server.signed("PUT", &put, b"lowercase").expect(200);
+        let mut get = lowercase_v4(&key, aws, "GET", &path, now);
+        let reply = server.signed("GET", &get, b"");
+        reply.expect(200);
+        assert_eq!(reply.body, b"lowercase");
+        get.path = get.path.replace("/lowercase-", "/changed-");
+        error(
+            &server.signed("GET", &get, b""),
+            403,
+            "SignatureDoesNotMatch",
+        );
+    }
+}
+
+#[test]
+fn ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation() {
+    let dir = TestDir::new();
+    let server = permissive(&dir, &[]);
+    let date = "20261023T120000Z";
+    for (family, algorithm, bucket) in [
+        ("x-goog-", "GOOG4-RSA-SHA256", "lowercase-goog"),
+        ("x-amz-", "AWS4-HMAC-SHA256", "lowercase-amz"),
+    ] {
+        // The default profile ignores signatures, so only the names decide these outcomes.
+        let signing = format!(
+            "{family}algorithm={algorithm}&{family}credential=key&{family}date={date}&{family}expires=60&{family}signedheaders=host&{family}signature=00"
+        );
+        let target = format!("/{bucket}?{signing}");
+        let create = Signed {
+            path: target.clone(),
+            headers: "x-goog-project-id: local\r\n".into(),
+        };
+        bare(&server, "PUT", &create, b"").expect(200);
+        bare(&server, "GET", &unsigned(&target), b"").expect(200);
+        let object = format!("/{bucket}/object?{signing}");
+        bare(&server, "PUT", &unsigned(&object), b"lower").expect(200);
+        let reply = bare(&server, "GET", &unsigned(&object), b"");
+        reply.expect(200);
+        assert_eq!(reply.body, b"lower");
+        let multipart = unsigned(&format!("/{bucket}/parts?uploads&{signing}"));
+        bare(&server, "POST", &multipart, b"").expect(200);
+        bare(&server, "DELETE", &unsigned(&object), b"").expect(204);
+    }
+}
+
 #[test]
 fn verified_signatures_get_permissive_access_without_any_grant() {
     let dir = TestDir::new();

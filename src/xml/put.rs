@@ -392,12 +392,11 @@ fn upload_error(
         }
         return failure;
     }
-    let mut failure = Error::new(
+    Error::new(
         XmlCode::BadDigest,
         "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.",
-    );
-    failure.details = Some(object);
-    failure
+    )
+    .with_details(object)
 }
 
 /// A CRC32C as Cloud Storage prints it in a mismatch: unpadded hex, then the base64 form.
