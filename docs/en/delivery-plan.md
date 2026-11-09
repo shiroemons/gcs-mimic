@@ -535,6 +535,8 @@ queue above takes precedence over their historical numeric ordering.
 | P6 gRPC and Rapid | Remaining Storage v2 RPCs/fields and full Rapid bucket semantics beyond the delivered appendable objects |
 | P7 Extended capabilities | Caches, analytics/jobs/events, contexts, infrastructure adapters and extended clients |
 
+Research for the larger follow-up slices records contracts, code touchpoints, designs and acceptance cases: [lifecycle execution](slices/lifecycle-execution-research.md), [Cloud KMS](slices/cloud-kms-research.md), [managed folders](slices/managed-folders-research.md) and [hierarchical namespace, folders and zonal Rapid buckets](slices/hierarchical-zonal-research.md). None of it is implemented; the ledger owns status.
+
 ## First useful release
 
 The first developer release retains the P1 core plus essential P2 public/private
