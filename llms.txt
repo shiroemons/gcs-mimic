@@ -1,0 +1,254 @@
+# gcs-mimic
+
+> gcs-mimic is a local Google Cloud Storage emulator for development and CI, written in Rust. Official Cloud Storage SDKs connect to it anonymously and it never contacts Google. It is an independent project, not an official Google product, and it is for local development and tests only, never for production data.
+
+This file has what an ordinary setup needs. Open a linked file only when its note matches your task. If something is not stated here, do not guess: find it in a linked file or say it is unknown.
+
+Examples use image tag 0.14.0, the latest release on 2026-11-09. Newer tags are listed at https://github.com/shiroemons/gcs-mimic/releases/latest. Pin an exact tag; `latest` can move to a new minor version with breaking changes. The same image is on Docker Hub as `shiroemons/gcs-mimic:0.14.0`, for linux/amd64 and linux/arm64.
+
+**Choose a setup**
+
+| The project needs | Use |
+| --- | --- |
+| To store and read objects in development or tests | Setup A |
+| Several buckets, or CORS rules per bucket | Setup B |
+| Private buckets that refuse anonymous reads, or permission tests | Setup C |
+| Browsers uploading files, or reading private objects, with access control | Setup C plus signed URLs |
+| Rails in strict mode | Rails guide, linked below |
+| To replace fake-gcs-server | Migration notes below, then the migration guide |
+
+**Setup A: default mode. Every request is allowed and nothing is checked.**
+
+```yaml
+services:
+  gcs:
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+    ports:
+      - "127.0.0.1:4443:4443"
+    environment:
+      GCS_MIMIC_SCHEME: http
+    volumes:
+      - gcs-data:/var/lib/gcs-mimic
+  app:
+    build: .
+    environment:
+      # Go only. For other clients, remove it and set the endpoint in code.
+      STORAGE_EMULATOR_HOST: gcs:4443
+    depends_on:
+      gcs:
+        condition: service_healthy
+volumes:
+  gcs-data:
+```
+
+Start it with `docker compose up -d --wait`, which returns once the emulator is healthy. The image has its own healthcheck, so do not add one.
+
+**Setup B: Setup A with buckets declared at startup. Nothing is private yet.** Replace the `gcs` service:
+
+```yaml
+  gcs:
+    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+    ports:
+      - "127.0.0.1:4443:4443"
+    environment:
+      GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_BUCKETS: |
+        {"version": 1, "buckets": [
+          {"name": "public-assets",
+           "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]},
+           "cors": [{"origin": ["http://localhost:3000"], "method": ["GET", "HEAD", "PUT"],
+                     "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]},
+          {"name": "private-uploads"}
+        ]}
+    volumes:
+      - gcs-data:/var/lib/gcs-mimic
+```
+
+- Each bucket needs `name`. Optional fields are `cors`, `iamPolicy`, `versioning` (`{"enabled": true}`) and `softDeletePolicy`. In a `cors` rule, `origin` and `method` are enough; `responseHeader` and `maxAgeSeconds` are optional. Unknown fields and `lifecycle` make startup fail; set lifecycle rules through the API instead.
+- The default project is `local-project`. A top-level `"project": "NAME"` changes it.
+- Edits to this setting reach existing buckets at the next start. Removing an entry never deletes a bucket.
+- Compose expands `${VAR}` inside the value, so write a literal `$` as `$$`.
+- In this mode CORS rules apply, but both buckets are readable by anyone. `iamPolicy` is stored and has no effect until Setup C.
+
+**Setup C: Setup B with public and private enforced.** Add these two lines to the `gcs` service's `environment`:
+
+```yaml
+      GCS_MIMIC_AUTH_MODE: strict
+      GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444 # never publish this port
+```
+
+Then point the application's servers at port 4444, for example `STORAGE_EMULATOR_HOST: gcs:4444` for Go. Do not add 4444 to `ports`. Browsers keep using the published port 4443.
+
+- A bucket whose policy grants `allUsers` is readable by anyone. Any other bucket answers 401 to requests without credentials.
+- The trusted listener is a plain HTTP port for servers on the Compose network. Requests without credentials there act as `trusted-app@gcs-mimic.invalid`, which has `roles/storage.admin` on project `local-project` and on the project of every bucket in `GCS_MIMIC_BUCKETS`.
+- It accepts a host name without dots, such as `gcs` or `my-storage`, plus `localhost` and IP addresses. For a name with dots, also set `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` to that name.
+- It refuses requests with an `Origin` header, so browsers cannot use it.
+- gRPC has no trusted listener. In strict mode a gRPC request without a local bearer token is anonymous, so anonymous gRPC clients, including Rust `StorageControl`, cannot manage buckets or reach private ones. Declare buckets in `GCS_MIMIC_BUCKETS`. Strict mode with the Rust SDK is untested.
+- `roles/storage.objectViewer` grants reads only. An anonymous upload answers 401 even when CORS allows `PUT`, so browsers need a signed URL to upload or to read a private bucket.
+- No certificate, key or service account is needed.
+
+**Signed URLs for browsers in Setup C.** Add `GCS_MIMIC_TEST_SIGNER: enabled` to `environment`. The bucket's `cors` must list the browser's origin, `PUT` and `Content-Type`. This built-in signer's private key is published, so use it for local tests only. Save the key once:
+
+```sh
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 test-signer credentials | jq -r .private_key > test-signer.pem
+```
+
+Give that file to your servers, for example with a read-only mount, then sign for the address the browser uses, never for port 4444:
+
+```go
+key, err := os.ReadFile("test-signer.pem")
+if err != nil {
+    return err
+}
+url, err := storage.SignedURL("public-assets", "uploads/photo.jpg", &storage.SignedURLOptions{
+    Scheme:         storage.SigningSchemeV4,
+    GoogleAccessID: "test-signer@gcs-mimic.invalid",
+    PrivateKey:     key,
+    Method:         "PUT",
+    ContentType:    "image/jpeg",
+    Expires:        time.Now().Add(15 * time.Minute),
+    Hostname:       "localhost:4443",
+    Insecure:       true,
+})
+```
+
+The browser must send the signed `Content-Type`. To make a URL without code, run `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 url sign --base-url http://localhost:4443 --bucket public-assets --object a.txt --method PUT --expires 10m --header content-type:text/plain`.
+
+**Without Compose**
+
+```sh
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.14.0
+curl -sS --fail --retry 30 --retry-all-errors --retry-delay 1 \
+  -o /dev/null http://localhost:4443/_internal/ready
+curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
+  'http://localhost:4443/storage/v1/b?project=local-project'
+```
+
+**GitHub Actions.** The `curl` commands were checked against the image with the port published on the host. The workflow itself has not been run on GitHub.
+
+```yaml
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      gcs:
+        image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+        env:
+          GCS_MIMIC_SCHEME: http
+        ports:
+          - 4443:4443
+    steps:
+      - run: curl -sS --fail --retry 30 --retry-all-errors --retry-delay 1 -o /dev/null http://localhost:4443/_internal/ready
+      - run: >
+          curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"ci-bucket"}'
+          'http://localhost:4443/storage/v1/b?project=local-project'
+```
+
+Steps that run directly on the runner use `localhost:4443`.
+
+**Without Docker.** Native archives for macOS, Windows and Linux are on the releases page. Run `gcs-mimic serve --scheme http --listen 127.0.0.1:4443 --data-dir ./gcs-data`.
+
+**Connect a client.** Replace E with the endpoint. Inside a container, `localhost` is that container, so use the Compose service name (`gcs` here). In Setup C, servers use port 4444 instead of 4443, and browsers stay on 4443.
+
+| Client | Code or setting | E from the host | E from a Compose service |
+| --- | --- | --- | --- |
+| Go | Env `STORAGE_EMULATOR_HOST=E` (`host:port` or a full URL both work), then `storage.NewClient(ctx)` from `cloud.google.com/go/storage` | `localhost:4443` | `gcs:4443` |
+| Ruby | `require "google/cloud/storage"`; `storage = Google::Cloud::Storage.anonymous(endpoint: E)`; `storage.service.project = "local-project"` | `http://localhost:4443/` | `http://gcs:4443/` |
+| Node.js | `import {Storage} from '@google-cloud/storage'`; `new Storage({projectId: 'local-project', apiEndpoint: E})`. Leave `STORAGE_EMULATOR_HOST` unset; this SDK reads it as a path | `http://localhost:4443` | `http://gcs:4443` |
+| Python | `from google.auth.credentials import AnonymousCredentials`; `from google.cloud import storage`; `storage.Client(project="local-project", credentials=AnonymousCredentials(), client_options={"api_endpoint": E})` | `http://localhost:4443` | `http://gcs:4443` |
+| PHP | `use Google\Cloud\Core\AnonymousCredentials`; `use Google\Cloud\Storage\StorageClient`; `new StorageClient(['projectId' => 'local-project', 'apiEndpoint' => E, 'credentialsFetcher' => new AnonymousCredentials()])` | `http://localhost:4443` | `http://gcs:4443` |
+| Java | `HttpStorageOptions.newBuilder().setHost(E).setProjectId("local-project").setCredentials(NoCredentials.getInstance()).build().getService()` from `com.google.cloud.storage` and `com.google.cloud.NoCredentials` | `http://localhost:4443` | `http://gcs:4443` |
+| .NET | `using Google.Cloud.Storage.V1`; `new StorageClientBuilder { BaseUri = E, UnauthenticatedAccess = true }.Build()` | `http://localhost:4443/storage/v1/` | `http://gcs:4443/storage/v1/` |
+| Rust | `Storage::builder().with_endpoint(E).with_credentials(anonymous::Builder::new().build()).build().await?` from `google_cloud_storage::client::Storage` and `google_cloud_auth::credentials::anonymous`. `Storage` uses HTTP. `StorageControl` manages buckets over gRPC, so set `GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444` and use the same builder on that port. Publish that port only for a client on the host. In Setup C, 4444 is the trusted listener, so gRPC needs another port such as 4445; see the gRPC note in Setup C | `http://localhost:4443` | `http://gcs:4443` |
+| gcloud | `CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=E`, `CLOUDSDK_AUTH_DISABLE_CREDENTIALS=True`, `CLOUDSDK_CORE_PROJECT=local-project` and a throwaway `CLOUDSDK_CONFIG` | `http://localhost:4443/` | `http://gcs:4443/` |
+| Rails Active Storage | `config/storage.yml` entry with `service: GCS`, `endpoint: E`, `universe_domain: gcs-emulator.invalid`, plus project, bucket and local credentials. See the Rails guide | `http://localhost:4443/` | `http://gcs:4443/` |
+
+Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.1, Node.js @google-cloud/storage 8.4.0 on Node.js 24+, Python google-cloud-storage 3.17.1, PHP google/cloud-storage 2.6.1, Java google-cloud-storage 2.78.0, .NET Google.Cloud.Storage.V1 5.0.0, Rust google-cloud-storage 1.21.0. Other versions are untested.
+
+**What works.** Each item works in a tested scope, not with every field of the Google API.
+
+- Buckets: create, get, list, delete, labels, PATCH and PUT, versioning, CORS, retention and lock, uniform bucket-level access, public access prevention, IAM policies, soft-delete policy, ACLs and default ACLs.
+- Objects: single, multipart and resumable uploads, checksums, range reads, PATCH, delete, generation and metageneration conditions, listing with prefix, delimiter, paging, offsets and glob, copy, rewrite, compose, move, version history, holds, object retention, custom time, storage class, gzip transcoding, customer-supplied keys, soft delete and restore.
+- XML API: path-style GET, HEAD and PUT, listing, copy and multipart upload. Virtual-host style is opt-in.
+- Signed requests: V4 GET and PUT, V2 GET, V4 POST policy, HMAC keys. Signatures are checked only in strict mode or with `GCS_MIMIC_SIGNED_URLS=verify`; otherwise they are accepted unchecked.
+- gRPC Storage v2 with the Go client, on an optional listener: bucket and object operations, resumable uploads, ranged and bidirectional reads, appendable objects in ordinary buckets.
+- Local features: preloading files from `/data`, buckets at startup, data that survives restart, HTTPS with a built-in development certificate, a RAM backend.
+
+**What works differently or only partly**
+
+- Lifecycle rules are stored and returned but never executed, so objects are not deleted or moved by them.
+- ACLs are stored and returned. Default mode never enforces them. Strict mode enforces IAM roles, and object ACL `READER` and `OWNER` grants allow reads.
+- Bucket notifications are delivered only to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`.
+- Location and storage class are metadata. Nothing is physically placed.
+- Customer-supplied keys are required to read an object, but the data is not encrypted on disk.
+- The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds 64 MiB of object bytes by default. Data is lost at exit.
+- A sync directory mirrors objects as files. Its conflict and recovery handling is partial.
+- Soft delete is off unless a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` turns it on, unlike Cloud Storage.
+- V2 signed URLs are a subset. Unsupported gRPC fields and methods return `UNIMPLEMENTED`.
+
+**Not provided:** IAM Conditions, Requester Pays billing and zonal Rapid buckets. A feature absent from these lists is unknown, not supported. To check one API method or feature, search the feature matrix: `curl -s https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/feature-matrix.md | grep -i 'objects\.rewrite'`. A row looks like `| JSON-OBJECTS-012 | objects.rewrite | PARTIAL | ...`. The status is `IMPLEMENTED` (all scoped cases pass), `PARTIAL` (scoped workflows work, some fields or cases do not) or `NOT_STARTED` (not implemented). Most items under "What works" are `PARTIAL`, because they work without covering every API field.
+
+**If something fails**
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `curl: (1) Received HTTP/0.9 when not allowed`, or an HTTP client gets a garbled reply or TLS error | The server speaks HTTPS by default | Set `GCS_MIMIC_SCHEME: http` |
+| `curl: (52) Empty reply from server` or a reset right after start | Still starting | Wait for `/_internal/ready` with `--retry-all-errors` |
+| 400 `Required parameter: project` | Bucket listing without a project | Add `?project=local-project` |
+| 401 `Login Required` | Strict mode, no credentials and no `allUsers` grant | Use the trusted listener from servers, or a signed URL or public bucket from browsers |
+| 403 on port 4444 | The request has an `Origin` header | Call that port from servers only |
+| 421 on port 4444 | The host name has dots | Set `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`, or use the one-word service name |
+| 403 `SignatureDoesNotMatch` | The URL or host changed after signing, or the key is unknown | Sign the final URL the client will use. Go storage drops a non-default port when signing; the built-in test signer accepts that |
+| 400 `ExpiredToken` | The signed URL expired | Sign a new URL |
+| Startup error `trusted_listen requires auth_mode=strict` | Trusted listener in default mode | Add `GCS_MIMIC_AUTH_MODE: strict`, or remove the listener |
+| Startup error naming a `GCS_MIMIC_*` key with an empty value | Compose `${VAR:-}` passes an empty string | Write the name with no value, so it is passed only when set |
+| The first request of a resumable upload works and the next cannot connect | A fixed address from `GCS_MIMIC_API_BASE_URL` | Remove it. Links then follow each request's address |
+| A browser cannot resolve `gcs` | Container names exist only inside the Compose network | Use `http://localhost:4443` in browser URLs |
+| 503 `backendError` with the RAM backend | Its budget ran out | Delete objects or raise `memory_max_bytes` |
+| The SDK tries to reach Google or a metadata server | No anonymous credentials or endpoint | Use the code in the client table |
+
+**Other rules**
+
+- Publish port 4443 on 127.0.0.1 only. The default mode accepts unauthenticated requests.
+- Tests that pass in default mode prove nothing about authorization or signed URLs.
+- The image has no shell and runs as UID/GID 10001. Do not write shell healthchecks or entrypoints. Files under `/data` must be readable by that user.
+- Files in `/var/lib/gcs-mimic` are opaque. Use the API, a `/data` mount or a sync directory.
+- A `/data` mount is applied on every startup and replaces API changes to the same object names.
+- Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` lists every option.
+- A passing SDK scorecard means ordinary workflows work, not that the API is complete.
+
+**Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most flags, `FAKE_GCS_*` variables and the `./data:/data` mount keep working. These do not carry over:
+
+- Objects in a `/storage` volume. `gcs-mimic import fake-gcs-server` stops on objects uploaded through fake-gcs-server's API in 0.14.0. Stop fake-gcs-server and copy names and bytes as below, then mount `./data:/data:ro`. Content types are derived again from file extensions; generations and custom metadata are lost.
+- Shells inside the container, and running as root.
+- In-process Go `fakestorage`. A subprocess facade covers a subset.
+- Testcontainers modules and other wrappers that hard-code the `fake-gcs-server` binary. Use a generic container adapter, described in the migration guide.
+- Bucket listing without `?project=`, which returns 400.
+
+```sh
+docker run --rm -v OLD_VOLUME:/storage:ro -v "$PWD/data:/out" busybox:1 \
+  sh -c 'cp -R /storage/. /out/ && rm -f /out/*.bucketMetadata && chmod -R a+rX /out'
+```
+
+## Docs
+
+- [Move from fake-gcs-server](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/migrate-from-fake-gcs-server.md): read before changing an existing fake-gcs-server setup
+- [Strict local recipe](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/examples/strict-local/README.md): read for signing in other languages, roles, or changing buckets later
+- [SDK setup](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/sdk-setup.md): read for HTTPS, gRPC or SDK-specific signed URL options
+- [Rails Active Storage](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/rails-active-storage.md): read for any Rails project
+- [Docker usage](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/container-usage.md): long; search it for a setting, seed files or the sync directory
+
+## Examples
+
+- [Runnable programs for every client](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/examples/README.md): read when the client table is not enough
+- [Full application example](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/examples/full-stack/README.md): read for a Go API, Rails app and frontend together in strict mode
+
+## Optional
+
+- [Feature matrix](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/feature-matrix.md): long; search it for one feature instead of reading it whole
+- [Signed URLs](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/signed-urls.md): long; read for V2, HMAC or POST policy details
+- [Local HTTPS](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/local-https.md): read to trust the development certificate
+- [Full migration reference](https://raw.githubusercontent.com/shiroemons/gcs-mimic/main/docs/en/fake-gcs-server-migration.md): long; search it for one flag or behavior
+- `compatibility/features.json` in the repository is the status ledger behind the feature matrix. It is 3.5 MB, so do not load it; search the feature matrix instead.
