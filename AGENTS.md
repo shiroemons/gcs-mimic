@@ -91,6 +91,7 @@ Write the code an experienced Rust engineer would approve in review, following t
 - gcs-mimic targets local-development scale (up to about a thousand objects per bucket); delivery speed takes priority over benchmarking. Do not build benchmark harnesses, repeated-sample baselines or regression gates for ordinary slices. Measure only when a slice's purpose is performance, with one short run at that scale, and record the result as a fact rather than a gate.
 - When measuring resources, keep process RSS and cgroup memory separate and compare only equivalent profiles and workloads. Bounded streaming and memory that does not grow with object count remain design requirements enforced by code and review.
 - Do not weaken checksums, authorization, synchronization or durability to improve a benchmark without an explicit documented profile and tradeoff.
+- Save time by running independent work in parallel or concurrently, including pre-push checks: dependency freshness, lint, documentation checks and image builds can run while tests do. Check serially what is hard to run together or to diagnose, such as test binaries with wall-clock deadlines on a system disk.
 
 ## Language and delivery
 
