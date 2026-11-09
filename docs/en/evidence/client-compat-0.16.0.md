@@ -26,13 +26,23 @@ One further run used a temporary service account whose only role was on a dispos
 | AWS4 PUT with `x-amz-storage-class: NEARLINE` | 200, stored as NEARLINE |
 | AWS4 copy with `x-amz-copy-source`, with and without `x-amz-metadata-directive: REPLACE` | 200 and the expected metadata and content type |
 | AWS4 PUT with an `x-amz-*` and `x-goog-*` spelling of one header | 400 `ExcessHeaderValues`, `Requests cannot specify both x-amz and x-goog headers` |
-| AWS4 PUT with `x-amz-server-side-encryption: AES256`, an unknown `x-amz-*` header or a bare `x-amz-metadata-directive` | 200 without effect |
+| AWS4 PUT with `x-amz-server-side-encryption: AES256`, `x-amz-grant-read`, an unknown `x-amz-*` header or a bare `x-amz-metadata-directive` | 200 without effect |
 | AWS4 PUT with `x-amz-acl: aws-exec-read` | 400 `InvalidArgument`, `Invalid canned acl: aws-exec-read` |
 | V4 query signature with lowercase or mixed-case names | GET 200, PUT 200, resumable POST 201 |
 | The same URL with names signed in another case | 403 `SignatureDoesNotMatch` |
 | `x-goog-date` repeated as `X-Goog-Date` | 400 `ExcessHeaderValues`, Details `x-goog-date` |
+| V2 `AWS` header signature: PUT and read with `x-amz-meta-*`, `x-amz-acl`, `x-amz-storage-class`, copy with and without `REPLACE` | Same results as AWS4, and reads answer `x-amz-meta-*` |
+| V2 `AWS` with both spellings of one header | 400 `ExcessHeaderValues` |
+| V2 `AWS` with an unknown header or `x-amz-server-side-encryption: AES256` | 200 without effect |
+| AWS4 query signature, upper or lower names: PUT, GET, HEAD and copy with `x-amz-*` headers | 200, and reads answer `x-amz-meta-*` |
+| AWS4 query signature with both spellings of one header | 400 `ExcessHeaderValues` |
+| Customer-key `x-amz-server-side-encryption-customer-*` headers | 400 `MalformedSecurityHeader` when outside `SignedHeaders`, 403 when signed; no object was created |
+| Anonymous JSON request without `key` on a private bucket | 401 |
+| The same request with a made-up `key` | 400 `keyInvalid`, domain `usageLimits` |
 
-The following were not exercised against Cloud Storage: `gsutil signurl` and `gcloud storage sign-url` output, V2 `AWS` or AWS4 query signatures with `x-amz-*` headers, customer-key encryption and grant headers, and an anonymous request with a `key`.
+gcs-mimic has no API key registry, so it treats every `key` as valid. Anonymous gsutil depends on that, and a request whose key Cloud Storage would refuse is the remaining difference.
+
+An anonymous request with a key Cloud Storage accepts was not exercised, because that needs a real API key.
 
 ## Local checks
 
@@ -47,6 +57,10 @@ The following were not exercised against Cloud Storage: `gsutil signurl` and `gc
 | `cargo test --locked --offline --lib batch` | passed |
 | `cargo test --locked --offline --test it_objects api_key` | passed |
 | `cargo test --locked --offline --test it_objects custom_metadata_values` | passed |
+
+## Signed URLs from the real CLIs
+
+`gsutil signurl` (5.38) and `gcloud storage sign-url` (591.0.0, `--path-style-url`) signed URLs with the key from `gcs-mimic test-signer credentials`, using a Python environment that provides `cryptography`. Both send lowercase names with `x-goog-signature` first. Against a local HTTPS server with `signed_urls=verify`, GET answered 200 with the object, PUT 200, a resumable POST 201 and a URL with a changed signature 403. These URLs were not sent to Cloud Storage.
 
 ## gsutil
 

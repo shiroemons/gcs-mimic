@@ -46250,7 +46250,7 @@
         }
       ],
       "known_deviations": [
-        "Lowercase and mixed-case V4 query names were compared with Cloud Storage using a temporary HMAC key on 2026-11-09, including 403 when only a name's case changes and 400 ExcessHeaderValues for a repeated name. gsutil signurl and gcloud storage sign-url themselves were not run.",
+        "Lowercase and mixed-case V4 query names were compared with Cloud Storage using a temporary HMAC key on 2026-11-09, including 403 when only a name's case changes and 400 ExcessHeaderValues for a repeated name. URLs from gsutil signurl and gcloud storage sign-url were exercised against a local server only.",
         "SPEC-SIGNING-EDGES: duplicate decoded names and percent-encoded aliases reject locally; exact provider duplicate/ambiguous query semantics remain unverified.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
@@ -47205,11 +47205,13 @@
             "signing::cli_query_names::cli_shaped_urls_authorize_get_head_put_delete_and_resumable_post",
             "signing::cli_query_names::cli_shaped_urls_keep_tamper_expiry_and_ambiguity_failures",
             "xml_v4_hmac_http::permissive_signed::lowercase_v4_query_names_verify_and_stay_bound_for_both_families",
-            "xml_v4_hmac_http::permissive_signed::ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation"
+            "xml_v4_hmac_http::permissive_signed::ignored_signatures_accept_lowercase_v4_names_on_every_xml_operation",
+            "gsutil-gcloud-signed-url-workflow"
           ]
         }
       ],
       "test_ids": [
+        "gsutil-gcloud-signed-url-workflow",
         "signing::cli_query_names::cli_shaped_urls_authorize_get_head_put_delete_and_resumable_post",
         "signing::cli_query_names::cli_shaped_urls_keep_tamper_expiry_and_ambiguity_failures",
         "xml_v4_hmac_http::permissive_signed::lowercase_v4_query_names_verify_and_stay_bound_for_both_families",
@@ -47221,6 +47223,15 @@
         "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
       ],
       "verification": [
+        {
+          "command": "gsutil 5.38 signurl and gcloud storage sign-url with the built-in test signer key, sent to a local HTTPS server with signed_urls=verify: GET, PUT, resumable POST and a tampered signature",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/evidence/client-compat-0.16.0.md",
+          "test_ids": [
+            "gsutil-gcloud-signed-url-workflow"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --locked --offline --test it_xml_auth -- cli_query_names permissive_signed",
           "result": "PASS",
@@ -59993,7 +60004,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Cloud Storage accepted a made-up key value with an OAuth token (recorded 2026-11-09). An anonymous request with a key was not recorded; an invalid key on such a request may fail there, while gcs-mimic never checks the value."
+        "Cloud Storage accepted a made-up key value with an OAuth token and answered 400 keyInvalid to the same value on an anonymous request (recorded 2026-11-09). gcs-mimic has no API key registry and treats every key as valid, which is what the key published in gsutil needs."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-09"
@@ -60033,7 +60044,7 @@
             "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
             "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
             "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
-            "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+            "xml_amz_headers::aws4_refuses_conflicting_headers_and_customer_keys_without_publishing",
             "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
             "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
             "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
@@ -60056,7 +60067,7 @@
         "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
         "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
         "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
-        "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+        "xml_amz_headers::aws4_refuses_conflicting_headers_and_customer_keys_without_publishing",
         "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
         "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
         "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
@@ -60077,7 +60088,7 @@
             "xml_amz_headers::requests_without_an_aws_signature_ignore_amz_metadata_acl_and_class",
             "xml_amz_headers::copy_source_without_an_aws_signature_is_refused_with_the_recorded_details",
             "xml_amz_headers::amz_headers_without_a_recorded_answer_stay_rejected_on_other_routes",
-            "xml_amz_headers::aws4_refuses_conflicting_and_grant_headers_without_publishing",
+            "xml_amz_headers::aws4_refuses_conflicting_headers_and_customer_keys_without_publishing",
             "xml_amz_headers::aws4_ignores_amz_headers_without_an_equivalent",
             "xml_amz_headers::aws4_reads_answer_with_amz_custom_metadata",
             "xml_amz_headers::aws4_tampered_or_unsigned_amz_headers_fail_verification",
@@ -60088,7 +60099,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Compared with Cloud Storage for AWS4 header signatures only (2026-11-09, curl with a temporary HMAC key). V2 AWS and query signatures share the mapping by inference. Customer-key encryption and grant headers stay refused because their provider answers are unrecorded."
+        "Compared with Cloud Storage for AWS4 header signatures, AWS4 query signatures in both name cases and V2 AWS headers (2026-11-09, temporary HMAC key). Customer-key headers stay refused: Cloud Storage answered 400 MalformedSecurityHeader when they were not signed and 403 when they were."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-09"

@@ -44,7 +44,7 @@
       "acceptance_cases": [
         {
           "id": "GLOBAL-KEY-IGNORED",
-          "description": "Every JSON route, upload and batch part accepts key and ignores its value; it is never a credential under strict authentication and does not bind a rewrite token. Cloud Storage answered 200 for a made-up value with an OAuth token on 2026-11-09. An anonymous request with a key was not recorded.",
+          "description": "Every JSON route, upload and batch part accepts key and ignores its value; it is never a credential under strict authentication and does not bind a rewrite token. Cloud Storage answered 200 for a made-up value with an OAuth token and 400 keyInvalid for it on an anonymous request on 2026-11-09; gcs-mimic has no key registry and treats every value as valid.",
           "result": "PASS",
           "test_ids": [
             "api_key_is_accepted_and_ignored_on_every_json_route",
