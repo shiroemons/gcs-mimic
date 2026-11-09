@@ -12,7 +12,7 @@ This repository mirrors the images published to
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  shiroemons/gcs-mimic:latest serve --scheme http
+  shiroemons/gcs-mimic:latest --scheme http
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'

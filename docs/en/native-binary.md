@@ -78,7 +78,7 @@ Independent configuration, TLS and identity errors are collected into stderr
 JSON diagnostic batches before catalog access; warnings precede errors. Flags
 that stand for a native setting are translated, and warn only when the
 translation leaves something to know. Native values preserve their existing
-precedence. Versions after 0.14.0 do not read `FAKE_GCS_*` variables. See
+precedence. Since 0.15.0, `FAKE_GCS_*` variables are not read. See
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
 for the bounded input, redaction and `/data` inspection rules.
 
@@ -91,14 +91,14 @@ failure. Validation diagnostics, including input warnings, remain visible at
 every level. Stdout `ready` and `stopped` are always emitted for automation.
 Empty/unknown levels fail before catalog access.
 
-Versions after 0.14.0 accept every server option with one or two hyphens, with
+Since 0.15.0, the server accepts every option with one or two hyphens, with
 its value after a space or `=`, and without the word `serve` when the first
 argument is an option.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
-| `--port` | Port of `GCS_MIMIC_LISTEN` | `4443` | 0–65535; keeps the listen IP, so a binary stays on loopback. 0.14.0 binds `0.0.0.0` instead |
+| `--port` | Port of `GCS_MIMIC_LISTEN` | `4443` | 0–65535; keeps the listen IP, so a binary stays on loopback. Releases up to 0.14.0 bind `0.0.0.0` instead |
 | `--port-http` | Port of `GCS_MIMIC_LISTEN_HTTP` | `8000` | HTTP port with `scheme=both`; keeps the IP of `listen_http`, or else of `listen`; ignored with a warning for other schemes |
 | `--host` | IP of `GCS_MIMIC_LISTEN` | `127.0.0.1` | Numeric IP or `localhost`; keeps the listen port |
 | `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |

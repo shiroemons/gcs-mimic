@@ -5,7 +5,7 @@
 gcs-mimicは普段の使い勝手を[fake-gcs-server](https://github.com/fsouza/fake-gcs-server)から受け継いでいるので、
 多くのコンテナ構成は数行の変更で移行できます。
 移行する価値があるかどうかを決めるのは「できなくなること」なので、このページはそこから始めます。
-対象はgcs-mimic 0.14.0とfake-gcs-server 1.56.1です。
+対象はgcs-mimic 0.15.0とfake-gcs-server 1.56.1です。
 
 gcs-mimicは、すべての構成でそのまま置き換えられるものではありません。
 
@@ -16,7 +16,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 | 今していること | 移行後 | 代わりにすること |
 | --- | --- | --- |
 | `/storage`ボリュームにオブジェクトを保存している | 形式が異なるためボリュームは再利用できず、`-filesystem-root`は無視されます。gcs-mimicは空の状態で起動します。 | [オブジェクトの中身をコピー](#既存のオブジェクトを持ってくる)するか、テスト用のデータから入れ直します。 |
-| `FAKE_GCS_*`環境変数を設定している | 0.14.0より後のバージョンは読みません。警告も出ません。`FAKE_GCS_SCHEME=http`を残すとHTTPSのまま起動し、HTTPクライアントが接続に失敗します。 | [下の表](#設定の対応表)の対応するフラグか`GCS_MIMIC_*`環境変数を使います。 |
+| `FAKE_GCS_*`環境変数を設定している | 0.15.0以降は読みません。警告も出ません。`FAKE_GCS_SCHEME=http`を残すとHTTPSのまま起動し、HTTPクライアントが接続に失敗します。 | [下の表](#設定の対応表)の対応するフラグか`GCS_MIMIC_*`環境変数を使います。 |
 | 既存オブジェクトの世代・カスタムメタデータ・Content-Typeに依存している | 現時点では引き継げません。`gcs-mimic import fake-gcs-server`はありますが、0.14.0ではfake-gcs-serverのAPIでアップロードしたオブジェクトすべてで止まります。これらに自動で付く`projectOwner-test-project`というACLを受け付けないためです。 | テストが依存するオブジェクトをAPIで作り直すか、そのデータはfake-gcs-serverに残します。 |
 | 保存先のディレクトリでオブジェクトをファイルとして見る・編集する | オブジェクトは中身の分からないファイルとして保存します。`/data`は読み取り専用の入力で、APIの書き込みは反映されません。 | [同期ディレクトリ](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)を追加します。オブジェクトをファイルとして書き出します。競合と復旧のケースはまだ一部のみの対応です。 |
 | `docker exec … sh`、シェルのヘルスチェック、シェルのentrypointを使っている | イメージにはシェルもパッケージマネージャーもありません。 | `healthcheck:`の上書きを外します。イメージに専用のもの（`gcs-mimic healthcheck`）があります。スクリプトは別のコンテナから実行します。 |
@@ -45,7 +45,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.14.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.15.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data

@@ -232,7 +232,7 @@ spelling never selects the command.
 Compose `command` replaces the image CMD. The image's `GCS_MIMIC_LISTEN` and
 `GCS_MIMIC_DATA_DIR` keep its listener and persistence usable when it does.
 
-Versions after 0.14.0 do not read `FAKE_GCS_*` variables. The table below
+Since 0.15.0, `FAKE_GCS_*` variables are not read. The table below
 records the dispositions of the earlier versions.
 
 | Source variable | Final native disposition and example fix | Owner |

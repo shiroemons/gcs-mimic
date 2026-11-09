@@ -24,7 +24,7 @@ A local Google Cloud Storage emulator for development and CI, written in Rust.
 
 ```sh
 # Start the emulator
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.14.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.15.0
 
 # Check that it answers; -k because it uses a built-in development certificate
 curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
@@ -36,7 +36,7 @@ It answers with an empty bucket list.
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
   is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.14.0`.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.15.0`.
 - To trust the certificate instead of using `-k`, see
   [local HTTPS](docs/en/local-https.md).
 
@@ -48,7 +48,7 @@ examples below use it. Start the emulator again with `--scheme http`:
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
+  ghcr.io/shiroemons/gcs-mimic:0.15.0 --scheme http
 
 # Create a bucket
 curl --retry 5 --retry-all-errors \
@@ -68,7 +68,7 @@ The last command prints `hello`.
 
 ### Common options
 
-Add options after `serve`.
+Add options after the image name, with one or two hyphens. `--name=value` also works.
 
 | Option | What it does | In a Compose `environment:` |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ Add options after `serve`.
 
 Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level
 directories become buckets and files become objects. Run
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help` for every option.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.15.0 --help` for every option.
 
 ## Connect your SDK
 
@@ -266,7 +266,7 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.15.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -438,7 +438,7 @@ case the SDK has no public API for; it is excluded from that SDK's denominator.
 gcs-mimic takes its everyday ergonomics from fake-gcs-server, so most container
 setups move with a few changed lines: replace the image and mount a new data
 volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data`
-mount keep working. Versions after 0.14.0 do not read `FAKE_GCS_*` variables, so
+mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read, so
 set the matching flag or `GCS_MIMIC_*` variable instead.
 
 It is not a drop-in replacement for every setup. Check these first:

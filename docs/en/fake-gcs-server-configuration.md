@@ -84,7 +84,7 @@ leaves something to know. Since 0.8.0, disk/memory selection and event aliases
 with an explicit local Pub/Sub emulator are supported. Unknown backends and
 incomplete publisher settings fail. 0.7.0 has the earlier limitations; see
 [option aliases](slices/option-aliases.md).
-Versions after 0.14.0 do not read `FAKE_GCS_*` variables; set the matching flag
+Since 0.15.0, `FAKE_GCS_*` variables are not read; set the matching flag
 or `GCS_MIMIC_*` variable.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
@@ -155,12 +155,12 @@ translation leaves something to know; the table in
 [option aliases](slices/option-aliases.md) lists each
 translation. Incomplete event configuration remains an error.
 
-Versions after 0.14.0 accept every server option in one- and two-hyphen forms
+Since 0.15.0, every server option is accepted in one- and two-hyphen forms
 with separate or equals values, and a command line that starts with an option
-runs `serve`, as when a Compose `command` replaces the image CMD. 0.14.0 needs
-`serve` for native options and accepts only `--name VALUE` for them. Native
-value positions such as `url public --object -data` retain their meaning. The
-image's `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
+runs `serve`, as when a Compose `command` replaces the image CMD. Earlier
+releases need `serve` for native options and accept only `--name VALUE` for
+them. Native value positions such as `url public --object -data` retain their
+meaning. The image's `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic` environment defaults retain network
 access and persistence; `--port` and `--host` change one part of that listener.
 

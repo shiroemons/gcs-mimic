@@ -13,7 +13,7 @@ a repeated flag wins.
 
 Every server option, native or translated, takes one or two hyphens and a value
 after a space or `=`. A command line whose first argument is an option runs
-`serve`. These forms need a version after 0.14.0.
+`serve`. These forms need 0.15.0 or later.
 
 | Flag | Native setting | Startup notice |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ as the native setting, so an invalid value fails with the native message keyed
 by the flag as typed. Values are quoted in advice only where existing
 diagnostics already allow it.
 
-Versions after 0.14.0 do not read `FAKE_GCS_*` variables. Earlier versions
+Since 0.15.0, `FAKE_GCS_*` variables are not read. Earlier versions
 translated them as well.
 
 ## Design choices

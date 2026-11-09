@@ -300,8 +300,8 @@ The product target is a complete behavioral superset of the pinned fake-gcs-serv
 baseline, with documented native configuration mappings and explicit data conversion.
 Matching flag names or environment-variable suffixes is not required.
 Since 0.7.0, flags with a native equivalent are translated, and since
-0.8.0 the event flags map too. Versions after 0.14.0 do not read `FAKE_GCS_*`
-variables; new configuration should use native names. The migration contract in
+0.8.0 the event flags map too. Since 0.15.0, `FAKE_GCS_*` variables are not
+read; new configuration should use native names. The migration contract in
 `fake-gcs-server-migration.md` includes flags, TLS, endpoints, Go
 embedding, Storage v1 gRPC, helper/event behavior and both source backends.
 Lossless import and the remaining configuration roles are still planned. The existing

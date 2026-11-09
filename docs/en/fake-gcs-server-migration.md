@@ -4,7 +4,7 @@
 
 This is the full reference. To decide whether to move and to make the swap, start with [Move from fake-gcs-server](migrate-from-fake-gcs-server.md).
 
-Published container examples below use **0.14.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
+Published container examples below use **0.15.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
 
 ## Replace a fake-gcs-server Compose service
 
@@ -34,7 +34,7 @@ volumes:
 ```
 
 Five common option groups translate as follows. Old flags also work unchanged
-since 0.7.0; versions after 0.14.0 do not read `FAKE_GCS_*` variables. This
+since 0.7.0; since 0.15.0, `FAKE_GCS_*` variables are not read. This
 walkthrough uses the native names. See
 [option aliases](slices/option-aliases.md).
 
@@ -131,7 +131,7 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.15.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -373,7 +373,7 @@ the built-in test signer for this, and its README shows the entry that uses it.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| A `FAKE_GCS_*` variable has no effect | Versions after 0.14.0 do not read them | Set the matching flag or `GCS_MIMIC_*` variable. |
+| A `FAKE_GCS_*` variable has no effect | Since 0.15.0 they are not read | Set the matching flag or `GCS_MIMIC_*` variable. |
 | Startup rejects `-scheme` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | Startup rejects `-event.pubsub-topic` or another `-event.*` flag | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL` or `-external-url`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |

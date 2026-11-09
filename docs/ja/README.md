@@ -25,7 +25,7 @@
 
 ```sh
 # エミュレーターを起動する
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.14.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.15.0
 
 # 応答を確かめる。組み込みの開発用証明書を使うので-kを付ける
 curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
@@ -35,7 +35,7 @@ curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?projec
 
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.14.0`
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.15.0`
 - `-k`を使わず証明書を信頼するには、[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
 ### HTTPで使う
@@ -45,7 +45,7 @@ SDKは証明書を信頼しなくても使えるHTTPで接続します。以降�
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.14.0 serve --scheme http
+  ghcr.io/shiroemons/gcs-mimic:0.15.0 --scheme http
 
 # バケットを作る
 curl --retry 5 --retry-all-errors \
@@ -65,7 +65,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 ### よく使うオプション
 
-`serve`の後ろに付けます。
+イメージ名の後ろに付けます。ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。
 
 | オプション | 内容 | Composeの`environment:`では |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 | `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で64 MiBまでです | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`、`info`、`warn`、`error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
-ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`で確認できます。
+ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.15.0 --help`で確認できます。
 
 ## SDKから接続する
 
@@ -242,7 +242,7 @@ gcs_emulator:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.14.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.15.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -397,7 +397,7 @@ n/aはSDKに公開APIがないケースで、そのSDKの分母から除きま�
 gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいるので、多くのコンテナ構成は数行の変更で移行できます。
 イメージを替え、`/var/lib/gcs-mimic`に新しいデータ用ボリュームを付けます。
 コマンドラインのフラグと`./data:/data`のマウントは多くがそのまま動きます。
-0.14.0より後のバージョンは`FAKE_GCS_*`環境変数を読まないので、対応するフラグか`GCS_MIMIC_*`環境変数に置き換えてください。
+0.15.0以降は`FAKE_GCS_*`環境変数を読まないので、対応するフラグか`GCS_MIMIC_*`環境変数に置き換えてください。
 
 ただし、すべての構成でそのまま置き換えられるわけではありません。先に次の点を確認してください。
 

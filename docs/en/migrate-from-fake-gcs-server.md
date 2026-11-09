@@ -6,7 +6,7 @@ gcs-mimic takes its everyday ergonomics from
 [fake-gcs-server](https://github.com/fsouza/fake-gcs-server), so most container
 setups move with a few changed lines. This page starts with what you give up,
 because that decides whether moving is worth it. It is written for gcs-mimic
-0.14.0 and fake-gcs-server 1.56.1.
+0.15.0 and fake-gcs-server 1.56.1.
 
 gcs-mimic is not a drop-in replacement for every setup.
 
@@ -17,7 +17,7 @@ Roughly in order of how many setups it affects.
 | You do this today | After the move | Do this instead |
 | --- | --- | --- |
 | Keep objects in a `/storage` volume | The format differs, so the volume cannot be reused and `-filesystem-root` is ignored. gcs-mimic starts empty. | [Copy the object bytes](#bring-existing-objects) or reseed from your fixtures. |
-| Set `FAKE_GCS_*` variables | Versions after 0.14.0 do not read them, and nothing warns. With `FAKE_GCS_SCHEME=http` left in place the server stays on HTTPS, so HTTP clients fail to connect. | Use the matching flag or `GCS_MIMIC_*` variable from [the table below](#setting-equivalents). |
+| Set `FAKE_GCS_*` variables | Since 0.15.0 they are not read, and nothing warns. With `FAKE_GCS_SCHEME=http` left in place the server stays on HTTPS, so HTTP clients fail to connect. | Use the matching flag or `GCS_MIMIC_*` variable from [the table below](#setting-equivalents). |
 | Rely on the generations, custom metadata or content types of existing objects | They cannot be carried over today. `gcs-mimic import fake-gcs-server` exists, but in 0.14.0 it stops on every object uploaded through fake-gcs-server's API, because those objects carry a generated `projectOwner-test-project` ACL it does not accept. | Re-create the objects your tests depend on through the API, or keep that data on fake-gcs-server. |
 | Browse or edit objects as files in the storage directory | Objects are stored as opaque files. `/data` is read-only input, and API writes never appear there. | Add a [sync directory](container-usage.md#mirror-objects-to-a-host-directory). It mirrors objects as files; its conflict and recovery cases are still partial. |
 | Use `docker exec … sh`, shell healthchecks or shell entrypoints | The image has no shell and no package manager. | Remove your `healthcheck:` override, since the image has its own (`gcs-mimic healthcheck`). Run scripts from another container. |
@@ -48,7 +48,7 @@ Moving is probably not worth it yet if one of these is true:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.14.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.15.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
