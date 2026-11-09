@@ -41,7 +41,7 @@ Find versions, release notes and index digests on the
 
 - [README and SDK connection examples](https://github.com/shiroemons/gcs-mimic#readme)
 - [Docker image guide](https://github.com/shiroemons/gcs-mimic/blob/main/docs/en/container-usage.md)
-- [Migrating from fake-gcs-server](https://github.com/shiroemons/gcs-mimic/blob/main/docs/en/fake-gcs-server-migration.md)
+- [Moving from fake-gcs-server](https://github.com/shiroemons/gcs-mimic/blob/main/docs/en/migrate-from-fake-gcs-server.md)
 - [Feature matrix](https://github.com/shiroemons/gcs-mimic/blob/main/docs/en/feature-matrix.md)
 - [日本語ドキュメント](https://github.com/shiroemons/gcs-mimic/blob/main/docs/ja/README.md)
 

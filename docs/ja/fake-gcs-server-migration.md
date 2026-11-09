@@ -3,6 +3,8 @@
 [English](../en/fake-gcs-server-migration.md) ·
 [検証と操作の対応表](../en/slices/migrate-guide-compose.md)
 
+移行するかどうかの判断と入れ替えの手順は、先に[fake-gcs-serverから移行する](migrate-from-fake-gcs-server.md)を読んでください。このページは詳しい資料です。
+
 対象はUX-012、DESIGN-061、UX-001です。既定のpermissive/nativeで、HTTP、
 空バケットの初期化、Go SDK、署名のないブラウザー転送を確認しています。
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で

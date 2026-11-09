@@ -2,6 +2,8 @@
 
 [日本語](../ja/fake-gcs-server-migration.md)
 
+This is the full reference. To decide whether to move and to make the swap, start with [Move from fake-gcs-server](migrate-from-fake-gcs-server.md).
+
 Published container examples below use **0.14.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
 
 ## Replace a fake-gcs-server Compose service
