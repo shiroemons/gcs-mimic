@@ -321,6 +321,29 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 See the [synchronization contract](slices/directory-synchronization.md) for the
 verified subset, recovery behavior and pending work.
 
+## Common settings
+
+| Setting | Purpose |
+| --- | --- |
+| `GCS_MIMIC_SCHEME` | `https` (default), `http` or `both` |
+| `GCS_MIMIC_AUTH_MODE` | `permissive` (default) allows every request, as fake-gcs-server does; `strict` authorizes each request by IAM and ACLs for local identities ([strict authentication](getting-started.md#strict-local-authentication)) |
+| `GCS_MIMIC_BUCKETS` | Buckets to create at startup, as inline JSON with settings such as `cors` and `iamPolicy`; `GCS_MIMIC_BUCKETS_FILE` reads the same document from a file ([bucket settings](#initialize-bucket-settings)) |
+| `GCS_MIMIC_IDENTITIES` | Local identities, tokens and roles for strict mode, as inline JSON; `GCS_MIMIC_IDENTITY_FILE` reads the same document from a file |
+| `GCS_MIMIC_TRUSTED_LISTEN` | Strict mode: an unpublished listener, such as `0.0.0.0:4444`, where your servers' requests without credentials act as one identity ([trusted listener](#keep-private-buckets-private-with-a-trusted-listener)) |
+| `GCS_MIMIC_TEST_SIGNER` | `enabled` turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key is published, so signed URLs need no key setup ([test signer](signed-urls.md#built-in-test-signer)) |
+| `GCS_MIMIC_SIGNED_URLS` | `ignore` (the permissive default) accepts signed URLs without checking them; `verify` checks their signatures and expiry ([verification](signed-urls.md#verifying-signed-requests-in-permissive-mode)) |
+| `GCS_MIMIC_CORS_FALLBACK` | CORS for public and XML URLs of buckets without CORS rules: `allow-all` (the permissive default) lets pages on any origin read them, `none` (the strict default) sends no CORS headers |
+| `GCS_MIMIC_API_BASE_URL` | Fixes the address in links that the emulator returns; unset, links use the address of each request. Set it only for a reverse proxy that rewrites `Host` |
+| `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444` |
+| `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
+
+`GCS_MIMIC_BUCKETS`, `GCS_MIMIC_IDENTITIES`, `GCS_MIMIC_TRUSTED_LISTEN`,
+`GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_SIGNED_URLS` need 0.14.0 or later. Up
+to 0.13.0, `GCS_MIMIC_CORS_FALLBACK` defaults to `none` in both modes. Releases
+up to 0.11.0 return one fixed address in links, so with them set
+`GCS_MIMIC_API_BASE_URL` too. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`
+lists every option.
+
 ## Configure the server and buckets
 
 Server options control the listener, protocol, persistent data location and

@@ -286,6 +286,27 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 
 検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
 
+## よく使う設定
+
+| 設定 | 用途 |
+| --- | --- |
+| `GCS_MIMIC_SCHEME` | `https`（既定）、`http`、`both` |
+| `GCS_MIMIC_AUTH_MODE` | `permissive`（既定）はfake-gcs-serverと同じくすべてのリクエストを受け付ける。`strict`はローカルのIDに対してIAMとACLで各リクエストを認可する。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
+| `GCS_MIMIC_BUCKETS` | 起動時に作るバケットを、`cors`や`iamPolicy`などの設定付きでインラインのJSONに書く。`GCS_MIMIC_BUCKETS_FILE`は同じ文書をファイルから読む。[初期バケット設定](#初期バケット設定ファイルを使う) |
+| `GCS_MIMIC_IDENTITIES` | strictで使うローカルのID・トークン・ロールをインラインのJSONに書く。`GCS_MIMIC_IDENTITY_FILE`は同じ文書をファイルから読む |
+| `GCS_MIMIC_TRUSTED_LISTEN` | strict用。公開しない待受（例: `0.0.0.0:4444`）で、サーバーからの認証情報のないリクエストを1つのIDとして扱う。[信頼済みリスナー](#信頼済みリスナーで非公開バケットを守る) |
+| `GCS_MIMIC_TEST_SIGNER` | `enabled`で、秘密鍵を公開している組み込みの署名者`test-signer@gcs-mimic.invalid`を有効にする。署名付きURLに鍵の準備がいらない。[テスト署名者（英語）](../en/signed-urls.md#built-in-test-signer) |
+| `GCS_MIMIC_SIGNED_URLS` | `ignore`（permissiveの既定）は署名付きURLを検査せずに受け付ける。`verify`は署名と期限を検査する。[署名の検証（英語）](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode) |
+| `GCS_MIMIC_CORS_FALLBACK` | CORSルールのないバケットの公開URL・XML URLのCORS。`allow-all`（permissiveの既定）はどのオリジンのページからも読める。`none`（strictの既定）はCORSヘッダーを返さない |
+| `GCS_MIMIC_API_BASE_URL` | エミュレーターが返すリンクのアドレスを固定する。未指定なら各リクエストの接続先を使う。`Host`を書き換えるリバースプロキシの後ろに置くときだけ指定する |
+| `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444` |
+| `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
+
+`GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.14.0以降が必要です。
+0.13.0までは、`GCS_MIMIC_CORS_FALLBACK`の既定はどちらのモードでも`none`です。
+0.11.0までのリリースは返すリンクのアドレスを1つに固定するので、`GCS_MIMIC_API_BASE_URL`も指定してください。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.14.0 --help`ですべての設定を確認できます。
+
 ## バケットごとに設定する
 
 待受アドレス、HTTP/HTTPS、保存先、通知するAPI URLはサーバー全体の設定です。
