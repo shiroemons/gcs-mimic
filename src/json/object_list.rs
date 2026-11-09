@@ -1,6 +1,6 @@
 use super::{
     JsonError, Projection, object_resource,
-    query::{boolean, finish, parse_query, projection},
+    query::{boolean, finish, parse_query, projection, standard_parameters},
 };
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
 use serde_json::{Map, Value, json};
@@ -35,18 +35,7 @@ impl ObjectListParams {
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
     super::Fields::take(&mut params, "Objects")?;
-    for name in [
-        "userProject",
-        "key",
-        "oauth_token",
-        "quotaUser",
-        "userIp",
-        "callback",
-    ] {
-        if params.contains_key(name) {
-            return Err(JsonError::unsupported_object(name));
-        }
-    }
+    standard_parameters(&mut params, &[], JsonError::unsupported_object)?;
     if params
         .remove("filter")
         .is_some_and(|filter| !filter.is_empty())

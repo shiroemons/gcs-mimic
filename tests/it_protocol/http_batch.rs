@@ -60,6 +60,31 @@ fn setup(server: &Server, auth: &str) {
 }
 
 #[test]
+fn batch_accepts_and_ignores_an_api_key_on_the_envelope_and_its_parts() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server, "");
+    let body = envelope(&[
+        part(
+            None,
+            "GET",
+            &format!("{BUCKET}/o/object?key=part-key"),
+            "",
+            "",
+        ),
+        part(None, "GET", &format!("{BUCKET}/o/object"), "", ""),
+    ]);
+    let reply = server.request("POST", "/batch/storage/v1?key=envelope-key", TYPE, &body);
+    reply.status(200);
+    let statuses: Vec<_> = reply
+        .body
+        .lines()
+        .filter(|line| line.starts_with("HTTP/1.1 "))
+        .collect();
+    assert_eq!(statuses, ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"]);
+}
+
+#[test]
 fn batch_dispatches_metadata_conditions_and_individual_errors_without_self_connections() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &["--max-connections", "1"]);

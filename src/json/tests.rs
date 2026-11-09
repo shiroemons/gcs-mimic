@@ -493,10 +493,43 @@ fn bkt_qry_001_duplicate_unknown_and_misplaced_parameters() {
 }
 
 #[test]
+fn api_key_parameter_is_accepted_and_ignored_on_bucket_routes() {
+    for (method, path) in [
+        (Method::GET, "/storage/v1/b?project=p"),
+        (Method::POST, "/storage/v1/b?project=p"),
+        (Method::GET, "/storage/v1/b/abc?alt=json"),
+        (Method::DELETE, "/storage/v1/b/abc?alt=json"),
+    ] {
+        let plain = request(method.clone(), path).unwrap();
+        for value in ["", "AIzaSyExample", "not%20a%20key", "%E7%8C%AB"] {
+            let keyed = request(method.clone(), &format!("{path}&key={value}"));
+            assert_eq!(keyed.unwrap(), plain, "{method} {value}");
+        }
+        // An accepted key does not admit the parameters that stay unsupported.
+        for parameter in [
+            "oauth_token",
+            "quotaUser",
+            "userIp",
+            "uploadType",
+            "userProject",
+            "callback",
+        ] {
+            let error =
+                request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
+            assert_eq!(
+                error.status,
+                StatusCode::BAD_REQUEST,
+                "{method} {parameter}"
+            );
+            assert!(error.message.contains(parameter));
+        }
+    }
+}
+
+#[test]
 fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
     let common = [
         "fields",
-        "key",
         "oauth_token",
         "quotaUser",
         "userIp",

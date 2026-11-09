@@ -590,19 +590,42 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonErr
     Ok(query)
 }
 
+/// Parameters every JSON method may carry and gcs-mimic does not implement. Accepting one would
+/// report success for Requester Pays billing, a query token, quota attribution or JSONP that
+/// never happened.
+const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] = &[
+    "userProject",
+    "oauth_token",
+    "quotaUser",
+    "userIp",
+    "callback",
+];
+
+/// Discards the `key` standard parameter. Google uses an API key for quota attribution, never as
+/// a credential, and anonymous gsutil sends one on every request, so its value is not checked
+/// and can change neither the caller nor the result.
+pub(super) fn ignore_api_key(query: &mut BTreeMap<String, String>) {
+    query.remove("key");
+}
+
+/// Applies the standard parameters a route shares with every other JSON method: discards `key`,
+/// then rejects `route_specific` followed by the standard parameters gcs-mimic does not
+/// implement. `rejection` words the error for the route's API surface.
+pub(super) fn standard_parameters(
+    query: &mut BTreeMap<String, String>,
+    route_specific: &[&str],
+    rejection: fn(&str) -> JsonError,
+) -> Result<(), JsonError> {
+    ignore_api_key(query);
+    route_specific
+        .iter()
+        .chain(UNSUPPORTED_STANDARD_PARAMETERS)
+        .find(|name| query.contains_key(**name))
+        .map_or(Ok(()), |name| Err(rejection(name)))
+}
+
 pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonError> {
-    unsupported(
-        query,
-        &[
-            "key",
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "uploadType",
-            "userProject",
-            "callback",
-        ],
-    )?;
+    standard_parameters(query, &["uploadType"], JsonError::unsupported)?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     boolean(query, "prettyPrint")?;
     if let Some(alt) = query.remove("alt") {

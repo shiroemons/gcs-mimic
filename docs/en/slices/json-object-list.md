@@ -33,7 +33,8 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `filter` | Omitted/empty means no context filter; nonempty values return 501. |
 | `fields`, `userProject` | Explicit 501 even for empty values; field selection and Requester Pays billing are unavailable. `userProject` follows existing bucket behavior. |
 | `alt`, `prettyPrint` | Omitted/`alt=json` supported; `prettyPrint` selects pretty (default, true) or compact (false) bodies; unknown alt returns 400 `invalidAltValue`; `alt=media` returns 501. |
-| `key`, `oauth_token`, `quotaUser`, `userIp`, `callback` | Recognized and rejected with 501, matching the existing local API policy. |
+| `oauth_token`, `quotaUser`, `userIp`, `callback` | Recognized and rejected with 501, matching the existing local API policy. |
+| `key` | Accepted and ignored without checking the value: an API key attributes quota and is not a credential. |
 
 Unknown or misplaced parameters, duplicate keys, malformed escapes/UTF-8, invalid
 booleans/projections/uint32 values and invalid/mismatched tokens return 400

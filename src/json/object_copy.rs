@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
-    query::{Decoding, decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, Uri};
@@ -36,20 +36,11 @@ pub(super) fn route(
         let mut query = parse_query(uri.query().unwrap_or_default())?;
         super::Fields::take(&mut query, "Object")?;
         query.remove("destinationPredefinedAcl");
-        for key in [
-            "destinationKmsKeyName",
-            "userProject",
-            "dropContextGroups",
-            "key",
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "callback",
-        ] {
-            if query.contains_key(key) {
-                return Err(JsonError::unsupported_object(key));
-            }
-        }
+        standard_parameters(
+            &mut query,
+            &["destinationKmsKeyName", "dropContextGroups"],
+            JsonError::unsupported_object,
+        )?;
         // The routing layer applies the value; prettyPrint=false selects compact bodies.
         super::query::boolean(&mut query, "prettyPrint")?;
         if let Some(alt) = query.remove("alt")

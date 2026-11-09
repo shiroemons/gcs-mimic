@@ -294,18 +294,7 @@ fn take_common_parameters(
     } else {
         super::Fields::take(query, "Object")?;
     }
-    for key in [
-        "key",
-        "oauth_token",
-        "quotaUser",
-        "userIp",
-        "userProject",
-        "callback",
-    ] {
-        if query.contains_key(key) {
-            return Err(JsonError::unsupported_object(key));
-        }
-    }
+    super::query::standard_parameters(query, &[], JsonError::unsupported_object)?;
     let content_encoding = if method == Method::POST {
         query.remove("contentEncoding")
     } else {

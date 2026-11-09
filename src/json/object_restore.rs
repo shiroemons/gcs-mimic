@@ -1,7 +1,7 @@
 use super::{
     JsonError, ObjectRequest,
     objects::integer,
-    query::{Decoding, decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
 };
 use crate::{
     config::CompatProfile,
@@ -39,19 +39,7 @@ pub(super) fn route(
         super::validate_object_name(&name)?;
         let mut query = parse_query(uri.query().unwrap_or_default())?;
         super::Fields::take(&mut query, "Object")?;
-        for key in [
-            "restoreToken",
-            "userProject",
-            "key",
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "callback",
-        ] {
-            if query.contains_key(key) {
-                return Err(JsonError::unsupported_object(key));
-            }
-        }
+        standard_parameters(&mut query, &["restoreToken"], JsonError::unsupported_object)?;
         if super::query::boolean(&mut query, "copySourceAcl")? {
             return Err(JsonError::unsupported_object("copySourceAcl"));
         }

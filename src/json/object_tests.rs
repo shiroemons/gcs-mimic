@@ -379,7 +379,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
     // An empty `fields` selects nothing, as Cloud Storage did.
     assert!(request(Method::GET, "/storage/v1/b/abc/o/file?fields=").is_ok());
     for key in [
-        "key",
         "oauth_token",
         "quotaUser",
         "userIp",
@@ -401,6 +400,67 @@ fn obj_query_001_required_upload_and_unsupported_types() {
                 StatusCode::BAD_REQUEST,
                 "{key}"
             );
+        }
+    }
+}
+
+#[test]
+fn api_key_parameter_is_accepted_and_ignored_on_object_routes() {
+    for (method, path) in [
+        (
+            Method::POST,
+            "/upload/storage/v1/b/abc/o?uploadType=media&name=file",
+        ),
+        (
+            Method::POST,
+            "/upload/storage/v1/b/abc/o?uploadType=multipart",
+        ),
+        (
+            Method::POST,
+            "/upload/storage/v1/b/abc/o?uploadType=resumable&name=file",
+        ),
+        (Method::GET, "/storage/v1/b/abc/o/file?alt=json"),
+        (Method::GET, "/storage/v1/b/abc/o/file?alt=media"),
+        (Method::GET, "/download/storage/v1/b/abc/o/file?alt=media"),
+        (Method::GET, "/storage/v1/b/abc/o?prefix=a"),
+        (Method::PATCH, "/storage/v1/b/abc/o/file?alt=json"),
+        (Method::PUT, "/storage/v1/b/abc/o/file?alt=json"),
+        (Method::DELETE, "/storage/v1/b/abc/o/file?alt=json"),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/copyTo/b/def/o/copy?alt=json",
+        ),
+        (Method::POST, "/storage/v1/b/abc/o/file/compose?alt=json"),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/restore?generation=1",
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/moveTo/o/other?alt=json",
+        ),
+    ] {
+        let plain = request(method.clone(), path).unwrap();
+        for value in ["", "AIzaSyExample", "not%20a%20key", "%E7%8C%AB"] {
+            let keyed = request(method.clone(), &format!("{path}&key={value}"));
+            assert_eq!(keyed.unwrap(), plain, "{method} {path} {value}");
+        }
+        // An accepted key does not admit the parameters that stay unsupported.
+        for parameter in [
+            "oauth_token",
+            "quotaUser",
+            "userIp",
+            "userProject",
+            "callback",
+        ] {
+            let error =
+                request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
+            assert_eq!(
+                error.status,
+                StatusCode::BAD_REQUEST,
+                "{method} {path} {parameter}"
+            );
+            assert!(error.message.contains(parameter));
         }
     }
 }

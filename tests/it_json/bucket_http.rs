@@ -3666,7 +3666,6 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         "fields=",
         "returnPartialSuccess=true",
         "userProject=x",
-        "key=x",
         "oauth_token=x",
         "quotaUser=x",
         "userIp=x",

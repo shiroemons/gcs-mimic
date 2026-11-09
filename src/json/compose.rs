@@ -29,22 +29,16 @@ pub(crate) fn route(
         let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
         crate::json::Fields::take(&mut query, "Object")?;
         query.remove("destinationPredefinedAcl");
-        for key in [
-            "kmsKeyName",
-            "userProject",
-            "dropContextGroups",
-            "ifGenerationNotMatch",
-            "ifMetagenerationNotMatch",
-            "key",
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "callback",
-        ] {
-            if query.contains_key(key) {
-                return Err(JsonError::unsupported_object(key));
-            }
-        }
+        super::query::standard_parameters(
+            &mut query,
+            &[
+                "kmsKeyName",
+                "dropContextGroups",
+                "ifGenerationNotMatch",
+                "ifMetagenerationNotMatch",
+            ],
+            JsonError::unsupported_object,
+        )?;
         // The routing layer applies the value; prettyPrint=false selects compact bodies.
         super::query::boolean(&mut query, "prettyPrint")?;
         match query.remove("alt").as_deref() {

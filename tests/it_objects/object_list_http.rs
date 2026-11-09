@@ -428,7 +428,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "userProject=local",
         "delimiter=%2F&userProject=local",
         "alt=media",
-        "key=x",
         "oauth_token=x",
         "callback=x",
         "quotaUser=x",

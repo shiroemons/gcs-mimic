@@ -150,6 +150,8 @@ catalog access or existence check:
 - No `Authorization` header is an anonymous caller.
 - `Authorization: Bearer <token>` with a case-insensitive scheme, one or more spaces
   and an exactly matching registered token is that identity.
+- The `key` query parameter is ignored and is not a credential: alone it leaves the
+  caller anonymous, and it never changes the identity of a Bearer token.
 - Everything else returns 401 `authError`: unknown or empty tokens, trailing data,
   tabs, non-UTF-8 bytes, duplicate `Authorization` headers, any other scheme (Basic,
   `GOOG4-RSA-SHA256`, `GOOG4-HMAC-SHA256`, `AWS4-HMAC-SHA256`, a bare token) and the

@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
-    query::{Decoding, decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
 };
 use crate::{
     config::CompatProfile,
@@ -61,18 +61,7 @@ pub(super) fn route(
                 "move projection=full; use projection=noAcl",
             ));
         }
-        for key in [
-            "userProject",
-            "key",
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "callback",
-        ] {
-            if query.contains_key(key) {
-                return Err(JsonError::unsupported_object(key));
-            }
-        }
+        standard_parameters(&mut query, &[], JsonError::unsupported_object)?;
         // The routing layer applies the value; prettyPrint=false selects compact bodies.
         super::query::boolean(&mut query, "prettyPrint")?;
         if query.remove("alt").is_some_and(|alt| alt != "json") {

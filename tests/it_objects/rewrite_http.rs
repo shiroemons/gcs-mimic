@@ -198,6 +198,29 @@ fn a_configured_rewrite_limit_preserves_copy_and_compose_capacity_after_restart(
 }
 
 #[test]
+fn a_rewrite_continuation_ignores_a_changed_or_missing_api_key() {
+    let (_dir, server, payload, _source) = setup(false, 2 * 1048576 + 17);
+    let first = multi(&server, "&key=first-key");
+    assert_eq!(first["done"], false);
+    let token = first["rewriteToken"].as_str().unwrap();
+    let second = server
+        .request(
+            "POST",
+            &format!("{}&key=second-key", continue_path(token)),
+            ADMIN,
+            b"",
+        )
+        .json_ok();
+    assert_eq!(second["done"], false);
+    let token = second["rewriteToken"].as_str().unwrap();
+    let completed = server
+        .request("POST", &continue_path(token), ADMIN, b"")
+        .json_ok();
+    assert_eq!(completed["done"], true);
+    assert_eq!(server.get("destination?alt=media").body, payload);
+}
+
+#[test]
 fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
     let (dir, mut server, payload, _source) = setup(false, 2 * 1048576 + 17);
     let first = multi(&server, "&ifGenerationMatch=0");

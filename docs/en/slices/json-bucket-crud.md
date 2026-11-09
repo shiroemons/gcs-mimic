@@ -99,7 +99,8 @@ In the native profile a bucket method ignores a query name it does not consume, 
 Cloud Storage on 2026-11-01 (SPEC-JSON-UNKNOWN-QUERY); recognized but unsupported parameters such as
 `userProject` are still rejected (SPEC-SDK-UNSUPPORTED). The legacy-emulator profile returns 400
 `invalidParameter` for any unknown query name, and object methods return 400 `invalidParameter` for
-one in both profiles (SPEC-JSON-UNKNOWN-QUERY-OBJECTS). The local raw query cap is 16 KiB.
+one in both profiles (SPEC-JSON-UNKNOWN-QUERY-OBJECTS), except the `response-content-disposition` and
+`response-content-type` overrides that object reads ignore. The local raw query cap is 16 KiB.
 Non-insert methods require an empty body.
 
 | Method | HTTP path | Success | Request body |
@@ -132,7 +133,8 @@ Common Discovery query parameters apply to all four methods:
 | --- | --- |
 | `alt` | `json` supported/default; `media` rejected 501; other values 400 `invalidAltValue` |
 | `fields` | Rejected 501: no field selection |
-| `key`, `oauth_token` | Rejected 501: no authentication behavior promised |
+| `key` | Accepted and ignored without checking the value: an API key attributes quota and is not a credential |
+| `oauth_token` | Rejected 501: no authentication behavior promised |
 | `prettyPrint` | Default and true render 2-space pretty JSON; false renders compact JSON; invalid boolean 400 |
 | `quotaUser` | Rejected 501: quota simulation absent |
 | `userIp` | Rejected 501: deprecated quota semantics are not implemented |
