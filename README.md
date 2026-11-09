@@ -362,82 +362,86 @@ Start with the default and switch when a test needs those checks. See
 
 ## How it compares
 
-The three Cloud Storage emulators in these tables all cover the everyday basics.
-The tables are here to help you choose.
+All four emulators cover the everyday basics. These tables are here to help you
+choose.
 
-[floci-gcp](https://github.com/floci-io/floci-gcp) is a different kind of tool:
-one container emulates Cloud Storage together with Pub/Sub, Firestore and other
-GCP services. Consider it when your tests need several of those services at
-once. It is not in the tables because it has not been measured here.
+gcs-mimic, fake-gcs-server and gcp-storage-emulator emulate Cloud Storage alone.
+[floci-gcp](https://github.com/floci-io/floci-gcp) covers more ground: one
+container also emulates Pub/Sub, Firestore and many other Google Cloud services,
+so consider it when your tests need several of them at once.
 
 ### By the numbers
 
-| | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
-| --- | --- | --- | --- |
-| Image, compressed (linux/amd64) | 8.4 MB | 25.4 MB | 48.8 MB |
-| Memory: idle, then after reading 1,000 objects | 9.7, then 29.8 MiB | 34.0, then 54.2 MiB | 27.3, then 32.4 MiB |
-| Download speed, 1 KiB to 100 KiB objects | 1.2× to 2.2× | 1× | 0.06× to 0.36× |
-| Download speed, 1 MiB objects | 1.1× to 1.3× | 1× | 0.1× to 0.56× |
-| Download speed, 10 MiB objects | 0.9× to 1.06× | 1× | 0.07× to 0.79× |
-| Upload speed | 1.9× to 2.3× | 1× | 0.4× to 1.3× |
+| | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
+| --- | --- | --- | --- | --- |
+| Image, compressed (linux/amd64) | 8.4 MB | 25.4 MB | 48.8 MB | 67.2 MB |
+| Memory: idle, then after reading 1,000 objects | 9.9, then 29.3 MiB | 33.9, then 57.2 MiB | 27.3, then 32.0 MiB | 103.6, then 320.0 MiB |
+| Download speed, 1 KiB to 100 KiB objects | 1.2× to 2.7× | 1× | 0.08× to 0.29× | 0.62× to 1.5× |
+| Download speed, 1 MiB objects | 0.99× to 1.3× | 1× | 0.09× to 0.57× | 0.87× to 1.06× |
+| Download speed, 10 MiB objects | 0.73× to 1.15× | 1× | 0.1× to 0.66× | 0.48× to 1× |
+| Upload speed | 1.1× to 3.5× | 1× | 0.97× to 1.5× | 1.2× to 25× |
 
-Measured on 2026-11-08 with 0.14.0, 1.56.1 and v2026.07.19 on one Apple-silicon
-Mac under Docker Desktop; the badge at the top shows the current image size.
-Each server held up to 1,000 objects. Past about 1,000 distinct objects between
+Measured on 2026-11-09 with 0.16.0, 1.56.1, v2026.07.19 and 0.12.0 on one
+Apple-silicon Mac under Docker Desktop; the badge at the top shows the current
+image size. Each server held up to 1,000 objects. floci-gcp ran in its `hybrid`
+mode, which keeps objects in memory and writes them to disk in the background,
+so its uploads do not wait for the disk and its memory grows with the stored
+objects. Memory is process RSS. Past about 1,000 distinct objects between
 writes, gcs-mimic reads the rest at around 7,500 requests per second. See the
-[conditions and full results](docs/en/evidence/product-comparison-0.14.0.md).
+[conditions and full results](docs/en/evidence/product-comparison-0.16.0.md).
 
 ### Feature comparison
 
 ✅ Available · ◐ Partly · ❌ Unavailable. Each row compares one workflow, not
 full Google API compatibility.
 
-| Workflow | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
-| --- | --- | --- | --- |
-| Create, list and delete multiple buckets | ✅ | ✅ | ✅ |
-| Upload, download and delete live objects | ✅ | ✅ | ✅ |
-| Resumable upload: initiate, send chunks and finalize | ✅ | ✅ | ✅ |
-| Copy live-object bytes | ✅ | ✅ | ✅ |
-| Rewrite with multi-call continuation | ✅ | ❌ | ❌ |
-| Retain object version history | ✅ | ◐ Memory backend | ❌ |
-| Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk |
-| API writes visible as bucket/object files | ✅ Mirror | ✅ Filesystem | ✅ Disk |
-| Load bucket/object seed bytes | ✅ Startup or opt-in reseed | ✅ Startup or reseed | ❌ |
-| Default CORS for JSON API requests | ✅ | ✅ | ❌ |
-| Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
-| Upload/download with signed URLs | ✅ | ✅ | ✅ |
-| Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ |
-| Keep private buckets private and open public ones with `allUsers` | ✅ Strict mode | ❌ | ❌ |
-| gRPC Storage v2 with the Go client | ✅ | ❌ | ❌ |
-| gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ |
-| Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ |
+| Workflow | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
+| --- | --- | --- | --- | --- |
+| Create, list and delete multiple buckets | ✅ | ✅ | ✅ | ✅ |
+| Upload, download and delete live objects | ✅ | ✅ | ✅ | ✅ |
+| Resumable upload: initiate, send chunks and finalize | ✅ | ✅ | ✅ | ✅ |
+| Copy live-object bytes | ✅ | ✅ | ✅ | ✅ |
+| Rewrite with multi-call continuation | ✅ | ❌ | ❌ | ✅ |
+| Retain object version history | ✅ | ◐ Memory backend | ❌ | ✅ |
+| Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk | ✅ Hybrid mode |
+| API writes visible as bucket/object files | ✅ Mirror | ✅ Filesystem | ✅ Disk | ❌ |
+| Load bucket/object seed bytes | ✅ Startup or opt-in reseed | ✅ Startup or reseed | ❌ | ◐ Startup hook script |
+| Default CORS for JSON API requests | ✅ | ✅ | ❌ | ❌ |
+| Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ | ✅ |
+| Upload/download with signed URLs | ✅ | ✅ | ✅ | ✅ |
+| Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ | ◐ Expiry only |
+| Keep private buckets private and open public ones with `allUsers` | ✅ Strict mode | ❌ | ❌ | ✅ IAM enforce mode |
+| gRPC Storage v2 with the Go client | ✅ | ❌ | ❌ | ◐ 4 of 6 cases |
+| gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ | ❌ |
+| Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ | ✅ Docker Hub |
 
-Compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`. The mirror row uses an optional
+Compared with fake-gcs-server `v1.56.1`, gcp-storage-emulator `v2026.07.19` and
+floci-gcp `0.12.0`. The mirror row uses an optional
 [sync directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory),
 and the gRPC rows cover a subset of RPCs. See the
-[detailed comparison](docs/en/feature-comparison.md) and the
+[detailed comparison](docs/en/feature-comparison.md), the
+[floci-gcp checks](docs/en/evidence/floci-gcp-comparison.md) and the
 [feature matrix](docs/en/feature-matrix.md).
 
 ### SDK scorecard
 
-Each official SDK runs the same workflows against all three emulators
+Each official SDK runs the same workflows against all four emulators
 ([details](sdk-scorecard/README.md)):
 
-| SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
-| --- | --- | --- | --- |
-| Go | 57/57 | 24/57 | 20/57 |
-| Ruby | 51/51 | 24/51 | 22/51 |
-| Node.js | 51/51 | 25/51 | 22/51 |
-| PHP | 51/51 | 25/51 | 20/51 |
-| Python | 51/51 | 19/51 | 24/51 |
-| Java | 70/70 | 35/70 | 35/70 |
-| .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) |
-| Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) |
-| Score (/100) | 100 | 39.8 | 37.7 |
+| SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
+| --- | --- | --- | --- | --- |
+| Go | 57/57 | 24/57 | 20/57 | 48/57 |
+| Ruby | 51/51 | 24/51 | 22/51 | 42/51 |
+| Node.js | 51/51 | 25/51 | 22/51 | 44/51 |
+| PHP | 51/51 | 25/51 | 20/51 | 42/51 |
+| Python | 51/51 | 19/51 | 24/51 | 39/51 |
+| Java | 70/70 | 35/70 | 35/70 | 52/70 |
+| .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) | 51/70 (1 n/a) |
+| Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) | 29/47 (4 n/a) |
+| Score (/100) | 100 | 39.8 | 37.7 | 77.6 |
 
-Recorded on 2026-11-08 with the `v0.14.0` tag
-([results](sdk-scorecard/results/2026-11-08/summary.md)). A passing case
+Recorded on 2026-11-09 with the 0.16.0 source
+([results](sdk-scorecard/results/2026-11-09/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
 

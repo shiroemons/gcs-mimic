@@ -6,6 +6,9 @@ Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync 
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 The production-like access follow-up (**2026-11-08**) adds gcs-mimic capabilities
 that need 0.14.0 or later; each such cell says so.
+floci-gcp `0.12.0` has no column in these tables; the README's
+[feature comparison](../../README.md#feature-comparison) and its
+[workflow checks](evidence/floci-gcp-comparison.md) cover it.
 Planned features are not counted.
 
 **Legend:** ✅ the named workflow is available in the stated scope;
