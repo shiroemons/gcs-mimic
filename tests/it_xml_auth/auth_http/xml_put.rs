@@ -253,7 +253,7 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         assert_eq!(snapshot(&server, &data), before, "{header}");
     }
     for header in [
-        "x-goog-acl: public-read",
+        "x-goog-acl: publicRead",
         "x-goog-encryption-kms-key-name: key",
         "x-goog-storage-class: GLACIER",
         "x-goog-storage-class: nearline",
@@ -269,7 +269,7 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         "x-goog-allowed-resources: value",
         "x-goog-custom-time: 2026-10-23T00:00:00Z",
         "x-goog-unknown: value",
-        "x-amz-acl: private",
+        "x-amz-server-side-encryption: AES256",
         "Range: bytes=0-1",
         "Content-Range: bytes 0-1/2",
         "If-Match: *",
@@ -843,7 +843,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
         (ADMIN, "", 200, ""),
         (VIEWER, "", 403, "AccessDenied"),
         ("", "", 401, "AuthenticationRequired"),
-        (ADMIN, "x-goog-acl: private\r\n", 400, "InvalidArgument"),
+        (ADMIN, "x-goog-acl: bogus\r\n", 400, "InvalidArgument"),
     ] {
         let reply = server.request("PUT", OBJECT, &format!("{auth}{origin}{extra}"), b"new");
         if status == 200 {

@@ -114,9 +114,7 @@ pub(super) fn publish_object_acl(
         PublicationAcl::Preserve(entries) => entries.to_vec(),
         PublicationAcl::Predefined(predefined) => {
             if row.uniform_access {
-                return Err(ObjectError::InvalidFixedMetadata(
-                    crate::acl::UNIFORM_ACCESS_UPLOAD_ACL.into(),
-                ));
+                return Err(ObjectError::UniformAccessPredefinedAcl);
             }
             let entries = predefined.entries(&row.project);
             if entries
@@ -135,7 +133,14 @@ pub(super) fn publish_object_acl(
     validate_effective_entries(AclKind::Object, &entries, record.owner.as_ref())
         .map_err(super::objects::acl_update_error)?;
     if let Some(owner) = &record.owner {
-        owner.remove_implicit_grant(&mut entries);
+        // A read re-adds an implicit grant at its usual place, so a predefined ACL stores the
+        // grant to keep it first.
+        match mode {
+            PublicationAcl::Predefined(_) => owner.move_grant_first(&mut entries),
+            PublicationAcl::InheritDefault | PublicationAcl::Preserve(_) => {
+                owner.remove_implicit_grant(&mut entries);
+            }
+        }
     }
     let entries = serde_json::to_string(&entries).map_err(object_unavailable)?;
     sql::exec(

@@ -181,7 +181,7 @@ where
         origin: super::super::change_journal::origin(&destination.access),
         notification_mode: crate::notification::NotificationMode::Emit,
         owner_profile: principals.as_ref(),
-        acl: super::super::acl::PublicationAcl::InheritDefault,
+        acl: super::super::acl::PublicationAcl::requested(destination.metadata.predefined_acl),
     };
     // Publishing a transfer always wakes the maintenance scheduler once it settles.
     let (record, _retired, ()) = objects::publish_in_transaction(

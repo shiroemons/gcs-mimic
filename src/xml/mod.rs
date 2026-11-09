@@ -13,6 +13,7 @@ use hyper::{
 };
 
 pub(crate) mod buckets;
+mod canned_acl;
 mod code;
 use code::XmlCode;
 mod copy;
@@ -340,6 +341,13 @@ impl Error {
         Self::new(XmlCode::ExcessHeaderValues, "Invalid argument.").with_details(details)
     }
 
+    /// The 400 for `x-goog-acl` on a bucket with uniform access enabled (observed 2026-11-09).
+    fn uniform_access_acl() -> Self {
+        Self::invalid_argument(
+            "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+        )
+    }
+
     pub(crate) fn unsupported(name: &str) -> Self {
         Self::invalid(format!(
             "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
@@ -387,6 +395,9 @@ pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 
 impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
+        if error.kind == json::ErrorKind::UniformAccessAcl {
+            return Self::uniform_access_acl();
+        }
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
         let code = match error.status {
             StatusCode::UNAUTHORIZED if error.kind == json::ErrorKind::Required => {

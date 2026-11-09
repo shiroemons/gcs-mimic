@@ -454,6 +454,34 @@ impl PredefinedObjectAcl {
     }
 }
 
+/// An `x-goog-acl` value the XML API does not define, kept for the error that names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InvalidCannedAcl<'a>(pub(crate) &'a str);
+
+impl std::fmt::Display for InvalidCannedAcl<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Invalid canned acl: {}", self.0)
+    }
+}
+
+impl std::error::Error for InvalidCannedAcl<'_> {}
+
+/// Parses the XML API's hyphenated names. [`PredefinedObjectAcl::parse`] reads the JSON API's
+/// camelCase values, which Cloud Storage treats as invalid in `x-goog-acl` (recorded 2026-11-09).
+impl PredefinedObjectAcl {
+    pub(crate) fn from_canned(value: &str) -> Result<Self, InvalidCannedAcl<'_>> {
+        match value {
+            "authenticated-read" => Ok(Self::AuthenticatedRead),
+            "bucket-owner-full-control" => Ok(Self::BucketOwnerFullControl),
+            "bucket-owner-read" => Ok(Self::BucketOwnerRead),
+            "private" => Ok(Self::Private),
+            "project-private" => Ok(Self::ProjectPrivate),
+            "public-read" => Ok(Self::PublicRead),
+            _ => Err(InvalidCannedAcl(value)),
+        }
+    }
+}
+
 /// A JSON API bucket `predefinedAcl` value.
 ///
 /// The entries follow the documented canned lists: the project owners team always holds OWNER,
@@ -528,6 +556,32 @@ mod tests {
         }
         for value in ["publicReadWrite", "", "PublicRead", "public-read"] {
             assert_eq!(PredefinedObjectAcl::parse(value), None, "{value}");
+        }
+        for (canned, json) in [
+            ("authenticated-read", "authenticatedRead"),
+            ("bucket-owner-full-control", "bucketOwnerFullControl"),
+            ("bucket-owner-read", "bucketOwnerRead"),
+            ("private", "private"),
+            ("project-private", "projectPrivate"),
+            ("public-read", "publicRead"),
+        ] {
+            assert_eq!(
+                PredefinedObjectAcl::from_canned(canned).ok(),
+                PredefinedObjectAcl::parse(json),
+                "{canned}"
+            );
+        }
+        for value in [
+            "projectPrivate",
+            "publicRead",
+            "public-read-write",
+            "PRIVATE",
+            "",
+        ] {
+            assert_eq!(
+                PredefinedObjectAcl::from_canned(value),
+                Err(InvalidCannedAcl(value))
+            );
         }
         assert_eq!(
             PredefinedObjectAcl::BucketOwnerRead.entries("local"),

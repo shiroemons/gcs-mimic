@@ -127,6 +127,8 @@ pub(crate) enum ErrorKind {
     CancelledUpload,
     IncompleteBody,
     InvalidArgument,
+    /// Lets the XML adapter give this refusal Cloud Storage's own XML wording.
+    UniformAccessAcl,
     /// Parse failures whose wire reason the legacy bucket adapter changes to `invalid`.
     LegacyParseError,
     MalformedJson,
@@ -970,6 +972,10 @@ impl From<ObjectError> for JsonError {
                 "The upload request body did not complete",
             ).with_kind(ErrorKind::IncompleteBody),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
+            ObjectError::UniformAccessPredefinedAcl => {
+                Self::invalid(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+                    .with_kind(ErrorKind::UniformAccessAcl)
+            }
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(&cause),
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {

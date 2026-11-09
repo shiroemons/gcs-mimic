@@ -178,6 +178,13 @@ pub(super) async fn respond(
         put::Signing::Header
     };
     let options = options(request.headers(), signing)?;
+    super::canned_acl::check(
+        options.metadata.predefined_acl,
+        &operation.target.bucket,
+        &access,
+        ctx,
+    )
+    .await?;
     let key = json::source_key(request.headers())?;
     let target = ObjectTarget::new(source.bucket, source.name, source.generation);
     let source = ctx
@@ -240,6 +247,7 @@ fn destination(
     access: BucketAccess,
 ) -> Result<DerivedDestination, Error> {
     let destination_key = options.metadata.customer_key_sha256;
+    let predefined_acl = options.metadata.predefined_acl;
     let storage_class = options
         .metadata
         .storage_class
@@ -259,6 +267,8 @@ fn destination(
         inherited
     };
     metadata.customer_key_sha256 = destination_key;
+    // The directive selects metadata; the ACL applies to the destination under either value.
+    metadata.predefined_acl = predefined_acl;
     let expected = crate::object::ExpectedHashes {
         md5: options.expected.md5.or(Some(source.md5)),
         crc32c: options.expected.crc32c.or(Some(source.crc32c)),

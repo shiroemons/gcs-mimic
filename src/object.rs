@@ -693,6 +693,9 @@ pub(crate) enum ObjectError {
     TooLarge,
     InvalidMetadata,
     InvalidFixedMetadata(String),
+    /// A predefined ACL reached publication on a bucket with uniform access enabled. Typed
+    /// because each protocol words this refusal differently.
+    UniformAccessPredefinedAcl,
     Metadata(crate::metadata_error::MetadataError),
     InvalidDerivedArgument(String),
     DerivedTransferNotFound,
@@ -740,6 +743,9 @@ impl fmt::Display for ObjectError {
             Self::TooLarge => formatter.write_str("object too large"),
             Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
             Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
+            Self::UniformAccessPredefinedAcl => {
+                formatter.write_str(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+            }
             Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
             Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),

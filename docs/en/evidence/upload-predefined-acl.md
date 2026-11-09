@@ -69,8 +69,34 @@ enabled." Project, bucket and principal names are omitted.
 
 These keep their explicit 400 responses: object PATCH/PUT `predefinedAcl`,
 `destinationPredefinedAcl` on copy, rewrite and compose, bucket `predefinedAcl`
-and `predefinedDefaultObjectAcl`, gRPC `predefined_acl` fields, and the XML API
-`x-goog-acl` header (rejected as an unsupported `x-goog-` header).
+and `predefinedDefaultObjectAcl`, and gRPC `predefined_acl` fields.
+
+## XML API `x-goog-acl`
+
+`x-goog-acl` applies the same canned entries on XML PUT, resumable initiation,
+multipart initiation and copy, under either copy metadata directive. Bucket PUT
+keeps its 400. The values are the XML names `private`, `project-private`,
+`bucket-owner-read`, `bucket-owner-full-control`, `public-read` and
+`authenticated-read`; the JSON spellings are invalid. The following answers were
+recorded from Cloud Storage on 2026-11-09:
+
+- An invalid value is 400 `InvalidArgument` with the message `Invalid argument.`
+  and `Details` of `Invalid canned acl: VALUE`.
+- Any value under uniform bucket-level access is the same 400 whose `Details`
+  begins `Cannot insert legacy ACL for an object when uniform bucket-level
+  access is enabled.` A write without the header succeeds.
+
+Uniform access is checked before any body is read and again in the publishing
+transaction, so a session opened before the bucket changed fails at completion
+with the same answer. Public access prevention and the anonymous rule follow the
+JSON API. On a multipart upload the header belongs to initiation; a part or
+completion request carrying it is refused.
+
+Tests: `xml_canned_acl_values_produce_the_recorded_entries_on_every_write`,
+`xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing`,
+`xml_canned_acl_under_uniform_access_answers_the_recorded_error` and
+`xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error` in
+`tests/it_xml_auth/acl_permission_effects/xml_canned.rs`.
 
 ## Verification
 

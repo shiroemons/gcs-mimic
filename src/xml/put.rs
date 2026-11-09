@@ -129,7 +129,10 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
             && !(signing != Signing::Header && auth::signature::authentication_header(name))
             && !matches!(
                 name,
-                "x-goog-hash" | "x-goog-storage-class" | length_range::HEADER
+                "x-goog-hash"
+                    | "x-goog-storage-class"
+                    | super::canned_acl::HEADER
+                    | length_range::HEADER
             ))
             || (name.starts_with("x-amz-")
                 && !(signing != Signing::Header
@@ -316,6 +319,7 @@ pub(super) fn content_type_and_hashes(
 pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
         customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
+        predefined_acl: super::canned_acl::parse(headers)?,
         ..Default::default()
     };
     for (name, field) in [
@@ -466,6 +470,13 @@ pub(crate) async fn respond(
         signing,
         Framing::Required,
     )?;
+    super::canned_acl::check(
+        metadata.predefined_acl,
+        &operation.target.bucket,
+        &access,
+        ctx,
+    )
+    .await?;
     if streaming.is_some() {
         metadata.content_encoding = streaming::stored_encoding(request.headers())?;
     }

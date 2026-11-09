@@ -148,6 +148,7 @@ fn request_headers(
                 || matches!(
                     name,
                     "x-goog-storage-class"
+                        | super::canned_acl::HEADER
                         | "cache-control"
                         | "content-disposition"
                         | "content-language"
@@ -233,6 +234,13 @@ pub(crate) async fn respond(
                 "whole-object checksums during multipart initiation",
             ));
         }
+        super::canned_acl::check(
+            headers.metadata.predefined_acl,
+            &path.target.bucket,
+            &access,
+            ctx,
+        )
+        .await?;
         empty_body(request, headers.sha256).await?;
         let options = storage::Options {
             content_type: headers.content_type,

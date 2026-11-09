@@ -361,7 +361,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,
-            ObjectError::InvalidMetadata => Self::Invalid(error.to_string()),
+            ObjectError::InvalidMetadata | ObjectError::UniformAccessPredefinedAcl => {
+                Self::Invalid(error.to_string())
+            }
             ObjectError::OverwriteForbidden(_) | ObjectError::PublicAccessPrevention => {
                 Self::Forbidden
             }

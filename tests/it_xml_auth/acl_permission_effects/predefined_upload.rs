@@ -6,7 +6,7 @@ use std::{
 };
 
 const UPLOAD: &str = "/upload/storage/v1/b/test-bucket/o";
-const ADMIN_OWNER: (&str, &str) = ("user-admin@example.test", "OWNER");
+pub(super) const ADMIN_OWNER: (&str, &str) = ("user-admin@example.test", "OWNER");
 
 fn acl(value: &Value) -> Vec<(String, String)> {
     let mut entries: Vec<_> = value["acl"]
@@ -24,7 +24,7 @@ fn acl(value: &Value) -> Vec<(String, String)> {
     entries
 }
 
-fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
+pub(super) fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
     let mut entries: Vec<_> = entries
         .iter()
         .map(|(entity, role)| ((*entity).to_owned(), (*role).to_owned()))
@@ -44,7 +44,7 @@ fn inherited(entity: &str) -> Vec<(String, String)> {
     ])
 }
 
-fn stored(server: &Server, name: &str) -> Vec<(String, String)> {
+pub(super) fn stored(server: &Server, name: &str) -> Vec<(String, String)> {
     acl(&server
         .request(
             "GET",
@@ -55,7 +55,7 @@ fn stored(server: &Server, name: &str) -> Vec<(String, String)> {
         .json_ok())
 }
 
-fn absent(server: &Server, name: &str) {
+pub(super) fn absent(server: &Server, name: &str) {
     server
         .request("GET", &format!("{BUCKET}/o/{name}"), ADMIN, b"")
         .json_reason(404, "notFound");

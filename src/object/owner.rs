@@ -51,6 +51,19 @@ impl ObjectOwner {
         }
     }
 
+    /// Moves this owner's grant to the front, where Cloud Storage lists it under a predefined
+    /// ACL (recorded 2026-11-09).
+    pub(crate) fn move_grant_first(&self, entries: &mut [AclEntry]) {
+        let Some(entity) = self.entity() else { return };
+        let through_grant = entries
+            .iter()
+            .position(|entry| entry.entity == entity)
+            .and_then(|at| entries.get_mut(..=at));
+        if let Some(through_grant) = through_grant {
+            through_grant.rotate_right(1);
+        }
+    }
+
     pub(crate) fn remove_implicit_grant(&self, entries: &mut Vec<AclEntry>) {
         // The project owners' grant keeps its place in the default ACL; Cloud Storage lists it
         // first, before the editors and viewers, while a grant re-added on read comes last.

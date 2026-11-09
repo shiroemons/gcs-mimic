@@ -20,6 +20,7 @@ mod owner_publication;
 mod owner_replay;
 mod predefined_upload;
 mod read;
+mod xml_canned;
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const READER: &str = "Authorization: Bearer reader\r\n";

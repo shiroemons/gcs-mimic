@@ -66,7 +66,10 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
             && !name.starts_with("x-goog-meta-")
             && !super::is_common_object_header(name)
             && !(signing == Signing::Signed && auth::signature::authentication_header(name))
-            && !matches!(name, "x-goog-resumable" | "x-goog-storage-class");
+            && !matches!(
+                name,
+                "x-goog-resumable" | "x-goog-storage-class" | super::canned_acl::HEADER
+            );
         let amz = name.starts_with("x-amz-")
             && !(signing == Signing::Signed && auth::signature::authentication_header(name));
         if goog
@@ -130,6 +133,13 @@ pub(crate) async fn start(
         Signing::Unsigned
     };
     let options = options(request.headers(), signing, access)?;
+    super::canned_acl::check(
+        options.metadata.predefined_acl,
+        &object.bucket,
+        &options.access,
+        ctx,
+    )
+    .await?;
     json::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
