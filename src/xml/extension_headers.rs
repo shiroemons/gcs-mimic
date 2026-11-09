@@ -78,9 +78,8 @@ impl Equivalent {
 
 /// The only list of `x-amz-*` headers this adapter understands: the migration guide's headers
 /// whose `x-goog-*` equivalent differs only in its prefix, plus `x-amz-project-id`, which it
-/// accepts for simple migrations. Its other rows change meaning or have no equivalent
-/// (`x-amz-server-side-encryption`, `x-amz-grant-*`), so the adapters keep rejecting those
-/// instead of answering as if they had taken effect.
+/// accepts for simple migrations. Other `x-amz-*` headers have no equivalent here; see
+/// [`ignored_with_aws_signature`].
 ///
 /// The `Ignored` and `MissingCopySource` entries are what Cloud Storage did on an OAuth PUT
 /// (recorded 2026-11-09), except `x-amz-metadata-directive`, which was not recorded: it has
@@ -145,16 +144,15 @@ pub(crate) fn normalize<B>(request: &mut Request<B>, route: Route) -> Result<(),
 }
 
 /// Cloud Storage's `Details` for both spellings of one header (recorded 2026-11-09).
-const BOTH_SPELLINGS: &str = "Multiple HTTP header values where one was expected. Requests cannot specify both x-amz and x-goog headers.";
+pub(super) const BOTH_SPELLINGS: &str = "Multiple HTTP header values where one was expected. Requests cannot specify both x-amz and x-goog headers.";
 
 /// Whether an AWS-signed request may carry this `x-amz-*` header with no effect. Cloud Storage
-/// answered 200 to an unknown header and to `x-amz-server-side-encryption: AES256` (recorded
-/// 2026-11-09). Customer-key encryption and grants would promise protection or access that
-/// never applied and their answers are not recorded, so the adapters keep refusing them.
+/// answered 200 to an unknown header, `x-amz-server-side-encryption: AES256` and
+/// `x-amz-grant-read` (recorded 2026-11-09). It never accepted the customer-key headers as sent
+/// (400 when unsigned, 403 when signed), so the adapters keep refusing them.
 fn ignored_with_aws_signature(name: &str) -> bool {
     name.starts_with("x-amz-")
         && !name.starts_with("x-amz-server-side-encryption-customer-")
-        && !name.starts_with("x-amz-grant-")
         && !crate::auth::signature::authentication_header(name)
         && name != "x-amz-decoded-content-length"
 }
@@ -349,6 +347,7 @@ mod tests {
         for name in [
             "x-amz-server-side-encryption",
             "x-amz-tagging",
+            "x-amz-grant-read",
             "x-amz-version-id",
             "x-amz-acl-extra",
             "x-amz-copy-source-range",
@@ -361,10 +360,9 @@ mod tests {
     }
 
     #[test]
-    fn an_aws_signature_leaves_customer_keys_and_grants_for_the_adapters_to_refuse() {
+    fn an_aws_signature_leaves_customer_keys_for_the_adapters_to_refuse() {
         for name in [
             "x-amz-server-side-encryption-customer-key",
-            "x-amz-grant-read",
             "x-amz-decoded-content-length",
             "x-amz-content-sha256",
         ] {

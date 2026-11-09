@@ -130,6 +130,9 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
     };
     match failure {
         Failure::RepeatedParameter(parameter) => Error::excess_header_values(parameter.to_string()),
+        Failure::BothExtensionSpellings => {
+            Error::excess_header_values(extension_headers::BOTH_SPELLINGS)
+        }
         Failure::Malformed => Error::new(
             XmlCode::InvalidAuthentication,
             "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",

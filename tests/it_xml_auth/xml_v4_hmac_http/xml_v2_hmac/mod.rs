@@ -863,7 +863,7 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
     server.bucket("test-bucket");
     for (field, value) in [
         ("x-amz-acl", "aws-exec-read"),
-        ("x-amz-grant-read", "private"),
+        ("x-amz-server-side-encryption-customer-algorithm", "AES256"),
         ("x-amz-storage-class", "private"),
     ] {
         let put = signed(
@@ -890,7 +890,7 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
     error(
         &send(&server, "PUT", &collision, b"must not publish", "localhost"),
         400,
-        "InvalidAuthentication",
+        "ExcessHeaderValues",
     );
     server
         .request("GET", "/test-bucket/no-silent-alias", ADMIN, b"")

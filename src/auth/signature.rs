@@ -70,6 +70,8 @@ pub enum Failure {
     Malformed,
     /// One V4 query parameter sent under spellings that differ only in ASCII case.
     RepeatedParameter(V4Parameter),
+    /// A V2 `AWS` request sent the `x-amz-*` and `x-goog-*` spellings of one extension header.
+    BothExtensionSpellings,
     /// The V4 expiry parameter is present but not a whole number of seconds within
     /// `1..=MAX_EXPIRES`. Go storage turns a duration under one second into `0`, so the
     /// response names the range instead of a generic parameter error.

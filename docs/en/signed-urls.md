@@ -555,14 +555,15 @@ with the same suffix after the signature is verified over the original names:
 The translated header then behaves exactly as its Google name does, so an
 unsupported one, such as a source date condition, stays rejected. Reads answer with
 custom metadata as `x-amz-meta-*`. Sending both spellings of one header is 400
-`ExcessHeaderValues`. Other `x-amz-*` headers, such as `x-amz-server-side-encryption`
-and unknown names, are accepted without effect; customer-key encryption and
-`x-amz-grant-*` stay rejected because Cloud Storage's answers to them are not recorded.
+`ExcessHeaderValues`. Other `x-amz-*` headers, such as `x-amz-server-side-encryption`,
+`x-amz-grant-*` and unknown names, are accepted without effect. The customer-key
+encryption headers stay rejected: Cloud Storage answered 400
+`MalformedSecurityHeader` when they were not signed and 403 when they were.
 Where signatures are ignored, the form of the credentials still selects this behavior,
 so an S3 client with a made-up key behaves the same way.
 
-These were compared with Cloud Storage using an AWS4 header signature (2026-11-09); V2
-`AWS` and query signatures share the mapping by inference. On an object write
+These were compared with Cloud Storage using AWS4 header and query signatures and V2
+`AWS` headers (2026-11-09). On an object write
 without an AWS signature, `x-amz-meta-*`, `x-amz-acl`, `x-amz-storage-class` and
 `x-amz-metadata-directive` are accepted without effect, and `x-amz-copy-source` is
 400 `InvalidArgument` with `Details` of `Missing copy source`. Other requests

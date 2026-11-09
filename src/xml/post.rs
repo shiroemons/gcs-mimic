@@ -76,6 +76,7 @@ fn signature_error(failure: signature::VerificationError) -> Error {
         ),
         Failure::Malformed
         | Failure::RepeatedParameter(_)
+        | Failure::BothExtensionSpellings
         | Failure::ExpiresOutOfRange(..)
         | Failure::Expired
         | Failure::NotYetValid => Error::invalid(

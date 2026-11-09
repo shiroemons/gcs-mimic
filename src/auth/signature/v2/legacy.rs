@@ -64,6 +64,14 @@ pub(super) fn prepare(
         _ => return Err(Failure::Malformed),
     };
     let (signer, signature) = credential.split_once(':').ok_or(Failure::Malformed)?;
+    if profile == Profile::Aws
+        && headers
+            .keys()
+            .filter_map(|name| name.as_str().strip_prefix("x-goog-"))
+            .any(|suffix| headers.contains_key(format!("x-amz-{suffix}").as_str()))
+    {
+        return Err(Failure::BothExtensionSpellings);
+    }
     if signer.is_empty()
         || signer.len() > 1024
         || signer

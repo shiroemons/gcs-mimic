@@ -377,6 +377,7 @@ fn aws4_ignores_amz_headers_without_an_equivalent() {
         [("x-amz-server-side-encryption", "AES256")].as_slice(),
         [("x-amz-no-such-header", "1")].as_slice(),
         [("x-amz-tagging", "a=b")].as_slice(),
+        [("x-amz-grant-read", "id=x")].as_slice(),
         [("x-amz-metadata-directive", "REPLACE")].as_slice(),
     ]
     .into_iter()
@@ -424,7 +425,7 @@ fn aws4_reads_answer_with_amz_custom_metadata() {
 }
 
 #[test]
-fn aws4_refuses_conflicting_and_grant_headers_without_publishing() {
+fn aws4_refuses_conflicting_headers_and_customer_keys_without_publishing() {
     let (_dir, server, key) = fixture();
     for (index, extras) in [
         [("x-amz-meta-k", "a"), ("x-goog-meta-k", "b")].as_slice(),
@@ -446,21 +447,17 @@ fn aws4_refuses_conflicting_and_grant_headers_without_publishing() {
         );
         absent(&server, &name);
     }
-    for (index, extras) in [
-        [("x-amz-grant-read", "id=x")].as_slice(),
-        [("x-amz-server-side-encryption-customer-key", "a")].as_slice(),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let name = format!("refused-{index}");
-        error(
-            &aws4_put(&server, &key, &name, extras),
-            400,
-            "InvalidArgument",
-        );
-        absent(&server, &name);
-    }
+    error(
+        &aws4_put(
+            &server,
+            &key,
+            "refused-customer-key",
+            &[("x-amz-server-side-encryption-customer-key", "a")],
+        ),
+        400,
+        "InvalidArgument",
+    );
+    absent(&server, "refused-customer-key");
     assert_details(
         &aws4_put(
             &server,
