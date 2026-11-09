@@ -219,7 +219,7 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
 }
 
 #[test]
-fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
+fn default_location_invalid_or_alias_settings_fail_before_catalog_creation() {
     for options in [
         vec!["--default-location", "MARS-CENTRAL1"],
         vec!["--default-location", " US"],
@@ -242,14 +242,14 @@ fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
     // A translated fake-gcs-server location is validated like the native setting.
     let dir = TestDir::new();
     let output = command(&dir.0)
-        .env("FAKE_GCS_LOCATION", "MARS-CENTRAL1")
+        .args(["-location", "MARS-CENTRAL1"])
         .output()
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     assert!(!dir.0.join("data").exists());
     let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("FAKE_GCS_LOCATION"), "{text}");
+    assert!(text.contains("\"-location\""), "{text}");
     assert!(text.contains("default_location must"), "{text}");
 }
 

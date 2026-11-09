@@ -4,7 +4,7 @@ use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::{AuthMode, SignedUrls, TestSigner, signature::SignedHostPort},
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs, LEGACY_PREFIX},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     time_limit::TimeLimit,
     url::PublicOrigin,
@@ -495,8 +495,8 @@ impl Config {
     }
 
     fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
-        inputs.translate_legacy();
         let invalid_file_fields = read_selected_config(&mut inputs);
+        inputs.translate_aliases();
         let settings = collect_settings(&mut inputs);
         let mut report = ConfigurationReport {
             config: Self::default(),
@@ -564,11 +564,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     key: key.clone(),
                     name: key.clone(),
                     value: text.clone().unwrap_or_default(),
-                    kind: if key.starts_with(LEGACY_PREFIX) {
-                        InputKind::UnknownLegacy
-                    } else {
-                        InputKind::Native
-                    },
+                    kind: InputKind::Native,
                     invalid: None,
                 }) {
                     break;
@@ -616,8 +612,8 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                         other.source == source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
                     }))
                 && match i.kind {
-                    InputKind::Native | InputKind::Alias => true,
-                    InputKind::Legacy | InputKind::UnknownLegacy => false,
+                    InputKind::Native | InputKind::Translated => true,
+                    InputKind::Alias(_) => false,
                 }
         }) {
             if source == DiagnosticSource::Cli
@@ -1326,6 +1322,21 @@ impl ConfigurationReport {
         if self.any_invalid(&["scheme", "listen", "listen_http"]) {
             return;
         }
+        // A port for the second listener means nothing without scheme=both, and a shared command
+        // line may carry it for the other schemes. An explicit listen_http stays an error below.
+        if self.config.scheme != Scheme::Both
+            && let Some(input) = settings
+                .get("listen_http")
+                .filter(|input| input.kind == InputKind::Translated)
+        {
+            self.diagnostics.warnings.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "This port applies only with scheme=both, so it is ignored; use --scheme both to serve HTTP on it.",
+            ));
+            self.config.listen_http = None;
+            return;
+        }
         let config = &self.config;
         let fix = if config.scheme != Scheme::Both && config.listen_http.is_some() {
             Some("listen_http requires scheme=both; remove listen_http or use --scheme both.")
@@ -2029,19 +2040,21 @@ mod tests {
     }
 
     #[test]
-    fn legacy_json_members_remain_ignored_without_environment_warnings() {
+    fn fake_gcs_server_names_in_a_config_file_are_unknown_settings() {
         let dir = crate::test_support::TestDir::new();
         let file = dir.0.join("config.json");
-        std::fs::write(
-            &file,
-            r#"{"FAKE_GCS_HOST":"0.0.0.0","FAKE_GCS_LISTEN":"unused"}"#,
-        )
-        .unwrap();
+        std::fs::write(&file, r#"{"FAKE_GCS_HOST":"0.0.0.0"}"#).unwrap();
         let args = ["--config".into(), file.to_str().unwrap().into()];
         let report = Config::preflight(&args, &BTreeMap::new());
-        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-        assert!(report.diagnostics.warnings.is_empty());
-        assert_eq!(report.config.listen, Config::default().listen);
+        assert!(
+            report
+                .diagnostics
+                .errors
+                .iter()
+                .any(|d| d.key == "FAKE_GCS_HOST"),
+            "{}",
+            report.diagnostics
+        );
     }
 
     #[test]
@@ -2838,7 +2851,6 @@ mod tests {
             ("GCS_MIMIC_MAX_CONNECTIONS".into(), "0".into()),
             ("GCS_MIMIC_AUTH_MODE".into(), "bad-secret-mode".into()),
             ("GCS_MIMIC_IDENTITY_FILE".into(), "ids.json".into()),
-            ("FAKE_GCS_PORT".into(), "8080".into()),
         ]);
         let args = [
             "--worker-threads",
@@ -2853,15 +2865,7 @@ mod tests {
         .map(String::from);
         let report = Config::preflight(&args, &env);
         assert_eq!(report.config.worker_threads, 3);
-        // FAKE_GCS_PORT only warns: the native --listen flag outranks its translation.
         assert_eq!(report.diagnostics.errors.len(), 4);
-        assert!(
-            report
-                .diagnostics
-                .warnings
-                .iter()
-                .any(|d| d.key == "FAKE_GCS_PORT")
-        );
         assert!(report.valid(&["worker_threads"]));
         assert!(!report.valid(&["auth_mode", "tls_cert"]));
         assert!(!report.diagnostics.to_string().contains("secret"));
@@ -2912,17 +2916,11 @@ mod tests {
     #[test]
     fn native_syntax_errors_preserve_invalid_prerequisites_without_cascades() {
         for args in [
-            vec!["--identity-file", "ids.json", "--auth-mode=strict"],
+            vec!["--identity-file", "ids.json", "---auth-mode=strict"],
             vec!["--identity-file", "ids.json", "--auth-mode"],
-            vec!["--tls-key", "key.pem", "--tls-cert=cert.pem"],
+            vec!["--tls-key", "key.pem", "---tls-cert=cert.pem"],
             vec!["--tls-key", "key.pem", "--tls-cert"],
-            vec![
-                "--tls-cert",
-                "cert.pem",
-                "--tls-key",
-                "key.pem",
-                "--scheme=http",
-            ],
+            vec!["--tls-cert", "cert.pem", "--tls-key", "key.pem", "--scheme"],
         ] {
             let report = Config::preflight(
                 &args.into_iter().map(String::from).collect::<Vec<_>>(),
@@ -2940,7 +2938,7 @@ mod tests {
             ("GCS_MIMIC_AUTH_MODE".into(), "strict".into()),
             ("GCS_MIMIC_IDENTITY_FILE".into(), "ids.json".into()),
         ]);
-        let report = Config::preflight(&["--auth-mode=strict".into()], &env);
+        let report = Config::preflight(&["---auth-mode=strict".into()], &env);
         assert_eq!(report.diagnostics.errors.len(), 1);
         assert!(!report.valid(&["auth_mode"]));
     }

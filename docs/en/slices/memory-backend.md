@@ -14,8 +14,8 @@ immutable object bodies in a process-local chunk store. It creates no catalog,
 staging files, temporary data directory or tmpfs mount, and never opens the
 configured `data_dir`. Each process starts empty; stopping or killing it loses
 its state. Existing disk data is neither reused nor deleted. `-backend memory`
-and `FAKE_GCS_BACKEND=memory` select this same profile. Legacy `filesystem` maps
-to native `disk` without adopting foreign-format storage.
+selects this same profile. `-backend filesystem` maps to native `disk` without
+adopting foreign-format storage.
 
 Two separate limits use ordinary CLI > environment > JSON precedence:
 

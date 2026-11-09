@@ -15,7 +15,7 @@ wraps every route in one `gorilla/handlers` CORS middleware:
 - methods HEAD, GET, POST, PUT, PATCH and DELETE;
 - request headers Accept, Accept-Language, Content-Language and Origin, plus
   Content-Type, Content-Encoding, Range and Content-Range, plus the
-  comma-separated `-cors-headers` / `FAKE_GCS_CORS_HEADERS` list;
+  comma-separated `-cors-headers` list;
 - a preflight requesting any other header receives 403;
 - exposed `Location`, `Access-Control-Allow-Credentials: true` and no max age;
 - bucket `cors` is accepted by PATCH but not stored or applied.
@@ -57,8 +57,8 @@ need their own `cors`, so rules belong on buckets, through the JSON API or the
 placement. A header-list setting is also absent: `allow-all` already allows
 every syntactically valid requested header, a superset of the source list.
 
-`FAKE_GCS_CORS_HEADERS` and `-cors-headers` stay rejected at startup. The
-advice is to remove them and names no replacement: permissive mode already
+`-cors-headers` is accepted with a warning. The advice is to remove it and names
+no replacement: permissive mode already
 falls back to `allow-all`, strict mode follows each bucket's `cors` rules as
 Cloud Storage does, and JSON preflight already allows every valid requested
 header. The supplied header names are not echoed.
@@ -121,7 +121,7 @@ not allow, such as one with an unsupported method.
 | --- | --- |
 | Configuration values, precedence, the default per authentication mode, explicit values in both modes, both profiles and bare-flag example | `config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles` |
 | Permissive default allowing a cross-origin XML GET on a bucket without rules with one info note, strict default refusing it, stored rules unaffected and the ready field per mode | `the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows` |
-| Legacy header-list advice starting with removal, without echoing values | `config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls` |
+| Legacy header-list advice starting with removal, without echoing values | `config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls` |
 | Allow-all headers, stored-rule precedence and denials | `xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules` |
 | Bounded once-per-bucket warning memory | `xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded` |
 | Server preflight, GET/HEAD, missing bucket, stored rules, unchanged JSON and ready field | `allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json` |

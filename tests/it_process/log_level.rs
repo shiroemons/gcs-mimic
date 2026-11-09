@@ -39,7 +39,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             .arg(&seed)
             .arg("--data-dir")
             .arg(directory.0.join("data"))
-            .env("FAKE_GCS_UNRELATED", "ignored")
+            .args(["-filesystem-root", "/storage"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -226,7 +226,7 @@ fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
 }
 
 #[test]
-fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
+fn invalid_log_levels_and_alias_diagnostics_fail_before_catalog() {
     for level in ["", "trace", "off", "fatal", "INFO"] {
         let directory = TestDir::new();
         let data = directory.0.join("data");
@@ -244,7 +244,7 @@ fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
     for level in ["debug", "info", "warn", "error"] {
         let directory = TestDir::new();
         let data = directory.0.join("data");
-        // The translated legacy level only warns; an invalid limit keeps startup from binding.
+        // A flag that behaves differently only warns; an invalid limit keeps startup from binding.
         let output = common::server_command()
             .args([
                 "serve",
@@ -255,8 +255,7 @@ fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
                 "--data-dir",
             ])
             .arg(&data)
-            .env("FAKE_GCS_LOG_LEVEL", "warning")
-            .env("FAKE_GCS_UNRELATED", "ignored")
+            .args(["-filesystem-root", "/storage"])
             .output()
             .unwrap();
         assert!(!output.status.success());
@@ -271,13 +270,13 @@ fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|d| d["key"] == "FAKE_GCS_LOG_LEVEL")
+            .find(|d| d["key"] == "-filesystem-root")
             .unwrap();
         assert!(
             warning["fix"]
                 .as_str()
                 .unwrap()
-                .contains("GCS_MIMIC_LOG_LEVEL=warn")
+                .contains("gcs-mimic import fake-gcs-server")
         );
     }
 }

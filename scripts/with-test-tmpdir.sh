@@ -6,8 +6,8 @@
 # and a disk that cannot be detached keeps that memory until reboot or a manual detach, which can
 # destabilize the whole machine, while the default only costs test time. The default also matches
 # CI timing. Other platforms run the command unchanged with serial test binaries. The GCSM_TEST_
-# settings stay outside the GCS_MIMIC_ and FAKE_GCS_ prefixes, which the server reads as its own
-# settings and rejects when unknown, so exporting them in a shell profile cannot stop a server
+# settings stay outside the GCS_MIMIC_ prefix, which the server reads as its own settings and
+# rejects when unknown, so exporting them in a shell profile cannot stop a server
 # from starting.
 set -euo pipefail
 

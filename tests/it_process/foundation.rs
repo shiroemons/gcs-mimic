@@ -1453,9 +1453,7 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
         .arg(key)
         .args(["--auth-mode", "strict", "--identity-file"])
         .arg(identity)
-        .args(["--worker-threads", "0", "-port=8080", "-host", "127.0.0.2"])
-        .env("FAKE_GCS_PORT", "9000")
-        .env("FAKE_GCS_UNRELATED", "secret-unknown-value")
+        .args(["--worker-threads", "0", "-filesystem-root", "/storage"])
         .env("GCS_MIMIC_MAX_CONNECTIONS", "0")
         .output()
         .unwrap();
@@ -1488,15 +1486,8 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
     ] {
         assert!(has(&events[1], source, key), "{source}/{key}: {text}");
     }
-    // Translated fake-gcs-server inputs warn alongside the independent errors.
-    for (source, key) in [
-        ("cli", "-host"),
-        ("cli", "-port"),
-        ("environment", "FAKE_GCS_PORT"),
-    ] {
-        assert!(has(&events[0], source, key), "{source}/{key}: {text}");
-    }
-    assert!(text.contains("GCS_MIMIC_LISTEN=127.0.0.2:8080"));
+    // A flag that behaves differently warns alongside the independent errors.
+    assert!(has(&events[0], "cli", "-filesystem-root"), "{text}");
 }
 
 #[test]
@@ -1662,7 +1653,7 @@ fn startup_rejects_an_administrative_principal_missing_from_the_registry() {
 
 #[cfg(unix)]
 #[test]
-fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() {
+fn non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let invalid = || OsString::from_vec(b"secret-invalid-\xff-value".to_vec());
     let root = TestDir::new();
@@ -1692,9 +1683,7 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
-    assert_eq!(warning["level"], "warn");
-    assert_eq!(warning["diagnostics"][0]["key"], "FAKE_GCS_UNRELATED");
+    assert!(!text.contains("FAKE_GCS_UNRELATED"), "{text}");
     assert!(!text.contains("secret-invalid"));
     for with_known in [false, true] {
         let data = root.0.join(if with_known {
@@ -1716,9 +1705,7 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
             .arg(&data)
             .env("FAKE_GCS_UNRELATED", invalid());
         if with_known {
-            command
-                .env("FAKE_GCS_PORT", invalid())
-                .env("GCS_MIMIC_WORKER_THREADS", invalid());
+            command.env("GCS_MIMIC_WORKER_THREADS", invalid());
         }
         let output = command.output().unwrap();
         assert!(!output.status.success());
@@ -1729,29 +1716,25 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(events[0]["level"], "warn");
         let errors = events.iter().find(|e| e["level"] == "error").unwrap()["diagnostics"]
             .as_array()
             .unwrap();
-        assert_eq!(errors.len(), if with_known { 3 } else { 1 }, "{text}");
+        assert_eq!(errors.len(), if with_known { 2 } else { 1 }, "{text}");
         assert!(errors.iter().any(|d| d["key"] == "--max-connections"));
         if with_known {
-            assert!(text.contains("<PORT_0_TO_65535>"), "{text}");
-            for key in ["FAKE_GCS_PORT", "GCS_MIMIC_WORKER_THREADS"] {
-                assert!(
-                    errors
-                        .iter()
-                        .any(|d| d["key"] == key && d["fix"].as_str().unwrap().contains("UTF-8")),
-                    "{text}"
-                );
-            }
+            assert!(
+                errors.iter().any(|d| d["key"] == "GCS_MIMIC_WORKER_THREADS"
+                    && d["fix"].as_str().unwrap().contains("UTF-8")),
+                "{text}"
+            );
         }
+        assert!(!text.contains("FAKE_GCS_UNRELATED"), "{text}");
         assert!(!text.contains("secret-invalid"));
     }
 }
 
 #[test]
-fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
+fn fake_gcs_server_variables_do_not_affect_the_server() {
     let root = TestDir::new();
     let mut child = common::server_command()
         .clean_env()
@@ -1764,6 +1747,8 @@ fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
             "--data-dir",
         ])
         .arg(root.0.join("data"))
+        .env("FAKE_GCS_SCHEME", "https")
+        .env("FAKE_GCS_PORT", "not-a-port")
         .env("FAKE_GCS_UNRELATED_APP", "secret-app-value")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1779,10 +1764,7 @@ fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
-    assert_eq!(warning["level"], "warn");
-    assert_eq!(warning["diagnostics"][0]["key"], "FAKE_GCS_UNRELATED_APP");
-    assert!(!text.contains("secret-app-value"));
+    assert!(!text.contains("FAKE_GCS"), "{text}");
 }
 
 #[test]
@@ -1820,23 +1802,16 @@ fn compose_only_variables_and_missing_subcommand_report_native_migration() {
     ] {
         assert!(text.contains(expected), "{text}");
     }
-    // Native options without `serve` still fail; a leading fake-gcs-server flag starts instead.
+    // A first argument that is neither a command nor an option still fails instead of serving.
     let output = common::server_command()
         .clean_env()
-        .args(["--scheme", "http", "-port", "9000", "--data=fixtures"])
+        .args(["scheme", "http"])
         .output()
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
-    for expected in [
-        "--scheme",
-        "-port",
-        "--data",
-        "serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic",
-    ] {
-        assert!(text.contains(expected), "{text}");
-    }
+    assert!(text.contains("--help"), "{text}");
 }
 
 #[test]
@@ -1881,27 +1856,75 @@ fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
         .unwrap();
     let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
     assert_eq!(warning["level"], "warn");
-    for key in [
-        "-scheme",
-        "-host",
-        "-port",
-        "-backend",
-        "-filesystem-root",
-        "-data",
+    // Only the input that behaves differently from fake-gcs-server has anything to report.
+    let keys: Vec<_> = warning["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(keys, ["-filesystem-root"], "{text}");
+}
+
+#[test]
+fn native_options_without_serve_start_quietly_on_loopback() {
+    let root = TestDir::new();
+    let mut child = common::server_command()
+        .clean_env()
+        .args(["--scheme=http", "--port", "0", "--data-dir"])
+        .arg(root.0.join("data"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["event"], "ready");
+    assert!(
+        ready["listen"].as_str().unwrap().starts_with("127.0.0.1:"),
+        "{ready}"
+    );
+    common::stop_server(&mut child, &mut stdout);
+    let mut text = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    assert!(!text.contains(r#""level":"warn""#), "{text}");
+}
+
+#[test]
+fn every_help_spelling_prints_usage_without_starting_the_server() {
+    for args in [
+        &["--help"][..],
+        &["-h"],
+        &["-help"],
+        &["serve", "--help"],
+        &["serve", "-h"],
+        &["--scheme", "http", "--help"],
     ] {
-        assert!(
-            warning["diagnostics"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|d| d["key"] == key),
-            "{key}: {text}"
-        );
+        let output = common::server_command()
+            .clean_env()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("Common options"), "{args:?}: {stdout}");
     }
 }
 
 #[test]
-fn native_helper_values_that_look_like_legacy_flags_are_preserved() {
+fn running_without_arguments_names_the_command_to_use() {
+    let output = common::server_command().clean_env().output().unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("gcs-mimic serve --scheme http"), "{stderr}");
+}
+
+#[test]
+fn native_helper_values_that_look_like_alias_flags_are_preserved() {
     for command in ["public", "sign"] {
         for object in ["-data", "-port", "-x"] {
             let mut process = common::server_command();

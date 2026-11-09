@@ -34,7 +34,7 @@ Storage v1 Discovery revision `20261020` has SHA-256 `eeb0831df501d131c9497534b2
 
 The shared static table contains 43 regions, six predefined dual-regions and three multi-regions. No table is fetched or built at startup.
 Native administrative bucket definitions use this same table and require a canonical location/type pair, allowing initializer publication without weakening metadata validation. The catalog schema, transactions and startup order are unchanged.
-Legacy `FAKE_GCS_LOCATION` remains an error, with migration advice selecting the corresponding uppercase native default (for example `US-CENTRAL1` or `ASIA-NORTHEAST1`). Unknown legacy values are redacted and receive valid examples; the legacy profile's fixed behavior is unchanged.
+The `-location` flag sets the corresponding uppercase native default (for example `US-CENTRAL1` or `ASIA-NORTHEAST1`). Unknown values are redacted and receive valid examples; the legacy profile's fixed behavior is unchanged.
 
 | Location type / area | Names |
 | --- | --- |
@@ -59,7 +59,7 @@ Implementation commits: `bce7bb3ef4cd51d9218c6d070c18dc17b0c377a4`, `a3074ab`, `
 - `just check`: PASS on the final source, including formatting, host/cross-target clippy, all Rust tests, compatibility validation/generated views and offline script checks.
 - `cargo test --locked --offline --test bucket_initialization`: PASS, 10 tests including regional and default predefined dual-region startup.
 - `cargo test --locked --offline --lib bucket_definition_requires_matching_canonical_location_and_type`: PASS. The shared administrative boundary requires the canonical location/type pair and rejects unknown names, wrong types and noncanonical records.
-- `cargo test --locked --offline --lib config_input::tests::legacy_location_advice_uses_effective_native_setting`: PASS; regional and predefined dual-region advice uses uppercase native settings and unknown values remain redacted.
+- `cargo test --locked --offline --lib config_input::tests::alias_location_advice_uses_effective_native_setting`: PASS; regional and predefined dual-region advice uses uppercase native settings and unknown values remain redacted.
 - `cargo test --locked --offline --lib config_input::tests`: PASS, all 10 diagnostic tests, including mixed settings, unsafe-value redaction and property cases.
 - `BUNDLE_FROZEN=true bundle check`: PASS using pinned Ruby 4.0.9 and Bundler 4.0.23.
 - `just check-sdk` (HTTP): PASS. Go vet and the full Go suite pass, including regional, lowercase regional and NAM4 creation/Attrs; Ruby origin self-check, migration scenario and full permissive/strict journeys pass, including regional create/reload location and location_type.

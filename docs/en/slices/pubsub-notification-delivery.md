@@ -41,15 +41,15 @@ only existence is checked. Without an emulator the topic is accepted unchecked,
 which differs from Cloud Storage. Existing configurations, reads and delivery are
 unaffected when a topic is later removed.
 
-An optional global rule preserves fake-gcs-server's event settings:
+An optional global rule publishes events without a per-bucket configuration:
 
-| Native option / JSON key | Legacy flag / environment suffix | Effect |
+| Native option / JSON key | Alternative flag | Effect |
 | --- | --- | --- |
-| `--event-pubsub-project-id` / `event_pubsub_project_id` | `-event.pubsub-project-id` / `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | Project containing the global topic. |
-| `--event-pubsub-topic` / `event_pubsub_topic` | `-event.pubsub-topic` / `FAKE_GCS_EVENT_PUBSUB_TOPIC` | Global topic ID. Requires project and explicit emulator endpoint. |
-| `--event-bucket` / `event_bucket` | `-event.bucket` / `FAKE_GCS_EVENT_BUCKET` | Exact bucket filter; empty selects all buckets. |
-| `--event-object-prefix` / `event_object_prefix` | `-event.object-prefix` / `FAKE_GCS_EVENT_OBJECT_PREFIX` | Object name prefix; empty selects all names. |
-| `--event-list` / `event_list` | `-event.list` / `FAKE_GCS_EVENT_LIST` | Comma-separated `finalize`, `delete`, `metadataUpdate`, `archive`; default `finalize`. The local extension `none` disables the global rule, representing an all-false Go NotifyOn. |
+| `--event-pubsub-project-id` / `event_pubsub_project_id` | `-event.pubsub-project-id` | Project containing the global topic. |
+| `--event-pubsub-topic` / `event_pubsub_topic` | `-event.pubsub-topic` | Global topic ID. Requires project and explicit emulator endpoint. |
+| `--event-bucket` / `event_bucket` | `-event.bucket` | Exact bucket filter; empty selects all buckets. |
+| `--event-object-prefix` / `event_object_prefix` | `-event.object-prefix` | Object name prefix; empty selects all names. |
+| `--event-list` / `event_list` | `-event.list` | Comma-separated `finalize`, `delete`, `metadataUpdate`, `archive`; default `finalize`. The local extension `none` disables the global rule, representing an all-false Go NotifyOn. |
 
 The `GCS_MIMIC_` environment forms use the uppercase JSON keys. Incomplete global
 settings, unsupported event names and filters without a topic fail configuration

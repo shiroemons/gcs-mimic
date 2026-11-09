@@ -29,22 +29,22 @@ fn no_selected_source_events_disables_the_global_rule_without_enabling_all_event
 }
 
 #[test]
-fn legacy_events_and_emulator_host_apply_with_native_precedence() {
-    let env = BTreeMap::from([
-        (
-            "FAKE_GCS_EVENT_PUBSUB_PROJECT_ID".into(),
-            "local-project".into(),
-        ),
-        ("FAKE_GCS_EVENT_PUBSUB_TOPIC".into(), "uploads".into()),
-        ("PUBSUB_EMULATOR_HOST".into(), "127.0.0.1:8085".into()),
-        (
-            "FAKE_GCS_EVENT_LIST".into(),
-            "finalize, archive,delete,metadataUpdate".into(),
-        ),
-    ]);
-    let args: Vec<String> = ["--event-bucket", "selected", "--event-object-prefix", "in/"]
-        .map(str::to_owned)
-        .to_vec();
+fn alias_events_and_emulator_host_apply_with_native_precedence() {
+    let env = BTreeMap::from([("PUBSUB_EMULATOR_HOST".into(), "127.0.0.1:8085".into())]);
+    let args: Vec<String> = [
+        "-event.pubsub-project-id",
+        "local-project",
+        "-event.pubsub-topic",
+        "uploads",
+        "-event.list",
+        "finalize, archive,delete,metadataUpdate",
+        "--event-bucket",
+        "selected",
+        "--event-object-prefix",
+        "in/",
+    ]
+    .map(str::to_owned)
+    .to_vec();
     let config = Config::load(&args, &env).unwrap();
     let runtime = config.notification_runtime().unwrap();
     assert!(runtime.endpoint.is_some());

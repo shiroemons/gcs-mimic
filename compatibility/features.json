@@ -6043,13 +6043,13 @@
           "id": "BUCKET-DEFAULT-LOCATION-CONFIG",
           "description": "default-location-config: configuration, API creation, initializer and administrative validation share location names; null/empty uses defaults, invalid defaults include valid examples, and legacy migration advice recommends the uppercase native setting while redacting unknown names.",
           "result": "PASS",
-          "test_ids": ["default_location_validates_precedence_and_native_profile", "initializer_location_normalizes_names_and_defaults", "regional_and_dual_region_initializer_locations_use_shared_defaults", "bucket_definition_requires_matching_canonical_location_and_type", "legacy_location_advice_uses_effective_native_setting"]
+          "test_ids": ["default_location_validates_precedence_and_native_profile", "initializer_location_normalizes_names_and_defaults", "regional_and_dual_region_initializer_locations_use_shared_defaults", "bucket_definition_requires_matching_canonical_location_and_type", "alias_location_advice_uses_effective_native_setting"]
         },
         {
           "id": "BUCKET-LEGACY-LOCATION-UNCHANGED",
           "description": "legacy-profile-unchanged: fixed US-CENTRAL1 rendering and input restrictions remain unchanged; default_location remains native-only.",
           "result": "PASS",
-          "test_ids": ["legacy_create_location_accepts_only_fixed_region_and_stores_native_us", "default_location_invalid_or_legacy_settings_fail_before_catalog_creation"]
+          "test_ids": ["legacy_create_location_accepts_only_fixed_region_and_stores_native_us", "default_location_invalid_or_alias_settings_fail_before_catalog_creation"]
         },
         {
           "id": "BUCKET-LOCATION-SDK-GO",
@@ -6274,9 +6274,9 @@
         "initializer_location_normalizes_names_and_defaults",
         "regional_and_dual_region_initializer_locations_use_shared_defaults",
         "bucket_definition_requires_matching_canonical_location_and_type",
-        "legacy_location_advice_uses_effective_native_setting",
+        "alias_location_advice_uses_effective_native_setting",
         "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
-        "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+        "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
         "TestBucketLocations",
         "ruby-regional-location",
         "bkt_http_crud_metadata_conditions_and_errors",
@@ -6347,15 +6347,15 @@
             "regional_and_dual_region_initializer_locations_use_shared_defaults",
             "bucket_definition_requires_matching_canonical_location_and_type",
             "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
-            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation"
+            "default_location_invalid_or_alias_settings_fail_before_catalog_creation"
           ]
         },
         {
-          "command": "cargo test --locked --offline --lib config_input::tests::legacy_location_advice_uses_effective_native_setting",
+          "command": "cargo test --locked --offline --lib config_input::tests::alias_location_advice_uses_effective_native_setting",
           "result": "PASS",
           "verified_at": "2026-10-27",
           "artifact": "docs/en/slices/sdk-regional-locations.md",
-          "test_ids": ["legacy_location_advice_uses_effective_native_setting"]
+          "test_ids": ["alias_location_advice_uses_effective_native_setting"]
         },
         {
           "command": "just check-sdk",
@@ -49029,9 +49029,9 @@
         "compose-peer-and-host-resumable",
         "advertised_endpoint_precedence_and_validation",
         "bkt_http_crud_metadata_conditions_and_errors",
-        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "compose_only_variables_and_missing_subcommand_report_native_migration",
-        "native_helper_values_that_look_like_legacy_flags_are_preserved",
+        "native_helper_values_that_look_like_alias_flags_are_preserved",
         "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
         "obj_http_encoded_names_and_invalid_names",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
@@ -49126,9 +49126,9 @@
           "verified_at": "2026-10-24",
           "artifact": "docs/en/evidence/configuration-diagnostics.md",
           "test_ids": [
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "compose_only_variables_and_missing_subcommand_report_native_migration",
-            "native_helper_values_that_look_like_legacy_flags_are_preserved"
+            "native_helper_values_that_look_like_alias_flags_are_preserved"
           ]
         },
         {
@@ -56037,7 +56037,7 @@
           "result": "PASS",
           "test_ids": [
             "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses"
           ]
@@ -56082,7 +56082,7 @@
       "test_ids": [
         "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
         "the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows",
-        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "api_origin_ready_and_resumable_locations_use_bound_addresses",
         "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
@@ -56100,7 +56100,7 @@
           "artifact": "docs/en/evidence/cors-fallback.md",
           "test_ids": [
             "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
             "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
@@ -56950,7 +56950,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Source builds now map supported legacy backend/events/filesystem-root settings to bounded RAM, explicitly configured local Pub/Sub delivery and disk-root behavior; accepted settings are not ignored. Unsupported or incomplete settings fail visibly. New administration, atomic replay, source migration, synchronization and client adapters require their declared source builds and final combined execution; published 0.7.0 examples do not contain those additions. This broad onboarding row remains PARTIAL. See docs/en/slices/legacy-setting-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
+      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Source builds now map supported legacy backend/events/filesystem-root settings to bounded RAM, explicitly configured local Pub/Sub delivery and disk-root behavior; accepted settings are not ignored. Unsupported or incomplete settings fail visibly. New administration, atomic replay, source migration, synchronization and client adapters require their declared source builds and final combined execution; published 0.7.0 examples do not contain those additions. This broad onboarding row remains PARTIAL. See docs/en/slices/option-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -57001,26 +57001,26 @@
         },
         {
           "id": "UX-003-LEGACY-DIAGNOSTICS",
-          "description": "config-legacy-input-diagnostics: cover all 19 env/CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. Warn on unknown FAKE_GCS_*; adopt an existing /data disjoint from the native directories as default_seed_dir, never adopt it on overlap, ancestry, symlinks or a missing path, and warn when it cannot be inspected. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
+          "description": "config-legacy-input-diagnostics: cover all 19 CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. FAKE_GCS_* variables are not read; adopt an existing /data disjoint from the native directories as default_seed_dir, never adopt it on overlap, ancestry, symlinks or a missing path, and warn when it cannot be inspected. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
           "result": "PASS",
           "test_ids": [
-            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
             "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
             "config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint",
-            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "config_input::tests::arbitrary_alias_and_native_inputs_never_panic",
             "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
             "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
             "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
             "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
-            "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+            "fake_gcs_server_variables_do_not_affect_the_server",
             "compose_only_variables_and_missing_subcommand_report_native_migration",
-            "native_helper_values_that_look_like_legacy_flags_are_preserved",
-            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "native_helper_values_that_look_like_alias_flags_are_preserved",
+            "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
             "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
             "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
-            "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+            "config_input::tests::option_prefixes_accept_one_or_two_hyphens_and_nothing_else",
             "config_input::tests::native_environment_encoding_follows_effective_precedence"
           ]
         },
@@ -57029,12 +57029,33 @@
           "description": "Legacy diagnostics production parser/config/renderer modules deny clippy unwrap_used and expect_used, allowing assertion conveniences only inside test modules. The typed Config::load error reaches every caller; bounded input and per-page rendering preserve independent errors and never expose raw parser/I/O values or create data_dir on invalid startup.",
           "result": "PASS",
           "test_ids": [
-            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "config_input::tests::arbitrary_alias_and_native_inputs_never_panic",
             "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
             "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
-            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
             "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
             "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades"
+          ]
+        },
+        {
+          "id": "UX-003-CLI-ENTRY",
+          "description": "Server options start the server without the serve word when the first argument is an option, in any order, with one or two hyphens and a separate or equals value; -h, --h, -help and --help print usage. --port, --port-http and --host keep the rest of the effective listener address, so a native binary stays on loopback, and a malformed configured address is reported under its own name. --port-http outside scheme=both warns and is ignored while a native listen_http stays an error. A flag warns only when its translation leaves something to know. FAKE_GCS_* variables are not read.",
+          "result": "PASS",
+          "test_ids": [
+            "config_input::tests::option_first_command_lines_start_the_server",
+            "config_input::tests::option_order_and_value_forms_do_not_change_the_configuration",
+            "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
+            "config_input::tests::help_is_recognized_only_at_option_positions",
+            "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
+            "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
+            "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
+            "config_input::tests::only_inputs_that_behave_differently_warn",
+            "config_input::tests::helper_commands_point_server_options_at_serve",
+            "config_input::tests::fake_gcs_server_variables_are_not_read",
+            "native_options_without_serve_start_quietly_on_loopback",
+            "every_help_spelling_prints_usage_without_starting_the_server",
+            "running_without_arguments_names_the_command_to_use",
+            "fake_gcs_server_variables_do_not_affect_the_server"
           ]
         },
         {
@@ -57078,7 +57099,7 @@
           "result": "PASS",
           "test_ids": [
             "config::tests::dual_listener_defaults_precedence_and_validation",
-            "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+            "config_input::tests::dual_listener_alias_advice_names_effective_native_settings",
             "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
             "dual_listener_shares_state_and_https_primary_resumable_origin",
             "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
@@ -57095,9 +57116,9 @@
             "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
             "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
             "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
-            "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
-            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
+            "invalid_log_levels_and_alias_diagnostics_fail_before_catalog",
+            "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
           ]
         },
         {
@@ -57106,10 +57127,10 @@
           "result": "PASS",
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
-            "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+            "config_input::tests::alias_location_advice_uses_effective_native_setting",
             "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
-            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+            "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
             "legacy_create_location_accepts_only_fixed_region_and_stores_native_us"
           ]
@@ -57138,12 +57159,12 @@
         "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
         "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
         "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
-        "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
+        "invalid_log_levels_and_alias_diagnostics_fail_before_catalog",
         "config::tests::default_location_validates_precedence_and_native_profile",
-        "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+        "config_input::tests::alias_location_advice_uses_effective_native_setting",
         "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
         "default_location_applies_to_new_api_and_initializer_buckets_only",
-        "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+        "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
         "default_location_preserves_strict_create_authorization",
         "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
         "guide-host-peer-object-media",
@@ -57159,23 +57180,36 @@
         "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
         "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
-        "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
-        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+        "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
         "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
         "config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint",
-        "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+        "config_input::tests::arbitrary_alias_and_native_inputs_never_panic",
         "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
         "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
         "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
         "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
-        "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+        "fake_gcs_server_variables_do_not_affect_the_server",
         "compose_only_variables_and_missing_subcommand_report_native_migration",
-        "native_helper_values_that_look_like_legacy_flags_are_preserved",
-        "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+        "native_helper_values_that_look_like_alias_flags_are_preserved",
+        "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
         "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
         "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
-        "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+        "config_input::tests::option_prefixes_accept_one_or_two_hyphens_and_nothing_else",
+        "config_input::tests::option_first_command_lines_start_the_server",
+        "config_input::tests::option_order_and_value_forms_do_not_change_the_configuration",
+        "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
+        "config_input::tests::help_is_recognized_only_at_option_positions",
+        "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
+        "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
+        "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
+        "config_input::tests::only_inputs_that_behave_differently_warn",
+        "config_input::tests::helper_commands_point_server_options_at_serve",
+        "config_input::tests::fake_gcs_server_variables_are_not_read",
+        "native_options_without_serve_start_quietly_on_loopback",
+        "every_help_spelling_prints_usage_without_starting_the_server",
+        "running_without_arguments_names_the_command_to_use",
         "config_input::tests::native_environment_encoding_follows_effective_precedence",
         "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
         "api_origin_ready_and_resumable_locations_use_bound_addresses",
@@ -57185,7 +57219,7 @@
         "TestObjectResumableWriter",
         "ruby-api-default-https",
         "config::tests::dual_listener_defaults_precedence_and_validation",
-        "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+        "config_input::tests::dual_listener_alias_advice_names_effective_native_settings",
         "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
         "dual_listener_shares_state_and_https_primary_resumable_origin",
         "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
@@ -57193,7 +57227,7 @@
         "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
         "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
         "config_input::tests::fake_gcs_server_compose_command_starts_with_translated_settings",
-        "config_input::tests::legacy_aliases_follow_source_precedence_and_keep_rejecting_events",
+        "config_input::tests::aliases_follow_source_precedence_and_keep_rejecting_events",
         "fake_gcs_server_command_without_serve_starts_with_translated_settings",
         "every_rendered_link_follows_the_host_of_its_request",
         "forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link",
@@ -57221,9 +57255,9 @@
             "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
             "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
             "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
-            "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
-            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
+            "invalid_log_levels_and_alias_diagnostics_fail_before_catalog",
+            "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
           ]
         },
         {
@@ -57233,9 +57267,9 @@
           "artifact": "docs/en/slices/configuration-workflows.md",
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
-            "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+            "config_input::tests::alias_location_advice_uses_effective_native_setting",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
-            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+            "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
             "legacy_create_location_accepts_only_fixed_region_and_stores_native_us"
           ]
@@ -57247,7 +57281,7 @@
           "artifact": "docs/en/slices/configuration-workflows.md",
           "test_ids": [
             "config::tests::dual_listener_defaults_precedence_and_validation",
-            "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+            "config_input::tests::dual_listener_alias_advice_names_effective_native_settings",
             "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
             "dual_listener_shares_state_and_https_primary_resumable_origin",
             "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
@@ -57316,22 +57350,22 @@
           "verified_at": "2026-10-24",
           "artifact": "docs/en/evidence/configuration-diagnostics.md",
           "test_ids": [
-            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
-            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
             "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
-            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "config_input::tests::arbitrary_alias_and_native_inputs_never_panic",
             "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
             "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
             "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
             "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
-            "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+            "fake_gcs_server_variables_do_not_affect_the_server",
             "compose_only_variables_and_missing_subcommand_report_native_migration",
-            "native_helper_values_that_look_like_legacy_flags_are_preserved",
-            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "native_helper_values_that_look_like_alias_flags_are_preserved",
+            "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
             "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
             "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
-            "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+            "config_input::tests::option_prefixes_accept_one_or_two_hyphens_and_nothing_else",
             "config_input::tests::native_environment_encoding_follows_effective_precedence"
           ]
         },
@@ -57386,12 +57420,34 @@
           "command": "cargo test --lib config; cargo test --test foundation --test log_level --test bucket_initialization; cargo xtask lint; docker compose up --wait with fake-gcs-server flags and FAKE_GCS_* variables against a locally built image",
           "result": "PASS",
           "verified_at": "2026-10-30",
-          "artifact": "docs/en/slices/legacy-setting-aliases.md",
+          "artifact": "docs/en/slices/option-aliases.md",
           "test_ids": [
-            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
             "config_input::tests::fake_gcs_server_compose_command_starts_with_translated_settings",
-            "config_input::tests::legacy_aliases_follow_source_precedence_and_keep_rejecting_events",
+            "config_input::tests::aliases_follow_source_precedence_and_keep_rejecting_events",
             "fake_gcs_server_command_without_serve_starts_with_translated_settings"
+          ]
+        },
+        {
+          "command": "bash scripts/test-rust.sh; cargo xtask lint; a locally built image started with each option form in docs/en/slices/option-aliases.md, with its healthcheck and bucket, upload and download requests",
+          "result": "PASS",
+          "verified_at": "2026-11-09",
+          "artifact": "docs/en/slices/option-aliases.md",
+          "test_ids": [
+            "config_input::tests::option_first_command_lines_start_the_server",
+            "config_input::tests::option_order_and_value_forms_do_not_change_the_configuration",
+            "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
+            "config_input::tests::help_is_recognized_only_at_option_positions",
+            "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
+            "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
+            "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
+            "config_input::tests::only_inputs_that_behave_differently_warn",
+            "config_input::tests::helper_commands_point_server_options_at_serve",
+            "config_input::tests::fake_gcs_server_variables_are_not_read",
+            "native_options_without_serve_start_quietly_on_loopback",
+            "every_help_spelling_prints_usage_without_starting_the_server",
+            "running_without_arguments_names_the_command_to_use",
+            "fake_gcs_server_variables_do_not_affect_the_server"
           ]
         },
         {

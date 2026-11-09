@@ -43,8 +43,8 @@ fn disable_transparent_huge_pages() {
     let _ = unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, DISABLE, UNUSED, UNUSED, UNUSED) };
 }
 
-const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
-Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+const HELP: &str = "gcs-mimic — local Google Cloud Storage emulator
+Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the first argument is an option)
        gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|resolve|wait --endpoint URL [OPTIONS]
        gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
@@ -52,14 +52,21 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
        gcs-mimic test-signer credentials (prints the published built-in test signer's service account JSON)
-       gcs-mimic --help | --version
+       gcs-mimic --help | -h | -help | --version
 
-Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --scheme MODE                https (http|https|both; both uses HTTPS on the primary port)
+  --port N                     4443 (keeps the listen IP; CLI only, GCS_MIMIC_LISTEN in the environment)
+  --port-http N                8000 (HTTP port for scheme=both, ignored with a warning otherwise; CLI only)
+  --host IP                    127.0.0.1, 0.0.0.0 in the image (keeps the listen port; CLI only)
+  --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
+  --seed-dir PATH              none (read-only fixtures; replayed on every startup; image: /data)
+  --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
+
+Other serve options:
   --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
   --default-soft-delete-retention-seconds N  0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..3155760000 retains it; 604800 is the Cloud Storage default)
   --listen IP:PORT             127.0.0.1:4443
-  --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
-  --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
   --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
@@ -70,10 +77,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
-  --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
   --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1099511627776)
   --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1099511627776; separate from RSS)
-  --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
   --max-seed-entries N         0 (files and directories in seed_dir; memory grows with them; 0 is unlimited)
@@ -301,28 +306,24 @@ fn run() -> Result<(), CliError> {
         }
         _ => (),
     }
-    if gcs_mimic::config_input::starts_with_legacy_flag(&args) {
-        return serve(&args);
+    if gcs_mimic::config_input::requests_version(&args) {
+        println!("gcs-mimic {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
     }
-    if args.first().is_none_or(|s| s != "serve") {
-        let diagnostics = gcs_mimic::config_input::cli_diagnostics(&args);
-        if diagnostics.is_err() {
-            return Err(diagnostics.into());
-        }
+    if let Some(options) = gcs_mimic::config_input::server_arguments(&args) {
+        return serve(options);
+    }
+    let diagnostics = gcs_mimic::config_input::cli_diagnostics(&args);
+    if diagnostics.is_err() {
+        return Err(diagnostics.into());
     }
     match args.as_slice() {
-        [help] if help == "--help" => {
-            println!("{HELP}");
-            Ok(())
-        }
-        [version] if version == "--version" => {
-            println!("gcs-mimic {}", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
-        [command, help] if command == "serve" && help == "--help" => {
-            println!("{HELP}");
-            Ok(())
-        }
+        [] => Err(Diagnostics::error(
+            DiagnosticSource::Cli,
+            "command",
+            "No command given; start the emulator with gcs-mimic serve --scheme http, or see gcs-mimic --help.",
+        )
+        .into()),
         [command, rest @ ..] if command == "healthcheck" => {
             healthcheck(rest)?;
             Ok(())
@@ -359,7 +360,6 @@ fn run() -> Result<(), CliError> {
             format!("Invalid test-signer command; use gcs-mimic test-signer credentials.\n{TEST_SIGNER_HELP}"),
         )
         .into()),
-        [command, rest @ ..] if command == "serve" => serve(rest),
         _ => Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "command",
@@ -382,6 +382,10 @@ fn url_command(
 }
 
 fn serve(rest: &[String]) -> Result<(), CliError> {
+    if gcs_mimic::config_input::requests_help(rest) {
+        println!("{HELP}");
+        return Ok(());
+    }
     let mut report = Config::preflight_os(rest, std::env::vars_os());
     // Validate supplied TLS material before touching the catalog, seed or listener.
     let mut acceptor = None;
@@ -729,7 +733,7 @@ fn probe_url(
 }
 
 /// The server options of a gcs-mimic process running as PID 1, as in the container image.
-/// A Compose `command` such as fake-gcs-server's `-scheme http` reaches only that process, so
+/// A Compose `command` such as `--scheme http` reaches only that process, so
 /// the healthcheck falls back to them when the environment's defaults do not answer.
 fn container_server_args() -> Vec<String> {
     let Ok(bytes) = std::fs::read("/proc/1/cmdline") else {
@@ -746,14 +750,9 @@ fn container_server_args() -> Vec<String> {
     if args.is_empty() || Path::new(&args.remove(0)).file_name() != Some("gcs-mimic".as_ref()) {
         return Vec::new();
     }
-    if args.first().is_some_and(|arg| arg == "serve") {
-        args.remove(0);
-        args
-    } else if gcs_mimic::config_input::starts_with_legacy_flag(&args) {
-        args
-    } else {
-        Vec::new()
-    }
+    gcs_mimic::config_input::server_arguments(&args)
+        .map(<[String]>::to_vec)
+        .unwrap_or_default()
 }
 
 fn probe(args: &[String], url: &str) -> io::Result<()> {
@@ -1013,7 +1012,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "3f22670a37040ac0270325d034ec245607dc0fb7d4e2bf0c1e625b786f53d15a"
+            "93da1c23216be3cabf1134021651d7fa9f4ede067cbbf4d0f8ebecaf1280f51f"
         );
     }
 

@@ -72,8 +72,7 @@ run_variant registered-key gcs_emulator_strict --identity-file "$work/identities
 # `gcs-mimic test-signer credentials`, and the server registers its published key itself. The
 # signer holds only roles/storage.objectUser, because anyone can sign with its key; that role
 # cannot create buckets, so the server's buckets file creates them. The server reads only
-# GCS_MIMIC_ and FAKE_GCS_ variables, so the settings for storage.yml and strict.rb use another
-# prefix.
+# GCS_MIMIC_ variables, so the settings for storage.yml and strict.rb use another prefix.
 "$binary" test-signer credentials | jq -r .private_key >"$work/test-signer.pem"
 export GCS_EMULATOR_TEST_SIGNER_KEY="$work/test-signer.pem"
 export GCS_EMULATOR_BUCKET=app-private GCS_EMULATOR_PUBLIC_BUCKET=app-public

@@ -325,7 +325,7 @@ func childEnvironment() []string {
 	var env []string
 	for _, value := range os.Environ() {
 		name, _, _ := strings.Cut(value, "=")
-		if !strings.HasPrefix(name, "GCS_MIMIC_") && !strings.HasPrefix(name, "FAKE_GCS_") {
+		if !strings.HasPrefix(name, "GCS_MIMIC_") {
 			env = append(env, value)
 		}
 	}

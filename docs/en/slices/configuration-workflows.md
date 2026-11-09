@@ -223,16 +223,17 @@ are `port`, `port-http`, `backend`, `filesystem-root`, `public-host`,
 `event.pubsub-project-id`, `event.pubsub-topic`, `event.bucket`,
 `event.object-prefix`, `event.list`, `location`, `cert-location`,
 `private-key-location`, and `log-level`. Unknown single-hyphen options receive
-native syntax guidance. A native `--name VALUE` spelling takes precedence when
-identical (`serve --scheme VALUE` and `serve --log-level VALUE`);
-the indistinguishable valid native form must not be rejected as legacy. An
-equals form still receives native pair-syntax advice. Without `serve`, suggest
-the complete native command as well as reporting all detectable legacy inputs.
+native syntax guidance. Native names accept the same four forms, and a native
+name takes precedence when identical (`scheme`, `log-level` and `backend`); only
+a value that belongs to the flag alone, `backend filesystem`, is translated.
+A command line whose first argument is an option runs `serve`, so the option
+spelling never selects the command.
 
-Compose `command` replaces the image CMD. Its migration advice must therefore
-include `serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic` (or the
-operator's effective bind/volume choices); otherwise the native loopback default
-and relative data directory replace the image's usable listener/persistence.
+Compose `command` replaces the image CMD. The image's `GCS_MIMIC_LISTEN` and
+`GCS_MIMIC_DATA_DIR` keep its listener and persistence usable when it does.
+
+Versions after 0.14.0 do not read `FAKE_GCS_*` variables. The table below
+records the dispositions of the earlier versions.
 
 | Source variable | Final native disposition and example fix | Owner |
 | --- | --- | --- |
@@ -256,7 +257,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_EVENT_OBJECT_PREFIX` | Unsupported publisher filter; remove this key; no native prefix alias | Separate event plan |
 | `FAKE_GCS_EVENT_LIST` | Unsupported publisher events; remove this key; no accepted-but-ignored event list | Separate event plan |
 
-Unknown `FAKE_GCS_*` variables produce warnings and do not prevent ready.
+In those versions, unknown `FAKE_GCS_*` variables produced warnings and did not prevent ready.
 `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are the complete
 Compose-only interpolation names in the current files. Each is a server-input
 error: remove it from the native process environment and keep it in the Compose
