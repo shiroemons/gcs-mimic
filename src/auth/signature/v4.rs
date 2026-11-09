@@ -95,6 +95,10 @@ impl V4Parameter {
     pub(super) fn is_signature(self) -> bool {
         self.field == Field::Signature
     }
+
+    pub(super) fn is_aws(self) -> bool {
+        self.family == Family::Aws
+    }
 }
 
 /// The lowercase name Cloud Storage's error details use.

@@ -49,7 +49,10 @@ pub(crate) async fn respond(
     })
     .await
     {
-        Ok(caller) => match super::normalize_legacy_headers(request.headers_mut()) {
+        Ok(caller) => match super::extension_headers::normalize(
+            &mut request,
+            super::extension_headers::Route::Bucket,
+        ) {
             Ok(()) => execute(request, selected, ctx, caller).await,
             Err(error) => Err(error),
         },

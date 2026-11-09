@@ -539,6 +539,35 @@ provider/operation limits are explicit in the
 [signed chunk upload evidence](slices/xml-signed-chunked-upload.md). A failed
 chunk, zero signature, decoded length or transport EOF cannot publish an object.
 
+## S3-compatible extension headers
+
+Cloud Storage [processes `x-amz-*` headers that have an `x-goog-*`
+equivalent](https://docs.cloud.google.com/storage/docs/aws-simple-migration) when a
+request carries an AWS signature. Under a V2 `AWS` or `AWS4-HMAC-SHA256` signature,
+in the `Authorization` header or the query, these are read as the `x-goog-*` header
+with the same suffix after the signature is verified over the original names:
+
+- `x-amz-meta-*`, `x-amz-acl`, `x-amz-storage-class`, `x-amz-metadata-directive`
+- `x-amz-copy-source` and its `-if-match`, `-if-none-match`, `-if-modified-since`
+  and `-if-unmodified-since` conditions
+- `x-amz-project-id` and `x-amz-date`
+
+The translated header then behaves exactly as its Google name does, so an
+unsupported one, such as a source date condition, stays rejected. Reads answer with
+custom metadata as `x-amz-meta-*`. Sending both spellings of one header is 400
+`ExcessHeaderValues`. Other `x-amz-*` headers, such as `x-amz-server-side-encryption`
+and unknown names, are accepted without effect; customer-key encryption and
+`x-amz-grant-*` stay rejected because Cloud Storage's answers to them are not recorded.
+Where signatures are ignored, the form of the credentials still selects this behavior,
+so an S3 client with a made-up key behaves the same way.
+
+These were compared with Cloud Storage using an AWS4 header signature (2026-11-09); V2
+`AWS` and query signatures share the mapping by inference. On an object write
+without an AWS signature, `x-amz-meta-*`, `x-amz-acl`, `x-amz-storage-class` and
+`x-amz-metadata-directive` are accepted without effect, and `x-amz-copy-source` is
+400 `InvalidArgument` with `Details` of `Missing copy source`. Other requests
+without an AWS signature keep rejecting `x-amz-*` headers.
+
 ## Signed POST policy form uploads
 
 `POST /BUCKET` with `multipart/form-data` accepts HTML form uploads (DESIGN-041,

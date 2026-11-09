@@ -861,17 +861,17 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
         .expect(204);
     }
     server.bucket("test-bucket");
-    for field in [
-        "x-amz-acl",
-        "x-amz-server-side-encryption",
-        "x-amz-storage-class",
+    for (field, value) in [
+        ("x-amz-acl", "aws-exec-read"),
+        ("x-amz-grant-read", "private"),
+        ("x-amz-storage-class", "private"),
     ] {
         let put = signed(
             Lane::Aws,
             &key,
             "PUT",
             "/test-bucket/no-silent-alias",
-            &[(field, "private")],
+            &[(field, value)],
         );
         error(
             &send(&server, "PUT", &put, b"must not publish", "localhost"),
@@ -897,7 +897,7 @@ fn legacy_bucket_service_operations_and_aws_allowlist_reuse_shared_permissions()
         .expect(404);
 }
 
-fn header(
+pub(super) fn header(
     key: &Key,
     kind: &str,
     method: &str,
@@ -999,7 +999,7 @@ fn goog1_and_aws_legacy_headers_transfer_metadata_and_use_virtual_bucket_resourc
                     } else {
                         assert!(reply.body.is_empty());
                     }
-                    assert_eq!(reply.headers["x-goog-meta-kind"], "legacy");
+                    assert_eq!(reply.headers[meta], "legacy");
                 }
                 let delete = header(&key, kind, "DELETE", path, resource, &[]);
                 send(&server, "DELETE", &delete, b"", host).expect(204);

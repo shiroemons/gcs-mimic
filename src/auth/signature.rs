@@ -420,6 +420,36 @@ pub(crate) fn is_signed(query: Option<&str>) -> bool {
     decoded_query_names(query).any(|key| signing_param(&key).is_some())
 }
 
+/// Whose extension headers a request speaks, judged by the form of its signature rather than by
+/// verifying it: where signatures are ignored, a client's AWS headers still mean the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExtensionDialect {
+    /// A V2 `AWS` or `AWS4-HMAC-SHA256` signature, in a header or the query.
+    Aws,
+    /// OAuth, anonymous requests and every Google signature.
+    Google,
+}
+
+impl ExtensionDialect {
+    pub(crate) fn of(query: Option<&str>, headers: &HeaderMap) -> Self {
+        let aws4_header = headers
+            .get_all("authorization")
+            .iter()
+            .any(|value| value.as_bytes().starts_with(b"AWS4-HMAC-SHA256"));
+        let aws4_query = decoded_query_names(query).any(|key| {
+            std::str::from_utf8(&key)
+                .ok()
+                .and_then(|name| name.parse::<V4Parameter>().ok())
+                .is_some_and(V4Parameter::is_aws)
+        });
+        if legacy_aws(headers) || aws4_header || aws4_query {
+            Self::Aws
+        } else {
+            Self::Google
+        }
+    }
+}
+
 fn canonical_with_payload(
     method: &Method,
     uri: &Uri,

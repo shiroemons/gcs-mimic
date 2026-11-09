@@ -3,6 +3,7 @@ use crate::common::process::declare_server;
 use common::TestDir;
 use common::http::Body;
 mod permissive_signed;
+mod xml_amz_headers;
 mod xml_v2_hmac;
 mod xml_v4_streaming;
 

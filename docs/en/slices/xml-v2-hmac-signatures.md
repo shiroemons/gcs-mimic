@@ -116,12 +116,14 @@ checks use shared authorization and atomic publication. Lookup failures keep a
 typed catalog cause and XML 503; failed signatures never become anonymous under
 public grants. JSON does not accept these XML signature credentials.
 
-After successful AWS legacy authentication, only metadata, date and project-id
-aliases are translated to implemented Google adapter fields. Raw opposing
-prefixes and collisions are rejected, and duplicate value order is preserved.
-ACL, encryption and storage-class aliases are not silently enabled by a broad
-prefix rewrite. Ordinary V4, POST policy and signed-chunk canonicalization stay
-separate. Explicit permissive behavior is preserved without strict fallback.
+After successful AWS authentication, the headers with an `x-goog-*` equivalent
+are translated to their Google names from one table of exact names, listed under
+[S3-compatible extension headers](../signed-urls.md#s3-compatible-extension-headers).
+Raw opposing prefixes and collisions are rejected, and duplicate value order is
+preserved. Encryption and other headers without an equivalent are not silently
+enabled by a broad prefix rewrite. Ordinary V4, POST policy and signed-chunk
+canonicalization stay separate. Explicit permissive behavior is preserved
+without strict fallback.
 
 ## Independent vectors and dependency boundary
 

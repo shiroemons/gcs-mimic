@@ -2,7 +2,7 @@
 
 use super::*;
 
-const MARKER: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
+pub(super) const MARKER: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
 
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

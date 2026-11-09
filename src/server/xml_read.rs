@@ -122,6 +122,10 @@ async fn read(
         xml::CacheScope::Private
     };
     let mut headers = xml::media_headers(&record, scope)?;
+    xml::extension_headers::spell_read_metadata(
+        &mut headers,
+        auth::signature::ExtensionDialect::of(request.uri().query(), request.headers()),
+    )?;
     // A private object is sent with `Expires` set to the response time, even when the object
     // carries its own `Cache-Control` (recorded with `no-cache`).
     if scope == xml::CacheScope::Private

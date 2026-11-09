@@ -22,6 +22,7 @@ mod document;
 pub(crate) mod envelope;
 #[cfg(test)]
 mod error_tests;
+pub(crate) mod extension_headers;
 pub(crate) mod list;
 pub(crate) mod multipart;
 #[cfg(test)]
@@ -196,38 +197,6 @@ pub(crate) async fn authenticate_upload_target<'a>(
     }
 }
 
-pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Error> {
-    if !crate::auth::signature::legacy_aws(headers) {
-        return Ok(());
-    }
-    let mut replacements = Vec::new();
-    for (name, suffix) in headers.keys().filter_map(|name| {
-        name.as_str()
-            .strip_prefix("x-amz-")
-            .map(|suffix| (name, suffix))
-    }) {
-        if suffix == "date" || suffix == "project-id" || suffix.starts_with("meta-") {
-            let target = HeaderName::from_bytes(format!("x-goog-{suffix}").as_bytes())
-                .map_err(|_| Error::unsupported(name.as_str()))?;
-            if headers.contains_key(&target) {
-                return Err(Error::invalid("Ambiguous legacy extension headers."));
-            }
-            replacements.push((
-                name.clone(),
-                target,
-                headers.get_all(name).iter().cloned().collect::<Vec<_>>(),
-            ));
-        }
-    }
-    for (raw, target, values) in replacements {
-        headers.remove(raw);
-        for value in values {
-            headers.append(target.clone(), value);
-        }
-    }
-    Ok(())
-}
-
 /// An XML object request's path and response overrides; headers supply preconditions separately.
 pub(crate) struct ReadRequest {
     pub target: ObjectTarget,
@@ -346,6 +315,11 @@ impl Error {
         Self::invalid_argument(
             "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
         )
+    }
+
+    /// The 400 for `x-amz-copy-source` without an AWS signature (observed 2026-11-09).
+    fn missing_copy_source() -> Self {
+        Self::invalid_argument("Missing copy source")
     }
 
     pub(crate) fn unsupported(name: &str) -> Self {

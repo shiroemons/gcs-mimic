@@ -55,7 +55,9 @@ encoding/disposition/language, cache control, custom metadata and custom time.
 Request metadata does not replace inherited values under `COPY`.
 `REPLACE` uses only supplied supported metadata, with application/octet-stream
 when content type is omitted. Source holds, retention and ACLs are not copied;
-destination bucket defaults and existing shared ACL/publication rules apply.
+`x-goog-acl` selects the destination's canned ACL under either directive, and
+otherwise destination bucket defaults and existing shared ACL/publication rules
+apply.
 An absent class inherits the source class; explicit supported
 `x-goog-storage-class` selects another class under shared Autoclass rules.
 Customer-supplied source and destination keys use their existing distinct header
@@ -78,7 +80,7 @@ or composite metadata. This preserves existing XML ETag semantics.
 
 ## Explicit limits
 
-- Self-copy metadata updates, source date validators, ETag wildcards/lists/weak validators, copy invocation-token replay, explicit ACL/KMS/retention/custom-time request headers and other unsupported XML fields return 400 `InvalidArgument`. Use supported JSON metadata updates for self-copy. They do not silently publish a new generation with different semantics.
+- Self-copy metadata updates, source date validators, ETag wildcards/lists/weak validators, copy invocation-token replay, explicit KMS/retention/custom-time request headers and other unsupported XML fields return 400 `InvalidArgument`. Use supported JSON metadata updates for self-copy. They do not silently publish a new generation with different semantics.
 - Request bodies must be empty and explicitly framed with Content-Length or chunked Transfer-Encoding. Omitting both returns 411 `MissingContentLength` without changing the destination. Existing header, connection, object-size, catalog-admission and request-deadline bounds apply.
 - There is no new SQL, schema, staging/publish protocol or durability seam. The adapter reuses source pinning, ephemeral derived transfer, bounded advance, publication, cancellation cleanup and startup recovery. It never reads an object or whole catalog into memory.
 - Official Rust Arrow `object_store`, container/browser checks and real-cloud differential verification remain integration work. Parent feature status remains PARTIAL.

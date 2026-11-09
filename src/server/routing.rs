@@ -581,7 +581,11 @@ async fn respond_xml_object(
     let result = match authentication {
         Ok((caller, streaming)) => {
             let object_ctx = ctx.object(caller, deadline);
-            match xml::normalize_legacy_headers(request.headers_mut()).and(parsed) {
+            let normalized = xml::extension_headers::normalize(
+                &mut request,
+                xml::extension_headers::Route::Object,
+            );
+            match normalized.and(parsed) {
                 Ok(operation) if multipart => {
                     xml::multipart::respond(request, operation, object_ctx).await
                 }
@@ -634,7 +638,10 @@ async fn respond_xml_resumable(
             })
             .await
             {
-                Ok(caller) => match xml::normalize_legacy_headers(request.headers_mut()) {
+                Ok(caller) => match xml::extension_headers::normalize(
+                    &mut request,
+                    xml::extension_headers::Route::Object,
+                ) {
                     Ok(()) => {
                         xml::resumable::start(request, object, ctx.object(caller, deadline)).await
                     }
