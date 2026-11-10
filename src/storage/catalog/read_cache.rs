@@ -3,7 +3,9 @@
 //! A read on the pool costs two thread wakeups and a SQL snapshot, however fast each one is. A hit
 //! costs neither, and it runs on the async worker because nothing in it can block. Object bytes
 //! stay out of this cache: the page cache already holds them, so an entry keeps the file open and
-//! [`crate::fsutil::read_cached_at`] reads them from there, at no memory cost of its own.
+//! [`crate::fsutil::read_cached_at`] reads them from there, at no memory cost of its own. A RAM
+//! object's entry shares its immutable chunks instead, which the byte budget charges only once. A
+//! RAM catalog has a single connection, so without these hits every read would line up on it.
 //!
 //! No hit can outlive a write. Every write runs through `Inner::with_connection`, one process owns
 //! the catalog, and a job that changed a row clears the cache before its caller can learn the
@@ -19,14 +21,13 @@
 //! sweeps its objects in a cycle, which keeps a recency policy missing forever, while a cache that
 //! stops admitting serves the share that fits. The cost of a stale hot set is only the pooled read.
 
-use super::Catalog;
+use super::{Catalog, objects::ReaderData};
 use crate::{
     bucket::BucketAccess,
     object::{ObjectRecord, ObjectTarget},
 };
 use std::{
     collections::HashMap,
-    fs::File,
     sync::{
         Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
         atomic::{AtomicU64, Ordering},
@@ -48,15 +49,21 @@ pub(super) struct CachedObject {
     pub(super) download: Option<CachedDownload>,
 }
 
-/// What a download needs beyond the record. The file's bytes cannot change: a write that replaces
-/// the object clears the cache, and a reader still holding the file keeps its bytes. Only HTTP
-/// downloads open through the cache, and they read by offset without taking the file over.
+/// What a download needs beyond the record. The bytes cannot change: a write that replaces the
+/// object clears the cache, and a reader still holding them keeps them. Only HTTP downloads open
+/// through the cache, and they read by offset without taking the file over.
 pub(super) struct CachedDownload {
-    pub(super) file: Arc<File>,
+    pub(super) data: ReaderData,
     pub(super) publicly_readable: bool,
 }
 
 impl CachedObject {
+    fn holds_descriptor(&self) -> bool {
+        self.download
+            .as_ref()
+            .is_some_and(|download| download.data.holds_descriptor())
+    }
+
     fn charge(&self) -> usize {
         let ObjectRecord {
             bucket,
@@ -126,7 +133,7 @@ impl Contents {
             return;
         }
         // The record is still worth holding when only its descriptor does not fit.
-        if self.open_files >= max_open_files {
+        if object.holds_descriptor() && self.open_files >= max_open_files {
             object.download = None;
         }
         let previous_charge = previous.map_or(0, |previous| previous.charge());
@@ -137,7 +144,7 @@ impl Contents {
             return;
         }
         self.object_count += usize::from(previous.is_none());
-        self.open_files += usize::from(object.download.is_some());
+        self.open_files += usize::from(object.holds_descriptor());
         self.charged = charged;
         self.objects
             .entry(object.record.bucket.clone())

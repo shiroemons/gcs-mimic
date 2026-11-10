@@ -9,7 +9,7 @@ use crate::{
     time_limit::TimeLimit,
 };
 use bytes::Bytes;
-use std::sync::atomic::AtomicI64;
+use std::{fs::File, sync::atomic::AtomicI64};
 
 async fn open_catalog(dir: &TestDir) -> Catalog {
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -97,6 +97,108 @@ async fn a_repeated_download_does_not_reach_the_catalog() {
     drop(admission);
     assert_eq!(bytes, b"contents");
     assert_eq!(catalog.pooled_reads(), served);
+    catalog.close().await.unwrap();
+}
+
+async fn open_ram_catalog(max_bytes: u64) -> Catalog {
+    let catalog = Catalog::open_memory_for_server(
+        max_bytes,
+        1 << 20,
+        Arc::new(crate::clock::SystemClock),
+        super::super::admin::LocalAdmin::Disabled,
+    )
+    .await
+    .unwrap();
+    catalog
+        .set_principal_profile(super::super::principals::Profile::TrustedLocal)
+        .unwrap();
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    catalog
+}
+
+#[tokio::test]
+async fn a_repeated_ram_read_does_not_reach_the_catalog() {
+    let catalog = open_ram_catalog(1 << 20).await;
+    let written = put(&catalog, "object", &b"contents"[..]).await;
+    download(&catalog, "object").await.unwrap();
+    assert!(keeps_file(&catalog, "object").await);
+    let admission = catalog.hold_admission();
+    assert_eq!(metadata(&catalog, "object").await.unwrap(), written);
+    let (_, bytes) = download(&catalog, "object").await.unwrap();
+    drop(admission);
+    assert_eq!(bytes, b"contents");
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_ram_write_reaches_the_very_next_read() {
+    let catalog = open_ram_catalog(1 << 20).await;
+    put(&catalog, "object", &b"first"[..]).await;
+    download(&catalog, "object").await.unwrap();
+
+    let overwritten = put(&catalog, "object", &b"second"[..]).await;
+    let (record, bytes) = download(&catalog, "object").await.unwrap();
+    assert_eq!(record.generation, overwritten.generation);
+    assert_eq!(bytes, b"second");
+
+    catalog
+        .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(
+        download(&catalog, "object").await.err(),
+        Some(ObjectError::ObjectNotFound)
+    );
+    catalog.close().await.unwrap();
+}
+
+/// The entry shares the object's chunks, so a delete must clear it or the bytes stay charged.
+#[tokio::test]
+async fn a_cached_ram_body_leaves_the_budget_with_its_delete() {
+    const BODY: usize = 512 * 1024;
+    let catalog = open_ram_catalog(768 * 1024).await;
+    put(&catalog, "first", vec![1; BODY]).await;
+    download(&catalog, "first").await.unwrap();
+    assert!(keeps_file(&catalog, "first").await);
+    let refused = catalog
+        .put_object(
+            permissive_upload("bucket", "second", 8 << 20),
+            body(vec![Bytes::from(vec![2; BODY])]),
+        )
+        .await;
+    assert!(refused.is_err(), "the budget fits one body, not two");
+
+    catalog
+        .delete_object(live("bucket", "first"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    put(&catalog, "second", vec![2; BODY]).await;
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_ram_body_takes_no_descriptor_slot() {
+    let catalog = open_ram_catalog(1 << 20).await;
+    put(&catalog, "object", &b"contents"[..]).await;
+    download(&catalog, "object").await.unwrap();
+    assert!(keeps_file(&catalog, "object").await);
+    assert_eq!(catalog.0.read_cache.read().open_files, 0);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_ranged_ram_hit_leaves_the_cached_body_at_its_start() {
+    let catalog = open_ram_catalog(1 << 20).await;
+    put(&catalog, "object", &b"contents"[..]).await;
+    download(&catalog, "object").await.unwrap();
+    let (_, mut reader) = open(&catalog, "object", ReadAhead::None).await.unwrap();
+    reader.set_range(3, 2).await.unwrap();
+    assert_eq!(reader.next_chunk().await.unwrap().unwrap(), &b"te"[..]);
+    let (_, bytes) = download(&catalog, "object").await.unwrap();
+    assert_eq!(bytes, b"contents");
     catalog.close().await.unwrap();
 }
 
@@ -471,7 +573,7 @@ fn cached(name: &str, file: Option<Arc<File>>) -> CachedObject {
             customer_key_sha256: None,
         },
         download: file.map(|file| CachedDownload {
-            file,
+            data: ReaderData::Disk(file),
             publicly_readable: false,
         }),
     }

@@ -41,11 +41,23 @@ pub struct ObjectReader {
     pub(crate) publicly_readable: bool,
 }
 
+/// A clone shares the bytes, so holding one for later costs no copy of them.
+#[derive(Clone)]
 pub(in crate::storage::catalog) enum ReaderData {
     /// Every read names its offset, so nothing depends on the file's cursor, a cancelled read
     /// changes no state, and a read still running on a blocking thread keeps the file open.
     Disk(Arc<File>),
     Memory(super::super::super::memory::Reader),
+}
+
+impl ReaderData {
+    /// Whether keeping this for later occupies one of the process's file descriptors.
+    pub(in crate::storage::catalog) fn holds_descriptor(&self) -> bool {
+        match self {
+            Self::Disk(_) => true,
+            Self::Memory(_) => false,
+        }
+    }
 }
 
 /// The filled start of a read buffer. A pooled one returns to its pool when the last `Bytes` over
@@ -165,7 +177,7 @@ impl ObjectReader {
     pub(in crate::storage::catalog) fn from_cached(object: &CachedObject) -> Option<Self> {
         let download = object.download.as_ref()?;
         Some(Self {
-            file: ReaderData::Disk(download.file.clone()),
+            file: download.data.clone(),
             remaining: object.record.size,
             position: 0,
             head: None,
@@ -173,14 +185,12 @@ impl ObjectReader {
         })
     }
 
-    /// What the read cache keeps for later downloads of this generation.
-    pub(in crate::storage::catalog) fn cached_download(&self) -> Option<CachedDownload> {
-        match &self.file {
-            ReaderData::Disk(file) => Some(CachedDownload {
-                file: file.clone(),
-                publicly_readable: self.publicly_readable,
-            }),
-            ReaderData::Memory(_) => None,
+    /// What the read cache keeps for later downloads of this generation. Called on a reader that
+    /// has not moved, so every later download starts from the first byte.
+    pub(in crate::storage::catalog) fn cached_download(&self) -> CachedDownload {
+        CachedDownload {
+            data: self.file.clone(),
+            publicly_readable: self.publicly_readable,
         }
     }
 

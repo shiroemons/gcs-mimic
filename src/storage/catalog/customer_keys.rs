@@ -93,19 +93,17 @@ impl Catalog {
             let (record, mut reader) =
                 objects::open_selected(connection, &catalog, &target, conditions, &access)?;
             check(&record, key)?;
-            if path == ReadPath::Pooled {
-                if wants_read_ahead(&record, read_ahead) {
-                    reader.read_ahead_on_pool();
-                }
-                if shareable {
-                    catalog.0.read_cache.store_object(
-                        revision,
-                        CachedObject {
-                            record: record.clone(),
-                            download: reader.cached_download(),
-                        },
-                    );
-                }
+            if path == ReadPath::Pooled && wants_read_ahead(&record, read_ahead) {
+                reader.read_ahead_on_pool();
+            }
+            if shareable && path.stores_answers() {
+                catalog.0.read_cache.store_object(
+                    revision,
+                    CachedObject {
+                        record: record.clone(),
+                        download: Some(reader.cached_download()),
+                    },
+                );
             }
             Ok((record, reader))
         })

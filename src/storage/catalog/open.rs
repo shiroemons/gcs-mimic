@@ -120,6 +120,7 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
 fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
     let connection = Connection::open_in_memory()?;
     connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
+    sql::keep_plans_across_bindings(&connection)?;
     connection.execute_batch("PRAGMA page_size = 4096; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -2048;")?;
     let pages = i64::try_from(max_bytes / 4096).map_err(unavailable)?;
     connection.pragma_update(None, "max_page_count", pages)?;

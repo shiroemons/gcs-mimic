@@ -1,7 +1,6 @@
 use super::{
     Activity, Catalog, UploadGuard, Work,
     read_cache::{self, CachedDownload, CachedObject},
-    read_pool::ReadPath,
     system_time_micros, unavailable, unix_micros,
 };
 use crate::storage::{BlobId, catalog::sql};
@@ -157,7 +156,7 @@ impl Catalog {
                 RequestKind::Read,
                 &access,
             )?;
-            if shareable && path == ReadPath::Pooled {
+            if shareable && path.stores_answers() {
                 inner.read_cache.store_object(
                     revision,
                     CachedObject {

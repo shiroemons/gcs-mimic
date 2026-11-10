@@ -80,6 +80,11 @@ Overwrite needs room for both the
 old and staged new body. Deleting a generation releases its registry reference,
 while readers and queued response chunks retain their charges until dropped.
 
+A RAM catalog has one connection, so repeated live reads with permissive access are
+answered from the read cache without reaching it. An entry shares the object's
+immutable chunks, takes no file descriptor and leaves with the catalog write that
+replaces or deletes the object, so it never holds budget for deleted bytes.
+
 Instance reset keeps its exclusive activity gate and atomic SQL state clear.
 The RAM profile clears its registry only after confirming commit; it does not
 grow a disk recovery journal before clearing a full catalog. Existing readers
@@ -129,8 +134,8 @@ an owned `Read` source so both storage profiles retain bounded decompression.
 - SQLite page exhaustion preserves existing buckets and does not constrain an
   independent catalog; seed tests verify exact bytes and unchanged source files.
 
-No performance improvement, whole-process memory bound, complete RAM protocol
-coverage or literal Go in-process execution is claimed. Heavy SDK/container
+No whole-process memory bound, complete RAM protocol coverage or literal Go
+in-process execution is claimed. Heavy SDK/container
 verification belongs to the final integrated source.
 
 ## Verification and sources

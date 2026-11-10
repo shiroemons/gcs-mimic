@@ -201,7 +201,7 @@ async fn a_transient_failure_on_a_reader_is_retried_on_the_serialized_path() {
                 ReadPath::Pooled => Err(crate::storage::failure::object_unavailable(
                     std::io::Error::from(std::io::ErrorKind::NotFound),
                 )),
-                ReadPath::Serialized => Ok::<_, ObjectError>(path),
+                ReadPath::Serialized | ReadPath::Memory => Ok::<_, ObjectError>(path),
             }
         })
         .await
@@ -372,7 +372,7 @@ async fn a_panic_on_a_reader_costs_only_that_reader() {
     let answer = catalog
         .run_read_on(|_, path| match path {
             ReadPath::Pooled => panic!("reader fixture panic"),
-            ReadPath::Serialized => Ok::<_, CatalogError>(7),
+            ReadPath::Serialized | ReadPath::Memory => Ok::<_, CatalogError>(7),
         })
         .await
         .unwrap();

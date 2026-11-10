@@ -364,6 +364,8 @@ fn exhausted() -> io::Error {
     )
 }
 
+/// Cloning shares the blob's immutable chunks and copies only the read position.
+#[derive(Clone)]
 pub(crate) struct Reader {
     blob: Arc<Blob>,
     index: usize,

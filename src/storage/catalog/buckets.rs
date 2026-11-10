@@ -85,7 +85,7 @@ impl Catalog {
             )
             .optional()?;
             let has_cors = stored.is_some_and(|cors| cors != "[]");
-            if path == super::read_pool::ReadPath::Pooled {
+            if path.stores_answers() {
                 inner
                     .read_cache
                     .store_bucket_cors(revision, &name, has_cors);

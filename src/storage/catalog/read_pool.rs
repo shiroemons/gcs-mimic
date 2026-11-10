@@ -69,6 +69,19 @@ pub(super) enum ReadPath {
     Pooled,
     /// Every other catalog call waits for this thread, so it reads metadata only.
     Serialized,
+    /// The one connection of a RAM catalog, whose database no other connection can open.
+    Memory,
+}
+
+impl ReadPath {
+    /// Whether the read cache may keep this read's answer. A disk catalog's serialized path only
+    /// stands in for a pool that is busy or failing, but a RAM catalog has no other path.
+    pub(super) fn stores_answers(self) -> bool {
+        match self {
+            Self::Pooled | Self::Memory => true,
+            Self::Serialized => false,
+        }
+    }
 }
 
 /// The projects under a simulated parent public access prevention policy. Every connection keeps
@@ -319,7 +332,12 @@ impl Catalog {
         {
             return result;
         }
-        self.run(move |connection| operation(connection, ReadPath::Serialized))
+        let path = if self.0.read_pool.is_some() {
+            ReadPath::Serialized
+        } else {
+            ReadPath::Memory
+        };
+        self.run(move |connection| operation(connection, path))
             .await
     }
 
