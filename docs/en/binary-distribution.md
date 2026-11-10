@@ -134,6 +134,13 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    `examples/full-stack/compose.yaml` to the new version: the tag publishes those
    recipes as they are, and they use settings that only the new release has.
    `scripts/check-docs.sh` fails until they match the manifest.
+   For a candidate, both recipes and the strict-local README copy must use that
+   exact `-rc.N` image. Update explicit image, archive and binary references in
+   public examples intended for this release to the same full version. Generic
+   quick starts using `latest` continue to select the highest stable release.
+   When preparing the final release, replace those candidate pins with the final
+   stable version in the same files; retain historical candidate notes and data
+   fixtures.
 2. Write `docs/en/releases/<version>.md` with final changes, compatibility impact,
    tested platforms and known limitations. Confirm the first-release roadmap
    requirements manually; the existence of a notes file does not prove them.
@@ -164,7 +171,10 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    again, then publishes the archives of the newest dry run on its commit as a
    GitHub Release, without testing or building them again. A candidate is marked
    as a prerelease with `--prerelease --latest=false`, so it does not become the
-   latest Release. Stable releases keep GitHub's automatic latest selection.
+   latest Release. Every release explicitly sets `--latest=true|false` from the
+   shared container-tag policy: stable versions alone determine Latest, so
+   publishing `0.17.2` after `1.0.0` does not roll it back. The publish job is
+   serialized to keep concurrent releases from racing that selection.
    It fails
    before publishing when no such run holds all eight archives, for example
    after they expire; then run the dry run and re-run the tag's failed job. Build
@@ -189,12 +199,33 @@ or `just prepare-binary TARGET BINARY OUTPUT_DIR`. Build first with the pinned
 toolchain and the intended target; the command checks the executable's product
 version and refuses to overwrite an output directory. Linux requires the native
 notice inputs prepared by the workflow. Packaging does not build, publish, create
-tags or invent release notes. The
+tags, rewrite examples or invent release notes. Recipe pins are updated manually
+as part of release preparation. The
 [GHCR workflow](container-distribution.md) follows successful tag-driven binary
 Release creation; manual verification does not publish images.
 For local redistribution, set `--remap-path-prefix` for the checkout and Cargo
 cache before building, as the workflow does; staging an existing binary does not
 remove embedded compiler paths.
+
+## Candidate verification limits
+
+Windows execution, GitHub's actual `gh release create` behavior and the complete
+binary-to-GHCR-to-Docker-Hub publication chain have not been verified for an RC.
+The Windows MSVC xtask target passes local cross-checking, but that cannot replace
+native execution. Shell/workflow checks run only on Unix; Rust version cases run
+on every target.
+
+Before tagging the first candidate, run the manual dry run on the exact candidate
+commit and confirm both Windows lanes, all eight archives, their complete RC
+versions and checksums. Rehearse reuse of those artifacts with `reuse-dry-run`.
+Record the current stable GitHub Latest and floating container digests before
+authorizing the tag push. After that authorized publication, inspect the RC's
+prerelease/non-latest flags and all three publication jobs; verify its exact
+GHCR/Docker Hub tags, equal digest reports and attestations, and unchanged
+floating tags and stable GitHub Latest. Capture the candidate's own pinned data
+fixture after publication and require every next candidate/final build to open
+it. Complete the required soak before the final release. A configured workflow
+or local mocked check does not complete these remote gates.
 
 ## References
 

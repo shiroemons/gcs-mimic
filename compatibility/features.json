@@ -2684,10 +2684,11 @@
       "acceptance_cases": [
         {
           "id": "DIST-002-CONFIGURATION",
-          "description": "Validate release and reusable Foundation workflow syntax with actionlint.",
+          "description": "Validate release and reusable Foundation workflow syntax with actionlint; execute committed binary/GHCR run blocks against shared stable/candidate/invalid version cases and explicit stable-only Latest/prerelease flags with mocked external commands.",
           "result": "PASS",
           "test_ids": [
-            "binary-workflow-syntax"
+            "binary-workflow-syntax",
+            "release-workflow-offline"
           ]
         },
         {
@@ -2756,10 +2757,11 @@
         },
         {
           "id": "DIST-002-DOC-CONSISTENCY",
-          "description": "Reconcile English/Japanese README and release statements; verify shipped files against git ls-files, configuration TOML references as proposed/future only, relative links, and actual Compose/config/Dockerfile combinations for listener, persistent data path, scheme and readiness probe.",
+          "description": "Reconcile English/Japanese README and release statements; verify shipped files against git ls-files, configuration TOML references as proposed/future only, relative links, and actual Compose/config/Dockerfile combinations for listener, persistent data path, scheme and readiness probe. Require both published recipes to use the full manifest version, including exact RC pins, and reject another release's tag.",
           "result": "PASS",
           "test_ids": [
-            "release-doc-consistency"
+            "release-doc-consistency",
+            "release-recipes-offline"
           ]
         },
         {
@@ -2773,6 +2775,8 @@
       ],
       "test_ids": [
         "binary-workflow-syntax",
+        "release-workflow-offline",
+        "release-recipes-offline",
         "release-source-identity",
         "release-tag-source-identity",
         "release-pin-revision-contract",
@@ -2785,6 +2789,17 @@
         "release-tag-execution"
       ],
       "verification": [
+        {
+          "command": "actionlint; bash scripts/test-release-workflows.sh; bash scripts/test-release-recipes.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "binary-workflow-syntax",
+            "release-workflow-offline",
+            "release-recipes-offline"
+          ]
+        },
         {
           "command": "gh run view 40252492903 (manual dispatch) and gh run view 40255031827 / 40259191681 (v0.1.0 and v0.1.1 tags); gh release view v0.1.0 and v0.1.1",
           "result": "PASS",

@@ -80,6 +80,7 @@ All of these must pass:
    A breaking change starts a new candidate.
    A candidate publishes only its exact container tag and is a GitHub prerelease, never GitHub's latest release.
    It never moves floating container tags such as `1.0`, any major alias, or `latest`; stable releases alone determine their advancement.
+   Published recipes are paired with their source release, so their explicit default image pins point to that candidate's exact tag. This does not move a floating tag: the README quick start continues to use stable `latest`.
 4. **Verify the final source once.**
    Run the native, cross-target, SDK, container and browser gates on the release commit.
    Results from earlier checkpoints do not substitute for this run.

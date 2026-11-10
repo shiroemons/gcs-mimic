@@ -206,7 +206,7 @@ byte-pinned runtime inputs. No signing key or OIDC signing is added.
 Local checks on 2026-11-10 cover the candidate publication policy without
 publishing an image, tag or GitHub Release:
 
-- `cargo test -p xtask --locked --offline release::`: PASS, 14 tests, including
+- `cargo test -p xtask --locked --offline release::`: PASS, 16 tests, including
   the shared Rust/shell version cases, numeric candidate ordering, binary-version
   matching and a separate required fixture for each candidate before the final
   release.
@@ -218,6 +218,18 @@ publishing an image, tag or GitHub Release:
   Candidate publication retains attestation and digest checks, immutable
   exact-tag reuse and mismatch rejection; candidates cannot promote any alias.
   Malformed versions, unsupported prereleases and build metadata remain rejected.
+- `bash scripts/test-release-workflows.sh`: PASS. The actual binary/GHCR run
+  blocks accept the shared version cases, reject invalid values before output or
+  external reads, and set explicit GitHub Latest/prerelease flags. Rust parses
+  the same cases on all platforms; shell execution is Unix-only.
+- `bash scripts/test-release-recipes.sh`: PASS. Each recipe accepts its exact
+  stable, candidate or final manifest version and rejects another version.
+- Removing validation from each publication/mirror script and binary/GHCR
+  workflow made its regression test fail with exit 1. Replacing candidate stage
+  classification with stable also failed. All five temporary mutations were
+  restored before the passing checks.
+- `cargo check -p xtask --all-targets --target x86_64-pc-windows-msvc --locked --offline`:
+  PASS; this is a type check, not native Windows execution.
 - `actionlint` on the binary, GHCR and Docker Hub workflows, and `shellcheck` on
   the changed release scripts: PASS.
 
@@ -227,18 +239,20 @@ The release-path inspection found these version assumptions:
 | --- | --- |
 | `xtask/src/container.rs` | Replaced stable-only parsing with the shared parsed release version; candidates emit one exact tag and never affect stable alias comparisons. |
 | `xtask/src/release.rs` | Binary `--version` matching now validates the same stable-or-candidate grammar. Notice collection has no product-version restriction; pinned compiler and third-party notice version checks still apply. |
-| `.github/workflows/binaries.yaml`, `.github/workflows/ghcr.yaml` | Replaced stable-only regular expressions with `scripts/release-version.sh`; GitHub candidate Releases use `--prerelease --latest=false`. Shared cases compare this shell grammar with the parsed Rust version. |
+| `.github/workflows/binaries.yaml`, `.github/workflows/ghcr.yaml` | Replaced stable-only regular expressions with `scripts/release-version.sh`, which also classifies the stage. Shared cases execute the actual run blocks; every GitHub Release gets an explicit Latest flag from the shared stable-only tag policy, with serialized publication. |
 | `scripts/container-release.sh`, `scripts/container-mirror.sh` | Validate the shared grammar and reject any candidate policy result containing aliases before mutation; minor-alias suffix removal runs only for stable versions. Stable GitHub Release filtering is intentional and retained. |
 | `scripts/test-container-release.sh`, `scripts/test-container-mirror.sh` | Replaced the stable-only mock/refusal with candidate success, immutable retry/mismatch and no-alias cases; unsupported prereleases remain negative cases. |
 | `.github/workflows/dockerhub.yaml` | Manual input now documents stable and candidate versions; mirroring uses the same version, digest, attestation and immutability checks. |
 | `scripts/released-data-fixtures.sh`, `tests/it_import_seed/released_data_upgrade.rs` | Fixture capture accepts the shared grammar and retains per-version digest pins. Moved the stable-only note-version comparison into xtask tests using the shared parsed type; integration tests still check every registered fixture's resources. |
-| `scripts/check-docs.sh`, manifest readers and release-note rendering | Existing readers retain the complete version string, including `-rc.N`; documentation still requires recipes to match that full manifest version. Release-note paths and tagged links accept candidate suffixes. No change needed. |
+| `scripts/check-docs.sh`, `scripts/check-release-recipes.sh`, manifest readers and release-note rendering | Recipe checks require the full manifest version, including an exact RC tag; isolated stable/RC/final fixtures pin that contract. Binary metadata extraction preserves malformed trailing newlines for rejection. Release-note paths and tagged links accept candidate suffixes. |
 | Archive/checksum packaging, `BUILD-INFO.json`, Dockerfile notices and digest reports | Existing names, format checks and string fields preserve candidate suffixes; no stable-only rejection found and no packaging layout change needed. |
 
 Actual GitHub workflow execution, registry publication and candidate fixtures
 captured from a published image remain unverified. The synthetic fixture test
 verifies the upgrade-source requirement, not a real candidate's data format.
 The existing distribution rows remain `PARTIAL`; no 14-day soak is claimed.
+Follow the [first-candidate remote verification procedure](binary-distribution.md#candidate-verification-limits)
+before treating the first RC's publication and upgrade fixture as verified.
 
 ## References
 
