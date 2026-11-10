@@ -158,6 +158,8 @@ The table lists the common options. Run `gcs-mimic serve --help` for every optio
 including the sync, Pub/Sub event, Unix socket, public URL and XML virtual-host
 settings.
 
+Starting a previously synchronized data directory without `sync_dir` enables lifecycle execution by default. Catalog deletions made during that run can remove previously tracked host files when synchronization is enabled again; use `lifecycle_execution=disabled` to keep stored rules inactive during that run.
+
 To accept HTTP and HTTPS together, run:
 
 ```sh
