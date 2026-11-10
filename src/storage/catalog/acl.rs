@@ -408,6 +408,8 @@ fn object_entries_grant(
     )
 }
 
+pub(super) const OBJECT_GRANT_INPUTS: &str = "SELECT o.owner, e.entries FROM objects o LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation WHERE o.bucket=?1 AND o.name=?2 AND o.generation=?3";
+
 pub(super) fn object_granted(
     connection: &Connection,
     bucket: &str,
@@ -436,10 +438,16 @@ pub(super) fn object_granted(
     }
     let stored = sql::row(
         connection,
-        "SELECT o.owner, e.entries FROM objects o LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation WHERE o.bucket=?1 AND o.name=?2 AND o.generation=?3",
+        OBJECT_GRANT_INPUTS,
         params![bucket, name, generation],
-        |row| Ok((super::object_owner::read(row, 0)?, row.get::<_, Option<String>>(1)?)),
-    ).optional()?;
+        |row| {
+            Ok((
+                super::object_owner::read(row, 0)?,
+                row.get::<_, Option<String>>(1)?,
+            ))
+        },
+    )
+    .optional()?;
     let Some((owner, stored)) = stored else {
         return Ok(false);
     };

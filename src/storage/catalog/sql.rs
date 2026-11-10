@@ -1,8 +1,19 @@
 //! Cached, static SQL shared by catalog operations.
 
 use rusqlite::{
-    Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, types::FromSql,
+    Connection, OptionalExtension, Params, Row, Transaction, TransactionBehavior, config::DbConfig,
+    types::FromSql,
 };
+
+/// Makes a prepared statement keep its plan when a bound value changes. SQLite otherwise recompiles
+/// any statement whose plan it thinks a bound value could affect, as it did the object ACL join on
+/// every read. No plan here needs a bound value: no LIKE or GLOB takes a parameter, no partial
+/// index predicate is compared with one, and nothing runs ANALYZE.
+pub(super) fn keep_plans_across_bindings(connection: &Connection) -> rusqlite::Result<()> {
+    connection
+        .set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_QPSG, true)
+        .map(drop)
+}
 
 macro_rules! text_enum {
     ($visibility:vis $name:ty, $invalid:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {

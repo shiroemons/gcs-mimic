@@ -1,4 +1,6 @@
 **
+!.cargo/
+!.cargo/config.toml
 !Cargo.toml
 !Cargo.lock
 !rust-toolchain.toml

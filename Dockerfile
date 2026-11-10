@@ -11,6 +11,8 @@ RUN --mount=type=bind,source=scripts/install-musl-tools.sh,target=/app/scripts/i
 # `xtask release notices` below verifies its pinned SHA-256, as it does for the release archives.
 COPY distribution/notices/musl-1.2.5/musl-1.2.5.tar.gz ./target/release-notices/
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+# Carries the SQLite build flags that the read path depends on for its concurrency.
+COPY .cargo/config.toml ./.cargo/config.toml
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src
 COPY src ./src

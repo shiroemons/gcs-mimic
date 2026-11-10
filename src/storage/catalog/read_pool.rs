@@ -100,6 +100,7 @@ impl ReaderConnection {
         )?;
         connection.busy_timeout(READER_BUSY_TIMEOUT)?;
         connection.set_prepared_statement_cache_capacity(READER_STATEMENT_CACHE);
+        sql::keep_plans_across_bindings(&connection)?;
         connection.execute_batch(READER_SETUP)?;
         Ok(Self {
             connection,

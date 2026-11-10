@@ -56,6 +56,54 @@ async fn all_slots_free(catalog: &Catalog) {
 }
 
 #[tokio::test]
+async fn a_new_binding_does_not_recompile_a_pooled_read() {
+    let dir = TestDir::new();
+    let catalog = open_with_object(&dir).await;
+    let first = put(&catalog, "first", b"contents").await;
+    let second = put(&catalog, "second", b"contents").await;
+    let reader = ReaderConnection::open(&dir.0.join("catalog.sqlite3")).unwrap();
+    let access = crate::bucket::BucketAccess::Policy {
+        identity: None,
+        permission: crate::auth::Permission::ObjectsGet,
+        project: None,
+    };
+    for record in [&first, &second] {
+        super::super::acl::object_granted(
+            &reader.connection,
+            "bucket",
+            &record.name,
+            record.generation,
+            &access,
+        )
+        .unwrap();
+    }
+    let statement = reader
+        .connection
+        .prepare_cached(super::super::acl::OBJECT_GRANT_INPUTS)
+        .unwrap();
+    assert_eq!(
+        statement.get_status(rusqlite::StatementStatus::RePrepare),
+        0
+    );
+}
+
+#[test]
+fn sqlite_allocations_skip_the_global_statistics_lock() {
+    let connection = Connection::open_in_memory().unwrap();
+    let mut options = Vec::new();
+    connection
+        .pragma_query(None, "compile_options", |row| {
+            options.push(row.get::<_, String>(0)?);
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        options.iter().any(|option| option == "DEFAULT_MEMSTATUS=0"),
+        "{options:?}"
+    );
+}
+
+#[tokio::test]
 async fn reads_answer_while_the_writer_is_busy() {
     let dir = TestDir::new();
     let catalog = open_with_object(&dir).await;

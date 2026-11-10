@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --locked --offline --package xtask --"
+
+[env]
+# SQLite otherwise counts every allocation under one process-wide mutex, which held the eight
+# catalog readers to about 8,000 cache-missing object reads per second. Only sqlite3_status and
+# the heap limits read those counters, and this project uses neither.
+LIBSQLITE3_FLAGS = "-DSQLITE_DEFAULT_MEMSTATUS=0"
