@@ -1,6 +1,6 @@
 # Lifecycle action execution research
 
-Status: research for a future slice. Nothing here is implemented, and the [feature ledger](../../../compatibility/features.json) still owns status. Features: `BEHAVIOR-LIFECYCLE-001` to `BEHAVIOR-LIFECYCLE-010`.
+Status: design research recorded before implementation. The [feature ledger](../../../compatibility/features.json) owns current status. Features: `BEHAVIOR-LIFECYCLE-001` to `BEHAVIOR-LIFECYCLE-010`.
 
 Checked on 2026-11-09 against commit `554c7b04`; line numbers refer to that commit. The research read code and official documents. It did not run the code, inspect SQL plans or contact Cloud Storage.
 
@@ -45,6 +45,17 @@ Condition evaluation:
 | `matchesStorageClass` | any entry matches |
 | `sizeAboveBytes`, `sizeBelowBytes` | strict comparison of data bytes excluding metadata, limit 5 TiB |
 | `matchesPattern` | absent from the guide; Discovery marks it Early Access and allowlist-only |
+
+Contract reconciliation checked on 2026-11-10: the pinned
+[Storage v2 protobuf](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto#L2327)
+describes age zero as matching immediately. The current
+[lifecycle guide](https://docs.cloud.google.com/storage/docs/lifecycle#age)
+instead specifies UTC midnight after creation. The evaluator follows the guide
+for both JSON and gRPC rules, including waiting until the following day for an
+object created exactly at midnight. This last boundary is a local choice;
+neither source resolves it explicitly, and no real-cloud case was run.
+The pinned protobuf SHA-256 is
+`a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`.
 
 Interactions:
 

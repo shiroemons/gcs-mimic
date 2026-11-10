@@ -1,8 +1,10 @@
 # Lifecycle configuration through official SDKs
 
 Scope: BEHAVIOR-LIFECYCLE-001 and the lifecycle subset of JSON-BUCKETS-005,
-JSON-BUCKETS-008 and JSON-BUCKETS-013. Configuration is metadata only; actions
-are never executed. The behavior row remains PARTIAL.
+JSON-BUCKETS-008 and JSON-BUCKETS-013. Configuration does not itself apply actions.
+The pure evaluator also covers BEHAVIOR-LIFECYCLE-005 through
+BEHAVIOR-LIFECYCLE-009; end-to-end execution requires the maintenance sweep.
+These behavior rows remain PARTIAL until their remaining cases pass.
 
 ## Acceptance contract
 
@@ -19,7 +21,7 @@ are never executed. The behavior row remains PARTIAL.
 - LIFECYCLE-VALIDATE-ACTION: accept Delete, SetStorageClass with a supported
   bucket storage class, and AbortIncompleteMultipartUpload; reject invalid
   actions with guidance.
-- LIFECYCLE-VALIDATE-CONDITION: validate the eleven scoped condition fields,
+- LIFECYCLE-VALIDATE-CONDITION: validate the thirteen scoped condition fields,
   dates, nonnegative int32 values, booleans, string lists, nonempty conditions
   and official limits.
   AbortIncompleteMultipartUpload permits age, matchesPrefix and matchesSuffix
@@ -30,7 +32,7 @@ are never executed. The behavior row remains PARTIAL.
   clearing.
 - LIFECYCLE-SDK-RUBY: create-block rules, lifecycle-block replacement and clearing.
 - PENDING: action execution with an injected clock and maintenance scheduler, XML
-  lifecycle, initialization-file lifecycle, matchesPattern and size conditions.
+  lifecycle, initialization-file lifecycle and matchesPattern.
 
 ## Sources and choices
 
@@ -59,7 +61,8 @@ local normalization requires provider verification under SPEC-LIFECYCLE-CONFIG.
 
 The supported condition fields are age, createdBefore, customTimeBefore,
 daysSinceCustomTime, daysSinceNoncurrentTime, isLive, matchesStorageClass,
-matchesPrefix, matchesSuffix, noncurrentTimeBefore and numNewerVersions.
+matchesPrefix, matchesSuffix, noncurrentTimeBefore, numNewerVersions,
+sizeAboveBytes and sizeBelowBytes.
 Delete and AbortIncompleteMultipartUpload omit action.storageClass;
 SetStorageClass requires it. Valid but unsupported classes, including REGIONAL
 and RAPID for actions and RAPID for matchesStorageClass, use the common
@@ -74,7 +77,68 @@ budget. No startup scan, object-body processing, background task or new setting
 is added.
 The initializer and XML lifecycle remain unsupported.
 
+## Size conditions and evaluator extension
+
+Checked on 2026-11-10 against the current lifecycle guide and Discovery revision
+20261103 (SHA-256
+`30b498129041aceedca2e60678443e2671531cf0c08b3488c6934c212a2cb272`).
+Size thresholds accept JSON integers or int64 decimal strings from 0 through
+5 TiB. Stored values and JSON responses use canonical decimal strings, including
+when input is a number or uses a plus sign or leading zeroes. Equality does not
+satisfy either size condition. Invalid values preserve the existing configuration.
+
+The pinned Storage v2 protobuf cannot represent size conditions. GetBucket and
+ListBuckets return UNIMPLEMENTED when their read mask requests lifecycle, including
+the default and wildcard masks; a mask excluding lifecycle succeeds. UpdateBucket
+and LockBucketRetentionPolicy check response representability before mutation.
+An update replacing or clearing lifecycle may remove the unsupported conditions.
+The retention lock's mandatory metageneration match protects its precheck from
+concurrent changes. Updates without a metageneration match can still race a JSON
+write between the precheck and transaction; that check is not yet part of the
+catalog transaction. No concurrency guarantee is claimed for this case.
+
+The evaluator parses action and class types at the configuration boundary and
+evaluates each rule once without per-version heap allocation. It selects Delete
+before the cheapest supported storage-class transition and reports only deadlines
+that could change that selection. Deadlines outside the catalog's signed int64
+microsecond range never match or schedule. Calendar dates are parsed on the stack
+when a rule is evaluated; caching their midnight is not part of this change.
+Age zero follows the guide over the conflicting protobuf description; see the
+[source conflict](lifecycle-execution-research.md#google-contract).
+Location restrictions on legacy transitions belong to the sweep, which has the
+bucket location. REGIONAL and RAPID action classes remain unsupported.
+
+Until the sweep applies class transitions, its `evaluate_delete_only` entry point
+never selects SetStorageClass. If any SetStorageClass rule exists, it also defers
+Delete rules containing matchesStorageClass and excludes their deadlines. This
+conservative restriction prevents a skipped transition from leaving an object in
+a class that incorrectly qualifies for deletion. Deletes without class conditions,
+and class-dependent deletes in configurations without transitions, remain enabled.
+The full `evaluate` interface retains the complete selection contract.
+
 ## Verification
+
+Verified for the evaluator extension on 2026-11-10:
+
+- `cargo check --all-targets` passed. The evaluator still has unused-code warnings
+  in this isolated change until the sweep calls it; no warnings were suppressed.
+- `cargo test --lib lifecycle` passed 62 cases, including gRPC mask handling and
+  mutation rejection before state changes.
+- `cargo test --lib bucket::lifecycle` passed 31 cases after adding the delete-only
+  entry point, including its three conservative-selection cases.
+- `cargo test` passed 2,994 unit, integration and documentation cases; one existing
+  test remained ignored and no cases failed.
+- `cargo test --test it_json bucket_lifecycle_rules_round_trip_replace_clear_and_validation`
+  and `cargo test --test it_json bucket_core_settings_round_trip` passed one case
+  each in the native and legacy-emulator profiles.
+- `cargo xtask lint` passed with zero new production violations or ratcheted
+  findings; the existing reasoned suppression count stayed at one.
+- `cargo xtask dependencies check --scope release` reported the checked release
+  inputs CURRENT. The SDK and development inputs were outside that scope.
+
+No SDK harness, container build, guide walk-through, real-cloud differential or
+resource benchmark was run for this extension. The earlier SDK results below
+cover the original configuration subset, not the new size fields.
 
 Go Storage v1.70.0 / API v0.309.0 and Ruby google-cloud-storage 1.62.1 use
 ordinary high-level calls, without lifecycle workarounds. Both SDK cases failed
