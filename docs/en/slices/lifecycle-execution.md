@@ -53,8 +53,10 @@ Verified on 2026-11-10 (UTC):
 | `cargo test --locked --offline --lib config::storage::tests::lifecycle_execution_defaults_on_and_disable_obeys_native_precedence` | 1 passed, 0 failed |
 | `cargo test --locked --offline --lib server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles` | 1 passed, 0 failed; both config and lifecycle routes enforce the instance administrator |
 | `cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods` | 1 passed, 0 failed |
+| `cargo test --locked --offline` | 3024 passed: 1941 library tests, 32 binary tests, all integration suites and documentation tests; 0 failed, 1 existing ignored local Pub/Sub opt-in test |
 | `cargo xtask lint` | 0 new production violations, 0 ratcheted findings |
 | `cargo xtask dependencies check --scope all` | Every compiler, direct dependency, SDK and container input current at the checked snapshot; no dependency changes |
+| `cargo xtask compatibility check` | 607 feature rows validated; generated English/Japanese matrices match |
 
 Markdown lint covers this contract, release note, option listings, roadmap and both configuration companions with the existing repository rules.
 
