@@ -91,7 +91,7 @@ The following existing defaults and validation remain unchanged:
 | `max_buckets_per_batch` | `0` | `0..=2^64−1`; 0 is unlimited; buckets one initialization file or one seed may declare, not all buckets of the server |
 | `max_sync_entries`, `max_sync_depth` | `0`, `0` | `0..=2^64−1`, `0..=1024`; 0 is unlimited, though a walk stops at 1024 levels; require `sync_dir`; files and directories in `sync_dir`, also the watches Linux may use, and levels below `sync_dir` counting the bucket; past 10,000 entries without a limit, `sync_tree_large` warns once per process |
 | `worker_threads`, `max_blocking_threads` | Available CPUs from `2` to `8`, `8` | Each `1..1024` |
-| `memory_max_bytes`, `memory_catalog_max_bytes` | `67108864`, `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
+| `memory_max_bytes`, `memory_catalog_max_bytes` | Half of the available memory less 32 MiB, within 64 MiB to 1 GiB; `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
 | `default_soft_delete_retention_seconds` | `0` | `0`, or `1..3155760000`; a local range and default, unlike Cloud Storage's seven days and 7 to 90 days |
 | `header_read_timeout_ms` | `30000` | 0 disables, no upper limit; a request head, the gRPC handshake and the HTTP/2 ping wait |
 | `body_inactivity_timeout_ms` | `0` | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |

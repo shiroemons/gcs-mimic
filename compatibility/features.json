@@ -54306,7 +54306,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Source-checkout process-local SQLite and leased immutable chunks support scoped ordinary/derived/resumable/XML multipart, restore, appendable and existing gRPC v1/v2 operations without touching data_dir. Default 64 MiB body capacity and 16 MiB main/TEMP page limits are configurable provisional storage budgets, not an RSS guarantee. Native gRPC 47, RAM 42, appendable 21, resumable 122, multipart 26 and eight real memory-backend wire cases pass; final SDK/container integration remains pending. Contract/evidence: docs/en/slices/memory-backend.md.",
+      "notes": "Source-checkout process-local SQLite and leased immutable chunks support scoped ordinary/derived/resumable/XML multipart, restore, appendable and existing gRPC v1/v2 operations without touching data_dir. The default body capacity (half of the available memory less 32 MiB, within 64 MiB to 1 GiB) and 16 MiB main/TEMP page limits are configurable storage budgets, not an RSS guarantee. Native gRPC 47, RAM 42, appendable 21, resumable 122, multipart 26 and eight real memory-backend wire cases pass; final SDK/container integration remains pending. Contract/evidence: docs/en/slices/memory-backend.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

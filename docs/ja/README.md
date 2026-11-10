@@ -73,7 +73,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 | `--scheme http` | `https`（既定）、`http`、`both` | `GCS_MIMIC_SCHEME: http` |
 | `--port 9000` | 待ち受けるポート。同じポートを`-p 127.0.0.1:9000:9000`で公開します | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | `--scheme both`のときのHTTPポート。このポートも公開します | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
-| `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で64 MiBまでです | `GCS_MIMIC_BACKEND: memory` |
+| `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で、使えるメモリの約半分（64 MiB〜1 GiB）までです | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`、`info`、`warn`、`error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
 ディレクトリを読み込むには`-v "$PWD/data:/data:ro"`を付けます。最上位のディレクトリがバケットに、ファイルがオブジェクトになります。すべてのオプションは`docker run --rm ghcr.io/shiroemons/gcs-mimic:latest --help`で確認できます。

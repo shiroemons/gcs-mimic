@@ -33,7 +33,8 @@ instance and without credential discovery. Close every client, streaming object
 and server. `NewServerWithContext` also stops/reaps the child on cancellation.
 `StorageRoot` denotes native gcs-mimic data; old fake-gcs-server data needs import.
 Without it, the memory catalog disappears at process exit. Native defaults cap
-blob memory at 64 MiB and catalog pages at 16 MiB; `MemoryMaxBytes` and
+blob memory at about half of the available memory, from 64 MiB to 1 GiB, and
+catalog pages at 16 MiB; `MemoryMaxBytes` and
 `MemoryCatalogMaxBytes` select explicit budgets. These are separate budgets,
 not an RSS limit. `Close` removes only the owned Unix socket directory and
 preserves any caller-owned `StorageRoot`.

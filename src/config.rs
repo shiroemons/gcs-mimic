@@ -351,7 +351,7 @@ impl Default for Config {
             tls_handshake_timeout: TimeLimit::from_millis(5_000),
             data_dir: PathBuf::from("data"),
             backend: Backend::Disk,
-            memory_max_bytes: 64 * 1024 * 1024,
+            memory_max_bytes: crate::memory_limit::default_budget(),
             memory_catalog_max_bytes: 16 * 1024 * 1024,
             seed_dir: None,
             default_seed_dir: None,

@@ -21,7 +21,7 @@ Two separate limits use ordinary CLI > environment > JSON precedence:
 
 | Setting | Default | Accounting |
 | --- | --- | --- |
-| `memory_max_bytes` | 67108864 | Retained allocation capacity plus 128 bytes per blob and per chunk for registry/descriptor overhead; staging, committed generations, history, pins, open readers and cloned response chunks share this budget. Chunk-table capacity beyond the initial 128-byte reservation is also charged, including replacement allocations during growth. |
+| `memory_max_bytes` | Half of the available memory less 32 MiB, within 64 MiB to 1 GiB | Retained allocation capacity plus 128 bytes per blob and per chunk for registry/descriptor overhead; staging, committed generations, history, pins, open readers and cloned response chunks share this budget. Chunk-table capacity beyond the initial 128-byte reservation is also charged, including replacement allocations during growth. |
 | `memory_catalog_max_bytes` | 16777216 | Maximum SQLite database pages, rounded down to 4096-byte pages; applied separately to main and temporary databases. The connection also retains its bounded statement cache and 2 MiB page-cache target. |
 
 Finished resumable records and finished rewrite records may each fill a quarter of
@@ -37,10 +37,32 @@ SQLite heap setting can affect another catalog. Ready reports the selected
 backend and both configured limits; help lists defaults and ranges. Supplying
 RAM limits to the disk backend fails instead of silently ignoring them.
 
-The 64 MiB and 16 MiB values are configurable, provisional defaults for small
-local tests. Neither Google nor SQLite prescribes these numbers. They do not
+Both limits are configurable. Available memory is the tightest cgroup limit on the
+process or the machine's total on Linux. Elsewhere it is unknown, which selects the
+1 GiB maximum. Neither Google nor SQLite prescribes these numbers. They do not
 guarantee capacity for every thousand-object workload: payloads, metadata,
 history, notification outbox records and simultaneous writes compete for space.
+
+The budget is half of what remains after the catalog's 32 MiB of default page limits
+because allocations of one size do not reuse the freed space of another. On
+2026-11-10, in a Linux container on Docker Desktop with the 0.16.0 image, a workload
+filled the budget with 40 KiB objects, deleted every other one, refilled with 50 KiB
+objects, deleted every other 40 KiB object again and refilled with 60 KiB objects.
+
+| Container limit | Budget | Peak cgroup memory | Outcome |
+| ---: | ---: | ---: | --- |
+| 128 MiB | 64 MiB | above 117.7 MiB | OOM kill in the 60 KiB refill |
+| 128 MiB | 96 MiB | above 117.5 MiB | OOM kill in the 50 KiB refill |
+| 512 MiB | 256 MiB | 476.9 MiB | 503 at the budget |
+| 512 MiB | 384 MiB | above 420.1 MiB | OOM kill in the 50 KiB refill |
+| 1 GiB | 512 MiB | 928.9 MiB | 503 at the budget |
+| 2 GiB | 1 GiB | 1,838.0 MiB | 503 at the budget |
+
+Filling the budget with one size stayed within about 30 MiB of it. Unused budget costs
+nothing: idle process RSS was 9.7 MiB with budgets of 64 MiB, 1 GiB and 10 GiB, and
+after 1,000 MiB of objects were deleted it returned to 22.3 MiB within 11 seconds. The
+64 MiB minimum keeps what earlier releases allowed, so a 128 MiB container can still
+be OOM-killed by that sequence. A 16 MiB catalog held 26,050 objects in the 1 GiB run.
 The ordinary `max_object_bytes` default of 5 TiB remains an independent per-upload
 ceiling, not a claim that a 1 GiB body fits the default RAM aggregate budget.
 A 40 MiB overwrite needs both old and new bodies to coexist before reclamation,

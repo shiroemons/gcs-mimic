@@ -23,7 +23,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 | rootだけが読み書きできるディレクトリをマウントしている | サーバーはrootではなくUID/GID 10001で動きます。 | `/var/lib/gcs-mimic`には名前付きボリュームを使い、`/data`のファイルは全ユーザーが読めるようにします。 |
 | Goのテストプロセスに`fakestorage`を組み込んでいる | プロセス内で動くサーバーはありません。[Goパッケージ（英語）](../../go/README.md)はRustのバイナリを子プロセスとして起動し、APIの一部に対応します。`Backend()`は使えません。 | この範囲で足りる場合に、このパッケージを使います。 |
 | `fake-gcs-server`を決め打ちしたTestcontainersのモジュールやラッパーを使っている | ラッパーが旧実行ファイルと起動ログを前提にしているため、イメージの変更だけでは動きません。 | [汎用コンテナのアダプター（英語）](../en/slices/sdk-client-adapters.md)を使います。 |
-| `-backend memory`で大量のデータを扱う | RAM保存には上限があり、既定ではオブジェクト本体で64 MiBです。超えると書き込みが503で失敗します。 | `memory_max_bytes`を増やす（[RAM保存の仕様（英語）](../en/slices/memory-backend.md)）か、ディスク保存を使います。 |
+| `-backend memory`で大量のデータを扱う | RAM保存には上限があり、既定ではオブジェクト本体で使えるメモリの約半分（64 MiB〜1 GiB）です。超えると書き込みが503で失敗します。 | `memory_max_bytes`を増やす（[RAM保存の仕様（英語）](../en/slices/memory-backend.md)）か、ディスク保存を使います。 |
 | 初期ファイルのディレクトリに`.metadata`ファイルを置いている | メタデータとしては読まず、通常のオブジェクトとして取り込みます。 | メタデータはAPIで設定します。 |
 | `/_internal/reseed`や`PUT /_internal/config`を呼んでいる | 既定では無効です。 | 他から届かない待受で`GCS_MIMIC_ADMIN_ENABLED=true`を設定します。 |
 | `?project=`なしでバケットを一覧する | Cloud Storageと同じく400を返します。SDKは最初からプロジェクトを送ります。 | `?project=local-project`を付けるか、`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`を設定します。 |

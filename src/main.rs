@@ -77,7 +77,7 @@ Other serve options:
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
-  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1099511627776)
+  --memory-max-bytes N          half of available memory, 64 MiB to 1 GiB (RAM blob bytes plus chunk overhead; 1..1099511627776)
   --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1099511627776; separate from RSS)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -1012,7 +1012,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "93da1c23216be3cabf1134021651d7fa9f4ede067cbbf4d0f8ebecaf1280f51f"
+            "6a12307719030b24e36da70940648f57411daf4524804b773b440c3a0c35fe53"
         );
     }
 

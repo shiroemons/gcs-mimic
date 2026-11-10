@@ -291,7 +291,10 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["scheme"], "http");
         assert_eq!(ready["transport"], "tcp");
         assert_eq!(ready["backend"], "disk");
-        assert_eq!(ready["memory_max_bytes"], 64 * 1024 * 1024);
+        assert!(
+            (64 * 1024 * 1024..=1024 * 1024 * 1024)
+                .contains(&ready["memory_max_bytes"].as_u64().unwrap())
+        );
         assert_eq!(ready["memory_catalog_max_bytes"], 16 * 1024 * 1024);
         assert_eq!(ready["auth_mode"], "permissive");
         assert!(ready.get("identities").is_none());

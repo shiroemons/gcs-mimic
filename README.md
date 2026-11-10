@@ -78,7 +78,7 @@ Add options after the image name, with one or two hyphens. `--name=value` also w
 | `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |
 | `--port 9000` | Port to listen on. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
-| `--backend memory` | Keep everything in RAM, up to 64 MiB of objects by default | `GCS_MIMIC_BACKEND: memory` |
+| `--backend memory` | Keep everything in RAM. Objects can use about half of the available memory by default, from 64 MiB to 1 GiB | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
 Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level

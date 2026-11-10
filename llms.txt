@@ -132,7 +132,7 @@ curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' 
 | `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |
 | `--port 9000` | Listening port. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
-| `--backend memory` | Keep everything in RAM, up to 64 MiB of objects by default | `GCS_MIMIC_BACKEND: memory` |
+| `--backend memory` | Keep everything in RAM. Objects can use about half of the available memory by default, from 64 MiB to 1 GiB | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
 **Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.16.0 --help` gives the default and range of each.
@@ -209,7 +209,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.1, Node.
 - Bucket notifications are delivered only to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`.
 - Location and storage class are metadata. Nothing is physically placed.
 - Customer-supplied keys are required to read an object, but the data is not encrypted on disk.
-- The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds 64 MiB of object bytes by default. Data is lost at exit.
+- The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds about half of the available memory in object bytes by default, from 64 MiB to 1 GiB. Data is lost at exit.
 - A sync directory mirrors objects as files. Its conflict and recovery handling is partial.
 - Soft delete is off unless a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` turns it on, unlike Cloud Storage.
 - V2 signed URLs are a subset. Unsupported gRPC fields and methods return `UNIMPLEMENTED`.

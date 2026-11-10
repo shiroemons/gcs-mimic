@@ -36,7 +36,8 @@ The [RAM backend](slices/memory-backend.md) (`--backend memory`, since 0.8.0)
 uses process-local SQLite and leased bounded chunks. It never touches
 `data_dir`, loses state at exit and shares ordinary
 authorization/conditions/checksums with disk. Its
-default 64 MiB body budget and separate main/TEMP 16 MiB page limits are storage
+default body budget (about half of the available memory, from 64 MiB to 1 GiB) and
+separate main/TEMP 16 MiB page limits are storage
 admission limits, not a process RSS ceiling. Disk remains the default and the
 only directory-sync/import destination; no comparative performance is claimed.
 

@@ -24,7 +24,7 @@ Roughly in order of how many setups it affects.
 | Mount directories only root can read or write | The server runs as UID/GID 10001, not root. | Use a named volume for `/var/lib/gcs-mimic`, and keep files under `/data` readable by every user. |
 | Embed `fakestorage` in a Go test process | There is no in-process server. The [Go package](../../go/README.md) starts the Rust binary as a subprocess and covers a subset of the API; `Backend()` is not supported. | Use that package where its subset is enough. |
 | Use a Testcontainers module or wrapper that hard-codes `fake-gcs-server` | Changing the image is not enough, because the wrapper expects the old executable and readiness log. | Use a [generic container adapter](slices/sdk-client-adapters.md). |
-| Run `-backend memory` with a lot of data | RAM storage has a budget of 64 MiB of object bytes by default. Past it, writes fail with 503. | Raise `memory_max_bytes` ([RAM contract](slices/memory-backend.md)) or use the disk backend. |
+| Run `-backend memory` with a lot of data | RAM storage has a budget of object bytes, by default about half of the available memory, from 64 MiB to 1 GiB. Past it, writes fail with 503. | Raise `memory_max_bytes` ([RAM contract](slices/memory-backend.md)) or use the disk backend. |
 | Put `.metadata` sidecar files in a seed directory | They are seeded as ordinary objects, not read as metadata. | Set metadata through the API. |
 | Call `/_internal/reseed` or `PUT /_internal/config` | These routes are off by default. | Set `GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener. |
 | List buckets without `?project=` | Returns 400, as Cloud Storage does. SDKs send the project already. | Add `?project=local-project`, or set `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |

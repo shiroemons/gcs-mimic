@@ -97,7 +97,10 @@ mod tests {
     fn memory_defaults_aliases_budgets_and_unsupported_startup_options() {
         let config = Config::load(&["-backend".into(), "memory".into()], &BTreeMap::new()).unwrap();
         assert_eq!(config.backend, Backend::Memory);
-        assert_eq!(config.memory_max_bytes, 64 * 1024 * 1024);
+        assert_eq!(
+            config.memory_max_bytes,
+            crate::memory_limit::default_budget()
+        );
         assert_eq!(config.memory_catalog_max_bytes, 16 * 1024 * 1024);
         for args in [
             vec!["--backend", "unknown"],
