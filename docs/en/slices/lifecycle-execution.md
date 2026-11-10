@@ -71,7 +71,7 @@ Verified on 2026-11-10 (UTC):
 | `cargo test --locked --offline --lib lifecycle -- --nocapture` | 110 passed after evaluator code merge, including all 37 sweep tests and rearming paths |
 | `cargo test --locked --offline --lib bucket` | 226 passed after evaluator code merge |
 | `cargo test --locked --offline --test it_json bucket` | 103 passed after evaluator code merge |
-| `cargo test --locked --offline` | 3039 passed after merging evaluator code and the integration branch: 1957 library tests, 32 binary tests, all integration suites and documentation tests; 0 failed, 1 existing ignored local Pub/Sub opt-in test |
+| `cargo test --locked --offline` | 3039 passed after merging the final evaluator and the integration branch: 1957 library tests, 32 binary tests, all integration suites and documentation tests; 0 failed, 1 existing ignored local Pub/Sub opt-in test |
 | `cargo xtask lint` | 0 new production violations, 0 ratcheted findings |
 | `cargo xtask dependencies check --scope all` | Every compiler, direct dependency, SDK and container input current at the checked snapshot; no dependency changes |
 | `cargo xtask compatibility check` | 607 feature rows validated; generated English/Japanese matrices match |
