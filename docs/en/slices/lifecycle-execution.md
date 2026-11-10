@@ -63,11 +63,15 @@ Verified on 2026-11-10 (UTC):
 | Command | Result |
 | --- | --- |
 | `cargo check --locked --offline --tests` | Passed |
+| `cargo check --workspace --locked --offline --tests` | Passed after evaluator code and integration-branch merges, including xtask and grpc-codegen |
 | `cargo test --locked --offline --lib storage::catalog::lifecycle::tests -- --nocapture` | 37 passed, 0 failed, including synchronization, unconditional storage-class/Delete deferral, isolated malformed versions, deduplicated diagnostics and condition boundaries |
 | `cargo test --locked --offline --lib config::storage::tests::lifecycle_execution_defaults_on_and_disable_obeys_native_precedence` | 1 passed, 0 failed |
 | `cargo test --locked --offline --lib server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles` | 1 passed, 0 failed; both config and lifecycle routes enforce the instance administrator |
 | `cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods` | 1 passed, 0 failed |
-| `cargo test --locked --offline` | 3024 passed: 1941 library tests, 32 binary tests, all integration suites and documentation tests; 0 failed, 1 existing ignored local Pub/Sub opt-in test |
+| `cargo test --locked --offline --lib lifecycle -- --nocapture` | 110 passed after evaluator code merge, including all 37 sweep tests and rearming paths |
+| `cargo test --locked --offline --lib bucket` | 226 passed after evaluator code merge |
+| `cargo test --locked --offline --test it_json bucket` | 103 passed after evaluator code merge |
+| `cargo test --locked --offline` | 3039 passed after merging evaluator code and the integration branch: 1957 library tests, 32 binary tests, all integration suites and documentation tests; 0 failed, 1 existing ignored local Pub/Sub opt-in test |
 | `cargo xtask lint` | 0 new production violations, 0 ratcheted findings |
 | `cargo xtask dependencies check --scope all` | Every compiler, direct dependency, SDK and container input current at the checked snapshot; no dependency changes |
 | `cargo xtask compatibility check` | 607 feature rows validated; generated English/Japanese matrices match |
