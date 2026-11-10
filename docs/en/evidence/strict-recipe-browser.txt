@@ -1,26 +1,26 @@
-Source of the image: a53a1f8ccc6b909b111cb2ba4cdf1389a9ec7b62. Image ID: sha256:5bdc3c6c616417b980bf1893ff53d1beec344a24942a8b220a1048d45e20c583.
-Harness: scripts/strict-recipe-browser.sh and scripts/strict-recipe-browser.html of the commit that added them. Executed 2026-11-10 on linux/arm64.
-Signed URLs are not printed. Exit status: 0.
+Source of the image: a53a1f8ccc6b909b111cb2ba4cdf1389a9ec7b62. No later commit changes src/, Cargo.toml, Cargo.lock or the Dockerfile.
+Executed 2026-11-10 on linux/arm64 at the checkout printed below; the only later commit adds this transcript. Signed URLs are not printed. Exit status: 0.
 
 Command output: GCS_MIMIC_IMAGE=gcs-mimic:strict-browser bash scripts/strict-recipe-browser.sh
- Network gcs-mimic-strict-browser-36240_default Creating
- Network gcs-mimic-strict-browser-36240_default Creating
- Volume gcs-mimic-strict-browser-36240_gcs-data Creating
- Volume gcs-mimic-strict-browser-36240_gcs-data Creating
- Volume gcs-mimic-strict-browser-36240_gcs-data Created
- Volume gcs-mimic-strict-browser-36240_gcs-data Created
- Network gcs-mimic-strict-browser-36240_default Created
- Network gcs-mimic-strict-browser-36240_default Created
- Container gcs-mimic-strict-browser-36240-gcs-1 Creating
- Container gcs-mimic-strict-browser-36240-gcs-1 Created
- Container gcs-mimic-strict-browser-36240-gcs-1 Starting
- Container gcs-mimic-strict-browser-36240-gcs-1 Started
- Container gcs-mimic-strict-browser-36240-gcs-1 Waiting
- Container gcs-mimic-strict-browser-36240-gcs-1 Healthy
-PASS: recipe up with image gcs-mimic:strict-browser, only 4443 published, strict mode, test signer enabled
+Chromium 150.0.7871.181 built on Debian GNU/Linux 13 (trixie)
+v24.22.2
+ Network gcs-mimic-strict-browser-74678_default Creating
+ Volume gcs-mimic-strict-browser-74678_gcs-data Creating
+ Volume gcs-mimic-strict-browser-74678_gcs-data Creating
+ Network gcs-mimic-strict-browser-74678_default Creating
+ Volume gcs-mimic-strict-browser-74678_gcs-data Created
+ Volume gcs-mimic-strict-browser-74678_gcs-data Created
+ Network gcs-mimic-strict-browser-74678_default Created
+ Network gcs-mimic-strict-browser-74678_default Created
+ Container gcs-mimic-strict-browser-74678-gcs-1 Creating
+ Container gcs-mimic-strict-browser-74678-gcs-1 Created
+ Container gcs-mimic-strict-browser-74678-gcs-1 Starting
+ Container gcs-mimic-strict-browser-74678-gcs-1 Started
+ Container gcs-mimic-strict-browser-74678-gcs-1 Waiting
+ Container gcs-mimic-strict-browser-74678-gcs-1 Healthy
+image under test: gcs-mimic:strict-browser sha256:5bdc3c6c616417b980bf1893ff53d1beec344a24942a8b220a1048d45e20c583, checkout 35c683c615c651a1ec4d0bb201fcdd3402cb35d2
+PASS: recipe up, only 4443 published, strict mode, test signer enabled
 PASS: fixtures seeded through the unpublished trusted listener
-Chromium 156.0.8078.79 built on Debian GNU/Linux 12 (bookworm)
-v24.22.1
 PASS: navigation download shows private bytes for the browser
 PASS: navigation download-portless shows private bytes for the browser
 PASS: navigation public shows public bytes for the browser
@@ -31,13 +31,14 @@ PASS: navigation tampered shows SignatureDoesNotMatch
 PASS: navigation expired shows ExpiredToken
 PASS: navigation other-host shows SignatureDoesNotMatch
 PASS: scenario navigation
-page origin: http://localhost:23788; API origin: http://localhost:55221; role: allowed; phase: stock
+page origin: http://localhost:22617; API origin: http://localhost:55229; role: allowed; phase: stock
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: fetch reads a public object anonymously through its allUsers grant
 PASS: the configured Content-Type response header is readable
 PASS: a response header the bucket's rule does not list stays hidden
 PASS: the JSON API serves the public object anonymously
+PASS: HEAD reads the public object's Content-Type
 PASS: the public bucket's rule does not allow a browser PUT
 PASS: the private bucket's rule does not allow an unsigned XML fetch
 PASS: an anonymous JSON list of the private bucket is refused: the page reads 401 Anonymous
@@ -59,7 +60,7 @@ PASS: a request header the bucket's rule does not list fails the signed upload p
 PASS: allowed stock browser checks completed
 
 PASS: scenario page-stock
-page origin: http://127.0.0.1:23788; API origin: http://localhost:55221; role: denied; phase: stock
+page origin: http://127.0.0.1:22617; API origin: http://localhost:55229; role: denied; phase: stock
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: an origin the recipe does not list cannot read a public object with fetch
@@ -69,15 +70,19 @@ PASS: denied stock browser checks completed
 
 PASS: scenario page-denied-origin
 PASS: the signed upload stored exact bytes owned by the test signer; every refused or blocked write published nothing
-page origin: http://localhost:23788; API origin: http://localhost:55221; role: allowed; phase: get-added
+page origin: http://localhost:22617; API origin: http://localhost:55229; role: allowed; phase: get-added
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: with GET in the bucket's rule a page fetches the signed download
 PASS: a tampered signed download is refused: the page reads 403 SignatureDoesNotMatch
 PASS: an expired signed download is refused: the page reads 400 ExpiredToken
 PASS: an unsigned download is refused although the origin and method match: the page reads 401 AuthenticationRequired
+PASS: the tampered embed's URL is refused by signature: the page reads 403 SignatureDoesNotMatch
+PASS: the expired embed's URL is refused by expiry: the page reads 400 ExpiredToken
+PASS: the unsigned embed's URL is refused as anonymous: the page reads 401 AuthenticationRequired
 PASS: allowed get-added browser checks completed
 
 PASS: scenario page-get-added
-PASS: scenario network-audit: every browser connection in 12 net logs stayed on loopback
+PASS: every blocked upload sent its preflight and no PUT; blocked reads reached the server
+PASS: scenario network-audit: TCP connections in 12 net logs went only to the published listener and the page origin on loopback, no UDP datagrams were sent, and name resolution outside loopback is blocked
 PASS: strict local recipe browser check completed
