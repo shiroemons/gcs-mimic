@@ -49,6 +49,35 @@ pub(crate) fn evaluate(
     facts: &VersionFacts<'_>,
     now: SystemTime,
 ) -> Evaluation {
+    evaluate_rules(rules.iter(), facts, now)
+}
+
+/// Temporary sweep entry point until SetStorageClass actions are applied.
+/// A skipped transition can leave a class-dependent Delete incorrectly satisfied.
+pub(crate) fn evaluate_delete_only(
+    rules: &[LifecycleRule],
+    facts: &VersionFacts<'_>,
+    now: SystemTime,
+) -> Evaluation {
+    let changes_class = rules
+        .iter()
+        .any(|rule| matches!(rule.action, LifecycleAction::SetStorageClass(_)));
+    let deletions = rules.iter().filter(|rule| match rule.action {
+        LifecycleAction::Delete => {
+            !changes_class || rule.condition.matches_storage_class.is_empty()
+        }
+        LifecycleAction::SetStorageClass(_) | LifecycleAction::AbortIncompleteMultipartUpload => {
+            false
+        }
+    });
+    evaluate_rules(deletions, facts, now)
+}
+
+fn evaluate_rules<'a>(
+    rules: impl Iterator<Item = &'a LifecycleRule>,
+    facts: &VersionFacts<'_>,
+    now: SystemTime,
+) -> Evaluation {
     let mut candidates: [Option<(PlannedAction, SystemTime)>; 5] = [None; 5];
     for rule in rules {
         let Some(action) = planned_action(rule.action, facts.storage_class) else {
