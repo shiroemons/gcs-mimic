@@ -28,6 +28,7 @@ async fn disk(data: &TestDir) -> (Catalog, Arc<ManualClock>) {
     let catalog = Catalog::open_with_clock(&data.0, clock.clone())
         .await
         .unwrap();
+    catalog.configure_lifecycle(&Default::default());
     (catalog, clock)
 }
 
@@ -41,7 +42,15 @@ async fn memory() -> (Catalog, Arc<ManualClock>) {
     )
     .await
     .unwrap();
+    catalog.configure_lifecycle(&Default::default());
     (catalog, clock)
+}
+
+async fn execute(catalog: &Catalog) -> LifecycleCounts {
+    match catalog.run_lifecycle_now().await.unwrap() {
+        LifecycleOutcome::Executed(counts) => counts,
+        LifecycleOutcome::Disabled => panic!("lifecycle execution is disabled"),
+    }
 }
 
 fn delete(condition: Value) -> Value {
@@ -132,7 +141,7 @@ async fn lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versio
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object").await;
     clock.advance(DAY);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
     let deleted = catalog
         .get_soft_deleted_object(
             ObjectTarget::new("bucket", "object", object.generation),
@@ -142,7 +151,7 @@ async fn lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versio
         .await
         .unwrap();
     assert_eq!(deleted.soft_delete_time, Some(clock.now()));
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().scanned, 0);
+    assert_eq!(execute(&catalog).await.scanned, 0);
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 1);
     catalog.close().await.unwrap();
 }
@@ -156,7 +165,7 @@ async fn versioned_live_archives_and_the_next_pass_removes_the_noncurrent_genera
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object").await;
     clock.advance(DAY);
-    let first = catalog.run_lifecycle_now().await.unwrap();
+    let first = execute(&catalog).await;
     assert_eq!((first.archived, first.deleted), (1, 0));
     assert!(!exists(&catalog, live("bucket", "object")).await);
     let archived = catalog
@@ -168,7 +177,7 @@ async fn versioned_live_archives_and_the_next_pass_removes_the_noncurrent_genera
         .await
         .unwrap();
     assert_eq!(archived.time_deleted, Some(clock.now()));
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
     assert!(!exists(&catalog, version("bucket", "object", object.generation)).await);
     catalog.close().await.unwrap();
 }
@@ -188,7 +197,7 @@ async fn only_matching_noncurrent_generations_are_removed_with_newer_versions_ac
         vec![delete(json!({"isLive":false,"numNewerVersions":129}))],
     )
     .await;
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
     assert!(!exists(&catalog, version("bucket", "object", oldest.generation)).await);
     assert!(exists(&catalog, live("bucket", "object")).await);
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 129);
@@ -220,7 +229,7 @@ async fn releasing_each_hold_allows_a_matching_delete() {
             .await
             .unwrap();
         clock.advance(DAY);
-        assert_eq!(catalog.run_lifecycle_now().await.unwrap().blocked, 1);
+        assert_eq!(execute(&catalog).await.blocked, 1);
         assert!(exists(&catalog, live("bucket", "object")).await);
         catalog
             .update_object_metadata(
@@ -236,7 +245,7 @@ async fn releasing_each_hold_allows_a_matching_delete() {
             )
             .await
             .unwrap();
-        assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+        assert_eq!(execute(&catalog).await.deleted, 1);
         catalog.close().await.unwrap();
     }
 }
@@ -271,7 +280,7 @@ async fn bucket_and_object_retention_delay_delete_until_the_later_exact_expiry()
         .await
         .unwrap();
     clock.advance(DAY);
-    let result = catalog.run_lifecycle_now().await.unwrap();
+    let result = execute(&catalog).await;
     assert_eq!(result.blocked, 1);
     assert_eq!(result.next, Some(until));
     clock.set(until - Duration::from_micros(1));
@@ -308,9 +317,9 @@ async fn restored_objects_restart_lifecycle_age_at_their_new_creation_time() {
         .unwrap();
     assert_eq!(restored.time_created, clock.now());
     let next = clock.now() + DAY;
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().next, Some(next));
+    assert_eq!(execute(&catalog).await.next, Some(next));
     clock.set(next);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
     catalog.close().await.unwrap();
 }
 
@@ -382,10 +391,13 @@ async fn the_action_cap_returns_now_and_the_following_pass_finishes_the_backlog(
         put(&catalog, &format!("object-{index:04}")).await;
     }
     clock.advance(DAY);
-    let first = catalog.run_lifecycle_now().await.unwrap();
+    let first = execute(&catalog).await;
     assert_eq!(first.deleted, 1024);
     assert_eq!(first.next, Some(clock.now()));
-    let second = catalog.run_lifecycle(Pass::Scheduled).await.unwrap();
+    let LifecycleOutcome::Executed(second) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
+    else {
+        panic!("lifecycle execution is disabled");
+    };
     assert_eq!(second.deleted, 1);
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 0);
     catalog.close().await.unwrap();
@@ -397,7 +409,7 @@ async fn a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeu
     create(&catalog, vec![json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}})]).await;
     let object = put(&catalog, "object").await;
     clock.advance(DAY);
-    let outcome = catalog.run_lifecycle_now().await.unwrap();
+    let outcome = execute(&catalog).await;
     assert_eq!(
         (outcome.deleted, outcome.archived, outcome.next),
         (0, 0, None)
@@ -427,14 +439,311 @@ async fn pending_storage_transitions_defer_class_dependent_deletion_but_not_othe
     put(&catalog, "object").await;
     let due = clock.now() + DAY * 90;
     clock.advance(DAY * 30);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().next, Some(due));
+    assert_eq!(execute(&catalog).await.next, Some(due));
     clock.advance(DAY * 30);
-    let deferred = catalog.run_lifecycle_now().await.unwrap();
+    let deferred = execute(&catalog).await;
     assert_eq!(deferred.deleted, 0);
     assert_eq!(deferred.next, Some(due));
     assert!(exists(&catalog, live("bucket", "object")).await);
     clock.set(due);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn replacing_an_unapplied_transition_with_a_class_dependent_delete_preserves_the_object() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}})]).await;
+    let object = put(&catalog, "object").await;
+    clock.advance(DAY * 30);
+    assert_eq!(execute(&catalog).await.next, None);
+    rules(
+        &catalog,
+        vec![delete(json!({"age":60,"matchesStorageClass":["STANDARD"]}))],
+    )
+    .await;
+    assert_eq!(execute(&catalog).await.next, None);
+    clock.advance(DAY * 60);
+    let outcome = execute(&catalog).await;
+    assert_eq!(
+        (outcome.deleted, outcome.archived, outcome.next),
+        (0, 0, None)
+    );
+    let current = catalog
+        .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(
+        (current.generation, current.storage_class),
+        (object.generation, object.storage_class)
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn creation_age_zero_and_strict_creation_dates_drive_exact_delete_deadlines() {
+    for age in [0, 1] {
+        let (catalog, clock) = memory().await;
+        clock.advance(Duration::from_micros(123));
+        create(
+            &catalog,
+            vec![delete(json!({"age":age,"createdBefore":"1970-01-03"}))],
+        )
+        .await;
+        put(&catalog, "before-date").await;
+        let due = if age == 0 {
+            UNIX_EPOCH + DAY * 2
+        } else {
+            clock.now() + DAY
+        };
+        assert_eq!(execute(&catalog).await.next, Some(due));
+        clock.set(due - Duration::from_micros(1));
+        let before = execute(&catalog).await;
+        assert_eq!((before.deleted, before.next), (0, Some(due)));
+        clock.set(due);
+        assert_eq!(execute(&catalog).await.deleted, 1);
+        clock.set(UNIX_EPOCH + DAY * 2);
+        put(&catalog, "exact-date").await;
+        clock.advance(DAY * 10);
+        let excluded = execute(&catalog).await;
+        assert_eq!((excluded.deleted, excluded.next), (0, None));
+        assert!(exists(&catalog, live("bucket", "exact-date")).await);
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn custom_time_conditions_require_metadata_and_delete_at_its_exact_deadline() {
+    let (catalog, clock) = memory().await;
+    create(
+        &catalog,
+        vec![delete(
+            json!({"daysSinceCustomTime":1,"customTimeBefore":"1970-01-04"}),
+        )],
+    )
+    .await;
+    put(&catalog, "unset").await;
+    put(&catalog, "dated").await;
+    catalog
+        .update_object_metadata(
+            live("bucket", "dated"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                custom_time: Some(Some("1970-01-02T12:00:00.000123Z".into())),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let due = UNIX_EPOCH + DAY * 2 + Duration::from_secs(43_200) + Duration::from_micros(123);
+    assert_eq!(execute(&catalog).await.next, Some(due));
+    clock.set(due - Duration::from_micros(1));
+    assert_eq!(execute(&catalog).await.deleted, 0);
+    clock.set(due);
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    assert!(exists(&catalog, live("bucket", "unset")).await);
+    put(&catalog, "exact-date").await;
+    catalog
+        .update_object_metadata(
+            live("bucket", "exact-date"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                custom_time: Some(Some("1970-01-04T00:00:00Z".into())),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    clock.advance(DAY * 10);
+    let excluded = execute(&catalog).await;
+    assert_eq!((excluded.deleted, excluded.next), (0, None));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn noncurrent_time_conditions_use_the_archive_instant_and_preserve_live_versions() {
+    let (catalog, clock) = memory().await;
+    clock.advance(Duration::from_secs(43_200));
+    let mut record = bucket("bucket", "project");
+    record.versioning_enabled = true;
+    catalog.insert_bucket(record).await.unwrap();
+    let original = put(&catalog, "object").await;
+    clock.advance(DAY);
+    let current = put(&catalog, "object").await;
+    rules(&catalog, vec![delete(json!({"isLive":false,"numNewerVersions":1,"daysSinceNoncurrentTime":1,"noncurrentTimeBefore":"1970-01-04"}))]).await;
+    let due = clock.now() + DAY;
+    assert_eq!(execute(&catalog).await.next, Some(due));
+    clock.set(due - Duration::from_micros(1));
+    assert_eq!(execute(&catalog).await.deleted, 0);
+    clock.set(due);
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    assert!(!exists(&catalog, version("bucket", "object", original.generation)).await);
+    assert!(exists(&catalog, version("bucket", "object", current.generation)).await);
+    assert_eq!(execute(&catalog).await.next, None);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn name_lists_and_strict_size_conditions_use_published_names_and_data_bytes() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"matchesPrefix":["logs/","archive/"],"matchesSuffix":[".bin",".txt"],"sizeAboveBytes":"3","sizeBelowBytes":"5"}))]).await;
+    for (name, size) in [
+        ("logs/match.bin", 4),
+        ("archive/match.txt", 4),
+        ("logs/equal-low.bin", 3),
+        ("logs/equal-high.bin", 5),
+        ("logs/empty.bin", 0),
+        ("Logs/case.bin", 4),
+        ("logs/case.BIN", 4),
+        ("other/path.bin", 4),
+    ] {
+        catalog
+            .put_object(
+                permissive_upload("bucket", name, 100),
+                body(vec![Bytes::from(vec![b'x'; size])]),
+            )
+            .await
+            .unwrap();
+    }
+    catalog
+        .update_object_metadata(
+            live("bucket", "logs/match.bin"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                metadata: Some(Some(std::collections::BTreeMap::from([(
+                    "large".into(),
+                    Some("x".repeat(1024)),
+                )]))),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let outcome = execute(&catalog).await;
+    assert_eq!(
+        (outcome.scanned, outcome.deleted, outcome.next),
+        (8, 2, clock.now().checked_add(COALESCE))
+    );
+    assert!(!exists(&catalog, live("bucket", "logs/match.bin")).await);
+    assert!(!exists(&catalog, live("bucket", "archive/match.txt")).await);
+    assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 6);
+    clock.advance(COALESCE);
+    assert_eq!(execute(&catalog).await.next, None);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_unconfigured_catalog_never_executes_stored_rules() {
+    let data = TestDir::new();
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
+    let catalog = Catalog::open_with_clock(&data.0, clock.clone())
+        .await
+        .unwrap();
+    create(&catalog, vec![delete(json!({"age":1}))]).await;
+    put(&catalog, "object").await;
+    clock.advance(DAY);
+    assert!(matches!(
+        catalog.run_lifecycle_now().await.unwrap(),
+        LifecycleOutcome::Disabled
+    ));
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert!(exists(&catalog, live("bucket", "object")).await);
+    assert_eq!(catalog.0.lifecycle.state().scans, 0);
+    catalog.configure_lifecycle(&Default::default());
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn parsed_rules_are_reused_across_pages_and_replaced_atomically_when_rules_change() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"age":10}))]).await;
+    for index in 0..260 {
+        put(&catalog, &format!("object-{index:03}")).await;
+    }
+    let mut cached = BucketRules::Absent;
+    let mut cursor = None;
+    let mut allocation = None;
+    let incarnation = incarnation(&catalog).await;
+    for index in 0..3 {
+        if index == 2 {
+            rules(&catalog, vec![delete(json!({"age":20}))]).await;
+        }
+        let now = clock.now();
+        let incarnation = incarnation.clone();
+        let page = catalog
+            .run::<_, CatalogError>(move |connection| {
+                sweep_page(
+                    connection,
+                    "bucket",
+                    &incarnation,
+                    cursor,
+                    now,
+                    ACTION_LIMIT,
+                    cached,
+                )
+                .map_err(unavailable)
+            })
+            .await
+            .unwrap();
+        let BucketRules::Ready { rules, .. } = &page.rules else {
+            panic!("valid stored rules");
+        };
+        let pointer = rules.as_ptr() as usize;
+        if index == 1 {
+            assert_eq!(allocation, Some(pointer));
+        }
+        allocation = Some(pointer);
+        assert_eq!(page.outcome.scanned, if index == 2 { 4 } else { 128 });
+        assert_eq!(
+            page.outcome.next,
+            Some(now + DAY * if index == 2 { 20 } else { 10 })
+        );
+        cursor = page.after;
+        cached = page.rules;
+    }
+    assert!(cursor.is_none());
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_mutation_failure_rolls_back_the_page_and_retries_without_quarantining_versions() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"age":1}))]).await;
+    put(&catalog, "z-good").await;
+    put(&catalog, "a-fails").await;
+    catalog.run::<_, CatalogError>(|connection| {
+        sql::exec(connection, "CREATE TEMP TRIGGER fail_lifecycle_delete BEFORE DELETE ON objects WHEN old.name = 'a-fails' BEGIN SELECT RAISE(ABORT, 'injected mutation failure'); END", [])?;
+        Ok(())
+    }).await.unwrap();
+    clock.advance(DAY);
+    assert!(catalog.maintain_resumable_sessions().await.is_err());
+    assert!(catalog.resumable_maintenance_error().is_some());
+    assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 2);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM lifecycle_quarantine").await,
+        0
+    );
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM pending_blob_deletions").await,
+        0
+    );
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            sql::exec(connection, "DROP TRIGGER fail_lifecycle_delete", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 0);
+    assert!(catalog.resumable_maintenance_error().is_none());
     catalog.close().await.unwrap();
 }
 
@@ -466,7 +775,7 @@ async fn failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries
         count(&catalog, "SELECT count(*) FROM notification_outbox").await,
         0
     );
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 2);
+    assert_eq!(execute(&catalog).await.deleted, 2);
     catalog.close().await.unwrap();
 }
 
@@ -482,6 +791,7 @@ async fn restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_dead
         .await
         .unwrap();
     assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire));
+    catalog.configure_lifecycle(&Default::default());
     assert_eq!(
         catalog.maintain_resumable_sessions().await.unwrap(),
         Some(clock.now() + DAY)
@@ -502,8 +812,10 @@ async fn disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass() 
         ..Default::default()
     });
     clock.advance(DAY);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().scanned, 0);
-    assert!(!catalog.run_lifecycle_now().await.unwrap().enabled);
+    assert!(matches!(
+        catalog.run_lifecycle_now().await.unwrap(),
+        LifecycleOutcome::Disabled
+    ));
     assert!(exists(&catalog, live("bucket", "object")).await);
     assert!(
         !catalog
@@ -557,7 +869,13 @@ async fn the_version_scan_seeks_the_primary_key_without_a_temporary_sort() {
 }
 
 #[tokio::test]
-async fn a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_readiness() {
+async fn a_broken_stored_rule_is_quarantined_once_and_api_repair_resumes_execution() {
+    if diagnostic_parent(
+        "a_broken_stored_rule_is_quarantined_once_and_api_repair_resumes_execution",
+        &[("lifecycle_rules_quarantined", 1)],
+    ) {
+        return;
+    }
     let (catalog, clock) = memory().await;
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "good").await;
@@ -583,15 +901,35 @@ async fn a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_re
         .await
         .unwrap();
     clock.advance(DAY);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    catalog.start_resumable_maintenance();
+    crate::test_support::eventually_async(
+        "the healthy bucket to finish lifecycle maintenance",
+        || async { !exists(&catalog, live("bucket", "good")).await },
+    )
+    .await;
     for _ in 0..3 {
         clock.advance(Duration::from_secs(1));
+        execute(&catalog).await;
         catalog.maintain_resumable_sessions().await.unwrap();
         assert!(catalog.resumable_maintenance_error().is_none());
         assert!(catalog.background_tasks_running());
     }
     assert!(!exists(&catalog, live("bucket", "good")).await);
     assert!(exists(&catalog, live("aaa-broken", "object")).await);
+    catalog
+        .patch_bucket(
+            "aaa-broken",
+            BucketMetadataUpdate {
+                lifecycle: Some(vec![delete(json!({"age":1}))]),
+                ..Default::default()
+            },
+            Default::default(),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(execute(&catalog).await.deleted, 1);
+    assert!(!exists(&catalog, live("aaa-broken", "object")).await);
     catalog.close().await.unwrap();
 }
 
@@ -607,15 +945,16 @@ async fn lifecycle_crash_and_power_loss_snapshots_restart_idempotently() {
             put(&catalog, "object").await;
             clock.advance(DAY);
             fault::arm(&data.0, step, 0, crash.fault(snapshot.0.clone()));
-            assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+            assert_eq!(execute(&catalog).await.deleted, 1);
             assert_eq!(fault::pending(&data.0), 0);
             catalog.close().await.unwrap();
             let recovered = Catalog::open_with_clock(&snapshot.0, clock).await.unwrap();
+            recovered.configure_lifecycle(&Default::default());
             assert_eq!(
-                recovered.run_lifecycle_now().await.unwrap().deleted,
+                execute(&recovered).await.deleted,
                 u64::from(step == Step::LifecycleCommit)
             );
-            assert_eq!(recovered.run_lifecycle_now().await.unwrap().deleted, 0);
+            assert_eq!(execute(&recovered).await.deleted, 0);
             assert_eq!(count(&recovered, "SELECT count(*) FROM objects").await, 0);
             assert_eq!(
                 count(&recovered, "SELECT count(*) FROM notification_outbox").await,
@@ -674,19 +1013,34 @@ async fn candidate(
     catalog: &Catalog,
     target: ObjectTarget,
     incarnation: String,
-) -> LifecycleOutcome {
+) -> LifecycleCounts {
     let now = catalog.0.clock.now();
     catalog
         .run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let Some(rules) =
-                bucket_rules(&transaction, &target.bucket, &incarnation).map_err(unavailable)?
+            let mut diagnostics = Vec::new();
+            let BucketRules::Ready { rules, .. } = bucket_rules(
+                &transaction,
+                &target.bucket,
+                &incarnation,
+                BucketRules::Absent,
+                &mut diagnostics,
+            )
+            .map_err(unavailable)?
             else {
-                return Ok(LifecycleOutcome::default());
+                return Ok(LifecycleCounts::default());
             };
-            let outcome =
-                evaluate_version(&transaction, &target, &rules, now).map_err(unavailable)?;
+            let outcome = evaluate_version(
+                &transaction,
+                &target,
+                &rules,
+                now,
+                &incarnation,
+                &mut diagnostics,
+            )
+            .map_err(unavailable)?;
             transaction.commit()?;
+            emit_quarantines(diagnostics);
             Ok(outcome)
         })
         .await
@@ -804,7 +1158,7 @@ async fn a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeu
     assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire));
     put(&catalog, "object").await;
     clock.advance(DAY);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(execute(&catalog).await.deleted, 1);
     catalog.close().await.unwrap();
 }
 
@@ -894,11 +1248,7 @@ async fn administrative_ensure_import_seed_and_initialization_all_arm_the_shared
         assert!(catalog.0.lifecycle.armed.load(Ordering::Acquire), "{path}");
         put(&catalog, "object").await;
         clock.advance(DAY);
-        assert_eq!(
-            catalog.run_lifecycle_now().await.unwrap().deleted,
-            1,
-            "{path}"
-        );
+        assert_eq!(execute(&catalog).await.deleted, 1, "{path}");
         catalog.close().await.unwrap();
     }
 }
@@ -928,21 +1278,31 @@ async fn retention_deadlines_replace_an_earlier_future_age_deadline_and_block_li
         )
         .await
         .unwrap();
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().next, Some(until));
+    assert_eq!(execute(&catalog).await.next, Some(until));
     clock.advance(DAY);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().blocked, 1);
+    assert_eq!(execute(&catalog).await.blocked, 1);
     assert!(exists(&catalog, live("bucket", "object")).await);
     clock.set(until);
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().archived, 1);
+    assert_eq!(execute(&catalog).await.archived, 1);
     catalog.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn a_version_failure_rolls_back_the_whole_page_before_a_later_retry() {
+async fn malformed_versions_are_quarantined_once_while_healthy_pages_finish() {
+    if diagnostic_parent(
+        "malformed_versions_are_quarantined_once_while_healthy_pages_finish",
+        &[("lifecycle_version_quarantined", 2)],
+    ) {
+        return;
+    }
     let (catalog, clock) = memory().await;
     create(&catalog, vec![delete(json!({"age":1}))]).await;
-    put(&catalog, "z-good").await;
-    put(&catalog, "a-corrupt").await;
+    for name in ["a-corrupt", "z-corrupt"] {
+        put(&catalog, name).await;
+    }
+    for index in 0..130 {
+        put(&catalog, &format!("good-{index:03}")).await;
+    }
     catalog
         .run::<_, CatalogError>(|connection| {
             sql::exec(
@@ -950,30 +1310,113 @@ async fn a_version_failure_rolls_back_the_whole_page_before_a_later_retry() {
                 "UPDATE objects SET custom_time = 'invalid' WHERE name = 'a-corrupt'",
                 [],
             )?;
-            Ok(())
-        })
-        .await
-        .unwrap();
-    clock.advance(DAY);
-    assert!(catalog.run_lifecycle_now().await.is_err());
-    assert!(exists(&catalog, live("bucket", "z-good")).await);
-    assert_eq!(
-        count(&catalog, "SELECT count(*) FROM pending_blob_deletions").await,
-        0
-    );
-    catalog
-        .run::<_, CatalogError>(|connection| {
             sql::exec(
                 connection,
-                "UPDATE objects SET custom_time = NULL WHERE name = 'a-corrupt'",
+                "UPDATE objects SET metadata = '[]' WHERE name = 'z-corrupt'",
                 [],
             )?;
             Ok(())
         })
         .await
         .unwrap();
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 2);
+    clock.advance(DAY);
+    catalog.start_resumable_maintenance();
+    crate::test_support::eventually_async(
+        "healthy versions beyond a corrupt page to be deleted",
+        || async { count(&catalog, "SELECT count(*) FROM objects").await == 2 },
+    )
+    .await;
+    for _ in 0..3 {
+        let outcome = execute(&catalog).await;
+        assert_eq!(
+            (outcome.deleted, outcome.skipped, outcome.scanned),
+            (0, 2, 2)
+        );
+        assert!(catalog.resumable_maintenance_error().is_none());
+        assert!(catalog.background_tasks_running());
+    }
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE objects SET custom_time = NULL, metadata = '{}' WHERE name IN ('a-corrupt', 'z-corrupt')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(execute(&catalog).await.deleted, 2);
     catalog.close().await.unwrap();
+}
+
+fn diagnostic_parent(test: &str, events: &[(&str, usize)]) -> bool {
+    if std::env::var_os("GCS_MIMIC_TEST_LIFECYCLE_DIAGNOSTIC").is_some() {
+        return false;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            &format!("storage::catalog::lifecycle::tests::{test}"),
+            "--nocapture",
+        ])
+        .env("GCS_MIMIC_TEST_LIFECYCLE_DIAGNOSTIC", "1")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "{stderr}\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    let logged: Vec<Value> = stderr
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    for (event, count) in events {
+        assert_eq!(
+            logged
+                .iter()
+                .filter(|entry| entry["event"] == *event)
+                .count(),
+            *count,
+            "{stderr}"
+        );
+    }
+    true
+}
+
+#[tokio::test]
+async fn synchronized_defaults_report_stored_or_new_rules_only_once() {
+    if diagnostic_parent(
+        "synchronized_defaults_report_stored_or_new_rules_only_once",
+        &[("lifecycle_sync_disabled", 2)],
+    ) {
+        return;
+    }
+    for stored in [true, false] {
+        let tree = TestDir::new();
+        let (catalog, _) = memory().await;
+        if stored {
+            create(&catalog, vec![delete(json!({"age":1}))]).await;
+        }
+        catalog.configure_lifecycle(&crate::config::Config {
+            sync_dir: Some(tree.0.clone()),
+            ..Default::default()
+        });
+        if !stored {
+            create(&catalog, vec![delete(json!({"age":1}))]).await;
+        }
+        for age in 2..5 {
+            rules(&catalog, vec![delete(json!({"age":age}))]).await;
+        }
+        assert!(matches!(
+            catalog.run_lifecycle_now().await.unwrap(),
+            LifecycleOutcome::Disabled
+        ));
+        catalog.close().await.unwrap();
+    }
 }
 
 #[test]
@@ -1016,8 +1459,12 @@ async fn synchronization_keeps_host_files_by_default_and_explicit_execution_dele
         clock.advance(DAY);
         let outcome = catalog.run_lifecycle_now().await.unwrap();
         let enabled = choice == Some(LifecycleExecution::Enabled);
-        assert_eq!(outcome.enabled, enabled);
-        assert_eq!(outcome.deleted, u64::from(enabled));
+        assert_eq!(matches!(outcome, LifecycleOutcome::Executed(_)), enabled);
+        let deleted = match outcome {
+            LifecycleOutcome::Disabled => 0,
+            LifecycleOutcome::Executed(counts) => counts.deleted,
+        };
+        assert_eq!(deleted, u64::from(enabled));
         if enabled {
             crate::test_support::eventually_async(
                 "lifecycle deletion to reach the synchronized file",

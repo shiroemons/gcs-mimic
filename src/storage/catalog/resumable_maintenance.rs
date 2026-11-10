@@ -298,7 +298,7 @@ impl Catalog {
             "lifecycle",
             self.run_lifecycle(super::lifecycle::Pass::Scheduled)
                 .await
-                .map(|outcome| outcome.next),
+                .map(|outcome| outcome.next()),
         );
         sweep.record("XML multipart", self.maintain_xml_multipart(now).await);
         sweep.record(
