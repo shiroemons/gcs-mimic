@@ -2,7 +2,7 @@ services:
   # Production-like local Cloud Storage from gcs-mimic's examples/strict-local recipe.
   # Local development and tests only: the built-in test signer's private key is public.
   gcs:
-    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.0}
+    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.1}
     ports:
       # Browsers use the main listener. Never publish the trusted port 4444: anything
       # that reaches it acts as trusted-app@gcs-mimic.invalid without credentials.
