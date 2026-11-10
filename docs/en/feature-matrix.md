@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 83 | 68 | 41 | 9 | 0 | 0 |
+| behavior | 83 | 68 | 47 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 73 |
 
 ## api_operation
@@ -678,15 +678,15 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | METADATA_ONLY | 2 |
+| BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-004 | AbortIncompleteMultipartUpload action | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | EXACT | METADATA_ONLY | 0 |
-| BEHAVIOR-LIFECYCLE-006 | Custom-time conditions | PARTIAL | P4 | EXACT | METADATA_ONLY | 0 |
-| BEHAVIOR-LIFECYCLE-007 | Noncurrent-version conditions | PARTIAL | P4 | EXACT | METADATA_ONLY | 0 |
-| BEHAVIOR-LIFECYCLE-008 | Name and storage-class conditions | PARTIAL | P4 | EXACT | METADATA_ONLY | 0 |
-| BEHAVIOR-LIFECYCLE-009 | Object-size lifecycle conditions | PARTIAL | P4 | EXACT | METADATA_ONLY | 0 |
+| BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-006 | Custom-time conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-007 | Noncurrent-version conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-008 | Name and storage-class conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-009 | Object-size lifecycle conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-010 | Deterministic scheduled evaluation | IMPLEMENTED | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 
 ### Limits and quotas
