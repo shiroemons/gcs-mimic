@@ -614,7 +614,33 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
                 )
             )
         }),
-        _ => false,
+        ObjectError::BucketNotFound
+        | ObjectError::ObjectNotFound
+        | ObjectError::PreconditionFailed
+        | ObjectError::Component(_)
+        | ObjectError::PublicAccessPrevention
+        | ObjectError::OverwriteForbidden(_)
+        | ObjectError::ActiveHold(_)
+        | ObjectError::ObjectRetentionNotMet(_)
+        | ObjectError::UnlockedRetentionOverrideRequired
+        | ObjectError::LockedRetention
+        | ObjectError::ObjectNotSoftDeleted
+        | ObjectError::Denied(_)
+        | ObjectError::Forbidden
+        | ObjectError::NotModified
+        | ObjectError::ChecksumMismatch
+        | ObjectError::HashMismatch(_)
+        | ObjectError::TooLarge
+        | ObjectError::UniformAccessPredefinedAcl
+        | ObjectError::InvalidDerivedArgument(_)
+        | ObjectError::DerivedTransferNotFound
+        | ObjectError::DerivedTransferExpired
+        | ObjectError::DerivedTransferBusy
+        | ObjectError::DerivedTransferIncomplete
+        | ObjectError::UnsupportedMetadata(_)
+        | ObjectError::CustomerEncryption(_)
+        | ObjectError::BodyAborted(_)
+        | ObjectError::Io(_) => false,
     }
 }
 
