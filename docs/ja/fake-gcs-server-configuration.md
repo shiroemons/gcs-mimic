@@ -56,7 +56,12 @@ XMLマルチパートの異なるパート番号は同時に書き込めます�
 
 503が残るのは次の場合です。
 
-- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。XMLマルチパートの同じパート番号の再送やCompleteのように、ビジーなセッションを待つ場合を含みます。ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。クライアントがリクエスト本文の送信を止めている時間は`request_timeout_ms`に数えません。これを区切るのは既定で無効の`body_inactivity_timeout_ms`だけで、超えるとJSONは408 `uploadBrokenConnection`、XMLは400 `RequestTimeout`を返します。
+- リクエストが`catalog_wait_timeout_ms`（既定120000）を超えたとき。
+  XMLマルチパートの同じパート番号の再送やCompleteのように、ビジーなセッションを待つ場合を含みます。
+  ハンドラーが`request_timeout_ms`（既定180000）を超えたときも同じです。
+  クライアントがリクエスト本文の送信を止めている時間は`request_timeout_ms`に数えません。
+  これを区切るのは既定で無効の`body_inactivity_timeout_ms`だけで、
+  超えるとJSONは408 `uploadBrokenConnection`、XMLは400 `RequestTimeout`を返します。
 - 自分で指定した`max_resumable_sessions`、`max_rewrite_sessions`を超えたとき。
 - I/O障害と停止処理の間。
 
@@ -196,6 +201,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | バケットCORS | JSONバケットAPI | XML用・JSONは別の固定ルール |
 | ルールのないバケットのCORS（`-cors-headers`の代わり） | `GCS_MIMIC_CORS_FALLBACK`・`--cors-fallback`・JSONの`cors_fallback` | CORSルールのないバケットのXML・公開URLだけに適用。正しい形式のリクエストヘッダーはすべて許可。既定はpermissiveでは移行元と同じく全オリジンを許可する`allow-all`、strictではCloud Storageと同じく`none`で、明示した値が優先される。permissiveの既定が許可したリクエストは、Cloud Storageなら拒否されることをバケットごとに1回だけinfoで記録する。全体のCORSルールは設定できない |
 | バケットlocation | JSONバケットAPI | 公式のregional・predefined dual-region名と`US`・`EU`・`ASIA`。大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返す |
+| ライフサイクル実行 | `GCS_MIMIC_DISABLE_LIFECYCLE`・`--disable-lifecycle`・JSONの`disable_lifecycle` | 既定は`false`。旧バージョンで保存したものも含め、Deleteルールを実行します。`true`で保存のみの動作に戻り、手動実行も無効になります。[実行契約（英語）](../en/slices/lifecycle-execution.md)を参照 |
 | メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文が使えるメモリの約半分（64 MiB〜1 GiB）・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |

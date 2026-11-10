@@ -2,8 +2,8 @@
 
 BEHAVIOR-LIFECYCLE-001、およびJSON-BUCKETS-005・JSON-BUCKETS-008・
 JSON-BUCKETS-013のライフサイクル設定に対応します。
-設定を保存して返しますが、削除・ストレージクラス変更・不完全なマルチパートの中止は実行しません。
-実装状態はPARTIAL、再現精度はMETADATA_ONLYです。
+保存済みのDeleteルールは注入した時計と保守処理で実行します。ストレージクラス変更と不完全なマルチパートの中止は未実装です。
+実装状態はPARTIALのままです。[実行契約（英語）](../en/slices/lifecycle-execution.md)に対応範囲と無効化設定を記載しています。
 
 Goでは通常のBucketAttrs.Lifecycleで作成し、BucketAttrsToUpdate.Lifecycleで置き換えられます。
 空のLifecycleで設定を消せます。Rubyではcreate_bucketのブロック内でlifecycleを設定し、
@@ -28,8 +28,7 @@ SetStorageClassのREGIONAL・RAPIDやmatchesStorageClassのRAPIDも、
 受け入れケースはLIFECYCLE-INSERT-STORE、LIFECYCLE-PATCH-REPLACE、
 LIFECYCLE-PATCH-CLEAR、LIFECYCLE-UPDATE-REPLACE、LIFECYCLE-VALIDATE-ACTION、
 LIFECYCLE-VALIDATE-CONDITION、LIFECYCLE-PERSIST-RESTART、LIFECYCLE-SDK-GO、
-LIFECYCLE-SDK-RUBYです。実行、XMLの?lifecycle、初期化ファイルのlifecycleはPENDINGです。
-実行は注入したクロックとメンテナンススケジューラーを使う後続スライスで扱います。
+LIFECYCLE-SDK-RUBYです。ストレージクラス変更・マルチパートの中止、XMLの?lifecycle、初期化ファイルのlifecycleはPENDINGです。
 
 公式資料、Discoveryの固定値、ローカルの選択と検証結果は
 [英語の契約文書](../en/slices/sdk-lifecycle-config.md)にまとめています。

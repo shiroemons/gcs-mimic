@@ -1,8 +1,9 @@
 # Lifecycle configuration through official SDKs
 
 Scope: BEHAVIOR-LIFECYCLE-001 and the lifecycle subset of JSON-BUCKETS-005,
-JSON-BUCKETS-008 and JSON-BUCKETS-013. Configuration is metadata only; actions
-are never executed. The behavior row remains PARTIAL.
+JSON-BUCKETS-008 and JSON-BUCKETS-013. Stored Delete rules now execute under the
+[lifecycle execution contract](lifecycle-execution.md); other actions remain
+metadata only. The behavior row remains PARTIAL.
 
 ## Acceptance contract
 
@@ -29,7 +30,7 @@ are never executed. The behavior row remains PARTIAL.
 - LIFECYCLE-SDK-GO: ordinary Create/Update/Attrs round trips and empty Lifecycle
   clearing.
 - LIFECYCLE-SDK-RUBY: create-block rules, lifecycle-block replacement and clearing.
-- PENDING: action execution with an injected clock and maintenance scheduler, XML
+- PENDING: storage class changes and multipart abort execution, XML
   lifecycle, initialization-file lifecycle, matchesPattern and size conditions.
 
 ## Sources and choices
@@ -70,8 +71,8 @@ unsupported conditions retain the common 400 badRequest response.
 
 Schema 24 adds JSON rules to the bucket row in a short transactional migration.
 List pagination charges lifecycle metadata against the existing bounded page
-budget. No startup scan, object-body processing, background task or new setting
-is added.
+budget. The configuration slice adds no object-body processing; the subsequent
+[execution slice](lifecycle-execution.md) adds scheduling and its disable setting.
 The initializer and XML lifecycle remain unsupported.
 
 ## Verification

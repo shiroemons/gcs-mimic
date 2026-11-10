@@ -109,7 +109,9 @@ headers support the named native method and virtual-object subsets;
 DESIGN-040 retains signed resumable, virtual bucket, provider and SDK boundaries.
 AWS4 header-authenticated signed chunks now work for ordinary object PUT;
 DESIGN-039 retains other operation/format and exact provider questions.
-Autoclass automatic transitions and lifecycle action execution remain
+Lifecycle Delete rules execute through the injected clock and bounded maintenance
+pass, with a disable option for store-only operation; storage class transitions
+and multipart abort actions remain pending. Autoclass automatic transitions remain
 absent; customer-supplied keys enforce reads without encrypting local disk bytes.
 Broader Google behavior is separate from the pinned-reference minimum.
 Source inventory determines the final reference set; these examples do not exclude

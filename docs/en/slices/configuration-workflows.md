@@ -93,6 +93,7 @@ The following existing defaults and validation remain unchanged:
 | `worker_threads`, `max_blocking_threads` | Available CPUs from `2` to `8`, `8` | Each `1..1024` |
 | `memory_max_bytes`, `memory_catalog_max_bytes` | Half of the available memory less 32 MiB, within 64 MiB to 1 GiB; `16777216` | `1..1099511627776`, `1048576..1099511627776`; only with `backend=memory` |
 | `default_soft_delete_retention_seconds` | `0` | `0`, or `1..3155760000`; a local range and default, unlike Cloud Storage's seven days and 7 to 90 days |
+| `disable_lifecycle` | `false` | `true` disables stored Delete-rule execution, including forced runs; `--disable-lifecycle`, `GCS_MIMIC_DISABLE_LIFECYCLE`, JSON `disable_lifecycle`. The ready event reports it; [upgrade effect and contract](lifecycle-execution.md) |
 | `header_read_timeout_ms` | `30000` | 0 disables, no upper limit; a request head, the gRPC handshake and the HTTP/2 ping wait |
 | `body_inactivity_timeout_ms` | `0` | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |
 | `request_timeout_ms` | `180000` | 0 disables, no upper limit; a handler's time before its response starts, excluding waits for request body bytes |
