@@ -44,6 +44,13 @@ pub(crate) struct Evaluation {
     pub next_due: Option<SystemTime>,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "The sweep needs full selection once it applies storage-class transitions"
+    )
+)]
 pub(crate) fn evaluate(
     rules: &[LifecycleRule],
     facts: &VersionFacts<'_>,
@@ -53,19 +60,15 @@ pub(crate) fn evaluate(
 }
 
 /// Temporary sweep entry point until SetStorageClass actions are applied.
-/// A skipped transition can leave a class-dependent Delete incorrectly satisfied.
+/// All class-dependent Deletes are deferred, even without past transition rules:
+/// the current rules cannot reveal an earlier unapplied transition.
 pub(crate) fn evaluate_delete_only(
     rules: &[LifecycleRule],
     facts: &VersionFacts<'_>,
     now: SystemTime,
 ) -> Evaluation {
-    let changes_class = rules
-        .iter()
-        .any(|rule| matches!(rule.action, LifecycleAction::SetStorageClass(_)));
     let deletions = rules.iter().filter(|rule| match rule.action {
-        LifecycleAction::Delete => {
-            !changes_class || rule.condition.matches_storage_class.is_empty()
-        }
+        LifecycleAction::Delete => rule.condition.matches_storage_class.is_empty(),
         LifecycleAction::SetStorageClass(_) | LifecycleAction::AbortIncompleteMultipartUpload => {
             false
         }

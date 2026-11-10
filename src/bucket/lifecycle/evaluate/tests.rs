@@ -595,18 +595,28 @@ fn delete_only_defers_class_dependent_deletes_when_a_transition_rule_exists() {
 }
 
 #[test]
-fn delete_only_keeps_class_conditions_without_transition_rules() {
+fn delete_only_defers_class_dependent_deletes_after_replacing_transition_rules() {
     let facts = version();
+    let initial_rules = rules(&[
+        json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
+    ]);
+    let initial = evaluate_delete_only(&initial_rules, &facts, facts.time_created + 30 * DAY);
+    assert_eq!(initial.action, None);
+    assert_eq!(initial.next_due, None);
     let rules = [delete(json!({"age":60,"matchesStorageClass":["STANDARD"]}))];
     let due = facts.time_created + 60 * DAY;
-    for now in [due - MICROSECOND, due, due + MICROSECOND] {
+    for now in [
+        facts.time_created + 40 * DAY,
+        due - MICROSECOND,
+        due,
+        due + MICROSECOND,
+    ] {
         let result = evaluate_delete_only(&rules, &facts, now);
-        let expected = evaluate(&rules, &facts, now);
-        assert_eq!(result.action, expected.action);
-        assert_eq!(result.next_due, expected.next_due);
+        assert_eq!(result.action, None);
+        assert_eq!(result.next_due, None);
     }
     assert_eq!(
-        evaluate_delete_only(&rules, &facts, due).action,
+        evaluate(&rules, &facts, due).action,
         Some(PlannedAction::Delete)
     );
 }
