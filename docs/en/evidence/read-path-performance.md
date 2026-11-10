@@ -242,6 +242,51 @@ Container memory after each matrix above, in MiB:
 | This change | 26,371,602 |
 | This change with musl's allocator | 26,254,252 |
 
+## Reads past the read cache and RAM reads
+
+Measured on 2026-11-10 with the same closed-loop client over plain HTTP, default settings and
+100 KiB objects, on the same kind of VM with other projects' containers running and a host load
+average of 9 to 14. There were three rounds with the servers taking turns. The table gives the
+median requests per second, and every response returned status 200 and the expected length.
+"This change" is the repository `Dockerfile` build.
+
+Each disk server held three buckets: 1,000 objects of 100 KiB read first, 1,100 objects of 1 KiB
+read next, which fills the 1,024 cached files, and 1,000 objects of 100 KiB read last, all of which
+miss. The fake-gcs-server columns use its filesystem backend for disk and `-backend memory` for RAM.
+
+| Path | c | 0.16.0 | This change | fake-gcs-server 1.56.1 |
+| --- | ---: | ---: | ---: | ---: |
+| Disk, past the cache | 1 | 5,662 | 6,121 | 7,465 |
+| Disk, past the cache | 8 | 7,984 | 36,459 | 32,572 |
+| Disk, past the cache | 32 | 7,602 | 63,122 | 57,483 |
+| Disk, past the cache | 128 | 7,608 | 63,018 | 62,113 |
+| Disk, in the cache | 8 | 52,049 | 51,759 | 31,412 |
+| Disk, in the cache | 32 | 113,911 | 115,813 | 55,238 |
+| RAM | 8 | 18,989 | 55,740 | 29,632 |
+| RAM | 32 | 18,778 | 123,497 | 45,970 |
+
+A symbol-enabled build of 0.16.0 was profiled at 32 connections past the cache. It used about 5.5
+CPUs for about 7,500 requests per second. Each request made about 14 `futex` calls, and
+`try_to_wake_up` took 42.6% of the on-CPU self samples. `sqlite3Malloc` accounted for 34% of the
+inclusive samples, because SQLite counts every allocation under one process-wide mutex by default.
+`sqlite3Reprepare` accounted for 5.5%, all from the object ACL join in `object_granted`, which SQLite
+recompiled on every new binding.
+
+| Change | Why |
+| --- | --- |
+| `SQLITE_DEFAULT_MEMSTATUS=0` at build time, as `LIBSQLITE3_FLAGS` in `.cargo/config.toml` | Removes that mutex. Nothing here reads SQLite's memory statistics or sets a heap limit |
+| The query planner stability guarantee on the read pool's and the RAM catalog's connections | Keeps a prepared statement's plan when a bound value changes, which ends the recompilation |
+| RAM reads enter the read cache, sharing the object's immutable chunks | A RAM catalog has one connection, so every read used to line up on it |
+
+The first change alone reached 23,378 and 23,318 requests per second at 8 and 32 connections past
+the cache in a single run of symbol-enabled builds. With the second, the same run reached 34,917
+and 59,611, and `sqlite3Reprepare` and the SQLite mutex no longer appeared in the profile.
+
+At one connection past the cache this change remains behind fake-gcs-server. Requests with strict
+authentication, and RAM reads past the 4,096 cached records, still use the catalog connection and
+were not measured. Single-request uploads were unchanged: 1,000 objects of 1 KiB over 8 connections
+took a median 0.605 seconds on 0.16.0 and 0.629 seconds with this change.
+
 ## Limitations
 
 - One host. Docker Desktop on Apple silicon has performance and efficiency cores, and the
