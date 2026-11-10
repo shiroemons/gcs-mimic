@@ -1,7 +1,7 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate, CatalogError},
+    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
@@ -519,22 +519,17 @@ impl Storage {
             if_metageneration_match: Some(r.if_metageneration_match),
             ..Default::default()
         };
-        self.check_lifecycle_response(bucket, conditions, &access)
-            .await?;
         let record = self
-            .state
-            .catalog
-            .patch_bucket(
+            .patch_bucket_with_lifecycle_response(
                 bucket,
-                BucketMetadataUpdate {
+                &BucketMetadataUpdate {
                     lock_retention_policy: true,
                     ..Default::default()
                 },
                 conditions,
                 &access,
             )
-            .await
-            .map_err(super::bucket_update::input_error)?;
+            .await?;
         let mut result = convert::bucket(&record, None)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -662,7 +657,7 @@ impl Storage {
         bucket: &str,
         conditions: BucketConditions,
         access: &BucketAccess,
-    ) -> Result<(), Status> {
+    ) -> Result<i64, Status> {
         let record = self
             .state
             .catalog
@@ -673,7 +668,49 @@ impl Storage {
             return Err(CatalogError::PreconditionFailed.into());
         }
         convert::lifecycle(&record.lifecycle)?;
-        Ok(())
+        Ok(record.metageneration)
+    }
+
+    async fn patch_bucket_with_lifecycle_response(
+        &self,
+        bucket: &str,
+        update: &BucketMetadataUpdate,
+        conditions: BucketConditions,
+        access: &BucketAccess,
+    ) -> Result<BucketRecord, Status> {
+        let implicit_match =
+            conditions.if_metageneration_match.is_none() && update.lifecycle.is_none();
+        let mut retries_left = 2;
+        loop {
+            let mut checked = conditions;
+            if update.lifecycle.is_none() {
+                let metageneration = self
+                    .check_lifecycle_response(bucket, conditions, access)
+                    .await?;
+                // shortcut: same-name recreation can reuse metageneration; add an incarnation guard to cover that race.
+                checked
+                    .if_metageneration_match
+                    .get_or_insert(metageneration);
+                #[cfg(test)]
+                tests::write_after_lifecycle_check(self, bucket).await;
+            }
+            match self
+                .state
+                .catalog
+                .patch_bucket(bucket, update.clone(), checked, access)
+                .await
+            {
+                Err(CatalogError::PreconditionFailed) if implicit_match => {
+                    if retries_left == 0 {
+                        return Err(Status::aborted(
+                            "Bucket changed during lifecycle validation; retry the update",
+                        ));
+                    }
+                    retries_left -= 1;
+                }
+                result => return result.map_err(super::bucket_update::input_error),
+            }
+        }
     }
 
     pub(super) async fn update_bucket(
@@ -698,17 +735,9 @@ impl Storage {
         let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let conditions = bucket_conditions!(r);
-        if update.lifecycle.is_none() {
-            // shortcut: without a metageneration match, JSON updates can race this check; move it into the catalog transaction when cross-protocol atomicity is added.
-            self.check_lifecycle_response(bucket, conditions, &access)
-                .await?;
-        }
         let record = self
-            .state
-            .catalog
-            .patch_bucket(bucket, update, conditions, &access)
-            .await
-            .map_err(super::bucket_update::input_error)?;
+            .patch_bucket_with_lifecycle_response(bucket, &update, conditions, &access)
+            .await?;
         let mut result = convert::bucket(&record, None)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
@@ -932,8 +961,43 @@ mod tests {
     use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::{auth::Auth, object::UploadChunk, storage::Catalog, test_support::TestDir};
-    use std::sync::Arc;
+    use std::{cell::RefCell, collections::VecDeque, sync::Arc};
     use tonic::Code;
+
+    tokio::task_local! {
+        static BUCKET_PRECHECK_UPDATES: RefCell<VecDeque<Value>>;
+    }
+
+    pub(super) async fn write_after_lifecycle_check(storage: &Storage, bucket: &str) {
+        let Ok(Some(body)) =
+            BUCKET_PRECHECK_UPDATES.try_with(|writes| writes.borrow_mut().pop_front())
+        else {
+            return;
+        };
+        let update =
+            json::parse_bucket_patch(&serde_json::to_vec(&body).unwrap(), storage.compat_profile)
+                .unwrap();
+        storage
+            .state
+            .catalog
+            .patch_bucket(bucket, update, BucketConditions::default(), PERMISSIVE)
+            .await
+            .unwrap();
+    }
+
+    fn lifecycle_label_update(conditions: BucketConditions) -> pb::UpdateBucketRequest {
+        pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: "projects/_/buckets/update-copy-bucket".into(),
+                labels: [("changed".into(), "yes".into())].into(),
+                ..Default::default()
+            }),
+            if_metageneration_match: conditions.if_metageneration_match,
+            if_metageneration_not_match: conditions.if_metageneration_not_match,
+            update_mask: fixtures::mask(&["labels"]),
+            ..Default::default()
+        }
+    }
 
     async fn setup() -> (Storage, TestDir) {
         let dir = TestDir::new();
@@ -2151,16 +2215,10 @@ mod tests {
             .await
             .unwrap();
         for metageneration in [None, Some(before.metageneration)] {
-            let update = pb::UpdateBucketRequest {
-                bucket: Some(pb::Bucket {
-                    name: resource.into(),
-                    labels: [("changed".into(), "yes".into())].into(),
-                    ..Default::default()
-                }),
+            let update = lifecycle_label_update(BucketConditions {
                 if_metageneration_match: metageneration,
-                update_mask: fixtures::mask(&["labels"]),
                 ..Default::default()
-            };
+            });
             assert_code(
                 storage.update_bucket(Request::new(update), None).await,
                 Code::Unimplemented,
@@ -2202,6 +2260,120 @@ mod tests {
             .into_inner();
         assert!(cleared.lifecycle.is_none());
         assert_eq!(cleared.metageneration, before.metageneration + 1);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_lifecycle_precheck_rejects_concurrent_size_rules_without_its_own_mutation() {
+        let (storage, _dir) = setup().await;
+        let bucket = "update-copy-bucket";
+        let before = storage
+            .state
+            .catalog
+            .get_bucket(bucket, PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        let rule = json!({"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}});
+        let writes = RefCell::new(VecDeque::from([
+            json!({"lifecycle":{"rule":[rule.clone()]}}),
+        ]));
+        let request = lifecycle_label_update(BucketConditions::default());
+        let result = BUCKET_PRECHECK_UPDATES
+            .scope(writes, storage.update_bucket(Request::new(request), None))
+            .await;
+        assert_code(result, Code::Unimplemented);
+        let after = storage
+            .state
+            .catalog
+            .get_bucket(bucket, PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.metageneration, before.metageneration + 1);
+        assert_eq!(after.labels, before.labels);
+        assert_eq!(after.lifecycle, [rule]);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_lifecycle_precheck_retries_only_implicit_matches() {
+        for (matched, not_matched, failure) in [
+            (None, None, None),
+            (Some(1), None, Some(Code::FailedPrecondition)),
+            (None, Some(2), Some(Code::FailedPrecondition)),
+        ] {
+            let (storage, _dir) = setup().await;
+            let bucket = "update-copy-bucket";
+            let before = storage
+                .state
+                .catalog
+                .get_bucket(bucket, PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(before.metageneration, 1);
+            let request = lifecycle_label_update(BucketConditions {
+                if_metageneration_match: matched,
+                if_metageneration_not_match: not_matched,
+            });
+            let writes = RefCell::new(VecDeque::from([json!({"defaultEventBasedHold":true})]));
+            let result = BUCKET_PRECHECK_UPDATES
+                .scope(writes, storage.update_bucket(Request::new(request), None))
+                .await;
+            let after = storage
+                .state
+                .catalog
+                .get_bucket(bucket, PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(after.default_event_based_hold);
+            if let Some(code) = failure {
+                assert_code(result, code);
+                assert_eq!(after.metageneration, 2);
+                assert_eq!(after.labels, before.labels);
+            } else {
+                let response = result.unwrap().into_inner();
+                assert_eq!(response.metageneration, 3);
+                assert_eq!(after.metageneration, 3);
+                assert_eq!(after.labels, [("changed".into(), "yes".into())].into());
+            }
+            storage.state.catalog.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn grpc_lifecycle_precheck_stops_after_three_conflicts() {
+        let (storage, _dir) = setup().await;
+        let bucket = "update-copy-bucket";
+        let before = storage
+            .state
+            .catalog
+            .get_bucket(bucket, PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        let writes = RefCell::new(VecDeque::from(vec![
+            json!({"defaultEventBasedHold":true});
+            4
+        ]));
+        let request = lifecycle_label_update(BucketConditions::default());
+        let result = BUCKET_PRECHECK_UPDATES
+            .scope(writes, storage.update_bucket(Request::new(request), None))
+            .await;
+        assert_code(result, Code::Aborted);
+        let after = storage
+            .state
+            .catalog
+            .get_bucket(bucket, PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.metageneration, before.metageneration + 3);
+        assert_eq!(after.labels, before.labels);
+        assert_eq!(after.lifecycle, before.lifecycle);
+        assert!(after.default_event_based_hold);
         storage.state.catalog.close().await.unwrap();
     }
 

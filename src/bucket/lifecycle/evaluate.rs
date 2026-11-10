@@ -35,6 +35,15 @@ pub(crate) enum PlannedAction {
     SetStorageClass(StorageClass),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Priority {
+    Delete,
+    Archive,
+    Coldline,
+    Nearline,
+    Legacy,
+}
+
 pub(crate) struct Evaluation {
     /// The satisfied action after Delete and lowest-storage-price precedence.
     /// Unsupported or unchanged storage-class transitions are never selected.
@@ -90,9 +99,15 @@ fn evaluate_rules<'a>(
             continue;
         };
         // Distinct reachable actions have distinct priorities; same-action rules are ORed.
-        if let Some(candidate) = candidates.get_mut(usize::from(action.priority()))
-            && candidate.is_none_or(|(_, current)| due < current)
-        {
+        let [delete, archive, coldline, nearline, legacy] = &mut candidates;
+        let candidate = match action.priority() {
+            Priority::Delete => delete,
+            Priority::Archive => archive,
+            Priority::Coldline => coldline,
+            Priority::Nearline => nearline,
+            Priority::Legacy => legacy,
+        };
+        if candidate.is_none_or(|(_, current)| due < current) {
             *candidate = Some((action, due));
         }
     }
@@ -113,16 +128,16 @@ fn evaluate_rules<'a>(
 }
 
 impl PlannedAction {
-    fn priority(self) -> u8 {
+    fn priority(self) -> Priority {
         match self {
-            Self::Delete => 0,
+            Self::Delete => Priority::Delete,
             Self::SetStorageClass(class) => match class {
-                StorageClass::Archive => 1,
-                StorageClass::Coldline => 2,
-                StorageClass::Nearline => 3,
+                StorageClass::Archive => Priority::Archive,
+                StorageClass::Coldline => Priority::Coldline,
+                StorageClass::Nearline => Priority::Nearline,
                 StorageClass::MultiRegional
                 | StorageClass::Standard
-                | StorageClass::DurableReducedAvailability => 4,
+                | StorageClass::DurableReducedAvailability => Priority::Legacy,
             },
         }
     }

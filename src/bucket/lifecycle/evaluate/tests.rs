@@ -124,6 +124,23 @@ fn deadlines_never_exceed_the_catalog_microsecond_range() {
 }
 
 #[test]
+fn zero_age_never_schedules_a_midnight_outside_the_catalog_range() {
+    let days = (i64::MAX / 86_400_000_000) as u64;
+    // Windows reaches its SystemTime limit before this catalog boundary.
+    let Some(last_midnight) = UNIX_EPOCH.checked_add(Duration::from_secs(days * 86_400)) else {
+        return;
+    };
+    let mut facts = version();
+    let rules = [delete(json!({"age":0}))];
+    facts.time_created = last_midnight - MICROSECOND;
+    assert_delete_boundary(&rules, &facts, last_midnight);
+    for created in [last_midnight, last_midnight + MICROSECOND] {
+        facts.time_created = created;
+        assert_evaluation(&rules, &facts, created, None, None);
+    }
+}
+
+#[test]
 fn before_date_conditions_are_strict_at_utc_midnight() {
     let midnight = time("2026-02-01T00:00:00Z");
     for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
@@ -457,7 +474,6 @@ fn reachable_actions_have_distinct_priorities() {
             .filter_map(|action| planned_action(action, current))
             .collect::<Vec<_>>();
         for (index, action) in actions.iter().enumerate() {
-            assert!(action.priority() < 5);
             for other in &actions[index + 1..] {
                 assert_ne!(
                     action.priority(),

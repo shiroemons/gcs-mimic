@@ -4,6 +4,7 @@ use super::unavailable;
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CatalogError, StorageClass,
     autoclass::{self, AUTOCLASS_STORAGE_CLASS, Autoclass},
+    lifecycle::{LifecycleRule, validate_location},
 };
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
@@ -45,6 +46,7 @@ fn store(
 pub(super) fn insert(
     transaction: &Transaction<'_>,
     record: &mut BucketRecord,
+    lifecycle: &[LifecycleRule],
 ) -> Result<(), CatalogError> {
     if let Some(config) = &mut record.autoclass {
         // Creation-time Autoclass reports the bucket create time as its toggle time.
@@ -56,11 +58,7 @@ pub(super) fn insert(
             autoclass::validate_terminal_storage_class(class)?;
         }
     }
-    autoclass::validate_bucket(
-        record.autoclass.as_ref(),
-        record.storage_class,
-        &record.lifecycle,
-    )?;
+    autoclass::validate_bucket(record.autoclass.as_ref(), record.storage_class, lifecycle)?;
     store(transaction, &record.name, record.autoclass.as_ref())
 }
 
@@ -72,6 +70,13 @@ pub(super) fn update(
     update: &BucketMetadataUpdate,
     now: SystemTime,
 ) -> Result<(), CatalogError> {
+    let lifecycle = if let Some(rules) = &update.lifecycle {
+        let rules = LifecycleRule::from_input(rules)?;
+        validate_location(&rules, &record.location_type)?;
+        rules
+    } else {
+        LifecycleRule::from_stored(&record.lifecycle)?
+    };
     if let Some(requested) = &update.autoclass {
         let (config, newly_enabled) = autoclass::apply(record.autoclass.as_ref(), requested, now)?;
         if newly_enabled {
@@ -93,7 +98,7 @@ pub(super) fn update(
     autoclass::validate_bucket(
         record.autoclass.as_ref(),
         update.storage_class.unwrap_or(record.storage_class),
-        update.lifecycle.as_deref().unwrap_or(&record.lifecycle),
+        &lifecycle,
     )
 }
 
@@ -120,4 +125,99 @@ pub(crate) fn object_storage_class(
         requested,
         bucket_default,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        bucket::BucketConditions,
+        json::JsonError,
+        storage::{
+            Catalog,
+            test_fixtures::{PERMISSIVE, bucket},
+        },
+        test_support::TestDir,
+    };
+    use hyper::StatusCode;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn lifecycle_catalog_writes_distinguish_invalid_input_from_corrupt_stored_rules() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let invalid = vec![json!({"action":{"type":"Delete"},"condition":{"age":-1}})];
+        let mut record = bucket("lifecycle-bucket", "project");
+        record.lifecycle = invalid.clone();
+        let error = catalog.insert_bucket(record.clone()).await.unwrap_err();
+        assert!(matches!(error, CatalogError::Metadata(_)));
+        assert_eq!(JsonError::from(error).status, StatusCode::BAD_REQUEST);
+        assert!(
+            catalog
+                .get_bucket(&record.name, PERMISSIVE)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        record.lifecycle.clear();
+        let before = catalog.insert_bucket(record).await.unwrap();
+        let error = catalog
+            .patch_bucket(
+                &before.name,
+                BucketMetadataUpdate {
+                    lifecycle: Some(invalid.clone()),
+                    default_event_based_hold: Some(true),
+                    ..Default::default()
+                },
+                BucketConditions::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Metadata(_)));
+        assert_eq!(JsonError::from(error).status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            catalog.get_bucket(&before.name, PERMISSIVE).await.unwrap(),
+            Some(before.clone())
+        );
+        let encoded = serde_json::to_string(&invalid).unwrap();
+        catalog
+            .run::<_, CatalogError>(move |connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET lifecycle = ?1 WHERE name = 'lifecycle-bucket'",
+                    [encoded],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let error = catalog
+            .patch_bucket(
+                &before.name,
+                BucketMetadataUpdate {
+                    default_event_based_hold: Some(true),
+                    ..Default::default()
+                },
+                BucketConditions::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Corrupt(_)));
+        assert_eq!(
+            JsonError::from(error).status,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let mut expected = before;
+        expected.lifecycle = invalid;
+        assert_eq!(
+            catalog
+                .get_bucket(&expected.name, PERMISSIVE)
+                .await
+                .unwrap(),
+            Some(expected)
+        );
+        catalog.close().await.unwrap();
+    }
 }
