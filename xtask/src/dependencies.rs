@@ -1411,6 +1411,7 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
     for script in [
         "Dockerfile",
         "scripts/smoke-containers.sh",
+        "scripts/strict-recipe-browser.sh",
         "sdk-scorecard/run.sh",
         "sdk-tests/php/run.sh",
     ] {

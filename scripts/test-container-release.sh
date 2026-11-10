@@ -7,6 +7,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin" "$work/digests"
 export GHCR_TEST_ROOT="$work"
+export GHCR_TEST_VERSION_SCRIPT="$PWD/scripts/release-version.sh"
 export PATH="$work/bin:$PATH"
 export IMAGE=ghcr.io/example/gcs-mimic GH_TOKEN=mock-secret-do-not-print
 export GITHUB_REPOSITORY=example/gcs-mimic GITHUB_REF_NAME=v0.2.3 GITHUB_ACTOR=example
@@ -31,10 +32,11 @@ cat > "$work/bin/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$1 $2 $3" == 'xtask release container-tags' ]] || exit 1
-[[ "$4" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
 printf '%s\n' "$@" > "$GHCR_TEST_ROOT/policy-arguments"
+stage=$(bash "$GHCR_TEST_VERSION_SCRIPT" "$4")
 if [[ $# == 4 ]]; then
-  printf '%s\n' "$4" "${4%.*}" latest
+  if [[ "$stage" == candidate ]]; then printf '%s\n' "$4"
+  else printf '%s\n' "$4" "${4%.*}" latest; fi
 else
   printf '%s\n' "$GHCR_TEST_TAGS"
 fi
@@ -57,7 +59,7 @@ case "$1 $2" in
     elif [[ "$3" == repos/example/gcs-mimic/releases\?per_page=100 ]]; then
       printf '%s\n' "$GHCR_TEST_RELEASES"
     else exit 90; fi ;;
-  'api repos/example/gcs-mimic/git/ref/tags/v0.2.3')
+  api\ repos/example/gcs-mimic/git/ref/tags/v*)
     jq -n --arg type "$GHCR_TEST_REF_TYPE" --arg sha "$GHCR_TEST_REF_SHA" '{object:{type:$type,sha:$sha}}' ;;
   api\ repos/example/gcs-mimic/git/tags/*)
     jq -n --arg sha "$GITHUB_SHA" '{object:{type:"commit",sha:$sha}}' ;;
@@ -89,7 +91,7 @@ if [[ "$format" == --raw ]]; then
   case "$2" in
     *"@$GHCR_TEST_AMD64") cat "$GHCR_TEST_ROOT/amd64-current.json" ;;
     *"@$GHCR_TEST_ARM64") cat "$GHCR_TEST_ROOT/arm64.json" ;;
-    *:0.2.3) cat "$GHCR_TEST_ROOT/version.json" ;;
+    *":$GHCR_TEST_VERSION") cat "$GHCR_TEST_ROOT/version.json" ;;
     *) exit 92 ;;
   esac
 elif [[ "$format" == --format ]]; then
@@ -114,7 +116,9 @@ chmod +x "$work/bin/cargo" "$work/bin/gh" "$work/bin/docker"
 reset_case() {
   : > "$work/mutations"
   : > "$work/gh-reads"
+  : > "$work/policy-arguments"
   export GHCR_TEST_OWNER=User GHCR_TEST_VISIBILITY=public GHCR_TEST_API_FAIL=''
+  export GHCR_TEST_VERSION=0.2.3 GITHUB_REF_NAME=v0.2.3
   export GHCR_TEST_EXISTING='' GHCR_TEST_RELEASES=0.2.3 GHCR_TEST_ASSET=absent
   export GHCR_TEST_TAGS=$'0.2.3\n0.2\nlatest'
   export GHCR_TEST_REF_TYPE=commit GHCR_TEST_REF_SHA="$GITHUB_SHA"
@@ -127,7 +131,7 @@ reset_case() {
 }
 run_case() {
   local result=0
-  bash "$script" 0.2.3 "$work/digests" > "$work/output" 2>&1 || result=$?
+  bash "$script" "$GHCR_TEST_VERSION" "$work/digests" > "$work/output" 2>&1 || result=$?
   if grep -F "$GH_TOKEN" "$work/output" "$work/gh-reads" "$work/mutations"; then
     echo 'A registry token was exposed' >&2
     exit 1
@@ -142,6 +146,13 @@ fail_before_mutation() {
 reset_case
 printf 'invalid\n' > "$work/digests/amd64.digest"
 fail_before_mutation
+for version in 01.2.3 1.2.3-beta.1 1.2.3-rc.0 1.2.3-rc.01 1.2.3+build 1.2.3-rc.1+build; do
+  reset_case
+  export GHCR_TEST_VERSION="$version" GITHUB_REF_NAME="v$version"
+  fail_before_mutation
+  test ! -s "$work/gh-reads"
+  test ! -s "$work/policy-arguments"
+done
 reset_case
 : > "$work/digests/extra"
 fail_before_mutation
@@ -220,4 +231,29 @@ reset_case
 export GHCR_TEST_EXISTING=0.2.3
 run_case
 test "$(wc -l < "$work/mutations")" -eq 3
+
+for version in 1.0.0-rc.1 1.0.0-rc.2; do
+  reset_case
+  export GHCR_TEST_VERSION="$version" GITHUB_REF_NAME="v$version" GHCR_TEST_TAGS="$version"
+  export GHCR_TEST_RELEASES=0.17.1 GHCR_TEST_EXISTING=1.0.0-rc.1
+  run_case
+  if [[ "$version" == 1.0.0-rc.1 ]]; then
+    test "$(wc -l < "$work/mutations")" -eq 1
+  else
+    test "$(wc -l < "$work/mutations")" -eq 2
+  fi
+  jq -e --arg version "$version" '.version == $version and .attestations.sbom == "SPDX" and .attestations.provenance == "SLSA"' "$work/uploaded.json" > /dev/null
+done
+export GHCR_TEST_EXISTING=1.0.0-rc.2 GHCR_TEST_ASSET=same
+: > "$work/mutations"
+run_case
+test ! -s "$work/mutations"
+export GHCR_TEST_ASSET=different
+: > "$work/mutations"
+fail_before_mutation
+
+reset_case
+export GHCR_TEST_VERSION=1.0.0-rc.1 GITHUB_REF_NAME=v1.0.0-rc.1
+export GHCR_TEST_TAGS=$'1.0.0-rc.1\nlatest'
+fail_before_mutation
 echo 'PASS: container publication validates inputs, API failures, immutable retries, attestations and alias selection without network access'

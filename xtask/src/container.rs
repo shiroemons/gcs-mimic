@@ -1,18 +1,18 @@
-fn version(value: &str) -> Option<(u64, u64, u64)> {
-    let parsed = crate::dependencies::version(value)?;
-    (format!("{}.{}.{}", parsed.0, parsed.1, parsed.2) == value).then_some(parsed)
-}
+use crate::release::{InvalidVersion, version::Version};
 
-pub fn tags(current: &str, releases: &[String]) -> Result<Vec<String>, String> {
-    let selected = version(current).ok_or("container releases require stable MAJOR.MINOR.PATCH")?;
+pub fn tags(current: &str, releases: &[String]) -> Result<Vec<String>, InvalidVersion> {
+    let selected: Version = current.parse()?;
+    let mut tags = vec![selected.to_string()];
+    if selected.is_candidate() {
+        return Ok(tags);
+    }
     let newer: Vec<_> = releases
         .iter()
-        .filter_map(|release| version(release))
-        .filter(|release| *release > selected)
+        .filter_map(|release| release.parse::<Version>().ok())
+        .filter(|release| !release.is_candidate() && *release > selected)
         .collect();
-    let mut tags = vec![current.to_owned()];
-    if !newer.iter().any(|v| (v.0, v.1) == (selected.0, selected.1)) {
-        tags.push(format!("{}.{}", selected.0, selected.1));
+    if !newer.iter().any(|version| version.same_minor(&selected)) {
+        tags.push(selected.minor_alias());
     }
     if newer.is_empty() {
         tags.push("latest".into());
@@ -39,12 +39,36 @@ mod tests {
     }
 
     #[test]
-    fn malformed_and_prerelease_versions_cannot_publish() {
+    fn candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases() {
+        for current in ["1.0.0-rc.1", "1.0.0-rc.2"] {
+            assert_eq!(
+                tags(current, &["0.17.1".into(), "1.0.0-rc.1".into()]).unwrap(),
+                [current]
+            );
+        }
+        let candidates = [
+            "1.0.0-rc.1".into(),
+            "1.0.0-rc.2".into(),
+            "1.0.1-rc.1".into(),
+        ];
+        assert_eq!(
+            tags("0.17.1", &candidates).unwrap(),
+            ["0.17.1", "0.17", "latest"]
+        );
+        assert_eq!(
+            tags("1.0.0", &candidates).unwrap(),
+            ["1.0.0", "1.0", "latest"]
+        );
+    }
+
+    #[test]
+    fn malformed_and_unsupported_prerelease_versions_cannot_publish() {
         for value in [
             "01.2.3",
             "1.2",
             "v1.2.3",
-            "1.2.3-rc.1",
+            "1.2.3-beta.1",
+            "1.2.3-rc.0",
             "1.2.3+build",
             "1.2.3\n",
         ] {

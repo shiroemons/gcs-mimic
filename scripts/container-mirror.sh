@@ -12,7 +12,7 @@ version=$1
 repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
 [[ "$SOURCE_IMAGE" == "ghcr.io/$repository" ]] || exit 1
 [[ "$IMAGE" == "docker.io/$repository" ]] || exit 1
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+stage=$(bash "$(dirname "$0")/release-version.sh" "$version")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 hub="https://hub.docker.com/v2/namespaces/${repository%%/*}/repositories/${repository##*/}"
@@ -88,7 +88,11 @@ done <<< "$releases"
 tags=$(cargo xtask release container-tags "${policy_args[@]}")
 [[ "${tags%%$'\n'*}" == "$version" ]] || exit 1
 while IFS= read -r tag; do
-  [[ "$tag" == "$version" || "$tag" == "${version%.*}" || "$tag" == latest ]] || exit 1
+  if [[ "$stage" == candidate ]]; then
+    [[ "$tag" == "$version" ]] || exit 1
+  else
+    [[ "$tag" == "$version" || "$tag" == "${version%.*}" || "$tag" == latest ]] || exit 1
+  fi
 done <<< "$tags"
 if [[ "$full_exists" == true ]]; then
   actual=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$IMAGE:$version")

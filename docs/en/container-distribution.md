@@ -14,7 +14,8 @@ The first release retains the [roadmap requirements](roadmap.md#first-useful-rel
 | Reference | Meaning | Update rule |
 | --- | --- | --- |
 | `X.Y.Z` | Exact stable product version | Never replace with different contents |
-| `X.Y` | Highest published patch in that minor series | Advance only |
+| `X.Y.Z-rc.N` | Exact release candidate, with positive `N` | Never replace; never move a floating tag |
+| `X.Y` | Highest published stable patch in that minor series | Advance only for stable releases |
 | `latest` | Highest published stable product version | Advance only |
 | `@sha256:...` | Exact multi-platform index or platform manifest | Content addressed |
 
@@ -24,6 +25,14 @@ tag `0.2.3` describe the same version and source commit. `0.2` can advance to
 0.x development. Neither is a compatibility promise beyond the release policy.
 There is no broad `0` tag, development `edge` tag, or main-push publication.
 
+Candidates publish only their exact tag, with the same immutability and
+attestation checks as stable versions. Publishing `1.0.0-rc.1` and then
+`1.0.0-rc.2` while `0.17.1` is the highest stable release leaves `latest` on
+`0.17.1`. Publishing stable `1.0.0` afterwards can advance `1.0` and `latest`;
+candidates never count as the highest stable version, including candidates for
+later patches. No major alias is introduced. The accepted version grammar is
+defined in the [release policy](release-policy.md#product-version-and-compatibility).
+
 Use an exact version or, preferably, a digest in reproducible CI. Human-readable
 version immutability is enforced by this workflow and repository access policy;
 GHCR itself permits a sufficiently privileged writer to move tags. Limit package
@@ -32,11 +41,12 @@ write access and never change an already published exact version manually.
 ## Release flow
 
 1. Prepare the version, lockfile, feature ledger and
-   `docs/en/releases/X.Y.Z.md`. Run freshness and pre-push checks and follow the
+   `docs/en/releases/<version>.md`, retaining any `-rc.N` suffix. Run freshness
+   and pre-push checks and follow the
    [native release procedure](binary-distribution.md#verification-and-release-flow).
 2. Manual **Release binaries** execution verifies the existing Foundation checks
    and eight native binary targets without writing to GHCR. The GHCR publication
-   workflow runs only for a `vX.Y.Z` tag push.
+   workflow runs only for a `vX.Y.Z` or `vX.Y.Z-rc.N` tag push.
 3. A matching version tag publishes the binaries of that manual run as the
    GitHub Release. That successful job directly calls the reusable GHCR
    workflow. It does not rely on a `release: published` event: a Release
@@ -49,13 +59,14 @@ write access and never change an already published exact version manually.
 5. The same builder cache and fixed build arguments export SBOM/provenance and
    push each platform by digest without assigning a release tag. The published
    config digest must equal the config digest of the tested image. Both platform
-   jobs must succeed before any stable image tags are assigned.
+   jobs must succeed before any release image tags are assigned.
 6. The manifest job verifies the unchanged remote Git tag, package visibility,
    both platform indexes and their attestations, then combines the two indexes.
    Existing exact versions may be reused only when their manifest descriptors
    match the verified inputs; different contents are rejected. The job serializes
    promotion and compares stable GitHub Release versions numerically before
    advancing minor/latest aliases, so older releases cannot roll them back.
+   Candidates receive only their exact version tag and leave every alias unchanged.
 7. The final index digest and per-platform digests are attached to the GitHub
    Release as `CONTAINER-DIGESTS.json`. Anonymous registry access must succeed.
    Consumers can choose the index digest for automatic CPU selection or a
@@ -79,7 +90,7 @@ rerun a cancelled publication rather than assuming it completed.
 
 The GitHub repository is public. GHCR packages nevertheless start **private** on
 first publication. The first authorized run can upload its untagged platform
-indexes and then stop before assigning stable tags. The owner must open the
+indexes and then stop before assigning release tags. The owner must open the
 package's **Package settings**, change visibility to **Public**, confirm the
 repository association and Actions access, then rerun the failed manifest job.
 This is a one-time registry setup step for a new package name. Do not publish a
@@ -115,7 +126,8 @@ After the GHCR manifest job succeeds, the release workflow calls
 `CONTAINER-DIGESTS.json` to `docker.io/shiroemons/gcs-mimic` without rebuilding.
 A single-source `imagetools create` copies the index unchanged, so both registries
 share one index digest, platform manifests, SBOM and provenance. The job then
-applies the same exact, `X.Y` and `latest` tag policy as GHCR.
+applies the same tag policy as GHCR: candidates get only the exact tag; stable
+versions may also advance `X.Y` and `latest` using stable versions alone.
 
 Before any copy, `scripts/container-mirror.sh` verifies that the Docker Hub
 repository is public, the source Git tag still names the reported commit, the
@@ -139,6 +151,7 @@ To mirror a version that GHCR already published, run **Mirror release container
 to Docker Hub** manually from `main` with that version. Manual runs from other
 refs are skipped. Docker Hub permits any token holder to move tags; the workflow
 alone enforces exact-version immutability, so keep the token in the environment.
+The manual version input also accepts an already published release candidate.
 
 ### Docker Hub overview
 
@@ -187,6 +200,65 @@ detection, or evidence of byte-identical builds. The locked Cargo license index
 is included separately because automatic SBOM detection may omit statically
 linked Rust crates. Hosted runner Docker/Buildx versions are logged but are not
 byte-pinned runtime inputs. No signing key or OIDC signing is added.
+
+## Release-candidate tooling verification
+
+Local checks on 2026-11-10 and 2026-11-11 cover the candidate publication policy
+without publishing an image, tag or GitHub Release:
+
+- `cargo test -p xtask --locked --offline release::`: PASS, 16 tests, including
+  the shared Rust/shell version cases, numeric candidate ordering, binary-version
+  matching and a separate required fixture for each candidate before the final
+  release.
+- `cargo test -p xtask --locked --offline container::`: PASS, 3 tests, including
+  exact-only candidate tags and stable alias selection that ignores later
+  candidates.
+- `bash scripts/test-container-release.sh` and
+  `bash scripts/test-container-mirror.sh`: PASS with mocked external commands.
+  Candidate publication retains attestation and digest checks, immutable
+  exact-tag reuse and mismatch rejection; candidates cannot promote any alias.
+  Malformed versions, unsupported prereleases and build metadata remain rejected.
+- `bash scripts/test-release-workflows.sh`: PASS. The actual binary/GHCR run
+  blocks accept the shared version cases, reject invalid values before output or
+  external reads, and set explicit GitHub Latest/prerelease flags. Rust parses
+  the same cases on all platforms; shell execution is Unix-only.
+  Dry runs calculate and display the flags without creating a Release; release
+  listing or xtask failures stop publication. Required validation steps cannot
+  be conditional or continue after failure, and valid inputs must emit their
+  complete version even when the run block contains blank lines.
+- `bash scripts/test-release-recipes.sh`: PASS. Each recipe accepts its exact
+  stable, candidate or final manifest version and rejects another version.
+  Negative cases include stable/RC tags with the same core and `rc.1`/`rc.10`.
+- Removing validation or weakening stage classification, recipe identity,
+  required-step metadata, complete version output or failure propagation made
+  all eleven weakened variants fail with exit 1. A valid blank-line insertion
+  passed while preserving the version output check. Disposable mutation copies
+  were removed before the final passing checks.
+- `cargo check -p xtask --all-targets --target x86_64-pc-windows-msvc --locked --offline`:
+  PASS; this is a type check, not native Windows execution.
+- `actionlint` on the binary, GHCR and Docker Hub workflows, and `shellcheck` on
+  the changed release scripts: PASS.
+
+The release-path inspection found these version assumptions:
+
+| Path | Result |
+| --- | --- |
+| `xtask/src/container.rs` | Replaced stable-only parsing with the shared parsed release version; candidates emit one exact tag and never affect stable alias comparisons. |
+| `xtask/src/release.rs` | Binary `--version` matching now validates the same stable-or-candidate grammar. Notice collection has no product-version restriction; pinned compiler and third-party notice version checks still apply. |
+| `.github/workflows/binaries.yaml`, `.github/workflows/ghcr.yaml` | Replaced stable-only regular expressions with `scripts/release-version.sh`, which also classifies the stage. Shared cases execute the actual run blocks; dry runs rehearse read-only flag calculation, and tag publications use the shared stable-only policy in a separate serialized group. |
+| `scripts/container-release.sh`, `scripts/container-mirror.sh` | Validate the shared grammar and reject any candidate policy result containing aliases before mutation; minor-alias suffix removal runs only for stable versions. Stable GitHub Release filtering is intentional and retained. |
+| `scripts/test-container-release.sh`, `scripts/test-container-mirror.sh` | Replaced the stable-only mock/refusal with candidate success, immutable retry/mismatch and no-alias cases; unsupported prereleases remain negative cases. |
+| `.github/workflows/dockerhub.yaml` | Manual input now documents stable and candidate versions; mirroring uses the same version, digest, attestation and immutability checks. |
+| `scripts/released-data-fixtures.sh`, `tests/it_import_seed/released_data_upgrade.rs` | Fixture capture accepts the shared grammar and retains per-version digest pins. Moved the stable-only note-version comparison into xtask tests using the shared parsed type; integration tests still check every registered fixture's resources. |
+| `scripts/check-docs.sh`, `scripts/check-release-recipes.sh`, manifest readers and release-note rendering | Recipe checks require the full manifest version, including an exact RC tag; isolated stable/RC/final fixtures pin that contract. Binary metadata extraction preserves malformed trailing newlines for rejection. Release-note paths and tagged links accept candidate suffixes. |
+| Archive/checksum packaging, `BUILD-INFO.json`, Dockerfile notices and digest reports | Existing names, format checks and string fields preserve candidate suffixes; no stable-only rejection found and no packaging layout change needed. |
+
+Actual GitHub workflow execution, registry publication and candidate fixtures
+captured from a published image remain unverified. The synthetic fixture test
+verifies the upgrade-source requirement, not a real candidate's data format.
+The existing distribution rows remain `PARTIAL`; no 14-day soak is claimed.
+Follow the [first-candidate remote verification procedure](binary-distribution.md#candidate-verification-limits)
+before treating the first RC's publication and upgrade fixture as verified.
 
 ## References
 

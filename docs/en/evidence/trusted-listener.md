@@ -10,9 +10,11 @@ test also ran the [strict local recipe](../../../examples/strict-local/README.md
 and the [full application example](../../../examples/full-stack/README.md) with
 the image built from the checkout; see [Container recipe](#container-recipe).
 The same day the pinned Go storage client ran unmodified against the trusted
-listener; see [Go SDK run](#go-sdk-run). No browser or real-cloud run was
-performed: a browser remains unverified, which keeps the row PARTIAL. gRPC has
-no trusted listener.
+listener; see [Go SDK run](#go-sdk-run). On **2026-11-10** Chromium ran against
+the recipe's published main listener; see [Browser run](#browser-run). The row
+stays PARTIAL because of its remaining `known_deviations`, listed under
+[Browser run](#browser-run); every acceptance case of the row passes. No
+real-cloud run was performed. gRPC has no trusted listener.
 
 ## Commands
 
@@ -216,8 +218,9 @@ that an application service makes run inside its stand-in through
 | Browser | From the host, with `localhost` and `gcs.localhost` pinned to 127.0.0.1: the public image with `Origin: http://localhost:3000` returns its bytes and that `Access-Control-Allow-Origin`; the unsigned private object answers 401; URLs signed by `gcs-mimic url sign` for `http://localhost` without the port, for the API's `GCS_BROWSER_HOST` `localhost:PORT`, and for Rails' endpoint `gcs.localhost:PORT` each read the private object; a signed PUT passes its preflight for `content-type`, answers 200 with `Access-Control-Allow-Origin`, and the API stand-in reads the bytes back; a preflight from `http://localhost:3001` listing Active Storage's direct upload headers returns that `Access-Control-Allow-Origin` |
 | Reconcile | With `FRONTEND_PORT=3002`, a plain `up --detach --wait` replaces the `gcs` container, and `api`, whose `FRONTEND_ORIGIN` changed; ready reports two existing and two reconciled buckets; the public image then allows `http://localhost:3002` and no longer `http://localhost:3000`; Rails still reaches the public image through the alias and the uploaded object is still there |
 
-All requests are sent with curl, so no browser enforces CORS or meets the
-browser checks, and no Go client or Rails application runs. curl 8.23.0 answers
+All requests in the smoke test are sent with curl, so no browser enforces CORS or
+meets the browser checks there, and no Go client or Rails application runs; the
+[browser run](#browser-run) covers the main listener. curl 8.23.0 answers
 every `*.localhost` name with loopback without asking DNS, so the Rails stand-in
 resolves `gcs.localhost` with `getent`, which the musl resolver of the same image
 sends to Docker's DNS, as Ruby's resolver does.
@@ -234,3 +237,84 @@ the running container and `restart` kept the old config content, and that an
 application compose.yaml listing that recipe under `include:` started it and
 reached `gcs:4444` from another service; the current recipe was not run under
 `include:`.
+
+## Browser run
+
+[`strict-recipe-browser.sh`](../../../scripts/strict-recipe-browser.sh) starts the
+[strict local recipe](../../../examples/strict-local/README.md) unchanged, with
+the image built from the checkout, then drives Chromium against
+`http://localhost:PORT`, the address the recipe publishes. The complete output is
+in [strict-recipe-browser.txt](strict-recipe-browser.txt).
+
+```sh
+docker build -t gcs-mimic:local .
+GCS_MIMIC_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh
+```
+
+The run on 2026-11-10 used an image built from the source of this change under
+another local tag, and exited 0.
+
+| Input | Executed value |
+| --- | --- |
+| Browser container | `node:24.22.2-trixie-slim`, the digest in `compatibility/dependency-status.json`, linux/arm64 |
+| Node | `v24.22.2` |
+| Chromium | `150.0.7871.181-1~deb13u1` from Debian trixie, through `scripts/install-chromium.sh` at the `snapshot.debian.org` timestamp recorded with it. Debian's newer 156 builds are in the security and proposed-updates suites, which this pinned archive does not serve, so this is not the 156 of the [signed browser run](signed-browser.md) |
+| Peer for the trusted listener | `curlimages/curl:8.23.0`, the digest pinned in `scripts/smoke-containers.sh` |
+| Frontend and page origin | `http://localhost:FRONTEND_PORT`, a random port written into `GCS_MIMIC_BUCKETS` as the recipe's `FRONTEND_PORT` |
+
+The browser container uses the host network, so `localhost:PORT` is the same
+loopback address that the recipe publishes, and it needs no port of its own. The
+fixtures are written through the unpublished trusted listener from a peer container
+on the Compose network, as an application server does, and the built-in test
+signer signs inside the recipe's container.
+
+| Scenario | Browser observation |
+| --- | --- |
+| `navigation` | Top-level navigation shows the private bytes through URLs the built-in signer made for `http://localhost:PORT` and for `http://localhost` without the port, and the public bytes unsigned. The unsigned private object and the XML and JSON lists show `AuthenticationRequired` or `Anonymous` and reveal no object name. A tampered signature, an expired URL and a URL signed for `127.0.0.1:PORT` show `SignatureDoesNotMatch`, `ExpiredToken` and `SignatureDoesNotMatch` |
+| `page-stock` | From `http://localhost:FRONTEND_PORT`, fetch reads the public object through XML and JSON, sees the listed `Content-Type` and not the unlisted `ETag` (which the script confirms the server sends), and a `HEAD` reads its `Content-Type`; a browser PUT to the public bucket, an unsigned XML GET and a signed fetch GET of the private bucket are blocked, as their rules do not allow them. Anonymous JSON list, metadata and media read 401. A signed embed loads, while unsigned, tampered and expired embeds fail. A signed PUT with a preflighted `Content-Type` answers 200 and loads through its own signed URL. Tampered, expired, changed-`Content-Type` and unsigned uploads read 403, 400, 403 and 401; a request header outside the rule fails the preflight |
+| `page-denied-origin` | From `http://127.0.0.1:FRONTEND_PORT`, an origin the recipe does not list, the public object and the signed upload preflight are blocked, while a signed embed still loads, because CORS is not authorization |
+| `page-get-added` | After `GET` is added to the private bucket's rule, as the [README](../../../examples/strict-local/README.md) advises for pages that `fetch()` signed downloads, fetch reads the bytes; tampered, expired and unsigned downloads read 403 `SignatureDoesNotMatch`, 400 `ExpiredToken` and 401 `AuthenticationRequired`, and the URLs of the failed embeds are refused the same way, so those embeds failed at the server and not on a broken URL |
+| `network-audit` | Each Chromium net log records TCP connections, all of them to loopback on the published main listener's port or the page origin's port, and no UDP datagram was sent. The net logs also show that a blocked upload sent its `OPTIONS` preflight and no `PUT`, and that blocked reads were sent, so each `TypeError` is a CORS refusal and not a connection failure |
+
+From the application server's side, the script then confirms that the signed upload
+stored the exact bytes with its signed `Content-Type` and the test signer as owner,
+and that every refused or blocked upload left no object in either bucket. Only port
+4443 of the service is published.
+
+Every URL in the manifest is validated before the browser starts: each must be a
+signed URL for the private bucket on the published listener, and a signing failure
+stops the script. A scratch copy with one signing command made to fail exited 1 and
+ran no browser checks.
+
+The check is hermetic while it runs, in the sense `network-audit` measures. Chromium's
+name resolution fails everywhere but loopback through `--host-resolver-rules`, which
+blocks the Google hosts its own services otherwise try, and the net logs then bound
+what was sent: TCP connections only to the two loopback ports, and no UDP datagrams.
+The net log filters were also checked against synthetic logs: the destination filter
+rejects another port, a non-loopback connection, a UDP datagram and a log with no
+connections. Provisioning is separate: pulling the pinned images and installing
+Chromium contact Docker Hub and the Debian archive, and no Google service.
+
+What keeps DESIGN-101 `PARTIAL` is its remaining `known_deviations`, which this run
+does not change: the responses hyper writes for a malformed request head carry none
+of the trusted listener's added headers, anything that reaches the port with an
+accepted Host acts as `trusted_principal`, and shared connection limits and timeouts
+are not measured separately.
+
+Limits:
+
+- It ran on linux/arm64 only, through Docker Desktop on macOS, whose host network is
+  the Docker VM; `linux/amd64` and Firefox or WebKit did not run.
+- The recipe does not publish port 4444, so a real browser cannot reach the trusted
+  listener; the wire tests in the [results above](#results) cover its browser checks.
+- `page-get-added` applies the README's rule with a `PATCH` through the trusted
+  listener rather than editing `GCS_MIMIC_BUCKETS`; the container smoke test covers
+  the reconciliation of an edited bucket document.
+- A browser ran no Rails direct upload and the recipe documents no signed POST policy,
+  so neither was run. Of the request headers the private bucket's rule lists, only
+  `Content-Type` is sent; `Content-MD5`, `Content-Disposition`, `Cache-Control` and
+  `x-goog-content-length-range` are not exercised, and tampering changes the signature
+  value only.
+- The image was built once, from the source commit named in the transcript. Later
+  commits change the check, the ledger and the dependency records, and not `src/`,
+  `Cargo.toml`, `Cargo.lock` or the `Dockerfile`.

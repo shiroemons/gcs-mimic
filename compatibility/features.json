@@ -2231,11 +2231,14 @@
       "acceptance_cases": [
         {
           "id": "DIST-003-TAGS",
-          "description": "Reject malformed/prerelease versions and advance minor/latest aliases without rolling them backwards; never emit a zero-major alias.",
+          "description": "Accept canonical stable and -rc.N versions with positive N, reject other prereleases/build metadata/leading zeros, publish only exact candidate tags, and advance minor/latest aliases using stable versions alone without rolling them backwards; never emit a zero-major alias.",
           "result": "PASS",
           "test_ids": [
             "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-            "malformed_and_prerelease_versions_cannot_publish"
+            "malformed_and_unsupported_prerelease_versions_cannot_publish",
+            "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+            "release_version_grammar_matches_shell_and_workflows",
+            "candidates_order_numerically_before_the_final_release"
           ]
         },
         {
@@ -2263,19 +2266,35 @@
       ],
       "test_ids": [
         "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-        "malformed_and_prerelease_versions_cannot_publish",
+        "malformed_and_unsupported_prerelease_versions_cannot_publish",
+        "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+        "release_version_grammar_matches_shell_and_workflows",
+        "candidates_order_numerically_before_the_final_release",
         "notice_only_output_needs_neither_git_nor_an_executable",
         "ghcr-tag-publication"
       ],
       "verification": [
         {
+          "command": "cargo test -p xtask --locked --offline release::; cargo test -p xtask --locked --offline container::; bash scripts/test-container-release.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
+            "malformed_and_unsupported_prerelease_versions_cannot_publish",
+            "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+            "release_version_grammar_matches_shell_and_workflows",
+            "candidates_order_numerically_before_the_final_release"
+          ]
+        },
+        {
           "command": "cargo test --package xtask --lib --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/ghcr.md",
+          "description": "This historical run also checked malformed_and_prerelease_versions_cannot_publish under the former stable-only policy; current release-candidate acceptance tests replace that retired test.",
           "test_ids": [
             "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-            "malformed_and_prerelease_versions_cannot_publish",
             "notice_only_output_needs_neither_git_nor_an_executable"
           ]
         },
@@ -2300,10 +2319,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Identical-input manifest retry has not been exercised. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
+        "Identical-input manifest retry has not been exercised on GHCR. Candidate publication has local policy and mocked publication coverage but has not run on GitHub or a registry. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-26"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "DIST-004",
@@ -2331,7 +2350,7 @@
       "acceptance_cases": [
         {
           "id": "DIST-004-OFFLINE",
-          "description": "Reject private or unreachable repositories, Hub API failures, mismatched digest reports, moved source tags, GHCR tag drift, missing source attestations, foreign pagination links and changed exact versions before any copy; keep the index digest, reuse identical exact versions and select aliases by stable Release order.",
+          "description": "Reject private or unreachable repositories, Hub API failures, mismatched digest reports, moved source tags, GHCR tag drift, missing source attestations, foreign pagination links and changed exact versions before any copy; keep the index digest, reuse identical stable/candidate exact versions, publish candidates without floating tags and select stable aliases by stable Release order; reject unsupported prerelease forms and build metadata.",
           "result": "PASS",
           "test_ids": [
             "dockerhub-mirror-offline"
@@ -2357,6 +2376,15 @@
         "dockerhub-mirror-publication"
       ],
       "verification": [
+        {
+          "command": "bash scripts/test-container-mirror.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "dockerhub-mirror-offline"
+          ]
+        },
         {
           "command": "bash scripts/test-container-mirror.sh",
           "result": "PASS",
@@ -2396,10 +2424,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Candidate mirroring has mocked local coverage but has not run on GitHub or Docker Hub. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "DIST-005",
@@ -2655,10 +2683,11 @@
       "acceptance_cases": [
         {
           "id": "DIST-002-CONFIGURATION",
-          "description": "Validate release and reusable Foundation workflow syntax with actionlint.",
+          "description": "Validate release and reusable Foundation workflow syntax with actionlint; execute required binary/GHCR run blocks against shared stable/candidate/invalid cases, complete version outputs and explicit stable-only Latest/prerelease flags. Rehearse read-only flag calculation during dry runs and stop publication on release-list or xtask failure, using mocked external commands.",
           "result": "PASS",
           "test_ids": [
-            "binary-workflow-syntax"
+            "binary-workflow-syntax",
+            "release-workflow-offline"
           ]
         },
         {
@@ -2727,10 +2756,11 @@
         },
         {
           "id": "DIST-002-DOC-CONSISTENCY",
-          "description": "Reconcile English/Japanese README and release statements; verify shipped files against git ls-files, configuration TOML references as proposed/future only, relative links, and actual Compose/config/Dockerfile combinations for listener, persistent data path, scheme and readiness probe.",
+          "description": "Reconcile English/Japanese README and release statements; verify shipped files against git ls-files, configuration TOML references as proposed/future only, relative links, and actual Compose/config/Dockerfile combinations for listener, persistent data path, scheme and readiness probe. Require both published recipes to use the full manifest version, including exact RC pins, and reject another release's tag.",
           "result": "PASS",
           "test_ids": [
-            "release-doc-consistency"
+            "release-doc-consistency",
+            "release-recipes-offline"
           ]
         },
         {
@@ -2744,6 +2774,8 @@
       ],
       "test_ids": [
         "binary-workflow-syntax",
+        "release-workflow-offline",
+        "release-recipes-offline",
         "release-source-identity",
         "release-tag-source-identity",
         "release-pin-revision-contract",
@@ -2756,6 +2788,28 @@
         "release-tag-execution"
       ],
       "verification": [
+        {
+          "command": "actionlint; bash scripts/test-release-workflows.sh; bash scripts/test-release-recipes.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "binary-workflow-syntax",
+            "release-workflow-offline",
+            "release-recipes-offline"
+          ]
+        },
+        {
+          "command": "actionlint; bash scripts/test-release-workflows.sh; bash scripts/test-release-recipes.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "binary-workflow-syntax",
+            "release-workflow-offline",
+            "release-recipes-offline"
+          ]
+        },
         {
           "command": "gh run view 40252492903 (manual dispatch) and gh run view 40255031827 / 40259191681 (v0.1.0 and v0.1.1 tags); gh release view v0.1.0 and v0.1.1",
           "result": "PASS",
@@ -56345,7 +56399,7 @@
       ],
       "source_checked_at": "2026-11-08",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as; without it, such a request acts as the built-in trusted-app@gcs-mimic.invalid, which holds roles/storage.admin in seed_project and in the projects of the buckets the buckets document creates and has no token or key, unless an identity document entry with that ID replaces the implicit grants. Both require auth_mode=strict and trusted_principal requires trusted_listen; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and the effective trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md, the complete Compose recipe examples/strict-local and the full application example examples/full-stack, which scripts/smoke-containers.sh runs with the built image.",
+      "notes": "Local emulator extension, not Cloud Storage behavior. --trusted-listen / GCS_MIMIC_TRUSTED_LISTEN / JSON trusted_listen opens an extra plain HTTP listener (whatever scheme) for the application's own servers, and --trusted-principal / GCS_MIMIC_TRUSTED_PRINCIPAL / JSON trusted_principal names the registered identity (of the identity document, identity_file or identities, or the built-in test signer with test_signer=enabled) that a request without credentials there acts as; without it, such a request acts as the built-in trusted-app@gcs-mimic.invalid, which holds roles/storage.admin in seed_project and in the projects of the buckets the buckets document creates and has no token or key, unless an identity document entry with that ID replaces the implicit grants. Both require auth_mode=strict and trusted_principal requires trusted_listen; unix_socket, another listener's nonzero address and an unknown principal fail startup. Only credential-free requests change: they then pass the same strict IAM, ACL and public access prevention decision as that identity, so owners and ACL entities match a token upload. Presented credentials (bearer, self-signed JWT, signed URL parameters, signature Authorization header, POST policy) authenticate exactly as on the main listener and never fall back. Any Origin header or Sec-Fetch-Site other than none gets 403 before routing, through the check management also uses. Because a DNS rebinding page sends neither header on a plain HTTP GET to its rebound name, the Host must also be an IP literal, localhost or a .localhost name, a single-label name, or a name in --trusted-allowed-hosts / GCS_MIMIC_TRUSTED_ALLOWED_HOSTS / JSON trusted_allowed_hosts (requires trusted_listen); any other Host, or none, gets 421 misdirected with or without credentials, and every response carries Cross-Origin-Resource-Policy: same-origin and X-Content-Type-Options: nosniff. Both checks run once per received request, so batch parts inherit the envelope's admission. Every main-listener route is served, batch parts keep the envelope's listener, management still requires admin_principal, links follow each request's Host, and max_connections and timeouts are shared. gRPC has no trusted listener. Ready reports trusted_listen and the effective trusted_principal. The pinned Go storage client with STORAGE_EMULATOR_HOST on the trusted listener and no credentials passes in the Go suite. Evidence: docs/en/evidence/trusted-listener.md; usage: docs/en/container-usage.md, the complete Compose recipe examples/strict-local and the full application example examples/full-stack, which scripts/smoke-containers.sh runs with the built image. scripts/strict-recipe-browser.sh runs Chromium against the recipe's published main listener with that image.",
       "dependencies": [
         "DESIGN-002",
         "DESIGN-004"
@@ -56474,13 +56528,24 @@
           ]
         },
         {
-          "id": "DESIGN-101-PENDING",
-          "description": "Run a browser against the recipe's published main listener. gRPC stays out of scope.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "DESIGN-101-RECIPE-BROWSER",
+          "description": "Chromium runs against the published main listener of examples/strict-local/compose.yaml, started with the image built from the checkout, as http://localhost:PORT, and holds no credential. Top-level navigations, which need no CORS, show the private object through a URL the built-in test signer signed with the port and one signed without it, and show the public object; the unsigned private object and the XML and JSON lists answer 401 without revealing object names, and a tampered signature, an expired URL and a URL signed for another host are refused. From the configured frontend origin, fetch reads the public object through XML and JSON with the configured response header readable and an unlisted one hidden, and a HEAD reads its Content-Type; a PUT on the public bucket, an unsigned XML GET and a signed fetch GET of the private bucket are blocked because the rules do not allow them; anonymous JSON list, metadata and media read a 401; an embedded signed URL loads while unsigned, tampered and expired embeds fail; a signed PUT with a preflighted Content-Type stores the exact bytes with the test signer as owner and loads through its own signed URL; tampered, expired, changed-Content-Type and unsigned uploads read 403, 400, 403 and 401, an unlisted request header fails the preflight, and none of them publishes an object. A different origin cannot read the public object or pass the signed upload preflight, while a signed embed still loads. After GET is added to the private bucket's rule, as the recipe's README advises, fetch reads the signed download, and tampered, expired and unsigned downloads read 403, 400 and 401, as do the URLs of the embeds that failed. Only the main listener is published. Every URL is validated as signed for the published listener before the browser starts. The net logs show that blocked uploads sent an OPTIONS and no PUT and blocked reads were sent, that TCP connections went only to loopback on the published listener's port and the page origin's port, and that no UDP datagram was sent, while name resolution outside loopback is blocked by rule. Only the Content-Type request header of the rule's list is sent; the recipe documents no signed POST policy, so none is run. gRPC stays out of scope.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-stock:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-denied-origin:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
+            "scripts/strict-recipe-browser.sh:network-audit:linux/arm64"
+          ]
         }
       ],
       "test_ids": [
+        "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
+        "scripts/strict-recipe-browser.sh:page-stock:linux/arm64",
+        "scripts/strict-recipe-browser.sh:page-denied-origin:linux/arm64",
+        "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
+        "scripts/strict-recipe-browser.sh:network-audit:linux/arm64",
         "TestTrustedListenerServesTheEmulatorHostClient",
         "config::tests::a_trusted_listener_needs_strict_mode_and_its_own_address",
         "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
@@ -56695,6 +56760,19 @@
           "test_ids": [
             "TestTrustedListenerServesTheEmulatorHostClient"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_IMAGE=<image built from the checkout> bash scripts/strict-recipe-browser.sh (linux/arm64, Chromium 150.0.7871.181)",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/evidence/strict-recipe-browser.txt",
+          "test_ids": [
+            "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-stock:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-denied-origin:linux/arm64",
+            "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
+            "scripts/strict-recipe-browser.sh:network-audit:linux/arm64"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -56715,10 +56793,10 @@
         }
       ],
       "known_deviations": [
-        "The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl, so no browser enforces CORS or meets the trusted listener's browser checks. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl. The Chromium run covers the main listener on linux/arm64; the recipe does not publish the trusted port, so no real browser meets its browser checks, which the wire tests cover with the same headers, and neither Firefox nor WebKit runs. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-08"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "UX-001",

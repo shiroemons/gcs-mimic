@@ -15,14 +15,9 @@ awk '/^<!-- strict-local compose.yaml -->$/ { marked = 1; next }
   echo 'examples/strict-local/README.md must show examples/strict-local/compose.yaml unchanged' >&2
   exit 1
 }
-# These recipes use settings that only their own release has, and a release's tag publishes them
-# as they are. The container smoke test sets GCS_MIMIC_IMAGE, so it never reads their default.
-version=$(awk -F'"' '/^\[/ { package = ($0 == "[package]") } package && /^version = / { print $2; exit }' Cargo.toml)
-for recipe in examples/strict-local/compose.yaml examples/full-stack/compose.yaml; do
-  grep -qF "ghcr.io/shiroemons/gcs-mimic:$version}" "$recipe" || {
-    echo "$recipe must default to the image of the manifest version $version" >&2
-    exit 1
-  }
-done
+# Recipes run with their own release's image, including an exact RC tag. This is separate from
+# floating tags: the README quick start keeps latest on stable releases. Smoke tests override it.
+bash scripts/check-release-recipes.sh
+bash scripts/test-release-recipes.sh
 bash scripts/test-release-notes.sh
 bash scripts/test-dockerhub-description.sh

@@ -1,4 +1,5 @@
 name: Publish release container
+# The Configure native build run block is tested locally with macOS Bash 3.2.
 on:
   workflow_call:
     inputs:
@@ -49,9 +50,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          bash scripts/release-version.sh "$VERSION"
           test "$RELEASE_TAG" = "v$VERSION"
-          printf '%s\n' "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" \
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          printf '%s\n' "IMAGE=ghcr.io/$repository" \
             "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$GITHUB_SHA")" \
             "BUILDER_NAME=ghcr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCHITECTURE" \
             "DOCKER_CONFIG=$RUNNER_TEMP/ghcr-docker" >> "$GITHUB_ENV"

@@ -1,4 +1,5 @@
 name: Release binaries
+# Run blocks exercised by scripts/test-release-workflows.sh must work with macOS Bash 3.2.
 on:
   workflow_dispatch:
     inputs:
@@ -42,11 +43,10 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "gcs-mimic") | .version')
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'Binary releases require a stable MAJOR.MINOR.PATCH version' >&2
-            exit 1
-          fi
+          # A suffix preserves trailing newlines so validation cannot normalize malformed input.
+          version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "gcs-mimic") | .version + "@"')
+          version=${version%@}
+          bash scripts/release-version.sh "$version" > /dev/null
           if [[ "$REF_TYPE" == tag ]]; then
             test "$REF_NAME" = "v$version"
             # Fail on a broken notes link before the platform builds start.
@@ -304,7 +304,7 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
           compression-level: 0
-  # Manual dispatch runs this job as a dry run up to the asset list, so publication
+  # Manual dispatch runs this job through read-only flag calculation, so publication
   # mistakes surface before an immutable tag; only tag pushes create the Release.
   publish:
     # The gates are skipped only when their dry run on this commit already passed them. A skipped
@@ -315,6 +315,10 @@ jobs:
     needs: [validate, foundation, test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    concurrency:
+      # A dry run must not displace a queued tag publication.
+      group: binaries-publish-${{ github.event_name == 'push' && 'tags' || github.run_id }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
@@ -326,6 +330,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install pinned policy tooling
+        shell: bash
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      - run: cargo fetch --locked
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: binary-*
@@ -362,6 +374,27 @@ jobs:
           ref=$RELEASE_TAG
           if [[ "$GITHUB_REF_TYPE" != tag ]]; then ref=$GITHUB_SHA; fi
           bash scripts/release-notes.sh "docs/en/releases/$VERSION.md" "$ref" > release-notes.md
+      - name: Calculate publication flags
+        shell: bash
+        run: |
+          stage=$(bash scripts/release-version.sh "$VERSION")
+          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(startswith("v")) | ltrimstr("v")')
+          policy_args=("$VERSION")
+          while IFS= read -r version; do
+            if [[ -n "$version" ]]; then policy_args+=("$version"); fi
+          done <<< "$published"
+          tags=$(cargo xtask release container-tags "${policy_args[@]}")
+          latest=false
+          while IFS= read -r tag; do
+            if [[ "$tag" == latest ]]; then latest=true; fi
+          done <<< "$tags"
+          release_flags=("--latest=$latest")
+          if [[ "$stage" == candidate ]]; then release_flags+=(--prerelease); fi
+          printf '%s\n' "${release_flags[@]}" > release-flags
+          printf 'Release flags:'
+          printf ' %s' "${release_flags[@]}"
+          printf '\n'
       - name: Publish verified tag
         if: github.event_name == 'push'
         shell: bash
@@ -383,9 +416,12 @@ jobs:
               exit 1
             fi
           done <<< "$releases"
-          mapfile -t assets < release-assets
+          assets=()
+          while IFS= read -r asset; do assets+=("$asset"); done < release-assets
+          release_flags=()
+          while IFS= read -r flag; do release_flags+=("$flag"); done < release-flags
           gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md
+            --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md "${release_flags[@]}"
   publish-container:
     if: >-
       !cancelled() && needs.publish.result == 'success'

@@ -10,7 +10,7 @@ if [[ ${1:-} == --help ]]; then
   exit 0
 fi
 
-# Releases whose data directories the stable contract upgrades. Pin digests so a
+# Stable releases and release candidates whose data directories the contract upgrades. Pin digests so a
 # regenerated fixture comes from the same published bytes.
 # A case statement instead of an associative array keeps macOS's bash 3.2 working.
 image_for() {
@@ -31,6 +31,7 @@ image_for() {
 }
 if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1; fi
 for version in "$@"; do
+  bash "$(dirname "$0")/release-version.sh" "$version" >/dev/null
   if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi
 done
 
