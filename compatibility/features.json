@@ -2231,11 +2231,14 @@
       "acceptance_cases": [
         {
           "id": "DIST-003-TAGS",
-          "description": "Reject malformed/prerelease versions and advance minor/latest aliases without rolling them backwards; never emit a zero-major alias.",
+          "description": "Accept canonical stable and -rc.N versions with positive N, reject other prereleases/build metadata/leading zeros, publish only exact candidate tags, and advance minor/latest aliases using stable versions alone without rolling them backwards; never emit a zero-major alias.",
           "result": "PASS",
           "test_ids": [
             "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-            "malformed_and_prerelease_versions_cannot_publish"
+            "malformed_and_unsupported_prerelease_versions_cannot_publish",
+            "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+            "release_version_grammar_matches_shell_and_workflows",
+            "candidates_order_numerically_before_the_final_release"
           ]
         },
         {
@@ -2263,11 +2266,28 @@
       ],
       "test_ids": [
         "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-        "malformed_and_prerelease_versions_cannot_publish",
+        "malformed_and_unsupported_prerelease_versions_cannot_publish",
+        "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+        "release_version_grammar_matches_shell_and_workflows",
+        "candidates_order_numerically_before_the_final_release",
+        "malformed_and_prerelease_versions_cannot_publish (historical stable-only policy)",
         "notice_only_output_needs_neither_git_nor_an_executable",
         "ghcr-tag-publication"
       ],
       "verification": [
+        {
+          "command": "cargo test -p xtask --locked --offline release::; cargo test -p xtask --locked --offline container::; bash scripts/test-container-release.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
+            "malformed_and_unsupported_prerelease_versions_cannot_publish",
+            "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
+            "release_version_grammar_matches_shell_and_workflows",
+            "candidates_order_numerically_before_the_final_release"
+          ]
+        },
         {
           "command": "cargo test --package xtask --lib --locked --offline",
           "result": "PASS",
@@ -2275,7 +2295,7 @@
           "artifact": "docs/en/evidence/ghcr.md",
           "test_ids": [
             "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-            "malformed_and_prerelease_versions_cannot_publish",
+            "malformed_and_prerelease_versions_cannot_publish (historical stable-only policy)",
             "notice_only_output_needs_neither_git_nor_an_executable"
           ]
         },
@@ -2300,10 +2320,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Identical-input manifest retry has not been exercised. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
+        "Identical-input manifest retry has not been exercised on GHCR. Candidate publication has local policy and mocked publication coverage but has not run on GitHub or a registry. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-26"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "DIST-004",
@@ -2331,7 +2351,7 @@
       "acceptance_cases": [
         {
           "id": "DIST-004-OFFLINE",
-          "description": "Reject private or unreachable repositories, Hub API failures, mismatched digest reports, moved source tags, GHCR tag drift, missing source attestations, foreign pagination links and changed exact versions before any copy; keep the index digest, reuse identical exact versions and select aliases by stable Release order.",
+          "description": "Reject private or unreachable repositories, Hub API failures, mismatched digest reports, moved source tags, GHCR tag drift, missing source attestations, foreign pagination links and changed exact versions before any copy; keep the index digest, reuse identical stable/candidate exact versions, publish candidates without floating tags and select stable aliases by stable Release order; reject unsupported prerelease forms and build metadata.",
           "result": "PASS",
           "test_ids": [
             "dockerhub-mirror-offline"
@@ -2357,6 +2377,15 @@
         "dockerhub-mirror-publication"
       ],
       "verification": [
+        {
+          "command": "bash scripts/test-container-mirror.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-10",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "dockerhub-mirror-offline"
+          ]
+        },
         {
           "command": "bash scripts/test-container-mirror.sh",
           "result": "PASS",
@@ -2396,10 +2425,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Candidate mirroring has mocked local coverage but has not run on GitHub or Docker Hub. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "DIST-005",

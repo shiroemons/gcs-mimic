@@ -65,6 +65,9 @@ reopening the same data directory.
 
 An archive is named `gcs-mimic-X.Y.Z-<target>` and contains the executable,
 `LICENSE-MIT`, `LICENSE-APACHE`, third-party notices and `BUILD-INFO.json`.
+For a release candidate, retain the entire version, for example
+`gcs-mimic-1.0.0-rc.1-<target>`. Candidates use the same eight targets, notices,
+checksums and immutable assets as stable releases.
 Cargo dependency notices cover the locked workspace graph, including build-only
 and other-platform dependencies; this conservative superset is not an exact
 runtime bill of materials. Original notices, multiple license alternatives and
@@ -131,9 +134,10 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    `examples/full-stack/compose.yaml` to the new version: the tag publishes those
    recipes as they are, and they use settings that only the new release has.
    `scripts/check-docs.sh` fails until they match the manifest.
-2. Write `docs/en/releases/X.Y.Z.md` with final changes, compatibility impact,
+2. Write `docs/en/releases/<version>.md` with final changes, compatibility impact,
    tested platforms and known limitations. Confirm the first-release roadmap
    requirements manually; the existence of a notes file does not prove them.
+   Retain the complete candidate suffix, such as `1.0.0-rc.1.md`.
    Use ordinary repository-relative links: `scripts/release-notes.sh` rewrites
    them to the tagged files for the Release body, and the workflow fails on a
    link whose target does not exist.
@@ -151,11 +155,17 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    needs a new dry run. A second manual dispatch with `reuse-dry-run` rehearses
    the tag's path: it skips the gates and runs the publish job from the dry run's
    archives, without publishing.
-5. When publication is authorized, create and push a new `vX.Y.Z` tag on the
-   tested commit. The tag must match Cargo's stable `X.Y.Z` exactly. A tag run
+5. When publication is authorized, create and push a new `vX.Y.Z` or
+   `vX.Y.Z-rc.N` tag on the tested commit. The tag must match Cargo's product
+   version exactly, using the
+   [accepted release grammar](release-policy.md#product-version-and-compatibility).
+   A tag run
    checks the version, the committed release notes and release input freshness
    again, then publishes the archives of the newest dry run on its commit as a
-   normal GitHub Release, without testing or building them again. It fails
+   GitHub Release, without testing or building them again. A candidate is marked
+   as a prerelease with `--prerelease --latest=false`, so it does not become the
+   latest Release. Stable releases keep GitHub's automatic latest selection.
+   It fails
    before publishing when no such run holds all eight archives, for example
    after they expire; then run the dry run and re-run the tag's failed job. Build
    jobs have read permissions; only the final publish job can write release
@@ -165,11 +175,14 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    download checksums. Never replace an existing version's tag or assets; fixes
    need a new version. A failed or interrupted publication needs inspection before
    retrying, especially if GitHub has already created the release.
-7. Once its image is published, pin its index digest in
+7. Once a stable or candidate image is published, pin its index digest in
    `scripts/released-data-fixtures.sh`, generate its data directory fixture with
    that script, and add the version to `SUPPORTED_RELEASES` in
-   `tests/it_import_seed/released_data_upgrade.rs`. A later version bump fails its
-   tests while a published release lacks a fixture.
+   `tests/it_import_seed/released_data_upgrade.rs`. Add it to the fixture script's
+   default version list as well. Every candidate gets its own fixture; the final
+   release must open them all. The xtask release-version tests reject a later
+   version while an earlier published release lacks its fixture, and the
+   integration tests require every fixture to be listed and preserve its resources.
 
 Packaging is also available as `cargo xtask release prepare TARGET BINARY OUTPUT_DIR`
 or `just prepare-binary TARGET BINARY OUTPUT_DIR`. Build first with the pinned
@@ -186,6 +199,7 @@ remove embedded compiler paths.
 ## References
 
 - [GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+- [GitHub CLI release creation](https://cli.github.com/manual/gh_release_create)
 - [Rust target support](https://doc.rust-lang.org/rustc/platform-support.html)
 - [Rust static C runtime selection](https://doc.rust-lang.org/reference/linkage.html#static-and-dynamic-c-runtimes)
 - [Windows write-through move](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)

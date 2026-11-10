@@ -11,6 +11,12 @@ catalog schema version. The [feature ledger](../../compatibility/features.json)
 defines the supported API subset; a product version does not claim complete
 Google Cloud Storage compatibility.
 
+Publication accepts stable `MAJOR.MINOR.PATCH` versions and release candidates
+`MAJOR.MINOR.PATCH-rc.N`, where `N` starts at 1. Numeric components have no leading
+zeros. Other prerelease forms and build metadata are not release versions.
+Candidates order numerically (`rc.2` follows `rc.1`), and the stable version
+follows every candidate for the same `MAJOR.MINOR.PATCH`.
+
 During `0.x` development, use these rules:
 
 | Change | Version update | Example |
@@ -65,11 +71,15 @@ All of these must pass:
    The [public contract review](public-contract-review.md) holds the current inventory and the change proposals.
 2. **Upgrade data directories from every supported release.**
    A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
-   The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each release adds its own fixture.
+   The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each stable release and each release candidate adds its own digest-pinned fixture.
+   Candidates are supported upgrade sources: the final release must open every candidate's data directory, even when a later candidate included a breaking change.
+   The xtask release-version tests require each earlier published version's fixture before the next candidate or stable version; the integration test verifies that every fixture is listed and opens with preserved resources.
    Supported releases are `0.8.0` and later; see [withdrawn releases](#withdrawn-releases).
 3. **Soak a release candidate.**
    Publish `1.0.0-rc.N` and keep it for at least 14 days without a breaking change.
    A breaking change starts a new candidate.
+   A candidate publishes only its exact container tag and is a GitHub prerelease, never GitHub's latest release.
+   It never moves floating container tags such as `1.0`, any major alias, or `latest`; stable releases alone determine their advancement.
 4. **Verify the final source once.**
    Run the native, cross-target, SDK, container and browser gates on the release commit.
    Results from earlier checkpoints do not substitute for this run.
@@ -97,8 +107,9 @@ This withdrawal is a one-time exception to the immutability rule below, made bef
 ## Release identity and publication
 
 Choose the product version when preparing a release, not for every commit or
-push. Git release tags use `vX.Y.Z`; binary metadata and the exact container version
-tag use `X.Y.Z`. They must refer to the same product version and source commit.
+push. Git release tags use `vX.Y.Z` or `vX.Y.Z-rc.N`; binary metadata, archive names
+and exact container tags retain the same version without `v`. They must refer to
+the same product version and source commit.
 
 Published release tags and artifacts are immutable: do not move a release tag,
 replace a binary, or overwrite an exact container version tag. Publish corrections
@@ -121,7 +132,7 @@ freshness of the release inputs (see the
 [dependency policy](dependency-policy.md#ci-lanes)), Foundation checks and all
 native suites. The
 [GHCR procedure](container-distribution.md) adds native image checks, immutable
-version tags, advancing minor/latest aliases and digest reports after binary
+version tags, stable-only advancing minor/latest aliases and digest reports after binary
 Release creation. A configured workflow alone does not show that a given
 release succeeded on every platform; check each release's workflow runs.
 

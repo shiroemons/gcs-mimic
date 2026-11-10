@@ -1,6 +1,6 @@
 # Public contract review for the 1.0.0 freeze
 
-This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. It changes nothing and decides nothing.
+This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. Resolved items record the owner's decisions; the remaining proposals are undecided.
 
 Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10.
 
@@ -280,26 +280,25 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 11. The main help lists `sync findings` and `sync deletions`, and the code accepts them, but `sync --help` shows only `status --view`. `sync approve` also accepts `--revision`, which its help omits; its error message names `--revision` while the help names `--deletion-set`.
 12. `url sign --help` lists GET, HEAD, PUT and DELETE. The code also signs POST when `x-goog-resumable: start` is supplied (`src/auth/signature.rs`).
 13. The main help's usage line omits `--h` and `-version`, which the code accepts.
-14. The release policy requires publishing `1.0.0-rc.N`. The release tooling refuses prerelease versions in `xtask/src/container.rs` `tags`, in the version checks of `.github/workflows/binaries.yaml` and `.github/workflows/ghcr.yaml`, and in `scripts/container-mirror.sh` through `container-tags`. A test in `xtask/src/container.rs` and `scripts/test-container-mirror.sh` pin the refusal. Step 3 of the gate cannot run until this changes; see candidate 1.
+14. Resolved: release tooling accepts `MAJOR.MINOR.PATCH-rc.N` with positive `N`, publishes only its immutable exact container tag and marks its GitHub Release as a non-latest prerelease. Stable versions alone determine floating tags. Each candidate is a supported upgrade source with its own released-data fixture; see candidate 1 and the [release policy](release-policy.md).
 15. `--memory-max-bytes` help and L say half of available memory. The code subtracts 32 MiB first, and it uses 1 GiB wherever it cannot read available memory, which is everywhere except Linux (`src/memory_limit.rs`).
 16. S `runtime-admin-endpoints.md` and S `local-instance-reset.md` say management bodies are capped at 64 KiB. The handlers read at most `RESOURCE_BODY_LIMIT`, which is 16 MiB (`src/json/body.rs`, `src/server/admin.rs`, `src/server/admin/reset.rs`).
 17. H says server CLI overrides need an explicit `--url` or matching environment or configuration settings. The code falls back to PID 1's server options when the first probe fails ([healthcheck URL selection](#healthcheck-url-selection)), as C says.
 
 ## Candidates to change before the freeze
 
-These are proposals for the project owner; nothing here is decided. A freeze is expensive only for what cannot be fixed compatibly afterwards, so the candidates are split on that question, and each one states whether it can be. Within each group, the items most likely to stop a working setup or misstate behavior come first.
+Resolved items state the owner's decisions; other items remain proposals. A freeze is expensive only for what cannot be fixed compatibly afterwards, so the candidates are split on that question, and each one states whether it can be. Within each group, the items most likely to stop a working setup or misstate behavior come first.
 
 ### Cannot be fixed compatibly after the freeze
 
 Defaults, value meanings, reserved names and the definition of the contract. These need a decision before the first release candidate.
 
-#### 1. Make release candidates publishable and decide what they mean
+#### 1. Release candidates publish exact tags and remain supported upgrade sources
 
-- **Reason:** Step 3 of the gate publishes `1.0.0-rc.N`, and every release path refuses it: `xtask/src/container.rs` `tags`, the version checks in `.github/workflows/binaries.yaml` and `.github/workflows/ghcr.yaml`, and `scripts/container-mirror.sh` through `container-tags`. A test in `xtask/src/container.rs` and `scripts/test-container-mirror.sh` pin the refusal. `scripts/container-release.sh` and `scripts/container-mirror.sh` also derive the minor alias with `${version%.*}`, which turns `1.0.0-rc.1` into `1.0.0-rc`.
-- **Decisions needed:** Whether a candidate moves `X.Y` and `latest`. Whether a data directory written by a candidate counts as an upgrade source for step 2 of the gate.
-- **Cost of keeping it:** The gate cannot pass.
-- **Breaking change if removed:** None to accept prerelease versions. The two decisions above are hard to reverse once a candidate is published.
-- **Fixable compatibly after the freeze:** Not applicable; step 3 cannot run until it is done.
+- **Reason:** Step 3 of the gate must publish and soak `1.0.0-rc.N`; the former stable-only validation prevented that publication.
+- **Owner decisions:** A candidate never moves any floating tag, including `X.Y`, any major alias, and `latest`. Stable releases compute aliases from stable versions alone. Every candidate's data directory is a supported upgrade source for step 2, with its own digest-pinned fixture that the final release must open.
+- **Implemented scope:** The parsed xtask version and shared shell validator accept only stable versions or `-rc.N` with positive `N`, without leading zeros or build metadata. Binary/GHCR workflows and Docker Hub mirroring use that grammar; candidates retain exact versions in archives, checksums, metadata, digest reports and immutable tags, and GitHub marks them as prereleases without latest promotion. Upgrade-source ordering includes each candidate before the final release.
+- **Verification limit:** Local policy, packaging-version and mocked publication checks pass; an actual candidate publication, its fixture capture from a published image and the 14-day soak remain unverified. Publication is a separately authorized action.
 
 #### 2. Decide the policy for the reserved `GCS_MIMIC_*` prefix
 
