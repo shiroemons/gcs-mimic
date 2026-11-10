@@ -1,6 +1,6 @@
 # Dockerで使う
 
-最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、イメージ名の後ろに`--scheme http`を付けるとHTTPになります。ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.16.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.16.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.16.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
+最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、イメージ名の後ろに`--scheme http`を付けるとHTTPになります。ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.17.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.17.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
 ```sh
 docker build -t gcs-mimic:local .
@@ -18,7 +18,7 @@ docker build -t gcs-mimic:local .
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
-  ghcr.io/shiroemons/gcs-mimic:0.16.0 --scheme http
+  ghcr.io/shiroemons/gcs-mimic:0.17.0 --scheme http
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -143,7 +143,7 @@ data/
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.16.0 --scheme http
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.17.0 --scheme http
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -279,7 +279,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:4443:4443 \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.16.0
+  ghcr.io/shiroemons/gcs-mimic:0.17.0
 ```
 
 検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
@@ -303,7 +303,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 `GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.14.0以降が必要です。
 0.13.0までは、`GCS_MIMIC_CORS_FALLBACK`の既定はどちらのモードでも`none`です。
 0.11.0までのリリースは返すリンクのアドレスを1つに固定するので、`GCS_MIMIC_API_BASE_URL`も指定してください。
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.16.0 --help`ですべての設定を確認できます。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 --help`ですべての設定を確認できます。
 
 ## バケットごとに設定する
 
