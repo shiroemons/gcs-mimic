@@ -256,9 +256,9 @@ another local tag, and exited 0.
 
 | Input | Executed value |
 | --- | --- |
-| Browser container | `node:24.22.1-bookworm-slim`, the digest pinned in the script, linux/arm64 |
-| Node | `v24.22.1` |
-| Chromium | `156.0.8078.79`, Debian package `156.0.8078.79-1~deb12u1`, installed with `apt-get`; the Debian archive serves only its latest build, so this is not the `156.0.8078.47` of the [signed browser run](signed-browser.md) |
+| Browser container | `node:24.22.2-trixie-slim`, the digest in `compatibility/dependency-status.json`, linux/arm64 |
+| Node | `v24.22.2` |
+| Chromium | `150.0.7871.181-1~deb13u1` from Debian trixie, through `scripts/install-chromium.sh` at the `snapshot.debian.org` timestamp recorded with it. Debian's newer 156 builds are in the security and proposed-updates suites, which this pinned archive does not serve, so this is not the 156 of the [signed browser run](signed-browser.md) |
 | Peer for the trusted listener | `curlimages/curl:8.23.0`, the digest pinned in `scripts/smoke-containers.sh` |
 | Frontend and page origin | `http://localhost:FRONTEND_PORT`, a random port written into `GCS_MIMIC_BUCKETS` as the recipe's `FRONTEND_PORT` |
 
@@ -271,23 +271,29 @@ signer signs inside the recipe's container.
 | Scenario | Browser observation |
 | --- | --- |
 | `navigation` | Top-level navigation shows the private bytes through URLs the built-in signer made for `http://localhost:PORT` and for `http://localhost` without the port, and the public bytes unsigned. The unsigned private object and the XML and JSON lists show `AuthenticationRequired` or `Anonymous` and reveal no object name. A tampered signature, an expired URL and a URL signed for `127.0.0.1:PORT` show `SignatureDoesNotMatch`, `ExpiredToken` and `SignatureDoesNotMatch` |
-| `page-stock` | From `http://localhost:FRONTEND_PORT`, fetch reads the public object through XML and JSON, sees the listed `Content-Type` and not the unlisted `ETag`; a browser PUT to the public bucket, an unsigned XML GET and a signed fetch GET of the private bucket are blocked, as their rules do not allow them. Anonymous JSON list, metadata and media read 401. A signed embed loads, while unsigned, tampered and expired embeds fail. A signed PUT with a preflighted `Content-Type` answers 200 and loads through its own signed URL. Tampered, expired, changed-`Content-Type` and unsigned uploads read 403, 400, 403 and 401; a request header outside the rule fails the preflight |
+| `page-stock` | From `http://localhost:FRONTEND_PORT`, fetch reads the public object through XML and JSON, sees the listed `Content-Type` and not the unlisted `ETag` (which the script confirms the server sends), and a `HEAD` reads its `Content-Type`; a browser PUT to the public bucket, an unsigned XML GET and a signed fetch GET of the private bucket are blocked, as their rules do not allow them. Anonymous JSON list, metadata and media read 401. A signed embed loads, while unsigned, tampered and expired embeds fail. A signed PUT with a preflighted `Content-Type` answers 200 and loads through its own signed URL. Tampered, expired, changed-`Content-Type` and unsigned uploads read 403, 400, 403 and 401; a request header outside the rule fails the preflight |
 | `page-denied-origin` | From `http://127.0.0.1:FRONTEND_PORT`, an origin the recipe does not list, the public object and the signed upload preflight are blocked, while a signed embed still loads, because CORS is not authorization |
-| `page-get-added` | After `GET` is added to the private bucket's rule, as the [README](../../../examples/strict-local/README.md) advises for pages that `fetch()` signed downloads, fetch reads the bytes; tampered, expired and unsigned downloads read 403 `SignatureDoesNotMatch`, 400 `ExpiredToken` and 401 `AuthenticationRequired` |
-| `network-audit` | Each Chromium net log records at least one connection, and all of them are to loopback |
+| `page-get-added` | After `GET` is added to the private bucket's rule, as the [README](../../../examples/strict-local/README.md) advises for pages that `fetch()` signed downloads, fetch reads the bytes; tampered, expired and unsigned downloads read 403 `SignatureDoesNotMatch`, 400 `ExpiredToken` and 401 `AuthenticationRequired`, and the URLs of the failed embeds are refused the same way, so those embeds failed at the server and not on a broken URL |
+| `network-audit` | Each Chromium net log records TCP connections, all of them to loopback on the published main listener's port or the page origin's port, and no UDP datagram was sent. The net logs also show that a blocked upload sent its `OPTIONS` preflight and no `PUT`, and that blocked reads were sent, so each `TypeError` is a CORS refusal and not a connection failure |
 
 From the application server's side, the script then confirms that the signed upload
 stored the exact bytes with its signed `Content-Type` and the test signer as owner,
 and that every refused or blocked upload left no object in either bucket. Only port
 4443 of the service is published.
 
-The check is hermetic while it runs. Chromium's name resolution fails everywhere but
-loopback through `--host-resolver-rules`, background networking, component updates
-and sync are off, and `network-audit` confirms from the net logs what the browser
-actually connected to. The net log filter was also checked against synthetic logs: it
-rejects a non-loopback connection and a log with no connections at all. Provisioning
-is separate: the first run pulls the pinned images and installs Chromium with
-`apt-get`, which contacts the Debian archive and no Google service.
+Every URL in the manifest is validated before the browser starts: each must be a
+signed URL for the private bucket on the published listener, and a signing failure
+stops the script. A scratch copy with one signing command made to fail exited 1 and
+ran no browser checks.
+
+The check is hermetic while it runs, in the sense `network-audit` measures. Chromium's
+name resolution fails everywhere but loopback through `--host-resolver-rules`, which
+blocks the Google hosts its own services otherwise try, and the net logs then bound
+what was sent: TCP connections only to the two loopback ports, and no UDP datagrams.
+The net log filters were also checked against synthetic logs: the destination filter
+rejects another port, a non-loopback connection, a UDP datagram and a log with no
+connections. Provisioning is separate: pulling the pinned images and installing
+Chromium contact Docker Hub and the Debian archive, and no Google service.
 
 What keeps DESIGN-101 `PARTIAL` is its remaining `known_deviations`, which this run
 does not change: the responses hyper writes for a malformed request head carry none
@@ -305,4 +311,10 @@ Limits:
   listener rather than editing `GCS_MIMIC_BUCKETS`; the container smoke test covers
   the reconciliation of an edited bucket document.
 - A browser ran no Rails direct upload and the recipe documents no signed POST policy,
-  so neither was run.
+  so neither was run. Of the request headers the private bucket's rule lists, only
+  `Content-Type` is sent; `Content-MD5`, `Content-Disposition`, `Cache-Control` and
+  `x-goog-content-length-range` are not exercised, and tampering changes the signature
+  value only.
+- The image was built once, from the source commit named in the transcript. Later
+  commits change the check, the ledger and the dependency records, and not `src/`,
+  `Cargo.toml`, `Cargo.lock` or the `Dockerfile`.
