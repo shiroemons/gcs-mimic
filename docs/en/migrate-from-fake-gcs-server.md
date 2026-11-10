@@ -6,7 +6,7 @@ gcs-mimic takes its everyday ergonomics from
 [fake-gcs-server](https://github.com/fsouza/fake-gcs-server), so most container
 setups move with a few changed lines. This page starts with what you give up,
 because that decides whether moving is worth it. It is written for gcs-mimic
-0.17.0 and fake-gcs-server 1.56.1.
+0.17.1 and fake-gcs-server 1.56.1.
 
 gcs-mimic is not a drop-in replacement for every setup.
 
@@ -48,7 +48,7 @@ Moving is probably not worth it yet if one of these is true:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.17.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.17.1
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data

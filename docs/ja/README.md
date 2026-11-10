@@ -243,7 +243,7 @@ gcs_emulator:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:

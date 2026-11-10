@@ -4,7 +4,7 @@
 
 This file has what an ordinary setup needs. Open a linked file only when its note matches your task. If something is not stated here, do not guess: find it in a linked file or say it is unknown.
 
-Examples use image tag 0.17.0, the latest release on 2026-11-10. Newer tags are listed at https://github.com/shiroemons/gcs-mimic/releases/latest. Pin an exact tag; `latest` can move to a new minor version with breaking changes. The same image is on Docker Hub as `shiroemons/gcs-mimic:0.17.0`, for linux/amd64 and linux/arm64.
+Examples use image tag 0.17.1, the latest release on 2026-11-10. Newer tags are listed at https://github.com/shiroemons/gcs-mimic/releases/latest. Pin an exact tag; `latest` can move to a new minor version with breaking changes. The same image is on Docker Hub as `shiroemons/gcs-mimic:0.17.1`, for linux/amd64 and linux/arm64.
 
 **Choose a setup**
 
@@ -22,7 +22,7 @@ Examples use image tag 0.17.0, the latest release on 2026-11-10. Newer tags are 
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -47,7 +47,7 @@ Start it with `docker compose up -d --wait`, which returns once the emulator is 
 
 ```yaml
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -90,7 +90,7 @@ Then point the application's servers at port 4444, for example `STORAGE_EMULATOR
 **Signed URLs for browsers in Setup C.** Add `GCS_MIMIC_TEST_SIGNER: enabled` to `environment`. The bucket's `cors` must list the browser's origin, `PUT` and `Content-Type`. This built-in signer's private key is published, so use it for local tests only. Save the key once:
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 test-signer credentials | jq -r .private_key > test-signer.pem
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.1 test-signer credentials | jq -r .private_key > test-signer.pem
 ```
 
 Give that file to your servers, for example with a read-only mount, then sign for the address the browser uses, never for port 4444:
@@ -112,13 +112,13 @@ url, err := storage.SignedURL("public-assets", "uploads/photo.jpg", &storage.Sig
 })
 ```
 
-The browser must send the signed `Content-Type`. To make a URL without code, run `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 url sign --base-url http://localhost:4443 --bucket public-assets --object a.txt --method PUT --expires 10m --header content-type:text/plain`.
+The browser must send the signed `Content-Type`. To make a URL without code, run `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.1 url sign --base-url http://localhost:4443 --bucket public-assets --object a.txt --method PUT --expires 10m --header content-type:text/plain`.
 
 **Without Compose**
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.17.0 --scheme http
+  ghcr.io/shiroemons/gcs-mimic:0.17.1 --scheme http
 curl -sS --fail --retry 30 --retry-all-errors --retry-delay 1 \
   -o /dev/null http://localhost:4443/_internal/ready
 curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
@@ -135,7 +135,7 @@ curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' 
 | `--backend memory` | Keep everything in RAM. Objects can use about half of the available memory by default, from 64 MiB to 1 GiB | `GCS_MIMIC_BACKEND: memory` |
 | `--log-level debug` | `debug`, `info`, `warn` or `error` | `GCS_MIMIC_LOG_LEVEL: debug` |
 
-**Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 --help` gives the default and range of each.
+**Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.1 --help` gives the default and range of each.
 
 - General: `--config`, `--log-level`
 - Listeners: `--scheme`, `--listen`, `--listen-http`, `--grpc-listen`, `--unix-socket`, `--trusted-listen`, `--trusted-principal`, `--trusted-allowed-hosts`
@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       gcs:
-        image: ghcr.io/shiroemons/gcs-mimic:0.17.0
+        image: ghcr.io/shiroemons/gcs-mimic:0.17.1
         env:
           GCS_MIMIC_SCHEME: http
         ports:
@@ -242,7 +242,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.1, Node.
 - The image has no shell and runs as UID/GID 10001. Do not write shell healthchecks or entrypoints. Files under `/data` must be readable by that user.
 - Files in `/var/lib/gcs-mimic` are opaque. Use the API, a `/data` mount or a sync directory.
 - A `/data` mount is applied on every startup and replaces API changes to the same object names.
-- Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.0 --help` lists every option.
+- Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.1 --help` lists every option.
 - A passing SDK scorecard means ordinary workflows work, not that the API is complete.
 
 **Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data` mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read and nothing warns about them, so `FAKE_GCS_SCHEME=http` leaves the server on HTTPS; use the matching flag or `GCS_MIMIC_*` variable. These do not carry over:
