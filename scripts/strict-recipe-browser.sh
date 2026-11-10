@@ -21,8 +21,8 @@ NODE
 fi
 
 if [ "${1:-}" = visit ] && [ "$#" = 3 ]; then
-  # Name resolution fails for everything but loopback, so no page or browser service can leave
-  # the machine; the net log audit then proves it from what the browser actually connected to.
+  # Browser services try Google hosts even with these flags off, so name resolution outside
+  # loopback is blocked here and the net log audit checks what was actually sent.
   args=(--headless --disable-gpu --no-sandbox --no-first-run --no-proxy-server
     --disable-background-networking --disable-component-update --disable-sync
     '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
@@ -33,7 +33,7 @@ fi
 
 if [ "$#" != 0 ]; then
   echo 'Usage: GCS_MIMIC_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh' >&2
-  echo 'Needs Docker with Compose and jq; only package installation in the browser container uses the network.' >&2
+  echo 'Needs Docker with Compose and jq; only pulling images and installing Chromium uses the network.' >&2
   exit 2
 fi
 
@@ -41,8 +41,9 @@ cd "$(dirname "$0")/.."
 export COMPOSE_FILE=examples/strict-local/compose.yaml
 export GCS_MIMIC_IMAGE=${GCS_MIMIC_IMAGE:-gcs-mimic:local}
 export GCS_MIMIC_PORT=0
-export FRONTEND_PORT=${FRONTEND_PORT:-$((20000 + RANDOM % 20000))}
-browser_image=${STRICT_BROWSER_IMAGE:-node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d}
+# Below the Linux ephemeral range, which Docker uses for the published port.
+export FRONTEND_PORT=${FRONTEND_PORT:-$((20000 + RANDOM % 12000))}
+browser_image=node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 project=gcs-mimic-strict-browser-$$
 container=$project-browser
@@ -50,10 +51,11 @@ work=$(mktemp -d)
 
 cleanup() {
   local status=$?
-  docker rm --force "$container" >/dev/null 2>&1 || true
   if [ "$status" != 0 ]; then
+    docker exec "$container" sh -c "tail -n 40 $harness/origin.log $harness/browser-*.log" >&2 || true
     docker compose -p "$project" logs --no-color --tail 40 gcs >&2 || true
   fi
+  docker rm --force "$container" >/dev/null 2>&1 || true
   docker compose -p "$project" down --volumes >/dev/null 2>&1 || true
   rm -r "$work"
   exit "$status"
@@ -109,6 +111,33 @@ page() {
     *) fail "page $name did not report success" ;;
   esac
 }
+# A fetch TypeError alone does not say why the request failed, so the net log must show the
+# method the browser actually sent for that object name.
+audit_sent() {
+  local log=$1 object=$2 method=$3
+  jq -e --arg object "$object" --arg method "$method" '
+    .constants.logEventTypes.URL_REQUEST_START_JOB as $start
+    | any(.events[]; .type == $start and (.params.url // "" | contains($object)) and .params.method == $method)' \
+    "$work/netlog/$log.json" >/dev/null || fail "$log sent no $method for $object"
+}
+# The preflight was sent and the write was not: the browser refused it for CORS.
+audit_preflight_only() {
+  local log=$1 object=$2
+  audit_sent "$log" "$object" OPTIONS
+  jq -e --arg object "$object" '
+    .constants.logEventTypes.URL_REQUEST_START_JOB as $start
+    | [.events[] | select(.type == $start and (.params.url // "" | contains($object))) | .params.method]
+    | all(. != "PUT")' "$work/netlog/$log.json" >/dev/null || fail "$log sent a PUT for $object after its preflight"
+}
+
+docker run --detach --name "$container" --network host "$browser_image" sleep infinity >/dev/null
+docker exec "$container" mkdir -p /app/scripts "$harness/netlog"
+docker cp -q scripts/install-chromium.sh "$container:/app/scripts/"
+docker exec "$container" bash /app/scripts/install-chromium.sh || fail 'Chromium could not be installed in the browser container'
+docker cp -q scripts/strict-recipe-browser.sh "$container:$harness/"
+docker cp -q scripts/strict-recipe-browser.html "$container:$harness/"
+docker exec "$container" chromium --version
+docker exec "$container" node --version
 
 docker compose -p "$project" config --quiet
 docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
@@ -122,7 +151,9 @@ docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .auth_mode == "s
 port=${address##*:}
 api=http://localhost:$port
 frontend=http://localhost:$FRONTEND_PORT
-echo "PASS: recipe up with image $GCS_MIMIC_IMAGE, only 4443 published, strict mode, test signer enabled"
+checkout=$(git rev-parse HEAD)
+echo "image under test: $GCS_MIMIC_IMAGE $(docker image inspect "$GCS_MIMIC_IMAGE" --format '{{.Id}}'), checkout $checkout"
+echo 'PASS: recipe up, only 4443 published, strict mode, test signer enabled'
 
 private_name=browser/private.txt
 private_body='private bytes for the browser'
@@ -136,59 +167,62 @@ seed app-public "$public_name" text/plain "$public_body"
 seed app-private "$picture_name" "$picture_type" "$picture_body"
 echo 'PASS: fixtures seeded through the unpublished trusted listener'
 
-# The built-in test signer signs when neither --signer nor --private-key is given.
+# The built-in test signer signs when neither --signer nor --private-key is given. Every URL is
+# assigned first: a failing command substitution in an argument list would not stop the script.
 type_header="content-type:$picture_type"
 past=(--timestamp 20000101T000000Z)
 download=$(sign_private "$private_name" GET)
+download_tampered=$(tamper "$download")
+download_expired=$(sign_private "$private_name" GET "${past[@]}")
 picture=$(sign_private "$picture_name" GET)
+picture_tampered=$(tamper "$picture")
+picture_expired=$(sign_private "$picture_name" GET "${past[@]}")
+upload=$(sign_private browser/uploaded.svg PUT --header "$type_header")
+uploaded=$(sign_private browser/uploaded.svg GET)
+upload_tampered=$(sign_private browser/tampered.svg PUT --header "$type_header")
+upload_tampered=$(tamper "$upload_tampered")
+upload_expired=$(sign_private browser/expired.svg PUT --header "$type_header" "${past[@]}")
+upload_wrong_type=$(sign_private browser/wrong-type.svg PUT --header "$type_header")
+upload_denied_header=$(sign_private browser/denied-header.svg PUT --header "$type_header")
+upload_denied_origin=$(sign_private browser/denied-origin.svg PUT --header "$type_header")
 portless=$(sign --base-url http://localhost --bucket app-private --object "$private_name" --method GET)
 [[ $portless == http://localhost/* ]] || fail 'the portless URL is not signed for http://localhost'
 portless=$api${portless#http://localhost}
 other_host=$(sign --base-url "http://127.0.0.1:$port" --bucket app-private --object "$private_name" --method GET)
+[[ $other_host == "http://127.0.0.1:$port/"* ]] || fail 'the other-host URL is not signed for 127.0.0.1'
 other_host=$api${other_host#"http://127.0.0.1:$port"}
-upload_tampered=$(sign_private browser/tampered.svg PUT --header "$type_header")
 jq -n \
   --arg api "$api" --arg allowedOrigin "$frontend" \
   --arg privateName "$private_name" --arg privateBody "$private_body" \
   --arg publicName "$public_name" --arg publicBody "$public_body" \
   --arg pictureName "$picture_name" --arg pictureType "$picture_type" --arg pictureBody "$picture_body" \
-  --arg download "$download" \
-  --arg downloadTampered "$(tamper "$download")" \
-  --arg downloadExpired "$(sign_private "$private_name" GET "${past[@]}")" \
-  --arg picture "$picture" \
-  --arg pictureTampered "$(tamper "$picture")" \
-  --arg pictureExpired "$(sign_private "$picture_name" GET "${past[@]}")" \
-  --arg upload "$(sign_private browser/uploaded.svg PUT --header "$type_header")" \
-  --arg uploaded "$(sign_private browser/uploaded.svg GET)" \
-  --arg uploadTampered "$(tamper "$upload_tampered")" \
-  --arg uploadExpired "$(sign_private browser/expired.svg PUT --header "$type_header" "${past[@]}")" \
-  --arg uploadWrongType "$(sign_private browser/wrong-type.svg PUT --header "$type_header")" \
-  --arg uploadDeniedHeader "$(sign_private browser/denied-header.svg PUT --header "$type_header")" \
-  --arg uploadDeniedOrigin "$(sign_private browser/denied-origin.svg PUT --header "$type_header")" \
+  --arg download "$download" --arg downloadTampered "$download_tampered" --arg downloadExpired "$download_expired" \
+  --arg picture "$picture" --arg pictureTampered "$picture_tampered" --arg pictureExpired "$picture_expired" \
+  --arg upload "$upload" --arg uploaded "$uploaded" \
+  --arg uploadTampered "$upload_tampered" --arg uploadExpired "$upload_expired" \
+  --arg uploadWrongType "$upload_wrong_type" --arg uploadDeniedHeader "$upload_denied_header" \
+  --arg uploadDeniedOrigin "$upload_denied_origin" \
   '{api: $api, allowedOrigin: $allowedOrigin,
     objects: {
       private: {name: $privateName, body: $privateBody},
       public: {name: $publicName, body: $publicBody, contentType: "text/plain"},
       picture: {name: $pictureName},
-      anonymousUpload: "browser/anonymous.svg"},
+      anonymousUpload: "browser/anonymous.svg",
+      anonymousPublicUpload: "browser/anonymous-public.txt"},
     picture: {contentType: $pictureType, body: $pictureBody, width: 3},
     urls: {download: $download, downloadTampered: $downloadTampered, downloadExpired: $downloadExpired,
       picture: $picture, pictureTampered: $pictureTampered, pictureExpired: $pictureExpired,
       upload: $upload, uploaded: $uploaded, uploadTampered: $uploadTampered, uploadExpired: $uploadExpired,
       uploadWrongType: $uploadWrongType, uploadDeniedHeader: $uploadDeniedHeader, uploadDeniedOrigin: $uploadDeniedOrigin}}' \
   > "$work/manifest.json"
-
-docker run --detach --name "$container" --network host "$browser_image" sleep infinity >/dev/null
-docker exec "$container" sh -c 'command -v chromium >/dev/null || {
-  apt-get update >/var/log/browser-install.log 2>&1 &&
-  apt-get install -y --no-install-recommends chromium >>/var/log/browser-install.log 2>&1
-}' || fail 'Chromium could not be installed in the browser container'
-docker exec "$container" mkdir -p "$harness/netlog"
-docker cp -q scripts/strict-recipe-browser.sh "$container:$harness/"
-docker cp -q scripts/strict-recipe-browser.html "$container:$harness/"
+# The negative checks mean nothing unless each URL is a real signed URL for the private bucket
+# on the published listener, so a broken URL must fail here instead of being "refused" later.
+jq -e --arg prefix "$api/app-private/" '
+  .urls | length == 13 and all(to_entries[];
+    (.value | startswith($prefix)) and (.value | contains("X-Goog-Algorithm=GOOG4-RSA-SHA256"))
+    and (.value | test("X-Goog-Signature=[0-9a-f]+$|X-Goog-Signature=[0-9a-f]+&")))' \
+  "$work/manifest.json" >/dev/null || fail 'the manifest holds a URL that is not signed for the published listener'
 docker cp -q "$work/manifest.json" "$container:$harness/"
-docker exec "$container" chromium --version
-docker exec "$container" node --version
 docker exec --detach "$container" bash "$harness/strict-recipe-browser.sh" origin "$FRONTEND_PORT"
 for _ in {1..50}; do
   if docker exec "$container" test -f "$harness/origin.ready"; then break; fi
@@ -202,8 +236,8 @@ navigate public "$api/app-public/$public_name" "$public_body"
 navigate unsigned "$api/app-private/$private_name" AuthenticationRequired "$private_body"
 navigate list-xml "$api/app-private" AuthenticationRequired "$private_name"
 navigate list-json "$api/storage/v1/b/app-private/o" Anonymous "$private_name"
-navigate tampered "$(tamper "$download")" SignatureDoesNotMatch "$private_body"
-navigate expired "$(sign_private "$private_name" GET "${past[@]}")" ExpiredToken "$private_body"
+navigate tampered "$download_tampered" SignatureDoesNotMatch "$private_body"
+navigate expired "$download_expired" ExpiredToken "$private_body"
 navigate other-host "$other_host" SignatureDoesNotMatch "$private_body"
 echo 'PASS: scenario navigation'
 
@@ -224,21 +258,35 @@ peer --fail 'http://gcs:4444/storage/v1/b/app-private/o' \
 peer --fail 'http://gcs:4444/storage/v1/b/app-public/o' \
   | jq -e '[.items[].name] == ["browser/public.txt"]' >/dev/null \
   || fail 'a refused browser write reached the public bucket'
+# The page expects ETag to stay hidden, which only means something if the server sends it.
+curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --head "http://$address/app-public/$public_name" \
+  | tr -d '\r' | grep -i '^etag:' >/dev/null || fail 'the public object has no ETag response header'
 echo 'PASS: the signed upload stored exact bytes owned by the test signer; every refused or blocked write published nothing'
 
 # The README's own suggestion for pages that fetch() signed downloads, applied to the live bucket.
-peer --fail -X PATCH -H 'Content-Type: application/json' --data-binary "$(jq -n --arg origin "$frontend" \
-  '{cors: [{origin: [$origin], method: ["PUT", "GET"], responseHeader: ["Content-Type"], maxAgeSeconds: 3600}]}')" \
+cors_with_get=$(jq -n --arg origin "$frontend" \
+  '{cors: [{origin: [$origin], method: ["PUT", "GET"], responseHeader: ["Content-Type"], maxAgeSeconds: 3600}]}')
+peer --fail -X PATCH -H 'Content-Type: application/json' --data-binary "$cors_with_get" \
   'http://gcs:4444/storage/v1/b/app-private' >/dev/null
 page get-added "$frontend/?role=allowed&phase=get-added"
 echo 'PASS: scenario page-get-added'
 
 docker cp -q "$container:$harness/netlog" "$work/netlog"
+audit_preflight_only stock-allowed /browser/anonymous-public.txt
+audit_preflight_only stock-allowed /browser/denied-header.svg
+audit_preflight_only stock-denied /browser/denied-origin.svg
+audit_sent stock-allowed /browser/private.txt GET
+audit_sent stock-denied /browser/public.txt GET
+echo 'PASS: every blocked upload sent its preflight and no PUT; blocked reads reached the server'
 for log in "$work"/netlog/*.json; do
-  jq -e '.constants.logEventTypes.TCP_CONNECT_ATTEMPT as $attempt
-    | [.events[] | select(.type == $attempt and .params.address != null) | .params.address] as $addresses
-    | ($addresses | length) > 0 and all($addresses[]; startswith("127.0.0.1:") or startswith("[::1]:"))' \
-    "$log" >/dev/null || fail "the browser connected outside loopback in $(basename "$log")"
+  jq -e --arg main "$port" --arg page "$FRONTEND_PORT" '
+    .constants.logEventTypes as $types
+    | [.events[] | select(.type == $types.TCP_CONNECT_ATTEMPT and .params.address != null) | .params.address] as $addresses
+    | ($addresses | length) > 0
+      and all($addresses[]; . == ("127.0.0.1:" + $main) or . == ("[::1]:" + $main)
+                         or . == ("127.0.0.1:" + $page) or . == ("[::1]:" + $page))
+      and ([.events[] | select(.type == $types.UDP_BYTES_SENT)] | length) == 0' \
+    "$log" >/dev/null || fail "the browser connected elsewhere or sent UDP in $(basename "$log")"
 done
-echo "PASS: scenario network-audit: every browser connection in $(find "$work/netlog" -name '*.json' | wc -l | tr -d ' ') net logs stayed on loopback"
+echo "PASS: scenario network-audit: TCP connections in $(find "$work/netlog" -name '*.json' | wc -l | tr -d ' ') net logs went only to the published listener and the page origin on loopback, no UDP datagrams were sent, and name resolution outside loopback is blocked"
 echo 'PASS: strict local recipe browser check completed'

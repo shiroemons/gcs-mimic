@@ -223,9 +223,29 @@
         "callers": ["Dockerfile"],
         "purpose": "Release build input: musl-tools, musl-dev and musl from the Debian musl source package give the Dockerfile's build stage musl-gcc, which compiles the C dependencies and links the static container binary. The Dockerfile bind-mounts the script read-only at /app; apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, and the daily check compares the version with Debian trixie.",
         "source_url": "https://sources.debian.org/api/src/musl/"
+      },
+      {
+        "name": "chromium", "release_input": false, "suite": "trixie", "version": "150.0.7871.181-1~deb13u1",
+        "snapshot": "20261104T212339Z",
+        "script": "scripts/install-chromium.sh",
+        "callers": ["scripts/strict-recipe-browser.sh"],
+        "purpose": "Development-only browser for the strict local recipe check, inside the digest-pinned Node image. The snapshot's trixie suite carries this version; builds only in trixie-security are not compared.",
+        "source_url": "https://sources.debian.org/api/src/chromium/"
       }
     ],
     "digests": [
+      {
+        "repository": "library/node", "reference": "node:24.22.2-trixie-slim", "release_input": false,
+        "tag": "24.22.2-trixie-slim", "latest_tag": "24-trixie-slim",
+        "digest": "sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d",
+        "platforms": {
+          "linux/amd64": "sha256:947528b072c170d980592b851c802155d84dcad60d3f550b8a0451b84d65dabd",
+          "linux/arm64": "sha256:6bf5010c9b37bcb8a580b99181dcc73344e15a2fb8d8345af13a81fd89d9db71"
+        },
+        "source_url": "https://github.com/nodejs/docker-node",
+        "purpose": "Test-only Node and Debian base for the browser in scripts/strict-recipe-browser.sh; not shipped in the runtime image.",
+        "update_scope": "Registry inspection on 2026-11-10: Node 24.22.2 on Debian trixie slim, which is the 24-trixie-slim tag's manifest. Node 24 is the line the repository's browser harnesses use."
+      },
       {
         "repository": "library/composer", "reference": "composer:2.11.1", "release_input": false,
         "tag": "2.11.1", "latest_tag": "latest",

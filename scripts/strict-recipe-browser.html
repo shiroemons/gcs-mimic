@@ -64,7 +64,10 @@
     check(response.headers.get("ETag") === null, "a response header the bucket's rule does not list stays hidden");
     response = await call(`${api}/storage/v1/b/app-public/o/${encodeURIComponent(objects.public.name)}?alt=media`);
     check(response.ok && await response.text() === objects.public.body, "the JSON API serves the public object anonymously");
-    await blocked(publicUrl, put({"Content-Type": "text/plain"}, "anonymous"), "the public bucket's rule does not allow a browser PUT");
+    response = await call(publicUrl, {method: "HEAD"});
+    check(response.ok && response.headers.get("Content-Type") === objects.public.contentType, "HEAD reads the public object's Content-Type");
+    await blocked(`${api}/app-public/${objects.anonymousPublicUpload}`, put({"Content-Type": "text/plain"}, "anonymous"),
+      "the public bucket's rule does not allow a browser PUT");
 
     await blocked(unsignedPrivate, {}, "the private bucket's rule does not allow an unsigned XML fetch");
     const listing = await refused(`${api}/storage/v1/b/app-private/o`, {}, 401, "Anonymous", "an anonymous JSON list of the private bucket is refused");
@@ -93,6 +96,10 @@
     await refused(urls.downloadTampered, {}, 403, "SignatureDoesNotMatch", "a tampered signed download is refused");
     await refused(urls.downloadExpired, {}, 400, "ExpiredToken", "an expired signed download is refused");
     await refused(unsignedPrivate, {}, 401, "AuthenticationRequired", "an unsigned download is refused although the origin and method match");
+    // The embeds that failed in the stock phase are refused by the server, not merely broken URLs.
+    await refused(urls.pictureTampered, {}, 403, "SignatureDoesNotMatch", "the tampered embed's URL is refused by signature");
+    await refused(urls.pictureExpired, {}, 400, "ExpiredToken", "the expired embed's URL is refused by expiry");
+    await refused(`${api}/app-private/${objects.picture.name}`, {}, 401, "AuthenticationRequired", "the unsigned embed's URL is refused as anonymous");
   } else {
     throw new Error(`unknown role or phase: ${role} ${phase}`);
   }
