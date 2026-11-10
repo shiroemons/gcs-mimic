@@ -250,12 +250,43 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             assert_eq!(server.request("GET", path, "").json(), before);
         }
         server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{"isLive":true}}]}}).to_string()).json_envelope(400, invalid_reason);
-        for condition in [
-            json!({"matchesPattern":".*"}),
-            json!({"sizeAboveBytes":"1"}),
-            json!({"sizeBelowBytes":"9"}),
-        ] {
-            server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}}).to_string()).json_envelope(400, "badRequest");
+        server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}).to_string()).json_envelope(400, "badRequest");
+        for field in ["sizeAboveBytes", "sizeBelowBytes"] {
+            for size in [
+                json!(0),
+                json!("0"),
+                json!(1),
+                json!("1"),
+                json!(5497558138880_i64),
+                json!("5497558138880"),
+            ] {
+                let lifecycle =
+                    json!({"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]});
+                let reply =
+                    server.request("PATCH", path, &json!({"lifecycle":lifecycle}).to_string());
+                reply.expect(200);
+                assert_eq!(reply.json()["lifecycle"], lifecycle);
+                assert_eq!(
+                    server.request("GET", path, "").json()["lifecycle"],
+                    lifecycle
+                );
+            }
+            let before = server.request("GET", path, "").json();
+            for size in [
+                json!(5497558138881_i64),
+                json!("5497558138881"),
+                json!(-1),
+                json!("-1"),
+                json!(1.5),
+                json!("1.5"),
+                json!(true),
+                json!([]),
+                json!({}),
+                json!("9223372036854775808"),
+            ] {
+                server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]}}).to_string()).json_envelope(400, invalid_reason);
+                assert_eq!(server.request("GET", path, "").json(), before);
+            }
         }
         let single = json!({"action":{"type":"Delete"},"condition":{"age":1}});
         server
@@ -2760,17 +2791,49 @@ fn bucket_core_settings_round_trip() {
         let sdk = server.request("POST", "/storage/v1/b?project=project", r#"{"name":"sdk-settings","lifecycle":{"rule":[]},"versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
         sdk.expect(200);
         assert_settings(&sdk.json(), profile, true, true);
-        for lifecycle in [
-            json!({"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}),
-            json!({"rule":[{"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}]}),
-        ] {
-            server
-                .request(
+        server.request("POST", "/storage/v1/b?project=project", &json!({"name":"rejected-lifecycle","lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}).to_string()).json_envelope(400, "badRequest");
+        for field in ["sizeAboveBytes", "sizeBelowBytes"] {
+            for (index, size) in [
+                json!(0),
+                json!("1"),
+                json!(5497558138880_i64),
+                json!("5497558138880"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let name = format!("size-{}-{index}", field.to_ascii_lowercase());
+                let lifecycle =
+                    json!({"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]});
+                let reply = server.request(
                     "POST",
                     "/storage/v1/b?project=project",
-                    &json!({"name":"rejected-lifecycle","lifecycle":lifecycle}).to_string(),
-                )
-                .json_envelope(400, "badRequest");
+                    &json!({"name":name,"lifecycle":lifecycle}).to_string(),
+                );
+                reply.expect(200);
+                assert_eq!(reply.json()["lifecycle"], lifecycle);
+                assert_eq!(
+                    server
+                        .request("GET", &format!("/storage/v1/b/{name}"), "")
+                        .json()["lifecycle"],
+                    lifecycle
+                );
+            }
+            for size in [
+                json!(5497558138881_i64),
+                json!("5497558138881"),
+                json!(-1),
+                json!("-1"),
+                json!(1.5),
+                json!(true),
+                json!([]),
+                json!({}),
+            ] {
+                server.request("POST", "/storage/v1/b?project=project", &json!({"name":"invalid-lifecycle-size","lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]}}).to_string()).expect(400);
+                server
+                    .request("GET", "/storage/v1/b/invalid-lifecycle-size", "")
+                    .expect(404);
+            }
         }
     }
 }

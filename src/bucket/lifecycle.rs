@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 pub(crate) mod evaluate;
+mod size;
+pub(crate) use size::LifecycleSize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LifecycleRule {
@@ -48,6 +50,10 @@ pub(crate) struct LifecycleCondition {
     pub noncurrent_time_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_newer_versions: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_above_bytes: Option<LifecycleSize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_below_bytes: Option<LifecycleSize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,6 +211,8 @@ const CONDITIONS: &[&str] = &[
     "matchesSuffix",
     "noncurrentTimeBefore",
     "numNewerVersions",
+    "sizeAboveBytes",
+    "sizeBelowBytes",
 ];
 
 pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
@@ -254,10 +262,7 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
             .ok_or_else(|| invalid("condition", LifecycleExample::AgeCondition))?;
         let mut count = 0;
         for (field, value) in condition {
-            if matches!(
-                field.as_str(),
-                "matchesPattern" | "sizeAboveBytes" | "sizeBelowBytes"
-            ) {
+            if field == "matchesPattern" {
                 return Err(CatalogError::UnsupportedMetadata(format!(
                     "lifecycle.condition.{field}"
                 )));
@@ -316,6 +321,14 @@ fn validate_condition(
             if !value.is_boolean() {
                 return Err(invalid(field, "true or false"));
             }
+        }
+        "sizeAboveBytes" | "sizeBelowBytes" => {
+            LifecycleSize::deserialize(value).map_err(|_| {
+                invalid(
+                    field,
+                    "an int64 from 0 to 5497558138880 (5 TiB), as a string or number",
+                )
+            })?;
         }
         _ => {
             let values = value.as_array().ok_or_else(|| {

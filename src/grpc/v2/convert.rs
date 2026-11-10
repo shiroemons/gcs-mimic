@@ -90,6 +90,8 @@ impl From<&pb::bucket::lifecycle::Rule> for LifecycleRule {
                 matches_suffix: condition.matches_suffix.clone(),
                 noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
                 num_newer_versions: condition.num_newer_versions.map(i64::from),
+                size_above_bytes: None,
+                size_below_bytes: None,
             })
             .unwrap_or_default();
         Self { action, condition }
@@ -101,6 +103,11 @@ impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
 
     fn try_from(value: &LifecycleRule) -> Result<Self, Self::Error> {
         let condition = &value.condition;
+        if condition.size_above_bytes.is_some() || condition.size_below_bytes.is_some() {
+            return Err(ObjectError::UnsupportedMetadata(
+                "lifecycle sizeAboveBytes/sizeBelowBytes cannot be represented by Storage v2; use the JSON API".into(),
+            ));
+        }
         let days = |number: Option<i64>| {
             number.map(i32::try_from).transpose().map_err(|error| {
                 ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
@@ -470,6 +477,18 @@ mod tests {
                 lifecycle_rules(Some(&pb::bucket::Lifecycle { rule: vec![rule] })).unwrap_err();
             assert_eq!(error.code(), tonic::Code::InvalidArgument);
             assert!(error.message().contains(field), "{error}");
+        }
+    }
+
+    #[test]
+    fn grpc_lifecycle_refuses_size_conditions_instead_of_dropping_them() {
+        for field in ["sizeAboveBytes", "sizeBelowBytes"] {
+            let stored =
+                vec![serde_json::json!({"action":{"type":"Delete"},"condition":{field:"1"}})];
+            let error = lifecycle(&stored).expect_err("protobuf has no size condition fields");
+            assert_eq!(error.code(), tonic::Code::Unimplemented);
+            assert!(error.message().contains(field));
+            assert!(error.message().contains("JSON API"));
         }
     }
 
