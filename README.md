@@ -386,9 +386,12 @@ Apple-silicon Mac under Docker Desktop; the badge at the top shows the current
 image size. Each server held up to 1,000 objects. floci-gcp ran in its `hybrid`
 mode, which keeps objects in memory and writes them to disk in the background,
 so its uploads do not wait for the disk and its memory grows with the stored
-objects. Memory is process RSS. Past about 1,000 distinct objects between
-writes, gcs-mimic reads the rest at around 7,500 requests per second. See the
+objects. Memory is process RSS. See the
 [conditions and full results](docs/en/evidence/product-comparison-0.16.0.md).
+Past about 1,000 distinct objects between writes, 0.16.0 read the rest at around
+7,500 requests per second. 0.17.0
+[reads them at 36,000 to 63,000](docs/en/evidence/read-path-performance.md#reads-past-the-read-cache-and-ram-reads)
+with 8 or more connections.
 
 ### Feature comparison
 

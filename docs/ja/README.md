@@ -345,7 +345,7 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 
 2026-11-09に0.16.0、1.56.1、v2026.07.19、0.12.0をApple siliconのMac 1台のDocker Desktop上で測定しました。最新のイメージサイズは冒頭のバッジで確認できます。
 各サーバーのオブジェクトは1,000個までです。floci-gcpは`hybrid`モードで動かしました。オブジェクトをメモリに持ってバックグラウンドでディスクへ書き出すため、アップロードはディスクを待たず、メモリは保存量に応じて増えます。メモリはプロセスのRSSです。
-書き込みの間に読むオブジェクトが約1,000個を超えると、gcs-mimicは超えた分を毎秒7,500リクエスト前後で読みます。
+書き込みの間に読むオブジェクトが約1,000個を超えると、0.16.0は超えた分を毎秒7,500リクエスト前後で読みました。0.17.0は8接続以上で[毎秒36,000〜63,000リクエスト（英語）](../en/evidence/read-path-performance.md#reads-past-the-read-cache-and-ram-reads)です。
 [測定条件と全結果（英語）](../en/evidence/product-comparison-0.16.0.md)を参照してください。
 
 ### 機能の比較
