@@ -1,7 +1,10 @@
 //! Pure lifecycle selection for one live or noncurrent object version.
 
-use super::{LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleRule};
+use super::{
+    LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleMatchClass, LifecycleRule,
+};
 use crate::bucket::StorageClass;
+use crate::object::unix_nanos::UnixNanos;
 use std::{
     io::Write,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -46,11 +49,22 @@ pub(crate) fn evaluate(
     facts: &VersionFacts<'_>,
     now: SystemTime,
 ) -> Evaluation {
-    let candidates = rules.iter().filter_map(|rule| {
-        let action = planned_action(&rule.action, facts.storage_class)?;
-        let due = eligible_at(&rule.condition, facts, now)?;
-        Some((action, due))
-    });
+    let mut candidates: [Option<(PlannedAction, SystemTime)>; 5] = [None; 5];
+    for rule in rules {
+        let Some(action) = planned_action(rule.action, facts.storage_class) else {
+            continue;
+        };
+        let Some(due) = eligible_at(&rule.condition, facts, now) else {
+            continue;
+        };
+        // Distinct reachable actions have distinct priorities; same-action rules are ORed.
+        if let Some(candidate) = candidates.get_mut(usize::from(action.priority()))
+            && candidate.is_none_or(|(_, current)| due < current)
+        {
+            *candidate = Some((action, due));
+        }
+    }
+    let candidates = candidates.into_iter().flatten();
     let action = candidates
         .clone()
         .filter(|(_, due)| *due <= now)
@@ -82,15 +96,13 @@ impl PlannedAction {
     }
 }
 
-fn planned_action(action: &LifecycleAction, current: StorageClass) -> Option<PlannedAction> {
-    match action.kind.as_str() {
-        "Delete" => Some(PlannedAction::Delete),
-        "SetStorageClass" => {
-            let target = action.storage_class.as_deref()?.parse().ok()?;
+fn planned_action(action: LifecycleAction, current: StorageClass) -> Option<PlannedAction> {
+    match action {
+        LifecycleAction::Delete => Some(PlannedAction::Delete),
+        LifecycleAction::SetStorageClass(target) => {
             supported_transition(current, target).then_some(PlannedAction::SetStorageClass(target))
         }
-        "AbortIncompleteMultipartUpload" => None,
-        _ => None,
+        LifecycleAction::AbortIncompleteMultipartUpload => None,
     }
 }
 
@@ -161,8 +173,7 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
         && (condition.matches_storage_class.is_empty()
             || condition
                 .matches_storage_class
-                .iter()
-                .any(|class| class == facts.storage_class.as_str()))
+                .contains(&LifecycleMatchClass::Supported(facts.storage_class)))
         && condition
             .size_above_bytes
             .is_none_or(|size| facts.size > size.bytes())
@@ -198,7 +209,15 @@ impl LifecycleDate {
 
 fn after_days(origin: SystemTime, days: i64) -> Option<SystemTime> {
     let micros = days.checked_mul(86_400_000_000)?;
-    origin.checked_add(Duration::from_micros(u64::try_from(micros).ok()?))
+    let deadline = origin.checked_add(Duration::from_micros(u64::try_from(micros).ok()?))?;
+    catalog_deadline(deadline)
+}
+
+fn catalog_deadline(deadline: SystemTime) -> Option<SystemTime> {
+    let timestamp = UnixNanos::from(deadline);
+    let micros =
+        i128::from(timestamp.secs()) * 1_000_000 + i128::from(timestamp.subsec_nanos() / 1000);
+    i64::try_from(micros).ok().map(|_| deadline)
 }
 
 fn next_midnight(time: SystemTime) -> Option<SystemTime> {
@@ -215,5 +234,5 @@ fn next_midnight(time: SystemTime) -> Option<SystemTime> {
             }
         }
     };
-    time.checked_add(remaining)
+    catalog_deadline(time.checked_add(remaining)?)
 }

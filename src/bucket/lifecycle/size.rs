@@ -14,9 +14,7 @@ impl LifecycleSize {
 impl<'de> Deserialize<'de> for LifecycleSize {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
-        let bytes = value
-            .as_i64()
-            .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        let bytes = crate::serde_util::int64(&value)
             .filter(|bytes| (0..=5 * 1024_i64.pow(4)).contains(bytes))
             .and_then(|bytes| u64::try_from(bytes).ok())
             .ok_or_else(|| D::Error::custom("lifecycle size must be an int64 from 0 to 5 TiB"))?;
@@ -45,7 +43,7 @@ mod tests {
                         &json!({"rule":[{"action":{"type":"Delete"},"condition":condition}]}),
                     )
                     .expect("valid size configuration");
-                    assert_eq!(stored[0]["condition"], condition);
+                    assert_eq!(stored[0]["condition"][field], bytes.to_string());
                     let typed = LifecycleRule::from_stored(&stored).expect("valid stored rule");
                     let size = typed[0]
                         .condition
@@ -58,8 +56,22 @@ mod tests {
                     );
                     let encoded = LifecycleRule::to_stored(&typed).expect("valid typed rule");
                     assert_eq!(encoded[0]["condition"][field], bytes.to_string());
+                    assert_eq!(encoded, stored);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn lifecycle_size_normalizes_decimal_spelling_before_storage() {
+        for (input, expected) in [("+1", "1"), ("007", "7"), ("-0", "0")] {
+            let stored = parse(&json!({"rule":[{"action":{"type":"Delete"},"condition":{"sizeAboveBytes":input,"sizeBelowBytes":input}}]})).expect("valid decimal string");
+            assert_eq!(
+                stored[0]["condition"],
+                json!({"sizeAboveBytes":expected,"sizeBelowBytes":expected})
+            );
+            let typed = LifecycleRule::from_stored(&stored).expect("canonical rule");
+            assert_eq!(LifecycleRule::to_stored(&typed).expect("roundtrip"), stored);
         }
     }
 

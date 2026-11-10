@@ -1,7 +1,7 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate},
+    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate, CatalogError},
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
@@ -515,6 +515,12 @@ impl Storage {
             ..Default::default()
         })?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
+        let conditions = BucketConditions {
+            if_metageneration_match: Some(r.if_metageneration_match),
+            ..Default::default()
+        };
+        self.check_lifecycle_response(bucket, conditions, &access)
+            .await?;
         let record = self
             .state
             .catalog
@@ -524,15 +530,12 @@ impl Storage {
                     lock_retention_policy: true,
                     ..Default::default()
                 },
-                BucketConditions {
-                    if_metageneration_match: Some(r.if_metageneration_match),
-                    ..Default::default()
-                },
+                conditions,
                 &access,
             )
             .await
             .map_err(super::bucket_update::input_error)?;
-        let mut result = convert::bucket(&record)?;
+        let mut result = convert::bucket(&record, None)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }
@@ -654,6 +657,25 @@ impl Storage {
             permissions,
         }))
     }
+    async fn check_lifecycle_response(
+        &self,
+        bucket: &str,
+        conditions: BucketConditions,
+        access: &BucketAccess,
+    ) -> Result<(), Status> {
+        let record = self
+            .state
+            .catalog
+            .get_bucket(bucket, access)
+            .await?
+            .ok_or_else(|| Status::from(CatalogError::NotFound))?;
+        if !conditions.hold(record.metageneration) {
+            return Err(CatalogError::PreconditionFailed.into());
+        }
+        convert::lifecycle(&record.lifecycle)?;
+        Ok(())
+    }
+
     pub(super) async fn update_bucket(
         &self,
         request: Request<pb::UpdateBucketRequest>,
@@ -676,13 +698,18 @@ impl Storage {
         let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
         let conditions = bucket_conditions!(r);
+        if update.lifecycle.is_none() {
+            // shortcut: without a metageneration match, JSON updates can race this check; move it into the catalog transaction when cross-protocol atomicity is added.
+            self.check_lifecycle_response(bucket, conditions, &access)
+                .await?;
+        }
         let record = self
             .state
             .catalog
             .patch_bucket(bucket, update, conditions, &access)
             .await
             .map_err(super::bucket_update::input_error)?;
-        let mut result = convert::bucket(&record)?;
+        let mut result = convert::bucket(&record, None)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }
@@ -2099,6 +2126,83 @@ mod tests {
         assert_eq!(read.metadata["replace"], "yes");
         assert_eq!(read.temporary_hold.as_bool(), Some(true));
         s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_lifecycle_size_rejection_precedes_bucket_updates_and_retention_lock() {
+        let (storage, _dir) = setup().await;
+        let bucket = "update-copy-bucket";
+        let resource = "projects/_/buckets/update-copy-bucket";
+        let before = storage
+            .state
+            .catalog
+            .patch_bucket(
+                bucket,
+                BucketMetadataUpdate {
+                    lifecycle: Some(vec![
+                        json!({"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}),
+                    ]),
+                    retention_period: Some(Some(3600)),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+            .unwrap();
+        for metageneration in [None, Some(before.metageneration)] {
+            let update = pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: resource.into(),
+                    labels: [("changed".into(), "yes".into())].into(),
+                    ..Default::default()
+                }),
+                if_metageneration_match: metageneration,
+                update_mask: fixtures::mask(&["labels"]),
+                ..Default::default()
+            };
+            assert_code(
+                storage.update_bucket(Request::new(update), None).await,
+                Code::Unimplemented,
+            );
+        }
+        let lock = pb::LockBucketRetentionPolicyRequest {
+            bucket: resource.into(),
+            if_metageneration_match: before.metageneration,
+        };
+        assert_code(
+            storage
+                .lock_bucket_retention_policy(Request::new(lock), None)
+                .await,
+            Code::Unimplemented,
+        );
+        let after = storage
+            .state
+            .catalog
+            .get_bucket(bucket, PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.metageneration, before.metageneration);
+        assert_eq!(after.labels, before.labels);
+        assert_eq!(after.lifecycle, before.lifecycle);
+        assert!(!after.retention_policy.unwrap().is_locked);
+        let clear = pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: resource.into(),
+                ..Default::default()
+            }),
+            update_mask: fixtures::mask(&["lifecycle"]),
+            ..Default::default()
+        };
+        let cleared = storage
+            .update_bucket(Request::new(clear), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(cleared.lifecycle.is_none());
+        assert_eq!(cleared.metageneration, before.metageneration + 1);
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

@@ -388,7 +388,7 @@ impl Storage {
         if !bucket_conditions!(request).hold(record.metageneration) {
             return Err(access_status(CatalogError::PreconditionFailed, caller));
         }
-        let mut bucket = convert::bucket(&record)?;
+        let mut bucket = convert::bucket(&record, request.read_mask.as_ref())?;
         if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;
         }
@@ -456,7 +456,7 @@ impl Storage {
             .insert_bucket(record)
             .await
             .map_err(|error| access_status(error, caller))?;
-        let mut bucket = convert::bucket(&record)?;
+        let mut bucket = convert::bucket(&record, None)?;
         self.add_bucket_acl(caller, &mut bucket).await?;
         Ok(Response::new(bucket))
     }
@@ -542,7 +542,7 @@ impl Storage {
         .into_iter();
         let mut buckets = Vec::with_capacity(page.items.len());
         for record in &page.items {
-            let mut bucket = convert::bucket(record)?;
+            let mut bucket = convert::bucket(record, request.read_mask.as_ref())?;
             if let Some(Some(projection)) = projections.next() {
                 self.apply_bucket_acl(&mut bucket, &projection);
             }
@@ -1045,6 +1045,87 @@ mod tests {
             .create_bucket(Request::new(request), None)
             .await
             .unwrap();
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_lifecycle_sizes_only_block_reads_that_request_lifecycle() {
+        let (_dir, storage) = storage(false).await;
+        let record = json::parse_insert(
+            br#"{"name":"json-size-bucket","lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"sizeBelowBytes":100}}]}}"#,
+            "p",
+            storage.state.clock.now(),
+        ).unwrap();
+        storage.state.catalog.insert_bucket(record).await.unwrap();
+        storage
+            .create_bucket(Request::new(create("plain-bucket")), None)
+            .await
+            .unwrap();
+        for read_mask in [
+            None,
+            fixtures::mask(&[]),
+            fixtures::mask(&["*"]),
+            fixtures::mask(&["lifecycle"]),
+        ] {
+            assert_code(
+                storage
+                    .get_bucket(
+                        Request::new(pb::GetBucketRequest {
+                            read_mask: read_mask.clone(),
+                            ..get("json-size-bucket")
+                        }),
+                        None,
+                    )
+                    .await,
+                Code::Unimplemented,
+            );
+            assert_code(
+                storage
+                    .list_buckets(
+                        Request::new(pb::ListBucketsRequest {
+                            parent: "projects/p".into(),
+                            read_mask,
+                            ..Default::default()
+                        }),
+                        None,
+                    )
+                    .await,
+                Code::Unimplemented,
+            );
+        }
+        let masked = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: fixtures::mask(&["name", "metageneration"]),
+                    ..get("json-size-bucket")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked.name, "projects/_/buckets/json-size-bucket");
+        assert_eq!(masked.metageneration, 1);
+        assert!(masked.lifecycle.is_none());
+        let listed = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    read_mask: fixtures::mask(&["name"]),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.buckets.len(), 2);
+        assert!(
+            listed
+                .buckets
+                .iter()
+                .all(|bucket| bucket.lifecycle.is_none())
+        );
         storage.state.catalog.close().await.unwrap();
     }
 

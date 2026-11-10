@@ -3,13 +3,13 @@ use crate::{
     acl::{AclEntry, AclKind},
     bucket::{
         BucketRecord, CatalogError,
-        lifecycle::{LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleRule},
+        lifecycle::{LifecycleAction, LifecycleDate, LifecycleRule},
     },
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
 use prost_types::{Duration, Timestamp};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// A retention time as a protobuf timestamp, straight from its seconds and nanoseconds so no
 /// platform clock resolution is involved.
@@ -20,7 +20,7 @@ fn unix_nanos_timestamp(time: UnixNanos) -> Timestamp {
     }
 }
 
-fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
+pub(super) fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
     let rules = LifecycleRule::from_stored(rules)?;
     if rules.is_empty() {
         return Ok(None);
@@ -39,9 +39,10 @@ pub(super) fn lifecycle_rules(
     let rules = value
         .into_iter()
         .flat_map(|value| &value.rule)
-        .map(LifecycleRule::from)
+        .map(lifecycle_rule)
         .collect::<Vec<_>>();
-    LifecycleRule::to_stored(&rules).map_err(super::bucket_update::input_error)
+    crate::bucket::lifecycle::parse(&json!({"rule":rules}))
+        .map_err(super::bucket_update::input_error)
 }
 
 impl From<&crate::grpc::generated::google::r#type::Date> for LifecycleDate {
@@ -64,38 +65,29 @@ impl From<&LifecycleDate> for crate::grpc::generated::google::r#type::Date {
     }
 }
 
-impl From<&pb::bucket::lifecycle::Rule> for LifecycleRule {
-    fn from(value: &pb::bucket::lifecycle::Rule) -> Self {
-        let action = value
-            .action
-            .as_ref()
-            .map(|action| LifecycleAction {
-                kind: action.r#type.clone(),
-                storage_class: (!action.storage_class.is_empty())
-                    .then(|| action.storage_class.clone()),
-            })
-            .unwrap_or_default();
-        let condition = value
-            .condition
-            .as_ref()
-            .map(|condition| LifecycleCondition {
-                age: condition.age_days.map(i64::from),
-                created_before: condition.created_before.as_ref().map(Into::into),
-                custom_time_before: condition.custom_time_before.as_ref().map(Into::into),
-                days_since_custom_time: condition.days_since_custom_time.map(i64::from),
-                days_since_noncurrent_time: condition.days_since_noncurrent_time.map(i64::from),
-                is_live: condition.is_live,
-                matches_prefix: condition.matches_prefix.clone(),
-                matches_storage_class: condition.matches_storage_class.clone(),
-                matches_suffix: condition.matches_suffix.clone(),
-                noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
-                num_newer_versions: condition.num_newer_versions.map(i64::from),
-                size_above_bytes: None,
-                size_below_bytes: None,
-            })
-            .unwrap_or_default();
-        Self { action, condition }
-    }
+fn lifecycle_rule(value: &pb::bucket::lifecycle::Rule) -> Value {
+    let action = value.action.as_ref().map(|action| {
+        json!({
+            "type": action.r#type,
+            "storageClass": (!action.storage_class.is_empty()).then_some(&action.storage_class),
+        })
+    });
+    let condition = value.condition.as_ref().map(|condition| {
+        json!({
+            "age": condition.age_days,
+            "createdBefore": condition.created_before.as_ref().map(LifecycleDate::from),
+            "customTimeBefore": condition.custom_time_before.as_ref().map(LifecycleDate::from),
+            "daysSinceCustomTime": condition.days_since_custom_time,
+            "daysSinceNoncurrentTime": condition.days_since_noncurrent_time,
+            "isLive": condition.is_live,
+            "matchesPrefix": condition.matches_prefix,
+            "matchesStorageClass": condition.matches_storage_class,
+            "matchesSuffix": condition.matches_suffix,
+            "noncurrentTimeBefore": condition.noncurrent_time_before.as_ref().map(LifecycleDate::from),
+            "numNewerVersions": condition.num_newer_versions,
+        })
+    });
+    json!({"action":action, "condition":condition})
 }
 
 impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
@@ -116,10 +108,17 @@ impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
                 ))
             })
         };
+        let (kind, storage_class) = match value.action {
+            LifecycleAction::Delete => ("Delete", ""),
+            LifecycleAction::SetStorageClass(class) => ("SetStorageClass", class.as_str()),
+            LifecycleAction::AbortIncompleteMultipartUpload => {
+                ("AbortIncompleteMultipartUpload", "")
+            }
+        };
         Ok(Self {
             action: Some(pb::bucket::lifecycle::rule::Action {
-                r#type: value.action.kind.clone(),
-                storage_class: value.action.storage_class.clone().unwrap_or_default(),
+                r#type: kind.into(),
+                storage_class: storage_class.into(),
             }),
             condition: Some(pb::bucket::lifecycle::rule::Condition {
                 age_days: days(condition.age)?,
@@ -129,7 +128,11 @@ impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
                 days_since_noncurrent_time: days(condition.days_since_noncurrent_time)?,
                 is_live: condition.is_live,
                 matches_prefix: condition.matches_prefix.clone(),
-                matches_storage_class: condition.matches_storage_class.clone(),
+                matches_storage_class: condition
+                    .matches_storage_class
+                    .iter()
+                    .map(|class| class.as_str().into())
+                    .collect(),
                 matches_suffix: condition.matches_suffix.clone(),
                 noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
                 num_newer_versions: days(condition.num_newer_versions)?,
@@ -165,7 +168,10 @@ macro_rules! access_control {
 access_control!(bucket_access_control, pb::BucketAccessControl);
 access_control!(object_access_control, pb::ObjectAccessControl);
 
-pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status> {
+pub(crate) fn bucket(
+    record: &BucketRecord,
+    read_mask: Option<&prost_types::FieldMask>,
+) -> Result<pb::Bucket, tonic::Status> {
     let retention_policy = record
         .retention_policy
         .as_ref()
@@ -205,7 +211,17 @@ pub(crate) fn bucket(record: &BucketRecord) -> Result<pb::Bucket, tonic::Status>
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
         etag: crate::json::bucket_etag(record),
-        lifecycle: lifecycle(&record.lifecycle)?,
+        lifecycle: if read_mask.is_none_or(|mask| {
+            mask.paths.is_empty()
+                || mask
+                    .paths
+                    .iter()
+                    .any(|path| matches!(path.as_str(), "*" | "lifecycle"))
+        }) {
+            lifecycle(&record.lifecycle)?
+        } else {
+            None
+        },
         // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
         // The local registry has no project numbers, so this matches JSON `projectNumber`.
         project: format!("projects/{}", crate::acl::project_number(&record.project)),
@@ -494,8 +510,13 @@ mod tests {
 
     #[test]
     fn grpc_lifecycle_rejects_integer_overflow_without_truncation() {
-        let mut rule = LifecycleRule::default();
-        rule.condition.age = Some(i64::from(i32::MAX));
+        let mut rule = LifecycleRule {
+            action: LifecycleAction::Delete,
+            condition: crate::bucket::lifecycle::LifecycleCondition {
+                age: Some(i64::from(i32::MAX)),
+                ..Default::default()
+            },
+        };
         assert_eq!(
             pb::bucket::lifecycle::Rule::try_from(&rule)
                 .unwrap()
@@ -611,7 +632,7 @@ mod tests {
                 ..record
             },
         ] {
-            let status = bucket(&invalid).unwrap_err();
+            let status = bucket(&invalid, None).unwrap_err();
             assert_eq!(status.code(), tonic::Code::Unavailable);
             assert_eq!(status.message(), "Bucket catalog is unavailable");
         }
@@ -695,14 +716,14 @@ mod tests {
         };
         let value =
             json::bucket_resource(&bucket_record, "http://localhost", Projection::NoAcl).unwrap();
-        let proto = bucket(&bucket_record).unwrap();
+        let proto = bucket(&bucket_record, None).unwrap();
         assert_eq!(proto.project, "projects/123");
         let named = BucketRecord {
             project: "local-project".into(),
             ..bucket_record.clone()
         };
         // SDKs parse the project as a number, so an ID with no registered number renders as 0.
-        assert_eq!(bucket(&named).unwrap().project, "projects/0");
+        assert_eq!(bucket(&named, None).unwrap().project, "projects/0");
         assert_eq!(proto.bucket_id, value["name"]);
         assert_eq!(proto.storage_class, value["storageClass"]);
         assert_eq!(proto.location, value["location"]);
