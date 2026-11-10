@@ -78,6 +78,8 @@ Verified on 2026-11-10 (UTC):
 
 Markdown lint covers this contract, release note, option listings, roadmap and both configuration companions with the existing repository rules.
 
+Source inspection of `Catalog::run`, `wait_exclusive` and `Admin::reset_until` confirms that lifecycle page transactions and reset share the same execution permit. A page already running can delay reset admission, but cannot overlap its exclusive mutation; lifecycle retains no catalog execution permit between pages. The existing short-wait reset fixture creates no lifecycle rules, so its scheduled lifecycle pass returns before any SQL work. Its load-sensitive upload timeout is not evidence that lifecycle holds a write lock during reset. The full test run includes that unchanged fixture.
+
 The version-scan `EXPLAIN QUERY PLAN` result on the catalog schema is:
 
 ```text
