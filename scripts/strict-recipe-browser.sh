@@ -133,7 +133,8 @@ audit_preflight_only() {
 docker run --detach --name "$container" --network host "$browser_image" sleep infinity >/dev/null
 docker exec "$container" mkdir -p /app/scripts "$harness/netlog"
 docker cp -q scripts/install-chromium.sh "$container:/app/scripts/"
-docker exec "$container" bash /app/scripts/install-chromium.sh || fail 'Chromium could not be installed in the browser container'
+docker exec "$container" bash /app/scripts/install-chromium.sh >"$work/install-chromium.log" 2>&1 \
+  || { tail -n 40 "$work/install-chromium.log" >&2; fail 'Chromium could not be installed in the browser container'; }
 docker cp -q scripts/strict-recipe-browser.sh "$container:$harness/"
 docker cp -q scripts/strict-recipe-browser.html "$container:$harness/"
 docker exec "$container" chromium --version
