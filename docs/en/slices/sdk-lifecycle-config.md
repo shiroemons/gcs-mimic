@@ -88,15 +88,29 @@ Size thresholds accept JSON integers or int64 decimal strings from 0 through
 when input is a number or uses a plus sign or leading zeroes. Equality does not
 satisfy either size condition. Invalid values preserve the existing configuration.
 
+Existing stored rows are not rewritten. Typed reads preserve the rule values;
+serializing a typed rule can reorder its keys. New writes use the declaration
+order of the typed fields, with byte-level tests for the canonical result.
+Unknown action fields remain ignored. Client input and stored data share decoding
+but classify failures separately as invalid input and catalog corruption.
+Autoclass and location restrictions consume typed rules. The bucket record still
+stores JSON values, so catalog operations decode them at the validation boundary.
+
 The pinned Storage v2 protobuf cannot represent size conditions. GetBucket and
 ListBuckets return UNIMPLEMENTED when their read mask requests lifecycle, including
 the default and wildcard masks; a mask excluding lifecycle succeeds. UpdateBucket
 and LockBucketRetentionPolicy check response representability before mutation.
 An update replacing or clearing lifecycle may remove the unsupported conditions.
-The retention lock's mandatory metageneration match protects its precheck from
-concurrent changes. Updates without a metageneration match can still race a JSON
-write between the precheck and transaction; that check is not yet part of the
-catalog transaction. No concurrency guarantee is claimed for this case.
+When UpdateBucket keeps lifecycle and the client omits a metageneration match,
+the adapter adds the metageneration it just checked to the catalog mutation.
+It retries an internal match failure from the read at most twice, then returns
+ABORTED without applying the requested update. Caller-supplied conditions still
+fail immediately. A competing JSON size rule is therefore rejected on recheck
+before the gRPC update changes state. Retention locking uses its mandatory
+caller-supplied match. These checks cover concurrent updates to the same bucket
+incarnation; neither prevents deletion and recreation under the same name and
+metageneration between the precheck and mutation. An incarnation guard remains
+outside this change.
 
 The evaluator parses action and class types at the configuration boundary and
 evaluates each rule once without per-version heap allocation. It selects Delete
@@ -121,23 +135,27 @@ The full `evaluate` interface retains the complete selection contract.
 
 ## Verification
 
-Verified for the evaluator extension on 2026-11-10:
+Verified for the evaluator extension on 2026-11-11:
 
 - `cargo check --all-targets` passed. The evaluator still has unused-code warnings
-  in this isolated change until the sweep calls it; no warnings were suppressed.
-- `cargo test --lib lifecycle` passed 62 cases, including gRPC mask handling and
-  mutation rejection before state changes.
-- `cargo test --lib bucket::lifecycle` passed 31 cases after adding the delete-only
-  entry point, including its three conservative-selection cases.
-- `cargo test` passed 2,994 unit, integration and documentation cases; one existing
-  test remained ignored and no cases failed.
-- `cargo test --test it_json bucket_lifecycle_rules_round_trip_replace_clear_and_validation`
-  and `cargo test --test it_json bucket_core_settings_round_trip` passed one case
-  each in the native and legacy-emulator profiles.
+  for its result fields and delete-only entry point until the sweep calls them.
+  Full `evaluate` has a reasoned production-only expectation until storage-class
+  transitions are applied; test builds still check that entry point.
+- `cargo test --lib lifecycle` passed 72 cases, including gRPC mask handling,
+  concurrent-write rejection and bounded retry, canonical serialized rules,
+  catalog input-versus-corruption classification, conservative delete-only
+  selection, and the age-zero deadline range.
+- Final coverage passed 3,001 unit, integration and documentation cases; one
+  existing test remained ignored. The initial `cargo test` stopped at
+  `reset_short_catalog_wait_reports_no_changes` with an upload catalog-wait timeout
+  (503). That existing timing case passed alone without changes. The seven
+  remaining integration binaries and `cargo test --doc` then passed.
+- `cargo test --test it_json bucket` passed 103 cases, including lifecycle, Autoclass,
+  location and metadata-update cases in the native and legacy-emulator profiles.
 - `cargo xtask lint` passed with zero new production violations or ratcheted
   findings; the existing reasoned suppression count stayed at one.
 - `cargo xtask dependencies check --scope release` reported the checked release
-  inputs CURRENT. The SDK and development inputs were outside that scope.
+  inputs CURRENT on 2026-11-10. The SDK and development inputs were outside that scope.
 
 No SDK harness, container build, guide walk-through, real-cloud differential or
 resource benchmark was run for this extension. The earlier SDK results below
@@ -165,6 +183,6 @@ Verified on 2026-10-27:
   Schema 22/23 migration, older catalog migrations and the timestamp fixture
   regression all pass in the complete suite.
 
-Markdown lint reported zero issues in the changed user documentation. HTTPS SDK,
+Markdown lint reported zero issues in this slice document. HTTPS SDK,
 container/guide journeys, cloud differential checks and benchmarks are excluded
 from this slice's verification scope.
