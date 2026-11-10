@@ -32,10 +32,10 @@ cat > "$work/bin/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$1 $2 $3" == 'xtask release container-tags' ]] || exit 1
-bash "$GHCR_TEST_VERSION_SCRIPT" "$4"
 printf '%s\n' "$@" > "$GHCR_TEST_ROOT/policy-arguments"
+stage=$(bash "$GHCR_TEST_VERSION_SCRIPT" "$4")
 if [[ $# == 4 ]]; then
-  if [[ "$4" == *-rc.* ]]; then printf '%s\n' "$4"
+  if [[ "$stage" == candidate ]]; then printf '%s\n' "$4"
   else printf '%s\n' "$4" "${4%.*}" latest; fi
 else
   printf '%s\n' "$GHCR_TEST_TAGS"
@@ -116,6 +116,7 @@ chmod +x "$work/bin/cargo" "$work/bin/gh" "$work/bin/docker"
 reset_case() {
   : > "$work/mutations"
   : > "$work/gh-reads"
+  : > "$work/policy-arguments"
   export GHCR_TEST_OWNER=User GHCR_TEST_VISIBILITY=public GHCR_TEST_API_FAIL=''
   export GHCR_TEST_VERSION=0.2.3 GITHUB_REF_NAME=v0.2.3
   export GHCR_TEST_EXISTING='' GHCR_TEST_RELEASES=0.2.3 GHCR_TEST_ASSET=absent
@@ -145,6 +146,13 @@ fail_before_mutation() {
 reset_case
 printf 'invalid\n' > "$work/digests/amd64.digest"
 fail_before_mutation
+for version in 01.2.3 1.2.3-beta.1 1.2.3-rc.0 1.2.3-rc.01 1.2.3+build 1.2.3-rc.1+build; do
+  reset_case
+  export GHCR_TEST_VERSION="$version" GITHUB_REF_NAME="v$version"
+  fail_before_mutation
+  test ! -s "$work/gh-reads"
+  test ! -s "$work/policy-arguments"
+done
 reset_case
 : > "$work/digests/extra"
 fail_before_mutation

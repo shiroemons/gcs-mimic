@@ -31,7 +31,7 @@ image_for() {
 }
 if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1; fi
 for version in "$@"; do
-  bash "$(dirname "$0")/release-version.sh" "$version"
+  bash "$(dirname "$0")/release-version.sh" "$version" >/dev/null
   if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi
 done
 

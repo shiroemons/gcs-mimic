@@ -1,61 +1,43 @@
 use super::*;
-use std::{fs, path::Path, process::Command};
+#[cfg(unix)]
+use std::process::Command;
+use std::{fs, path::Path};
 
 #[test]
 fn release_version_grammar_matches_shell_and_workflows() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    for (value, valid) in [
-        ("0.0.0", true),
-        ("0.17.1", true),
-        ("1.0.0-rc.1", true),
-        ("1.0.0-rc.2", true),
-        ("12.34.56-rc.123", true),
-        ("184467440737095516160.0.0-rc.184467440737095516160", true),
-        ("", false),
-        ("01.2.3", false),
-        ("1.02.3", false),
-        ("1.2.03", false),
-        ("1.2", false),
-        ("1.2.3.4", false),
-        ("v1.2.3", false),
-        ("1.2.3-alpha.1", false),
-        ("1.2.3-beta.1", false),
-        ("1.2.3-rc", false),
-        ("1.2.3-rc.0", false),
-        ("1.2.3-rc.01", false),
-        ("1.2.3-rc.1.2", false),
-        ("1.2.3-rc.1-rc.2", false),
-        ("1.2.3-RC.1", false),
-        ("1.2.3+build", false),
-        ("1.2.3-rc.1+build", false),
-        ("1.2.3\n", false),
-        ("1.2.3-rc.1\n", false),
-        (" 1.2.3", false),
-        ("1.2.3 ", false),
-        ("1.2.+3", false),
-        ("１.2.3", false),
-    ] {
+    let cases: Vec<(String, bool)> = serde_json::from_str(include_str!(
+        "../../../../scripts/release-version-cases.json"
+    ))
+    .unwrap();
+    for (value, valid) in cases {
         let parsed = value.parse::<Version>();
         assert_eq!(parsed.is_ok(), valid, "{value:?}");
         if let Ok(version) = parsed {
             assert_eq!(version.to_string(), value);
         }
+    }
+    #[cfg(unix)]
+    {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let output = Command::new("bash")
-            .arg(root.join("scripts/release-version.sh"))
-            .arg(value)
+            .arg(root.join("scripts/test-release-workflows.sh"))
             .output()
             .unwrap();
-        assert_eq!(output.status.success(), valid, "shell: {value:?}");
-    }
-    for path in [
-        ".github/workflows/binaries.yaml",
-        ".github/workflows/ghcr.yaml",
-    ] {
-        let workflow = fs::read_to_string(root.join(path)).unwrap();
         assert!(
-            workflow.contains("bash scripts/release-version.sh \"$"),
-            "{path}"
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+#[test]
+fn invalid_release_versions_identify_the_complete_rejected_input() {
+    for value in ["01.2.3", "1.2.3-rc.0", "1.2.3-rc.1+build"] {
+        let error = value.parse::<Version>().unwrap_err();
+        assert_eq!(error.0, value);
+        assert!(error.to_string().contains(value));
     }
 }
 

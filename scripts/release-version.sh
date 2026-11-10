@@ -10,3 +10,8 @@ if [[ ! "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-
   echo 'Releases require MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-rc.N (N >= 1), without leading zeros or build metadata' >&2
   exit 1
 fi
+if [[ -n ${BASH_REMATCH[4]:-} ]]; then
+  echo candidate
+else
+  echo stable
+fi

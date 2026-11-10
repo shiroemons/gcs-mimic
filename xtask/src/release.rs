@@ -1,7 +1,9 @@
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
-    env, fs,
+    env,
+    error::Error,
+    fs,
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -180,12 +182,36 @@ fn check_destination(target: &str, output: &Path) -> Result<()> {
     Ok(())
 }
 
-fn check_version(actual: &str, version: &str) -> Result<()> {
-    let version: version::Version = version
-        .parse()
-        .map_err(|error: version::InvalidVersion| error.to_string())?;
+#[derive(Debug)]
+enum BinaryVersionError {
+    Invalid(InvalidVersion),
+    Mismatch,
+}
+
+impl std::fmt::Display for BinaryVersionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(error) => error.fmt(f),
+            Self::Mismatch => {
+                f.write_str("binary --version does not match the root package version")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BinaryVersionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Invalid(error) => Some(error),
+            Self::Mismatch => None,
+        }
+    }
+}
+
+fn check_version(actual: &str, version: &str) -> std::result::Result<(), BinaryVersionError> {
+    let version: version::Version = version.parse().map_err(BinaryVersionError::Invalid)?;
     if actual != format!("gcs-mimic {version}") {
-        return Err("binary --version does not match the root package version".into());
+        return Err(BinaryVersionError::Mismatch);
     }
     Ok(())
 }
@@ -220,7 +246,12 @@ fn cargo_metadata(root: &Path) -> Result<Value> {
     .map_err(|e| e.to_string())
 }
 
-pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Result<()> {
+pub fn prepare(
+    root: &Path,
+    target: &str,
+    binary: &Path,
+    output: &Path,
+) -> std::result::Result<(), Box<dyn Error>> {
     check_destination(target, output)?;
     let source_dirty = !capture(Command::new("git").current_dir(root).args([
         "status",
@@ -549,6 +580,21 @@ mod tests {
         assert!(check_version("gcs-mimic 1.0.0-beta.1", "1.0.0-beta.1").is_err());
         assert!(check_version("gcs-mimic 0.2.0", "0.1.0").is_err());
         assert!(check_version("another-tool 0.1.0", "0.1.0").is_err());
+    }
+
+    #[test]
+    fn invalid_binary_version_preserves_its_parse_error() {
+        use std::error::Error;
+
+        let error = check_version("gcs-mimic 1.0.0-beta.1", "1.0.0-beta.1").unwrap_err();
+        assert!(error.to_string().contains("1.0.0-beta.1"));
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<InvalidVersion>()
+                .is_some()
+        );
     }
 
     #[test]

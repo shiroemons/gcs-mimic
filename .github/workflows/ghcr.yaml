@@ -51,7 +51,8 @@ jobs:
           test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
           bash scripts/release-version.sh "$VERSION"
           test "$RELEASE_TAG" = "v$VERSION"
-          printf '%s\n' "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" \
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          printf '%s\n' "IMAGE=ghcr.io/$repository" \
             "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$GITHUB_SHA")" \
             "BUILDER_NAME=ghcr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCHITECTURE" \
             "DOCKER_CONFIG=$RUNNER_TEMP/ghcr-docker" >> "$GITHUB_ENV"

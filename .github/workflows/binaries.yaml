@@ -42,8 +42,10 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "gcs-mimic") | .version')
-          bash scripts/release-version.sh "$version"
+          # A suffix preserves trailing newlines so validation cannot normalize malformed input.
+          version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "gcs-mimic") | .version + "@"')
+          version=${version%@}
+          bash scripts/release-version.sh "$version" > /dev/null
           if [[ "$REF_TYPE" == tag ]]; then
             test "$REF_NAME" = "v$version"
             # Fail on a broken notes link before the platform builds start.
@@ -312,6 +314,9 @@ jobs:
     needs: [validate, foundation, test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    concurrency:
+      group: binaries-publish
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
@@ -323,6 +328,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install pinned policy tooling
+        shell: bash
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      - run: cargo fetch --locked
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: binary-*
@@ -363,6 +376,7 @@ jobs:
         if: github.event_name == 'push'
         shell: bash
         run: |
+          stage=$(bash scripts/release-version.sh "$VERSION")
           object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
           type=$(jq -er '.object.type' <<< "$object")
           sha=$(jq -er '.object.sha' <<< "$object")
@@ -380,9 +394,21 @@ jobs:
               exit 1
             fi
           done <<< "$releases"
-          mapfile -t assets < release-assets
-          release_flags=()
-          if [[ "$VERSION" == *-rc.* ]]; then release_flags=(--prerelease --latest=false); fi
+          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(startswith("v")) | ltrimstr("v")')
+          policy_args=("$VERSION")
+          while IFS= read -r version; do
+            if [[ -n "$version" ]]; then policy_args+=("$version"); fi
+          done <<< "$published"
+          tags=$(cargo xtask release container-tags "${policy_args[@]}")
+          latest=false
+          while IFS= read -r tag; do
+            if [[ "$tag" == latest ]]; then latest=true; fi
+          done <<< "$tags"
+          assets=()
+          while IFS= read -r asset; do assets+=("$asset"); done < release-assets
+          release_flags=("--latest=$latest")
+          if [[ "$stage" == candidate ]]; then release_flags+=(--prerelease); fi
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md "${release_flags[@]}"
   publish-container:

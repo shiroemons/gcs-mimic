@@ -94,6 +94,7 @@ reset_case() {
   : > "$work/mutations"
   : > "$work/gh-reads"
   : > "$work/curl-reads"
+  : > "$work/policy-arguments"
   export MIRROR_TEST_PRIVATE=false MIRROR_TEST_API_FAIL='' MIRROR_TEST_NEXT=''
   export MIRROR_TEST_VERSION=0.2.3
   export MIRROR_TEST_EXISTING='' MIRROR_TEST_EXISTING_PAGE2='' MIRROR_TEST_RELEASES=0.2.3
@@ -118,7 +119,11 @@ fail_before_mutation() {
 
 for version in 01.2.3 1.2.3-beta.1 1.2.3-rc.0 1.2.3-rc.01 1.2.3+build 1.2.3-rc.1+build; do
   reset_case
+  export MIRROR_TEST_VERSION="$version"
   fail_before_mutation "$version"
+  test ! -s "$work/curl-reads"
+  test ! -s "$work/gh-reads"
+  test ! -s "$work/policy-arguments"
 done
 reset_case
 export MIRROR_TEST_PRIVATE=true
