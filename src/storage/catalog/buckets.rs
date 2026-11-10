@@ -251,8 +251,8 @@ fn insert_bucket_with_policy(
             effective_time: record.time_created,
         });
     }
-    crate::bucket::lifecycle::validate(&record.lifecycle)?;
-    crate::bucket::lifecycle::validate_location(&record.lifecycle, &record.location_type)?;
+    let lifecycle = crate::bucket::lifecycle::LifecycleRule::from_input(&record.lifecycle)?;
+    crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
     let created = unix_micros(record.time_created)?;
     // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
     let created_nanos = unix_timestamp(record.time_created, 1)
@@ -326,7 +326,7 @@ fn insert_bucket_with_policy(
         "UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1",
         [record.generation],
     )?;
-    bucket_autoclass::insert(transaction, record)?;
+    bucket_autoclass::insert(transaction, record, &lifecycle)?;
     insert_policy(transaction, &record.name, policy)?;
     sql::exec(
         transaction,

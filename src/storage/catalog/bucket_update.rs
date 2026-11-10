@@ -396,8 +396,6 @@ fn apply_plain_settings(
         record.cors = cors;
     }
     if let Some(lifecycle) = update.lifecycle.take() {
-        crate::bucket::lifecycle::validate(&lifecycle)?;
-        crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
         record.lifecycle = lifecycle;
     }
     Ok(())

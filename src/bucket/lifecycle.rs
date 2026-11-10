@@ -132,16 +132,16 @@ impl<'de> serde::Deserialize<'de> for LifecycleDate {
 }
 
 impl LifecycleRule {
+    #[cfg(test)]
     pub(crate) fn to_stored(rules: &[Self]) -> Result<Vec<Value>, CatalogError> {
-        let values = rules
-            .iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                CatalogError::InvalidMetadata(format!("Invalid lifecycle rule: {error}"))
-            })?;
+        let values = serialize_rules(rules).map_err(|error| invalid_rule(&error))?;
         validate(&values)?;
         Ok(values)
+    }
+
+    pub(crate) fn from_input(values: &[Value]) -> Result<Vec<Self>, CatalogError> {
+        validate(values)?;
+        deserialize_rules(values).map_err(|error| invalid_rule(&error))
     }
 
     pub(crate) fn from_stored(values: &[Value]) -> Result<Vec<Self>, CatalogError> {
@@ -151,16 +151,24 @@ impl LifecycleRule {
                 crate::storage::failure::BackendCause::from_error(error),
             ))
         })?;
-        values
-            .iter()
-            .map(Self::deserialize)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                crate::storage::failure::unavailable(CatalogError::Corrupt(
-                    crate::storage::failure::BackendCause::from_error(error),
-                ))
-            })
+        deserialize_rules(values).map_err(|error| {
+            crate::storage::failure::unavailable(CatalogError::Corrupt(
+                crate::storage::failure::BackendCause::from_error(error),
+            ))
+        })
     }
+}
+
+fn deserialize_rules(values: &[Value]) -> Result<Vec<LifecycleRule>, serde_json::Error> {
+    values.iter().map(LifecycleRule::deserialize).collect()
+}
+
+fn serialize_rules(rules: &[LifecycleRule]) -> Result<Vec<Value>, serde_json::Error> {
+    rules.iter().map(serde_json::to_value).collect()
+}
+
+fn invalid_rule(error: &serde_json::Error) -> CatalogError {
+    CatalogError::InvalidMetadata(format!("Invalid lifecycle rule: {error}"))
 }
 
 fn invalid(field: &str, example: impl Into<LifecycleExample>) -> CatalogError {
@@ -219,9 +227,8 @@ pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
             });
         }
     }
-    validate(&rules)?;
     // The typed round trip ignores unknown action fields and canonicalizes int64 strings.
-    LifecycleRule::to_stored(&LifecycleRule::from_stored(&rules)?)
+    serialize_rules(&LifecycleRule::from_input(&rules)?).map_err(|error| invalid_rule(&error))
 }
 
 const CONDITIONS: &[&str] = &[
@@ -419,24 +426,21 @@ fn valid_date(value: &str) -> bool {
     year > 0 && day > 0 && day <= days
 }
 
-pub(crate) fn validate_location(rules: &[Value], location_type: &str) -> Result<(), CatalogError> {
+pub(crate) fn validate_location(
+    rules: &[LifecycleRule],
+    location_type: &str,
+) -> Result<(), CatalogError> {
+    let incompatible = if location_type == "region" {
+        LifecycleMatchClass::Supported(StorageClass::MultiRegional)
+    } else {
+        LifecycleMatchClass::Regional
+    };
     for rule in rules {
-        if let Some(classes) = rule
-            .get("condition")
-            .and_then(|condition| condition.get("matchesStorageClass"))
-            .and_then(Value::as_array)
-        {
-            let incompatible = if location_type == "region" {
-                "MULTI_REGIONAL"
-            } else {
-                "REGIONAL"
-            };
-            if classes.iter().any(|class| class == incompatible) {
-                return Err(invalid(
-                    "matchesStorageClass for bucket location",
-                    "STANDARD instead of a legacy class from another location type",
-                ));
-            }
+        if rule.condition.matches_storage_class.contains(&incompatible) {
+            return Err(invalid(
+                "matchesStorageClass for bucket location",
+                "STANDARD instead of a legacy class from another location type",
+            ));
         }
     }
     Ok(())
@@ -457,8 +461,9 @@ mod tests {
             let stored = vec![json!({"action":action,"condition":{"age":1}})];
             let typed = LifecycleRule::from_stored(&stored).expect("existing action");
             assert_eq!(
-                LifecycleRule::to_stored(&typed).expect("stored action"),
-                stored
+                serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("stored action"))
+                    .unwrap(),
+                serde_json::to_string(&stored).unwrap()
             );
         }
         let stored = vec![
@@ -466,8 +471,9 @@ mod tests {
         ];
         let typed = LifecycleRule::from_stored(&stored).expect("legacy class matches");
         assert_eq!(
-            LifecycleRule::to_stored(&typed).expect("stored class matches"),
-            stored
+            serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("stored class matches"))
+                .unwrap(),
+            serde_json::to_string(&stored).unwrap()
         );
     }
 
@@ -477,7 +483,10 @@ mod tests {
             json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":30,"createdBefore":"2026-01-01","customTimeBefore":"2026-02-01","daysSinceCustomTime":2,"daysSinceNoncurrentTime":3,"isLive":false,"matchesPrefix":["a/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".txt"],"noncurrentTimeBefore":"2026-03-01","numNewerVersions":4}}),
         ];
         let typed = LifecycleRule::from_stored(&values).unwrap();
-        assert_eq!(LifecycleRule::to_stored(&typed).unwrap(), values);
+        assert_eq!(
+            serde_json::to_string(&LifecycleRule::to_stored(&typed).unwrap()).unwrap(),
+            serde_json::to_string(&values).unwrap()
+        );
         let mut invalid_age = typed.clone();
         invalid_age[0].condition.age = Some(-1);
         assert!(
@@ -500,6 +509,52 @@ mod tests {
         );
         assert!(matches!(
             LifecycleRule::from_stored(&[json!({})]),
+            Err(CatalogError::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn lifecycle_reads_preserve_stored_key_order_and_new_writes_are_canonical() {
+        let original = r#"[{"condition":{"isLive":true,"age":1},"action":{"type":"Delete"}}]"#;
+        let stored: Vec<Value> = serde_json::from_str(original).unwrap();
+        let typed = LifecycleRule::from_stored(&stored).unwrap();
+        assert_eq!(serde_json::to_string(&stored).unwrap(), original);
+        let canonical = LifecycleRule::to_stored(&typed).unwrap();
+        assert_eq!(canonical, stored);
+        let canonical_json =
+            r#"[{"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}}]"#;
+        assert_eq!(serde_json::to_string(&canonical).unwrap(), canonical_json);
+        let parsed = parse(&json!({"rule":stored})).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), canonical_json);
+    }
+
+    #[test]
+    fn lifecycle_input_ignores_unknown_action_fields_and_classifies_invalid_rules() {
+        for action in [
+            json!({"type":"Delete"}),
+            json!({"type":"SetStorageClass","storageClass":"COLDLINE"}),
+            json!({"type":"AbortIncompleteMultipartUpload"}),
+        ] {
+            let mut input = action.clone();
+            input["futureField"] = json!({"nested":[true, 1]});
+            let parsed = parse(&json!({"rule":[{"action":input,"condition":{"age":1}}]})).unwrap();
+            assert_eq!(parsed[0]["action"], action);
+            assert_eq!(
+                serde_json::to_string(&parsed[0]["action"]).unwrap(),
+                serde_json::to_string(&action).unwrap()
+            );
+        }
+        let invalid = [json!({"action":{"type":"unknown"},"condition":{"age":1}})];
+        assert!(matches!(
+            LifecycleRule::from_input(&invalid),
+            Err(CatalogError::Metadata(_))
+        ));
+        assert!(matches!(
+            parse(&json!({"rule":invalid})),
+            Err(CatalogError::Metadata(_))
+        ));
+        assert!(matches!(
+            LifecycleRule::from_stored(&invalid),
             Err(CatalogError::Corrupt(_))
         ));
     }

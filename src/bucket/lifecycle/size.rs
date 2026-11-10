@@ -56,7 +56,10 @@ mod tests {
                     );
                     let encoded = LifecycleRule::to_stored(&typed).expect("valid typed rule");
                     assert_eq!(encoded[0]["condition"][field], bytes.to_string());
-                    assert_eq!(encoded, stored);
+                    assert_eq!(
+                        serde_json::to_string(&encoded).unwrap(),
+                        serde_json::to_string(&stored).unwrap()
+                    );
                 }
             }
         }
@@ -71,7 +74,11 @@ mod tests {
                 json!({"sizeAboveBytes":expected,"sizeBelowBytes":expected})
             );
             let typed = LifecycleRule::from_stored(&stored).expect("canonical rule");
-            assert_eq!(LifecycleRule::to_stored(&typed).expect("roundtrip"), stored);
+            assert_eq!(
+                serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("roundtrip"))
+                    .unwrap(),
+                serde_json::to_string(&stored).unwrap()
+            );
         }
     }
 

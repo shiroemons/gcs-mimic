@@ -4,7 +4,10 @@
 //! the server-computed timestamps. Access-driven class transitions are not simulated, so every
 //! object in an enabled bucket stays in STANDARD storage.
 
-use super::{CatalogError, StorageClass};
+use super::{
+    CatalogError, StorageClass,
+    lifecycle::{LifecycleAction, LifecycleRule},
+};
 use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -177,7 +180,7 @@ pub(crate) fn apply(
 pub(crate) fn validate_bucket(
     autoclass: Option<&Autoclass>,
     storage_class: StorageClass,
-    lifecycle: &[Value],
+    lifecycle: &[LifecycleRule],
 ) -> Result<(), CatalogError> {
     if !autoclass.is_some_and(|config| config.enabled) {
         return Ok(());
@@ -188,10 +191,8 @@ pub(crate) fn validate_bucket(
         ));
     }
     if lifecycle.iter().any(|rule| {
-        rule.get("action")
-            .and_then(|action| action.get("type"))
-            .is_some_and(|kind| kind == "SetStorageClass")
-            || rule["condition"].get("matchesStorageClass").is_some()
+        matches!(rule.action, LifecycleAction::SetStorageClass(_))
+            || !rule.condition.matches_storage_class.is_empty()
     }) {
         return Err(CatalogError::Metadata(
             crate::metadata_error::MetadataError::AutoclassLifecycle,
@@ -359,7 +360,10 @@ mod tests {
         validate_bucket(
             config,
             StorageClass::Standard,
-            &[json!({"action":{"type":"Delete"},"condition":{"age":1}})],
+            &LifecycleRule::from_input(&[
+                json!({"action":{"type":"Delete"},"condition":{"age":1}}),
+            ])
+            .unwrap(),
         )
         .unwrap();
         for class in ["NEARLINE", "COLDLINE", "ARCHIVE"] {
@@ -370,11 +374,9 @@ mod tests {
             json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),
             json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["STANDARD"]}}),
         ] {
-            assert!(
-                validate_bucket(config, StorageClass::Standard, std::slice::from_ref(&rule))
-                    .is_err()
-            );
-            validate_bucket(None, StorageClass::Standard, &[rule]).unwrap();
+            let rules = LifecycleRule::from_input(&[rule]).unwrap();
+            assert!(validate_bucket(config, StorageClass::Standard, &rules).is_err());
+            validate_bucket(None, StorageClass::Standard, &rules).unwrap();
         }
         assert_eq!(
             object_storage_class(config, Some(StorageClass::Coldline), StorageClass::Standard),
