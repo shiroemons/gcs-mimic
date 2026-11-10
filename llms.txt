@@ -65,6 +65,7 @@ Start it with `docker compose up -d --wait`, which returns once the emulator is 
 ```
 
 - Each bucket needs `name`. Optional fields are `cors`, `iamPolicy`, `versioning` (`{"enabled": true}`) and `softDeletePolicy`. In a `cors` rule, `origin` and `method` are enough; `responseHeader` and `maxAgeSeconds` are optional. Unknown fields and `lifecycle` make startup fail; set lifecycle rules through the API instead.
+- Stored lifecycle Delete rules execute by default without directory synchronization. With `sync_dir`, they stay inactive unless `--lifecycle-execution enabled`, `GCS_MIMIC_LIFECYCLE_EXECUTION=enabled`, or JSON `"lifecycle_execution":"enabled"` explicitly enables them; execution also deletes synchronized host files. Set `disabled` to keep rules inactive in either mode. Ready reports the effective `lifecycle_execution` value.
 - The default project is `local-project`. A top-level `"project": "NAME"` changes it.
 - Edits to this setting reach existing buckets at the next start. Removing an entry never deletes a bucket.
 - Compose expands `${VAR}` inside the value, so write a literal `$` as `$$`.
