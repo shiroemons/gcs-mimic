@@ -671,10 +671,7 @@ fn int64_parse_error(value: &Value) -> JsonError {
 /// An int64 setting sent as a JSON number or a decimal string, as the Discovery document
 /// declares it.
 fn int64_setting(value: &Value) -> Result<i64, JsonError> {
-    value
-        .as_i64()
-        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
-        .ok_or_else(|| int64_parse_error(value))
+    crate::serde_util::int64(value).ok_or_else(|| int64_parse_error(value))
 }
 
 /// The soft-delete retention of a policy member. An absent member, a null policy and an empty

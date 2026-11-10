@@ -1,29 +1,65 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
-use super::{CatalogError, validate_storage_class};
+use super::{CatalogError, StorageClass, validate_storage_class};
 use crate::metadata_error::{LifecycleExample, MetadataError};
 use serde::Deserialize;
-use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use serde_json::Value;
+use std::{collections::BTreeSet, str::FromStr};
 
 pub(crate) mod evaluate;
 mod size;
 pub(crate) use size::LifecycleSize;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LifecycleRule {
     pub action: LifecycleAction,
     pub condition: LifecycleCondition,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LifecycleAction {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub storage_class: Option<String>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "storageClass")]
+pub(crate) enum LifecycleAction {
+    Delete,
+    SetStorageClass(StorageClass),
+    AbortIncompleteMultipartUpload,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) enum LifecycleMatchClass {
+    Supported(StorageClass),
+    Regional,
+}
+
+impl LifecycleMatchClass {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported(class) => class.as_str(),
+            Self::Regional => "REGIONAL",
+        }
+    }
+}
+
+impl FromStr for LifecycleMatchClass {
+    type Err = CatalogError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "REGIONAL" => Ok(Self::Regional),
+            value => value.parse().map(Self::Supported),
+        }
+    }
+}
+
+impl TryFrom<String> for LifecycleMatchClass {
+    type Error = CatalogError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+crate::serde_util::serialize_as_str!(LifecycleMatchClass);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +79,7 @@ pub(crate) struct LifecycleCondition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matches_prefix: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub matches_storage_class: Vec<String>,
+    pub matches_storage_class: Vec<LifecycleMatchClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matches_suffix: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,19 +220,8 @@ pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
         }
     }
     validate(&rules)?;
-    // Unknown input fields follow the bucket adapter's ignored-input contract.
-    Ok(rules
-        .iter()
-        .map(|rule| {
-            let action = &rule["action"];
-            let mut action_out =
-                serde_json::Map::from_iter([("type".into(), action["type"].clone())]);
-            if let Some(class) = action.get("storageClass") {
-                action_out.insert("storageClass".into(), class.clone());
-            }
-            json!({"action": action_out, "condition": rule["condition"]})
-        })
-        .collect())
+    // The typed round trip ignores unknown action fields and canonicalizes int64 strings.
+    LifecycleRule::to_stored(&LifecycleRule::from_stored(&rules)?)
 }
 
 const CONDITIONS: &[&str] = &[
@@ -420,6 +445,31 @@ pub(crate) fn validate_location(rules: &[Value], location_type: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn typed_lifecycle_preserves_all_actions_and_legacy_class_conditions() {
+        for action in [
+            json!({"type":"Delete"}),
+            json!({"type":"AbortIncompleteMultipartUpload"}),
+            json!({"type":"SetStorageClass","storageClass":"NEARLINE"}),
+        ] {
+            let stored = vec![json!({"action":action,"condition":{"age":1}})];
+            let typed = LifecycleRule::from_stored(&stored).expect("existing action");
+            assert_eq!(
+                LifecycleRule::to_stored(&typed).expect("stored action"),
+                stored
+            );
+        }
+        let stored = vec![
+            json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["REGIONAL","DURABLE_REDUCED_AVAILABILITY","MULTI_REGIONAL"]}}),
+        ];
+        let typed = LifecycleRule::from_stored(&stored).expect("legacy class matches");
+        assert_eq!(
+            LifecycleRule::to_stored(&typed).expect("stored class matches"),
+            stored
+        );
+    }
 
     #[test]
     fn typed_lifecycle_preserves_every_condition_and_rejects_invalid_values() {

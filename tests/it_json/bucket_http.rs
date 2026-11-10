@@ -257,14 +257,21 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
                 json!("0"),
                 json!(1),
                 json!("1"),
+                json!("+1"),
+                json!("007"),
                 json!(5497558138880_i64),
                 json!("5497558138880"),
             ] {
-                let lifecycle =
+                let mut lifecycle =
                     json!({"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]});
                 let reply =
                     server.request("PATCH", path, &json!({"lifecycle":lifecycle}).to_string());
                 reply.expect(200);
+                lifecycle["rule"][0]["condition"][field] = json!(
+                    size.as_i64()
+                        .unwrap_or_else(|| size.as_str().unwrap().parse().unwrap())
+                        .to_string()
+                );
                 assert_eq!(reply.json()["lifecycle"], lifecycle);
                 assert_eq!(
                     server.request("GET", path, "").json()["lifecycle"],
@@ -2803,7 +2810,7 @@ fn bucket_core_settings_round_trip() {
             .enumerate()
             {
                 let name = format!("size-{}-{index}", field.to_ascii_lowercase());
-                let lifecycle =
+                let mut lifecycle =
                     json!({"rule":[{"action":{"type":"Delete"},"condition":{field:size}}]});
                 let reply = server.request(
                     "POST",
@@ -2811,6 +2818,11 @@ fn bucket_core_settings_round_trip() {
                     &json!({"name":name,"lifecycle":lifecycle}).to_string(),
                 );
                 reply.expect(200);
+                lifecycle["rule"][0]["condition"][field] = json!(
+                    size.as_i64()
+                        .unwrap_or_else(|| size.as_str().unwrap().parse().unwrap())
+                        .to_string()
+                );
                 assert_eq!(reply.json()["lifecycle"], lifecycle);
                 assert_eq!(
                     server

@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
-| behavior | 201 | 89 | 0 | 73 | 39 | 0 | 0 |
+| behavior | 201 | 84 | 0 | 78 | 39 | 0 | 0 |
 | project_requirement | 96 | 22 | 0 | 44 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 90 | 68 | 39 | 4 | 0 | 0 |
+| behavior | 85 | 74 | 39 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 73 |
 
 ## api_operation
@@ -678,15 +678,15 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | PARTIAL | P4 | EXACT | METADATA_ONLY | 2 |
+| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-LIFECYCLE-002 | ライフサイクルDelete | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-003 | ライフサイクルSetStorageClass | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-004 | 未完了multipartの自動中止 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-005 | 経過日数・作成日条件 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-006 | customTime条件 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-007 | 非現行世代条件 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-008 | 名前・ストレージクラス条件 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-LIFECYCLE-009 | サイズ条件 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-LIFECYCLE-005 | 経過日数・作成日条件 | PARTIAL | P4 | EXACT | EXACT | 0 |
+| BEHAVIOR-LIFECYCLE-006 | customTime条件 | PARTIAL | P4 | EXACT | EXACT | 0 |
+| BEHAVIOR-LIFECYCLE-007 | 非現行世代条件 | PARTIAL | P4 | EXACT | EXACT | 0 |
+| BEHAVIOR-LIFECYCLE-008 | 名前・ストレージクラス条件 | PARTIAL | P4 | EXACT | EXACT | 0 |
+| BEHAVIOR-LIFECYCLE-009 | サイズ条件 | PARTIAL | P4 | EXACT | EXACT | 0 |
 | BEHAVIOR-LIFECYCLE-010 | 再現可能なライフサイクル評価 | NOT_STARTED | P4 | LOCAL_SIMULATION | NONE | 0 |
 
 ### Limits and quotas

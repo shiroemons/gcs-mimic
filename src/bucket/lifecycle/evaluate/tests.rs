@@ -94,6 +94,36 @@ fn overflowing_day_counts_never_match_or_schedule_a_deadline() {
 }
 
 #[test]
+fn deadlines_never_exceed_the_catalog_microsecond_range() {
+    let days = i64::MAX / 86_400_000_000;
+    let origin = UNIX_EPOCH + Duration::from_micros((i64::MAX % 86_400_000_000) as u64);
+    for field in ["age", "daysSinceCustomTime", "daysSinceNoncurrentTime"] {
+        let rules = [delete(json!({field:days}))];
+        for (start, in_range) in [
+            (origin - MICROSECOND, true),
+            (origin, true),
+            (origin + MICROSECOND, false),
+        ] {
+            let mut facts = version();
+            facts.time_created = start;
+            facts.custom_time = Some(start);
+            facts.noncurrent_time = Some(start);
+            // Some platforms reach their SystemTime limit before the catalog limit.
+            let expected = in_range
+                .then(|| start.checked_add(Duration::from_secs(days as u64 * 86_400)))
+                .flatten();
+            assert_evaluation(&rules, &facts, start, None, expected);
+            if let Some(deadline) = expected {
+                assert_delete_boundary(&rules, &facts, deadline);
+            }
+        }
+    }
+    let days_from_today = delete(json!({"age":days}));
+    let facts = version();
+    assert_evaluation(&[days_from_today], &facts, facts.time_created, None, None);
+}
+
+#[test]
 fn before_date_conditions_are_strict_at_utc_midnight() {
     let midnight = time("2026-02-01T00:00:00Z");
     for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
@@ -104,9 +134,15 @@ fn before_date_conditions_are_strict_at_utc_midnight() {
             (midnight + MICROSECOND, None),
         ] {
             let mut facts = version();
-            facts.time_created = instant;
-            facts.custom_time = Some(instant);
-            facts.noncurrent_time = Some(instant);
+            facts.time_created = midnight + DAY;
+            facts.custom_time = Some(midnight + 2 * DAY);
+            facts.noncurrent_time = Some(midnight + 3 * DAY);
+            match field {
+                "createdBefore" => facts.time_created = instant,
+                "customTimeBefore" => facts.custom_time = Some(instant),
+                "noncurrentTimeBefore" => facts.noncurrent_time = Some(instant),
+                _ => unreachable!("test fields are exhaustive"),
+            }
             assert_evaluation(&rules, &facts, midnight + DAY, action, None);
         }
     }
@@ -403,6 +439,56 @@ fn only_documented_storage_class_transitions_are_selected() {
 }
 
 #[test]
+fn reachable_actions_have_distinct_priorities() {
+    use StorageClass::{
+        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Standard,
+    };
+    let classes = [
+        Standard,
+        MultiRegional,
+        DurableReducedAvailability,
+        Nearline,
+        Coldline,
+        Archive,
+    ];
+    for current in classes {
+        let actions = std::iter::once(LifecycleAction::Delete)
+            .chain(classes.map(LifecycleAction::SetStorageClass))
+            .filter_map(|action| planned_action(action, current))
+            .collect::<Vec<_>>();
+        for (index, action) in actions.iter().enumerate() {
+            assert!(action.priority() < 5);
+            for other in &actions[index + 1..] {
+                assert_ne!(
+                    action.priority(),
+                    other.priority(),
+                    "{current:?}: {action:?}, {other:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_future_warmer_class_does_not_schedule_a_wakeup() {
+    let facts = version();
+    let rules = rules(&[
+        json!({"action":{"type":"SetStorageClass","storageClass":"ARCHIVE"},"condition":{"isLive":true}}),
+        json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":1}}),
+    ]);
+    let due = facts.time_created + DAY;
+    for now in [due - MICROSECOND, due, due + MICROSECOND] {
+        assert_evaluation(
+            &rules,
+            &facts,
+            now,
+            Some(PlannedAction::SetStorageClass(StorageClass::Archive)),
+            None,
+        );
+    }
+}
+
+#[test]
 fn next_due_skips_boundaries_that_cannot_change_the_selected_action() {
     let facts = version();
     let rules = rules(&[
@@ -485,5 +571,66 @@ fn next_due_uses_the_latest_condition_and_earliest_matching_rule() {
                 Some(facts.time_created + 4 * DAY),
             );
         }
+    }
+}
+
+#[test]
+fn delete_only_defers_class_dependent_deletes_when_a_transition_rule_exists() {
+    let facts = version();
+    let rules = rules(&[
+        json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
+        json!({"action":{"type":"Delete"},"condition":{"age":60,"matchesStorageClass":["STANDARD"]}}),
+    ]);
+    for now in [
+        facts.time_created,
+        facts.time_created + 30 * DAY,
+        facts.time_created + 60 * DAY - MICROSECOND,
+        facts.time_created + 60 * DAY,
+        facts.time_created + 60 * DAY + MICROSECOND,
+    ] {
+        let result = evaluate_delete_only(&rules, &facts, now);
+        assert_eq!(result.action, None);
+        assert_eq!(result.next_due, None);
+    }
+}
+
+#[test]
+fn delete_only_keeps_class_conditions_without_transition_rules() {
+    let facts = version();
+    let rules = [delete(json!({"age":60,"matchesStorageClass":["STANDARD"]}))];
+    let due = facts.time_created + 60 * DAY;
+    for now in [due - MICROSECOND, due, due + MICROSECOND] {
+        let result = evaluate_delete_only(&rules, &facts, now);
+        let expected = evaluate(&rules, &facts, now);
+        assert_eq!(result.action, expected.action);
+        assert_eq!(result.next_due, expected.next_due);
+    }
+    assert_eq!(
+        evaluate_delete_only(&rules, &facts, due).action,
+        Some(PlannedAction::Delete)
+    );
+}
+
+#[test]
+fn delete_only_ignores_class_transitions_but_keeps_independent_deletes() {
+    let facts = version();
+    let rules = rules(&[
+        json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
+        json!({"action":{"type":"Delete"},"condition":{"age":60}}),
+    ]);
+    let due = facts.time_created + 60 * DAY;
+    for now in [
+        facts.time_created,
+        facts.time_created + 30 * DAY,
+        due - MICROSECOND,
+    ] {
+        let result = evaluate_delete_only(&rules, &facts, now);
+        assert_eq!(result.action, None);
+        assert_eq!(result.next_due, Some(due));
+    }
+    for now in [due, due + MICROSECOND] {
+        let result = evaluate_delete_only(&rules, &facts, now);
+        assert_eq!(result.action, Some(PlannedAction::Delete));
+        assert_eq!(result.next_due, None);
     }
 }
