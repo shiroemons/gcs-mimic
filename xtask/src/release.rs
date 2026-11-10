@@ -6,6 +6,9 @@ use std::{
     process::Command,
 };
 
+pub(crate) mod version;
+pub use version::InvalidVersion;
+
 type Result<T> = std::result::Result<T, String>;
 
 const TARGETS: [&str; 8] = [
@@ -178,6 +181,9 @@ fn check_destination(target: &str, output: &Path) -> Result<()> {
 }
 
 fn check_version(actual: &str, version: &str) -> Result<()> {
+    let version: version::Version = version
+        .parse()
+        .map_err(|error: version::InvalidVersion| error.to_string())?;
     if actual != format!("gcs-mimic {version}") {
         return Err("binary --version does not match the root package version".into());
     }
@@ -467,9 +473,9 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    struct Directory(PathBuf);
+    pub(super) struct Directory(pub(super) PathBuf);
     impl Directory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let path = env::temp_dir().join(format!(
                 "gcs-mimic-release-{}-{}",
@@ -538,6 +544,9 @@ mod tests {
     #[test]
     fn binary_version_must_match_exactly() {
         assert!(check_version("gcs-mimic 0.1.0", "0.1.0").is_ok());
+        assert!(check_version("gcs-mimic 1.0.0-rc.1", "1.0.0-rc.1").is_ok());
+        assert!(check_version("gcs-mimic 1.0.0", "1.0.0-rc.1").is_err());
+        assert!(check_version("gcs-mimic 1.0.0-beta.1", "1.0.0-beta.1").is_err());
         assert!(check_version("gcs-mimic 0.2.0", "0.1.0").is_err());
         assert!(check_version("another-tool 0.1.0", "0.1.0").is_err());
     }

@@ -43,10 +43,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "gcs-mimic") | .version')
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'Binary releases require a stable MAJOR.MINOR.PATCH version' >&2
-            exit 1
-          fi
+          bash scripts/release-version.sh "$version"
           if [[ "$REF_TYPE" == tag ]]; then
             test "$REF_NAME" = "v$version"
             # Fail on a broken notes link before the platform builds start.
@@ -384,8 +381,10 @@ jobs:
             fi
           done <<< "$releases"
           mapfile -t assets < release-assets
+          release_flags=()
+          if [[ "$VERSION" == *-rc.* ]]; then release_flags=(--prerelease --latest=false); fi
           gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md
+            --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md "${release_flags[@]}"
   publish-container:
     if: >-
       !cancelled() && needs.publish.result == 'success'

@@ -49,7 +49,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          bash scripts/release-version.sh "$VERSION"
           test "$RELEASE_TAG" = "v$VERSION"
           printf '%s\n' "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" \
             "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$GITHUB_SHA")" \

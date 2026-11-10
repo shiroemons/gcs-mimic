@@ -7,6 +7,7 @@ if [[ $# != 2 ]]; then
 fi
 version=$1
 digest_dir=$2
+bash "$(dirname "$0")/release-version.sh" "$version"
 : "${IMAGE:?IMAGE is required}" "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}" "${GITHUB_SHA:?GITHUB_SHA is required}"
 : "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}"
@@ -63,7 +64,11 @@ done <<< "$releases"
 tags=$(cargo xtask release container-tags "${policy_args[@]}")
 [[ "${tags%%$'\n'*}" == "$version" ]] || exit 1
 while IFS= read -r tag; do
-  [[ "$tag" == "$version" || "$tag" == "${version%.*}" || "$tag" == latest ]] || exit 1
+  if [[ "$version" == *-rc.* ]]; then
+    [[ "$tag" == "$version" ]] || exit 1
+  else
+    [[ "$tag" == "$version" || "$tag" == "${version%.*}" || "$tag" == latest ]] || exit 1
+  fi
 done <<< "$tags"
 assets=$(gh release view "v$version" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
 asset_exists=false

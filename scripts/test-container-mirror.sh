@@ -50,10 +50,10 @@ printf '%s\n' "$*" >> "$MIRROR_TEST_ROOT/gh-reads"
 case "$1 $2" in
   'release download')
     while [[ "$1" != --dir ]]; do shift; done
-    jq -n --arg image "$MIRROR_TEST_ASSET_IMAGE" --arg digest "$MIRROR_TEST_INDEX" --arg commit "$MIRROR_TEST_COMMIT" '
-      {schema_version:1,image:$image,version:"0.2.3",source_commit:$commit,index_digest:$digest}
+    jq -n --arg image "$MIRROR_TEST_ASSET_IMAGE" --arg digest "$MIRROR_TEST_INDEX" --arg commit "$MIRROR_TEST_COMMIT" --arg version "$MIRROR_TEST_VERSION" '
+      {schema_version:1,image:$image,version:$version,source_commit:$commit,index_digest:$digest}
     ' > "$2/CONTAINER-DIGESTS.json" ;;
-  'api repos/example/gcs-mimic/git/ref/tags/v0.2.3')
+  api\ repos/example/gcs-mimic/git/ref/tags/v*)
     jq -n --arg sha "$MIRROR_TEST_REF_SHA" '{object:{type:"commit",sha:$sha}}' ;;
   'api --paginate') printf '%s\n' "$MIRROR_TEST_RELEASES" ;;
   *) echo 'Unexpected mock gh command' >&2; exit 91 ;;
@@ -71,8 +71,8 @@ if [[ "$action" == create ]]; then
 fi
 [[ "$action" == inspect && "$1" == --format ]] || exit 1
 case "$2 $3" in
-  "{{.Manifest.Digest}} $SOURCE_IMAGE:0.2.3") echo "$MIRROR_TEST_SOURCE_DIGEST" ;;
-  "{{.Manifest.Digest}} $IMAGE:0.2.3") echo "$MIRROR_TEST_HUB_DIGEST" ;;
+  "{{.Manifest.Digest}} $SOURCE_IMAGE:$MIRROR_TEST_VERSION") echo "$MIRROR_TEST_SOURCE_DIGEST" ;;
+  "{{.Manifest.Digest}} $IMAGE:$MIRROR_TEST_VERSION") echo "$MIRROR_TEST_HUB_DIGEST" ;;
   '{{.Manifest.Digest}} '*)
     if [[ "${DOCKER_CONFIG:-}" == */anonymous && "$MIRROR_TEST_ANONYMOUS" == fail ]]; then exit 24; fi
     echo "$MIRROR_TEST_INDEX" ;;
@@ -95,6 +95,7 @@ reset_case() {
   : > "$work/gh-reads"
   : > "$work/curl-reads"
   export MIRROR_TEST_PRIVATE=false MIRROR_TEST_API_FAIL='' MIRROR_TEST_NEXT=''
+  export MIRROR_TEST_VERSION=0.2.3
   export MIRROR_TEST_EXISTING='' MIRROR_TEST_EXISTING_PAGE2='' MIRROR_TEST_RELEASES=0.2.3
   export MIRROR_TEST_TAGS=$'0.2.3\n0.2\nlatest' MIRROR_TEST_ASSET_IMAGE="$SOURCE_IMAGE"
   export MIRROR_TEST_REF_SHA="$MIRROR_TEST_COMMIT" MIRROR_TEST_SOURCE_DIGEST="$MIRROR_TEST_INDEX"
@@ -103,7 +104,7 @@ reset_case() {
 }
 run_case() {
   local result=0
-  bash "$script" "${1:-0.2.3}" > "$work/output" 2>&1 || result=$?
+  bash "$script" "${1:-$MIRROR_TEST_VERSION}" > "$work/output" 2>&1 || result=$?
   if grep -F "$GH_TOKEN" "$work/output" "$work/gh-reads" "$work/curl-reads" "$work/mutations"; then
     echo 'A registry token was exposed' >&2
     exit 1
@@ -115,8 +116,10 @@ fail_before_mutation() {
   test ! -s "$work/mutations"
 }
 
-reset_case
-fail_before_mutation 0.2.3-rc.1
+for version in 01.2.3 1.2.3-beta.1 1.2.3-rc.0 1.2.3-rc.01 1.2.3+build 1.2.3-rc.1+build; do
+  reset_case
+  fail_before_mutation "$version"
+done
 reset_case
 export MIRROR_TEST_PRIVATE=true
 fail_before_mutation
@@ -176,6 +179,28 @@ grep -Fx 0.3.0 "$work/policy-arguments" > /dev/null
 reset_case
 export MIRROR_TEST_TAGS=$'0.2.3\nedge'
 fail_before_mutation
+
+reset_case
+export MIRROR_TEST_VERSION=1.0.0-rc.1 MIRROR_TEST_TAGS=1.0.0-rc.1
+export MIRROR_TEST_RELEASES=0.17.1
+run_case
+test "$(wc -l < "$work/mutations")" -eq 1
+grep -Fx "docker:create --tag $IMAGE:1.0.0-rc.1 $SOURCE_IMAGE@$MIRROR_TEST_INDEX" "$work/mutations" > /dev/null
+grep -Fx 0.17.1 "$work/policy-arguments" > /dev/null
+
+reset_case
+export MIRROR_TEST_VERSION=1.0.0-rc.2 MIRROR_TEST_TAGS=1.0.0-rc.2
+export MIRROR_TEST_EXISTING='1.0.0-rc.1 1.0.0-rc.2 latest' MIRROR_TEST_RELEASES=0.17.1
+run_case
+test ! -s "$work/mutations"
+export MIRROR_TEST_HUB_DIGEST="sha256:${zeros//0/8}"
+fail_before_mutation
+
+for alias in 1.0 1 latest 1.0.0-rc; do
+  reset_case
+  export MIRROR_TEST_VERSION=1.0.0-rc.1 MIRROR_TEST_TAGS=$'1.0.0-rc.1\n'"$alias"
+  fail_before_mutation
+done
 
 reset_case
 export MIRROR_TEST_ANONYMOUS=fail
