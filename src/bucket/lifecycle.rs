@@ -6,6 +6,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
+pub(crate) mod evaluate;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LifecycleRule {
     pub action: LifecycleAction,
