@@ -65,19 +65,20 @@ mod tests {
     fn lifecycle_execution_defaults_on_and_disable_obeys_native_precedence() {
         let data = crate::test_support::TestDir::new();
         let file = data.0.join("config.json");
-        std::fs::write(&file, br#"{"disable_lifecycle":true}"#).unwrap();
+        use super::super::LifecycleExecution::{Disabled, Enabled};
+        std::fs::write(&file, br#"{"lifecycle_execution":"disabled"}"#).unwrap();
         super::super::test_support::assert_precedence(
             &["--config".into(), file.to_str().unwrap().into()],
-            &BTreeMap::from([("GCS_MIMIC_DISABLE_LIFECYCLE".into(), "false".into())]),
-            &["--disable-lifecycle", "true"],
-            [false, true, false, true],
+            &BTreeMap::from([("GCS_MIMIC_LIFECYCLE_EXECUTION".into(), "enabled".into())]),
+            &["--lifecycle-execution", "disabled"],
+            [None, Some(Disabled), Some(Enabled), Some(Disabled)],
             Config::load,
-            |config| config.disable_lifecycle,
+            |config| config.lifecycle_execution,
         );
         super::super::test_support::assert_rejected(
-            "disable_lifecycle",
-            &["yes", "1", ""],
-            "true or false",
+            "lifecycle_execution",
+            &["true", "1", ""],
+            "enabled or disabled",
         );
     }
 

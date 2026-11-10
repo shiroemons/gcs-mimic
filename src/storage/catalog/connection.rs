@@ -101,6 +101,7 @@ impl Inner {
             crate::config::Backend::Disk => None,
         };
         let changes_before = connection.total_changes();
+        let rule_writes = lifecycle::RuleWriteScope::enter();
         // The connection is checked after an unwind before anyone reuses it, so
         // observing it mid-operation is harmless.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -108,7 +109,7 @@ impl Inner {
                 change_journal::notify_on_write(connection, &self.notification_wake, operation)
             })
         }));
-        let rules_written = lifecycle::take_rules_written();
+        let rules_written = rule_writes.written();
         // Before the caller can learn the outcome, so a read after this write misses the cache. A
         // rollback also counts as a change, which only costs some cached answers.
         if connection.total_changes() != changes_before {

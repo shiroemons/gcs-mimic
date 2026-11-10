@@ -417,12 +417,35 @@ async fn a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeu
 }
 
 #[tokio::test]
+async fn pending_storage_transitions_defer_class_dependent_deletion_but_not_other_delete_rules() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![
+        json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
+        delete(json!({"age":60,"matchesStorageClass":["STANDARD"]})),
+        delete(json!({"age":90})),
+    ]).await;
+    put(&catalog, "object").await;
+    let due = clock.now() + DAY * 90;
+    clock.advance(DAY * 30);
+    assert_eq!(catalog.run_lifecycle_now().await.unwrap().next, Some(due));
+    clock.advance(DAY * 30);
+    let deferred = catalog.run_lifecycle_now().await.unwrap();
+    assert_eq!(deferred.deleted, 0);
+    assert_eq!(deferred.next, Some(due));
+    assert!(exists(&catalog, live("bucket", "object")).await);
+    clock.set(due);
+    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries() {
     let data = TestDir::new();
     let (catalog, clock) = disk(&data).await;
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     notifications(&catalog).await;
     put(&catalog, "object").await;
+    put(&catalog, "second").await;
     clock.advance(DAY);
     fault::arm(
         &data.0,
@@ -434,6 +457,7 @@ async fn failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries
     assert!(std::error::Error::source(&error).is_some());
     assert!(catalog.resumable_maintenance_error().is_some());
     assert!(exists(&catalog, live("bucket", "object")).await);
+    assert!(exists(&catalog, live("bucket", "second")).await);
     assert_eq!(
         count(&catalog, "SELECT count(*) FROM pending_blob_deletions").await,
         0
@@ -442,7 +466,7 @@ async fn failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries
         count(&catalog, "SELECT count(*) FROM notification_outbox").await,
         0
     );
-    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 2);
     catalog.close().await.unwrap();
 }
 
@@ -474,11 +498,12 @@ async fn disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass() 
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "object").await;
     catalog.configure_lifecycle(&crate::config::Config {
-        disable_lifecycle: true,
+        lifecycle_execution: Some(crate::config::LifecycleExecution::Disabled),
         ..Default::default()
     });
     clock.advance(DAY);
     assert_eq!(catalog.run_lifecycle_now().await.unwrap().scanned, 0);
+    assert!(!catalog.run_lifecycle_now().await.unwrap().enabled);
     assert!(exists(&catalog, live("bucket", "object")).await);
     assert!(
         !catalog
@@ -495,27 +520,44 @@ async fn disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass() 
 #[tokio::test]
 async fn the_version_scan_seeks_the_primary_key_without_a_temporary_sort() {
     let (catalog, _clock) = memory().await;
-    let plans = catalog.run::<_, CatalogError>(|connection| {
-        Ok(connection.prepare_cached("EXPLAIN QUERY PLAN SELECT name, generation FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL AND (name, generation) < (?2, ?3) ORDER BY name DESC, generation DESC LIMIT 128")?.query_map(params!["bucket", "object", 1], |row| row.get::<_, String>(3))?.collect::<rusqlite::Result<Vec<_>>>()?)
-    }).await.unwrap();
-    println!("lifecycle version scan: {plans:?}");
-    assert!(
-        plans
-            .iter()
-            .any(|plan| plan.contains("SEARCH objects USING PRIMARY KEY")),
-        "{plans:?}"
-    );
-    assert!(
-        !plans
-            .iter()
-            .any(|plan| plan.contains("TEMP B-TREE") || plan.starts_with("SCAN objects")),
-        "{plans:?}"
-    );
+    for query in [VERSION_SCAN, VERSION_FIRST] {
+        let plans = catalog
+            .run::<_, CatalogError>(move |connection| {
+                let mut statement =
+                    connection.prepare_cached(&format!("EXPLAIN QUERY PLAN {query}"))?;
+                let read = |row: &rusqlite::Row<'_>| row.get::<_, String>(3);
+                let plans = if query == VERSION_SCAN {
+                    statement
+                        .query_map(params!["bucket", "object", 1, VERSION_PAGE], read)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                } else {
+                    statement
+                        .query_map(params!["bucket", VERSION_PAGE], read)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                };
+                Ok(plans)
+            })
+            .await
+            .unwrap();
+        println!("lifecycle version scan: {plans:?}");
+        assert!(
+            plans
+                .iter()
+                .any(|plan| plan.contains("SEARCH objects USING PRIMARY KEY")),
+            "{plans:?}"
+        );
+        assert!(
+            !plans
+                .iter()
+                .any(|plan| plan.contains("TEMP B-TREE") || plan.starts_with("SCAN objects")),
+            "{plans:?}"
+        );
+    }
     catalog.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn a_broken_stored_rule_reports_failure_without_stopping_other_buckets() {
+async fn a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_readiness() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "good").await;
@@ -541,7 +583,13 @@ async fn a_broken_stored_rule_reports_failure_without_stopping_other_buckets() {
         .await
         .unwrap();
     clock.advance(DAY);
-    assert!(catalog.maintain_resumable_sessions().await.is_err());
+    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 1);
+    for _ in 0..3 {
+        clock.advance(Duration::from_secs(1));
+        catalog.maintain_resumable_sessions().await.unwrap();
+        assert!(catalog.resumable_maintenance_error().is_none());
+        assert!(catalog.background_tasks_running());
+    }
     assert!(!exists(&catalog, live("bucket", "good")).await);
     assert!(exists(&catalog, live("aaa-broken", "object")).await);
     catalog.close().await.unwrap();
@@ -630,7 +678,16 @@ async fn candidate(
     let now = catalog.0.clock.now();
     catalog
         .run::<_, CatalogError>(move |connection| {
-            apply_version(connection, &target, &incarnation, now).map_err(unavailable)
+            let transaction = sql::immediate(connection)?;
+            let Some(rules) =
+                bucket_rules(&transaction, &target.bucket, &incarnation).map_err(unavailable)?
+            else {
+                return Ok(LifecycleOutcome::default());
+            };
+            let outcome =
+                evaluate_version(&transaction, &target, &rules, now).map_err(unavailable)?;
+            transaction.commit()?;
+            Ok(outcome)
         })
         .await
         .unwrap()
@@ -877,5 +934,126 @@ async fn retention_deadlines_replace_an_earlier_future_age_deadline_and_block_li
     assert!(exists(&catalog, live("bucket", "object")).await);
     clock.set(until);
     assert_eq!(catalog.run_lifecycle_now().await.unwrap().archived, 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_version_failure_rolls_back_the_whole_page_before_a_later_retry() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"age":1}))]).await;
+    put(&catalog, "z-good").await;
+    put(&catalog, "a-corrupt").await;
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE objects SET custom_time = 'invalid' WHERE name = 'a-corrupt'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    clock.advance(DAY);
+    assert!(catalog.run_lifecycle_now().await.is_err());
+    assert!(exists(&catalog, live("bucket", "z-good")).await);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM pending_blob_deletions").await,
+        0
+    );
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE objects SET custom_time = NULL WHERE name = 'a-corrupt'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(catalog.run_lifecycle_now().await.unwrap().deleted, 2);
+    catalog.close().await.unwrap();
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "lifecycle rules must be written inside with_connection")]
+fn marking_rules_outside_a_catalog_write_scope_fails_the_invariant() {
+    rules_written();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them() {
+    use crate::config::{Config, LifecycleExecution};
+    for choice in [
+        None,
+        Some(LifecycleExecution::Enabled),
+        Some(LifecycleExecution::Disabled),
+    ] {
+        let data = TestDir::new();
+        let tree = TestDir::new();
+        let (catalog, clock) = disk(&data).await;
+        create(&catalog, vec![delete(json!({"age":1}))]).await;
+        put(&catalog, "object").await;
+        let config = Config {
+            data_dir: data.0.clone(),
+            sync_dir: Some(tree.0.clone()),
+            lifecycle_execution: choice,
+            ..Default::default()
+        };
+        catalog.configure_lifecycle(&config);
+        let root = crate::sync::preflight(&catalog, &config)
+            .await
+            .unwrap()
+            .unwrap();
+        crate::sync::reconcile(&catalog, &root).await.unwrap();
+        let host_file = tree.0.join("bucket/object");
+        assert_eq!(std::fs::read(&host_file).unwrap(), b"data");
+        let task = crate::sync::start(catalog.clone(), root.clone(), &config).unwrap();
+        task.rescan().await.unwrap();
+        clock.advance(DAY);
+        let outcome = catalog.run_lifecycle_now().await.unwrap();
+        let enabled = choice == Some(LifecycleExecution::Enabled);
+        assert_eq!(outcome.enabled, enabled);
+        assert_eq!(outcome.deleted, u64::from(enabled));
+        if enabled {
+            crate::test_support::eventually_async(
+                "lifecycle deletion to reach the synchronized file",
+                || async { !host_file.exists() },
+            )
+            .await;
+            assert!(!exists(&catalog, live("bucket", "object")).await);
+        } else {
+            task.rescan().await.unwrap();
+            assert!(exists(&catalog, live("bucket", "object")).await);
+            assert_eq!(std::fs::read(&host_file).unwrap(), b"data");
+        }
+        task.finish().await.unwrap();
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn the_running_maintenance_loop_wakes_on_a_write_after_the_injected_deadline() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![delete(json!({"age":1}))]).await;
+    put(&catalog, "expired").await;
+    let due = clock.now() + DAY;
+    catalog.start_resumable_maintenance();
+    crate::test_support::eventually_async("the lifecycle deadline to be scheduled", || async {
+        catalog.0.lifecycle.state().next == Some(due)
+    })
+    .await;
+    clock.advance(DAY);
+    put(&catalog, "fresh").await;
+    crate::test_support::eventually_async(
+        "the running maintenance loop to delete the expired object",
+        || async { !exists(&catalog, live("bucket", "expired")).await },
+    )
+    .await;
+    assert!(exists(&catalog, live("bucket", "fresh")).await);
     catalog.close().await.unwrap();
 }

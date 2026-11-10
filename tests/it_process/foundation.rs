@@ -240,6 +240,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "version",
                 "healthcheck_path",
                 "admin_enabled",
+                "lifecycle_execution",
                 "message",
                 "listen",
                 "listeners",
@@ -279,6 +280,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(ready["healthcheck_path"], Config::HEALTHCHECK_PATH);
         assert_eq!(ready["admin_enabled"], false);
+        assert_eq!(ready["lifecycle_execution"], "enabled");
         assert_eq!(
             ready["message"],
             format!(

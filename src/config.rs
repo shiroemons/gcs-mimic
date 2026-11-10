@@ -125,6 +125,16 @@ string_enum! {
 
 string_enum! {
     no_default
+    /// Whether stored lifecycle Delete rules execute; synchronization defaults to disabled.
+    pub enum LifecycleExecution {
+        Enabled => "enabled",
+        Disabled => "disabled",
+    }
+    "lifecycle_execution must be enabled or disabled"
+}
+
+string_enum! {
+    no_default
     /// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
     /// rules, so `AllowAll` exists only as a local convenience and fake-gcs-server migration aid;
     /// see [`CorsFallbackChoice::select`] for the default.
@@ -265,8 +275,8 @@ pub struct Config {
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
-    /// Preserve stored lifecycle rules without applying their Delete actions.
-    pub disable_lifecycle: bool,
+    /// An explicit choice overrides the synchronization-dependent execution default.
+    pub lifecycle_execution: Option<LifecycleExecution>,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
     /// The explicit `buckets_file_mode`, which governs both document settings;
@@ -371,7 +381,7 @@ impl Default for Config {
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
-            disable_lifecycle: false,
+            lifecycle_execution: None,
             buckets: None,
             buckets_file_mode: None,
             api_base_url: None,
@@ -422,6 +432,16 @@ impl Default for Config {
 
 impl Config {
     pub const HEALTHCHECK_PATH: &str = "/_internal/healthcheck";
+
+    pub fn effective_lifecycle_execution(&self) -> LifecycleExecution {
+        self.lifecycle_execution.unwrap_or({
+            if self.sync_dir.is_some() {
+                LifecycleExecution::Disabled
+            } else {
+                LifecycleExecution::Enabled
+            }
+        })
+    }
 
     /// Whether signed XML requests verify, after the profile's default.
     pub fn effective_signed_urls(&self) -> SignedUrls {
@@ -705,7 +725,7 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), Sett
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::DisableLifecycle
+        | Setting::LifecycleExecution
         | Setting::BucketsFileMode => apply_storage_setting(config, setting, value),
         Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
         Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
@@ -891,11 +911,7 @@ fn apply_storage_setting(
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
         }
-        Setting::DisableLifecycle => {
-            config.disable_lifecycle = value
-                .parse::<bool>()
-                .map_err(|_| "disable_lifecycle must be true or false")?
-        }
+        Setting::LifecycleExecution => config.lifecycle_execution = Some(value.parse()?),
         Setting::BucketsFileMode => config.buckets_file_mode = Some(value.parse()?),
         _ => return Err(unknown_setting()),
     }
@@ -1598,11 +1614,7 @@ fn member_text(key: &str, raw: &RawValue) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
     if key == "default_location" && value.is_null() {
         Some(String::new())
-    } else if matches!(
-        key,
-        "sync_delete_guard" | "admin_enabled" | "disable_lifecycle"
-    ) && value.is_boolean()
-    {
+    } else if matches!(key, "sync_delete_guard" | "admin_enabled") && value.is_boolean() {
         Some(value.to_string())
     } else if key == "buckets_file" {
         value.as_str().map(str::to_owned)

@@ -66,7 +66,7 @@ Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMI
 Other serve options:
   --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
   --default-soft-delete-retention-seconds N  0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..3155760000 retains it; 604800 is the Cloud Storage default)
-  --disable-lifecycle BOOL  false (stored lifecycle Delete rules execute unless disabled)
+  --lifecycle-execution MODE   enabled|disabled (default: disabled with sync-dir, enabled otherwise; enabled also deletes synchronized host files)
   --listen IP:PORT             127.0.0.1:4443
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
@@ -1013,7 +1013,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "24f7fc275c4d1fa18941a18c80a7f90d12d0ba12611eea11069bfb53e4dd10b0"
+            "9a785292edf2d55cadf5b1f19438a32f9d049539af7d5b256379be258be03e3f"
         );
     }
 

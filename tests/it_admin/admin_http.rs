@@ -90,7 +90,7 @@ fn lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods() 
         .expect(404);
     drop(disabled);
     let server = Server::start(&data, &["--admin-enabled", "true"]);
-    assert_eq!(server.ready["disable_lifecycle"], false);
+    assert_eq!(server.ready["lifecycle_execution"], "enabled");
     for method in ["GET", "PUT", "DELETE"] {
         server
             .request(method, "/_internal/lifecycle/run", "", b"")
@@ -107,7 +107,24 @@ fn lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods() 
         .json_ok();
     assert_eq!(
         counts,
-        json!({"scanned":0,"deleted":0,"archived":0,"blocked":0})
+        json!({"enabled":true,"scanned":0,"deleted":0,"archived":0,"blocked":0})
+    );
+    drop(server);
+    let server = Server::start(
+        &data,
+        &[
+            "--admin-enabled",
+            "true",
+            "--lifecycle-execution",
+            "disabled",
+        ],
+    );
+    assert_eq!(server.ready["lifecycle_execution"], "disabled");
+    assert_eq!(
+        server
+            .request("POST", "/_internal/lifecycle/run", "", b"")
+            .json_ok(),
+        json!({"enabled":false,"scanned":0,"deleted":0,"archived":0,"blocked":0})
     );
 }
 

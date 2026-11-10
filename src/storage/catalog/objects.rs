@@ -416,7 +416,7 @@ pub(super) fn delete_selected(
     authorized_bucket(connection, bucket, access)?;
     super::soft_delete::purge_expired(connection, bucket, clock.now().try_into()?)?;
     let transaction = sql::immediate(connection)?;
-    let retired = delete_in_transaction(
+    let deleted = delete_in_transaction(
         &transaction,
         target,
         DeleteContext {
@@ -427,7 +427,12 @@ pub(super) fn delete_selected(
         },
     )?;
     transaction.commit()?;
-    Ok(retired)
+    Ok(deleted.retired)
+}
+
+pub(super) struct Deleted {
+    pub(super) retired: Retired,
+    pub(super) retirement: Retirement,
 }
 
 #[derive(Clone, Copy)]
@@ -443,7 +448,7 @@ pub(super) fn delete_in_transaction(
     transaction: &Transaction<'_>,
     target: &ObjectTarget,
     context: DeleteContext<'_>,
-) -> Result<Retired, ObjectError> {
+) -> Result<Deleted, ObjectError> {
     let ObjectTarget {
         bucket,
         name,
@@ -497,7 +502,10 @@ pub(super) fn delete_in_transaction(
             notification_mode: NotificationMode::for_access(access),
         },
     )?;
-    Ok(retired)
+    Ok(Deleted {
+        retired,
+        retirement,
+    })
 }
 
 pub(super) use crate::storage::failure::object_unavailable;
