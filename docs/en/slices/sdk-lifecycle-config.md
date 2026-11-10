@@ -32,8 +32,24 @@ cases pass.
 - LIFECYCLE-SDK-GO: ordinary Create/Update/Attrs round trips and empty Lifecycle
   clearing.
 - LIFECYCLE-SDK-RUBY: create-block rules, lifecycle-block replacement and clearing.
-- PENDING: storage class changes and multipart abort execution, XML
-  lifecycle, initialization-file lifecycle and matchesPattern.
+- Catalog Delete boundaries are verified by the
+  [execution acceptance cases](lifecycle-execution.md#acceptance-contract):
+  overflowing age/custom/noncurrent days return no wakeup, creation-date
+  midnight is strict, zero custom/noncurrent days use the exact metadata/archive
+  instant, and newer-version counts include a live version when present.
+  Each test checks counts, stored-object presence and exact returned deadlines.
+- Later execution slices must apply SetStorageClass and multipart abort.
+  Class-dependent Delete stays deferred until storage transitions execute;
+  transition bucket-location restrictions belong to that later slice.
+- XML and initialization-file lifecycle configuration depend on their own
+  configuration features.
+- Deliberately unsupported: matchesPattern and REGIONAL/RAPID object/action
+  classes. Rejection and metadata round trips do not establish execution.
+- Authorized real-provider evidence remains necessary for remaining default
+  normalization, validation error details, propagation and asynchronous timing.
+  Separate Delete interaction cases track object-retained live archiving,
+  soft-deleted newer counts and soft-delete notifications; empty HNS-folder
+  cleanup depends on hierarchical-namespace support.
 
 ## Sources and choices
 
@@ -88,6 +104,16 @@ Size thresholds accept JSON integers or int64 decimal strings from 0 through
 when input is a number or uses a plus sign or leading zeroes. Equality does not
 satisfy either size condition. Invalid values preserve the existing configuration.
 
+Catalog sweeps also verify independent strict thresholds using real three-,
+four- and five-byte objects, including equality and both adjacent bytes.
+Small bodies match sizeBelowBytes but not sizeAboveBytes with thresholds at
+5 TiB and one byte below it. A separate disk test changes only recorded sizes
+to 5 TiB and each adjacent byte while retaining four-byte bodies. Those
+synthetic records verify the lifecycle comparison, including an above-limit
+record; they do not prove upload-size validation or correct size publication
+from an actual 5 TiB body. No such body was uploaded. The ledger keeps that
+large-upload evidence pending separately from the passing sweep comparisons.
+
 Existing stored rows are not rewritten. Typed reads preserve the rule values;
 serializing a typed rule can reorder its keys. New writes use the declaration
 order of the typed fields, with byte-level tests for the canonical result.
@@ -132,6 +158,13 @@ delete an object merely because the transition was skipped. This temporary
 restriction deliberately defers more deletes than necessary. Deletes without
 class conditions remain enabled.
 The full `evaluate` interface retains the complete selection contract.
+
+The acceptance ledger separates passing catalog boundaries, later execution
+work, deliberately unsupported semantics, dependencies on other features and
+authorized provider-evidence gaps. All seven affected lifecycle rows remain
+PARTIAL with LOCAL_SIMULATION achieved fidelity; splitting cases does not
+promote fidelity. Pre-epoch object creation, the final catalog timestamp and
+full transition precedence retain pure-evaluator evidence only.
 
 ## Verification
 
