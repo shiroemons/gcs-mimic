@@ -21,6 +21,8 @@ use bytes::Bytes;
 use serde_json::{Value, json};
 use std::{io, sync::Arc, time::UNIX_EPOCH};
 
+mod boundaries;
+
 const DAY: Duration = Duration::from_secs(86_400);
 
 async fn disk(data: &TestDir) -> (Catalog, Arc<ManualClock>) {
