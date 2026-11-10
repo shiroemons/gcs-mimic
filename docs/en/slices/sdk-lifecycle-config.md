@@ -109,11 +109,13 @@ Location restrictions on legacy transitions belong to the sweep, which has the
 bucket location. REGIONAL and RAPID action classes remain unsupported.
 
 Until the sweep applies class transitions, its `evaluate_delete_only` entry point
-never selects SetStorageClass. If any SetStorageClass rule exists, it also defers
-Delete rules containing matchesStorageClass and excludes their deadlines. This
-conservative restriction prevents a skipped transition from leaving an object in
-a class that incorrectly qualifies for deletion. Deletes without class conditions,
-and class-dependent deletes in configurations without transitions, remain enabled.
+never selects SetStorageClass. It also defers every Delete rule containing
+matchesStorageClass and excludes its deadline, even if the bucket has never had
+a transition rule. Current rules cannot reveal earlier unapplied transitions:
+replacing an age-30 transition with an age-60 class-dependent Delete must not
+delete an object merely because the transition was skipped. This temporary
+restriction deliberately defers more deletes than necessary. Deletes without
+class conditions remain enabled.
 The full `evaluate` interface retains the complete selection contract.
 
 ## Verification
