@@ -170,26 +170,86 @@ pub(in crate::storage::catalog) async fn create_upload_stage(
     .map_err(object_unavailable)
 }
 
-/// Makes every byte written to a staged body durable before it can be published.
+/// How many written bytes a staged body may hold before they are sent to storage.
+const WRITE_BEHIND_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A staged body on disk that never holds more than [`WRITE_BEHIND_BYTES`] unsynced.
 ///
-/// Tests record the synced length for power-loss snapshots from the `sync_all` result
-/// itself, so a write path that skips this call, or a sync dropped from it together with
-/// the result it yields, leaves its bytes volatile and fails the power-loss crash tests.
-pub(in crate::storage::catalog) async fn make_durable(
-    file: &mut tokio::fs::File,
-    #[cfg(test)] data_dir: &Path,
-) -> Result<(), ObjectError> {
+/// The kernel charges unwritten page cache to a container's memory limit, and through
+/// overlayfs it does not slow the writer down to that limit. A large body written with one
+/// final sync therefore filled a 128 MiB container with dirty pages whenever the disk fell
+/// behind, and the kernel killed a process that itself held about 16 MiB.
+pub(in crate::storage::catalog) struct StagedFile {
+    file: tokio::fs::File,
+    unsynced: u64,
     #[cfg(test)]
-    fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
-    // tokio finishes the last write in the background, and sync_all drops its error;
-    // flush reports it, so a failed tail cannot publish a short blob at the full size.
-    file.flush().await?;
-    #[cfg(test)]
-    fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
-    let synced = file.sync_all().await;
-    #[cfg(test)]
-    if synced.is_ok() {
-        fault::file_synced(data_dir, &file.metadata().await?);
+    data_dir: PathBuf,
+}
+
+impl StagedFile {
+    // Only Linux charges page cache to a memory limit this way, and a data sync on macOS is a
+    // full device flush, which would make every large upload there pay for nothing.
+    const BOUNDED: bool = cfg!(any(target_os = "linux", test));
+
+    pub(in crate::storage::catalog) fn new(
+        file: tokio::fs::File,
+        #[cfg(test)] data_dir: &Path,
+    ) -> Self {
+        Self {
+            file,
+            unsynced: 0,
+            #[cfg(test)]
+            data_dir: data_dir.to_owned(),
+        }
     }
-    synced.map_err(object_unavailable)
+
+    pub(in crate::storage::catalog) async fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all(bytes).await?;
+        self.unsynced += bytes.len() as u64;
+        if Self::BOUNDED && self.unsynced >= WRITE_BEHIND_BYTES {
+            #[cfg(test)]
+            fault::hit_io(&self.data_dir, Step::BodyWriteBehind)?;
+            // tokio finishes the last write in the background and a sync drops its error.
+            self.file.flush().await?;
+            self.file.sync_data().await?;
+            #[cfg(test)]
+            fault::file_synced(&self.data_dir, &self.file.metadata().await?);
+            self.unsynced = 0;
+        }
+        Ok(())
+    }
+
+    /// Makes every byte written durable before the body can be published.
+    ///
+    /// Tests record the synced length for power-loss snapshots from the `sync_all` result
+    /// itself, so a write path that skips this call, or a sync dropped from it together with
+    /// the result it yields, leaves its bytes volatile and fails the power-loss crash tests.
+    pub(in crate::storage::catalog) async fn make_durable(&mut self) -> Result<(), ObjectError> {
+        #[cfg(test)]
+        fault::hit(&self.data_dir, Step::BodyFlush).map_err(object_unavailable)?;
+        // tokio finishes the last write in the background, and sync_all drops its error;
+        // flush reports it, so a failed tail cannot publish a short blob at the full size.
+        self.file.flush().await?;
+        #[cfg(test)]
+        fault::hit(&self.data_dir, Step::BodySync).map_err(object_unavailable)?;
+        self.file.sync_all().await.map_err(object_unavailable)?;
+        #[cfg(test)]
+        fault::file_synced(&self.data_dir, &self.file.metadata().await?);
+        self.unsynced = 0;
+        Ok(())
+    }
+
+    /// Cuts the body back to its first `len` bytes; they are durable only after
+    /// [`Self::make_durable`].
+    pub(in crate::storage::catalog) async fn truncate(&mut self, len: u64) -> io::Result<()> {
+        self.file.set_len(len).await?;
+        #[cfg(test)]
+        fault::truncated(&self.data_dir, &self.file.metadata().await?);
+        Ok(())
+    }
+
+    /// The file itself, for reading the staged bytes back.
+    pub(in crate::storage::catalog) fn file_mut(&mut self) -> &mut tokio::fs::File {
+        &mut self.file
+    }
 }

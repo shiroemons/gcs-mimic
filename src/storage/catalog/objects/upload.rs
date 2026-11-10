@@ -492,7 +492,7 @@ impl Catalog {
 }
 
 pub(in crate::storage::catalog) enum UploadSink {
-    Disk(tokio::fs::File),
+    Disk(StagedFile),
     Memory(super::super::super::memory::Stage),
 }
 
@@ -558,7 +558,7 @@ pub(in crate::storage::catalog) async fn write_stream(
             #[cfg(test)]
             fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
             match file {
-                UploadSink::Disk(file) => file.write_all(part).await?,
+                UploadSink::Disk(staged) => staged.write(part).await?,
                 UploadSink::Memory(stage) => stage.write(part)?,
             }
         }
@@ -578,13 +578,8 @@ pub(in crate::storage::catalog) async fn write_stream(
             calculated: md5.to_vec(),
         })));
     }
-    if let UploadSink::Disk(file) = file {
-        make_durable(
-            file,
-            #[cfg(test)]
-            data_dir,
-        )
-        .await?;
+    if let UploadSink::Disk(staged) = file {
+        staged.make_durable().await?;
     }
     Ok((
         size,

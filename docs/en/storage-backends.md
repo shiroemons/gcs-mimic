@@ -76,6 +76,13 @@ application serialization means WAL's general reader/writer concurrency is not
 a measured application benefit. WAL still has one writer, checkpoint work and
 same-host filesystem constraints.
 
+On Linux a staged body is synced after every 8 MiB written, not only at its end.
+The kernel charges unwritten page cache to a container's memory limit, and
+through overlayfs it does not slow the writer down to that limit, so one final
+sync let a large body fill a small container with dirty pages and be
+OOM-killed. The body's last sync still decides durability. Other platforms
+keep the single final sync, because a data sync on macOS flushes the device.
+
 A blob rename and SQL commit are separate operations. The deletion journal and
 startup reconciliation bridge that boundary. Database atomicity alone does not
 make both stores one atomic transaction. Selected process-crash cases pass, and

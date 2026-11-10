@@ -93,13 +93,13 @@ async fn receive_chunk(
                 }
             }
         }
-        file.finish(catalog).await.map(|()| received)
+        file.finish().await.map(|()| received)
     }
     .await;
     let received = match transfer {
         Ok(received) => received,
         Err(error) => {
-            file.rollback(catalog, durable).await?;
+            file.rollback(durable).await?;
             return Err(error);
         }
     };

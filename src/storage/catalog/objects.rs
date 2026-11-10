@@ -82,7 +82,7 @@ mod upload;
 #[cfg(unix)]
 pub(super) use durability::sync_dir;
 pub(super) use durability::{
-    blob_shard, commit_publication, create_upload_stage, make_durable, publish_blob, unlink,
+    StagedFile, blob_shard, commit_publication, create_upload_stage, publish_blob, unlink,
 };
 pub(crate) use list::ObjectListCursor;
 pub(crate) use list::{ObjectListPage, ObjectListQuery};

@@ -280,7 +280,7 @@ impl Catalog {
                 return Err(object_unavailable("multipart part data is corrupt").into());
             }
         }
-        file.finish(self).await?;
+        file.finish().await?;
         #[cfg(unix)]
         let backend = self.0.backend.clone();
         let id = *id;

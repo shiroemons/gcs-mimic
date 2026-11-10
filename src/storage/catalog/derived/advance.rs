@@ -55,7 +55,7 @@ impl Catalog {
                     if catalog.0.backend.is_memory() { tokio::task::yield_now().await; }
                 }
             }
-            output.finish(&catalog).await?;
+            output.finish().await?;
             // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews it: a
             // request may copy for longer, and has a deadline of its own if configured. The time
             // is read after the copy, because a compose advances through all its bytes at once.

@@ -10,10 +10,7 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-
-#[cfg(test)]
-use super::fault;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub(super) fn stage_path(data_dir: &Path, id: &BlobId) -> PathBuf {
     id.staging_path(data_dir)
@@ -51,7 +48,7 @@ impl InputReader {
 }
 
 pub(super) enum Output {
-    Disk(tokio::fs::File),
+    Disk(objects::StagedFile),
     Memory(crate::storage::memory::Draft),
 }
 
@@ -83,23 +80,16 @@ impl Output {
 
     pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<(), ObjectError> {
         match self {
-            Self::Disk(file) => file.write_all(bytes).await.map_err(object_unavailable),
+            Self::Disk(staged) => staged.write(bytes).await.map_err(object_unavailable),
             Self::Memory(draft) => draft.write(bytes).map_err(object_unavailable),
         }
     }
 
-    pub(super) async fn finish(&mut self, catalog: &Catalog) -> Result<(), ObjectError> {
-        if let Self::Disk(file) = self {
-            objects::make_durable(
-                file,
-                #[cfg(test)]
-                &catalog.0.data_dir,
-            )
-            .await?;
+    pub(super) async fn finish(&mut self) -> Result<(), ObjectError> {
+        match self {
+            Self::Disk(staged) => staged.make_durable().await,
+            Self::Memory(_) => Ok(()),
         }
-        #[cfg(not(test))]
-        let _ = catalog;
-        Ok(())
     }
 
     pub(super) fn acknowledge(&mut self, offset: u64) {
@@ -108,24 +98,18 @@ impl Output {
         }
     }
 
-    pub(super) async fn rollback(
-        &mut self,
-        catalog: &Catalog,
-        offset: u64,
-    ) -> Result<(), ObjectError> {
-        if let Self::Disk(file) = self {
-            file.set_len(offset).await?;
-            #[cfg(test)]
-            fault::truncated(&catalog.0.data_dir, &file.metadata().await?);
+    pub(super) async fn rollback(&mut self, offset: u64) -> Result<(), ObjectError> {
+        if let Self::Disk(staged) = self {
+            staged.truncate(offset).await?;
         }
         // Tokio retains a failed background write across set_len; flush must observe it before sync.
-        self.finish(catalog).await
+        self.finish().await
     }
 
     pub(super) async fn hashes(&mut self) -> Result<(Hashes, u64), ObjectError> {
         let file = match self {
             Self::Memory(draft) => return draft.hashes().map_err(object_unavailable),
-            Self::Disk(file) => file,
+            Self::Disk(staged) => staged.file_mut(),
         };
         file.seek(io::SeekFrom::Start(0)).await?;
         let mut hasher = Hasher::default();

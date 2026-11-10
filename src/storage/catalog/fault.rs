@@ -130,6 +130,8 @@ pub(crate) enum Step {
     ResumableRecovered,
     /// Before one write of body bytes to the staged file.
     BodyWrite,
+    /// Before a staged file sends the bytes written since its last sync to storage.
+    BodyWriteBehind,
     /// Before the flush that reports tokio's background tail write.
     BodyFlush,
     /// Before the staged file's `sync_all`.

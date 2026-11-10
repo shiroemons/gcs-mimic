@@ -269,10 +269,14 @@ impl BlobBackend {
         id: &BlobId,
     ) -> Result<UploadSink, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => objects::create_upload_stage(id.staging_path(root))
-                .await
-                .map(tokio::fs::File::from_std)
-                .map(UploadSink::Disk),
+            Self::Disk(root) => {
+                let file = objects::create_upload_stage(id.staging_path(root)).await?;
+                Ok(UploadSink::Disk(objects::StagedFile::new(
+                    tokio::fs::File::from_std(file),
+                    #[cfg(test)]
+                    root,
+                )))
+            }
             Self::Memory(store) => Ok(UploadSink::Memory(store.stage()?)),
         }
     }
@@ -282,9 +286,14 @@ impl BlobBackend {
         id: &BlobId,
     ) -> Result<Output, crate::object::ObjectError> {
         match self {
-            Self::Disk(root) => Ok(Output::Disk(tokio::fs::File::from_std(
-                objects::create_upload_stage(id.staging_path(root)).await?,
-            ))),
+            Self::Disk(root) => {
+                let file = objects::create_upload_stage(id.staging_path(root)).await?;
+                Ok(Output::Disk(objects::StagedFile::new(
+                    tokio::fs::File::from_std(file),
+                    #[cfg(test)]
+                    root,
+                )))
+            }
             Self::Memory(_) => {
                 self.create_draft(id)?;
                 self.open_output(id, 0, ReadAccess::WriteOnly).await
@@ -414,7 +423,11 @@ impl BlobBackend {
                 #[cfg(test)]
                 super::fault::truncated(root, &file.metadata().await?);
                 file.seek(io::SeekFrom::Start(offset)).await?;
-                Ok(Output::Disk(file))
+                Ok(Output::Disk(objects::StagedFile::new(
+                    file,
+                    #[cfg(test)]
+                    root,
+                )))
             }
         }
     }

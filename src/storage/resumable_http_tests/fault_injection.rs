@@ -297,6 +297,33 @@ async fn single_request_upload_failures_never_publish_and_keep_the_previous_obje
     h.stop().await;
 }
 
+/// A body larger than the write-behind window is synced before its end. A failure of that
+/// sync fails the request like any other body write, in a single request and in a
+/// resumable chunk.
+#[tokio::test]
+async fn a_failed_write_behind_sync_never_publishes_and_keeps_the_previous_object() {
+    let h = Harness::start(16 * 1024 * 1024, Permissive, None).await;
+    let original = h.media("target", b"old").await;
+    assert_eq!(original.status, 200);
+    let original = original.json();
+    let body = vec![b'n'; 9 * 1024 * 1024];
+    let fault = Fault::Io(ErrorKind::Other);
+    let expect = expect_for(&fault);
+    h.inject(Step::BodyWriteBehind, 0, fault);
+    let reply = h.media("target", &body).await;
+    assert_backend_failure(&reply, &expect, "single request");
+    h.assert_fired("single request");
+    assert_eq!(h.resource("target").await.json(), original);
+    assert_eq!(h.media_bytes("target").await.body, b"old");
+    assert_no_leaks(&h.dir.0, "single request");
+
+    let replaced = h.media("target", &body).await;
+    assert_eq!(replaced.status, 200);
+    assert_eq!(h.media_bytes("target").await.body, body);
+    assert_no_leaks(&h.dir.0, "after the fault is gone");
+    h.stop().await;
+}
+
 /// A commit that succeeded but reported an error is ambiguous. Cleanup must probe the
 /// committed reference instead of deleting the live blob as though the write failed.
 #[tokio::test]
