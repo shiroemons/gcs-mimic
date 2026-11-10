@@ -26689,7 +26689,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Media generations initialize timeCreated/updated/timeStorageClassUpdated/timeFinalized consistently from injected Clock. Current object JSON renders stored times with exactly three fractional digits, as Cloud Storage does (observed 2026-10-31); stored microseconds and imported bucket nanoseconds (source-memory-snapshot contract) are unchanged. Scope/evidence: docs/en/slices/json-object-media.md, docs/en/slices/catalog-timestamp-precision.md and docs/en/evidence/object-media.md. Custom time, deletion and metadata updates have separately scoped contracts; automatic lifecycle timing remains incomplete.",
+      "notes": "Media generations initialize timeCreated/updated/timeStorageClassUpdated/timeFinalized consistently from injected Clock. Current object JSON renders stored times with exactly three fractional digits, as Cloud Storage does (observed 2026-10-31); stored microseconds and imported bucket nanoseconds (source-memory-snapshot contract) are unchanged. Scope/evidence: docs/en/slices/json-object-media.md, docs/en/slices/catalog-timestamp-precision.md and docs/en/evidence/object-media.md. Lifecycle Delete now uses deterministic injected-clock deadlines, stores noncurrent time and restarts age on restore (docs/en/slices/lifecycle-execution.md). Other cross-feature/provider timestamp parity remains incomplete.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26706,15 +26706,24 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-003-PENDING",
-          "description": "Complete cross-feature timestamp parity, lifecycle transitions and clock-stepped expiration; the existing customTime, deletion and metadata-update subsets do not establish automatic lifecycle effects.",
+          "description": "Complete cross-feature/provider timestamp parity and lifecycle storage-class transition timestamps; deterministic local Delete timing is covered separately and does not establish every lifecycle effect.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-003-LIFECYCLE-DELETE",
+          "description": "Injected-clock lifecycle Delete stores noncurrent time, honors exact age/retention deadlines and starts restored generations from their new creation time.",
+          "result": "PASS",
+          "test_ids": ["versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation","restored_objects_restart_lifecycle_age_at_their_new_creation_time","bucket_and_object_retention_delay_delete_until_the_later_exact_expiry"]
         }
       ],
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "round_trip_exact_hashes_opaque_names_and_restart",
-        "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links"
+        "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links",
+        "versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation",
+        "restored_objects_restart_lifecycle_age_at_their_new_creation_time",
+        "bucket_and_object_retention_delay_delete_until_the_later_exact_expiry"
       ],
       "verification": [
         {
@@ -26727,14 +26736,15 @@
             "round_trip_exact_hashes_opaque_names_and_restart",
             "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links"
           ]
-        }
+        },
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::tests -- --nocapture","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation","restored_objects_restart_lifecycle_age_at_their_new_creation_time","bucket_and_object_retention_delay_delete_until_the_later_exact_expiry"]}
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "timeFinalized equals creation for local media. CustomTime, deletion and metadata mutation are separately scoped; full cross-feature/provider timestamp parity and automatic lifecycle timing remain incomplete."
+        "timeFinalized equals creation for local media. Full cross-feature/provider timestamp parity and lifecycle storage-class transition timestamps remain incomplete; local Delete timing is verified separately."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-11-10"
     },
     {
       "id": "BEHAVIOR-OBJECT-004",
@@ -31957,26 +31967,36 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-10",
       "source_evidence": "SPEC_BASED",
-      "notes": "Versioning, retention, holds and soft-delete interactions; empty HNS folders under current behavior.",
+      "notes": "Stored Delete rules execute through the Delete-only evaluator and paged maintenance. Execution defaults on without synchronization and off with sync_dir; explicit enabled also deletes synchronized host files. Unversioned/soft deletion, version transitions, restore age, protection, notifications and atomic pages are covered on disk and RAM. Class-dependent Delete rules are deferred when storage transitions are configured but unapplied. Scope and evidence: docs/en/slices/lifecycle-execution.md. Empty HNS folders and provider interaction questions remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id":"DELETE-VERSIONS","description":"Delete unversioned objects and reclaim their bodies; apply stored soft delete; archive a versioned live object and remove matching noncurrent generations across pages; restored generations restart age.","result":"PASS","test_ids":["unversioned_delete_reclaims_the_body_on_the_shared_maintenance_pass","lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versions","versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation","only_matching_noncurrent_generations_are_removed_with_newer_versions_across_pages","restored_objects_restart_lifecycle_age_at_their_new_creation_time"]},
+        {"id":"DELETE-PROTECTION","description":"Both holds block deletion until released; bucket and object retention use the later exact deadline, including before a live version can be archived under the conservative local contract.","result":"PASS","test_ids":["releasing_each_hold_allows_a_matching_delete","bucket_and_object_retention_delay_delete_until_the_later_exact_expiry","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving"]},
+        {"id":"DELETE-NOTIFICATIONS","description":"Use the existing transactional outbox for one OBJECT_ARCHIVE and one OBJECT_DELETE, with no repeated event after restart.","result":"PASS","test_ids":["lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox","lifecycle_crash_and_power_loss_snapshots_restart_idempotently"]},
+        {"id":"DELETE-ATOMICITY","description":"Re-read rules and incarnation once per immediate page transaction and re-evaluate current versions and holds; a version or commit failure rolls back the whole page, and crash/power-loss restart converges.","result":"PASS","test_ids":["stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_before_deletion","a_bucket_recreated_between_selection_and_application_rejects_the_old_incarnation","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","a_version_failure_rolls_back_the_whole_page_before_a_later_retry","lifecycle_crash_and_power_loss_snapshots_restart_idempotently"]},
+        {"id":"DELETE-TRANSITION-SAFETY","description":"A pending day-30 storage-class transition defers a class-dependent day-60 Delete, while a day-90 Delete without the class condition still executes.","result":"PASS","test_ids":["pending_storage_transitions_defer_class_dependent_deletion_but_not_other_delete_rules"]},
+        {"id":"DELETE-SYNCHRONIZATION","description":"On Linux/macOS synchronization defaults to lifecycle disabled and keeps host files; explicit enabled propagates deletion through the existing mirror, while explicit disabled preserves both copies.","result":"PASS","test_ids":["synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them"]},
+        {"id":"DELETE-PENDING","description":"Empty HNS folder cleanup and real-provider parity for object-retained live archiving, soft-deleted newer counts and soft-delete notifications remain pending under SPEC-LIFECYCLE-EXECUTION.","result":"PENDING","test_ids":[]}
+      ],
+      "test_ids": ["unversioned_delete_reclaims_the_body_on_the_shared_maintenance_pass","lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versions","versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation","only_matching_noncurrent_generations_are_removed_with_newer_versions_across_pages","restored_objects_restart_lifecycle_age_at_their_new_creation_time","releasing_each_hold_allows_a_matching_delete","bucket_and_object_retention_delay_delete_until_the_later_exact_expiry","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving","lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox","stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_before_deletion","a_bucket_recreated_between_selection_and_application_rejects_the_old_incarnation","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","lifecycle_crash_and_power_loss_snapshots_restart_idempotently","a_version_failure_rolls_back_the_whole_page_before_a_later_retry","pending_storage_transitions_defer_class_dependent_deletion_but_not_other_delete_rules","synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them"],
+      "verification": [
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::tests -- --nocapture","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["unversioned_delete_reclaims_the_body_on_the_shared_maintenance_pass","lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versions","versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation","only_matching_noncurrent_generations_are_removed_with_newer_versions_across_pages","restored_objects_restart_lifecycle_age_at_their_new_creation_time","releasing_each_hold_allows_a_matching_delete","bucket_and_object_retention_delay_delete_until_the_later_exact_expiry","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving","lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox","stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_before_deletion","a_bucket_recreated_between_selection_and_application_rejects_the_old_incarnation","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","lifecycle_crash_and_power_loss_snapshots_restart_idempotently","a_version_failure_rolls_back_the_whole_page_before_a_later_retry","pending_storage_transitions_defer_class_dependent_deletion_but_not_other_delete_rules","synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them"]}
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": ["Lifecycle conservatively waits for object retention before archiving a live version; newer counts exclude soft-deleted versions and soft deletion emits the existing local delete event. These provider interaction choices and empty HNS folder cleanup remain unverified. Class-dependent Delete rules are deferred when SetStorageClass is present until storage transitions execute. Earlier-release rule execution is covered only by same-version restart because the released-data fixture has no lifecycle rules. Event-hold release retains the existing creation-based bucket-retention limitation."],
+      "implemented_in": "5f1665e845872719849db970a54963d75d034c95",
+      "last_verified": "2026-11-10"
     },
     {
       "id": "BEHAVIOR-LIFECYCLE-003",
@@ -32223,26 +32243,41 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "LOCAL_SIMULATION",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-10",
       "source_evidence": "SPEC_BASED",
-      "notes": "Injectable clock and explicit tick for tests; record simulated scheduling fidelity.",
+      "notes": "Deterministic local Delete scheduling: injected clock, explicit tick, exact clean-schedule/protection deadlines, catalog-wide one-second write coalescing, rising-edge wakeup, primary-key pages, 1024-action cap and restart reconstruction. Lifecycle execution defaults off with sync_dir and on otherwise; explicit enabled/disabled overrides it. Ignored storage-class actions add no deadlines; multipart abort and transition execution remain separate slices. Contract and evidence: docs/en/slices/lifecycle-execution.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {"id":"SCHEDULE-DEADLINES","description":"No rules means no scan; early wakes retain the exact deadline; retention can move it later; version selection seeks the primary key without a temporary sort.","result":"PASS","test_ids":["no_rules_stays_disarmed_and_early_wakes_do_not_scan","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving","the_version_scan_seeks_the_primary_key_without_a_temporary_sort"]},
+        {"id":"SCHEDULE-WRITES","description":"Rule and object writes dirty the schedule with one-second coalescing; the lower SQL marker rearms API and administrative ensure/import/seed/initialization paths.","result":"PASS","test_ids":["writes_coalesce_for_one_second_and_removing_rules_disarms_the_schedule","a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeup","administrative_ensure_import_seed_and_initialization_all_arm_the_shared_schedule"]},
+        {"id":"SCHEDULE-BOUNDS","description":"1024 applied actions return now and continue on the next pass; a selected storage-class action is unchanged and has no immediate retry deadline.","result":"PASS","test_ids":["the_action_cap_returns_now_and_the_following_pass_finishes_the_backlog","a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeup"]},
+        {"id":"SCHEDULE-RECOVERY","description":"Restart reconstructs deadlines; failed page commits retry; corrupt rules are quarantined without dropping readiness or stopping other buckets.","result":"PASS","test_ids":["restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_deadline","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_readiness"]},
+        {"id":"SCHEDULE-DISABLE","description":"Disabled execution preserves objects and rules even during a forced pass; sync defaults off and explicit enabled propagates host deletion. JSON, environment and CLI obey native precedence and reject invalid values.","result":"PASS","test_ids":["disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass","lifecycle_execution_defaults_on_and_disable_obeys_native_precedence","synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them"]},
+        {"id":"SCHEDULE-LIVE-WAKE","description":"The actual maintenance loop wakes on a write after the injected deadline; SQL rule marks outside the connection's write interval fail a debug invariant.","result":"PASS","test_ids":["the_running_maintenance_loop_wakes_on_a_write_after_the_injected_deadline","marking_rules_outside_a_catalog_write_scope_fails_the_invariant"]},
+        {"id":"SCHEDULE-ADMIN","description":"The explicit run route uses instance-administrator authorization and existing browser/Host guards, rejects time travel and invalid methods, and returns counts.","result":"PASS","test_ids":["config_uses_the_instance_principal_instead_of_project_roles","lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods","management_routes_refuse_page_initiated_requests_without_mutation"]}
+      ],
+      "test_ids": ["no_rules_stays_disarmed_and_early_wakes_do_not_scan","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving","the_version_scan_seeks_the_primary_key_without_a_temporary_sort","writes_coalesce_for_one_second_and_removing_rules_disarms_the_schedule","a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeup","administrative_ensure_import_seed_and_initialization_all_arm_the_shared_schedule","the_action_cap_returns_now_and_the_following_pass_finishes_the_backlog","a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeup","restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_deadline","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_readiness","disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass","lifecycle_execution_defaults_on_and_disable_obeys_native_precedence","config_uses_the_instance_principal_instead_of_project_roles","lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods","management_routes_refuse_page_initiated_requests_without_mutation","synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them","the_running_maintenance_loop_wakes_on_a_write_after_the_injected_deadline","marking_rules_outside_a_catalog_write_scope_fails_the_invariant"],
+      "verification": [
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::tests -- --nocapture","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["no_rules_stays_disarmed_and_early_wakes_do_not_scan","retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving","the_version_scan_seeks_the_primary_key_without_a_temporary_sort","writes_coalesce_for_one_second_and_removing_rules_disarms_the_schedule","a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeup","administrative_ensure_import_seed_and_initialization_all_arm_the_shared_schedule","the_action_cap_returns_now_and_the_following_pass_finishes_the_backlog","a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeup","restart_rebuilds_the_schedule_from_stored_rules_and_recomputes_the_deadline","failed_lifecycle_commit_rolls_back_rows_events_and_journal_then_retries","a_broken_stored_rule_is_quarantined_without_failing_other_buckets_or_readiness","disabled_execution_preserves_rules_and_objects_even_on_a_forced_pass"]},
+        {"command":"cargo test --locked --offline --lib config::storage::tests::lifecycle_execution_defaults_on_and_disable_obeys_native_precedence","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["lifecycle_execution_defaults_on_and_disable_obeys_native_precedence"]},
+        {"command":"cargo test --locked --offline --lib server::admin::tests::config_uses_the_instance_principal_instead_of_project_roles","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["config_uses_the_instance_principal_instead_of_project_roles"]},
+        {"command":"cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"]},
+        {"command":"cargo test --locked --offline --test it_admin management_routes_refuse_page_initiated_requests_without_mutation","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["management_routes_refuse_page_initiated_requests_without_mutation"]},
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::tests -- --nocapture","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["synchronization_keeps_host_files_by_default_and_explicit_execution_deletes_them","the_running_maintenance_loop_wakes_on_a_write_after_the_injected_deadline","marking_rules_outside_a_catalog_write_scope_fails_the_invariant"]}
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "5f1665e845872719849db970a54963d75d034c95",
+      "last_verified": "2026-11-10"
     },
     {
       "id": "BEHAVIOR-FOLDER-001",

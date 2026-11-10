@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
-| behavior | 201 | 84 | 0 | 78 | 39 | 0 | 0 |
+| behavior | 201 | 82 | 0 | 79 | 40 | 0 | 0 |
 | project_requirement | 96 | 22 | 0 | 44 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 85 | 74 | 39 | 3 | 0 | 0 |
+| behavior | 83 | 74 | 41 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 73 |
 
 ## api_operation
@@ -679,7 +679,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | EXACT | 2 |
-| BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-004 | AbortIncompleteMultipartUpload action | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | EXACT | EXACT | 0 |
@@ -687,7 +687,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-LIFECYCLE-007 | Noncurrent-version conditions | PARTIAL | P4 | EXACT | EXACT | 0 |
 | BEHAVIOR-LIFECYCLE-008 | Name and storage-class conditions | PARTIAL | P4 | EXACT | EXACT | 0 |
 | BEHAVIOR-LIFECYCLE-009 | Object-size lifecycle conditions | PARTIAL | P4 | EXACT | EXACT | 0 |
-| BEHAVIOR-LIFECYCLE-010 | Deterministic scheduled evaluation | NOT_STARTED | P4 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-LIFECYCLE-010 | Deterministic scheduled evaluation | IMPLEMENTED | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 
 ### Limits and quotas
 
