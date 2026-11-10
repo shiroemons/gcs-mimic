@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>gcs-mimic strict local recipe browser check</title>
+<body data-status="running"><pre id="results"></pre>
+<script>
+"use strict";
+(async () => {
+  const output = document.querySelector("#results");
+  const report = message => { output.textContent += `${message}\n`; };
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+    report(`PASS: ${message}`);
+  };
+  const params = new URLSearchParams(location.search);
+  const role = params.get("role");
+  const phase = params.get("phase");
+  const {api, allowedOrigin, objects, picture, urls} = await (await fetch("/manifest.json")).json();
+  report(`page origin: ${location.origin}; API origin: ${api}; role: ${role}; phase: ${phase}`);
+  check(location.origin !== api, "the page and the published main listener are distinct origins");
+  check((location.origin === allowedOrigin) === (role === "allowed"),
+    "the page origin matches its role against the recipe's configured frontend origin");
+
+  // Every request is anonymous: a browser holds no Cloud Storage credential in this recipe.
+  const call = (url, options = {}) => fetch(url, {
+    cache: "no-store", credentials: "omit", redirect: "error", ...options, signal: AbortSignal.timeout(15000)
+  });
+  const blocked = async (url, options, message) => {
+    try { await call(url, options); } catch (error) {
+      if (error instanceof TypeError) { report(`PASS: ${message}`); return; }
+      throw error;
+    }
+    throw new Error(`${message}: the browser allowed the request`);
+  };
+  const refused = async (url, options, status, code, message) => {
+    const response = await call(url, options);
+    const body = await response.text();
+    if (response.status !== status || !body.includes(code)) {
+      throw new Error(`${message}: expected ${status} ${code}, got ${response.status} ${body}`);
+    }
+    report(`PASS: ${message}: the page reads ${status} ${code}`);
+    return body;
+  };
+  const embed = url => new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => resolve(image.naturalWidth);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+  const publicUrl = `${api}/app-public/${objects.public.name}`;
+  const unsignedPrivate = `${api}/app-private/${objects.private.name}`;
+  const jsonObject = `${api}/storage/v1/b/app-private/o/${encodeURIComponent(objects.private.name)}`;
+  const svg = {"Content-Type": picture.contentType};
+  const put = (headers = svg, body = picture.body) => ({method: "PUT", headers, body});
+
+  if (role === "denied") {
+    await blocked(publicUrl, {}, "an origin the recipe does not list cannot read a public object with fetch");
+    await blocked(urls.uploadDeniedOrigin, put(), "an origin the recipe does not list fails the signed upload preflight");
+    check(await embed(urls.picture) === picture.width, "CORS is not authorization: a signed embed still loads from any origin");
+  } else if (phase === "stock") {
+    let response = await call(publicUrl);
+    check(response.ok && await response.text() === objects.public.body, "fetch reads a public object anonymously through its allUsers grant");
+    check(response.headers.get("Content-Type") === objects.public.contentType, "the configured Content-Type response header is readable");
+    check(response.headers.get("ETag") === null, "a response header the bucket's rule does not list stays hidden");
+    response = await call(`${api}/storage/v1/b/app-public/o/${encodeURIComponent(objects.public.name)}?alt=media`);
+    check(response.ok && await response.text() === objects.public.body, "the JSON API serves the public object anonymously");
+    await blocked(publicUrl, put({"Content-Type": "text/plain"}, "anonymous"), "the public bucket's rule does not allow a browser PUT");
+
+    await blocked(unsignedPrivate, {}, "the private bucket's rule does not allow an unsigned XML fetch");
+    const listing = await refused(`${api}/storage/v1/b/app-private/o`, {}, 401, "Anonymous", "an anonymous JSON list of the private bucket is refused");
+    check(!listing.includes(objects.private.name), "the refused list reveals no object name");
+    await refused(jsonObject, {}, 401, "Anonymous", "anonymous JSON metadata of a private object is refused");
+    await refused(`${jsonObject}?alt=media`, {}, 401, "Anonymous", "anonymous JSON media of a private object is refused");
+
+    await blocked(urls.download, {}, "without GET in the bucket's rule a page cannot fetch a signed download");
+    check(await embed(urls.picture) === picture.width, "an embedded signed URL by the built-in test signer loads");
+    check(await embed(`${api}/app-private/${objects.picture.name}`) === null, "an unsigned embed of a private object fails");
+    check(await embed(urls.pictureTampered) === null, "a tampered signed embed fails");
+    check(await embed(urls.pictureExpired) === null, "an expired signed embed fails");
+
+    response = await call(urls.upload, put());
+    check(response.status === 200, "a signed PUT with a non-simple Content-Type passes its preflight and writes the private bucket");
+    check(await embed(urls.uploaded) === picture.width, "the uploaded object loads through its own signed URL");
+
+    await refused(urls.uploadTampered, put(), 403, "SignatureDoesNotMatch", "a tampered signed upload is refused after its preflight");
+    await refused(urls.uploadExpired, put(), 400, "ExpiredToken", "an expired signed upload is refused after its preflight");
+    await refused(urls.uploadWrongType, put({"Content-Type": "text/plain"}), 403, "SignatureDoesNotMatch", "an upload that changes the signed Content-Type is refused");
+    await refused(`${api}/app-private/${objects.anonymousUpload}`, put(), 401, "AuthenticationRequired", "an unsigned upload passes the preflight and is still refused");
+    await blocked(urls.uploadDeniedHeader, put({...svg, "X-Not-In-The-Rule": "1"}), "a request header the bucket's rule does not list fails the signed upload preflight");
+  } else if (phase === "get-added") {
+    const response = await call(urls.download);
+    check(response.ok && await response.text() === objects.private.body, "with GET in the bucket's rule a page fetches the signed download");
+    await refused(urls.downloadTampered, {}, 403, "SignatureDoesNotMatch", "a tampered signed download is refused");
+    await refused(urls.downloadExpired, {}, 400, "ExpiredToken", "an expired signed download is refused");
+    await refused(unsignedPrivate, {}, 401, "AuthenticationRequired", "an unsigned download is refused although the origin and method match");
+  } else {
+    throw new Error(`unknown role or phase: ${role} ${phase}`);
+  }
+  document.body.dataset.status = "pass";
+  report(`PASS: ${role} ${phase} browser checks completed`);
+})().catch(error => {
+  document.body.dataset.status = "fail";
+  document.querySelector("#results").textContent += `FAIL: ${error.stack || error}\n`;
+});
+</script>
