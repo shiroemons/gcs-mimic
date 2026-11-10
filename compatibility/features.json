@@ -2270,7 +2270,6 @@
         "candidates_publish_only_the_exact_tag_and_never_affect_stable_aliases",
         "release_version_grammar_matches_shell_and_workflows",
         "candidates_order_numerically_before_the_final_release",
-        "malformed_and_prerelease_versions_cannot_publish (historical stable-only policy)",
         "notice_only_output_needs_neither_git_nor_an_executable",
         "ghcr-tag-publication"
       ],
@@ -2293,9 +2292,9 @@
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/ghcr.md",
+          "description": "This historical run also checked malformed_and_prerelease_versions_cannot_publish under the former stable-only policy; current release-candidate acceptance tests replace that retired test.",
           "test_ids": [
             "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
-            "malformed_and_prerelease_versions_cannot_publish (historical stable-only policy)",
             "notice_only_output_needs_neither_git_nor_an_executable"
           ]
         },
@@ -2684,7 +2683,7 @@
       "acceptance_cases": [
         {
           "id": "DIST-002-CONFIGURATION",
-          "description": "Validate release and reusable Foundation workflow syntax with actionlint; execute committed binary/GHCR run blocks against shared stable/candidate/invalid version cases and explicit stable-only Latest/prerelease flags with mocked external commands.",
+          "description": "Validate release and reusable Foundation workflow syntax with actionlint; execute required binary/GHCR run blocks against shared stable/candidate/invalid cases, complete version outputs and explicit stable-only Latest/prerelease flags. Rehearse read-only flag calculation during dry runs and stop publication on release-list or xtask failure, using mocked external commands.",
           "result": "PASS",
           "test_ids": [
             "binary-workflow-syntax",
@@ -2789,6 +2788,17 @@
         "release-tag-execution"
       ],
       "verification": [
+        {
+          "command": "actionlint; bash scripts/test-release-workflows.sh; bash scripts/test-release-recipes.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/container-distribution.md",
+          "test_ids": [
+            "binary-workflow-syntax",
+            "release-workflow-offline",
+            "release-recipes-offline"
+          ]
+        },
         {
           "command": "actionlint; bash scripts/test-release-workflows.sh; bash scripts/test-release-recipes.sh",
           "result": "PASS",

@@ -97,9 +97,9 @@ The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must revie
 and advance that version guard along with the bundled runtime's notices.
 
 Release assets include one archive per release-matrix target and `SHA256SUMS`.
-Manual dispatch runs the publish
-job up to the asset list, so asset count and checksum failures appear before
-a tag; only a tag push creates the Release. Verify the selected
+Manual dispatch runs the publish job through asset checks and read-only
+publication-flag calculation, so failures appear before a tag; only a tag push
+creates the Release. Verify the selected
 archive after downloading both from the same release:
 
 ```sh
@@ -154,7 +154,9 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    It runs the release-input freshness check
    (`cargo xtask dependencies check --scope release`), the reusable Foundation
    checks and every release matrix target's native suite, uploads verification
-   archives as workflow artifacts and runs the publish job up to the asset list.
+   archives as workflow artifacts and runs the publish job through asset checks
+   and read-only publication-flag calculation. The selected Latest/prerelease
+   flags are displayed without creating a Release or changing registry tags.
    Manual dispatch never creates a public release. Inspect the results and
    archives. Do not tag
    until this dry run passes on the exact commit to tag, including its publish
@@ -174,7 +176,8 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    latest Release. Every release explicitly sets `--latest=true|false` from the
    shared container-tag policy: stable versions alone determine Latest, so
    publishing `0.17.2` after `1.0.0` does not roll it back. The publish job is
-   serialized to keep concurrent releases from racing that selection.
+   serialized to keep concurrent tag releases from racing that selection. Dry
+   runs use separate groups and cannot displace a waiting tag publication.
    It fails
    before publishing when no such run holds all eight archives, for example
    after they expire; then run the dry run and re-run the tag's failed job. Build
@@ -214,6 +217,12 @@ binary-to-GHCR-to-Docker-Hub publication chain have not been verified for an RC.
 The Windows MSVC xtask target passes local cross-checking, but that cannot replace
 native execution. Shell/workflow checks run only on Unix; Rust version cases run
 on every target.
+
+The tested run blocks remain inline in YAML rather than calling scripts through
+single-line workflow steps. The offline harness extracts their literal bodies
+and checks validation-step metadata, but it does not reproduce GitHub's runner,
+permissions or expression evaluation. These blocks must stay compatible with
+macOS Bash 3.2 for the local checks.
 
 Before tagging the first candidate, run the manual dry run on the exact candidate
 commit and confirm both Windows lanes, all eight archives, their complete RC

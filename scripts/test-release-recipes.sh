@@ -15,12 +15,15 @@ for version in 0.17.1 1.0.0-rc.1 1.0.0; do
   for recipe in "${recipes[@]}"; do write_recipe "$recipe" "$version"; done
   bash "$work/scripts/check-release-recipes.sh"
   for recipe in "${recipes[@]}"; do
-    write_recipe "$recipe" 0.17.0
-    if bash "$work/scripts/check-release-recipes.sh" > "$work/output" 2>&1; then
-      echo "A recipe for another release passed: $version $recipe" >&2
-      exit 1
-    fi
-    grep -F "$recipe must default to the image of the manifest version $version" "$work/output" > /dev/null
+    for other in 0.17.0 1.0.0 1.0.0-rc.1 1.0.0-rc.10; do
+      if [[ "$other" == "$version" ]]; then continue; fi
+      write_recipe "$recipe" "$other"
+      if bash "$work/scripts/check-release-recipes.sh" > "$work/output" 2>&1; then
+        echo "A recipe for another release passed: $version $recipe $other" >&2
+        exit 1
+      fi
+      grep -F "$recipe must default to the image of the manifest version $version" "$work/output" > /dev/null
+    done
     write_recipe "$recipe" "$version"
   done
 done

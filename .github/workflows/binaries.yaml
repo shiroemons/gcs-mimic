@@ -1,4 +1,5 @@
 name: Release binaries
+# Run blocks exercised by scripts/test-release-workflows.sh must work with macOS Bash 3.2.
 on:
   workflow_dispatch:
     inputs:
@@ -303,7 +304,7 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
           compression-level: 0
-  # Manual dispatch runs this job as a dry run up to the asset list, so publication
+  # Manual dispatch runs this job through read-only flag calculation, so publication
   # mistakes surface before an immutable tag; only tag pushes create the Release.
   publish:
     # The gates are skipped only when their dry run on this commit already passed them. A skipped
@@ -315,7 +316,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     concurrency:
-      group: binaries-publish
+      # A dry run must not displace a queued tag publication.
+      group: binaries-publish-${{ github.event_name == 'push' && 'tags' || github.run_id }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -372,11 +374,31 @@ jobs:
           ref=$RELEASE_TAG
           if [[ "$GITHUB_REF_TYPE" != tag ]]; then ref=$GITHUB_SHA; fi
           bash scripts/release-notes.sh "docs/en/releases/$VERSION.md" "$ref" > release-notes.md
+      - name: Calculate publication flags
+        shell: bash
+        run: |
+          stage=$(bash scripts/release-version.sh "$VERSION")
+          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(startswith("v")) | ltrimstr("v")')
+          policy_args=("$VERSION")
+          while IFS= read -r version; do
+            if [[ -n "$version" ]]; then policy_args+=("$version"); fi
+          done <<< "$published"
+          tags=$(cargo xtask release container-tags "${policy_args[@]}")
+          latest=false
+          while IFS= read -r tag; do
+            if [[ "$tag" == latest ]]; then latest=true; fi
+          done <<< "$tags"
+          release_flags=("--latest=$latest")
+          if [[ "$stage" == candidate ]]; then release_flags+=(--prerelease); fi
+          printf '%s\n' "${release_flags[@]}" > release-flags
+          printf 'Release flags:'
+          printf ' %s' "${release_flags[@]}"
+          printf '\n'
       - name: Publish verified tag
         if: github.event_name == 'push'
         shell: bash
         run: |
-          stage=$(bash scripts/release-version.sh "$VERSION")
           object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
           type=$(jq -er '.object.type' <<< "$object")
           sha=$(jq -er '.object.sha' <<< "$object")
@@ -394,21 +416,10 @@ jobs:
               exit 1
             fi
           done <<< "$releases"
-          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name | select(startswith("v")) | ltrimstr("v")')
-          policy_args=("$VERSION")
-          while IFS= read -r version; do
-            if [[ -n "$version" ]]; then policy_args+=("$version"); fi
-          done <<< "$published"
-          tags=$(cargo xtask release container-tags "${policy_args[@]}")
-          latest=false
-          while IFS= read -r tag; do
-            if [[ "$tag" == latest ]]; then latest=true; fi
-          done <<< "$tags"
           assets=()
           while IFS= read -r asset; do assets+=("$asset"); done < release-assets
-          release_flags=("--latest=$latest")
-          if [[ "$stage" == candidate ]]; then release_flags+=(--prerelease); fi
+          release_flags=()
+          while IFS= read -r flag; do release_flags+=("$flag"); done < release-flags
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md "${release_flags[@]}"
   publish-container:
