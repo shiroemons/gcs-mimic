@@ -666,3 +666,22 @@ Indirect requirements and the `examples/go` and `sdk-scorecard/go` modules are n
 - `cargo xtask dependencies check` at `2026-11-09T14:28:30Z` exited 0 with 120 `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
 - `go test -race ./...` in `go/sourceexport` passed.
 - `just pre-push`, which runs the Go SDK suite, passed on the 0.16.0 release source.
+
+## Refresh: 2026-11-10 SDK test inputs
+
+The three updates reported by the full check before the 0.17.0 release are adopted. None is a release input, and `cargo xtask dependencies check --scope release` exited 0 before them.
+
+| Input | Previous | Adopted | Manifest |
+| --- | --- | --- | --- |
+| org.codehaus.mojo:exec-maven-plugin | 3.6.4 | 3.7.0 | `sdk-tests/java/pom.xml`, `sdk-scorecard/java/pom.xml` |
+| google-auth-library | 11.3.3 | 11.3.4 (published 2026-11-09, Apache-2.0, 785,192 bytes unpacked, Node.js >=22) | `sdk-tests/node/package.json` |
+| google.golang.org/genproto | v0.0.0-20261104224025-d1e00e9f33ab | v0.0.0-20261110000943-09e21b237f2c (revision `09e21b237f2ce1c513f82bf67a7740af8d8f6e03`, Go 1.26.0) | `sdk-tests/go/go.mod` |
+
+The genproto update also raises `cloud.google.com/go/iam` to v1.15.1 and `genproto/googleapis/api` and `rpc` to v0.0.0-20261104224025-d1e00e9f33ab as indirect requirements of the Go SDK suite. Inputs outside the freshness check, such as `examples/java`, are unchanged.
+
+### Validation performed on 2026-11-10 for SDK test inputs
+
+- `cargo xtask dependencies check` at `2026-11-10T05:01:50Z` exited 0 with 120 `CURRENT` inputs; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- `just check-sdk` passed all eight SDK suites.
+- `bash sdk-scorecard/java/run.sh build` passed.
+- `go mod verify` in `sdk-tests/go` reported all modules verified.

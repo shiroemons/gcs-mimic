@@ -164,7 +164,7 @@ The NuGet packages record publisher revisions
 Supporting pins are Go 1.27.3 with the existing Storage/API graph, .NET SDK
 10.0.403, Rust 1.99.1, bytes 1.12.1, Tokio 1.54.1, futures-util 0.3.34 and URL
 2.5.8. Maven 3.10.0 is the newest stable release observed; its compiler,
-exec and dependency plugins are pinned to 3.16.0, 3.6.4 and 3.11.0. Java
+exec and dependency plugins are pinned to 3.16.0, 3.7.0 and 3.11.0. Java
 verification used [Temurin](https://api.adoptium.net/v3/assets/latest/27/hotspot?architecture=aarch64&image_type=jdk&os=mac&vendor=eclipse)
 27.0.1.0.2+1; the source target remains Java 17. Node SDK 8.4.0 reuses the
 existing current pin. Lockfiles are separate per ecosystem; Maven's deterministic

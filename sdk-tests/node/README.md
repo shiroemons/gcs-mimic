@@ -13,12 +13,12 @@ compatibility.
 
 The suite pins Node.js 24 or newer (`engines`) and two exact direct npm
 dependencies, verified against the official npm registry on 2026-10-30
-(`google-auth-library` 11.3.3 on 2026-11-04):
+(`google-auth-library` 11.3.4 on 2026-11-10):
 
 | Package | Version | License | Published | Notes |
 | --- | --- | --- | --- | --- |
 | `@google-cloud/storage` | 8.4.0 | Apache-2.0 | 2026-10-09 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 1,688,266 bytes unpacked; declares Node.js >=22 |
-| `google-auth-library` | 11.3.3 | Apache-2.0 | 2026-11-03 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 784,370 bytes unpacked; declares Node.js >=22 |
+| `google-auth-library` | 11.3.4 | Apache-2.0 | 2026-11-09 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 785,192 bytes unpacked; declares Node.js >=22 |
 
 `google-auth-library` was already in the SDK's resolved graph; the direct edge
 exists only so the strict run can construct the documented `OAuth2Client`

@@ -2,9 +2,16 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## genproto update: 2026-11-10
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.311.0, OAuth2 v0.38.0 and genproto v0.0.0-20261110000943-09e21b237f2c.
+`GOTOOLCHAIN=go1.27.3 go get google.golang.org/genproto@v0.0.0-20261110000943-09e21b237f2c` and `go mod tidy` also raise cloud.google.com/go/iam to v1.15.1 and genproto/googleapis/api and rpc to v0.0.0-20261104224025-d1e00e9f33ab.
+No harness migration was required.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md#refresh-2026-11-10-sdk-test-inputs).
+
 ## OAuth2 update: 2026-11-09
 
-Current pins are Go 1.27.3, Storage v1.70.0, API v0.311.0, OAuth2 v0.38.0 and genproto v0.0.0-20261104224025-d1e00e9f33ab.
+The 2026-11-09 pins were Go 1.27.3, Storage v1.70.0, API v0.311.0, OAuth2 v0.38.0 and genproto v0.0.0-20261104224025-d1e00e9f33ab.
 `go get golang.org/x/oauth2@v0.38.0` and `go mod tidy` with the module's Go 1.27.3 toolchain change only that requirement.
 The release has one change, which prevents a `NewTicker` panic; no harness migration was required.
 See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md#refresh-2026-11-09-go-modules).
