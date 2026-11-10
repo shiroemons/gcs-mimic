@@ -62,6 +62,7 @@ All of these must pass:
 1. **Freeze the public contract.**
    Document the stable surface: CLI commands and options, environment variables, configuration file formats and defaults, data directory access, and the supported API subset with its recorded limits.
    Before the first release candidate, review that surface for names, aliases and defaults that should not be kept, and ship every remaining breaking change in a `0.x` minor release.
+   The [public contract review](public-contract-review.md) holds the current inventory and the change proposals.
 2. **Upgrade data directories from every supported release.**
    A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
    The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each release adds its own fixture.
