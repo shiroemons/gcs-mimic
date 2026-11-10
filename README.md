@@ -485,7 +485,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.16.0 release notes](docs/en/releases/0.16.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.17.0 release notes](docs/en/releases/0.17.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License
