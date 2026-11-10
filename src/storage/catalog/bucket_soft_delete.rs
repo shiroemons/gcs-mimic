@@ -267,7 +267,11 @@ fn restore_in_transaction(
         name,
         None,
     )?;
-    select_bucket(connection, name)?.ok_or(CatalogError::NotFound)
+    let record = select_bucket(connection, name)?.ok_or(CatalogError::NotFound)?;
+    if !record.lifecycle.is_empty() {
+        super::lifecycle::rules_written();
+    }
+    Ok(record)
 }
 
 /// Permanently removes up to `PURGE_BATCH` expired versions with their retained objects and

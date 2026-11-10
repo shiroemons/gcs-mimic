@@ -54,6 +54,7 @@ pub(crate) struct ReadyEvent {
     version: &'static str,
     healthcheck_path: &'static str,
     admin_enabled: bool,
+    disable_lifecycle: bool,
     message: String,
     listen: Option<SocketAddr>,
     listeners: Vec<ReadyListener>,
@@ -128,6 +129,7 @@ impl ReadyEvent {
             version: env!("CARGO_PKG_VERSION"),
             healthcheck_path: Config::HEALTHCHECK_PATH,
             admin_enabled: config.admin_enabled,
+            disable_lifecycle: config.disable_lifecycle,
             message: format!("server started at {api_base_url}"),
             listen: Some(listen),
             listeners,
@@ -268,6 +270,7 @@ async fn open_catalog(
                 }
             });
             catalog.apply_session_limits(config);
+            catalog.configure_lifecycle(config);
         }
         opened.map_err(|error| match error {
             CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),

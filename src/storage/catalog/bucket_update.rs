@@ -217,6 +217,9 @@ fn store_bucket(
             .map_err(unavailable)?,
         record.versioning_configured,
     ])?;
+    if !record.lifecycle.is_empty() {
+        lifecycle::rules_written();
+    }
     Ok(())
 }
 

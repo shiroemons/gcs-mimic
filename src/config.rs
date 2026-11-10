@@ -265,6 +265,8 @@ pub struct Config {
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
     pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
+    /// Preserve stored lifecycle rules without applying their Delete actions.
+    pub disable_lifecycle: bool,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
     /// The explicit `buckets_file_mode`, which governs both document settings;
@@ -369,6 +371,7 @@ impl Default for Config {
             // Cloud Storage defaults to seven days; the emulator keeps no deleted data unless asked,
             // so a local disk or RAM budget is not spent on bytes nobody will restore.
             default_soft_delete_retention_seconds: None,
+            disable_lifecycle: false,
             buckets: None,
             buckets_file_mode: None,
             api_base_url: None,
@@ -702,6 +705,7 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), Sett
         | Setting::SeedContentType
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
+        | Setting::DisableLifecycle
         | Setting::BucketsFileMode => apply_storage_setting(config, setting, value),
         Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
         Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
@@ -886,6 +890,11 @@ fn apply_storage_setting(
                 .and_then(|seconds| crate::bucket::SoftDeleteRetention::try_from(seconds).ok())
                 .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
+        }
+        Setting::DisableLifecycle => {
+            config.disable_lifecycle = value
+                .parse::<bool>()
+                .map_err(|_| "disable_lifecycle must be true or false")?
         }
         Setting::BucketsFileMode => config.buckets_file_mode = Some(value.parse()?),
         _ => return Err(unknown_setting()),

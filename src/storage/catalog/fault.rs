@@ -60,6 +60,10 @@ pub(crate) enum Step {
     DiscardProbe,
     /// Before committing an expired soft-deleted batch and its deletion journal rows together.
     ExpiryCommit,
+    /// Before committing lifecycle retirement, notification and deletion journal together.
+    LifecycleCommit,
+    /// After lifecycle retirement committed, before the writer returns its counts.
+    LifecycleCommitted,
     /// Before unlinking a journaled blob.
     ReclaimUnlink,
     /// After unlinking a shard's blobs, before its directory sync.

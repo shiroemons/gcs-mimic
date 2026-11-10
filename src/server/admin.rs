@@ -23,6 +23,7 @@ pub(super) enum AdminRoute {
     Reset,
     DeleteAll,
     Reseed,
+    Lifecycle,
     Sync,
 }
 
@@ -34,6 +35,7 @@ impl AdminRoute {
             "/_internal/reset" => Self::Reset,
             "/_internal/delete_all" => Self::DeleteAll,
             "/_internal/reseed" => Self::Reseed,
+            "/_internal/lifecycle/run" => Self::Lifecycle,
             "/_internal/sync" => Self::Sync,
             path if path.starts_with("/_internal/sync/") => Self::Sync,
             _ => return None,
@@ -55,6 +57,7 @@ enum LocalRoute {
     Objects,
     Reset(reset::Form),
     Reseed,
+    Lifecycle,
 }
 
 struct SyncRoute;
@@ -68,6 +71,7 @@ impl TryFrom<AdminRoute> for LocalRoute {
             AdminRoute::Reset => Self::Reset(reset::Form::Confirmed),
             AdminRoute::DeleteAll => Self::Reset(reset::Form::SourceAlias),
             AdminRoute::Reseed => Self::Reseed,
+            AdminRoute::Lifecycle => Self::Lifecycle,
             AdminRoute::Sync => return Err(SyncRoute),
         })
     }
@@ -135,7 +139,46 @@ pub(super) async fn respond(
             .unwrap_or_else(JsonError::into_response),
         LocalRoute::Reset(form) => reset::respond(request, ctx, authorized, form).await,
         LocalRoute::Reseed => reseed::respond(request, ctx, authorized).await,
+        LocalRoute::Lifecycle => run_lifecycle(request, ctx, authorized)
+            .await
+            .unwrap_or_else(JsonError::into_response),
     })
+}
+
+async fn run_lifecycle(
+    request: Request<RequestBody>,
+    ctx: RequestCtx<'_>,
+    _authorized: Authorized,
+) -> Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, JsonError> {
+    if request.method() != Method::POST {
+        return Err(JsonError::method_not_allowed(
+            "Use POST /_internal/lifecycle/run with an empty body",
+            Some("POST"),
+        ));
+    }
+    if request.uri().query().is_some() {
+        return Err(JsonError::invalid_argument(
+            "Lifecycle execution does not accept query parameters or time travel",
+        ));
+    }
+    if !json::read_body(request.into_body(), RESOURCE_BODY_LIMIT)
+        .await?
+        .is_empty()
+    {
+        return Err(JsonError::invalid_argument(
+            "Lifecycle execution accepts only an empty body",
+        ));
+    }
+    let outcome = ctx.state.catalog.run_lifecycle_now().await?;
+    Ok(super::json_response(
+        &serde_json::to_value(outcome).map_err(|error| {
+            JsonError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                error.to_string(),
+            )
+        })?,
+    ))
 }
 
 async fn update(
@@ -233,21 +276,31 @@ mod tests {
             (trusted, None, StatusCode::OK),
             (trusted, Some("ordinary"), StatusCode::FORBIDDEN),
         ] {
-            let mut request = Request::builder()
-                .method(Method::PUT)
-                .uri("/_internal/config");
-            if let Some(token) = token {
-                request = request.header("authorization", format!("Bearer {token}"));
+            for (route, path, method, body) in [
+                (
+                    AdminRoute::Config,
+                    "/_internal/config",
+                    Method::PUT,
+                    b"{}".as_slice(),
+                ),
+                (
+                    AdminRoute::Lifecycle,
+                    "/_internal/lifecycle/run",
+                    Method::POST,
+                    b"".as_slice(),
+                ),
+            ] {
+                let mut request = Request::builder().method(method).uri(path);
+                if let Some(token) = token {
+                    request = request.header("authorization", format!("Bearer {token}"));
+                }
+                let request = request
+                    .body(RequestBody::Buffered(http_body_util::Full::new(
+                        hyper::body::Bytes::from_static(body),
+                    )))
+                    .unwrap();
+                assert_eq!(respond(route, request, ctx).await.status(), status);
             }
-            let request = request
-                .body(RequestBody::Buffered(http_body_util::Full::new(
-                    hyper::body::Bytes::from_static(b"{}"),
-                )))
-                .unwrap();
-            assert_eq!(
-                respond(AdminRoute::Config, request, ctx).await.status(),
-                status
-            );
         }
         state.catalog.close().await.unwrap();
     }

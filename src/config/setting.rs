@@ -38,6 +38,7 @@ super::string_enum! {
         SyncReinitialize => "sync_reinitialize",
         DefaultLocation => "default_location",
         DefaultSoftDeleteRetentionSeconds => "default_soft_delete_retention_seconds",
+        DisableLifecycle => "disable_lifecycle",
         BucketsFile => "buckets_file",
         Buckets => "buckets",
         BucketsFileMode => "buckets_file_mode",
@@ -132,6 +133,7 @@ impl Setting {
             | Self::SyncReinitialize
             | Self::DefaultLocation
             | Self::DefaultSoftDeleteRetentionSeconds
+            | Self::DisableLifecycle
             | Self::BucketsFile
             | Self::Buckets
             | Self::BucketsFileMode

@@ -310,6 +310,7 @@ impl Catalog {
                 recover_on_open(&mut connection, &backend, &*clock)?;
             }
             let parent_policy = Arc::<read_pool::ParentPolicy>::default();
+            let lifecycle = lifecycle::LifecycleSchedule::open(&connection)?;
             // An in-memory database exists only inside the writer's connection.
             let read_pool = memory_limits.is_none().then(|| {
                 read_pool::ReadPool::new(data_dir.join("catalog.sqlite3"), parent_policy.clone())
@@ -352,6 +353,7 @@ impl Catalog {
                 session_limits: OnceLock::new(),
                 derived_wake: Notify::new(),
                 maintenance_wake: Arc::new(Notify::new()),
+                lifecycle,
                 multipart_orphan_scan: AtomicBool::new(false),
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),

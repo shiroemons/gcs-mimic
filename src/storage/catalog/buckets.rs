@@ -318,6 +318,9 @@ fn insert_bucket_with_policy(
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
+    if !record.lifecycle.is_empty() {
+        lifecycle::rules_written();
+    }
     sql::exec(
         transaction,
         "UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1",

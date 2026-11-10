@@ -45,6 +45,7 @@ pub(crate) use resumable_transfer::ResumableChunk;
 pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
+pub(crate) mod lifecycle;
 mod resumable_maintenance;
 mod session_limits;
 pub(crate) mod xml_multipart;
@@ -216,6 +217,7 @@ struct Inner {
     session_limits: OnceLock<session_limits::SessionLimits>,
     derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
+    lifecycle: lifecycle::LifecycleSchedule,
     /// Whether a bucket delete may have left XML multipart uploads behind.
     multipart_orphan_scan: AtomicBool,
     maintenance_error: Mutex<Option<BackendCause>>,

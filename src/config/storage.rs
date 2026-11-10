@@ -62,6 +62,26 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZeroU64};
 
     #[test]
+    fn lifecycle_execution_defaults_on_and_disable_obeys_native_precedence() {
+        let data = crate::test_support::TestDir::new();
+        let file = data.0.join("config.json");
+        std::fs::write(&file, br#"{"disable_lifecycle":true}"#).unwrap();
+        super::super::test_support::assert_precedence(
+            &["--config".into(), file.to_str().unwrap().into()],
+            &BTreeMap::from([("GCS_MIMIC_DISABLE_LIFECYCLE".into(), "false".into())]),
+            &["--disable-lifecycle", "true"],
+            [false, true, false, true],
+            Config::load,
+            |config| config.disable_lifecycle,
+        );
+        super::super::test_support::assert_rejected(
+            "disable_lifecycle",
+            &["yes", "1", ""],
+            "true or false",
+        );
+    }
+
+    #[test]
     fn every_backend_defaults_soft_delete_off_unless_the_setting_is_explicit() {
         let load = |args: &[&str], env: &[(&str, &str)]| {
             Config::load(

@@ -40,6 +40,7 @@ fn management_routes_refuse_page_initiated_requests_without_mutation() {
         ("POST", "/_internal/reset", br#"{"confirm":"gcs-mimic"}"#),
         ("POST", "/_internal/delete_all", b""),
         ("POST", "/_internal/reseed", b""),
+        ("POST", "/_internal/lifecycle/run", b""),
         ("POST", "/_internal/sync/approve", b"{}"),
     ] {
         for headers in [
@@ -78,6 +79,36 @@ fn management_routes_refuse_page_initiated_requests_without_mutation() {
         )
         .expect(200);
     server.request("GET", OBJECT, "", b"").expect(404);
+}
+
+#[test]
+fn lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods() {
+    let data = TestDir::new();
+    let disabled = Server::start(&data, &[]);
+    disabled
+        .request("POST", "/_internal/lifecycle/run", "", b"")
+        .expect(404);
+    drop(disabled);
+    let server = Server::start(&data, &["--admin-enabled", "true"]);
+    assert_eq!(server.ready["disable_lifecycle"], false);
+    for method in ["GET", "PUT", "DELETE"] {
+        server
+            .request(method, "/_internal/lifecycle/run", "", b"")
+            .expect(405);
+    }
+    server
+        .request("POST", "/_internal/lifecycle/run?now=2000", "", b"")
+        .expect(400);
+    server
+        .request("POST", "/_internal/lifecycle/run", "", b"{}")
+        .expect(400);
+    let counts = server
+        .request("POST", "/_internal/lifecycle/run", "", b"")
+        .json_ok();
+    assert_eq!(
+        counts,
+        json!({"scanned":0,"deleted":0,"archived":0,"blocked":0})
+    );
 }
 
 #[test]

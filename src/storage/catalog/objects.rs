@@ -412,16 +412,51 @@ pub(super) fn delete_selected(
     access: &BucketAccess,
     sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<Retired, ObjectError> {
+    let bucket = &target.bucket;
+    authorized_bucket(connection, bucket, access)?;
+    super::soft_delete::purge_expired(connection, bucket, clock.now().try_into()?)?;
+    let transaction = sql::immediate(connection)?;
+    let retired = delete_in_transaction(
+        &transaction,
+        target,
+        DeleteContext {
+            now: clock.now(),
+            conditions,
+            access,
+            sync_binding,
+        },
+    )?;
+    transaction.commit()?;
+    Ok(retired)
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct DeleteContext<'a> {
+    pub(super) now: std::time::SystemTime,
+    pub(super) conditions: ObjectConditions,
+    pub(super) access: &'a BucketAccess,
+    pub(super) sync_binding: Option<&'a super::sync_state::SyncBinding>,
+}
+
+/// The caller owns the transaction, including any extra lifecycle protection checks.
+pub(super) fn delete_in_transaction(
+    transaction: &Transaction<'_>,
+    target: &ObjectTarget,
+    context: DeleteContext<'_>,
+) -> Result<Retired, ObjectError> {
     let ObjectTarget {
         bucket,
         name,
         generation,
     } = target;
-    authorized_bucket(connection, bucket, access)?;
-    super::soft_delete::purge_expired(connection, bucket, clock.now().try_into()?)?;
-    let transaction = sql::immediate(connection)?;
+    let DeleteContext {
+        now,
+        conditions,
+        access,
+        sync_binding,
+    } = context;
     let StoredObject { record, blob: id } = selected(
-        &transaction,
+        transaction,
         bucket,
         name,
         *generation,
@@ -429,7 +464,7 @@ pub(super) fn delete_selected(
         RequestKind::Write,
         access,
     )?;
-    let publication = BucketPublication::load(&transaction, bucket)?;
+    let publication = BucketPublication::load(transaction, bucket)?;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
     let retirement = if publication.versioning == Versioning::Enabled && generation.is_none() {
         Retirement::Noncurrent
@@ -437,32 +472,31 @@ pub(super) fn delete_selected(
         Retirement::Removed
     };
     if retirement == Retirement::Noncurrent {
-        record.check_policy_and_holds(clock.now())?;
+        record.check_policy_and_holds(now)?;
     } else {
-        record.check_retention(clock.now())?;
+        record.check_retention(now)?;
     }
     if let Some(binding) = sync_binding {
-        super::sync_state::delete_in_transaction(&transaction, binding, &record)?;
+        super::sync_state::delete_in_transaction(transaction, binding, &record)?;
     }
     super::change_journal::object(
-        &transaction,
+        transaction,
         super::change_journal::origin(access),
         super::change_journal::ChangeKind::Delete,
         &record,
     )?;
     let retired = retire_previous(
-        &transaction,
+        transaction,
         Some(&StoredObject { record, blob: id }),
         retirement,
         &publication,
         RetirementContext {
-            micros: unix_micros(clock.now())?,
+            micros: unix_micros(now)?,
             origin: super::change_journal::origin(access),
             replacement: None,
             notification_mode: NotificationMode::for_access(access),
         },
     )?;
-    transaction.commit()?;
     Ok(retired)
 }
 

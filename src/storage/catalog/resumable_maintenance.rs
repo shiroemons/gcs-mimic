@@ -294,6 +294,12 @@ impl Catalog {
             self.sweep_resumable_sessions(now).await,
         );
         sweep.record("rewrite session", self.maintain_rewrite_sessions(now).await);
+        sweep.record(
+            "lifecycle",
+            self.run_lifecycle(super::lifecycle::Pass::Scheduled)
+                .await
+                .map(|outcome| outcome.next),
+        );
         sweep.record("XML multipart", self.maintain_xml_multipart(now).await);
         sweep.record(
             "soft-deleted bucket",
