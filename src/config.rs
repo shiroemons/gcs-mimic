@@ -1598,7 +1598,11 @@ fn member_text(key: &str, raw: &RawValue) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
     if key == "default_location" && value.is_null() {
         Some(String::new())
-    } else if matches!(key, "sync_delete_guard" | "admin_enabled") && value.is_boolean() {
+    } else if matches!(
+        key,
+        "sync_delete_guard" | "admin_enabled" | "disable_lifecycle"
+    ) && value.is_boolean()
+    {
         Some(value.to_string())
     } else if key == "buckets_file" {
         value.as_str().map(str::to_owned)
