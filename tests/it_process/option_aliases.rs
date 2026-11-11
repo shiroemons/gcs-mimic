@@ -1,4 +1,6 @@
-use crate::common::{self, CleanEnv, TestDir, process::Server};
+#[cfg(unix)]
+use crate::common::CleanEnv;
+use crate::common::{self, TestDir, process::Server};
 use serde_json::Value;
 use std::{
     fs,
