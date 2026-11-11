@@ -58,6 +58,14 @@ fn inspect(server: &Server, token: &str) -> Value {
         .clone()
 }
 
+fn await_recovery_pause(server: &Server) {
+    // Listener readiness precedes the mirror's startup recovery and pause publication.
+    common::eventually("the retained workspace to pause synchronization", || {
+        let status = server.cli_with_token("status", &[], Some("all"), true);
+        status["observation"]["paused_reason"] == "ConflictCapacity"
+    });
+}
+
 fn resolution<'a>(item: &'a Value, operation: &'a str) -> Vec<&'a str> {
     vec![
         "--recovery",
@@ -96,6 +104,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
         registry.to_str().unwrap(),
     ];
     let mut server = Server::start_with(&data, Some(&tree), &options);
+    await_recovery_pause(&server);
     assert_eq!(
         server.cli_with_token("wait", &["--timeout", "1s"], Some("all"), false)["reason"],
         "Paused"
@@ -111,6 +120,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
     retained(&tree);
     server.stop();
     let mut server = Server::start_with(&data, Some(&tree), &options);
+    await_recovery_pause(&server);
     assert_eq!(
         server.cli_with_token("wait", &["--timeout", "1s"], Some("all"), false)["reason"],
         "Paused"
