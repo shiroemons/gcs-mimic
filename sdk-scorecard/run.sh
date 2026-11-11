@@ -42,7 +42,7 @@ ruby_sdk=$(sed -n 's/^    google-cloud-storage (\(.*\))$/\1/p' "$root/sdk-scorec
 fake_image=fsouza/fake-gcs-server:1.56.1
 gcp_image=oittaa/gcp-storage-emulator:v2026.07.19
 floci_image=floci/floci-gcp:0.12.0
-php_image=composer:2.11.1@sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0
+php_image=composer:2.11.2@sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb9a4beb4dcd8625684
 # The Rust SDK trusts only the operating system's roots. On macOS that is the Keychain, which
 # ignores SSL_CERT_FILE, so the probe cannot trust the scorecard CA there; it runs in this
 # Linux image on every host instead. The pin matches the Dockerfile's build image.

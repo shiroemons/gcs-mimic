@@ -685,3 +685,27 @@ The genproto update also raises `cloud.google.com/go/iam` to v1.15.1 and `genpro
 - `just check-sdk` passed all eight SDK suites.
 - `bash sdk-scorecard/java/run.sh build` passed.
 - `go mod verify` in `sdk-tests/go` reported all modules verified.
+
+## Refresh: 2026-11-11
+
+`just check-dependencies` exited 1 with five kinds of drift. Four are adopted; the .NET SDK is a new major release and is not.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| prost, prost-types | 0.14.4 | 0.14.5 (published 2026-11-10, Apache-2.0, 34,590 and 50,257 compressed bytes, Rust 1.85) | `Cargo.toml`, `Cargo.lock`; prost-derive follows to 0.14.5 |
+| Composer image | 2.11.1 `sha256:8de2184c…` | 2.11.2 `sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb9a4beb4dcd8625684` | `sdk-tests/php/run.sh`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+| Go toolchain | go1.27.3 | go1.27.4 | `sdk-tests/go`, `go` and `go/sourceexport` modules |
+| google.golang.org/api | v0.311.0 | v0.312.0 (published 2026-11-10, revision `be503e8963ac11ca328020a6a42316b00b3d8601`, Go 1.26.0) | `sdk-tests/go/go.mod`, `go/go.mod` |
+| .NET SDK | 10.0.403 | Not adopted: 11.0.100 | `sdk-tests/dotnet/global.json`, `sdk-scorecard/dotnet/global.json` unchanged |
+
+prost 0.14.5 is a patch release of the same official tokio-rs family; prost-build stays 0.14.4 because only tonic-prost-build requires it, and the freshness check covers direct dependencies. Composer 2.11.2 is a security release: its changelog fixes command execution and credential exposure through crafted lock files, writes outside the package directory through symlinked zip entries, and `Authorization` and `Cookie` headers resent on cross-origin redirects. The image still reports PHP 8.5.12, and its linux/amd64 and linux/arm64 manifests (`sha256:c4a7ecd0…`, `sha256:d76824a7…`) equal those behind `latest`, which differs only in its linux/riscv64 entry. API v0.312.0 lists regenerated Discovery clients only, and its BSD-3-Clause LICENSE is byte-identical to v0.311.0. It raises enterprise-certificate-proxy to v0.3.25 and golang.org/x/sync to v0.25.0 indirectly; in the `go` facade `go get` also raises golang.org/x/oauth2 to v0.38.0 and genproto/googleapis/rpc to v0.0.0-20261104224025-d1e00e9f33ab, the versions the SDK suite already uses.
+
+.NET 11.0.100 was released on 2026-11-10 as the first SDK of the 11.0 channel (STS). Moving the two `global.json` pins, which disable roll-forward, across a major SDK version is a migration of the .NET suite and scorecard, not a refresh, so it is left for a deliberate change; no exception is recorded, and the full check keeps failing until it lands. The 10.0 channel's own latest SDK is 10.0.404, released the same day; adopting it alone would not make the check pass.
+
+### Validation performed on 2026-11-11
+
+- `cargo check --workspace --all-targets --locked` passed and `cargo test --locked --lib grpc` passed 169 tests after the prost update.
+- `cargo test -p xtask --locked` passed, including the check of the actual pins against the snapshot.
+- In the Composer 2.11.2 image, `composer --version` reported Composer 2.11.2 with PHP 8.5.12, and `composer validate` and `composer check-platform-reqs --lock` passed for `sdk-tests/php` and `sdk-scorecard/php`. The PHP SDK suite itself was not run.
+- `go mod tidy`, `go mod verify` and `go vet ./...` passed in all three Go modules with Go 1.27.4, `go vet -tags integration ./...` passed in `go`, and `go test -race ./...` passed in `go/sourceexport`. The Go SDK suite against a server was not run.
+- `cargo xtask dependencies check` at `2026-11-11T00:59:44Z` exited 1 with 121 `CURRENT` inputs; only the .NET SDK reported `UPDATE_AVAILABLE` in both .NET manifests, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.

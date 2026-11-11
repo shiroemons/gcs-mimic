@@ -7,7 +7,7 @@ bash "$root/scripts/tls-fixtures.sh" "$work/tls"
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 export SCORECARD_ENDPOINT="https://127.0.0.1:$port"
 export SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem"
-php_image=composer:2.11.1@sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0
+php_image=composer:2.11.2@sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb9a4beb4dcd8625684
 # Keep this pin identical to sdk-scorecard/run.sh. The Rust SDK cannot trust the test CA on
 # macOS (it uses the Keychain and ignores SSL_CERT_FILE), so its check runs in this Linux image.
 rust_image=rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7

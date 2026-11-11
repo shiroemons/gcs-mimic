@@ -1051,7 +1051,7 @@ corrupt or inaccessible catalogs also prevent startup.
 
 ## Official Go SDK
 
-Install Go (the harness downloads pinned Go 1.27.3), then run against the Compose
+Install Go (the harness downloads pinned Go 1.27.4), then run against the Compose
 endpoint from the repository root:
 
 ```sh
@@ -1059,7 +1059,7 @@ endpoint from the repository root:
 ```
 
 The harness pins `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
-v0.311.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
+v0.312.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
 bucket CRUD/paging and BucketHandle.Update with SetLabel/DeleteLabel, default
 class/settings, metageneration conditions and strict update denial, plus object

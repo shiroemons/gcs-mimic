@@ -2,7 +2,7 @@ module github.com/shiroemons/gcs-mimic/go/sourceexport
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/fsouza/fake-gcs-server v1.56.1
