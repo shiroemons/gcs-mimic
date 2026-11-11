@@ -107,7 +107,7 @@ fn lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods() 
         .json_ok();
     assert_eq!(
         counts,
-        json!({"enabled":true,"scanned":0,"deleted":0,"archived":0,"blocked":0,"skipped":0})
+        json!({"enabled":true,"scanned":0,"deleted":0,"archived":0,"transitioned":0,"blocked":0,"skipped":0})
     );
     drop(server);
     let server = Server::start(
@@ -124,7 +124,7 @@ fn lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods() 
         server
             .request("POST", "/_internal/lifecycle/run", "", b"")
             .json_ok(),
-        json!({"enabled":false,"scanned":0,"deleted":0,"archived":0,"blocked":0,"skipped":0})
+        json!({"enabled":false,"scanned":0,"deleted":0,"archived":0,"transitioned":0,"blocked":0,"skipped":0})
     );
 }
 

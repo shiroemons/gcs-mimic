@@ -86,8 +86,12 @@ pub(super) fn update(
             // Enabling moves every object except soft-deleted ones to STANDARD storage.
             sql::exec(
                 transaction,
-                "UPDATE objects SET storage_class = ?2 WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
-                rusqlite::params![record.name, AUTOCLASS_STORAGE_CLASS],
+                "UPDATE objects SET storage_class = ?2, time_storage_class_updated = max(?3, updated, time_created) WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
+                rusqlite::params![
+                    record.name,
+                    AUTOCLASS_STORAGE_CLASS,
+                    super::unix_micros(now).map_err(unavailable)?
+                ],
             )?;
         }
         if config != record.autoclass {

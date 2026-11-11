@@ -147,7 +147,7 @@ use schema::{MIGRATIONS, initialize_catalog, validate_schema, validate_schema_ve
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 52;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 53;
 // A literal macro lets per-request queries build static SQL with concat!, which
 // the connection's prepared statement cache reuses without formatting.
 macro_rules! bucket_columns {

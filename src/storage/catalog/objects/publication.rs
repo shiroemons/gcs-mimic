@@ -154,6 +154,7 @@ impl PublicationDefaults {
             cache_control: None,
             metadata: Default::default(),
             time_created: self.time,
+            time_storage_class_updated: None,
             updated: self.time,
             time_deleted: None,
             soft_delete_time: None,
@@ -305,6 +306,8 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         GenerationAssignment::Imported(generation) => generation.get(),
     };
     let (mut record, prepared) = prepare(generation)?;
+    // Reused records must not carry a previous generation's class-change history into publication.
+    record.time_storage_class_updated = None;
     if let Some(owner) = &mut record.owner {
         super::super::object_owner::canonicalize(owner, owner_profile);
     }
@@ -365,8 +368,12 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     let size = i64::try_from(record.size).map_err(object_unavailable)?;
     let time_created = unix_micros(record.time_created)?;
     let updated = unix_micros(record.updated)?;
+    let class_updated = record
+        .time_storage_class_updated
+        .map(unix_micros)
+        .transpose()?;
     transaction.prepare_cached(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner,retain_until_sub_micro_nanos,temporary_hold_released,event_based_hold_released) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner,retain_until_sub_micro_nanos,temporary_hold_released,event_based_hold_released,time_storage_class_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)",
     ).and_then(|mut statement| statement.execute(params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, size,
             &record.md5[..], record.crc32c, record.storage_class, time_created, blob_id,
@@ -376,7 +383,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
             retention_mode, retain_until,
             record.customer_key_sha256.as_ref().map(|sha256| &sha256[..]),
             record.md5_availability == crate::object::Md5Availability::Available, owner,
-            retain_sub_micro, temporary_released, event_released]))?;
+            retain_sub_micro, temporary_released, event_released, class_updated]))?;
     super::super::acl::publish_object_acl(transaction, &record, acl)?;
     if notification_mode == NotificationMode::Emit {
         super::super::notification_outbox::published(transaction, origin, &record, previous, now)?;
@@ -405,6 +412,7 @@ fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectEr
     for time in [
         Some(record.time_created),
         Some(record.updated),
+        record.time_storage_class_updated,
         record.retention_expiration_time,
     ]
     .into_iter()

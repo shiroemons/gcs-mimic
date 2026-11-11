@@ -974,6 +974,9 @@ fn object_list_seeks_past_large_prefixes_with_bounded_sql_work() {
     connection
         .execute_batch(super::super::object_hold::SCHEMA)
         .unwrap();
+    connection
+        .execute_batch(super::super::schema::STORAGE_CLASS_UPDATED_SCHEMA)
+        .unwrap();
     let counter = AtomicUsize::new(0);
     // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
     #[expect(
@@ -1056,6 +1059,9 @@ fn object_list_skips_noncurrent_rows_with_bounded_sql_work() {
         .unwrap();
     connection
         .execute_batch(super::super::object_hold::SCHEMA)
+        .unwrap();
+    connection
+        .execute_batch(super::super::schema::STORAGE_CLASS_UPDATED_SCHEMA)
         .unwrap();
     connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
         INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)

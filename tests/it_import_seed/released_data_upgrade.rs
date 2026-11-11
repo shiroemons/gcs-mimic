@@ -167,7 +167,12 @@ fn check_release(release: &str) {
                 let name = encode_component(object["name"].as_str().unwrap());
                 let generation = object["generation"].as_str().unwrap();
                 let path = format!("/storage/v1/b/{bucket}/o/{name}?generation={generation}");
-                assert_preserved(release, object, &server.json(&path));
+                let actual = server.json(&path);
+                assert_preserved(release, object, &actual);
+                assert_eq!(
+                    actual["timeStorageClassUpdated"], actual["timeCreated"],
+                    "{release}: pre-transition class time"
+                );
                 let body = server.get(&format!("{path}&alt=media"));
                 assert_eq!(
                     base64(&Md5::digest(&body)),

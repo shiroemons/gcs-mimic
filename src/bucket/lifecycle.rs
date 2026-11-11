@@ -426,14 +426,45 @@ fn valid_date(value: &str) -> bool {
     year > 0 && day > 0 && day <= days
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LifecycleLocation {
+    Region,
+    MultiRegion,
+    Unknown,
+}
+
+impl From<&str> for LifecycleLocation {
+    fn from(value: &str) -> Self {
+        match value {
+            "region" => Self::Region,
+            "dual-region" | "multi-region" => Self::MultiRegion,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl LifecycleLocation {
+    pub(crate) fn permits(self, action: LifecycleAction) -> bool {
+        match action {
+            LifecycleAction::SetStorageClass(class) => match self {
+                Self::Region => class != StorageClass::MultiRegional,
+                Self::MultiRegion => true,
+                Self::Unknown => false,
+            },
+            LifecycleAction::Delete | LifecycleAction::AbortIncompleteMultipartUpload => true,
+        }
+    }
+}
+
 pub(crate) fn validate_location(
     rules: &[LifecycleRule],
     location_type: &str,
 ) -> Result<(), CatalogError> {
-    let incompatible = if location_type == "region" {
-        LifecycleMatchClass::Supported(StorageClass::MultiRegional)
-    } else {
-        LifecycleMatchClass::Regional
+    let incompatible = match LifecycleLocation::from(location_type) {
+        LifecycleLocation::Region => LifecycleMatchClass::Supported(StorageClass::MultiRegional),
+        LifecycleLocation::MultiRegion | LifecycleLocation::Unknown => {
+            LifecycleMatchClass::Regional
+        }
     };
     for rule in rules {
         if rule.condition.matches_storage_class.contains(&incompatible) {

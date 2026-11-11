@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) const STORAGE_CLASS_UPDATED_SCHEMA: &str =
+    "ALTER TABLE objects ADD COLUMN time_storage_class_updated INTEGER;
+PRAGMA user_version = 53;";
+
 const BUCKET_VERSIONING_PRESENCE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 ALTER TABLE soft_deleted_buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
 PRAGMA user_version = 49;";
@@ -175,6 +179,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (50, sync_state::deletions::history::SCHEMA, None),
     (51, policies::RAISED_BINDINGS_SCHEMA, None),
     (52, admin::initialization::SCHEMA, None),
+    (53, STORAGE_CLASS_UPDATED_SCHEMA, None),
 ];
 
 #[expect(
@@ -352,4 +357,5 @@ pub(super) const MIGRATIONS: &[(i64, Migration)] = &[
     ),
     (51, Migration::Statements(policies::RAISED_BINDINGS_SCHEMA)),
     (52, Migration::Statements(admin::initialization::SCHEMA)),
+    (53, Migration::Statements(STORAGE_CLASS_UPDATED_SCHEMA)),
 ];

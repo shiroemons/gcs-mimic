@@ -91,9 +91,26 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
 
 /// Restores schema 51, before buckets recorded the initialization file entry they came from.
 pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connection) {
+    downgrade_storage_class_updated_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS bucket_file_entries;")
         .unwrap();
+}
+
+/// Restores schema 52; older fixtures may already lack the timestamp column.
+pub(crate) fn downgrade_storage_class_updated_schema(connection: &rusqlite::Connection) {
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = 'time_storage_class_updated')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE objects DROP COLUMN time_storage_class_updated;")
+            .unwrap();
+    }
 }
 
 /// Restores the schema 50 policy table, whose bindings are checked at 64 KiB. Fixtures built at

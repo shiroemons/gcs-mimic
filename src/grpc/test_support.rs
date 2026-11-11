@@ -30,6 +30,7 @@ pub(super) fn object_record(
         component_count: None,
         storage_class: crate::bucket::StorageClass::Standard,
         time_created: now,
+        time_storage_class_updated: None,
         updated: now,
         time_deleted: None,
         soft_delete_time: None,

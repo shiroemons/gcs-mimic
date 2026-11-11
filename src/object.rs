@@ -92,6 +92,9 @@ pub struct ObjectRecord {
     pub storage_class: StorageClass,
     /// Microsecond precision in the catalog; protocol adapters retain their wire precision.
     pub time_created: SystemTime,
+    /// Older serialized records have no class-change timestamp.
+    #[serde(default)]
+    pub time_storage_class_updated: Option<SystemTime>,
     pub updated: SystemTime,
     pub time_deleted: Option<SystemTime>,
     pub soft_delete_time: Option<SystemTime>,
@@ -109,6 +112,10 @@ pub struct ObjectRecord {
 }
 
 impl ObjectRecord {
+    pub(crate) fn storage_class_updated(&self) -> SystemTime {
+        self.time_storage_class_updated.unwrap_or(self.time_created)
+    }
+
     pub(crate) fn has_md5(&self) -> bool {
         self.md5_availability == Md5Availability::Available && self.component_count.is_none()
     }

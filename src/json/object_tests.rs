@@ -5,6 +5,21 @@ use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
+#[tokio::test]
+async fn json_outputs_the_stored_lifecycle_storage_class_timestamp() {
+    let (original, changed) = crate::storage::test_fixtures::lifecycle_transitioned_object().await;
+    let created = object_resource(&original, "http://localhost", Projection::NoAcl).unwrap();
+    assert_eq!(created["timeStorageClassUpdated"], created["timeCreated"]);
+    let result = object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap();
+    assert_eq!(
+        result["timeStorageClassUpdated"],
+        timestamp(changed.storage_class_updated()).unwrap()
+    );
+    assert_ne!(result["timeStorageClassUpdated"], result["updated"]);
+    assert_ne!(result["timeStorageClassUpdated"], result["timeCreated"]);
+    assert_eq!(result["storageClass"], "COLDLINE");
+}
+
 #[test]
 fn revision_etags_preserve_varint_boundaries_and_signed_wire_encoding() {
     for (revision, encoded) in [
@@ -82,6 +97,7 @@ pub(super) fn record() -> ObjectRecord {
         component_count: None,
         storage_class: crate::bucket::StorageClass::Standard,
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
+        time_storage_class_updated: None,
         updated: UNIX_EPOCH + Duration::from_millis(2345),
         time_deleted: None,
         soft_delete_time: None,

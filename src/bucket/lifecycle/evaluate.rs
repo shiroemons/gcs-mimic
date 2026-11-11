@@ -42,55 +42,26 @@ enum Priority {
     Coldline,
     Nearline,
     Legacy,
+    // Only evaluate assigns this; PlannedAction::priority cannot inspect a rule's condition.
+    ClassDependentDelete,
 }
 
-pub(crate) struct Evaluation {
-    /// The satisfied action after Delete and lowest-storage-price precedence.
-    /// Unsupported or unchanged storage-class transitions are never selected.
-    pub action: Option<PlannedAction>,
-    /// The earliest instant strictly after `now` when unchanged facts could
-    /// select a different action; `None` when time cannot change the outcome.
-    pub next_due: Option<SystemTime>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Evaluation {
+    /// Selects Delete or a supported transition to a different class; the caller re-evaluates at the same `now`
+    /// after applying it, or determines its own next deadline. Act carries no wakeup deadline.
+    Act(PlannedAction),
+    /// No action is due; any deadline is strictly later than `now` for the unchanged facts.
+    Wait(Option<SystemTime>),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "The sweep needs full selection once it applies storage-class transitions"
-    )
-)]
-pub(crate) fn evaluate(
-    rules: &[LifecycleRule],
+pub(crate) fn evaluate<'a>(
+    rules: impl IntoIterator<Item = &'a LifecycleRule>,
     facts: &VersionFacts<'_>,
     now: SystemTime,
 ) -> Evaluation {
-    evaluate_rules(rules.iter(), facts, now)
-}
-
-/// Temporary sweep entry point until SetStorageClass actions are applied.
-/// All class-dependent Deletes are deferred, even without past transition rules:
-/// the current rules cannot reveal an earlier unapplied transition.
-pub(crate) fn evaluate_delete_only(
-    rules: &[LifecycleRule],
-    facts: &VersionFacts<'_>,
-    now: SystemTime,
-) -> Evaluation {
-    let deletions = rules.iter().filter(|rule| match rule.action {
-        LifecycleAction::Delete => rule.condition.matches_storage_class.is_empty(),
-        LifecycleAction::SetStorageClass(_) | LifecycleAction::AbortIncompleteMultipartUpload => {
-            false
-        }
-    });
-    evaluate_rules(deletions, facts, now)
-}
-
-fn evaluate_rules<'a>(
-    rules: impl Iterator<Item = &'a LifecycleRule>,
-    facts: &VersionFacts<'_>,
-    now: SystemTime,
-) -> Evaluation {
-    let mut candidates: [Option<(PlannedAction, SystemTime)>; 5] = [None; 5];
+    let mut selected: Option<(Priority, PlannedAction)> = None;
+    let mut next_due = None;
     for rule in rules {
         let Some(action) = planned_action(rule.action, facts.storage_class) else {
             continue;
@@ -98,33 +69,23 @@ fn evaluate_rules<'a>(
         let Some(due) = eligible_at(&rule.condition, facts, now) else {
             continue;
         };
-        // Distinct reachable actions have distinct priorities; same-action rules are ORed.
-        let [delete, archive, coldline, nearline, legacy] = &mut candidates;
-        let candidate = match action.priority() {
-            Priority::Delete => delete,
-            Priority::Archive => archive,
-            Priority::Coldline => coldline,
-            Priority::Nearline => nearline,
-            Priority::Legacy => legacy,
+        let priority = match action {
+            // Current metadata cannot distinguish a delayed transition from the intended class history.
+            // Re-evaluation after the transition still applies a Delete matching the resulting class.
+            PlannedAction::Delete if !rule.condition.matches_storage_class.is_empty() => {
+                Priority::ClassDependentDelete
+            }
+            PlannedAction::Delete | PlannedAction::SetStorageClass(_) => action.priority(),
         };
-        if candidate.is_none_or(|(_, current)| due < current) {
-            *candidate = Some((action, due));
+        if due > now {
+            next_due = Some(next_due.map_or(due, |next: SystemTime| next.min(due)));
+        } else if selected.is_none_or(|(current, _)| priority < current) {
+            selected = Some((priority, action));
         }
     }
-    let candidates = candidates.into_iter().flatten();
-    let action = candidates
-        .clone()
-        .filter(|(_, due)| *due <= now)
-        .map(|(action, _)| action)
-        .min_by_key(|action| action.priority());
-    // Conditions only become true as time advances, so only a higher-priority action can win.
-    let next_due = candidates
-        .filter(|(candidate, due)| {
-            *due > now && action.is_none_or(|current| candidate.priority() < current.priority())
-        })
-        .map(|(_, due)| due)
-        .min();
-    Evaluation { action, next_due }
+    selected.map_or(Evaluation::Wait(next_due), |(_, action)| {
+        Evaluation::Act(action)
+    })
 }
 
 impl PlannedAction {

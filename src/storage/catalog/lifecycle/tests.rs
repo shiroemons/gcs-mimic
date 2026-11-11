@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use std::{io, sync::Arc, time::UNIX_EPOCH};
 
 mod boundaries;
+mod transitions;
 
 const DAY: Duration = Duration::from_secs(86_400);
 
@@ -406,15 +407,20 @@ async fn the_action_cap_returns_now_and_the_following_pass_finishes_the_backlog(
 }
 
 #[tokio::test]
-async fn a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeup() {
+async fn a_selected_storage_class_action_updates_metadata_once() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}})]).await;
     let object = put(&catalog, "object").await;
     clock.advance(DAY);
     let outcome = execute(&catalog).await;
     assert_eq!(
-        (outcome.deleted, outcome.archived, outcome.next),
-        (0, 0, None)
+        (
+            outcome.deleted,
+            outcome.archived,
+            outcome.transitioned,
+            outcome.next
+        ),
+        (0, 0, 1, Some(clock.now() + COALESCE))
     );
     assert_eq!(
         catalog
@@ -422,8 +428,22 @@ async fn a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeu
             .await
             .unwrap()
             .storage_class,
-        object.storage_class
+        StorageClass::Coldline
     );
+    let current = catalog
+        .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(current.generation, object.generation);
+    assert_eq!(current.metageneration, object.metageneration + 1);
+    assert_eq!(current.time_created, object.time_created);
+    assert_eq!(current.updated, clock.now());
+    assert_eq!(current.storage_class_updated(), clock.now());
+    assert_ne!(
+        crate::json::object_etag(&current),
+        crate::json::object_etag(&object)
+    );
+    assert_eq!(execute(&catalog).await.transitioned, 0);
     let scans = catalog.0.lifecycle.state().scans;
     catalog.maintain_resumable_sessions().await.unwrap();
     assert_eq!(catalog.0.lifecycle.state().scans, scans);
@@ -431,7 +451,7 @@ async fn a_selected_storage_class_action_is_unchanged_and_has_no_immediate_wakeu
 }
 
 #[tokio::test]
-async fn pending_storage_transitions_defer_class_dependent_deletion_but_not_other_delete_rules() {
+async fn applied_transitions_prevent_later_old_class_deletion_but_keep_independent_deletes() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![
         json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
@@ -441,7 +461,9 @@ async fn pending_storage_transitions_defer_class_dependent_deletion_but_not_othe
     put(&catalog, "object").await;
     let due = clock.now() + DAY * 90;
     clock.advance(DAY * 30);
-    assert_eq!(execute(&catalog).await.next, Some(due));
+    let transition = execute(&catalog).await;
+    assert_eq!(transition.transitioned, 1);
+    assert_eq!(transition.next, Some(clock.now() + COALESCE));
     clock.advance(DAY * 30);
     let deferred = execute(&catalog).await;
     assert_eq!(deferred.deleted, 0);
@@ -453,12 +475,12 @@ async fn pending_storage_transitions_defer_class_dependent_deletion_but_not_othe
 }
 
 #[tokio::test]
-async fn replacing_an_unapplied_transition_with_a_class_dependent_delete_preserves_the_object() {
+async fn replacing_applied_transition_rules_preserves_the_new_class_until_a_matching_delete() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}})]).await;
     let object = put(&catalog, "object").await;
     clock.advance(DAY * 30);
-    assert_eq!(execute(&catalog).await.next, None);
+    assert_eq!(execute(&catalog).await.transitioned, 1);
     rules(
         &catalog,
         vec![delete(json!({"age":60,"matchesStorageClass":["STANDARD"]}))],
@@ -477,8 +499,14 @@ async fn replacing_an_unapplied_transition_with_a_class_dependent_delete_preserv
         .unwrap();
     assert_eq!(
         (current.generation, current.storage_class),
-        (object.generation, object.storage_class)
+        (object.generation, StorageClass::Nearline)
     );
+    rules(
+        &catalog,
+        vec![delete(json!({"age":60,"matchesStorageClass":["NEARLINE"]}))],
+    )
+    .await;
+    assert_eq!(execute(&catalog).await.deleted, 1);
     catalog.close().await.unwrap();
 }
 
@@ -979,7 +1007,11 @@ async fn notifications(catalog: &Catalog) {
             crate::notification::NotificationConfig {
                 topic: "//pubsub.googleapis.com/projects/project/topics/topic".into(),
                 payload_format: "JSON_API_V1".into(),
-                event_types: vec!["OBJECT_DELETE".into(), "OBJECT_ARCHIVE".into()],
+                event_types: vec![
+                    "OBJECT_DELETE".into(),
+                    "OBJECT_ARCHIVE".into(),
+                    "OBJECT_METADATA_UPDATE".into(),
+                ],
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },
@@ -1039,6 +1071,7 @@ async fn candidate(
                 now,
                 &incarnation,
                 &mut diagnostics,
+                ACTION_LIMIT,
             )
             .map_err(unavailable)?;
             transaction.commit()?;

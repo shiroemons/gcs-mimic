@@ -1,12 +1,12 @@
-//! Bounded lifecycle Delete execution on the catalog writer and injected business clock.
+//! Bounded lifecycle execution on the catalog writer and injected business clock.
 
 use super::{Catalog, CatalogError, Inner, objects, sql, unavailable};
 use crate::{
     bucket::{
-        BucketAccess,
+        BucketAccess, StorageClass,
         lifecycle::{
-            LifecycleRule,
-            evaluate::{PlannedAction, VersionFacts, evaluate_delete_only},
+            LifecycleAction, LifecycleLocation, LifecycleRule,
+            evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate},
         },
     },
     object::{ObjectError, ObjectRecord, ObjectTarget, custom_time_key},
@@ -121,7 +121,7 @@ impl LifecycleSchedule {
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Info,
                 "lifecycle_sync_disabled",
-                serde_json::json!({"message":"Stored lifecycle rules are not executed while directory synchronization is configured by default. Set lifecycle_execution=enabled to execute Delete rules; like API deletions, this also removes synchronized host files."}),
+                serde_json::json!({"message":"Stored lifecycle rules are not executed while directory synchronization is configured by default. Set lifecycle_execution=enabled to execute lifecycle actions; like API deletions, Delete also removes synchronized host files."}),
             );
         }
     }
@@ -147,6 +147,7 @@ pub(crate) struct LifecycleCounts {
     pub(crate) scanned: u64,
     pub(crate) deleted: u64,
     pub(crate) archived: u64,
+    pub(crate) transitioned: u64,
     pub(crate) blocked: u64,
     pub(crate) skipped: u64,
     pub(crate) next: Option<SystemTime>,
@@ -159,6 +160,7 @@ struct LifecycleResponse {
     scanned: u64,
     deleted: u64,
     archived: u64,
+    transitioned: u64,
     blocked: u64,
     skipped: u64,
 }
@@ -183,6 +185,7 @@ impl serde::Serialize for LifecycleOutcome {
             scanned: counts.scanned,
             deleted: counts.deleted,
             archived: counts.archived,
+            transitioned: counts.transitioned,
             blocked: counts.blocked,
             skipped: counts.skipped,
         }
@@ -195,12 +198,13 @@ impl LifecycleCounts {
         self.scanned += other.scanned;
         self.deleted += other.deleted;
         self.archived += other.archived;
+        self.transitioned += other.transitioned;
         self.blocked += other.blocked;
         self.skipped += other.skipped;
         self.next = self.next.into_iter().chain(other.next).min();
     }
     fn applied(&self) -> u64 {
-        self.deleted + self.archived
+        self.deleted + self.archived + self.transitioned
     }
 }
 
@@ -426,6 +430,7 @@ enum BucketRules {
     Quarantined,
     Ready {
         stored: String,
+        location: LifecycleLocation,
         rules: Vec<LifecycleRule>,
     },
 }
@@ -478,6 +483,7 @@ fn sweep_page(
             now,
             incarnation,
             &mut diagnostics,
+            limit - outcome.applied(),
         )?);
         if outcome.applied() == limit {
             break;
@@ -511,19 +517,23 @@ fn bucket_rules(
     cached: BucketRules,
     diagnostics: &mut Vec<QuarantineEvent>,
 ) -> Result<BucketRules, ObjectError> {
-    let stored: Option<(String, String)> = sql::row(transaction,
-        "SELECT lifecycle, incarnation FROM buckets JOIN bucket_incarnations ON bucket = name WHERE name = ?1",
-        [bucket], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-    let Some((stored, current)) = stored else {
+    let stored: Option<(String, String, String)> = sql::row(transaction,
+        "SELECT lifecycle, incarnation, location_type FROM buckets JOIN bucket_incarnations ON bucket = name WHERE name = ?1",
+        [bucket], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional()?;
+    let Some((stored, current, location)) = stored else {
         return Ok(BucketRules::Absent);
     };
     if current != incarnation {
         return Ok(BucketRules::Absent);
     }
+    let location = LifecycleLocation::from(location.as_str());
     if let BucketRules::Ready {
-        stored: previous, ..
+        stored: previous,
+        location: previous_location,
+        ..
     } = &cached
         && *previous == stored
+        && *previous_location == location
     {
         return Ok(cached);
     }
@@ -531,9 +541,14 @@ fn bucket_rules(
         .map_err(unavailable)
         .and_then(|values| LifecycleRule::from_stored(&values));
     match rules {
-        Ok(rules) => {
+        Ok(mut rules) => {
+            rules.retain(|rule| location.permits(rule.action));
             clear_quarantine(transaction, QuarantineKey::rules(bucket, incarnation))?;
-            Ok(BucketRules::Ready { stored, rules })
+            Ok(BucketRules::Ready {
+                stored,
+                location,
+                rules,
+            })
         }
         Err(error) => {
             if let Some(event) = quarantine(
@@ -557,6 +572,7 @@ fn evaluate_version(
     now: SystemTime,
     incarnation: &str,
     diagnostics: &mut Vec<QuarantineEvent>,
+    limit: u64,
 ) -> Result<LifecycleCounts, ObjectError> {
     let key = QuarantineKey {
         bucket: &target.bucket,
@@ -590,10 +606,28 @@ fn evaluate_version(
         Err(error) => return Err(error),
     };
     clear_quarantine(transaction, key)?;
-    let (mut outcome, delete) = plan;
-    if let Some(record) = delete {
-        outcome.record(retire_version(transaction, &record, now)?);
-        outcome.next = None;
+    let (mut outcome, mut selected) = plan;
+    while let Some((record, action)) = selected {
+        match action {
+            PlannedAction::Delete => {
+                outcome.record(retire_version(transaction, &record, now)?);
+                outcome.next = None;
+                break;
+            }
+            PlannedAction::SetStorageClass(class) => {
+                transition_version(transaction, record, class, now)?;
+                outcome.transitioned += 1;
+            }
+        }
+        if outcome.applied() == limit {
+            outcome.next = Some(now);
+            break;
+        }
+        // Re-evaluate the changed class in this transaction, up to the shared action budget.
+        let (next, action) = plan_version(transaction, target, rules, now)?;
+        outcome.blocked += next.blocked;
+        outcome.next = next.next;
+        selected = action;
     }
     Ok(outcome)
 }
@@ -649,7 +683,7 @@ fn plan_version(
     target: &ObjectTarget,
     rules: &[LifecycleRule],
     now: SystemTime,
-) -> Result<(LifecycleCounts, Option<ObjectRecord>), ObjectError> {
+) -> Result<(LifecycleCounts, Option<(ObjectRecord, PlannedAction)>), ObjectError> {
     let object = match objects::selected(
         transaction,
         &target.bucket,
@@ -669,48 +703,110 @@ fn plan_version(
         params![target.bucket, target.name, target.generation],
     )?;
     let facts = version_facts(&object.record, newer_versions)?;
-    let evaluation = evaluate_delete_only(rules, &facts, now);
-    if object.record.has_hold() {
+    let evaluation = evaluate(rules, &facts, now);
+    let transition = matches!(
+        evaluation,
+        Evaluation::Act(PlannedAction::SetStorageClass(_))
+    );
+    let transition_due = || match evaluate(
+        rules
+            .iter()
+            .filter(|rule| matches!(rule.action, LifecycleAction::SetStorageClass(_))),
+        &facts,
+        now,
+    ) {
+        Evaluation::Act(_) => None,
+        Evaluation::Wait(next) => next.filter(|due| {
+            matches!(evaluation, Evaluation::Wait(_))
+                || matches!(
+                    evaluate(rules, &facts, *due),
+                    Evaluation::Act(PlannedAction::SetStorageClass(_))
+                )
+        }),
+    };
+    if !transition && object.record.has_hold() {
         return Ok((
             LifecycleCounts {
                 scanned: 1,
-                blocked: u64::from(matches!(evaluation.action, Some(PlannedAction::Delete))),
+                blocked: u64::from(matches!(evaluation, Evaluation::Act(PlannedAction::Delete))),
+                next: transition_due(),
                 ..Default::default()
             },
             None,
         ));
     }
-    if let Some(until) = object.record.earliest_deletion_time()
+    if !transition
+        && let Some(until) = object.record.earliest_deletion_time()
         && until > crate::object::unix_nanos::UnixNanos::from(now)
     {
         let next = nanos_time(until).and_then(|until| {
-            let future = evaluate_delete_only(rules, &facts, until);
-            if matches!(future.action, Some(PlannedAction::Delete)) {
-                Some(until)
-            } else {
-                future.next_due
+            match evaluate(
+                rules
+                    .iter()
+                    .filter(|rule| matches!(rule.action, LifecycleAction::Delete)),
+                &facts,
+                until,
+            ) {
+                Evaluation::Act(_) => Some(until),
+                Evaluation::Wait(next) => next,
             }
         });
+        let next = next.into_iter().chain(transition_due()).min();
         return Ok((
             LifecycleCounts {
                 scanned: 1,
-                blocked: u64::from(matches!(evaluation.action, Some(PlannedAction::Delete))),
+                blocked: u64::from(matches!(evaluation, Evaluation::Act(PlannedAction::Delete))),
                 next,
                 ..Default::default()
             },
             None,
         ));
     }
+    let (action, next) = match evaluation {
+        Evaluation::Act(action) => (Some((object.record, action)), None),
+        Evaluation::Wait(next) => (None, next),
+    };
     let outcome = LifecycleCounts {
         scanned: 1,
-        next: evaluation.next_due,
+        next,
         ..Default::default()
     };
-    let delete = match evaluation.action {
-        Some(PlannedAction::Delete) => Some(object.record),
-        Some(PlannedAction::SetStorageClass(_)) | None => None,
-    };
-    Ok((outcome, delete))
+    Ok((outcome, action))
+}
+
+fn transition_version(
+    transaction: &rusqlite::Transaction<'_>,
+    mut record: ObjectRecord,
+    class: StorageClass,
+    now: SystemTime,
+) -> Result<(), ObjectError> {
+    record.metageneration = record
+        .metageneration
+        .checked_add(1)
+        .ok_or_else(|| objects::object_unavailable("metageneration exhausted"))?;
+    let micros = super::unix_micros(now.max(record.updated).max(record.time_created))?;
+    record.updated = super::system_time_micros(micros)?;
+    record.time_storage_class_updated = Some(record.updated);
+    record.storage_class = class;
+    sql::exec(
+        transaction,
+        "UPDATE objects SET storage_class = ?4, metageneration = ?5, updated = ?6, time_storage_class_updated = ?6 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+        params![
+            record.bucket,
+            record.name,
+            record.generation,
+            class,
+            record.metageneration,
+            micros
+        ],
+    )?;
+    super::change_journal::object(
+        transaction,
+        super::admin::Origin::Api,
+        super::change_journal::ChangeKind::Metadata,
+        &record,
+    )?;
+    Ok(())
 }
 
 fn retire_version(

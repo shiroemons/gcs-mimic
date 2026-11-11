@@ -49,7 +49,8 @@ macro_rules! object_columns {
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
     retention_mode, retain_until_time, customer_key_sha256, md5_available, owner,
-    retain_until_sub_micro_nanos, temporary_hold_released, event_based_hold_released"
+    retain_until_sub_micro_nanos, temporary_hold_released, event_based_hold_released,
+    time_storage_class_updated"
     };
 }
 const SELECT_LIVE_OBJECT: &str = concat!(
@@ -767,6 +768,10 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
             component_count: row.get(19)?,
             storage_class: row.get(8)?,
             time_created: system_time_micros(row.get(9)?)?,
+            time_storage_class_updated: row
+                .get::<_, Option<i64>>(33)?
+                .map(system_time_micros)
+                .transpose()?,
             updated: system_time_micros(row.get(10)?)?,
             time_deleted: row
                 .get::<_, Option<i64>>(17)?

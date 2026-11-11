@@ -367,9 +367,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         // `finalize_time` kept its microseconds (observed 2026-11-01).
         create_time: Some(millis(record.time_created)),
         update_time: Some(millis(record.updated)),
-        // A storage class changes only by rewriting into a new generation, as in JSON
-        // `timeStorageClassUpdated`.
-        update_storage_class_time: Some(millis(record.time_created)),
+        update_storage_class_time: Some(millis(record.storage_class_updated())),
         // Catalog records are finalized; the appendable adapter clears this for unfinalized
         // generations. The same stored time as JSON `timeFinalized`.
         finalize_time: Some(record.time_created.into()),
@@ -674,6 +672,24 @@ mod tests {
             .map_err(ObjectError::from),
             Err(ObjectError::InvalidMetadata)
         ));
+    }
+
+    #[tokio::test]
+    async fn grpc_v2_outputs_the_stored_lifecycle_storage_class_timestamp() {
+        let (original, changed) =
+            crate::storage::test_fixtures::lifecycle_transitioned_object().await;
+        assert_eq!(
+            object(&original).unwrap().update_storage_class_time,
+            Some(millis(original.time_created))
+        );
+        let result = object(&changed).unwrap();
+        assert_eq!(
+            result.update_storage_class_time,
+            Some(millis(changed.storage_class_updated()))
+        );
+        assert_ne!(result.update_storage_class_time, result.update_time);
+        assert_ne!(result.update_storage_class_time, result.create_time);
+        assert_eq!(result.storage_class, "COLDLINE");
     }
 
     #[test]

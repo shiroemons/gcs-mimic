@@ -861,7 +861,7 @@ pub(crate) fn object_resource(
     value.insert("updated".into(), json!(timestamp(object.updated)?));
     value.insert(
         "timeStorageClassUpdated".into(),
-        json!(timestamp(object.time_created)?),
+        json!(timestamp(object.storage_class_updated())?),
     );
     value.insert(
         "timeFinalized".into(),

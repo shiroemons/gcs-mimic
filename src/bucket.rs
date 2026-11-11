@@ -12,9 +12,21 @@ pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
 
-#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(try_from = "String")]
-pub enum StorageClass {
+// Keep exhaustive transition tests tied to the enum's declaration rather than a second variant list.
+macro_rules! storage_classes {
+    ($($class:ident),+ $(,)?) => {
+        #[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+        #[serde(try_from = "String")]
+        pub enum StorageClass { $($class),+ }
+
+        impl StorageClass {
+            #[cfg(test)]
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$class),+];
+        }
+    };
+}
+
+storage_classes! {
     Standard,
     Nearline,
     Coldline,

@@ -561,6 +561,7 @@ fn cached(name: &str, file: Option<Arc<File>>) -> CachedObject {
             component_count: None,
             storage_class: crate::bucket::StorageClass::Standard,
             time_created: std::time::UNIX_EPOCH,
+            time_storage_class_updated: None,
             updated: std::time::UNIX_EPOCH,
             time_deleted: None,
             soft_delete_time: None,

@@ -194,6 +194,7 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
         time_created: Some(record.time_created.into()),
         updated: Some(record.updated.into()),
         time_deleted: record.time_deleted.map(Into::into),
+        time_storage_class_updated: Some(record.storage_class_updated().into()),
         // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
         // the three states exist only in the JSON resource.
         event_based_hold: Some(record.event_based_hold.is_held()),
@@ -206,6 +207,24 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn grpc_v1_outputs_the_stored_lifecycle_storage_class_timestamp() {
+        let (original, changed) =
+            crate::storage::test_fixtures::lifecycle_transitioned_object().await;
+        assert_eq!(
+            object(&original).unwrap().time_storage_class_updated,
+            Some(original.time_created.into())
+        );
+        let result = object(&changed).unwrap();
+        assert_eq!(
+            result.time_storage_class_updated,
+            Some(changed.storage_class_updated().into())
+        );
+        assert_ne!(result.time_storage_class_updated, result.updated);
+        assert_ne!(result.time_storage_class_updated, result.time_created);
+        assert_eq!(result.storage_class, "COLDLINE");
+    }
 
     #[test]
     fn typed_bucket_replacements_keep_native_and_legacy_omission_rules() {

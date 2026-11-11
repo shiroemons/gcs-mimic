@@ -1555,6 +1555,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         component_count: None,
         storage_class: crate::bucket::StorageClass::Nearline,
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
+        time_storage_class_updated: None,
         updated: UNIX_EPOCH + Duration::from_millis(1234),
         time_deleted: None,
         soft_delete_time: None,

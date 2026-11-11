@@ -1,7 +1,7 @@
 use super::admin::{BucketDefinition, Origin, Publication, PublishMode};
 use super::{Catalog, ObjectReader, ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
-use crate::object::{ObjectTarget, UploadChunk};
+use crate::object::{ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk};
 use crate::test_support::TestDir;
 use bytes::Bytes;
 use rusqlite::Connection;
@@ -188,4 +188,83 @@ pub(crate) fn assert_current_schema(connection: &Connection) {
             .unwrap(),
         super::CATALOG_SCHEMA_VERSION
     );
+}
+
+/// Protocol outputs must read a real transition whose class time differs from both other times.
+pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectRecord) {
+    use crate::clock::{Clock, ManualClock};
+    use std::{sync::Arc, time::Duration};
+
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_micros(1_234_567),
+    ));
+    let catalog = Catalog::open_memory_for_server(
+        64 * 1024 * 1024,
+        16 * 1024 * 1024,
+        clock.clone(),
+        super::admin::LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    catalog.configure_lifecycle(&Default::default());
+    let mut record = bucket("bucket", "project");
+    record.lifecycle = vec![
+        serde_json::json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),
+    ];
+    catalog.insert_bucket(record).await.unwrap();
+    let original = catalog
+        .put_object(
+            permissive_upload("bucket", "object", 100),
+            body(vec![Bytes::from_static(b"data")]),
+        )
+        .await
+        .unwrap();
+    clock.advance(Duration::from_secs(86_400));
+    let super::lifecycle::LifecycleOutcome::Executed(outcome) =
+        catalog.run_lifecycle_now().await.unwrap()
+    else {
+        panic!("execution disabled")
+    };
+    assert_eq!(
+        (
+            outcome.scanned,
+            outcome.transitioned,
+            outcome.deleted,
+            outcome.archived,
+            outcome.blocked,
+            outcome.skipped,
+            outcome.next
+        ),
+        (1, 1, 0, 0, 0, 0, Some(clock.now() + Duration::from_secs(1)))
+    );
+    let transitioned = catalog
+        .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(transitioned.storage_class_updated(), clock.now());
+    clock.advance(Duration::from_secs(1));
+    let changed = catalog
+        .update_object_metadata(
+            live("bucket", "object"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                content_type: Some(Some("text/html".into())),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        changed.storage_class_updated(),
+        transitioned.storage_class_updated()
+    );
+    let stored = catalog
+        .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(stored, changed);
+    catalog.close().await.unwrap();
+    (original, stored)
 }
