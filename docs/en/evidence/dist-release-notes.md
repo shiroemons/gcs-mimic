@@ -609,5 +609,5 @@ Recorded on main after publication, 2026-10-26.
     job's line-ending and format checks passed for all eight entries.
 - Still not run: `just pre-push` and an identical-input manifest retry.
 - Later, on 2026-11-11, freshness, Markdown lint, the compatibility check and
-  one complete `just pre-push` all exited 0 on source `b0da224d`; see
+  one complete `just pre-push` all exited 0 on source `accb532b`; see
   [local release gates](local-release-gates.md).

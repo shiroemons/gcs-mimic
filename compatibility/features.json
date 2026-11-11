@@ -2674,7 +2674,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Manual dispatch uploads verification artifacts only. vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and every release-matrix target before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. v0.1.0 and v0.1.1 are published with four Linux archives, v0.1.2 adds macOS and v0.1.3 adds Windows; the final pre-publication local gate (just pre-push) was not run for those tags. On 2026-11-11 dependency freshness, Markdown lint, the compatibility check and one complete just pre-push all exited 0 on source b0da224d, recorded by a later commit that changes only documents and the ledger; release-local-gates therefore passes for that source and must run again after any protected-input change (docs/en/evidence/local-release-gates.md). Release builds and portability suites run with RUST_TEST_THREADS=2 as an interim guard for time-dependent tests. The freshness check sends the workflow GITHUB_TOKEN to the GitHub API after the first v0.1.3 validate hit the unauthenticated rate limit. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is recorded in docs/en/evidence/dist-resource-measurement.md.",
+      "notes": "Manual dispatch uploads verification artifacts only. vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and every release-matrix target before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. v0.1.0 and v0.1.1 are published with four Linux archives, v0.1.2 adds macOS and v0.1.3 adds Windows; the final pre-publication local gate (just pre-push) was not run for those tags. On 2026-11-11 dependency freshness, Markdown lint, the compatibility check and one complete just pre-push all exited 0 on source accb532b, recorded by a later commit that changes only documents and the ledger; release-local-gates therefore passes for that source and must run again after any protected-input change (docs/en/evidence/local-release-gates.md). Release builds and portability suites run with RUST_TEST_THREADS=2 as an interim guard for time-dependent tests. The freshness check sends the workflow GITHUB_TOKEN to the GitHub API after the first v0.1.3 validate hit the unauthenticated rate limit. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is recorded in docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DIST-001"
       ],
@@ -2789,7 +2789,7 @@
       ],
       "verification": [
         {
-          "command": "just check-dependencies on source b0da224d982077d0cb23e4b4936c6501a6099561: exit 0, 129 CURRENT lines, fake-gcs-server v1.56.1 PINNED_REFERENCE at its latest release",
+          "command": "just check-dependencies on source accb532bc9da7282437ae0aad71cd0545a93cb60: exit 0, 129 CURRENT lines, fake-gcs-server v1.56.1 PINNED_REFERENCE at its latest release",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -2798,7 +2798,7 @@
           ]
         },
         {
-          "command": "just check-markdown on source b0da224d982077d0cb23e4b4936c6501a6099561: exit 0, 384 Markdown files and 2 generated views with no lint issues",
+          "command": "just check-markdown on source accb532bc9da7282437ae0aad71cd0545a93cb60: exit 0, 384 Markdown files and 2 generated views with no lint issues",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -2807,7 +2807,7 @@
           ]
         },
         {
-          "command": "cargo xtask compatibility check on source b0da224d982077d0cb23e4b4936c6501a6099561: exit 0, 607 feature rows",
+          "command": "cargo xtask compatibility check on source accb532bc9da7282437ae0aad71cd0545a93cb60: exit 0, 607 feature rows",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -2816,7 +2816,7 @@
           ]
         },
         {
-          "command": "just pre-push on source b0da224d982077d0cb23e4b4936c6501a6099561: exit 0, all stages passed in 24m16s in one invocation",
+          "command": "just pre-push on source accb532bc9da7282437ae0aad71cd0545a93cb60: exit 0, all stages passed in 24m16s in one invocation",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -2967,7 +2967,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Tag releases v0.1.0 through v0.1.3 have run and published; the rest of this entry records the 0.1.0 preparation state. Existing Foundation evidence only matches historical preparation baseline 71883c0, not the rebased tree, revised pins or a future tag; it does not verify eight archives, checksums, DLL imports or glibc symbols. Main rebase adds repo-lints protected inputs (Cargo.toml/src/tests/xtask), config-contract's reference comparison script and import-contract's source-storage JSON/verifier; dist-tag-publication must confirm the final behavior baseline and revalidation without treating these as approved pin differences. The 2026-10-24 freshness exit 1 and full pre-push exit 18 failed release-local-gates, and the passing post-rebase just check and separate stage passes did not satisfy it; the complete 2026-11-11 gates on source b0da224d now pass it for that source only, and a later protected-input change needs them to run again before a tag. dist-tag-publication owns actual pin refresh/revalidation including distroless, pending pin-revision SHA/diff/freshness contracts, exact-tag source identity and final Release-body checks. Source-identity/resource/schedule finalize markers remain release-blocking. The current workflow checks a nonempty notes file, not markers/links; proposed dist-tag-publication follow-up is workflow enforcement of the marker guard and protected-input comparison. dist-post-publication records final tag gate results in the main-branch ledger. The SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh, which the 2026-11-11 pre-push self-checked and used."
+        "Tag releases v0.1.0 through v0.1.3 have run and published; the rest of this entry records the 0.1.0 preparation state. Existing Foundation evidence only matches historical preparation baseline 71883c0, not the rebased tree, revised pins or a future tag; it does not verify eight archives, checksums, DLL imports or glibc symbols. Main rebase adds repo-lints protected inputs (Cargo.toml/src/tests/xtask), config-contract's reference comparison script and import-contract's source-storage JSON/verifier; dist-tag-publication must confirm the final behavior baseline and revalidation without treating these as approved pin differences. The 2026-10-24 freshness exit 1 and full pre-push exit 18 failed release-local-gates, and the passing post-rebase just check and separate stage passes did not satisfy it; the complete 2026-11-11 gates on source accb532b now pass it for that source only, and a later protected-input change needs them to run again before a tag. dist-tag-publication owns actual pin refresh/revalidation including distroless, pending pin-revision SHA/diff/freshness contracts, exact-tag source identity and final Release-body checks. Source-identity/resource/schedule finalize markers remain release-blocking. The current workflow checks a nonempty notes file, not markers/links; proposed dist-tag-publication follow-up is workflow enforcement of the marker guard and protected-input comparison. dist-post-publication records final tag gate results in the main-branch ledger. The SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh, which the 2026-11-11 pre-push self-checked and used."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-11"
@@ -32446,7 +32446,7 @@
         "Delete, supported class transitions and XML multipart abort execute under deterministic local scheduling without provider propagation or infrastructure timing. Multipart age zero at UTC midnight is an unverified local decision. XML lifecycle and initialization-file lifecycle configuration remain unsupported; matchesPattern retains the shared unsupported response. Storage v2 cannot represent size conditions and rejects reads requesting lifecycle; masked reads excluding it succeed. Its mutation precheck uses a metageneration match, with bounded retries for implicit matches, but neither updates nor retention locking prevent same-name recreation with the same metageneration between precheck and mutation. BucketRecord still stores JSON values decoded at validation boundaries. REGIONAL and RAPID object/action classes remain outside the existing StorageClass model. SPEC-LIFECYCLE-CONFIG records default normalization and unverified provider error detail; the behavior row remains PARTIAL.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
-      "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
+      "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
       "last_verified": "2026-11-11"
     },
     {
@@ -32639,7 +32639,7 @@
         "Lifecycle conservatively waits for object retention before archiving a live version; newer counts exclude soft-deleted versions and soft deletion emits the existing local delete event. These provider interaction choices and empty HNS folder cleanup remain unverified. Protected independent Delete precedence over transitions and same-pass transition/Delete chains remain local scheduling choices. Earlier-release rule execution uses a synthetic schema 52 fixture because the released-data fixture has no lifecycle rules. Event-hold release retains the existing creation-based bucket-retention limitation. A later synchronization run can remove a previously tracked host file deleted from the catalog while synchronization was absent; this cross-startup interaction is source-inspected only.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
-      "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
+      "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
       "last_verified": "2026-11-11"
     },
     {
@@ -32974,7 +32974,7 @@
         "Delayed evaluation can also delete objects that timely execution retains: descending scans may remove a successor needed by a numNewerVersions transition; an overwrite during a stop can remove an isLive:true transition opportunity; class-gated transitions can take a different path when the coldest currently eligible target wins. The three forms and a retention-side example are fixed by paired scheduled/delayed catalog tests. No global one-sided safety claim is made. In the fixed-facts single-version test domain, transitions without matchesStorageClass have no delayed-only deletion; class-gated triples have 32 such comparisons, all involving a class absent from the timely path.",
         "Lifecycle-specific metadata notification, metageneration and class-time behavior is inferred from general documentation without provider observations. REGIONAL and RAPID object/action classes remain unsupported. Unknown-location exclusion is defensive catalog evidence, not public zonal-bucket support. Schema 53 has no in-place downgrade; earlier released-data fixtures have no lifecycle rules, so stored-rule execution uses a synthetic schema 52 fixture. Autoclass bulk updates still leave updated, metageneration and notifications unchanged, so class time can exceed updated."
       ],
-      "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
+      "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
       "last_verified": "2026-11-11"
     },
     {
@@ -33045,7 +33045,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": ["Execution uses the injected local clock and shared coalescing/action limits without Google configuration propagation or infrastructure timing.","The shared evaluator's next-midnight age-zero behavior, including a full day for initiation exactly at midnight, is an unverified local decision for multipart uploads.","An abort error rolls back its page and stops object actions, including Delete and SetStorageClass, for the same bucket in that pass; individual corrupt upload rows are not quarantined.","A page retires up to 128 uploads in one transaction and holds all whole-upload leases until commit; uploads with many parts can delay other catalog requests for that page."],
-      "implemented_in": "4c934eb4",
+      "implemented_in": "c8febfd5",
       "last_verified": "2026-11-11"
     },
     {
@@ -33732,7 +33732,7 @@
         "Name/class-dependent Delete, supported transitions and name-conditioned XML multipart abort execute under deterministic local scheduling. Same-pass chains and protected independent Delete precedence need authorized provider evidence. Multipart provider timing and age-zero midnight interpretation remain unverified under BEHAVIOR-LIFECYCLE-004. REGIONAL and RAPID object/action classes are not represented by the existing StorageClass type. Regional DRA to MULTI_REGIONAL is stored but inert; defensive unknown-location exclusion does not establish public zonal-bucket support. matchesPattern remains unsupported.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
-      "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
+      "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
       "last_verified": "2026-11-11"
     },
     {
@@ -57760,7 +57760,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push was not rerun on that rebased tree. See docs/en/evidence/dist-release-notes.md. On 2026-11-11 one complete just pre-push exited 0 on source b0da224d, recorded by a later commit that changes only documents and the ledger: bash scripts/test-check.sh, the Rust checks, every SDK suite including Go, and the linux/arm64 and linux/amd64 container checks passed in order, so DESIGN-099-local-checks passes. Evidence: docs/en/evidence/local-release-gates.md. Resource measurement preparation also passed just check with 778 tests/38 groups on unchanged bb8dd5c Rust/build inputs; this separate pass does not replace full pre-push or remote CI. Evidence: docs/en/evidence/dist-resource-measurement.md.",
+      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push was not rerun on that rebased tree. See docs/en/evidence/dist-release-notes.md. On 2026-11-11 one complete just pre-push exited 0 on source accb532b, recorded by a later commit that changes only documents and the ledger: bash scripts/test-check.sh, the Rust checks, every SDK suite including Go, and the linux/arm64 and linux/amd64 container checks passed in order, so DESIGN-099-local-checks passes. Evidence: docs/en/evidence/local-release-gates.md. Resource measurement preparation also passed just check with 778 tests/38 groups on unchanged bb8dd5c Rust/build inputs; this separate pass does not replace full pre-push or remote CI. Evidence: docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -57901,7 +57901,7 @@
           ]
         },
         {
-          "command": "just pre-push on source b0da224d982077d0cb23e4b4936c6501a6099561 (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 24m16s in one invocation",
+          "command": "just pre-push on source accb532bc9da7282437ae0aad71cd0545a93cb60 (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 24m16s in one invocation",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -57913,7 +57913,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Every acceptance case passes, but the row stays PARTIAL: it keeps the failed 2026-10-24 just pre-push (exit 18, Ruby 3.4.1 selected instead of pinned 4.0.9) and sandboxed just check (exit 101) verification records as history, and cargo xtask compatibility rejects IMPLEMENTED while any verification record fails. The 2026-11-11 complete pre-push on source b0da224d resolves the failure itself, and the SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh. Promotion needs a decision on how a superseded failure record is kept without blocking IMPLEMENTED."
+        "Every acceptance case passes, but the row stays PARTIAL: it keeps the failed 2026-10-24 just pre-push (exit 18, Ruby 3.4.1 selected instead of pinned 4.0.9) and sandboxed just check (exit 101) verification records as history, and cargo xtask compatibility rejects IMPLEMENTED while any verification record fails. The 2026-11-11 complete pre-push on source accb532b resolves the failure itself, and the SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh. Promotion needs a decision on how a superseded failure record is kept without blocking IMPLEMENTED."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-11"

@@ -1,13 +1,13 @@
 # Local release gates on the integrated source
 
-Recorded **2026-11-11**. Every local release gate ran once, from a clean working tree, on source commit `b0da224d982077d0cb23e4b4936c6501a6099561` (package version 0.17.1), the integrated lifecycle-transition source. Each gate passed in a single complete invocation; no result below is assembled from separately run stages. The failures recorded on 2026-10-24 in the [initial release preparation evidence](dist-release-notes.md#historical-pre-tag-execution) remain as history; these results are a later, separate execution on newer source.
+Recorded **2026-11-11**. Every local release gate ran once, from a clean working tree whose content is tree `17a2db8c7db85b5b83feaf8757bec935acd8bf65` (package version 0.17.1), the integrated lifecycle-transition source. The commit on `main` with exactly that tree is `accb532bc9da7282437ae0aad71cd0545a93cb60`. This document named a different commit hash for the same tree until the unpublished history was tidied without changing file contents; the gates did not run again. Each gate passed in a single complete invocation; no result below is assembled from separately run stages. The failures recorded on 2026-10-24 in the [initial release preparation evidence](dist-release-notes.md#historical-pre-tag-execution) remain as history; these results are a later, separate execution on newer source.
 
 ## Source relation
 
-The gates did not run on the commit that records them. That commit changes only this document, a pointer in [initial release preparation evidence](dist-release-notes.md), a pointer in [pre-push verification](pre-push.md) and `compatibility/features.json`. Regenerating `docs/en/feature-matrix.md` and `docs/ja/feature-matrix.md` changed neither view, because both rows keep status `PARTIAL`. The commit touches no protected path, so the following comparison is empty for it:
+The gates did not run on the commits that record them. The commit that recorded the results changes only this document, a pointer in [initial release preparation evidence](dist-release-notes.md), a pointer in [pre-push verification](pre-push.md) and `compatibility/features.json`; the later commit that updated the source commit hash changes only documents and the ledger. Regenerating `docs/en/feature-matrix.md` and `docs/ja/feature-matrix.md` changed neither view, because both rows keep status `PARTIAL`. Neither commit touches a protected path, so the following comparison is empty for each of them:
 
 ```sh
-git diff --name-only b0da224d982077d0cb23e4b4936c6501a6099561 <recording commit> -- \
+git diff --name-only accb532bc9da7282437ae0aad71cd0545a93cb60 <recording commit> -- \
   src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml \
   .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ \
   ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ \
