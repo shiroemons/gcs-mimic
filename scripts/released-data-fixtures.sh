@@ -26,10 +26,11 @@ image_for() {
     0.16.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:ff15b8064c1cef73c2f4578d3b84e6b219e17729c3227e6577879c52e8562bc4 ;;
     0.17.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:65807307c2565a4e0e1e0005827f71633d166547336b1258aead8f811a13b8eb ;;
     0.17.1) echo ghcr.io/shiroemons/gcs-mimic@sha256:2263fadc282c4d5486f58785c00cad6e0b0e81a43855c472e7acc3a832b0ce22 ;;
+    0.18.0) echo ghcr.io/shiroemons/gcs-mimic@sha256:ed8328f03202da4300b48eea94ac4eeceadbbda5800f39a20abb2660ff66c7b9 ;;
     *) return 1 ;;
   esac
 }
-if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1; fi
+if [[ $# == 0 ]]; then set -- 0.8.0 0.9.0 0.10.0 0.11.0 0.12.0 0.13.0 0.14.0 0.15.0 0.16.0 0.17.0 0.17.1 0.18.0; fi
 for version in "$@"; do
   bash "$(dirname "$0")/release-version.sh" "$version" >/dev/null
   if ! image_for "$version" >/dev/null; then echo "No pinned image for $version" >&2; exit 2; fi
@@ -92,6 +93,8 @@ for version in "$@"; do
   # upgrading from this release would have on disk.
   docker stop -t 20 "$container" >/dev/null
   docker cp "$container:/var/lib/gcs-mimic" "$target/data"
+  # The lock carries no persisted state and is recreated when the catalog opens.
+  rm -f "$target/data/catalog.lock"
   docker rm "$container" >/dev/null
   container=
   echo "$version: $(find "$target/data" -type f | wc -l | tr -d ' ') files"
