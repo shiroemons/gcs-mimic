@@ -155,6 +155,12 @@ Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを
 
 Markdownの段落は途中で改行せず、1つの段落またはリスト項目を1行に書きます。そのため、ルートの`.markdownlint-cli2.jsonc`はMD013（行の長さ）を無効にしています。
 
+Markdownを変えたあとと、リリースの前には`just check-markdown`を実行します。リリースでは指摘が0件でなければなりません。
+`scripts/check-markdown.sh`は、追跡しているすべてのMarkdownファイルを`npx`経由で最新のmarkdownlint-cli2で検査するため、
+Node.jsとnpmレジストリへの接続が必要です。生成した機能表は種別ごとに「Authentication」などの分類見出しを繰り返すため、
+`docs/generated-views.markdownlint-cli2.jsonc`を基本設定に加え、見出しの重複を兄弟見出しの間だけで検査します。
+指摘は文書側で直すか、そのファイルだけのディレクティブで理由を書いて規則を絞ります。ルートの設定で規則を無効にして指摘を隠さないでください。
+
 `just check`は、Windows MSVC・Linux musl・macOS ARM64のリリースターゲットと、
 CIのRustジョブが使うLinux glibcのターゲットも、`scripts/check-cross.sh`で型検査します。Foundation CIはこのスクリプトを`rust`ジョブと並行する`cross`ジョブで実行し、
 `rust`ジョブは`GCSM_CHECK_CROSS=0`を指定して`scripts/check.sh`からの実行を省きます。

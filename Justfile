@@ -22,6 +22,10 @@ trim-target:
 check-dependencies:
     env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
 
+# Lint every tracked Markdown file with the current markdownlint-cli2; requires npm registry access.
+check-markdown:
+    bash scripts/check-markdown.sh
+
 # Run the complete pinned Go, Ruby, Node.js, Python, PHP, Java, .NET and Rust SDK suites against isolated servers.
 check-sdk:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust

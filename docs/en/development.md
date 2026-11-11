@@ -205,6 +205,24 @@ Freshness remains a separate gate because it checks changing upstream metadata,
 while `pre-push` validates the working tree and locked inputs. An update or a
 network failure must be reported; it is not a passing freshness result.
 
+Run the Markdown lint after changing Markdown and before release, where it must
+report zero issues:
+
+```sh
+just check-markdown
+```
+
+`scripts/check-markdown.sh` lints every tracked Markdown file with the current
+markdownlint-cli2 release through `npx`, so it needs Node.js and npm registry
+access, and prints the linter version it used. Prose follows the root
+`.markdownlint-cli2.jsonc` and each file's inline directives; a file that keeps
+hard-wrapped prose re-enables MD013 with its own directive. The generated feature
+matrices also use `docs/generated-views.markdownlint-cli2.jsonc` as their base
+configuration, which checks duplicate headings among siblings only because each
+kind section repeats category headings such as "Authentication". Fix a finding
+in the document, or narrow a rule for that one file with a reasoned directive;
+do not disable a rule in the root configuration to hide findings.
+
 ## Rust lint policy
 
 The root `Cargo.toml` defines `unsafe_code = "deny"` in

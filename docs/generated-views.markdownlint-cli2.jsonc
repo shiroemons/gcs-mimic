@@ -1,0 +1,12 @@
+{
+  // Base configuration for the feature matrices that `cargo xtask compatibility render` generates
+  // from compatibility/features.json. scripts/check-markdown.sh passes it with --config for those
+  // files only, and the root .markdownlint-cli2.jsonc still applies on top. The behavior and
+  // project_requirement sections repeat category headings such as "Authentication" under their
+  // own kind heading, so duplicate headings are checked among siblings only.
+  "config": {
+    "MD024": {
+      "siblings_only": true
+    }
+  }
+}
