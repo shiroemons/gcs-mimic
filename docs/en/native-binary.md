@@ -21,7 +21,8 @@ for attempt in $(seq 1 100); do
   kill -0 "$native_pid"
   sleep 0.1
 done
-native_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$native_dir/server.log")"
+native_endpoint="$(jq -r 'select(.event == "ready") | .api_base_url' "$native_dir/server.log")"
+jq 'select(.event == "ready") | {data_dir, data_dir_state}' "$native_dir/server.log"
 ./target/release/gcs-mimic healthcheck --url "$native_endpoint/_internal/ready"
 curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
   --data '{"name":"native-bucket"}' "$native_endpoint/storage/v1/b?project=local-project"
@@ -57,6 +58,16 @@ Compose-only `GCS_MIMIC_IMAGE`, `GCS_MIMIC_PORT` and `GCS_MIMIC_TLS_DIR` must be
 unset before native startup; the binary explains their image, host-port and
 mount roles. The temporary native catalog above is
 removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
+Since 0.18.0, ready reports the absolute `data_dir` without resolving symbolic
+links, and `data_dir_state` is `created` for a catalog initialized by this start
+or `opened` for an existing catalog. A directory without an initialized catalog
+counts as `created`; a restart after initialization counts as `opened` even if
+the previous process crashed before ready. Creating a catalog also emits one
+info-level `data_dir_created` event on stderr with `data_dir` and a message
+naming the path. Memory mode omits both ready fields and that event. The native
+default remains `data`, relative to the working directory; starting elsewhere
+can create a separate store. The fixed `protocol` and `gcs_api` ready fields
+were removed; readers must remove those lookups.
 The native example uses permissive mode, so XML reads bypass authorization.
 On macOS and other Unix systems outside Linux/Android, restarting on the same
 port may wait for TIME_WAIT to drain (about 30 seconds on the verified macOS
@@ -83,6 +94,9 @@ precedence. Since 0.15.0, `FAKE_GCS_*` variables are not read. See
 for the bounded input, redaction and `/data` inspection rules.
 
 Runtime stderr is newline-delimited JSON with `event` and `level` fields.
+This also applies to failed startup: `data_dir_created` may precede the
+`diagnostics` event, so parse each line and select the event by name rather than
+treating all of stderr as one JSON object.
 `log_level` in JSON, `GCS_MIMIC_LOG_LEVEL` or `--log-level` selects a minimum
 severity: `debug`, `info` (default), `warn` or `error`; `warning` aliases `warn`.
 Debug adds connection completion, info includes seeding/stopping, warn includes

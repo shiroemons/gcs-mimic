@@ -236,7 +236,7 @@ fn default_location_invalid_or_alias_settings_fail_before_catalog_creation() {
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
         assert!(!dir.0.join("data").exists());
-        let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+        let event = diagnostic(&output);
         assert_eq!(event["diagnostics"][0]["key"], "--default-location");
     }
     // A translated fake-gcs-server location is validated like the native setting.
@@ -499,9 +499,23 @@ fn large_file(root: &Path, count: usize) {
 }
 
 fn diagnostic(output: &std::process::Output) -> Value {
+    serde_json::from_str(diagnostic_line(output)).unwrap()
+}
+
+fn diagnostic_line(output: &std::process::Output) -> &str {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    serde_json::from_slice(&output.stderr).unwrap()
+    let events: Vec<_> = std::str::from_utf8(&output.stderr)
+        .unwrap()
+        .lines()
+        .map(|line| (line, serde_json::from_str::<Value>(line).unwrap()))
+        .collect();
+    let diagnostics: Vec<_> = events
+        .iter()
+        .filter(|(_, event)| event["event"] == "diagnostics")
+        .collect();
+    assert_eq!(diagnostics.len(), 1, "{events:?}");
+    diagnostics[0].0
 }
 
 #[test]
@@ -561,7 +575,8 @@ fn a_huge_failing_file_keeps_its_report_within_the_diagnostic_budget() {
         .output()
         .unwrap();
     let event = diagnostic(&output);
-    assert!(output.stderr.len() <= 64 * 1024, "{}", output.stderr.len());
+    let diagnostic_bytes = diagnostic_line(&output).len() + 1;
+    assert!(diagnostic_bytes <= 64 * 1024, "{diagnostic_bytes}");
     let summary = event["diagnostics"]
         .as_array()
         .unwrap()
@@ -645,7 +660,7 @@ fn validation_reports_all_entries_before_seed_or_mutation() {
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+    let event = diagnostic(&output);
     let keys: Vec<_> = event["diagnostics"]
         .as_array()
         .unwrap()
@@ -1590,7 +1605,7 @@ fn selected_file_only_is_loaded_and_invalid_paths_fail_without_ready() {
     let output = selected(&dir.0).output().unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+    let event = diagnostic(&output);
     assert_eq!(event["diagnostics"][0]["source"], "initializer");
     assert_eq!(event["diagnostics"][0]["key"], "buckets_file");
     for value in [json!(4), json!(null), json!(false)] {
@@ -1795,7 +1810,7 @@ fn invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutatio
     let output = selected(&dir.0).output().unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+    let event = diagnostic(&output);
     let keys: Vec<_> = event["diagnostics"]
         .as_array()
         .unwrap()

@@ -843,14 +843,23 @@ fn obj_http_media_read_failure_after_headers_names_its_cause() {
     drop(server);
     let mut events = String::new();
     stderr.read_to_string(&mut events).unwrap();
-    let failure = events
+    let records: Vec<Value> = events
         .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let failure = records
+        .iter()
         .find(|event| event["event"] == "object_body_read_failed")
         .unwrap_or_else(|| panic!("no body read event in {events}"));
     assert_eq!(failure["level"], "warn");
     assert_eq!(failure["cause"], "unexpected end of file");
-    assert!(!events.contains(dir.0.to_str().unwrap()));
+    // Startup names the operator's data directory; request failures must keep internal paths private.
+    for event in records
+        .iter()
+        .filter(|event| event["event"] != "data_dir_created")
+    {
+        assert!(!event.to_string().contains(dir.0.to_str().unwrap()));
+    }
 }
 
 #[test]

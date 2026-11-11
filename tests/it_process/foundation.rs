@@ -209,7 +209,7 @@ fn live_wildcard_and_specific_listeners_are_exclusive() {
 #[test]
 fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
     let dir = TestDir::new();
-    for _ in 0..2 {
+    for state in ["created", "opened"] {
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -245,8 +245,8 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "listen",
                 "listeners",
                 "transport",
-                "protocol",
-                "gcs_api",
+                "data_dir",
+                "data_dir_state",
                 "max_connections",
                 "max_object_bytes",
                 "backend",
@@ -288,8 +288,10 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 ready["api_base_url"].as_str().unwrap()
             )
         );
-        assert_eq!(ready["protocol"], "http1");
-        assert_eq!(ready["gcs_api"], "json-bucket-object-media-crud");
+        assert!(ready.get("protocol").is_none());
+        assert!(ready.get("gcs_api").is_none());
+        assert_eq!(ready["data_dir"], dir.0.to_str().unwrap());
+        assert_eq!(ready["data_dir_state"], state);
         assert_eq!(ready["scheme"], "http");
         assert_eq!(ready["transport"], "tcp");
         assert_eq!(ready["backend"], "disk");
@@ -319,6 +321,214 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["seed"], serde_json::json!({"outcome":"disabled"}));
         common::stop_server(&mut child, &mut stdout);
     }
+}
+
+fn ready_with_diagnostics(command: &mut Command) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let mut server = common::process::Server::launch(command.stderr(Stdio::piped()));
+    server.stop();
+    let mut stderr = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let diagnostics = stderr
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    (server.ready.clone(), diagnostics)
+}
+
+fn assert_ready_data_directory(command: &mut Command, path: &std::path::Path, state: &str) {
+    let (ready, diagnostics) = ready_with_diagnostics(command);
+    let path = path.to_string_lossy();
+    assert_eq!(ready["data_dir"], path.as_ref());
+    assert_eq!(ready["data_dir_state"], state);
+    assert!(ready.get("protocol").is_none());
+    assert!(ready.get("gcs_api").is_none());
+    let created: Vec<_> = diagnostics
+        .iter()
+        .filter(|event| event["event"] == "data_dir_created")
+        .collect();
+    assert_eq!(
+        created.len(),
+        usize::from(state == "created"),
+        "{diagnostics:?}"
+    );
+    if let Some(event) = created.first() {
+        assert_eq!(event["level"], "info");
+        assert_eq!(event["data_dir"], path.as_ref());
+        assert!(event["message"].as_str().unwrap().contains(path.as_ref()));
+    }
+}
+
+#[test]
+fn ready_event_reports_absolute_data_directory_and_restart_state() {
+    let directory = TestDir::new();
+    let data = directory.0.join("catalog");
+    for state in ["created", "opened"] {
+        assert_ready_data_directory(&mut common::process::http_command(&data), &data, state);
+    }
+}
+
+#[test]
+fn ready_event_resolves_relative_and_default_data_directories_from_working_directory() {
+    let directory = TestDir::new();
+    let working_directory = directory.0.canonicalize().unwrap();
+    for relative in ["custom-store", "data"] {
+        for state in ["created", "opened"] {
+            let mut command = common::server_command();
+            command.current_dir(&working_directory).args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+            ]);
+            if relative != "data" {
+                command.args(["--data-dir", relative]);
+            }
+            assert_ready_data_directory(&mut command, &working_directory.join(relative), state);
+        }
+    }
+}
+
+#[test]
+fn ready_event_calls_an_existing_directory_without_a_catalog_created() {
+    for empty_database in [false, true] {
+        let directory = TestDir::new();
+        if empty_database {
+            fs::File::create(directory.0.join("catalog.sqlite3")).unwrap();
+        }
+        assert_ready_data_directory(
+            &mut common::process::http_command(&directory.0),
+            &directory.0,
+            "created",
+        );
+        assert_ready_data_directory(
+            &mut common::process::http_command(&directory.0),
+            &directory.0,
+            "opened",
+        );
+    }
+}
+
+#[test]
+fn ready_event_preserves_non_ascii_data_directory() {
+    let directory = TestDir::new();
+    let data = directory.0.join("保存先-雪");
+    for state in ["created", "opened"] {
+        assert_ready_data_directory(&mut common::process::http_command(&data), &data, state);
+    }
+}
+
+// macOS filesystems reject invalid UTF-8 names; Linux permits a non-UTF-8 working directory.
+#[cfg(target_os = "linux")]
+#[test]
+fn ready_event_displays_a_non_utf8_working_directory_without_failing_startup() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let directory = TestDir::new();
+    let working_directory = directory
+        .0
+        .join(std::ffi::OsString::from_vec(b"store-\xff".to_vec()));
+    fs::create_dir(&working_directory).unwrap();
+    let path = working_directory.join("data");
+    for state in ["created", "opened"] {
+        assert_ready_data_directory(
+            common::server_command()
+                .current_dir(&working_directory)
+                .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"]),
+            &path,
+            state,
+        );
+    }
+    assert!(path.join("catalog.sqlite3").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory() {
+    let directory = TestDir::new();
+    let working_directory = directory.0.canonicalize().unwrap();
+    let target = working_directory.join("target");
+    let link = working_directory.join("link");
+    fs::create_dir(&target).unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    for state in ["created", "opened"] {
+        let mut command = common::process::http_command(std::path::Path::new("link"));
+        command.current_dir(&working_directory);
+        assert_ready_data_directory(&mut command, &link, state);
+    }
+    assert!(target.join("catalog.sqlite3").is_file());
+}
+
+#[test]
+fn ready_event_omits_data_directory_and_creation_diagnostic_for_memory() {
+    let directory = TestDir::new();
+    let data = directory.0.join("unused");
+    let (ready, diagnostics) =
+        ready_with_diagnostics(common::process::http_command(&data).args(["--backend", "memory"]));
+    for field in ["data_dir", "data_dir_state", "protocol", "gcs_api"] {
+        assert!(ready.get(field).is_none(), "{ready}");
+    }
+    assert_eq!(ready["backend"], "memory");
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|event| event["event"] == "data_dir_created")
+    );
+    assert!(!data.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ready_event_reports_opened_after_a_crash_before_the_first_ready_event() {
+    use std::os::{fd::OwnedFd, unix::net::UnixStream};
+
+    let directory = TestDir::new();
+    let data = directory.0.join("data");
+    let (_reader, mut writer) = UnixStream::pair().unwrap();
+    writer.set_nonblocking(true).unwrap();
+    loop {
+        match writer.write(&[b'x'; 4096]) {
+            Ok(count) => assert_ne!(count, 0),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("fill startup diagnostic pipe: {error}"),
+        }
+    }
+    writer.set_nonblocking(false).unwrap();
+    // A full stderr pipe blocks the creation diagnostic after catalog open, before readiness.
+    let mut child = common::process::http_command(&data)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(OwnedFd::from(writer)))
+        .spawn()
+        .unwrap();
+    let stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut server = common::process::Server::pending(child, stdout, String::new());
+    common::eventually("first catalog initialization commits", || {
+        let Ok(connection) = rusqlite::Connection::open_with_flags(
+            data.join("catalog.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) else {
+            return false;
+        };
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .is_ok_and(|version| version > 0)
+    });
+    server.child.kill().unwrap();
+    let status = server.child.wait().unwrap();
+    assert_eq!(
+        std::os::unix::process::ExitStatusExt::signal(&status),
+        Some(9)
+    );
+    let mut output = String::new();
+    server.stdout.read_to_string(&mut output).unwrap();
+    assert!(output.is_empty(), "{output}");
+    assert_ready_data_directory(&mut common::process::http_command(&data), &data, "opened");
 }
 
 async fn start(

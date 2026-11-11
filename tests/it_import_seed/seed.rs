@@ -1455,6 +1455,10 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
         };
         assert_eq!(
             events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+            "data_dir_created"
+        );
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
             "seeding"
         );
         common::input_fixtures::eventually_async("seed reached body transfer", || {

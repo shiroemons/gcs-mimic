@@ -53019,9 +53019,52 @@
             "process_restarts_on_same_port_without_allowing_a_second_live_listener",
             "live_wildcard_and_specific_listeners_are_exclusive"
           ]
+        },
+        {
+          "id": "ready-event-fields",
+          "description": "Ready omits protocol and gcs_api. Disk reports the absolute data_dir without resolving symlinks and enum data_dir_state created/opened from catalog initialization under the directory lock; existing empty directories/databases count as created, while initialization committed before a pre-ready crash makes restart opened. Relative/default/absolute/non-ASCII paths, first start/restart, symlink spelling and exactly one info data_dir_created notification only on creation pass through the actual executable. Memory omits both fields and the notification without creating its configured path. Contract: docs/en/slices/startup-phases.md; evidence: docs/en/evidence/ready-event.md.",
+          "result": "PASS",
+          "test_ids": [
+            "ready_event_reports_absolute_data_directory_and_restart_state",
+            "ready_event_resolves_relative_and_default_data_directories_from_working_directory",
+            "ready_event_calls_an_existing_directory_without_a_catalog_created",
+            "ready_event_preserves_non_ascii_data_directory",
+            "ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory",
+            "ready_event_omits_data_directory_and_creation_diagnostic_for_memory",
+            "ready_event_reports_opened_after_a_crash_before_the_first_ready_event",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
+        {
+          "id": "ready-event-path-encoding",
+          "description": "Later platform slice: execute the Linux-only actual-process regression for a non-UTF-8 working directory, successful initialization/restart and lossy path display in both ready and data_dir_created. macOS filesystems reject the fixture name; the regression is prepared but not executed on the authoring host.",
+          "result": "PENDING",
+          "test_ids": ["ready_event_displays_a_non_utf8_working_directory_without_failing_startup"]
+        },
+        {
+          "id": "ready-event-readers",
+          "description": "Startup stderr readers strictly parse every JSONL record and select the diagnostics event without changing exit-status, diagnostic-count/key or original diagnostic-byte-budget assertions. New-catalog startup emits data_dir_created before seeding. Media-read failure still exposes its safe warning/cause and no internal path in any non-creation event.",
+          "result": "PASS",
+          "test_ids": [
+            "a_huge_failing_file_keeps_its_report_within_the_diagnostic_budget",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "obj_http_media_read_failure_after_headers_names_its_cause"
+          ]
         }
       ],
       "test_ids": [
+        "ready_event_reports_absolute_data_directory_and_restart_state",
+        "ready_event_resolves_relative_and_default_data_directories_from_working_directory",
+        "ready_event_calls_an_existing_directory_without_a_catalog_created",
+        "ready_event_preserves_non_ascii_data_directory",
+        "ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory",
+        "ready_event_omits_data_directory_and_creation_diagnostic_for_memory",
+        "ready_event_reports_opened_after_a_crash_before_the_first_ready_event",
+        "ready_event_displays_a_non_utf8_working_directory_without_failing_startup",
+        "a_huge_failing_file_keeps_its_report_within_the_diagnostic_budget",
+        "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+        "obj_http_media_read_failure_after_headers_names_its_cause",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "wire_probes_clock_and_unimplemented_routes",
         "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
         "healthcheck_defaults_follow_http_https_both_and_changed_ports",
@@ -53054,6 +53097,39 @@
         "live_wildcard_and_specific_listeners_are_exclusive"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test it_process ready_event_ -- --test-threads=1",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/ready-event.md",
+          "test_ids": [
+            "ready_event_reports_absolute_data_directory_and_restart_state",
+            "ready_event_resolves_relative_and_default_data_directories_from_working_directory",
+            "ready_event_calls_an_existing_directory_without_a_catalog_created",
+            "ready_event_preserves_non_ascii_data_directory",
+            "ready_event_preserves_the_symbolic_link_spelling_of_the_data_directory",
+            "ready_event_omits_data_directory_and_creation_diagnostic_for_memory",
+            "ready_event_reports_opened_after_a_crash_before_the_first_ready_event"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test it_process process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/ready-event.md",
+          "test_ids": ["process_shutdown_reports_stopped_and_releases_catalog_for_restart"]
+        },
+        {
+          "command": "cargo test --locked --test it_import_seed --test it_protocol -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/ready-event.md",
+          "test_ids": [
+            "a_huge_failing_file_keeps_its_report_within_the_diagnostic_budget",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "obj_http_media_read_failure_after_headers_names_its_cause"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --test healthcheck_defaults",
           "result": "PASS",
@@ -53134,7 +53210,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-25"
+      "last_verified": "2026-11-11"
     },
     {
       "id": "DESIGN-068",

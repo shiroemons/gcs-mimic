@@ -41,6 +41,14 @@ separate main/TEMP 16 MiB page limits are storage
 admission limits, not a process RSS ceiling. Disk remains the default and the
 only directory-sync/import destination; no comparative performance is claimed.
 
+Since 0.18.0, disk startup reports the absolute `data_dir` and
+`data_dir_state` (`created` or `opened`) in its ready event, preserving symlink
+spelling. A directory without a catalog counts as `created`; a committed catalog
+counts as `opened` even after a crash before ready. Creation also emits the
+info-level `data_dir_created` stderr event naming the path. RAM omits both ready
+fields and the event. The native default is still `data` relative to the working
+directory. See the [startup contract](slices/startup-phases.md).
+
 ## Selection criteria
 
 Evaluate every candidate against the same requirements:

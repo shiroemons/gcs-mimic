@@ -7,7 +7,7 @@ use gcs_mimic::{
     diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
     seed::{SeedError, SeedOutcome},
     server::{self, State},
-    storage::Catalog,
+    storage::{Catalog, DataDirState},
     time_limit::TimeLimit,
 };
 use serde::Serialize;
@@ -48,6 +48,12 @@ struct ReadyListener {
 }
 
 #[derive(Serialize)]
+struct ReadyDataDirectory {
+    data_dir: String,
+    data_dir_state: DataDirState,
+}
+
+#[derive(Serialize)]
 pub(crate) struct ReadyEvent {
     event: &'static str,
     executable: &'static str,
@@ -67,8 +73,8 @@ pub(crate) struct ReadyEvent {
     transport: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     unix_socket: Option<String>,
-    protocol: &'static str,
-    gcs_api: &'static str,
+    #[serde(flatten)]
+    data_directory: Option<ReadyDataDirectory>,
     max_connections: usize,
     max_object_bytes: u64,
     backend: &'static str,
@@ -137,8 +143,7 @@ impl ReadyEvent {
             trusted_principal: None,
             transport: "tcp",
             unix_socket: None,
-            protocol: "http1",
-            gcs_api: "json-bucket-object-media-crud",
+            data_directory: None,
             max_connections: config.max_connections,
             max_object_bytes: config.max_object_bytes,
             backend: config.backend.as_str(),
@@ -263,6 +268,13 @@ async fn open_catalog(
         // Applied before seeding, bucket files and listeners create any bucket. The reference
         // emulator profile never gets a default policy.
         if let Ok(catalog) = &opened {
+            if let Some((path, DataDirState::Created)) = catalog.data_directory() {
+                gcs_mimic::diagnostics::emit(
+                    gcs_mimic::diagnostics::LogLevel::Info,
+                    "data_dir_created",
+                    serde_json::json!({"data_dir":path.to_string_lossy(),"message":format!("created a new empty catalog at {}", path.display())}),
+                );
+            }
             catalog.set_default_soft_delete_retention(match config.compat_profile {
                 gcs_mimic::config::CompatProfile::LegacyEmulator => None,
                 gcs_mimic::config::CompatProfile::Native => {
@@ -435,7 +447,7 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return finish_startup(&catalog, result.map(|_| ())).await,
     };
-    let ready = ready_event(&config, &auth, &listeners, seed, buckets_file);
+    let ready = ready_event(&config, &auth, &catalog, &listeners, seed, buckets_file);
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => {
@@ -501,6 +513,7 @@ pub(crate) async fn serve(
 fn ready_event(
     config: &Config,
     auth: &Auth,
+    catalog: &Catalog,
     listeners: &BoundListeners,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
@@ -529,6 +542,10 @@ fn ready_event(
                 buckets_file,
                 api_base_url.clone(),
             );
+            event.data_directory = catalog.data_directory().map(|(path, data_dir_state)| ReadyDataDirectory {
+                data_dir: path.to_string_lossy().into_owned(),
+                data_dir_state,
+            });
             if let Some(path) = &config.unix_socket {
                 event.listen = None;
                 event.listeners.clear();

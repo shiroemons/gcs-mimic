@@ -208,6 +208,7 @@ struct Inner {
     default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
+    data_dir_state: DataDirState,
     backend: BlobBackend,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<resumable::writers::SessionWriters>,
@@ -300,7 +301,23 @@ impl Drop for UploadGuard {
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 
+/// Whether this open initialized the catalog schema under directory ownership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DataDirState {
+    Created,
+    Opened,
+}
+
 impl Catalog {
+    /// Returns startup facts without resolving symlinks or inspecting the filesystem again.
+    pub fn data_directory(&self) -> Option<(&Path, DataDirState)> {
+        match self.0.backend {
+            BlobBackend::Disk(_) => Some((&self.0.data_dir, self.0.data_dir_state)),
+            BlobBackend::Memory(_) => None,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn active_uploads(&self) -> usize {
         self.0.uploads.lock().unwrap().active

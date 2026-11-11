@@ -22,7 +22,6 @@ pub(crate) use catalog::rewrite;
 pub use catalog::sync_state;
 pub(crate) use catalog::xml_multipart;
 
-pub use catalog::Catalog;
 pub(crate) use catalog::CopyReplay;
 pub(crate) use catalog::ResumableChunk;
 pub(crate) use catalog::ResumableError;
@@ -30,6 +29,7 @@ pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState};
 pub(crate) use catalog::{AppendError, AppendWriter, Finality};
+pub use catalog::{Catalog, DataDirState};
 pub(crate) use catalog::{CopyReplaySource, ReplayInvocation};
 pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource};
 #[cfg(test)]

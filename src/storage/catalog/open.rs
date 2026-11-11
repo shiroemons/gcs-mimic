@@ -260,6 +260,11 @@ impl Catalog {
         resume_source: Option<[u8; 32]>,
     ) -> Result<Self, CatalogError> {
         crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogError> {
+            let data_dir = if memory_limits.is_none() {
+                std::path::absolute(data_dir)?
+            } else {
+                data_dir
+            };
             let backend = match memory_limits {
                 Some((bytes, _)) => BlobBackend::Memory(super::super::memory::Store::new(bytes)),
                 None => BlobBackend::Disk(data_dir.clone()),
@@ -280,6 +285,12 @@ impl Catalog {
                 };
                 drop(readonly);
                 (Some(lock), version, open_writable(&path)?)
+            };
+            // A version-zero database has no catalog yet, including an interrupted first open.
+            let data_dir_state = if stored_version == 0 {
+                DataDirState::Created
+            } else {
+                DataDirState::Opened
             };
             let mut version = stored_version;
             if version == 0 {
@@ -347,6 +358,7 @@ impl Catalog {
                 notification_attempts: Arc::new(Semaphore::new(1)),
                 backend,
                 data_dir,
+                data_dir_state,
                 clock,
                 session_writers: Mutex::new(Default::default()),
                 writer_released: Notify::new(),
