@@ -32136,9 +32136,13 @@
         },
         {
           "id": "multipart-abort-execution",
-          "description": "Waiting for the multipart-abort execution slice; accepted AbortIncompleteMultipartUpload rules do not abort uploads.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Stored AbortIncompleteMultipartUpload rules execute locally with initiation age, exact deadlines, prefix/suffix matching, Busy exclusion, transactional part reclamation and XML NoSuchUpload responses; provider timing and midnight parity remain scoped in BEHAVIOR-LIFECYCLE-004.",
+          "result": "PASS",
+          "test_ids": [
+            "multipart_abort_age_uses_initiation_and_exact_shared_deadlines",
+            "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+            "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"
+          ]
         },
         {
           "id": "class-dependent-delete-execution",
@@ -32230,9 +32234,23 @@
         "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
         "location_incompatible_transitions_are_stored_but_inert",
         "class_dependent_delete_without_a_transition_uses_the_stored_class",
-        "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline"
+        "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline",
+        "multipart_abort_age_uses_initiation_and_exact_shared_deadlines",
+        "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+        "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/slices/lifecycle-multipart-abort.md",
+          "test_ids": [
+            "multipart_abort_age_uses_initiation_and_exact_shared_deadlines",
+            "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+            "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib lifecycle",
           "result": "PASS",
@@ -32931,26 +32949,66 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
+        "https://docs.cloud.google.com/storage/docs/pubsub-notifications",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Only the XML multipart session type; do not conflate with resumable uploads.",
+      "notes": "XML multipart AbortIncompleteMultipartUpload executes in the bounded lifecycle pass before ordinary multipart expiry. Shared checked initiation-age and name evaluation, leases, incarnation/rule revalidation and the existing transactional retirement/deletion journal preserve object and resumable state. Disk and memory behavior, recovery, disabled/sync configuration and the aborted admin count are verified locally; provider timing and age-zero midnight interpretation remain unverified. Contract and evidence: docs/en/slices/lifecycle-multipart-abort.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id":"initiation-age-deadline","description":"XML multipart age uses initiation time and shared checked day arithmetic; one microsecond before the exact deadline preserves the upload; overflowing day counts neither match nor schedule.","result":"PASS","test_ids":["multipart_abort_age_uses_initiation_and_exact_shared_deadlines","multipart_abort_overflow_never_matches_or_schedules"]},
+        {"id":"zero-age-midnight","description":"Unverified local decision: age zero waits for the following UTC midnight, including initiation exactly at midnight.","result":"PASS","test_ids":["multipart_abort_zero_age_waits_for_next_midnight_including_midnight_initiation"]},
+        {"id":"name-and-rule-matching","description":"Case-sensitive prefix and suffix lists are ANDed and alternative abort rules are ORed; name-only rules match immediately without age.","result":"PASS","test_ids":["multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources","multipart_abort_name_only_rules_match_without_an_age_condition"]},
+        {"id":"lease-exclusion","description":"Busy part or completion leases skip the upload; client release rearms a later pass without polling or publishing reclaimed parts. Whole-lease release alone rearms the pass; unrelated release after successful abort and release with no skipped abort leave a clean schedule unchanged.","result":"PASS","test_ids":["multipart_abort_busy_leases_rearm_on_release_without_polling","multipart_abort_completion_lease_wins_or_missing_id_prevents_completion","multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_schedule","multipart_abort_whole_lease_release_alone_rearms_the_next_pass","multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release"]},
+        {"id":"parts-and-missing-upload","description":"Retirement atomically journals parts, reclaims disk and memory bytes, and upload-part, list-parts, completion and abort XML handlers return 404 NoSuchUpload.","result":"PASS","test_ids":["multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"]},
+        {"id":"no-object-effects","description":"Abort emits no notification and changes no published objects or resumable sessions; Delete and SetStorageClass do not act on uploads. Object-only conditions are rejected independently of rule validation.","result":"PASS","test_ids":["multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory","multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules","multipart_abort_evaluation_rejects_object_only_conditions_without_validation"]},
+        {"id":"execution-controls","description":"Disabled execution and the synchronization default preserve uploads; explicit enable executes them and complete admin HTTP responses include aborted for enabled and disabled execution.","result":"PASS","test_ids":["multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled","lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"]},
+        {"id":"bounded-indexed-pages","description":"Only buckets with abort rules scan uploads, through bounded indexed keyset pages and the shared 1024-action cap with object deletions.","result":"PASS","test_ids":["multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion","multipart_abort_scan_seeks_the_existing_list_index_without_sorting","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules"]},
+        {"id":"incarnation-and-quarantine","description":"Each page rechecks bucket incarnation and rules; recreated buckets exclude old uploads, malformed rules quarantine the bucket and API repair resumes execution.","result":"PASS","test_ids":["multipart_abort_rechecks_bucket_incarnation_after_recreation","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules"]},
+        {"id":"restart-and-reclamation-faults","description":"Failed page commits roll back upload/part/journal state. Process-crash and power-loss snapshots at the second page recover idempotently; failed reclaim, directory-sync and journal-forget steps retain retryable deletion rows.","result":"PASS","test_ids":["multipart_abort_commit_failure_rolls_back_and_retries_without_losing_parts","multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_journal","multipart_abort_reclamation_failures_leave_a_retryable_journal"]},
+        {"id":"provider-zero-age-midnight","description":"Needs authorized real-provider evidence for whether abort age zero waits until the next UTC midnight and whether initiation exactly at midnight waits a full day.","result":"PENDING","test_ids":[]},
+        {"id":"provider-propagation-and-timing","description":"Needs authorized real-provider evidence for configuration propagation and asynchronous abort timing; local deterministic scheduling does not establish infrastructure parity.","result":"PENDING","test_ids":[]}
+      ],
+      "test_ids": [
+        "multipart_abort_age_uses_initiation_and_exact_shared_deadlines",
+        "multipart_abort_zero_age_waits_for_next_midnight_including_midnight_initiation",
+        "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+        "multipart_abort_name_only_rules_match_without_an_age_condition",
+        "multipart_abort_busy_leases_rearm_on_release_without_polling",
+        "multipart_abort_overflow_never_matches_or_schedules",
+        "multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_schedule",
+        "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory",
+        "multipart_abort_completion_lease_wins_or_missing_id_prevents_completion",
+        "multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled",
+        "multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion",
+        "multipart_abort_scan_seeks_the_existing_list_index_without_sorting",
+        "multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules",
+        "multipart_abort_rechecks_bucket_incarnation_after_recreation",
+        "multipart_abort_commit_failure_rolls_back_and_retries_without_losing_parts",
+        "multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_journal",
+        "multipart_abort_reclamation_failures_leave_a_retryable_journal",
+        "multipart_abort_whole_lease_release_alone_rearms_the_next_pass",
+        "multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release",
+        "multipart_abort_evaluation_rejects_object_only_conditions_without_validation",
+        "lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"
+      ],
+      "verification": [
+        {"command":"cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"]},
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["multipart_abort_whole_lease_release_alone_rearms_the_next_pass","multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release","multipart_abort_evaluation_rejects_object_only_conditions_without_validation"]},
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["multipart_abort_age_uses_initiation_and_exact_shared_deadlines","multipart_abort_zero_age_waits_for_next_midnight_including_midnight_initiation","multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources","multipart_abort_name_only_rules_match_without_an_age_condition","multipart_abort_busy_leases_rearm_on_release_without_polling","multipart_abort_overflow_never_matches_or_schedules","multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_schedule","multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory","multipart_abort_completion_lease_wins_or_missing_id_prevents_completion","multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled","multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion","multipart_abort_scan_seeks_the_existing_list_index_without_sorting","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules","multipart_abort_rechecks_bucket_incarnation_after_recreation","multipart_abort_commit_failure_rolls_back_and_retries_without_losing_parts","multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_journal","multipart_abort_reclamation_failures_leave_a_retryable_journal"]}
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": ["Execution uses the injected local clock and shared coalescing/action limits without Google configuration propagation or infrastructure timing.","The shared evaluator's next-midnight age-zero behavior, including a full day for initiation exactly at midnight, is an unverified local decision for multipart uploads.","An abort error rolls back its page and stops object actions, including Delete, for the same bucket in that pass; individual corrupt upload rows are not quarantined.","A page retires up to 128 uploads in one transaction and holds all whole-upload leases until commit; uploads with many parts can delay other catalog requests for that page."],
+      "implemented_in": "016bf150",
+      "last_verified": "2026-11-11"
     },
     {
       "id": "BEHAVIOR-LIFECYCLE-005",
