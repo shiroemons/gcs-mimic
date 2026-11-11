@@ -213,9 +213,7 @@ impl ObjectRecord {
 /// A custom time as Cloud Storage prints it in the decrease refusal: UTC with a `+00:00` offset
 /// and microsecond fraction only when one is present.
 fn custom_time_display(time: UnixNanos) -> String {
-    let rendered = crate::clock::system_time_from_unix_seconds(time.secs())
-        .and_then(|time| crate::json::timestamp(time).ok())
-        .unwrap_or_default();
+    let rendered = crate::json::timestamp_nanos(time).unwrap_or_default();
     let fraction = if time.subsec_nanos() == 0 {
         String::new()
     } else {
@@ -231,9 +229,12 @@ mod custom_time_tests {
     #[test]
     fn custom_time_errors_preserve_dates_before_the_epoch() {
         for value in [
+            "0001-01-01T00:00:00Z",
+            "1600-02-29T23:59:59Z",
             "1960-01-01T00:00:00Z",
             "1969-12-31T23:59:59Z",
             "1980-01-01T00:00:00Z",
+            "9999-12-31T00:00:00Z",
         ] {
             assert_eq!(
                 custom_time_display(custom_time_key(value).unwrap()),
@@ -243,6 +244,10 @@ mod custom_time_tests {
         assert_eq!(
             custom_time_display(UnixNanos::new(-1, 123_456_000).unwrap()),
             "1969-12-31T23:59:59.123456+00:00"
+        );
+        assert_eq!(
+            custom_time_display(custom_time_key("0001-01-01T00:00:00.123456789Z").unwrap()),
+            "0001-01-01T00:00:00.123456+00:00"
         );
     }
 }

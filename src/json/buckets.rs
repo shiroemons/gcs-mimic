@@ -1253,7 +1253,7 @@ pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
 }
 
 /// [`timestamp`] for a time that is already seconds and nanoseconds, such as a retention time.
-pub(super) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
+pub(crate) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
     let micros = i128::from(time.secs()) * 1_000_000 + i128::from(time.subsec_nanos() / 1000);
     if !crate::clock::rfc3339_micros(micros) {
         return Err(timestamp_error());
