@@ -736,3 +736,10 @@ With the owner's approval of the host install, the LTS SDK pin moves from 10.0.4
 - `scripts/sdk-go.sh --with-dotnet`, run through `scripts/with-test-tmpdir.sh`, exited 0: 90 Go tests passed and the HTTPS-only V2 signing test was skipped; the .NET suite printed `dotnet-runtime: .NET 10.0.15` and `dotnet-runtime: .NET 11.0.0`, each followed by `dotnet-http: resumable, metadata, generation, conditions, read, list PASS`, and `PASS: .NET SDK suite on net10.0 and net11.0`.
 - `just check` exited 0.
 - `cargo xtask dependencies check` at `2026-11-11T01:49:28Z` exited 0 with 124 `CURRENT` lines, among them `.NET SDK: CURRENT current=11.0.100 latest=11.0.100` in both .NET manifests and `.NET LTS SDK: CURRENT current=10.0.404 latest=10.0.404`; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+
+### Go 1.27.4 in the remaining modules
+
+The two Go modules outside daily detection also move to the go1.27.4 toolchain. `sdk-scorecard/go/go.mod` joins detection, like the .NET scorecard probe, so its direct requirements move to the versions the SDK suite already uses: IAM v1.15.1, OAuth2 v0.38.0, API v0.312.0 and genproto v0.0.0-20261110000943-09e21b237f2c; `go mod tidy` also raises oauth2adapt, enterprise-certificate-proxy, x/net, x/sync and genproto/googleapis/api and rpc. `examples/go` changes only its toolchain and stays outside detection, like `examples/dotnet`. CI keeps reading the Go version from `sdk-tests/go/go.mod`; no Dockerfile, script or workflow names a Go version directly.
+
+- `go build` of the probe and of `./cmd/tls-front`, `go vet ./...` and `go test ./...` passed in `sdk-scorecard/go` with go1.27.4; `go build` and `go vet ./...` passed in `examples/go`, and `go mod verify` passed in both. Neither the scorecard nor the example was run against a server.
+- `cargo test -p xtask --locked` passed 221 tests, including the declared-manifest check that now requires the scorecard module.

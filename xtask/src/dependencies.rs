@@ -390,7 +390,10 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     if text(scope, "ecosystem")? != "go"
         || !matches!(
             text(scope, "manifest")?,
-            "sdk-tests/go/go.mod" | "go/go.mod" | "go/sourceexport/go.mod"
+            "sdk-tests/go/go.mod"
+                | "sdk-scorecard/go/go.mod"
+                | "go/go.mod"
+                | "go/sourceexport/go.mod"
         )
     {
         return Err("unsupported SDK ecosystem or manifest".into());
@@ -1485,9 +1488,13 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
     }
     missing_registry_manifests(&manifests)?;
     let client_manifests = clients::MANIFESTS.iter().map(|(_, manifest)| *manifest);
-    for manifest in ["go/go.mod", "go/sourceexport/go.mod"]
-        .into_iter()
-        .chain(client_manifests)
+    for manifest in [
+        "go/go.mod",
+        "go/sourceexport/go.mod",
+        "sdk-scorecard/go/go.mod",
+    ]
+    .into_iter()
+    .chain(client_manifests)
     {
         if !manifests.contains(manifest) {
             return Err(format!("undeclared SDK manifest: {manifest}"));

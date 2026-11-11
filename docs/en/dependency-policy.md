@@ -172,7 +172,9 @@ Official sources checked on 2026-11-05:
 Since 0.8.0 the repository adds the separate `go/go.mod` facade and
 `go/sourceexport/go.mod` capture modules, standalone Rust SDK Cargo graph,
 Java Maven dependencies/plugins and Temurin/Maven pins, .NET NuGet/global.json,
-and Node Testcontainers manifest. All eighteen SDK manifest snapshots are read
+and Node Testcontainers manifest; the Go scorecard probe's `sdk-scorecard/go/go.mod`
+joined on 2026-11-11, while `examples/go` and `examples/dotnet` stay outside
+detection. All nineteen SDK manifest snapshots are read
 by the same daily detector; an omitted declared manifest fails. Locks are checked
 against actual direct pins, and standalone Cargo metadata remains locked and
 offline after `cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml`.

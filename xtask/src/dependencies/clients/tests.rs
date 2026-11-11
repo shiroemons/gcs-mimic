@@ -228,6 +228,7 @@ fn every_extra_manifest_is_declared_in_the_canonical_snapshot() {
     for manifest in [
         "go/go.mod",
         "go/sourceexport/go.mod",
+        "sdk-scorecard/go/go.mod",
         "sdk-tests/rust/Cargo.toml",
         "sdk-tests/java/pom.xml",
         "sdk-tests/dotnet/Scenario.csproj",

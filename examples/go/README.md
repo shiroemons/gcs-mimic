@@ -1,6 +1,6 @@
 # Go example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with `cloud.google.com/go/storage` v1.70.0. Requires Go 1.27 (`go.mod` pins the `go1.27.3` toolchain).
+Creates a bucket, uploads, lists, downloads and deletes an object with `cloud.google.com/go/storage` v1.70.0. Requires Go 1.27 (`go.mod` pins the `go1.27.4` toolchain).
 
 ## Start gcs-mimic
 
