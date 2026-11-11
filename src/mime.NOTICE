@@ -1,4 +1,4 @@
-The fixed mime.tsv profile combines Go go1.27.3 built-in mappings (BSD-3-Clause),
+The fixed mime.tsv profile combines Go go1.27.4 built-in mappings (BSD-3-Clause),
 Alpine mailcap 2.1.54 MIME data (Public Domain) and fake-gcs-server YAML mappings.
 Input revisions and digests: compatibility/upstream/source-storage-contract.json.
 Unicode simple-lowercase lookup follows Go Unicode 17.0.0; only U+0130 and U+212A
