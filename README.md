@@ -277,7 +277,7 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:

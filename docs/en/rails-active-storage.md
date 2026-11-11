@@ -41,7 +41,7 @@ the service sets `cache_control`; without it, those uploads fail CORS. Rails
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -201,7 +201,7 @@ its own:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
     ports:
       # The host port equals the container port, so one URL works on both sides.
       - "127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"
@@ -249,7 +249,7 @@ bucket. Right after startup the port can answer with an empty reply, which
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.17.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:

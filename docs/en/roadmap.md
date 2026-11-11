@@ -2,14 +2,14 @@
 
 [日本語](../ja/roadmap.md)
 
-Updated **2026-11-10** for the 0.17.1 release. Published installation examples use `0.17.1`. The scoped SDK, browser and distribution results of the 0.8.0 migration additions are recorded in the [combined verification](evidence/migration-integration.md); they do not complete the broader feature rows.
+Updated **2026-11-11** for the 0.18.0 release. Published installation examples use `0.18.0`. The scoped SDK, browser and distribution results of the 0.8.0 migration additions are recorded in the [combined verification](evidence/migration-integration.md); they do not complete the broader feature rows.
 Continue closing the gaps in existing fake-gcs-server workflows through useful `0.x` increments.
 **1.0.0** freezes the public contract and requires tested data directory upgrades from every supported release; the complete fake-gcs-server superset remains a separate goal.
 The order below selects work, not release dates.
 
 ## Available today
 
-The [0.17.1 release](releases/0.17.1.md) provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub. The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners, public-host routing, default bucket location and log-level controls are available. The [configuration mapping](fake-gcs-server-configuration.md) documents native equivalents and diagnostics for all 19 known source environment variables.
+The [0.18.0 release](releases/0.18.0.md) provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub. The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners, public-host routing, default bucket location and log-level controls are available. The [configuration mapping](fake-gcs-server-configuration.md) documents native equivalents and diagnostics for all 19 known source environment variables.
 
 Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming transfers, rewrite/compose/move, version history, holds, bucket/object retention, soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies. JSON ACL resources, notification configurations, HMAC key management and Autoclass settings also exist, with the effect limitations below. Bucket and object PATCH/PUT replace ACLs atomically with other metadata. Media, multipart and copy invocation tokens replay the original response within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects. Storage v2 gRPC includes resumable and appendable writes and ranged reads; legacy Storage v1 serves the twelve inventoried reference RPCs with field limits. Since 0.9.0, `gcloud storage` runs the [example workflow](../../examples/gcloud/README.md), and [examples](../../examples/README.md) cover eight official clients. Since 0.10.0, Rails Active Storage 8.1.4.1 direct uploads work through `x-goog-content-length-range` enforcement, and XML reads evaluate conditional headers. See the [0.17.1 release notes](releases/0.17.1.md), the [0.16.0 release notes](releases/0.16.0.md), the [0.15.0 release notes](releases/0.15.0.md), the [0.14.0 release notes](releases/0.14.0.md), the [0.13.0 release notes](releases/0.13.0.md), the [0.12.0 release notes](releases/0.12.0.md), the [0.11.0 release notes](releases/0.11.0.md), the [0.10.0 release notes](releases/0.10.0.md), the [0.9.0 release notes](releases/0.9.0.md), the [0.8.0 release notes](releases/0.8.0.md), the [0.5.0 release notes](releases/0.5.0.md) and the [0.4.0 feature scope and limits](releases/0.4.0.md).
 
@@ -179,7 +179,7 @@ Releases `0.1.0` through `0.7.0` are [withdrawn](release-policy.md#withdrawn-rel
 
 ## First useful release
 
-The first useful `0.x` release has shipped; published examples now use `0.17.1`. The original gate covered scoped JSON, public/private access and URL workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS. Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
+The first useful `0.x` release has shipped; published examples now use `0.18.0`. The original gate covered scoped JSON, public/private access and URL workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS. Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
 
 Native CI/platform checks, current dependencies, release notes, packaged
 notices/checksums and verified public image access still gate each release.
