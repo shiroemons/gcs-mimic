@@ -203,6 +203,15 @@ pub(super) fn recover(
 }
 
 impl Catalog {
+    /// The lifecycle caller holds the whole-upload lease and the retirement transaction.
+    pub(in crate::storage::catalog) fn retire_lifecycle_multipart(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<(), ObjectError> {
+        retire(connection, id)
+    }
+
     /// Journal rows survive failed file work; owned cleanup settles before releasing its slot.
     pub(super) async fn drain_xml_multipart(&self) -> Result<bool, ObjectError> {
         // A part or a completion drains under its own lease; the sweep has none to wait for.

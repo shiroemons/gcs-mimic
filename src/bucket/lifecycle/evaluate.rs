@@ -55,6 +55,29 @@ pub(crate) enum Evaluation {
     Wait(Option<SystemTime>),
 }
 
+/// Abort validation permits only age and name conditions; share their object arithmetic.
+pub(crate) fn multipart_abort_due(
+    rules: &[LifecycleRule],
+    name: &str,
+    initiated: SystemTime,
+    now: SystemTime,
+) -> Option<SystemTime> {
+    let facts = VersionFacts {
+        name,
+        size: 0,
+        storage_class: StorageClass::Standard,
+        time_created: initiated,
+        custom_time: None,
+        noncurrent_time: None,
+        newer_versions: 0,
+    };
+    rules
+        .iter()
+        .filter(|rule| rule.action == LifecycleAction::AbortIncompleteMultipartUpload)
+        .filter_map(|rule| eligible_at(&rule.condition, &facts, now))
+        .min()
+}
+
 pub(crate) fn evaluate<'a>(
     rules: impl IntoIterator<Item = &'a LifecycleRule>,
     facts: &VersionFacts<'_>,

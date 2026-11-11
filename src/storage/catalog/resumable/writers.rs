@@ -206,6 +206,17 @@ impl Drop for WriterGuard {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .release(&self.key);
         self.catalog.0.writer_released.notify_waiters();
+        if matches!(self.origin, KeyOrigin::Client)
+            && matches!(
+                self.key,
+                WriterKey::Multipart(_) | WriterKey::MultipartPart(..)
+            )
+        {
+            self.catalog
+                .0
+                .lifecycle
+                .multipart_released(&self.catalog.0.maintenance_wake);
+        }
         match (&self.key, self.origin) {
             (WriterKey::Derived(_), _) => {
                 self.catalog.0.derived_wake.notify_waiters();

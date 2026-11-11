@@ -20,6 +20,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+mod abort;
 #[cfg(test)]
 mod tests;
 
@@ -65,6 +66,7 @@ impl Drop for RuleWriteScope {
 }
 
 pub(super) struct LifecycleSchedule {
+    multipart_busy: AtomicBool,
     armed: AtomicBool,
     dirty: AtomicBool,
     enabled: AtomicBool,
@@ -91,6 +93,7 @@ impl LifecycleSchedule {
         )?;
         let armed = sql::scalar(connection, HAS_RULES, [])?;
         Ok(Self {
+            multipart_busy: AtomicBool::new(false),
             armed: AtomicBool::new(armed),
             dirty: AtomicBool::new(armed),
             enabled: AtomicBool::new(false),
@@ -144,6 +147,7 @@ pub(crate) enum LifecycleOutcome {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct LifecycleCounts {
+    pub(crate) aborted: u64,
     pub(crate) scanned: u64,
     pub(crate) deleted: u64,
     pub(crate) archived: u64,
@@ -156,6 +160,7 @@ pub(crate) struct LifecycleCounts {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LifecycleResponse {
+    aborted: u64,
     enabled: bool,
     scanned: u64,
     deleted: u64,
@@ -181,6 +186,7 @@ impl serde::Serialize for LifecycleOutcome {
             Self::Executed(counts) => *counts,
         };
         LifecycleResponse {
+            aborted: counts.aborted,
             enabled: matches!(self, Self::Executed(_)),
             scanned: counts.scanned,
             deleted: counts.deleted,
@@ -195,6 +201,7 @@ impl serde::Serialize for LifecycleOutcome {
 
 impl LifecycleCounts {
     fn record(&mut self, other: Self) {
+        self.aborted += other.aborted;
         self.scanned += other.scanned;
         self.deleted += other.deleted;
         self.archived += other.archived;
@@ -204,7 +211,7 @@ impl LifecycleCounts {
         self.next = self.next.into_iter().chain(other.next).min();
     }
     fn applied(&self) -> u64 {
-        self.deleted + self.archived + self.transitioned
+        self.deleted + self.archived + self.transitioned + self.aborted
     }
 }
 
@@ -369,7 +376,12 @@ impl Catalog {
         now: SystemTime,
         limit: u64,
     ) -> (LifecycleCounts, Option<CatalogError>) {
-        let mut outcome = LifecycleCounts::default();
+        let (mut outcome, error) = self
+            .sweep_lifecycle_abort(&bucket, &incarnation, now, limit)
+            .await;
+        if error.is_some() || outcome.applied() == limit {
+            return (outcome, error);
+        }
         let mut cursor = None;
         let mut rules = BucketRules::Absent;
         loop {
