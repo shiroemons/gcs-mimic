@@ -3,6 +3,9 @@
 Verified on 2026-10-22 using the accompanying Justfile, shared check script and
 workflow changes. Runtime and API behavior are unchanged.
 
+A later complete `just pre-push` and the other local release gates, run on
+2026-11-11, are recorded in [local release gates](local-release-gates.md).
+
 ## Environment
 
 The host is macOS arm64 with Rust 1.99.1, just 1.59.0 and Docker Engine 29.8.1.
