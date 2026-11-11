@@ -10,7 +10,7 @@ Paste one block into your application's `compose.yaml` to get Cloud Storage acce
 
 Nothing needs preparing:
 
-- No certificates. The recipe serves plain HTTP; with HTTPS the server would use the development certificate built into the image.
+- No certificates. The default scheme serves plain HTTP and HTTPS on the same port, so clients use plain HTTP without a CA; HTTPS uses the development certificate built into the image.
 - No key generation. The built-in test signer's key ships with gcs-mimic. When your application signs URLs, save it with `docker compose run --rm gcs test-signer credentials > test-signer.json`.
 - No service account for Go servers. They send no credentials at all.
 
@@ -30,7 +30,7 @@ services:
   # Production-like local Cloud Storage from gcs-mimic's examples/strict-local recipe.
   # Local development and tests only: the built-in test signer's private key is public.
   gcs:
-    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.18.0}
+    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.19.0}
     ports:
       # Browsers use the main listener. Never publish the trusted port 4444: anything
       # that reaches it acts as trusted-app@gcs-mimic.invalid without credentials.
@@ -40,7 +40,6 @@ services:
       GCS_MIMIC_PORT:
       GCS_MIMIC_IMAGE:
       GCS_MIMIC_TLS_DIR:
-      GCS_MIMIC_SCHEME: http
       GCS_MIMIC_AUTH_MODE: strict
       # Application servers on the Compose network use gcs:4444 without credentials.
       GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
@@ -95,7 +94,6 @@ Set `FRONTEND_PORT` when your frontend does not run on port 3000, and `GCSM_PORT
 
 | Line | What it does |
 | --- | --- |
-| `GCS_MIMIC_SCHEME: http` | Plain HTTP, as fake-gcs-server serves it; no client needs a CA. |
 | `GCS_MIMIC_AUTH_MODE: strict` | Every request is authorized by IAM and ACLs. A request without credentials is anonymous and gets only `allUsers` grants. |
 | `GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444` | A second, plain HTTP listener for your servers on the Compose network, where a request without credentials acts as the built-in identity `trusted-app@gcs-mimic.invalid`. It binds every interface inside the container so that other containers reach it; leaving it out of `ports:` keeps it off your machine's network. |
 | `GCS_MIMIC_TEST_SIGNER: enabled` | Turns on the built-in signer `test-signer@gcs-mimic.invalid`, whose private key ships with gcs-mimic, so nothing has to generate or register a key. Signed URLs need it, and so do Rails and any other client that uses the key from `test-signer credentials`: they sign their own token with it, and the server knows that key only while the signer is enabled. Remove the line only when nothing signs URLs or uses those credentials. |
