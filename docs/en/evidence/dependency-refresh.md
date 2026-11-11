@@ -709,3 +709,22 @@ prost 0.14.5 is a patch release of the same official tokio-rs family; prost-buil
 - In the Composer 2.11.2 image, `composer --version` reported Composer 2.11.2 with PHP 8.5.12, and `composer validate` and `composer check-platform-reqs --lock` passed for `sdk-tests/php` and `sdk-scorecard/php`. The PHP SDK suite itself was not run.
 - `go mod tidy`, `go mod verify` and `go vet ./...` passed in all three Go modules with Go 1.27.4, `go vet -tags integration ./...` passed in `go`, and `go test -race ./...` passed in `go/sourceexport`. The Go SDK suite against a server was not run.
 - `cargo xtask dependencies check` at `2026-11-11T00:59:44Z` exited 1 with 121 `CURRENT` inputs; only the .NET SDK reported `UPDATE_AVAILABLE` in both .NET manifests, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+
+### .NET SDK 11 migration
+
+With the project owner's approval the .NET SDK 11.0.100 is adopted after all, in a separate change. `global.json` in `sdk-tests/dotnet`, `sdk-scorecard/dotnet` and `examples/dotnet` pins 11.0.100 with roll-forward still disabled, and CI keeps reading it through `actions/setup-dotnet`.
+
+| Project | Target frameworks | Reason |
+| --- | --- | --- |
+| `sdk-tests/dotnet` | `net10.0` and `net11.0` | Keep proving the long-term-support runtime while also running on the newest one |
+| `sdk-scorecard/dotnet`, `examples/dotnet` | `net11.0` | The runtime SDK 11.0.100 installs |
+
+SDK 11 installs only the .NET 11 runtime, and `actions/setup-dotnet` installs SDKs only, so the .NET 10 runtime comes from the exact LTS SDK pinned in `sdk-tests/dotnet/.dotnet-lts-sdk-version`: 10.0.403, carrying runtime 10.0.14, the version already installed on the development host. The client-tools action installs it beside the `global.json` SDK. `sdk-tests/dotnet/run.sh` runs every mode, `--container` included, once per target framework, prints the runtime each run used, and fails if either run fails or runs on another major runtime; `scripts/test-dotnet-frameworks.sh` checks that with a stub `dotnet`. On `net11.0` the lockfiles omit Microsoft.Extensions.DependencyInjection.Abstractions and Microsoft.Extensions.Logging.Abstractions, which the .NET 11 shared framework supplies; direct pins are unchanged.
+
+The freshness check now reads `TargetFrameworks`, checks the lock of every target framework, requires every target to run on a pinned runtime, and compares the LTS SDK pin with the latest SDK of its own supported LTS channel. That comparison reports 10.0.404, the 10.0 channel's 2026-11-10 security release with runtime 10.0.15. It is not adopted: installing it on the development host awaits the owner's approval, and no exception is recorded.
+
+- `bash sdk-tests/dotnet/run.sh --self-check` printed `dotnet-runtime: .NET 10.0.14` and `.NET 11.0.0` with `dotnet-origin-guard: PASS` for each target.
+- `scripts/sdk-go.sh --with-dotnet`, run through `scripts/with-test-tmpdir.sh`, exited 0: 90 Go tests passed and the V2 signing test that needs the HTTPS profile was skipped; the .NET suite printed `dotnet-http: resumable, metadata, generation, conditions, read, list PASS` on .NET 10.0.14 and .NET 11.0.0 and `PASS: .NET SDK suite on net10.0 and net11.0`.
+- `bash sdk-scorecard/dotnet/run.sh build` built the net11.0 probe with 0 warnings and 0 errors. The scorecard itself was not run.
+- `bash scripts/test-dotnet-frameworks.sh` and `cargo test -p xtask --locked` (221 tests) passed.
+- `cargo xtask dependencies check` at `2026-11-11T01:44:36Z` exited 1 with 123 `CURRENT` lines, the .NET SDK `CURRENT` at 11.0.100 in both .NET manifests; only `.NET LTS SDK: UPDATE_AVAILABLE current=10.0.403 latest=10.0.404` remained, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.

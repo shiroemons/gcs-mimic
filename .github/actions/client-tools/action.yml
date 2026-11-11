@@ -1,10 +1,17 @@
 name: Install pinned client tooling
-description: Installs the exact .NET SDK, Java and Maven that the Java and .NET client suites pin.
+description: Installs the exact .NET SDKs, Java and Maven that the Java and .NET client suites pin.
 runs:
   using: composite
   steps:
+    # The .NET suite also targets the LTS runtime, and setup-dotnet installs SDKs only, so the
+    # exact LTS SDK that carries that runtime is installed beside the global.json SDK that builds.
+    - name: Read the pinned LTS .NET SDK
+      id: dotnet-lts
+      shell: bash
+      run: echo "version=$(tr -d '\r\n' < sdk-tests/dotnet/.dotnet-lts-sdk-version)" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
+        dotnet-version: ${{ steps.dotnet-lts.outputs.version }}
         global-json-file: sdk-tests/dotnet/global.json
     - name: Install exact Java and Maven client tooling
       shell: bash

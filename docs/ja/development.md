@@ -16,7 +16,9 @@ Ruby・Bundler・gemは[SDKテストの指定バージョン](../../sdk-tests/ru
 揃えてください。PythonはuvがPython SDKテスト用の指定バージョンを用意するので、
 別途インストールする必要はありません。PHP SDKテストはDocker上で動くので、PHPも不要です。
 Java・Maven・.NET SDKは、`sdk-tests/java/.java-version`・`.maven-version`と
-`sdk-tests/dotnet/global.json`に書かれたバージョンを揃えてください。
+`sdk-tests/dotnet/global.json`に書かれたバージョンを揃えてください。.NET SDKテストは`net10.0`と`net11.0`の両方で動くため、
+`sdk-tests/dotnet/.dotnet-lts-sdk-version`のLTS版SDK（.NET 10のランタイムを含む）も入れてください。
+長期サポート版での動作を確認し続けつつ、最新ランタイムでも確認するためです。
 
 Docker、Compose、Buildxも必要です。Dockerを起動し、AMD64とARM64の
 Linuxコンテナを実行できるようにします。ホストと異なる環境ではエミュレーションを使います。

@@ -108,6 +108,8 @@ internal static class Program
 
     public static async Task Main(string[] args)
     {
+        // run.sh reads this line to prove which runtime each target framework actually ran on.
+        Console.WriteLine($"dotnet-runtime: .NET {Environment.Version}");
         if (args.SequenceEqual(["--self-check"])) { SelfCheck(); return; }
         if (args.SequenceEqual(["--container"]))
         {

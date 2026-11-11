@@ -4,7 +4,11 @@ use super::{
     Result, compare, direct_crate_resolutions, fetch, index_path, json, latest_crate, text, version,
 };
 use serde_json::Value;
-use std::{collections::BTreeMap, path::Path, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    process::Command,
+};
 
 pub(super) fn snapshot_pins(scope: &Value, pins: &BTreeMap<String, String>) -> Result<()> {
     let records = scope["direct_dependencies"]
@@ -55,9 +59,19 @@ fn read(root: &Path, path: &str) -> Result<String> {
 
 /// Reads a lock or runtime pin that lives beside the scope's manifest.
 fn read_sibling(root: &Path, scope: &Value, name: &str) -> Result<String> {
+    optional_sibling(root, scope, name)?
+        .ok_or_else(|| format!("missing {name} beside the SDK manifest"))
+}
+
+/// Reads a pin beside the scope's manifest that only some manifests have.
+fn optional_sibling(root: &Path, scope: &Value, name: &str) -> Result<Option<String>> {
     let manifest = Path::new(text(scope, "manifest")?);
     let dir = manifest.parent().ok_or("SDK manifest has no directory")?;
-    std::fs::read_to_string(root.join(dir).join(name)).map_err(|error| error.to_string())
+    match std::fs::read_to_string(root.join(dir).join(name)) {
+        Ok(source) => Ok(Some(source)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn cargo(root: &Path, scope: &Value) -> Result<bool> {
@@ -369,22 +383,166 @@ fn latest_nuget(
         .ok_or("no listed stable NuGet release".into())
 }
 
-fn nuget(root: &Path, scope: &Value) -> Result<bool> {
-    let pins = nuget_pins(&read(root, text(scope, "manifest")?)?)?;
-    snapshot_pins(scope, &pins)?;
-    let lock = json(&read_sibling(root, scope, "packages.lock.json")?)?;
-    let framework = element(&read(root, text(scope, "manifest")?)?, "TargetFramework")?;
-    let entries = lock["dependencies"][&framework]
-        .as_object()
-        .ok_or("missing NuGet locked target")?;
-    if entries
-        .values()
-        .filter(|entry| entry["type"] == "Direct")
-        .count()
-        != pins.len()
+/// The exact SDK of an LTS channel, beside a .NET manifest whose project also targets that LTS
+/// runtime. setup-dotnet installs SDKs only, so CI installs this SDK for its runtime.
+const LTS_SDK_PIN: &str = ".dotnet-lts-sdk-version";
+
+/// Reads the target frameworks of a .NET project: one `TargetFramework`, or a
+/// `TargetFrameworks` list when the project runs on more than one runtime.
+fn target_frameworks(source: &str) -> Result<Vec<String>> {
+    let single = elements(source, "TargetFramework")?.len();
+    let multiple = elements(source, "TargetFrameworks")?.len();
+    let frameworks: Vec<String> = match (single, multiple) {
+        (1, 0) => vec![element(source, "TargetFramework")?],
+        (0, 1) => element(source, "TargetFrameworks")?
+            .split(';')
+            .map(str::to_owned)
+            .collect(),
+        _ => return Err("expected one SDK XML TargetFramework or TargetFrameworks".into()),
+    };
+    let unique: BTreeSet<&String> = frameworks.iter().collect();
+    if unique.len() != frameworks.len()
+        || frameworks
+            .iter()
+            .any(|framework| framework_major(framework).is_none())
     {
-        return Err("NuGet lock direct count mismatch".into());
+        return Err("invalid .NET target frameworks".into());
     }
+    Ok(frameworks)
+}
+
+/// The runtime major version of a `netN.0` target framework.
+fn framework_major(framework: &str) -> Option<u64> {
+    let major = framework.strip_prefix("net")?.strip_suffix(".0")?;
+    if major.is_empty() || !major.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    major.parse().ok()
+}
+
+/// Every target framework must run on a pinned runtime: the one the global.json SDK installs, or
+/// the one the LTS SDK pin carries. An LTS pin that no target uses is stale.
+fn runtime_coverage(frameworks: &[String], sdk: &str, lts: Option<&str>) -> Result<()> {
+    let major = |pin: &str| {
+        version(pin)
+            .map(|(major, _, _)| major)
+            .ok_or_else(|| format!("invalid .NET SDK pin {pin}"))
+    };
+    let sdk_major = major(sdk)?;
+    let lts_major = lts.map(major).transpose()?;
+    let mut targets = Vec::new();
+    for framework in frameworks {
+        let target = framework_major(framework)
+            .ok_or_else(|| format!("unsupported .NET target framework {framework}"))?;
+        if target != sdk_major && Some(target) != lts_major {
+            return Err(format!(
+                ".NET target framework {framework} has no pinned runtime"
+            ));
+        }
+        targets.push(target);
+    }
+    if let Some(lts_major) = lts_major
+        && !targets.contains(&lts_major)
+    {
+        return Err(format!(
+            "the LTS .NET SDK pin carries runtime {lts_major}, which no target framework uses"
+        ));
+    }
+    Ok(())
+}
+
+/// Checks that the lock holds exactly the project's target frameworks, each resolving every
+/// direct pin exactly with a content hash.
+fn locked_direct_pins(
+    lock: &Value,
+    frameworks: &[String],
+    pins: &BTreeMap<String, String>,
+) -> Result<()> {
+    let targets = lock["dependencies"]
+        .as_object()
+        .ok_or("missing NuGet locked targets")?;
+    if targets.len() != frameworks.len() {
+        return Err("NuGet lock target frameworks differ from the project".into());
+    }
+    for framework in frameworks {
+        let entries = targets[framework.as_str()]
+            .as_object()
+            .ok_or_else(|| format!("missing NuGet locked target {framework}"))?;
+        if entries
+            .values()
+            .filter(|entry| entry["type"] == "Direct")
+            .count()
+            != pins.len()
+        {
+            return Err("NuGet lock direct count mismatch".into());
+        }
+        for (name, pin) in pins {
+            let entry = entries.get(name).ok_or("missing NuGet locked package")?;
+            if entry["resolved"] != *pin
+                || entry["requested"] != format!("[{pin}, {pin}]")
+                || entry["contentHash"].as_str().is_none_or(str::is_empty)
+            {
+                return Err(format!("NuGet lock mismatch: {name} on {framework}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The newest SDK of any supported .NET release channel.
+fn newest_sdk(releases: &Value) -> Result<&str> {
+    releases["releases-index"]
+        .as_array()
+        .ok_or("missing .NET release index")?
+        .iter()
+        .filter(|release| supported(release))
+        .filter_map(|release| {
+            let pin = release["latest-sdk"].as_str()?;
+            Some((version(pin)?, pin))
+        })
+        .max_by_key(|(numeric, _)| *numeric)
+        .map(|(_, pin)| pin)
+        .ok_or_else(|| "missing supported stable .NET SDK".into())
+}
+
+/// The latest SDK of the supported LTS channel that `pin` belongs to.
+fn lts_channel_sdk<'a>(releases: &'a Value, pin: &str) -> Result<&'a str> {
+    let (major, minor, _) = version(pin).ok_or("invalid LTS .NET SDK pin")?;
+    let channel = format!("{major}.{minor}");
+    let release = releases["releases-index"]
+        .as_array()
+        .ok_or("missing .NET release index")?
+        .iter()
+        .find(|release| release["channel-version"] == channel.as_str())
+        .ok_or_else(|| format!("missing .NET {channel} release channel"))?;
+    if release["release-type"] != "lts" {
+        return Err(format!("the pinned .NET {channel} channel is not LTS"));
+    }
+    if !supported(release) {
+        return Err(format!(
+            "the pinned .NET {channel} channel is no longer supported"
+        ));
+    }
+    text(release, "latest-sdk")
+}
+
+fn supported(release: &Value) -> bool {
+    matches!(
+        release["support-phase"].as_str(),
+        Some("active" | "maintenance")
+    )
+}
+
+fn nuget(root: &Path, scope: &Value) -> Result<bool> {
+    let manifest = read(root, text(scope, "manifest")?)?;
+    let pins = nuget_pins(&manifest)?;
+    snapshot_pins(scope, &pins)?;
+    let frameworks = target_frameworks(&manifest)?;
+    locked_direct_pins(
+        &json(&read_sibling(root, scope, "packages.lock.json")?)?,
+        &frameworks,
+        &pins,
+    )?;
     let mut drift = false;
     let index = json(&fetch("https://api.nuget.org/v3/index.json", &[], false)?)?;
     let base = index["resources"]
@@ -398,13 +556,6 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
         return Err("unexpected NuGet registry origin".into());
     }
     for (name, pin) in pins {
-        let entry = entries.get(&name).ok_or("missing NuGet locked package")?;
-        if entry["resolved"] != pin
-            || entry["requested"] != format!("[{pin}, {pin}]")
-            || entry["contentHash"].as_str().is_none_or(str::is_empty)
-        {
-            return Err(format!("NuGet lock mismatch: {name}"));
-        }
         let source = json(&fetch(
             &format!("{base}{}/index.json", name.to_ascii_lowercase()),
             &[],
@@ -418,29 +569,21 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
     if global["sdk"]["rollForward"] != "disable" || scope["toolchain"]["version"] != pin {
         return Err(".NET exact toolchain snapshot mismatch".into());
     }
+    let lts = optional_sibling(root, scope, LTS_SDK_PIN)?;
+    let lts = lts.as_deref().map(str::trim_end);
+    if lts != scope["toolchain"]["lts_sdk"].as_str() {
+        return Err("LTS .NET SDK snapshot mismatch".into());
+    }
+    runtime_coverage(&frameworks, pin, lts)?;
     let releases = json(&fetch(
         "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json",
         &[],
         false,
     )?)?;
-    let latest = releases["releases-index"]
-        .as_array()
-        .ok_or("missing .NET release index")?
-        .iter()
-        .filter(|release| {
-            matches!(
-                release["support-phase"].as_str(),
-                Some("active" | "maintenance")
-            )
-        })
-        .filter_map(|release| {
-            let pin = release["latest-sdk"].as_str()?;
-            Some((version(pin)?, pin))
-        })
-        .max_by_key(|(numeric, _)| *numeric)
-        .map(|(_, pin)| pin)
-        .ok_or("missing supported stable .NET SDK")?;
-    drift |= compare(".NET SDK", pin, latest);
+    drift |= compare(".NET SDK", pin, newest_sdk(&releases)?);
+    if let Some(lts) = lts {
+        drift |= compare(".NET LTS SDK", lts, lts_channel_sdk(&releases, lts)?);
+    }
     Ok(drift)
 }
 

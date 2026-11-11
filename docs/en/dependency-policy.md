@@ -185,10 +185,15 @@ graph lock. NuGet discovery follows the official semver2 registration resource,
 checks listed stable releases and fails on invalid/paged metadata. Full Temurin
 release names retain hotfix build components; the shorter API openjdk_version
 field is insufficient. .NET uses the newest supported stable SDK across release
-channels. The .NET projects target the framework of that SDK's own runtime
-(`net11.0` with SDK 11.0.100): an SDK installs only its own runtime, so one
-install builds and runs them, locally and through `actions/setup-dotnet` in CI,
-without a second runtime for an older target. Registry bodies, including gzip responses, retain the 8 MiB cap.
+channels. The official .NET suite targets both the newest LTS runtime and that
+SDK's own runtime (`net10.0` and `net11.0` with SDK 11.0.100), to keep proving
+the long-term-support release while also checking the newest runtime. An SDK
+installs only its own runtime, so the LTS runtime comes from the exact LTS SDK in
+`sdk-tests/dotnet/.dotnet-lts-sdk-version`, which `actions/setup-dotnet` installs
+beside the `global.json` SDK in CI. The detector compares that pin with the
+latest SDK of its own supported LTS channel and fails when a target framework has
+no pinned runtime or the pin no longer matches a target. The scorecard probe and
+the example target only `net11.0`. Registry bodies, including gzip responses, retain the 8 MiB cap.
 CI installs the exact Java/Maven archive digests and .NET global pin; local
 syntax/compile results do not establish remote CI or runtime SDK success.
 

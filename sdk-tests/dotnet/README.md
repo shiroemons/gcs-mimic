@@ -2,9 +2,15 @@
 
 `global.json` pins .NET SDK 11.0.100. `Scenario.csproj` pins Storage 5.0.0 and
 Testcontainers 4.16.0; `packages.lock.json` records the complete graph.
-The project targets `net11.0`: SDK 11 installs only the .NET 11 runtime, so a
-`net10.0` target would also need a separately installed .NET 10 runtime, locally
-and in CI, to run.
+The project targets `net10.0` and `net11.0`, so the suite keeps proving the LTS
+runtime while it also runs on the newest one. `run.sh` runs every mode, including
+`--container`, once per target framework, prints `== .NET SDK suite on <framework>`
+and the runtime each run used, and fails if either run fails or runs on another
+major runtime. SDK 11 installs only the .NET 11 runtime; the .NET 10 runtime comes
+from the exact LTS SDK in `.dotnet-lts-sdk-version` (10.0.403, runtime 10.0.14),
+which CI installs beside the `global.json` SDK. Locally, install that SDK too.
+`bash scripts/test-dotnet-frameworks.sh` checks the per-framework runs with a
+stub `dotnet`.
 
 ```sh
 bash sdk-tests/dotnet/run.sh --self-check

@@ -18,7 +18,7 @@ Install [just](https://github.com/casey/just#installation) 1.56.0 or newer to us
 macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
 the pinned Ruby/Bundler/gems from [the Ruby harness](../../sdk-tests/ruby/README.md),
 Node.js 24+ with npm, uv 0.13.6+, the exact Java runtime and Maven in `sdk-tests/java/.java-version` and
-`.maven-version`, the exact .NET SDK in `sdk-tests/dotnet/global.json`, Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
+`.maven-version`, the exact .NET SDK in `sdk-tests/dotnet/global.json` plus the LTS SDK in `sdk-tests/dotnet/.dotnet-lts-sdk-version`, whose runtime the suite's `net10.0` target runs on, Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
 execute both Linux amd64 and arm64 containers, using emulation where needed.
 The Justfile uses the standard [parallel attribute](https://just.systems/man/en/attributes.html)
 and `--jobs` to control container concurrency.
