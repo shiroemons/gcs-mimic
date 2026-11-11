@@ -1,5 +1,18 @@
 # Local release gates on the integrated source
 
+## 0.19.0 source before the tag
+
+Recorded **2026-11-11** on macOS (Apple Silicon) for commit `95c4769c993c3529e5d272462dec86c96bb4d485`, tree `aa8ac0d7767f44681746540ce969499e1714f73d` (package version 0.19.0), from a clean working tree. The recording commit changes only this document and the [0.19.0 release notes](../releases/0.19.0.md), so it touches none of the protected paths listed under [Source relation](#source-relation). Each gate ran once as a complete invocation on that tree.
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just check-dependencies` | 0 | 129 `CURRENT` lines; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE` |
+| `just pre-push` | 0 | `all stages passed in 24m22s`; library tests `2059 passed`; `it_process` `102 passed`; every SDK case `PASS`; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64`, including the strict local recipe and the full application example without `GCS_MIMIC_SCHEME` |
+
+The wrapper that recorded the exit status failed after `just pre-push` returned, because zsh reserves the name `status`; the exit above is inferred from the final progress line, which the recipe prints only after its last stage succeeds. An earlier `just pre-push` on commit `cb2667f9` was stopped before its cross-target stage, after the first CI run of the feature showed that `x86_64-pc-windows-msvc` Clippy rejected an unused Unix-only method; commit `95c4769c` fixed it and `bash scripts/check-cross.sh` then passed for the Windows, Linux glibc and Linux musl targets.
+
+The Release binaries dry run and the tag publication are recorded after they run.
+
 ## Published 0.18.0 source
 
 Recorded **2026-11-11** for tag `v0.18.0`, commit `7b4a8006ddb38caf87ed43f8881953dbda348605`, tree `f39350928070b35dc92088d3219bbeb98227e1f9`. After the earlier local gates below, the recording commit changed documents and the ledger, and commit `7b4a8006` changed only Windows process-test expectations in `tests/it_process/foundation.rs`. The complete `just pre-push` was rerun on the tagged tree and exited 0 in **16m03s**; its library tests reported **2052 passed**. This final-source run supersedes the earlier pre-push result. The earlier freshness, Markdown and compatibility results retain their original source identities below; they are not relabeled as tagged-tree runs.
