@@ -378,6 +378,14 @@ fn ready_event_reports_absolute_data_directory_and_restart_state() {
 fn ready_event_resolves_relative_and_default_data_directories_from_working_directory() {
     let directory = TestDir::new();
     let working_directory = directory.0.canonicalize().unwrap();
+    // Windows canonicalization adds the verbatim prefix, which a process's working directory
+    // does not carry, so the reported absolute path would never match it.
+    #[cfg(windows)]
+    let working_directory = std::path::PathBuf::from(
+        working_directory
+            .to_string_lossy()
+            .trim_start_matches(r"\\?\"),
+    );
     for relative in ["custom-store", "data"] {
         for state in ["created", "opened"] {
             let mut command = common::server_command();
@@ -2146,11 +2154,20 @@ fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
         .map(|d| d["key"].as_str().unwrap())
         .collect();
     assert_eq!(keys, ["native_equivalent"], "{text}");
+    let seed_text = seed.to_string_lossy();
+    assert_eq!(
+        info["diagnostics"][0]["native_args"],
+        serde_json::json!(["--backend", "disk", "--seed-dir", seed_text]),
+        "{text}"
+    );
+    // A Windows path contains backslashes, which do not survive pasting from the JSON line, so
+    // only the argument array is offered there.
+    #[cfg(unix)]
     assert!(
         info["diagnostics"][0]["fix"]
             .as_str()
             .unwrap()
-            .contains(&format!("--backend 'disk' --seed-dir '{}'", seed.display())),
+            .contains(&format!("--backend 'disk' --seed-dir '{seed_text}'")),
         "{text}"
     );
 }
