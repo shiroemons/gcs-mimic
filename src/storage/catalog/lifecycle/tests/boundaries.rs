@@ -23,9 +23,9 @@ fn assert_counts(
 }
 
 fn time(timestamp: &str) -> SystemTime {
-    let (seconds, nanos) = crate::object::custom_time_key(timestamp).unwrap();
-    crate::clock::system_time_from_unix_seconds(seconds).unwrap()
-        + Duration::from_nanos(u64::from(nanos))
+    let time = crate::object::custom_time_key(timestamp).unwrap();
+    crate::clock::system_time_from_unix_seconds(time.secs()).unwrap()
+        + Duration::from_nanos(u64::from(time.subsec_nanos()))
 }
 
 #[tokio::test]
@@ -189,9 +189,9 @@ async fn early_custom_times_can_produce_representable_future_day_deadlines_in_th
     for custom in ["0001-01-01T00:00:00.000123Z", "1600-01-01T00:00:00.000123Z"] {
         let (catalog, clock) = memory().await;
         let due = time("1970-01-03T00:00:00.000123Z");
-        let (origin, _) = crate::object::custom_time_key(custom).unwrap();
-        let (end, _) = crate::object::custom_time_key("1970-01-03T00:00:00Z").unwrap();
-        let days = (end - origin) / 86_400;
+        let origin = crate::object::custom_time_key(custom).unwrap();
+        let end = crate::object::custom_time_key("1970-01-03T00:00:00Z").unwrap();
+        let days = (end.secs() - origin.secs()) / 86_400;
         create(&catalog, vec![delete(json!({"daysSinceCustomTime":days}))]).await;
         catalog
             .put_object(

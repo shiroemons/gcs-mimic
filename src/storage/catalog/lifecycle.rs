@@ -6,7 +6,7 @@ use crate::{
         BucketAccess, StorageClass,
         lifecycle::{
             LifecycleAction, LifecycleLocation, LifecycleRule,
-            evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, nanos_time},
+            evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, wakeup_at},
         },
     },
     object::{ObjectError, ObjectRecord, ObjectTarget, custom_time_key, unix_nanos::UnixNanos},
@@ -751,7 +751,7 @@ fn plan_version(
         && let Some(until) = object.record.earliest_deletion_time()
         && until > crate::object::unix_nanos::UnixNanos::from(now)
     {
-        let next = nanos_time(until).and_then(|until| {
+        let next = wakeup_at(until, now.into()).and_then(|until| {
             match evaluate(
                 rules
                     .iter()
@@ -859,12 +859,6 @@ fn version_facts(
         .custom_time
         .as_deref()
         .map(custom_time_key)
-        .transpose()?
-        .map(|(seconds, nanos)| {
-            UnixNanos::new(seconds, nanos).ok_or(ObjectError::Metadata(
-                crate::metadata_error::MetadataError::CustomTime,
-            ))
-        })
         .transpose()?;
     // Creation/noncurrent times are already SystemTime: catalog decoding rejects out-of-range values.
     // Custom-Time is accepted as RFC3339 text even before Windows' 1601 epoch; keep its integer time.
@@ -872,9 +866,9 @@ fn version_facts(
         name: &record.name,
         size: record.size,
         storage_class: record.storage_class,
-        time_created: record.time_created,
+        time_created: record.time_created.into(),
         custom_time,
-        noncurrent_time: record.time_deleted,
+        noncurrent_time: record.time_deleted.map(UnixNanos::from),
         newer_versions,
     })
 }

@@ -56,9 +56,9 @@ struct OracleRule<'a> {
 impl<'a> OracleRule<'a> {
     fn new(rule: &'a LifecycleRule, facts: &VersionFacts<'_>) -> Self {
         let condition = &rule.condition;
-        let custom_time = facts.custom_time.map(|time| {
-            UNIX_EPOCH + Duration::new(u64::try_from(time.secs()).unwrap(), time.subsec_nanos())
-        });
+        let time_created = system_time(facts.time_created);
+        let custom_time = facts.custom_time.map(system_time);
+        let noncurrent_time = facts.noncurrent_time.map(system_time);
         // The generated domain has no name/size conditions; boundary tests cover those separately.
         assert!(condition.matches_prefix.is_empty() && condition.matches_suffix.is_empty());
         assert!(condition.size_above_bytes.is_none() && condition.size_below_bytes.is_none());
@@ -69,9 +69,9 @@ impl<'a> OracleRule<'a> {
                 .num_newer_versions
                 .is_none_or(|count| facts.newer_versions >= count as u64)
             && [
-                (condition.created_before, Some(facts.time_created)),
+                (condition.created_before, Some(time_created)),
                 (condition.custom_time_before, custom_time),
-                (condition.noncurrent_time_before, facts.noncurrent_time),
+                (condition.noncurrent_time_before, noncurrent_time),
             ]
             .into_iter()
             .all(|(date, origin)| {
@@ -83,11 +83,11 @@ impl<'a> OracleRule<'a> {
                     origin.is_some_and(|origin| origin < midnight)
                 })
             });
-        let mut due = present.then_some(facts.time_created);
+        let mut due = present.then_some(time_created);
         for (days, origin) in [
-            (condition.age, Some(facts.time_created)),
+            (condition.age, Some(time_created)),
             (condition.days_since_custom_time, custom_time),
-            (condition.days_since_noncurrent_time, facts.noncurrent_time),
+            (condition.days_since_noncurrent_time, noncurrent_time),
         ] {
             if let Some(days) = days {
                 due = due
@@ -97,7 +97,7 @@ impl<'a> OracleRule<'a> {
         }
         if condition.age == Some(0) {
             // Every generated creation time is UTC midnight, so age zero first matches one day later.
-            due = due.map(|due| due.max(facts.time_created + DAY));
+            due = due.map(|due| due.max(time_created + DAY));
         }
         Self { rule, due }
     }
@@ -187,8 +187,9 @@ fn compare(configured: &[LifecycleRule], totals: &mut Counts) {
         (Some(5), true, 2),
     ] {
         let mut facts = version();
-        facts.time_created = time("2026-01-10T00:00:00Z");
-        facts.custom_time = custom_days.map(|days| (facts.time_created - DAY * days).into());
+        let time_created = time("2026-01-10T00:00:00Z");
+        facts.time_created = time_created.into();
+        facts.custom_time = custom_days.map(|days| (time_created - DAY * days).into());
         facts.noncurrent_time = noncurrent.then_some(facts.time_created);
         facts.newer_versions = newer;
         let oracle: Vec<_> = configured
@@ -198,7 +199,7 @@ fn compare(configured: &[LifecycleRule], totals: &mut Counts) {
         let mut scheduled = State::new();
         let mut timely = State::new();
         for day in 0..=40 {
-            let now = facts.time_created + DAY * day;
+            let now = time_created + DAY * day;
             scheduled.pass(|class| (baseline(&oracle, class, now), false));
             timely.pass(|class| {
                 let selected = actual(configured, &mut facts, class, now);

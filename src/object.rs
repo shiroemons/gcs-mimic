@@ -212,14 +212,14 @@ impl ObjectRecord {
 
 /// A custom time as Cloud Storage prints it in the decrease refusal: UTC with a `+00:00` offset
 /// and microsecond fraction only when one is present.
-fn custom_time_display((seconds, nanos): (i64, u32)) -> String {
-    let rendered = crate::clock::system_time_from_unix_seconds(seconds)
+fn custom_time_display(time: UnixNanos) -> String {
+    let rendered = crate::clock::system_time_from_unix_seconds(time.secs())
         .and_then(|time| crate::json::timestamp(time).ok())
         .unwrap_or_default();
-    let fraction = if nanos == 0 {
+    let fraction = if time.subsec_nanos() == 0 {
         String::new()
     } else {
-        format!(".{:06}", nanos / 1000)
+        format!(".{:06}", time.subsec_nanos() / 1000)
     };
     format!("{}{fraction}+00:00", rendered.get(..19).unwrap_or_default())
 }
@@ -241,14 +241,14 @@ mod custom_time_tests {
             );
         }
         assert_eq!(
-            custom_time_display((-1, 123_456_000)),
+            custom_time_display(UnixNanos::new(-1, 123_456_000).unwrap()),
             "1969-12-31T23:59:59.123456+00:00"
         );
     }
 }
 
 /// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
-pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
+pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
     let invalid = || ObjectError::Metadata(crate::metadata_error::MetadataError::CustomTime);
     if !value.is_ascii() || value.len() < 20 || value.starts_with("0000") {
         return Err(invalid());
@@ -273,7 +273,7 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
         (normalized, 0)
     };
     let micros = crate::import::codec::parse_timestamp(&seconds).map_err(|_| invalid())?;
-    Ok((micros / 1_000_000, nanos))
+    UnixNanos::new(micros / 1_000_000, nanos).ok_or_else(invalid)
 }
 
 /// How a present custom-metadata or label map changes its stored entries.

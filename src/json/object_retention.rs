@@ -52,14 +52,13 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
     let until = until
         .as_str()
         .ok_or_else(|| invalid("retention.retainUntilTime must be an RFC 3339 string"))?;
-    let (seconds, nanos) = crate::object::custom_time_key(until)
+    let retain_until = crate::object::custom_time_key(until)
         .map_err(|_| invalid("retention.retainUntilTime must be an RFC 3339 timestamp"))?;
     // Cloud Storage kept the full nanosecond value for comparisons while responses showed only
     // the millisecond (observed 2026-10-31, including .123999999 displayed as .123). The time is
     // kept to the nanosecond too, as seconds and nanoseconds rather than a `SystemTime`, which
     // Windows floors to 100 ns; rendering truncates to milliseconds.
     let out_of_range = || invalid("retention.retainUntilTime is outside the supported range");
-    let retain_until = UnixNanos::new(seconds, nanos).ok_or_else(out_of_range)?;
     timestamp_nanos(retain_until).map_err(|_| out_of_range())?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }

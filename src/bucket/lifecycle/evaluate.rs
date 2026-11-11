@@ -19,11 +19,11 @@ pub(crate) struct VersionFacts<'a> {
     pub name: &'a str,
     pub size: u64,
     pub storage_class: StorageClass,
-    pub time_created: SystemTime,
+    pub time_created: UnixNanos,
     /// Parsed Custom-Time; `None` when unset.
     pub custom_time: Option<UnixNanos>,
     /// When the version became noncurrent; `None` for a live version.
-    pub noncurrent_time: Option<SystemTime>,
+    pub noncurrent_time: Option<UnixNanos>,
     /// Versions of the same name newer than this one, counting the live one.
     pub newer_versions: u64,
 }
@@ -52,6 +52,7 @@ pub(crate) enum Evaluation {
     /// after applying it, or determines its own next deadline. Act carries no wakeup deadline.
     Act(PlannedAction),
     /// No action is due; any deadline is strictly later than `now` for the unchanged facts.
+    /// A deadline beyond the platform clock's range has no wakeup.
     Wait(Option<SystemTime>),
 }
 
@@ -60,13 +61,14 @@ pub(crate) fn evaluate<'a>(
     facts: &VersionFacts<'_>,
     now: SystemTime,
 ) -> Evaluation {
+    let timestamp = UnixNanos::from(now);
     let mut selected: Option<(Priority, PlannedAction)> = None;
     let mut next_due = None;
     for rule in rules {
         let Some(action) = planned_action(rule.action, facts.storage_class) else {
             continue;
         };
-        let Some(due) = eligible_at(&rule.condition, facts, now) else {
+        let Some(due) = eligible_at(&rule.condition, facts, timestamp) else {
             continue;
         };
         let priority = match action {
@@ -130,35 +132,33 @@ fn supported_transition(current: StorageClass, target: StorageClass) -> bool {
 }
 
 /// The earliest matching instant at or after `now`, or no instant for unchanged facts.
+/// A deadline beyond the platform clock's range has no wakeup.
 fn eligible_at(
     condition: &LifecycleCondition,
     facts: &VersionFacts<'_>,
-    now: SystemTime,
+    now: UnixNanos,
 ) -> Option<SystemTime> {
     if !static_conditions_match(condition, facts) {
         return None;
     }
-    let mut due = UnixNanos::from(now);
+    let mut due = now;
     if let Some(age) = condition.age {
         let deadline = if age == 0 {
-            next_midnight(facts.time_created.into())?
+            next_midnight(facts.time_created)?
         } else {
-            after_days(facts.time_created.into(), age)?
+            after_days(facts.time_created, age)?
         };
         due = due.max(deadline);
     }
     for (days, origin) in [
         (condition.days_since_custom_time, facts.custom_time),
-        (
-            condition.days_since_noncurrent_time,
-            facts.noncurrent_time.map(UnixNanos::from),
-        ),
+        (condition.days_since_noncurrent_time, facts.noncurrent_time),
     ] {
         if let Some(days) = days {
             due = due.max(after_days(origin?, days)?);
         }
     }
-    nanos_time(due)
+    wakeup_at(due, now)
 }
 
 fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<'_>) -> bool {
@@ -168,12 +168,9 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
         && condition.num_newer_versions.is_none_or(|count| {
             u64::try_from(count).is_ok_and(|count| facts.newer_versions >= count)
         })
-        && before_date(condition.created_before, Some(facts.time_created.into()))
+        && before_date(condition.created_before, Some(facts.time_created))
         && before_date(condition.custom_time_before, facts.custom_time)
-        && before_date(
-            condition.noncurrent_time_before,
-            facts.noncurrent_time.map(UnixNanos::from),
-        )
+        && before_date(condition.noncurrent_time_before, facts.noncurrent_time)
         && (condition.matches_prefix.is_empty()
             || condition
                 .matches_prefix
@@ -243,8 +240,8 @@ fn next_midnight(time: UnixNanos) -> Option<UnixNanos> {
     catalog_deadline(UnixNanos::new(seconds, 0)?)
 }
 
-pub(crate) fn nanos_time(value: UnixNanos) -> Option<SystemTime> {
-    // An unreachable future deadline needs no wakeup; already-due times are clamped to now first.
+pub(crate) fn wakeup_at(due: UnixNanos, now: UnixNanos) -> Option<SystemTime> {
+    let value = due.max(now);
     // Round up to the platform clock's precision, so a nanosecond deadline never spins early.
     let time = crate::clock::system_time_from_unix_seconds(value.secs())?
         .checked_add(Duration::from_nanos(u64::from(value.subsec_nanos())))?;
@@ -310,5 +307,5 @@ fn multipart_condition_due(
         Some(days) => after_days(initiated.into(), days)?,
         None => now.into(),
     };
-    nanos_time(due.max(now.into()))
+    wakeup_at(due, now.into())
 }

@@ -8,15 +8,21 @@ const MICROSECOND: Duration = Duration::from_micros(1);
 const DAY: Duration = Duration::from_secs(86_400);
 
 fn time(value: &str) -> SystemTime {
-    let (seconds, nanos) = crate::object::custom_time_key(value).expect("valid test timestamp");
-    crate::clock::system_time_from_unix_seconds(seconds)
-        .and_then(|time| time.checked_add(Duration::from_nanos(u64::from(nanos))))
+    system_time(timestamp(value))
+}
+
+fn system_time(value: UnixNanos) -> SystemTime {
+    crate::clock::system_time_from_unix_seconds(value.secs())
+        .and_then(|time| time.checked_add(Duration::from_nanos(u64::from(value.subsec_nanos()))))
         .expect("representable test timestamp")
 }
 
 fn timestamp(value: &str) -> UnixNanos {
-    let (seconds, nanos) = crate::object::custom_time_key(value).expect("valid test timestamp");
-    UnixNanos::new(seconds, nanos).expect("valid nanoseconds")
+    crate::object::custom_time_key(value).expect("valid test timestamp")
+}
+
+fn created(facts: &VersionFacts<'_>) -> SystemTime {
+    system_time(facts.time_created)
 }
 
 fn version() -> VersionFacts<'static> {
@@ -24,7 +30,7 @@ fn version() -> VersionFacts<'static> {
         name: "pictures/paris.jpg",
         size: 100,
         storage_class: StorageClass::Standard,
-        time_created: time("2026-01-10T10:00:00.123456Z"),
+        time_created: timestamp("2026-01-10T10:00:00.123456Z"),
         custom_time: None,
         noncurrent_time: None,
         newer_versions: 0,
@@ -70,9 +76,9 @@ fn assert_delete_boundary(rules: &[LifecycleRule], facts: &VersionFacts<'_>, due
 fn age_uses_the_creation_instant_to_the_microsecond() {
     let mut facts = version();
     let rules = [delete(json!({"age":10}))];
-    let due = facts.time_created + 10 * DAY;
+    let due = created(&facts) + 10 * DAY;
     assert_delete_boundary(&rules, &facts, due);
-    facts.noncurrent_time = Some(facts.time_created + DAY);
+    facts.noncurrent_time = Some((created(&facts) + DAY).into());
     assert_delete_boundary(&rules, &facts, due);
 }
 
@@ -87,7 +93,7 @@ fn zero_age_waits_for_the_next_utc_midnight_including_midnight_creation() {
         ("1970-01-01T00:00:00Z", "1970-01-02T00:00:00Z"),
     ] {
         let mut facts = version();
-        facts.time_created = time(created);
+        facts.time_created = timestamp(created);
         assert_delete_boundary(&[delete(json!({"age":0}))], &facts, time(midnight));
     }
 }
@@ -95,14 +101,14 @@ fn zero_age_waits_for_the_next_utc_midnight_including_midnight_creation() {
 #[test]
 fn overflowing_day_counts_never_match_or_schedule_a_deadline() {
     let mut facts = version();
-    facts.custom_time = Some(facts.time_created.into());
+    facts.custom_time = Some(facts.time_created);
     facts.noncurrent_time = Some(facts.time_created);
     for field in ["age", "daysSinceCustomTime", "daysSinceNoncurrentTime"] {
         let rule = delete(json!({field: i32::MAX}));
-        assert_evaluation(&[rule], &facts, facts.time_created + DAY, None, None);
+        assert_evaluation(&[rule], &facts, created(&facts) + DAY, None, None);
     }
-    assert!(after_days(facts.time_created.into(), i64::MAX).is_none());
-    assert!(after_days(facts.time_created.into(), -1).is_none());
+    assert!(after_days(facts.time_created, i64::MAX).is_none());
+    assert!(after_days(facts.time_created, -1).is_none());
     let last = UnixNanos::new(i64::MAX, 0).unwrap();
     assert!(after_days(last, 1).is_none());
     assert!(next_midnight(last).is_none());
@@ -120,9 +126,9 @@ fn deadlines_never_exceed_the_catalog_microsecond_range() {
             (origin + MICROSECOND, false),
         ] {
             let mut facts = version();
-            facts.time_created = start;
+            facts.time_created = start.into();
             facts.custom_time = Some(start.into());
-            facts.noncurrent_time = Some(start);
+            facts.noncurrent_time = Some(start.into());
             // Some platforms reach their SystemTime limit before the catalog limit.
             let expected = in_range
                 .then(|| start.checked_add(Duration::from_secs(days as u64 * 86_400)))
@@ -135,7 +141,7 @@ fn deadlines_never_exceed_the_catalog_microsecond_range() {
     }
     let days_from_today = delete(json!({"age":days}));
     let facts = version();
-    assert_evaluation(&[days_from_today], &facts, facts.time_created, None, None);
+    assert_evaluation(&[days_from_today], &facts, created(&facts), None, None);
 }
 
 #[test]
@@ -146,13 +152,13 @@ fn zero_age_never_schedules_a_midnight_outside_the_catalog_range() {
     assert_eq!(next_midnight(before), Some(last));
     assert!(next_midnight(last).is_none());
     assert!(next_midnight(last.checked_add(MICROSECOND).unwrap()).is_none());
-    if let Some(last_midnight) = nanos_time(last) {
+    if let Some(last_midnight) = wakeup_at(last, UNIX_EPOCH.into()) {
         let mut facts = version();
         let rules = [delete(json!({"age":0}))];
-        facts.time_created = last_midnight - MICROSECOND;
+        facts.time_created = (last_midnight - MICROSECOND).into();
         assert_delete_boundary(&rules, &facts, last_midnight);
         for created in [last_midnight, last_midnight + MICROSECOND] {
-            facts.time_created = created;
+            facts.time_created = created.into();
             assert_evaluation(&rules, &facts, created, None, None);
         }
     }
@@ -160,55 +166,64 @@ fn zero_age_never_schedules_a_midnight_outside_the_catalog_range() {
 
 #[test]
 fn future_deadlines_beyond_the_platform_clock_never_schedule_an_early_wakeup() {
-    // Rust's Windows SystemTime ends at i64::MAX 100 ns ticks since 1601-01-01.
-    let seconds = i64::MAX / 10_000_000 - 11_644_473_600;
-    let origin = UnixNanos::new(seconds, 0).unwrap();
-    let now = nanos_time(origin).expect("last whole second fits on supported platforms");
-    let deadline = after_days(origin, 1).unwrap();
-    let expected = nanos_time(deadline);
+    let deadline = UnixNanos::from_micros_and_remainder(i64::MAX, 0).unwrap();
+    let origin = UnixNanos::new(deadline.secs() - 86_400, deadline.subsec_nanos()).unwrap();
+    let now = UNIX_EPOCH;
+    assert_eq!(after_days(origin, 1), Some(deadline));
+    let expected = wakeup_at(deadline, now.into());
     #[cfg(windows)]
     assert!(
         expected.is_none(),
         "the clock can never reach this deadline"
     );
     let mut facts = version();
-    facts.time_created = now;
+    facts.time_created = origin;
     facts.custom_time = Some(origin);
-    facts.noncurrent_time = Some(now);
+    facts.noncurrent_time = Some(origin);
     for field in ["age", "daysSinceCustomTime", "daysSinceNoncurrentTime"] {
         assert_evaluation(&[delete(json!({field:1}))], &facts, now, None, expected);
     }
+    let days = i64::MAX / 86_400_000_000;
+    let initiated = UNIX_EPOCH + Duration::from_micros((i64::MAX % 86_400_000_000) as u64);
     let abort = rules(&[json!({
-        "action":{"type":"AbortIncompleteMultipartUpload"}, "condition":{"age":1}
+        "action":{"type":"AbortIncompleteMultipartUpload"}, "condition":{"age":days}
     })]);
-    assert_eq!(multipart_abort_due(&abort, facts.name, now, now), expected);
     assert_eq!(
-        next_midnight(origin).and_then(nanos_time).is_some(),
+        multipart_abort_due(&abort, facts.name, initiated, now),
+        expected
+    );
+    assert_eq!(
+        next_midnight(origin)
+            .and_then(|due| wakeup_at(due, now.into()))
+            .is_some(),
         expected.is_some()
     );
 }
 
 #[test]
 fn before_date_conditions_are_strict_at_utc_midnight() {
-    let midnight = time("2026-02-01T00:00:00Z");
+    let midnight = timestamp("2026-02-01T00:00:00Z");
     for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
         let rules = [delete(json!({field: "2026-02-01"}))];
         for (instant, action) in [
-            (midnight - MICROSECOND, Some(PlannedAction::Delete)),
+            (
+                UnixNanos::new(midnight.secs() - 1, 999_999_000).unwrap(),
+                Some(PlannedAction::Delete),
+            ),
             (midnight, None),
-            (midnight + MICROSECOND, None),
+            (midnight.checked_add(MICROSECOND).unwrap(), None),
         ] {
             let mut facts = version();
-            facts.time_created = midnight + DAY;
-            facts.custom_time = Some((midnight + 2 * DAY).into());
-            facts.noncurrent_time = Some(midnight + 3 * DAY);
+            facts.time_created = midnight.checked_add(DAY).unwrap();
+            facts.custom_time = midnight.checked_add(2 * DAY);
+            facts.noncurrent_time = midnight.checked_add(3 * DAY);
             match field {
                 "createdBefore" => facts.time_created = instant,
-                "customTimeBefore" => facts.custom_time = Some(instant.into()),
+                "customTimeBefore" => facts.custom_time = Some(instant),
                 "noncurrentTimeBefore" => facts.noncurrent_time = Some(instant),
                 _ => unreachable!("test fields are exhaustive"),
             }
-            assert_evaluation(&rules, &facts, midnight + DAY, action, None);
+            assert_evaluation(&rules, &facts, UNIX_EPOCH, action, None);
         }
     }
     let facts = version();
@@ -216,7 +231,7 @@ fn before_date_conditions_are_strict_at_utc_midnight() {
         assert_evaluation(
             &[delete(json!({field:"2026-02-01"}))],
             &facts,
-            midnight,
+            UNIX_EPOCH,
             None,
             None,
         );
@@ -226,21 +241,25 @@ fn before_date_conditions_are_strict_at_utc_midnight() {
 #[test]
 fn date_conditions_cover_leap_days_and_pre_epoch_dates_without_a_wakeup() {
     for date in [
-        // Windows cannot construct SystemTime before its 1601 FILETIME epoch.
-        #[cfg(not(windows))]
         "0001-01-01",
         "1900-03-01",
         "1969-12-31",
         "2000-02-29",
         "9999-12-31",
     ] {
-        let midnight = time(&format!("{date}T00:00:00Z"));
+        let midnight = timestamp(&format!("{date}T00:00:00Z"));
         let mut facts = version();
         let rules = [delete(json!({"createdBefore":date}))];
-        facts.time_created = midnight - MICROSECOND;
-        assert_evaluation(&rules, &facts, midnight, Some(PlannedAction::Delete), None);
+        facts.time_created = UnixNanos::new(midnight.secs() - 1, 999_999_000).unwrap();
+        assert_evaluation(
+            &rules,
+            &facts,
+            UNIX_EPOCH,
+            Some(PlannedAction::Delete),
+            None,
+        );
         facts.time_created = midnight;
-        assert_evaluation(&rules, &facts, midnight, None, None);
+        assert_evaluation(&rules, &facts, UNIX_EPOCH, None, None);
     }
 }
 
@@ -292,7 +311,7 @@ fn early_custom_times_match_dates_and_already_elapsed_day_counts_without_a_wakeu
             assert_evaluation(
                 &[delete(condition)],
                 &facts,
-                facts.time_created,
+                created(&facts),
                 Some(PlannedAction::Delete),
                 None,
             );
@@ -300,30 +319,38 @@ fn early_custom_times_match_dates_and_already_elapsed_day_counts_without_a_wakeu
     }
 }
 
-#[cfg(windows)]
 #[test]
-fn dates_before_the_windows_filetime_epoch_match_nothing_and_never_schedule() {
-    let midnight = timestamp("0001-01-01T00:00:00Z");
-    assert!(nanos_time(midnight).is_none());
+fn early_date_thresholds_exclude_later_timestamps_without_a_wakeup() {
+    assert_eq!(
+        wakeup_at(timestamp("0001-01-01T00:00:00Z"), UNIX_EPOCH.into()),
+        Some(UNIX_EPOCH)
+    );
     let mut facts = version();
-    facts.time_created = time("1601-01-01T00:00:00Z");
-    facts.custom_time = Some(facts.time_created.into());
+    facts.time_created = timestamp("1601-01-01T00:00:00Z");
+    facts.custom_time = Some(facts.time_created);
     facts.noncurrent_time = Some(facts.time_created);
     for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
         assert_evaluation(
             &[delete(json!({field:"0001-01-01"}))],
             &facts,
-            facts.time_created,
+            UNIX_EPOCH,
             None,
             None,
         );
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn the_windows_clock_cannot_represent_year_one() {
+    let early = timestamp("0001-01-01T00:00:00Z");
+    assert!(crate::clock::system_time_from_unix_seconds(early.secs()).is_none());
+}
+
 #[test]
 fn custom_time_days_require_metadata_and_preserve_future_and_past_boundaries() {
     let mut facts = version();
-    let now = facts.time_created;
+    let now = created(&facts);
     for days in [0, 2] {
         let rules = [delete(json!({"daysSinceCustomTime":days}))];
         facts.custom_time = None;
@@ -338,12 +365,12 @@ fn custom_time_days_require_metadata_and_preserve_future_and_past_boundaries() {
 #[test]
 fn noncurrent_days_start_at_the_transition_instant_and_never_match_live_versions() {
     let mut facts = version();
-    let now = facts.time_created;
+    let now = created(&facts);
     for days in [0, 3] {
         let rules = [delete(json!({"daysSinceNoncurrentTime":days}))];
         facts.noncurrent_time = None;
         assert_evaluation(&rules, &facts, now + 10 * DAY, None, None);
-        facts.noncurrent_time = Some(now + DAY);
+        facts.noncurrent_time = Some((now + DAY).into());
         assert_delete_boundary(&rules, &facts, now + (days + 1) * DAY);
     }
 }
@@ -364,7 +391,7 @@ fn newer_version_threshold_counts_live_and_noncurrent_versions_inclusively() {
             assert_evaluation(
                 &[delete(json!({"numNewerVersions":minimum}))],
                 &facts,
-                facts.time_created,
+                created(&facts),
                 action,
                 None,
             );
@@ -381,7 +408,7 @@ fn live_condition_distinguishes_live_and_noncurrent_facts() {
             assert_evaluation(
                 &[delete(json!({"isLive":live}))],
                 &facts,
-                facts.time_created,
+                created(&facts),
                 (live == noncurrent.is_none()).then_some(PlannedAction::Delete),
                 None,
             );
@@ -409,7 +436,7 @@ fn name_conditions_match_any_entry_case_sensitively_and_combine_with_and() {
         assert_evaluation(
             &rules,
             &facts,
-            facts.time_created,
+            created(&facts),
             matches.then_some(PlannedAction::Delete),
             None,
         );
@@ -433,14 +460,14 @@ fn storage_class_conditions_match_any_list_entry() {
                 json!({"matchesStorageClass":["REGIONAL",class.as_str()]}),
             )],
             &facts,
-            facts.time_created,
+            created(&facts),
             Some(PlannedAction::Delete),
             None,
         );
         assert_evaluation(
             &[delete(json!({"matchesStorageClass":["REGIONAL"]}))],
             &facts,
-            facts.time_created,
+            created(&facts),
             None,
             None,
         );
@@ -474,7 +501,7 @@ fn size_conditions_use_strict_data_byte_comparisons() {
             assert_evaluation(
                 &rules,
                 &facts,
-                facts.time_created,
+                created(&facts),
                 matches.then_some(PlannedAction::Delete),
                 None,
             );
@@ -493,7 +520,7 @@ fn delete_wins_over_the_lowest_price_matching_storage_class_in_any_order() {
         assert_evaluation(
             &rules,
             &facts,
-            facts.time_created,
+            created(&facts),
             Some(PlannedAction::SetStorageClass(StorageClass::Coldline)),
             None,
         );
@@ -504,7 +531,7 @@ fn delete_wins_over_the_lowest_price_matching_storage_class_in_any_order() {
         assert_evaluation(
             &rules,
             &facts,
-            facts.time_created,
+            created(&facts),
             Some(PlannedAction::Delete),
             None,
         );
@@ -519,10 +546,10 @@ fn rules_with_the_same_action_are_or_but_conditions_within_one_rule_are_and() {
         delete(json!({"age":1,"matchesPrefix":["absent/"]})),
         delete(json!({"isLive":false})),
     ];
-    assert_evaluation(&rules, &facts, facts.time_created, None, None);
-    assert_evaluation(&rules, &facts, facts.time_created + 2 * DAY, None, None);
+    assert_evaluation(&rules, &facts, created(&facts), None, None);
+    assert_evaluation(&rules, &facts, created(&facts) + 2 * DAY, None, None);
     rules[1] = delete(json!({"age":2}));
-    assert_delete_boundary(&rules, &facts, facts.time_created + 2 * DAY);
+    assert_delete_boundary(&rules, &facts, created(&facts) + 2 * DAY);
 }
 
 #[test]
@@ -532,10 +559,10 @@ fn abort_rules_never_select_an_object_action_or_deadline() {
         json!({"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{"age":0}}),
         json!({"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{"matchesPrefix":["pictures/"]}}),
     ]);
-    for now in [facts.time_created, facts.time_created + 10 * DAY] {
+    for now in [created(&facts), created(&facts) + 10 * DAY] {
         assert_evaluation(&rules, &facts, now, None, None);
     }
-    assert_evaluation(&[], &facts, facts.time_created, None, None);
+    assert_evaluation(&[], &facts, created(&facts), None, None);
 }
 
 #[test]
@@ -572,11 +599,11 @@ fn only_documented_storage_class_transitions_are_selected() {
             assert_evaluation(
                 &rules,
                 &facts,
-                facts.time_created,
+                created(&facts),
                 None,
-                action.map(|_| facts.time_created + DAY),
+                action.map(|_| created(&facts) + DAY),
             );
-            assert_evaluation(&rules, &facts, facts.time_created + DAY, action, None);
+            assert_evaluation(&rules, &facts, created(&facts) + DAY, action, None);
         }
     }
 }
@@ -618,7 +645,7 @@ fn a_future_warmer_class_does_not_schedule_a_wakeup() {
         json!({"action":{"type":"SetStorageClass","storageClass":"ARCHIVE"},"condition":{"isLive":true}}),
         json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":1}}),
     ]);
-    let due = facts.time_created + DAY;
+    let due = created(&facts) + DAY;
     for now in [due - MICROSECOND, due, due + MICROSECOND] {
         assert_evaluation(
             &rules,
@@ -662,7 +689,7 @@ fn applying_each_action_recomputes_the_next_deadline_from_changed_facts() {
         (5, PlannedAction::Delete, None),
     ];
     for (day, action, next) in selected {
-        let due = facts.time_created + day * DAY;
+        let due = created(&facts) + day * DAY;
         assert_evaluation(&rules, &facts, due - MICROSECOND, None, Some(due));
         for now in [due, due + MICROSECOND] {
             assert_evaluation(&rules, &facts, now, Some(action), None);
@@ -674,7 +701,7 @@ fn applying_each_action_recomputes_the_next_deadline_from_changed_facts() {
                 &facts,
                 due,
                 None,
-                next.map(|day| facts.time_created + day * DAY),
+                next.map(|day| created(&facts) + day * DAY),
             );
         }
     }
@@ -690,7 +717,7 @@ fn a_class_dependent_delete_yields_to_an_applicable_transition() {
     for _ in 0..2 {
         for day in [60, 90, 100] {
             assert_eq!(
-                evaluate(&rules, &facts, facts.time_created + day * DAY),
+                evaluate(&rules, &facts, created(&facts) + day * DAY),
                 Evaluation::Act(PlannedAction::SetStorageClass(StorageClass::Nearline))
             );
         }
@@ -706,7 +733,7 @@ fn a_class_dependent_delete_yields_even_when_it_became_due_first() {
         json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":10}}),
         json!({"action":{"type":"Delete"},"condition":{"age":5,"matchesStorageClass":["NEARLINE"]}}),
     ]);
-    let now = facts.time_created + 90 * DAY;
+    let now = created(&facts) + 90 * DAY;
     assert_eq!(
         evaluate(&rules, &facts, now),
         Evaluation::Act(PlannedAction::SetStorageClass(StorageClass::Coldline))
@@ -742,23 +769,17 @@ fn supported_class_transitions_form_an_acyclic_graph() {
 #[test]
 fn next_due_uses_the_latest_condition_and_earliest_matching_rule() {
     let mut facts = version();
-    facts.custom_time = Some((facts.time_created + DAY).into());
-    facts.noncurrent_time = Some(facts.time_created + 2 * DAY);
+    facts.custom_time = Some((created(&facts) + DAY).into());
+    facts.noncurrent_time = Some((created(&facts) + 2 * DAY).into());
     let rules = [
         delete(json!({"age":1,"daysSinceCustomTime":2,"daysSinceNoncurrentTime":2})),
         delete(json!({"age":5})),
     ];
-    assert_delete_boundary(&rules, &facts, facts.time_created + 4 * DAY);
+    assert_delete_boundary(&rules, &facts, created(&facts) + 4 * DAY);
     for day in [1, 3] {
-        let earlier = facts.time_created + day * DAY;
+        let earlier = created(&facts) + day * DAY;
         for now in [earlier - MICROSECOND, earlier, earlier + MICROSECOND] {
-            assert_evaluation(
-                &rules,
-                &facts,
-                now,
-                None,
-                Some(facts.time_created + 4 * DAY),
-            );
+            assert_evaluation(&rules, &facts, now, None, Some(created(&facts) + 4 * DAY));
         }
     }
 }
@@ -770,7 +791,7 @@ fn an_applied_transition_removes_the_old_class_delete_and_its_deadline() {
         json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
         json!({"action":{"type":"Delete"},"condition":{"age":60,"matchesStorageClass":["STANDARD"]}}),
     ]);
-    let due = facts.time_created + 30 * DAY;
+    let due = created(&facts) + 30 * DAY;
     assert_evaluation(
         &rules,
         &facts,
@@ -779,7 +800,7 @@ fn an_applied_transition_removes_the_old_class_delete_and_its_deadline() {
         None,
     );
     facts.storage_class = StorageClass::Nearline;
-    for now in [due, facts.time_created + 60 * DAY] {
+    for now in [due, created(&facts) + 60 * DAY] {
         let result = evaluate(&rules, &facts, now);
         assert_eq!(result, Evaluation::Wait(None));
     }
@@ -789,7 +810,7 @@ fn an_applied_transition_removes_the_old_class_delete_and_its_deadline() {
 fn class_dependent_deletes_schedule_and_match_without_transition_rules() {
     let facts = version();
     let rules = [delete(json!({"age":60,"matchesStorageClass":["STANDARD"]}))];
-    let due = facts.time_created + 60 * DAY;
+    let due = created(&facts) + 60 * DAY;
     assert_delete_boundary(&rules, &facts, due);
 }
 
@@ -800,12 +821,12 @@ fn transitions_keep_future_independent_delete_deadlines() {
         json!({"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30}}),
         json!({"action":{"type":"Delete"},"condition":{"age":60}}),
     ]);
-    let due = facts.time_created + 60 * DAY;
+    let due = created(&facts) + 60 * DAY;
     assert_eq!(
-        evaluate(&rules, &facts, facts.time_created),
-        Evaluation::Wait(Some(facts.time_created + 30 * DAY))
+        evaluate(&rules, &facts, created(&facts)),
+        Evaluation::Wait(Some(created(&facts) + 30 * DAY))
     );
-    for now in [facts.time_created + 30 * DAY, due - MICROSECOND] {
+    for now in [created(&facts) + 30 * DAY, due - MICROSECOND] {
         facts.storage_class = StorageClass::Standard;
         assert_evaluation(
             &rules,

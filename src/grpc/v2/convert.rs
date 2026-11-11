@@ -341,10 +341,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         .as_ref()
         .map(|time| {
             crate::object::custom_time_key(time)
-                .map(|(seconds, nanos)| Timestamp {
-                    seconds,
-                    nanos: i32::try_from(nanos).unwrap_or_default(),
-                })
+                .map(unix_nanos_timestamp)
                 .map_err(ObjectConversionError::InvalidCustomTime)
         })
         .transpose()?;
