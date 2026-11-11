@@ -2816,12 +2816,30 @@
           ]
         },
         {
-          "command": "just pre-push on 0.18.0 source 1e5a89a042ef4936da3a99518d81c957720b7fef: exit 0, all stages passed in 26m17s in one invocation",
+          "command": "just pre-push on v0.18.0 commit 7b4a8006ddb38caf87ed43f8881953dbda348605, tree f39350928070b35dc92088d3219bbeb98227e1f9: exit 0, all stages passed in 16m03s in one invocation; library tests 2052 passed",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
           "test_ids": [
             "release-local-gates"
+          ]
+        },
+        {
+          "command": "Historical just pre-push on 0.18.0 source 1e5a89a042ef4936da3a99518d81c957720b7fef: exit 0, all stages passed in 26m17s in one invocation; superseded by the tagged-tree rerun",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "gh run view 43003843569 and 43008744768 on v0.18.0 commit 7b4a8006ddb38caf87ed43f8881953dbda348605, tree f39350928070b35dc92088d3219bbeb98227e1f9: success; eight native build/test targets, tag validate/publish, container amd64/arm64/manifest and Docker Hub mirror passed; Release contains ten assets",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "release-tag-execution"
           ]
         },
         {
@@ -58059,13 +58077,33 @@
           ]
         },
         {
-          "command": "just pre-push on 0.18.0 source 1e5a89a042ef4936da3a99518d81c957720b7fef (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 26m17s in one invocation",
+          "command": "Historical just pre-push on 0.18.0 source 1e5a89a042ef4936da3a99518d81c957720b7fef (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 26m17s in one invocation; superseded by the tagged-tree rerun",
           "result": "PASS",
           "verified_at": "2026-11-11",
           "artifact": "docs/en/evidence/local-release-gates.md",
           "test_ids": [
             "shared-check-failure-propagation",
             "local-pre-push-suite"
+          ]
+        },
+        {
+          "command": "just pre-push on v0.18.0 commit 7b4a8006ddb38caf87ed43f8881953dbda348605, tree f39350928070b35dc92088d3219bbeb98227e1f9 (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 16m03s in one invocation; library tests 2052 passed",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "shared-check-failure-propagation",
+            "local-pre-push-suite"
+          ]
+        },
+        {
+          "command": "gh run view 43003842704: Foundation checks success on v0.18.0 commit 7b4a8006ddb38caf87ed43f8881953dbda348605, tree f39350928070b35dc92088d3219bbeb98227e1f9",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "remote-foundation-ci",
+            "release-ci-evidence"
           ]
         }
       ],
