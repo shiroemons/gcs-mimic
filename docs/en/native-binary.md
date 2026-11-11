@@ -101,8 +101,8 @@ treating all of stderr as one JSON object.
 severity: `debug`, `info` (default), `warn` or `error`; `warning` aliases `warn`.
 Debug adds connection completion, info includes seeding/stopping, warn includes
 transport failures/timeouts and deferred cleanup, and error includes lock-release
-failure. Validation diagnostics, including input warnings, remain visible at
-every level. Stdout `ready` and `stopped` are always emitted for automation.
+failure. Informational diagnostics obey the same threshold; validation warnings
+and errors remain visible at every level. Stdout `ready` and `stopped` are always emitted for automation.
 Empty/unknown levels fail before catalog access.
 
 Since 0.15.0, the server accepts every option with one or two hyphens, with
@@ -113,7 +113,7 @@ argument is an option.
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
 | `--port` | Port of `GCS_MIMIC_LISTEN` | `4443` | 0–65535; keeps the listen IP, so a binary stays on loopback. Releases up to 0.14.0 bind `0.0.0.0` instead |
-| `--port-http` | Port of `GCS_MIMIC_LISTEN_HTTP` | `8000` | HTTP port with `scheme=both`; keeps the IP of `listen_http`, or else of `listen`; ignored with a warning for other schemes |
+| `--port-http` | Port of `GCS_MIMIC_LISTEN_HTTP` | `8000` | Native HTTP port with `scheme=both`; keeps the IP of `listen_http`, or else of `listen`; other schemes fail before startup |
 | `--host` | IP of `GCS_MIMIC_LISTEN` | `127.0.0.1` | Numeric IP or `localhost`; keeps the listen port |
 | `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |
 | `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |

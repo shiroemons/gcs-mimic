@@ -59,7 +59,7 @@ Implementation commits: `bce7bb3ef4cd51d9218c6d070c18dc17b0c377a4`, `a3074ab`, `
 - `just check`: PASS on the final source, including formatting, host/cross-target clippy, all Rust tests, compatibility validation/generated views and offline script checks.
 - `cargo test --locked --offline --test bucket_initialization`: PASS, 10 tests including regional and default predefined dual-region startup.
 - `cargo test --locked --offline --lib bucket_definition_requires_matching_canonical_location_and_type`: PASS. The shared administrative boundary requires the canonical location/type pair and rejects unknown names, wrong types and noncanonical records.
-- `cargo test --locked --offline --lib config_input::tests::alias_location_advice_uses_effective_native_setting`: PASS; regional and predefined dual-region advice uses uppercase native settings and unknown values remain redacted.
+- The original location-alias advice test passed on 2026-10-27. Since 0.18.0, `location` is refused because a server-wide response setting cannot become a creation-only default; `config_input::tests::refused_location_advice_names_the_native_creation_default` verifies uppercase native advice and unknown-value redaction. See [current evidence](option-aliases.md).
 - `cargo test --locked --offline --lib config_input::tests`: PASS, all 10 diagnostic tests, including mixed settings, unsafe-value redaction and property cases.
 - `BUNDLE_FROZEN=true bundle check`: PASS using pinned Ruby 4.0.9 and Bundler 4.0.23.
 - `just check-sdk` (HTTP): PASS. Go vet and the full Go suite pass, including regional, lowercase regional and NAM4 creation/Attrs; Ruby origin self-check, migration scenario and full permissive/strict journeys pass, including regional create/reload location and location_type.

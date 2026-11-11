@@ -239,18 +239,21 @@ fn default_location_invalid_or_alias_settings_fail_before_catalog_creation() {
         let event = diagnostic(&output);
         assert_eq!(event["diagnostics"][0]["key"], "--default-location");
     }
-    // A translated fake-gcs-server location is validated like the native setting.
+    // A source-wide response location cannot become a native creation-only default.
     let dir = TestDir::new();
     let output = command(&dir.0)
         .args(["-location", "MARS-CENTRAL1"])
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(!dir.0.join("data").exists());
-    let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("\"-location\""), "{text}");
-    assert!(text.contains("default_location must"), "{text}");
+    let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(event["diagnostics"][0]["source"], "cli");
+    assert_eq!(event["diagnostics"][0]["key"], "-location");
+    let fix = event["diagnostics"][0]["fix"].as_str().unwrap();
+    assert!(fix.contains("server-wide response location"), "{fix}");
+    assert!(fix.contains("--default-location ASIA-NORTHEAST1"), "{fix}");
 }
 
 #[test]

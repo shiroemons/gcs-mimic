@@ -16,7 +16,7 @@ Roughly in order of how many setups it affects.
 
 | You do this today | After the move | Do this instead |
 | --- | --- | --- |
-| Keep objects in a `/storage` volume | The format differs, so the volume cannot be reused and `-filesystem-root` is ignored. gcs-mimic starts empty. | [Copy the object bytes](#bring-existing-objects) or reseed from your fixtures. |
+| Keep objects in a `/storage` volume | The format differs, so the volume cannot be reused. Since 0.18.0, `-filesystem-root` stops startup. | Remove the flag; [copy the object bytes](#bring-existing-objects) or reseed from your fixtures. |
 | Set `FAKE_GCS_*` variables | Since 0.15.0 they are not read, and nothing warns. With `FAKE_GCS_SCHEME=http` left in place the server stays on HTTPS, so HTTP clients fail to connect. | Use the matching flag or `GCS_MIMIC_*` variable from [the table below](#setting-equivalents). |
 | Rely on the generations, custom metadata or content types of existing objects | They cannot be carried over today. `gcs-mimic import fake-gcs-server` exists, but in 0.14.0 it stops on every object uploaded through fake-gcs-server's API, because those objects carry a generated `projectOwner-test-project` ACL it does not accept. | Re-create the objects your tests depend on through the API, or keep that data on fake-gcs-server. |
 | Browse or edit objects as files in the storage directory | Objects are stored as opaque files. `/data` is read-only input, and API writes never appear there. | Add a [sync directory](container-usage.md#mirror-objects-to-a-host-directory). It mirrors objects as files; its conflict and recovery cases are still partial. |
@@ -29,7 +29,7 @@ Roughly in order of how many setups it affects.
 | Call `/_internal/reseed` or `PUT /_internal/config` | These routes are off by default. | Set `GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener. |
 | List buckets without `?project=` | Returns 400, as Cloud Storage does. SDKs send the project already. | Add `?project=local-project`, or set `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
 | Use `-event.*` without a Pub/Sub emulator | Startup fails, so tests that wait for notifications do not hang. | Point `PUBSUB_EMULATOR_HOST` at a local emulator. |
-| Depend on `-public-host` matching the Host header | The flag is accepted, but the matching is off. | Set `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
+| Depend on `-public-host` matching the Host header | Accepted as `public_base_url`; subdomains select virtual-host buckets. | Use another host for JSON or set `--api-base-url`; review the [routing differences](fake-gcs-server-configuration.md). |
 | Send requests Cloud Storage would reject | gcs-mimic validates input as Cloud Storage does, so loose requests can now return 4xx. | Fix the request. |
 | Assert on the status of a cancelled resumable upload | Returns 499, which Google documents as a successful cancel. | Accept 499. |
 
@@ -56,9 +56,10 @@ Moving is probably not worth it yet if one of these is true:
 +    - gcs-data:/var/lib/gcs-mimic
 ```
 
-Most `command:` flags and the `./data:/data` mount keep working. A flag that
-behaves differently logs a warning at startup. Application code that talks to
-the emulator over HTTP does not change, including `STORAGE_EMULATOR_HOST`.
+Most `command:` flags and the `./data:/data` mount keep working. Since 0.18.0,
+a flag that changes meaning stops startup with native-setting advice.
+Application code that talks to the emulator over HTTP does not change,
+including `STORAGE_EMULATOR_HOST`.
 
 Soft delete stays off by default, as in fake-gcs-server: deleting or overwriting
 an object frees its bytes at once. Set
@@ -83,11 +84,16 @@ the objects are in the data volume, remove the mount if you do not want that.
 
 ## Setting equivalents
 
+Since 0.18.0, source flags that change meaning are refused before startup,
+with all refusals reported together. Accepted translations show one native
+option block at info level. Use the
+[complete flag table](slices/option-aliases.md#behavior) when keeping source flags.
+
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
 | `-scheme http`, `FAKE_GCS_SCHEME` | `--scheme http`, `GCS_MIMIC_SCHEME: http` |
 | `-port 9000`, `FAKE_GCS_PORT` | `--port 9000`, `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
-| `-port-http 8000`, `FAKE_GCS_PORT_HTTP` | `--port-http 8000`, `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
+| `-port-http 8000`, `FAKE_GCS_PORT_HTTP` | Requires `--scheme both`; use `--port-http 8000` or `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
 | `-host 0.0.0.0 -port 4443` | Nothing; the image already listens there |
 | `-external-url`, `-public-host` | Nothing; returned links follow each request's address |
 | `-backend filesystem -filesystem-root /storage` | A named volume at `/var/lib/gcs-mimic` |

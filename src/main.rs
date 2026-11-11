@@ -57,7 +57,7 @@ Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the fi
 Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --scheme MODE                https (http|https|both; both uses HTTPS on the primary port)
   --port N                     4443 (keeps the listen IP; CLI only, GCS_MIMIC_LISTEN in the environment)
-  --port-http N                8000 (HTTP port for scheme=both, ignored with a warning otherwise; CLI only)
+  --port-http N                8000 (native HTTP port; requires scheme=both; CLI only)
   --host IP                    127.0.0.1, 0.0.0.0 in the image (keeps the listen port; CLI only)
   --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
   --seed-dir PATH              none (read-only fixtures; replayed on every startup; image: /data)
@@ -131,6 +131,17 @@ Other serve options:
   --event-object-prefix PREFIX all object names (global notification filter)
   --event-list LIST            finalize (comma-separated finalize,delete,metadataUpdate,archive; none disables the global rule)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+fake-gcs-server flags preserve working requests or fail before startup:
+  Accepted: --backend filesystem -> --backend disk; --public-host -> --public-base-url;
+  --data -> --seed-dir; --cert-location -> --tls-cert; --private-key-location -> --tls-key.
+  --event.pubsub-project-id, --event.pubsub-topic, --event.bucket, --event.object-prefix
+  and --event.list use native --event-* names and require a configured local Pub/Sub emulator.
+  Refused: --filesystem-root, --external-url, --cors-headers, --location. Each error names
+  the native alternative and the semantic difference; all refused flags are reported together.
+  Accepted translations emit native_args as a JSON argument array at info level. A shell line
+  is shown only without quotes, backslashes or controls in values; unsafe URLs are redacted.
+  --host, --port, --port-http, --scheme and --log-level are native options.
 
 HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
 HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
@@ -388,6 +399,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         return Ok(());
     }
     let mut report = Config::preflight_os(rest, std::env::vars_os());
+    gcs_mimic::diagnostics::set_log_level(report.config.log_level);
     // Validate supplied TLS material before touching the catalog, seed or listener.
     let mut acceptor = None;
     if report.valid(&["scheme", "tls_cert", "tls_key"]) {
@@ -426,7 +438,6 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         ));
     report.diagnostics.write(io::stderr().lock())?;
     let config = report.config;
-    gcs_mimic::diagnostics::set_log_level(config.log_level);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(config.worker_threads)
         .max_blocking_threads(config.max_blocking_threads)
@@ -1013,7 +1024,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "9a785292edf2d55cadf5b1f19438a32f9d049539af7d5b256379be258be03e3f"
+            "00e095a964b1deaf7ef7ee0742579107f55dc0f7d6acd2161a00e2e98465546d"
         );
     }
 

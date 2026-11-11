@@ -31,7 +31,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
                 "--scheme",
                 "http",
                 "--listen",
-                "127.0.0.1:0",
+                "127.0.0.2:0",
                 "--log-level",
                 level,
                 "--seed-dir",
@@ -39,7 +39,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             .arg(&seed)
             .arg("--data-dir")
             .arg(directory.0.join("data"))
-            .args(["-filesystem-root", "/storage"])
+            .args(["--host", "localhost", "-public-host", "storage.invalid"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -118,6 +118,12 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             records
                 .iter()
                 .any(|event| event["event"] == "diagnostics" && event["level"] == "warn")
+        );
+        assert_eq!(
+            records
+                .iter()
+                .any(|event| event["event"] == "diagnostics" && event["level"] == "info"),
+            matches!(level, "debug" | "info")
         );
         for (name, expected) in [
             ("connection_closed", level == "debug"),
@@ -244,7 +250,7 @@ fn invalid_log_levels_and_alias_diagnostics_fail_before_catalog() {
     for level in ["debug", "info", "warn", "error"] {
         let directory = TestDir::new();
         let data = directory.0.join("data");
-        // A flag that behaves differently only warns; an invalid limit keeps startup from binding.
+        // Refused flags remain errors at every log level, alongside independent invalid settings.
         let output = common::server_command()
             .args([
                 "serve",
@@ -262,18 +268,17 @@ fn invalid_log_levels_and_alias_diagnostics_fail_before_catalog() {
         assert!(output.stdout.is_empty());
         assert!(!data.exists());
         let records = events(&output.stderr);
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0]["level"], "warn");
-        assert_eq!(records[1]["level"], "error");
-        assert_eq!(records[1]["diagnostics"][0]["key"], "--max-connections");
-        let warning = records[0]["diagnostics"]
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["level"], "error");
+        assert_eq!(records[0]["diagnostics"][0]["key"], "--max-connections");
+        let refused = records[0]["diagnostics"]
             .as_array()
             .unwrap()
             .iter()
             .find(|d| d["key"] == "-filesystem-root")
             .unwrap();
         assert!(
-            warning["fix"]
+            refused["fix"]
                 .as_str()
                 .unwrap()
                 .contains("gcs-mimic import fake-gcs-server")

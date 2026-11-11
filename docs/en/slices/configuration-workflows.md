@@ -207,10 +207,12 @@ routing. Compare `api_base_url` and `public_base_url` in ready.
 
 ## Disposition of all 19 source environment variables
 
-All rows are explicit migration instructions, **not aliases**. In
-`config-legacy-input-diagnostics`, the presence of any known variable, including
-an empty value, fails startup even if native equivalents are also supplied.
-Future native capability delivery does not start accepting the old name.
+All rows below retain the original migration guidance for source environment
+variables. Since 0.15.0, `FAKE_GCS_*` variables are not read. Since 0.18.0,
+CLI flags are native, accepted translations or refused inputs according to the
+[complete flag table](option-aliases.md#behavior). Accepted translations produce
+one info block of native options; every refused flag names the semantic
+difference and native alternative in the startup error batch.
 Detect legacy option-name tokens across argv before subcommand dispatch,
 including an argv beginning with flags after a Compose `command` override.
 Use the native pair grammar to identify name positions and exclude native
@@ -287,8 +289,8 @@ These intentional changes land after 0.1.0 in a new minor release.
 `GCS_MIMIC_LOG_LEVEL`, with CLI > environment > file > `info` precedence.
 Accept exactly `debug`, `info`, `warn`, `warning` (normalized to `warn`) and
 `error`; reject empty, uppercase and other values before catalog access.
-The threshold is process-wide and set once after successful preflight, before
-runtime/catalog startup. It does not reorder startup phases or change storage.
+The threshold is process-wide and set from the parsed configuration before
+writing preflight diagnostics or starting the runtime/catalog.
 
 All production stderr events use one JSON object per line, with `event` and
 `level`. Debug records connection completion, info records seeding/stopping,
@@ -296,17 +298,17 @@ warn records transport failures/timeouts, bind waiting and deferred cleanup,
 and error records failed data-directory lock release. Events below the selected
 minimum severity are suppressed. Transport events contain static explanations,
 never raw request errors, credentials, headers or signed/capability URLs.
-Diagnostic batches remain unfiltered, including warnings accompanying errors
-and standalone input warnings. Stdout `ready` and `stopped` retain their schema
+Informational diagnostics obey the threshold. Validation warnings and errors
+remain unfiltered, including standalone input warnings. Stdout `ready` and `stopped` retain their schema
 and are always emitted regardless of the selected level. Output is synchronous
 and best-effort for ordinary events, without a queue or retained history.
 
 Acceptance checks cover every threshold against every severity, JSON escaping,
 file/environment/CLI precedence, invalid and empty settings, the warning alias,
 process-level transport filtering, lifecycle visibility and fatal/legacy
-diagnostics without catalog creation. `FAKE_GCS_LOG_LEVEL` and `-log-level`
-remain errors; advice now names the effective native setting and normalizes
-supported `warning` to `warn`, without echoing invalid values.
+diagnostics without catalog creation. `-log-level` is native and normalizes
+`warning` to `warn`; invalid values fail without being echoed.
+`FAKE_GCS_LOG_LEVEL` is not read.
 
 ## Shared diagnostics contract
 
@@ -393,9 +395,9 @@ prose lines or new output-format option. Warnings use `level:"warn"` and the
 same schema. Errors and warnings are collected separately, ordered by the enum
 order above, then original key by UTF-8 byte order; preserve encounter order for
 repeated occurrences of one key.
-Emit warnings before errors and return nonzero if any error exists. Validation
-diagnostic batches remain visible at every log level; filtering applies to
-ordinary runtime events, not the report of invalid input. Stdout `ready` / `stopped` lifecycle
+Emit info before warnings before errors and return nonzero if any error exists.
+Info is filtered by `log_level`; validation warnings and errors remain visible
+at every level. Stdout `ready` / `stopped` lifecycle
 events always remain machine-readable and unfiltered.
 
 Validation returns **all independently detectable problems in the bounded
@@ -403,7 +405,8 @@ input**, not the first one. A malformed file prevents inspecting its fields but
 does not suppress independent CLI/environment checks. Skip only checks requiring
 an invalid prerequisite; do not invent cascading TLS/URL errors. A later valid
 CLI value may replace a malformed lower-priority native value under existing
-precedence. Duplicate flags and known legacy names remain errors regardless.
+precedence. Duplicate native settings and refused source flags remain errors.
+Repeated translated flags retain their last value.
 Configuration checks and independently loadable TLS/identity material form one
 startup preflight batch. Attempt both material loads when their effective
 configuration prerequisites are valid, even if the other fails; skip only a load

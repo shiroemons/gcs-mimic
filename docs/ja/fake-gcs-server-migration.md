@@ -43,8 +43,23 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。
 移行前のCompose全体は[英語版の例](../en/fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)を参照してください。
-0.7.0以降は、古いフラグも書き換えずに動きます。0.15.0以降は`FAKE_GCS_*`環境変数を読みません。
+0.18.0以降は、移行元で動いていたリクエストを保つ読み替えを受け付けます。
+意味が変わるフラグは、理由とnativeの書き方を示して起動を止めます。
+受け付けた読み替えは、1つのinfo診断のJSON配列`native_args`に表示します。
+引用符・バックスラッシュ・制御文字を含む値は配列から復号し、各要素を1つの引数として渡します。
+それらを含まない場合だけ、生のログからそのまま貼れるシェル用の1行も表示します。
+0.15.0以降は`FAKE_GCS_*`環境変数を読みません。
 この手順ではnativeの名前を使います。[オプションの別名（英語）](../en/slices/option-aliases.md)を参照してください。
+
+`filesystem-root`、`external-url`、`cors-headers`、`location`は拒否対象です。
+`public-host`は受け付けますが、サブドメインは仮想ホストのバケットを選びます。
+JSON APIには、そのサブドメイン以外のホストか、明示した`--api-base-url`を使います。
+これはfake-gcs-serverとの違いです。明示したAPIホストが衝突する場合は起動を止めます。
+移行元の`external-url`はselfLinkとmediaLinkだけを固定します。
+nativeの`api_base_url`は再開可能URLも固定するため、すべてのクライアントから届くアドレスを指定してください。
+`event.*`にはローカルPub/Subエミュレーターの接続先が必要です。
+`host`、`port`、`port-http`はnativeのオプションで、`port-http`には`scheme=both`が必要です。
+[全フラグの分類](fake-gcs-server-configuration.md#0180のフラグ分類)を確認してから置き換えてください。
 
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
 | --- | --- | --- |
@@ -320,12 +335,14 @@ strict localレシピはそのために組み込みのテスト署名者を有�
 
 ## 移行で困ったとき
 
+`GCS_MIMIC_API_BASE_URL`を指定すると、再開可能アップロードのLocationも固定されます。
+
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
 | `FAKE_GCS_*`環境変数が効かない | 0.15.0以降は読みません | 対応するフラグか`GCS_MIMIC_*`環境変数を設定する。 |
 | `-scheme`で起動が止まる | [撤回したリリース](release-policy.md#撤回したリリース)（0.6.0以前）は旧設定名を読み替えない | 現行版に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
 | `-event.pubsub-topic`などの`-event.*`フラグで起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
-| SDKの開始は成功するが次の接続が失敗する | Locationが`GCS_MIMIC_API_BASE_URL`や`-external-url`で固定したアドレスになっている、またはプロキシがHostを書き換えている | 固定をやめてリンクを各リクエストに従わせるか、すべてのクライアントから届くアドレスを指定し、サービスを再作成する。 |
+| SDKの開始は成功するが次の接続が失敗する | 固定したLocationに届かない、またはプロキシがHostを書き換えている | 固定をやめるか、全クライアントから届くアドレスを指定してサービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使う。サーバーが署名なしセッションURIをブラウザーへ渡すときは、path/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |
 | HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`を指定し、`GCS_MIMIC_LISTEN`はイメージの既定`0.0.0.0:4443`のままにして、probeにも継承させる。 |

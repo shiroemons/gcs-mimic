@@ -128,6 +128,8 @@ curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' 
 
 **Options.** With `docker run`, put options after the image name, with one or two hyphens and as `--name value` or `--name=value`. In Compose, use the variables. Releases up to 0.14.0 need `serve` and `--name value`.
 
+**Source flags in 0.18.0.** fake-gcs-server flags preserve working requests or stop startup with a native alternative. Accepted translations emit a canonical `native_args` JSON array at info level, preserving supplied values except unsafe URLs. A shell line is shown only when no value contains a quote, backslash or control character; otherwise decode the array and pass each element as one argument. `--filesystem-root`, `--external-url`, `--cors-headers` and `--location` are refused. `--public-host` selects `public_base_url`; its subdomains select virtual-host buckets, so call the JSON API through another host or set `--api-base-url` explicitly. Every `event.*` flag requires a local Pub/Sub emulator host. `--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native options; `--port-http` requires `--scheme both`. The scheme default remains HTTPS. The [complete flag table](docs/en/slices/option-aliases.md) records all flags and conditions.
+
 | Option | Effect | Compose `environment:` |
 | --- | --- | --- |
 | `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |

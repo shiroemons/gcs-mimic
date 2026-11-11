@@ -15,6 +15,7 @@ pub(crate) mod errors;
 pub(crate) mod http;
 pub(crate) mod ingress;
 pub(crate) mod interrupt;
+pub(crate) mod notifications;
 pub(crate) mod process;
 
 // Unit and integration tests share one fixture source so cleanup behavior cannot drift.

@@ -519,7 +519,7 @@ impl Config {
 
     fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
         let invalid_file_fields = read_selected_config(&mut inputs);
-        inputs.translate_aliases();
+        inputs.resolve_server_flags();
         let settings = collect_settings(&mut inputs);
         let mut report = ConfigurationReport {
             config: Self::default(),
@@ -636,7 +636,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                     }))
                 && match i.kind {
                     InputKind::Native | InputKind::Translated => true,
-                    InputKind::Alias(_) => false,
+                    InputKind::NativeFlag(_) | InputKind::Alias(_) | InputKind::Refused(_) => false,
                 }
         }) {
             if source == DiagnosticSource::Cli
@@ -1340,21 +1340,6 @@ impl ConfigurationReport {
             return;
         }
         if self.any_invalid(&["scheme", "listen", "listen_http"]) {
-            return;
-        }
-        // A port for the second listener means nothing without scheme=both, and a shared command
-        // line may carry it for the other schemes. An explicit listen_http stays an error below.
-        if self.config.scheme != Scheme::Both
-            && let Some(input) = settings
-                .get("listen_http")
-                .filter(|input| input.kind == InputKind::Translated)
-        {
-            self.diagnostics.warnings.push(Diagnostic::new(
-                input.source,
-                &input.key,
-                "This port applies only with scheme=both, so it is ignored; use --scheme both to serve HTTP on it.",
-            ));
-            self.config.listen_http = None;
             return;
         }
         let config = &self.config;

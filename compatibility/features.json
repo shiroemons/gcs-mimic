@@ -6131,9 +6131,9 @@
         },
         {
           "id": "BUCKET-DEFAULT-LOCATION-CONFIG",
-          "description": "default-location-config: configuration, API creation, initializer and administrative validation share location names; null/empty uses defaults, invalid defaults include valid examples, and legacy migration advice recommends the uppercase native setting while redacting unknown names.",
+          "description": "default-location-config: configuration, API creation, initializer and administrative validation share location names; null/empty uses defaults and invalid defaults include valid examples. Refuse the source location flag because its server-wide response setting differs from native creation defaults; recommend the uppercase native setting while redacting unknown names.",
           "result": "PASS",
-          "test_ids": ["default_location_validates_precedence_and_native_profile", "initializer_location_normalizes_names_and_defaults", "regional_and_dual_region_initializer_locations_use_shared_defaults", "bucket_definition_requires_matching_canonical_location_and_type", "alias_location_advice_uses_effective_native_setting"]
+          "test_ids": ["default_location_validates_precedence_and_native_profile", "initializer_location_normalizes_names_and_defaults", "regional_and_dual_region_initializer_locations_use_shared_defaults", "bucket_definition_requires_matching_canonical_location_and_type", "refused_location_advice_names_the_native_creation_default"]
         },
         {
           "id": "BUCKET-LEGACY-LOCATION-UNCHANGED",
@@ -6364,7 +6364,7 @@
         "initializer_location_normalizes_names_and_defaults",
         "regional_and_dual_region_initializer_locations_use_shared_defaults",
         "bucket_definition_requires_matching_canonical_location_and_type",
-        "alias_location_advice_uses_effective_native_setting",
+        "refused_location_advice_names_the_native_creation_default",
         "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
         "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
         "TestBucketLocations",
@@ -6441,11 +6441,11 @@
           ]
         },
         {
-          "command": "cargo test --locked --offline --lib config_input::tests::alias_location_advice_uses_effective_native_setting",
+          "command": "cargo test --lib config_input::tests",
           "result": "PASS",
-          "verified_at": "2026-10-27",
-          "artifact": "docs/en/slices/sdk-regional-locations.md",
-          "test_ids": ["alias_location_advice_uses_effective_native_setting"]
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/slices/option-aliases.md",
+          "test_ids": ["refused_location_advice_names_the_native_creation_default"]
         },
         {
           "command": "just check-sdk",
@@ -58049,7 +58049,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none or allow-all in both profiles; the default is allow-all in permissive mode, as fake-gcs-server allows every origin and a permissive user wants browser access without configuration, and none in strict mode, as Cloud Storage has no fallback, and an explicit value wins. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it, naming no replacement, because permissive mode already allows every origin and strict mode follows bucket cors rules. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets); where the permissive default allow-all is what allowed such a request, one info cors_fallback_default note says that Cloud Storage would refuse it, sharing that bounded memory, and an explicit allow-all logs nothing. The ready event reports the effective cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
+      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none or allow-all in both profiles; the default is allow-all in permissive mode, as fake-gcs-server allows every origin and a permissive user wants browser access without configuration, and none in strict mode, as Cloud Storage has no fallback, and an explicit value wins. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors. Since 0.18.0, -cors-headers fails in every auth mode/profile because its header allowlist cannot be preserved; advice names removal or explicit --cors-fallback allow-all, without echoing the list. FAKE_GCS_* variables are not read. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets); where the permissive default allow-all is what allowed such a request, one info cors_fallback_default note says that Cloud Storage would refuse it, sharing that bounded memory, and an explicit allow-all logs nothing. The ready event reports the effective cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md and docs/en/slices/option-aliases.md.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052"
@@ -58059,11 +58059,12 @@
       "acceptance_cases": [
         {
           "id": "DESIGN-100-CONFIG",
-          "description": "Default allow-all in permissive mode and none in strict mode, an explicit value winning in both; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice says to remove it, because permissive mode already allows every origin and strict mode follows bucket cors rules, names no cors_fallback value and does not echo the list, while the alias still selects allow-all.",
+          "description": "Default allow-all in permissive mode and none in strict mode, an explicit value winning in both; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example and ready field. Refuse -cors-headers in every auth mode/profile with exit 1, the original key and no startup; explain its incompatible global header list and name removal or explicit --cors-fallback allow-all without echoing the list. Strict bucket rules and native fallback remain unchanged.",
           "result": "PASS",
           "test_ids": [
             "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
             "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "refused_flags_report_every_original_key_before_startup",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses"
           ]
@@ -58109,6 +58110,7 @@
         "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
         "the_cors_fallback_default_follows_the_auth_mode_and_notes_what_it_allows",
         "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "refused_flags_report_every_original_key_before_startup",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "api_origin_ready_and_resumable_locations_use_bound_addresses",
         "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
@@ -58120,13 +58122,22 @@
       ],
       "verification": [
         {
+          "command": "cargo test --lib config_input::tests; cargo test --test it_process -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/slices/option-aliases.md",
+          "test_ids": [
+            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "refused_flags_report_every_original_key_before_startup"
+          ]
+        },
+        {
           "command": "bash scripts/with-test-tmpdir.sh bash scripts/test-rust.sh",
           "result": "PASS",
           "verified_at": "2026-10-29",
           "artifact": "docs/en/evidence/cors-fallback.md",
           "test_ids": [
             "config::tests::cors_fallback_defaults_by_auth_mode_with_precedence_in_both_profiles",
-            "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "api_origin_ready_and_resumable_locations_use_bound_addresses",
             "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
@@ -58161,7 +58172,7 @@
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "5eb3efdd0b7b4b83d1b419151e1a9d627ed035cf",
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-11"
     },
     {
       "id": "DESIGN-101",
@@ -59000,7 +59011,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Source builds now map supported legacy backend/events/filesystem-root settings to bounded RAM, explicitly configured local Pub/Sub delivery and disk-root behavior; accepted settings are not ignored. Unsupported or incomplete settings fail visibly. New administration, atomic replay, source migration, synchronization and client adapters require their declared source builds and final combined execution; published 0.7.0 examples do not contain those additions. This broad onboarding row remains PARTIAL. See docs/en/slices/option-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
+      "notes": "Existing host/peer CRUD, bounded configuration diagnostics, advertised/public origins, CORS/strict signatures, location defaults and dual-listener evidence retains its linked historical scope. Since 0.18.0, host/port/port-http are native options and port-http requires scheme=both. Accepted source translations preserve working requests and emit one native-equivalent info diagnostic with canonical native_args and a shell line when values need no JSON escaping; filesystem-root, external-url, cors-headers and location fail together with per-flag native advice. public-host is accepted with advice that its subdomains select virtual-host buckets, so JSON callers need another host or an explicit api_base_url. Every event.* flag requires an effective local Pub/Sub emulator host; no Google delivery occurs. HTTPS remains the default. New administration, atomic replay, source migration, synchronization and client adapters retain their separately scoped evidence and integrated-execution gates. This broad onboarding row remains PARTIAL. See docs/en/slices/option-aliases.md, docs/en/fake-gcs-server-configuration.md and docs/en/evidence/migration-integration.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -59051,7 +59062,7 @@
         },
         {
           "id": "UX-003-LEGACY-DIAGNOSTICS",
-          "description": "config-legacy-input-diagnostics: cover all 19 CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. FAKE_GCS_* variables are not read; adopt an existing /data disjoint from the native directories as default_seed_dir, never adopt it on overlap, ancestry, symlinks or a missing path, and warn when it cannot be inspected. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
+          "description": "Cover all 19 CLI names with native, accepted or refused classification, empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; preserve native values --object -data/-port/-x in helper commands. Derive safe host/port/scheme/URL/location/log fixes while redacting URL userinfo/queries and TLS/identity contents; retain supplied paths and identifiers in canonical native_args. Refused global header-list and external-url inputs explain native CORS and resumable URL differences. Diagnose Compose-only settings and replaced CMD listen/data choices. FAKE_GCS_* variables are not read; default_seed_dir adopts only an existing /data disjoint from native directories. Preserve 1024/1025 occurrences, 256/257-byte keys, source/key/repeated-key ordering, info before warnings before errors, JSON escaping, independent malformed config/TLS/identity failures, page batches and no panic. Preflight errors produce exit 1 without ready or catalog creation.",
           "result": "PASS",
           "test_ids": [
             "config_input::tests::alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
@@ -59089,7 +59100,7 @@
         },
         {
           "id": "UX-003-CLI-ENTRY",
-          "description": "Server options start the server without the serve word when the first argument is an option, in any order, with one or two hyphens and a separate or equals value; -h, --h, -help and --help print usage. --port, --port-http and --host keep the rest of the effective listener address, so a native binary stays on loopback, and a malformed configured address is reported under its own name. --port-http outside scheme=both warns and is ignored while a native listen_http stays an error. A flag warns only when its translation leaves something to know. FAKE_GCS_* variables are not read.",
+          "description": "Server options start the server without the serve word when the first argument is an option, in any order, with one or two hyphens and a separate or equals value; -h, --h, -help and --help print usage. Native --port, --port-http and --host keep the rest of the effective listener address, so a native binary stays on loopback; malformed configured addresses retain their own diagnostic key. Both port-http and listen_http require scheme=both and fail before startup otherwise. Native options are quiet, accepted translations emit one native-equivalent info block and inexact flags fail. FAKE_GCS_* variables are not read; the HTTPS default is unchanged.",
           "result": "PASS",
           "test_ids": [
             "config_input::tests::option_first_command_lines_start_the_server",
@@ -59097,9 +59108,10 @@
             "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
             "config_input::tests::help_is_recognized_only_at_option_positions",
             "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
-            "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
-            "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
-            "config_input::tests::only_inputs_that_behave_differently_warn",
+            "config_input::tests::port_http_and_listen_http_require_both",
+            "config_input::tests::public_host_translation_follows_the_effective_scheme",
+            "config_input::tests::native_options_are_quiet_and_inexact_flags_are_refused",
+            "native_listener_flags_start_both_listeners_and_reject_unused_http_port",
             "config_input::tests::helper_commands_point_server_options_at_serve",
             "config_input::tests::fake_gcs_server_variables_are_not_read",
             "native_options_without_serve_start_quietly_on_loopback",
@@ -59107,6 +59119,32 @@
             "running_without_arguments_names_the_command_to_use",
             "fake_gcs_server_variables_do_not_affect_the_server"
           ]
+        },
+        {
+          "id": "UX-003-TRANSLATED-FLAGS",
+          "description": "Accepted backend, public-host, seed, certificate/key and local event translations emit one native_equivalent info diagnostic with a canonical native_args JSON string array. Replay decoded arguments unchanged into a fresh catalog; compare effective configuration, trusted custom TLS fixture reads and notification topic/bucket/prefix/event delivery. Values without quotes, backslashes or control characters also provide a shell line that round-trips directly from raw stderr; other values omit the line and retain exact decoded array values. Unsafe URLs are redacted. Public hosts accept DNS and IP authorities, explain JSON/subdomain routing, and retain explicit API-origin conflict errors. Invalid listener, public-host and TLS-path values retain original keys; empty listener environment retains lower defaults for CLI listener parts. Shell and special-path tests run on Unix. Source-invalid event.list=none and invalid TLS material fail before startup.",
+          "result": "PASS",
+          "test_ids": [
+            "accepted_native_args_round_trip_through_tls_and_notifications",
+            "safe_native_line_round_trips_from_raw_stderr",
+            "json_escaped_values_use_exact_native_args_without_a_pasteable_line",
+            "public_host_accepts_dns_and_ip_origins_and_preserves_explicit_api_conflict_errors",
+            "invalid_native_and_translated_flag_values_keep_the_original_key",
+            "empty_listen_environment_keeps_defaults_when_a_cli_part_overrides_it",
+            "alias_values_that_have_no_source_meaning_or_invalid_tls_stop_startup"
+          ]
+        },
+        {
+          "id": "UX-003-REFUSED-FLAGS",
+          "description": "filesystem-root, external-url, cors-headers and location fail together for all four CLI spellings, permissive/strict auth and native/legacy profiles. Each original key has a reason and native alternative; exit is 1 with no stdout or data directory. external-url advice explains source selfLink/mediaLink versus native resumable URL fixing and requires a client-reachable address. Unsafe values are redacted and warnings no longer permit inexact semantics.",
+          "result": "PASS",
+          "test_ids": ["refused_flags_report_every_original_key_before_startup"]
+        },
+        {
+          "id": "UX-003-LOCAL-EVENT-FLAGS",
+          "description": "All five event.* flags require an effective local Pub/Sub emulator host from CLI, GCS_MIMIC_PUBSUB_EMULATOR_HOST, PUBSUB_EMULATOR_HOST or JSON. Higher-priority empty hosts disable lower values. Without a host every original event flag is refused and explains that gcs-mimic never publishes to Google; with complete local settings startup succeeds and emits one canonical native_args array.",
+          "result": "PASS",
+          "test_ids": ["event_aliases_require_an_effective_local_emulator_host"]
         },
         {
           "id": "UX-003-PUBLIC-ORIGIN",
@@ -59160,7 +59198,7 @@
         },
         {
           "id": "UX-003-LOG-LEVEL",
-          "description": "config-log-level: convert production stderr events to newline-delimited JSON with debug/info/warn/error severity and effective minimum-level filtering; default info, warning alias, CLI > environment > file precedence and invalid/empty level rejection before catalog access. Cover debug connection completion, info seed/stop, warning transport/deferred cleanup and error lock release. Keep complete validation batches (warnings and errors) and stdout ready/stopped unfiltered at every level; preserve startup order and redact transport error details. Legacy LOG_LEVEL inputs still fail with effective native migration advice.",
+          "description": "Production stderr events and informational diagnostics use newline-delimited JSON with effective minimum-level filtering; default info, warning alias, CLI > environment > file precedence and invalid/empty level rejection before catalog access. Cover debug connection completion, info seed/stop and the native-equivalent option block, warning transport/deferred cleanup and error lock release. Keep validation warnings/errors and stdout ready/stopped unfiltered at every level; redact transport error details. -log-level is native and FAKE_GCS_LOG_LEVEL is not read.",
           "result": "PASS",
           "test_ids": [
             "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
@@ -59173,11 +59211,11 @@
         },
         {
           "id": "UX-003-REMAINING-SETTINGS",
-          "description": "config-remaining-settings: native US default and multi-region, regional or dual-region default_location via CLI > environment > JSON file > default; an empty value means the default and invalid values are rejected. Apply only to omitted locations on new API/initializer buckets; explicit fields and create authorization remain authoritative, invalid explicit fields keep existing errors, and restart/default changes preserve existing buckets. Reject explicit defaults in legacy before catalog access; accept case-insensitive US-CENTRAL1 create locations without storing them and reject other explicit locations. FAKE_GCS_LOCATION becomes the native setting, and an unsupported value fails with actionable native-only guidance. Add no global CORS setting. Contract: docs/en/slices/configuration-workflows.md.",
+          "description": "Native US default and multi-region, regional or dual-region default_location via CLI > environment > JSON file > default; an empty value means the default and invalid values are rejected. Apply only to omitted locations on new API/initializer buckets; explicit fields and create authorization remain authoritative, invalid explicit fields keep existing errors, and restart/default changes preserve existing buckets. Reject explicit defaults in legacy before catalog access; accept case-insensitive US-CENTRAL1 create locations without storing them and reject other explicit locations. Refuse -location with native creation-default advice because it cannot preserve the source-wide response setting. FAKE_GCS_LOCATION is not read. Add no global CORS setting. Contract: docs/en/slices/configuration-workflows.md.",
           "result": "PASS",
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
-            "config_input::tests::alias_location_advice_uses_effective_native_setting",
+            "config_input::tests::refused_location_advice_names_the_native_creation_default",
             "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
             "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
@@ -59211,7 +59249,7 @@
         "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
         "invalid_log_levels_and_alias_diagnostics_fail_before_catalog",
         "config::tests::default_location_validates_precedence_and_native_profile",
-        "config_input::tests::alias_location_advice_uses_effective_native_setting",
+        "config_input::tests::refused_location_advice_names_the_native_creation_default",
         "bucket_init::tests::initializer_location_normalizes_names_and_defaults",
         "default_location_applies_to_new_api_and_initializer_buckets_only",
         "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
@@ -59252,9 +59290,19 @@
         "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
         "config_input::tests::help_is_recognized_only_at_option_positions",
         "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
-        "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
-        "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
-        "config_input::tests::only_inputs_that_behave_differently_warn",
+        "config_input::tests::port_http_and_listen_http_require_both",
+        "config_input::tests::public_host_translation_follows_the_effective_scheme",
+        "config_input::tests::native_options_are_quiet_and_inexact_flags_are_refused",
+        "native_listener_flags_start_both_listeners_and_reject_unused_http_port",
+        "accepted_native_args_round_trip_through_tls_and_notifications",
+        "safe_native_line_round_trips_from_raw_stderr",
+        "json_escaped_values_use_exact_native_args_without_a_pasteable_line",
+        "public_host_accepts_dns_and_ip_origins_and_preserves_explicit_api_conflict_errors",
+        "invalid_native_and_translated_flag_values_keep_the_original_key",
+        "empty_listen_environment_keeps_defaults_when_a_cli_part_overrides_it",
+        "alias_values_that_have_no_source_meaning_or_invalid_tls_stop_startup",
+        "refused_flags_report_every_original_key_before_startup",
+        "event_aliases_require_an_effective_local_emulator_host",
         "config_input::tests::helper_commands_point_server_options_at_serve",
         "config_input::tests::fake_gcs_server_variables_are_not_read",
         "native_options_without_serve_start_quietly_on_loopback",
@@ -59284,6 +59332,31 @@
         "a_session_opened_through_one_host_completes_through_another"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib config_input::tests; cargo test --locked --offline --test it_process --test it_xml_auth --test it_import_seed -- --test-threads=4; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/slices/option-aliases.md",
+          "test_ids": [
+            "config_input::tests::refused_location_advice_names_the_native_creation_default",
+            "config_input::tests::port_http_and_listen_http_require_both",
+            "config_input::tests::public_host_translation_follows_the_effective_scheme",
+            "config_input::tests::native_options_are_quiet_and_inexact_flags_are_refused",
+            "native_listener_flags_start_both_listeners_and_reject_unused_http_port",
+            "accepted_native_args_round_trip_through_tls_and_notifications",
+            "safe_native_line_round_trips_from_raw_stderr",
+            "json_escaped_values_use_exact_native_args_without_a_pasteable_line",
+            "public_host_accepts_dns_and_ip_origins_and_preserves_explicit_api_conflict_errors",
+            "invalid_native_and_translated_flag_values_keep_the_original_key",
+            "empty_listen_environment_keeps_defaults_when_a_cli_part_overrides_it",
+            "alias_values_that_have_no_source_meaning_or_invalid_tls_stop_startup",
+            "refused_flags_report_every_original_key_before_startup",
+            "event_aliases_require_an_effective_local_emulator_host",
+            "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
+            "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
+            "invalid_log_levels_and_alias_diagnostics_fail_before_catalog"
+          ]
+        },
         {"command":"Compose service in the final image on Docker Desktop for macOS arm64 with only GCS_MIMIC_SCHEME=http and the data mounts: a client on localhost:<published port> and a peer on gcs:4443 each ran a resumable upload","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["compose-peer-and-host-resumable"]},
         {"command":"cargo test --locked --test it_protocol -- request_host_http","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["every_rendered_link_follows_the_host_of_its_request","forwarded_headers_and_unusable_hosts_never_reach_an_advertised_link","a_session_opened_through_one_host_completes_through_another"]},
         {
@@ -59317,7 +59390,6 @@
           "artifact": "docs/en/slices/configuration-workflows.md",
           "test_ids": [
             "config::tests::default_location_validates_precedence_and_native_profile",
-            "config_input::tests::alias_location_advice_uses_effective_native_setting",
             "default_location_applies_to_new_api_and_initializer_buckets_only",
             "default_location_invalid_or_alias_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
@@ -59489,9 +59561,6 @@
             "config_input::tests::one_and_two_hyphens_mean_the_same_for_every_server_option",
             "config_input::tests::help_is_recognized_only_at_option_positions",
             "config_input::tests::a_lone_port_or_host_keeps_the_rest_of_the_listener_address",
-            "config_input::tests::a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected",
-            "config_input::tests::a_public_host_follows_the_effective_scheme_however_it_was_spelled",
-            "config_input::tests::only_inputs_that_behave_differently_warn",
             "config_input::tests::helper_commands_point_server_options_at_serve",
             "config_input::tests::fake_gcs_server_variables_are_not_read",
             "native_options_without_serve_start_quietly_on_loopback",

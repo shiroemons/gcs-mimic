@@ -638,6 +638,7 @@ async fn import(
                     verify_committed(catalog, &admin, &record).await?;
                     if committed.inode != observed.inode || committed.ctime_ns != observed.ctime_ns {
                         crate::diagnostics::Diagnostics {
+                            info: Vec::new(),
                             warnings: vec![crate::diagnostics::Diagnostic::new(
                                 crate::diagnostics::DiagnosticSource::Import,
                                 format!("element.{ordinal}"),

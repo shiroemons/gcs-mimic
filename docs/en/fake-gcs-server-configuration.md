@@ -49,13 +49,13 @@ listener; its computed external URL still selects HTTPS.
 
 `-public-host` supplies the public host authority and participates in Host
 matching on relevant object routes. It neither changes the listening address
-nor grants object access. `-external-url` controls the advertised endpoint,
-including resumable upload URLs. Its trailing slashes are removed when server
-options are constructed.
+nor grants object access. `-external-url` supplies the `selfLink` and `mediaLink`
+base, with trailing slashes removed. Resumable upload `Location` instead follows
+the request address.
 
 `-cors-headers` adds globally allowed **request** headers. It is not a
-per-bucket CORS policy or a list of exposed response headers. `-location` is a
-server-wide bucket location default. Event settings configure one publisher
+per-bucket CORS policy or a list of exposed response headers. `-location` is the
+server-wide location used in bucket responses. Event settings configure one publisher
 and optional bucket/object-prefix filters, not independent bucket policies.
 
 ## Precedence and validation
@@ -78,12 +78,21 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 ## Current gcs-mimic equivalents
 
-Use native names by role. When the server starts, gcs-mimic translates the
-known flags that have a native equivalent, and warns only when the translation
-leaves something to know. Since 0.8.0, disk/memory selection and event aliases
-with an explicit local Pub/Sub emulator are supported. Unknown backends and
-incomplete publisher settings fail. 0.7.0 has the earlier limitations; see
-[option aliases](slices/option-aliases.md).
+Use native names by role. Since 0.18.0, source flags preserve working requests or
+stop startup with a native alternative. Accepted translations emit one info
+diagnostic containing the canonical `native_args` JSON string array. A pasteable
+shell line is also shown when no value contains quotes, backslashes or control
+characters. Otherwise decode the array; copying raw JSON escapes changes values.
+Supplied values are preserved except unsafe URLs.
+`filesystem-root`, `external-url`, `cors-headers` and `location` are refused.
+`public-host` becomes `public_base_url`. Its subdomains select virtual-host
+buckets, so call the JSON API through a host outside those subdomains or set
+`--api-base-url` explicitly. Existing explicit API/public-origin conflicts
+still fail startup validation.
+Every `event.*` flag requires an explicit local Pub/Sub emulator host; unknown
+backends and incomplete publisher settings also fail. Native `host`, `port`
+and `port-http` control listener parts; `port-http` requires `scheme=both`.
+See the [complete flag classification](slices/option-aliases.md#behavior).
 Since 0.15.0, `FAKE_GCS_*` variables are not read; set the matching flag
 or `GCS_MIMIC_*` variable.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
@@ -94,8 +103,8 @@ generally mean “use the default.” See the
 | --- | --- | --- |
 | Scheme | `GCS_MIMIC_SCHEME` | `http`, `https` or `both`; primary HTTPS in both mode |
 | Bind host and port | `GCS_MIMIC_LISTEN`, `--listen`, `--port`, `--host` | One `IP:port` value, or one part of it; `--port` and `--host` keep the other part |
-| Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP`, `--listen-http`, `--port-http` | Requires `scheme=both`; defaults to primary IP:8000. `--port-http` is ignored with a warning for other schemes |
-| Advertised API endpoint | Nothing; `GCS_MIMIC_API_BASE_URL` to fix one | Links follow each request's Host and connection scheme, which `-external-url` could not do. The setting fixes one API origin, separate from public URL construction; a proxy that rewrites Host needs it. |
+| Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP`, `--listen-http`, `--port-http` | Requires `scheme=both`; defaults to primary IP:8000. Other schemes fail before startup |
+| Advertised API endpoint | Nothing; `GCS_MIMIC_API_BASE_URL` to fix one | Links follow each request's Host and connection scheme. Unlike source `-external-url`, this setting also fixes resumable upload URLs; choose an address every client can reach. A proxy that rewrites Host needs it. |
 | Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Replays on every startup; differing objects get new generations and identical objects keep theirs. Since 0.8.0, seeding adds atomic whole-tree replay and opt-in POST/PUT reseed, with disk merge and RAM replacement. `.metadata` files remain literal objects, not imported sidecars. |
 | Buckets created at startup | `GCS_MIMIC_BUCKETS` (the JSON document inline, for Compose `environment:`) or `GCS_MIMIC_BUCKETS_FILE` (a path), `GCS_MIMIC_BUCKETS_FILE_MODE` | The source creates buckets only from seed directories. The document names each bucket with its settings and is validated as a whole before seed; naming both settings fails startup. An inline document defaults to `GCS_MIMIC_BUCKETS_FILE_MODE=reconcile`, so an edit in `compose.yaml` applies to existing buckets at the next start; a file defaults to `create`. Compose expands `${VAR}` in an inline value, so write a literal `$` as `$$`. See [bucket initialization](slices/bucket-initialization.md). |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
@@ -109,7 +118,7 @@ generally mean “use the default.” See the
 | Local creator | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`, `--local-creator-email`, JSON `local_creator_email` | Native permissive mode only. The email recorded as `owner` and as the `user-` OWNER ACL entry of objects written without authentication, as Cloud Storage records the calling user. Default `local-user@gcs-mimic.invalid` (reserved domain); empty disables it and restores `project-owners-N`. It labels the creator and never grants access. A changed value renames the creator on existing objects at the next start. Strict mode records the registered caller, and the legacy profile records none, so both reject an explicit non-empty value. |
 | Signed URL checks | `GCS_MIMIC_SIGNED_URLS`, `--signed-urls`, JSON `signed_urls`; `GCS_MIMIC_TEST_SIGNER` | The source has no such setting. The permissive default `ignore` accepts signed URLs without checking their signatures. `verify` checks signed XML requests as strict mode does (403 `SignatureDoesNotMatch` for a changed request, 400 `ExpiredToken` after expiry) with the built-in test signer's published key, HMAC keys created through the JSON API and public keys from an identity document (`GCS_MIMIC_IDENTITY_FILE`, or `GCS_MIMIC_IDENTITIES` inline), then grants permissive access without permission checks. `GCS_MIMIC_TEST_SIGNER` defaults to `enabled` with `verify`, and in strict mode when the identity document declares `test-signer@gcs-mimic.invalid`; an explicit `enabled` while signatures are ignored fails startup. In strict mode an undeclared signer holds `roles/storage.objectUser` in the seed project and in the projects of the buckets the buckets document creates. Where the test signer is enabled, `GCS_MIMIC_SIGNED_HOST_PORT` defaults to `lenient` for that signer's own signatures, so a V4 URL it signed without the port, as Go storage does, still verifies; other keys must sign the port unless `lenient` is set explicitly, and an explicit `exact` wins. Besides signed URLs, `verify` covers V2/V4/AWS4 `Authorization` header signatures and POST policies, so S3-style clients that sign with made-up HMAC keys are rejected; create HMAC keys through the JSON API for them. Strict mode always verifies. See [verifying signed requests in permissive mode](signed-urls.md#verifying-signed-requests-in-permissive-mode). |
 | Trusted listener for application servers | `GCS_MIMIC_TRUSTED_LISTEN` with `GCS_MIMIC_TRUSTED_PRINCIPAL`, `--trusted-listen`/`--trusted-principal`, JSON `trusted_listen`/`trusted_principal`; `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` for dotted Host names | The source has no such setting and checks no permissions. Strict mode only: an extra plain HTTP listener where a request without credentials acts as the named registered identity under the normal strict checks; without `GCS_MIMIC_TRUSTED_PRINCIPAL` it acts as the built-in `trusted-app@gcs-mimic.invalid`, which holds `roles/storage.admin` in the seed project and in the projects of the buckets the buckets document creates, and which an identity entry with that ID replaces. Strict mode then starts even without an identity document, as it does with `GCS_MIMIC_TEST_SIGNER=enabled`; credentials authenticate as on the main listener and browser-initiated requests get 403. Only IP literals, `localhost` names, single-label names and listed names are accepted as Host, so a DNS rebinding page gets 421. Keep it off published ports. See the [trusted listener](container-usage.md#keep-private-buckets-private-with-a-trusted-listener). |
-| Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Structured stderr minimum severity; debug/info/warn/error, warning aliases warn; validation diagnostics and stdout ready/stopped are unfiltered |
+| Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Minimum severity for runtime events and informational diagnostics; debug/info/warn/error, warning aliases warn; validation warnings/errors and stdout ready/stopped are unfiltered |
 | Memory backend | `GCS_MIMIC_BACKEND=memory`, `--backend memory`, JSON `backend` since 0.8.0 | Volatile chunks and in-memory SQLite; configurable body budget (by default about half of the available memory, from 64 MiB to 1 GiB) and 16 MiB database-page default, separate from RSS. Existing disk data is untouched. See the [RAM contract](slices/memory-backend.md). |
 | Event publisher | `GCS_MIMIC_PUBSUB_EMULATOR_HOST` / `PUBSUB_EMULATOR_HOST` plus native/legacy event settings since 0.8.0 | Explicit local HTTP emulator, provisioned topics and bounded durable at-least-once outbox; a full outbox drops its oldest undelivered messages instead of failing the write. Creating a notification configuration also checks that its topic exists on the emulator. Missing local endpoint fails rather than contacting Google. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | Connection, session, seed and synchronization limits | `GCS_MIMIC_MAX_CONNECTIONS`, `GCS_MIMIC_MAX_GRPC_STREAMS`, `GCS_MIMIC_MAX_OBJECT_BYTES`, `GCS_MIMIC_MAX_RESUMABLE_SESSIONS`, `GCS_MIMIC_MAX_REWRITE_SESSIONS`, `GCS_MIMIC_MAX_SEED_ENTRIES`, `GCS_MIMIC_MAX_SEED_DEPTH`, `GCS_MIMIC_MAX_BUCKETS_PER_BATCH`, `GCS_MIMIC_MAX_SYNC_ENTRIES`, `GCS_MIMIC_MAX_SYNC_DEPTH` | Source settings have no equivalents, and the defaults (1024 connections, 100 streams, 5 TiB, and unlimited for the rest, where `0` means unlimited) need no change for ordinary migration. Lower `max_object_bytes` on a shared or exposed server. See [every limit](native-binary.md#native-binary-and-configuration). |
@@ -132,9 +141,9 @@ suffix to `GCS_MIMIC_`.
 
 Startup collects independent CLI, environment, JSON, TLS and identity failures
 before opening the catalog or binding a listener. It emits newline-delimited
-JSON on stderr: warnings first, then errors, each with a `diagnostics` array of
-`source`, original `key`, and actionable `fix`. Errors return nonzero with no
-ready event or data-directory creation. Diagnostic records sort by source and
+JSON on stderr: info first, then warnings and errors, each with a `diagnostics`
+array of `source`, original `key`, and actionable `fix`. Errors return nonzero
+with no ready event or data-directory creation. Records sort by source and
 original key; repeated keys keep encounter order. Values and material contents
 are omitted, except validated migration host/port/scheme/location/log-level
 values and HTTP(S) URLs without credentials, queries or fragments.
@@ -151,10 +160,12 @@ supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
 `GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`, together with
 `GCS_MIMIC_COMPAT_PROFILE=native`. Unknown names are redacted and receive valid
 examples. The legacy profile's global default remains unsupported.
-For `serve`, the translated setting takes effect and a flag warns only when the
-translation leaves something to know; the table in
-[option aliases](slices/option-aliases.md) lists each
-translation. Incomplete event configuration remains an error.
+For `serve`, accepted translations take effect and appear together in one
+`native_equivalent` info diagnostic. Refused flags each produce an error with
+the original key and the reason their meaning cannot be preserved; exit status
+is 1 and nothing starts. `log_level=warn` or `error` suppresses info, but never
+validation warnings or errors. The [flag table](slices/option-aliases.md)
+records each kind. The HTTPS default is unchanged.
 
 Since 0.15.0, every server option is accepted in one- and two-hyphen forms
 with separate or equals values, and a command line that starts with an option

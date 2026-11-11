@@ -33,9 +33,10 @@ volumes:
   source-data:
 ```
 
-Five common option groups translate as follows. Old flags also work unchanged
-since 0.7.0; since 0.15.0, `FAKE_GCS_*` variables are not read. This
-walkthrough uses the native names. See
+Five common option groups translate as follows. Since 0.18.0, source flags
+are accepted when their translations preserve working requests;
+inexact flags stop startup with a native alternative. Since 0.15.0,
+`FAKE_GCS_*` variables are not read. This walkthrough uses native names. See
 [option aliases](slices/option-aliases.md).
 
 | Before | After in this walkthrough | Why |
@@ -43,7 +44,7 @@ walkthrough uses the native names. See
 | `-scheme http` | `GCS_MIMIC_SCHEME: http` | Otherwise the default is HTTPS, so existing HTTP clients fail. The image healthcheck follows this setting without an override. |
 | `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
-| `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
+| `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | `filesystem` selects native `disk`; `filesystem-root` is refused. Keep the source volume separate and import a stopped snapshot into a new destination. Native `--backend memory` is also available. |
 | `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount, or the same document inline in `GCS_MIMIC_BUCKETS` ([below](#bucket-file-inside-composeyaml)) | A `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the bucket document is the way to give buckets CORS, versioning or IAM policy settings. |
 
 The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
@@ -376,7 +377,7 @@ the built-in test signer for this, and its README shows the entry that uses it.
 | A `FAKE_GCS_*` variable has no effect | Since 0.15.0 they are not read | Set the matching flag or `GCS_MIMIC_*` variable. |
 | Startup rejects `-scheme` | A [withdrawn release](release-policy.md#withdrawn-releases) (0.6.0 or earlier) does not translate source names | Upgrade to the current release, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | Startup rejects `-event.pubsub-topic` or another `-event.*` flag | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
-| SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL` or `-external-url`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |
+| SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when a server hands an unsigned session URI to a browser. |
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. |
@@ -581,33 +582,43 @@ or their source-specific wrappers pass unchanged.
 The [complete environment reference](fake-gcs-server-configuration.md) lists all
 19 source variables, defaults, CLI precedence and current native mappings.
 
-`serve` translates source flags and variables with an equivalent into these
-native settings and warns for each one; see
-[option aliases](slices/option-aliases.md) for the exact
-translation and its exceptions. New configuration should use `serve --name VALUE`
-and native `GCS_MIMIC_*` environment variables.
+`serve` accepts translations that preserve working requests and shows native equivalents
+in one info diagnostic with a canonical `native_args` JSON array. A shell line
+is included only for values without quotes, backslashes or control characters;
+otherwise decode the array and pass each element as one argument.
+It refuses inexact flags with one error per original key,
+reports them together and exits with status 1 before startup.
+`FAKE_GCS_*` variables are not read. See the
+[complete classification](slices/option-aliases.md#behavior); use native names
+for new configurations.
 
 | fake-gcs-server option | Current gcs-mimic setting | Difference |
 | --- | --- | --- |
 | `-scheme http` / `https` / `both` | `--scheme`, `GCS_MIMIC_SCHEME` | Both uses primary HTTPS and a second HTTP listener with one advertised API origin |
 | `-host`, `-port` | `--host`, `--port`, `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | `--host` and `--port` keep the other part of the address; container port publication remains separate |
-| `-port-http` | `--port-http`, `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Applies only with `scheme=both`; default primary IP:8000. `--port-http` is ignored with a warning for other schemes |
-| `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links, which otherwise follow each request's Host; not a public-host allowlist. Removable unless a proxy rewrites Host |
-| `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
+| `-port-http` | Native `--port-http`, `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000. Other schemes fail instead of discarding the port |
+| `-external-url` | Refused; choose `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Source fixes selfLink/mediaLink only; native fixes resumable URLs too. Choose an address every client can reach, or omit the fixed origin |
+| `-public-host` | Accepted as `--public-base-url` with the effective scheme | Its subdomains select virtual-host buckets; JSON API callers must use another host or set `--api-base-url` explicitly. Existing explicit API-origin conflicts still fail |
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed; live synchronization uses a separate `--sync-dir`. 0.7.0 and earlier lack those additions. |
-| `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
+| `-filesystem-root` | Refused; choose `--data-dir` or `GCS_MIMIC_DATA_DIR` | Image path `/var/lib/gcs-mimic`; convert a stopped source snapshot with `gcs-mimic import fake-gcs-server` instead of reusing its format |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
-| `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
-| `-cors-headers` | Remove it. Permissive mode already allows browser reads of XML/public URLs of buckets without rules (`cors_fallback` defaults to `allow-all`); strict mode and buckets with rules use bucket `cors` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. Strict mode defaults to `none`. See [CORS fallback](slices/cors-fallback.md) |
-| `-location` | `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, JSON `default_location` | Native accepts official regional/predefined dual-region and `US`, `EU`, `ASIA` names, case-insensitively; API/initializer nonempty location wins. Legacy profile retains fixed `US-CENTRAL1` and rejects the global default. No physical placement or configurable dual-region simulation; see [location contract](slices/sdk-regional-locations.md). |
+| `-log-level` | Native `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr and informational diagnostic severity; validation warnings/errors and stdout lifecycle remain unfiltered |
+| `-cors-headers` | Refused; remove it or explicitly choose `--cors-fallback allow-all` | The source's global header allowlist cannot be preserved. Permissive mode already allows every origin without bucket rules; strict mode follows bucket rules. Explicit fallback applies only to XML/public buckets without rules; stored rules and JSON behavior stay unchanged |
+| `-location` | Refused; choose `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION` or JSON `default_location` | The source controls a server-wide response location; native defaults affect only new buckets without an explicit location. Existing buckets and explicit locations win; legacy profile rejects the default |
+| `-event.pubsub-project-id`, `-event.pubsub-topic`, `-event.bucket`, `-event.object-prefix`, `-event.list` | Native `--event-*` spellings | Accepted only with a configured local Pub/Sub emulator host. gcs-mimic never publishes to Google. Use native `--event-list none` to disable the global rule |
 | `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` since 0.8.0 | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
 
 The source's `-public-host` controls public URL construction and Host matching
 on relevant public routes; it does not select the listener. A configured port
-participates in its matching. `-external-url` separately controls API-generated
-URLs. Native virtual-host domains are DNS suffixes without a port; the actual
+participates in its matching. `-external-url` controls the source's selfLink and
+mediaLink bases; resumable `Location` follows the request address. Native
+`api_base_url` also fixes resumable URLs, so `external-url` is refused.
+Native virtual-host domains are DNS suffixes without a port; the actual
 request authority still includes the port for strict signature checks.
 Neither product's public-host/URL setting grants bucket permissions.
+Unlike fake-gcs-server, public-host subdomains select virtual-host buckets
+before JSON routing. Use a host outside those subdomains for JSON requests or
+set `--api-base-url` explicitly; the accepted flag's info includes this advice.
 Public-origin normalization removes HTTP 80/HTTPS 443 and lowercases DNS;
 non-default ports remain significant. IPs support path-style only. With legacy
 matching, use equal API/public authorities for SDK XML reads: a different API

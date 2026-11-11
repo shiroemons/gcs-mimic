@@ -111,6 +111,8 @@ pub struct Diagnostic {
     pub source: DiagnosticSource,
     pub key: String,
     pub fix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_args: Option<Vec<String>>,
 }
 
 impl Diagnostic {
@@ -119,12 +121,14 @@ impl Diagnostic {
             source,
             key: key.into(),
             fix: fix.into(),
+            native_args: None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Diagnostics {
+    pub info: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
     pub errors: Vec<Diagnostic>,
 }
@@ -132,6 +136,7 @@ pub struct Diagnostics {
 impl Diagnostics {
     pub fn error(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
         Self {
+            info: Vec::new(),
             warnings: Vec::new(),
             errors: vec![Diagnostic::new(source, key, fix)],
         }
@@ -143,10 +148,11 @@ impl Diagnostics {
 
     pub fn write(&self, mut writer: impl Write) -> io::Result<()> {
         for (level, records) in [
+            (LogLevel::Info, &self.info),
             (LogLevel::Warn, &self.warnings),
             (LogLevel::Error, &self.errors),
         ] {
-            if records.is_empty() {
+            if records.is_empty() || (level == LogLevel::Info && !enabled(level)) {
                 continue;
             }
             let mut records: Vec<_> = records.iter().collect();
@@ -209,6 +215,7 @@ pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -
             result = Err(io::Error::new(
                 close.kind(),
                 Diagnostics {
+                    info: Vec::new(),
                     warnings: Vec::new(),
                     errors: vec![diagnostic],
                 },
@@ -257,6 +264,12 @@ mod tests {
     #[test]
     fn batches_are_ordered_escaped_independent_and_do_not_replay_pages() {
         let mut first = Diagnostics::default();
+        first.info.push(Diagnostic::new(
+            DiagnosticSource::Cli,
+            "native_equivalent",
+            "--backend 'disk'",
+        ));
+        assert!(!first.is_err());
         first
             .errors
             .push(Diagnostic::new(DiagnosticSource::Config, "a", "config"));
@@ -285,14 +298,15 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0]["level"], "warn");
-        assert_eq!(lines[1]["level"], "error");
-        assert_eq!(lines[1]["diagnostics"][0]["fix"], "first\nline");
-        assert_eq!(lines[1]["diagnostics"][1]["fix"], "second");
-        assert_eq!(lines[1]["diagnostics"][2]["key"], "z");
-        assert_eq!(lines[1]["diagnostics"][3]["source"], "config");
-        assert_eq!(lines[2]["diagnostics"].as_array().unwrap().len(), 1);
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0]["level"], "info");
+        assert_eq!(lines[1]["level"], "warn");
+        assert_eq!(lines[2]["level"], "error");
+        assert_eq!(lines[2]["diagnostics"][0]["fix"], "first\nline");
+        assert_eq!(lines[2]["diagnostics"][1]["fix"], "second");
+        assert_eq!(lines[2]["diagnostics"][2]["key"], "z");
+        assert_eq!(lines[2]["diagnostics"][3]["source"], "config");
+        assert_eq!(lines[3]["diagnostics"].as_array().unwrap().len(), 1);
         assert!(first.is_err() && second.is_err());
         for (source, expected) in [
             (DiagnosticSource::Tls, "tls"),

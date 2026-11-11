@@ -66,66 +66,76 @@ where
 
 crate::config::string_enum! {
     no_default
-    /// Server options that stand for a native setting under another name, or for part of one.
-    /// `Port`, `PortHttp` and `Host` are the documented way to move a listener, because they leave
-    /// the rest of its address alone. `Scheme` and `LogLevel` name native settings on `serve`;
-    /// they are listed so that a helper command can say they belong to the server.
+    /// Native CLI options, including the independently configurable parts of a listener.
     #[derive(PartialOrd, Ord)]
-    pub(crate) enum AliasFlag {
+    pub(crate) enum NativeFlag {
         Port => "port",
         PortHttp => "port-http",
-        Backend => "backend",
-        FilesystemRoot => "filesystem-root",
-        PublicHost => "public-host",
-        ExternalUrl => "external-url",
         Scheme => "scheme",
         Host => "host",
+        LogLevel => "log-level",
+    }
+    "unknown native flag"
+}
+
+crate::config::string_enum! {
+    no_default
+    /// Source flags whose translations preserve requests that worked with the source.
+    #[derive(PartialOrd, Ord)]
+    pub(crate) enum AliasFlag {
+        Backend => "backend",
+        PublicHost => "public-host",
         Data => "data",
-        CorsHeaders => "cors-headers",
         EventPubsubProjectId => "event.pubsub-project-id",
         EventPubsubTopic => "event.pubsub-topic",
         EventBucket => "event.bucket",
         EventObjectPrefix => "event.object-prefix",
         EventList => "event.list",
-        Location => "location",
         CertLocation => "cert-location",
         PrivateKeyLocation => "private-key-location",
-        LogLevel => "log-level",
     }
     "unknown flag"
 }
 
-impl AliasFlag {
-    /// Whether `value` belongs to this flag alone, so a name it shares with a native setting must
-    /// be translated rather than read as that setting.
-    fn value_needs_translation(self, value: &str) -> bool {
-        self == Self::Backend && value == "filesystem"
+crate::config::string_enum! {
+    no_default
+    /// These source settings cannot be given their original semantics.
+    #[derive(PartialOrd, Ord)]
+    pub(crate) enum RefusedFlag {
+        FilesystemRoot => "filesystem-root",
+        ExternalUrl => "external-url",
+        CorsHeaders => "cors-headers",
+        Location => "location",
     }
+    "unknown refused flag"
+}
 
-    /// Whether `value` is one the native setting takes unchanged. An empty value counts as unset,
-    /// and other values get the repair advice along with the native setting's own error.
-    fn translates_exactly(self, value: &str) -> bool {
-        value.is_empty()
-            || match self {
-                Self::Host => value == "localhost" || value.parse::<IpAddr>().is_ok(),
-                Self::Port | Self::PortHttp => value.parse::<u16>().is_ok(),
-                Self::ExternalUrl => safe_url(value),
-                Self::Location => bucket_location(value).is_ok(),
-                Self::Backend
-                | Self::FilesystemRoot
-                | Self::PublicHost
-                | Self::Scheme
-                | Self::Data
-                | Self::CorsHeaders
-                | Self::EventPubsubProjectId
-                | Self::EventPubsubTopic
-                | Self::EventBucket
-                | Self::EventObjectPrefix
-                | Self::EventList
-                | Self::CertLocation
-                | Self::PrivateKeyLocation
-                | Self::LogLevel => true,
-            }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ServerFlag {
+    Native(NativeFlag),
+    Alias(AliasFlag),
+    Refused(RefusedFlag),
+}
+
+impl ServerFlag {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Native(flag) => flag.as_str(),
+            Self::Alias(flag) => flag.as_str(),
+            Self::Refused(flag) => flag.as_str(),
+        }
+    }
+}
+
+impl std::str::FromStr for ServerFlag {
+    type Err = crate::config::InvalidChoice;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value
+            .parse()
+            .map(Self::Native)
+            .or_else(|_| value.parse().map(Self::Alias))
+            .or_else(|_| value.parse().map(Self::Refused))
     }
 }
 
@@ -143,8 +153,10 @@ pub(crate) struct Input {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputKind {
     Native,
+    NativeFlag(NativeFlag),
     /// A flag that stands for a native setting, as supplied.
     Alias(AliasFlag),
+    Refused(RefusedFlag),
     /// The native setting an `Alias` input became; its key names that input.
     Translated,
 }
@@ -221,18 +233,22 @@ impl Inputs {
             let supplied = inline.or(next.map(String::as_str));
             // One and two hyphens mean the same, so the count never selects a meaning.
             let spelled = (1..=2).contains(&hyphens);
-            let flag = name.parse::<AliasFlag>().ok().filter(|_| spelled);
-            let translated = flag
-                .zip(supplied)
-                .is_some_and(|(f, v)| f.value_needs_translation(v));
-            let native = spelled && native_name && !translated;
-            let alias = flag.filter(|_| !native);
+            let flag = name.parse::<ServerFlag>().ok().filter(|_| spelled);
+            let filesystem_backend = flag.zip(supplied).is_some_and(|(f, v)| {
+                f == ServerFlag::Alias(AliasFlag::Backend) && v == "filesystem"
+            });
+            let native = spelled && native_name && !filesystem_backend;
+            let native_flag =
+                command == CliCommand::Serve && matches!(flag, Some(ServerFlag::Native(_)));
+            let special = flag.filter(|_| !native);
+            let expects_pair = special.is_none() || native_flag;
             let separate = inline.is_none()
                 && next.is_some_and(|value| {
                     native
+                        || native_flag
                         || !value.starts_with('-')
                         || value.parse::<i64>().is_ok()
-                        || (hyphens == 2 && alias.is_none())
+                        || (hyphens == 2 && special.is_none())
                 });
             let value = inline.or_else(|| {
                 if separate {
@@ -241,7 +257,7 @@ impl Inputs {
                     None
                 }
             });
-            let valid_syntax = (hyphens == 2 || native)
+            let valid_syntax = (hyphens == 2 || native || native_flag)
                 && (separate || (inline.is_some() && command == CliCommand::Serve));
             // fake-gcs-server users expect a valueless switch here, so name the value they need.
             let example = if native_name && normalized == "cors_fallback" {
@@ -254,8 +270,13 @@ impl Inputs {
                 key: key.into(),
                 name: normalized,
                 value: value.unwrap_or_default().into(),
-                kind: alias.map_or(InputKind::Native, InputKind::Alias),
-                invalid: (alias.is_none() && !valid_syntax).then_some(InputError::Syntax),
+                kind: match special {
+                    Some(ServerFlag::Native(flag)) => InputKind::NativeFlag(flag),
+                    Some(ServerFlag::Alias(flag)) => InputKind::Alias(flag),
+                    Some(ServerFlag::Refused(flag)) => InputKind::Refused(flag),
+                    None => InputKind::Native,
+                },
+                invalid: (expects_pair && !valid_syntax).then_some(InputError::Syntax),
             };
             let saved_key = if key.len() <= MAX_KEY_BYTES {
                 Some(key.to_owned())
@@ -265,13 +286,13 @@ impl Inputs {
             if !self.push(input) {
                 break;
             }
-            if alias.is_none()
+            if expects_pair
                 && !valid_syntax
                 && let Some(key) = saved_key
             {
                 self.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, key,
                     format!("Options require --name VALUE pairs; for example {example}. Use --help for supported options.")));
-                if !native_name {
+                if !native_name && !native_flag {
                     self.entries.pop();
                 }
             }
@@ -334,28 +355,31 @@ impl Inputs {
         }
     }
 
-    /// The alias flags on the command line, in the order given. Collected into a map, the last
-    /// occurrence of a flag wins.
-    fn alias_flags(&self) -> impl Iterator<Item = (AliasFlag, &Input)> {
+    /// The special CLI forms in encounter order; their last occurrence wins.
+    fn server_flags(&self) -> impl Iterator<Item = (ServerFlag, &Input)> {
         self.entries.iter().filter_map(|input| match input.kind {
-            InputKind::Alias(flag) => Some((flag, input)),
+            InputKind::NativeFlag(flag) => Some((ServerFlag::Native(flag), input)),
+            InputKind::Alias(flag) => Some((ServerFlag::Alias(flag), input)),
+            InputKind::Refused(flag) => Some((ServerFlag::Refused(flag), input)),
             InputKind::Native | InputKind::Translated => None,
         })
     }
 
-    /// Rejects alias flags given to helper commands, which have no server settings to map to.
-    pub(crate) fn diagnose_aliases(&mut self) {
-        let effective: BTreeMap<_, _> = self.alias_flags().collect();
+    /// Helper commands have no server settings to apply these flags to.
+    pub(crate) fn diagnose_server_flags(&mut self) {
+        let effective: BTreeMap<_, _> = self.server_flags().collect();
         let values = advice_values(&effective);
+        let base = TranslationBase::new(&self.entries, &effective);
         let errors: Vec<_> = self
-            .alias_flags()
+            .server_flags()
             .map(|(flag, input)| {
                 Diagnostic::new(
                     input.source,
                     &input.key,
                     format!(
-                        "Server options belong to gcs-mimic serve; remove this one from this command. For the server, {}.",
-                        alias_advice(flag, &values)
+                        "Server options belong to gcs-mimic serve; remove --{} from this command. For the server, {}.",
+                        flag.as_str(),
+                        flag_advice(flag, &values, &base)
                     ),
                 )
             })
@@ -363,23 +387,39 @@ impl Inputs {
         self.diagnostics.errors.extend(errors);
     }
 
-    /// Translates alias flags into native settings. A flag warns only when the translation
-    /// leaves something the user needs to know. Incomplete event publishing still fails: a test
-    /// that waits for notifications would otherwise start and time out without saying why.
-    ///
-    /// Runs after the config file is read, because a lone port or host keeps the rest of the
-    /// address the file may have chosen.
-    pub(crate) fn translate_aliases(&mut self) {
-        let effective: BTreeMap<_, _> = self.alias_flags().collect();
+    /// Runs after the file is read so listener parts and conditional translations use the
+    /// same precedence and defaults as native settings. Refused flags never reach the config.
+    pub(crate) fn resolve_server_flags(&mut self) {
+        let effective: BTreeMap<_, _> = self.server_flags().collect();
         let values = advice_values(&effective);
-        let base = TranslationBase::new(&self.entries);
-        let mut aliases: BTreeMap<&str, Input> = BTreeMap::new();
+        let base = TranslationBase::new(&self.entries, &effective);
+        let mut translated: BTreeMap<&str, Input> = BTreeMap::new();
+        let mut refused = BTreeMap::new();
+        let mut equivalent = Vec::new();
         for (flag, input) in &effective {
-            let Some((setting, value)) = translation(*flag, &effective, &base) else {
+            let Some(resolution) = resolve_flag(*flag, input, &effective, &values, &base) else {
                 continue;
             };
+            let (setting, value) = match resolution {
+                FlagResolution::Accept(setting, value) => (setting, value),
+                FlagResolution::Refuse(reason) => {
+                    refused.insert(*flag, reason);
+                    continue;
+                }
+            };
+            if let ServerFlag::Alias(source) = flag {
+                equivalent.extend([
+                    format!("--{}", setting.as_str().replace('_', "-")),
+                    if *source == AliasFlag::PublicHost && !safe_url(&value) {
+                        "<REDACTED>"
+                    } else {
+                        &value
+                    }
+                    .to_owned(),
+                ]);
+            }
             // host and port share one listener, so the first of them names it in diagnostics.
-            aliases.entry(setting.as_str()).or_insert_with(|| Input {
+            translated.entry(setting.as_str()).or_insert_with(|| Input {
                 source: input.source,
                 key: input.key.clone(),
                 name: setting.as_str().into(),
@@ -388,15 +428,14 @@ impl Inputs {
                 invalid: None,
             });
         }
-        let differences = self.alias_flags().filter_map(|(flag, input)| {
-            let difference = alias_difference(flag, &values, &base)?;
-            Some(Diagnostic::new(
-                input.source,
-                &input.key,
-                format!("This option works differently here; {difference}."),
-            ))
-        });
-        let overrides = aliases
+        let errors: Vec<_> = self
+            .server_flags()
+            .filter_map(|(flag, input)| {
+                let reason = refused.get(&flag)?;
+                Some(Diagnostic::new(input.source, &input.key, reason.clone()))
+            })
+            .collect();
+        let overrides = translated
             .values()
             .filter(|alias| {
                 self.entries.iter().any(|native| {
@@ -416,23 +455,52 @@ impl Inputs {
                     ),
                 )
             });
-        let warnings: Vec<_> = differences.chain(overrides).collect();
+        let warnings: Vec<_> = overrides.collect();
+        if !equivalent.is_empty() {
+            let routing = if effective.contains_key(&ServerFlag::Alias(AliasFlag::PublicHost)) {
+                "Requests to a public-host subdomain select a virtual-host bucket; call the JSON API through a host outside those subdomains or set --api-base-url explicitly. "
+            } else {
+                ""
+            };
+            // JSON escaping changes these bytes, so a raw log line cannot be pasted safely.
+            let fix = if equivalent.iter().any(|value| {
+                value
+                    .chars()
+                    .any(|c| matches!(c, '\'' | '"' | '\\') || c.is_control())
+            }) {
+                format!(
+                    "{routing}Use native_args, the canonical JSON argument array; decode it with jq before passing arguments to the process."
+                )
+            } else {
+                let block = equivalent
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| format!("{} {}", pair[0], shell_value(&pair[1])))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("{routing}Use native options: {block}")
+            };
+            let mut diagnostic = Diagnostic::new(DiagnosticSource::Cli, "native_equivalent", fix);
+            diagnostic.native_args = Some(equivalent);
+            self.diagnostics.info.push(diagnostic);
+        }
+        self.diagnostics.errors.extend(errors);
         self.diagnostics.warnings.extend(warnings);
         // Appended after native inputs, so an alias wins within its own source.
-        self.entries.extend(aliases.into_values());
+        self.entries.extend(translated.into_values());
     }
 }
 
 /// Values that advice may quote.
-fn advice_values<'a>(effective: &BTreeMap<AliasFlag, &'a Input>) -> BTreeMap<AliasFlag, &'a str> {
+fn advice_values<'a>(effective: &BTreeMap<ServerFlag, &'a Input>) -> BTreeMap<ServerFlag, &'a str> {
     effective
         .iter()
         .map(|(flag, input)| (*flag, input.value.as_str()))
         .collect()
 }
 
-/// The value of the highest-precedence native setting `name`. An empty value counts as absent:
-/// Compose's `${VAR:-}` produces one, and it names no address to keep.
+/// Empty listener parts retain their defaults; an empty Pub/Sub endpoint deliberately disables it.
 fn native_value<'a>(entries: &'a [Input], name: &str) -> Option<&'a str> {
     [
         DiagnosticSource::Cli,
@@ -445,7 +513,12 @@ fn native_value<'a>(entries: &'a [Input], name: &str) -> Option<&'a str> {
             input.source == source
                 && input.kind == InputKind::Native
                 && input.name == name
-                && !input.value.is_empty()
+                && (!input.value.is_empty() || name == "pubsub_emulator_host")
+                && !(input.key == "PUBSUB_EMULATOR_HOST"
+                    && entries.iter().any(|other| {
+                        other.source == DiagnosticSource::Environment
+                            && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
+                    }))
         })
     })
     .map(|input| input.value.as_str())
@@ -459,10 +532,11 @@ struct TranslationBase {
     listen: Option<SocketAddr>,
     http_ip: Option<IpAddr>,
     scheme: Option<Scheme>,
+    pubsub_emulator_host: bool,
 }
 
 impl TranslationBase {
-    fn new(entries: &[Input]) -> Self {
+    fn new(entries: &[Input], flags: &BTreeMap<ServerFlag, &Input>) -> Self {
         let listen = native_value(entries, "listen").map_or_else(
             || Some(crate::config::Config::default().listen),
             |address| address.parse().ok(),
@@ -474,7 +548,15 @@ impl TranslationBase {
         Self {
             listen,
             http_ip,
-            scheme: native_value(entries, "scheme").and_then(|scheme| scheme.parse().ok()),
+            scheme: native_value(entries, "scheme")
+                .or_else(|| {
+                    flags
+                        .get(&ServerFlag::Native(NativeFlag::Scheme))
+                        .map(|i| i.value.as_str())
+                })
+                .and_then(|scheme| scheme.parse().ok()),
+            pubsub_emulator_host: native_value(entries, "pubsub_emulator_host")
+                .is_some_and(|value| !value.is_empty()),
         }
     }
 
@@ -504,113 +586,124 @@ fn host_text(host: &str) -> String {
     host.parse().map_or_else(|_| host.to_owned(), bracketed_ip)
 }
 
-/// The native setting and value that `flag` maps to, if any.
-fn translation(
-    flag: AliasFlag,
-    flags: &BTreeMap<AliasFlag, &Input>,
+enum FlagResolution {
+    Accept(Setting, String),
+    Refuse(String),
+}
+
+/// A malformed native listener stays with its own validator; every source flag resolves once.
+fn resolve_flag(
+    flag: ServerFlag,
+    input: &Input,
+    flags: &BTreeMap<ServerFlag, &Input>,
+    values: &BTreeMap<ServerFlag, &str>,
     base: &TranslationBase,
-) -> Option<(Setting, String)> {
+) -> Option<FlagResolution> {
     let value = |key| flags.get(&key).map(|input| input.value.as_str());
-    let set = |key| value(key).filter(|v: &&str| !v.is_empty());
-    let text = value(flag)?.to_owned();
-    Some(match flag {
-        AliasFlag::Host | AliasFlag::Port => {
-            let host = match set(AliasFlag::Host) {
+    let set = |key| value(ServerFlag::Native(key)).filter(|v: &&str| !v.is_empty());
+    let text = &input.value;
+    let resolved = match flag {
+        ServerFlag::Native(NativeFlag::Host)
+            if text != "localhost" && text.parse::<IpAddr>().is_err() =>
+        {
+            FlagResolution::Refuse(
+                "host must be a numeric IP address or localhost; use --host 127.0.0.1".into(),
+            )
+        }
+        ServerFlag::Native(NativeFlag::Port | NativeFlag::PortHttp)
+            if text.parse::<u16>().is_err() =>
+        {
+            FlagResolution::Refuse(format!(
+                "{} must be a port in 0..65535; supply a numeric port",
+                input.key
+            ))
+        }
+        ServerFlag::Native(NativeFlag::Host | NativeFlag::Port) => {
+            let host = match set(NativeFlag::Host) {
                 Some(host) => host_text(host),
                 None => bracketed_ip(base.listen?.ip()),
             };
-            let port = match set(AliasFlag::Port) {
+            let port = match set(NativeFlag::Port) {
                 Some(port) => port.to_owned(),
                 None => base.listen?.port().to_string(),
             };
-            (Setting::Listen, format!("{host}:{port}"))
+            FlagResolution::Accept(Setting::Listen, format!("{host}:{port}"))
         }
-        AliasFlag::PortHttp => {
-            let host = match set(AliasFlag::Host) {
+        ServerFlag::Native(NativeFlag::PortHttp) if base.scheme != Some(Scheme::Both) => {
+            FlagResolution::Refuse(format!(
+                "{} requires scheme=both; set --scheme both or remove {}",
+                input.key, input.key
+            ))
+        }
+        ServerFlag::Native(NativeFlag::PortHttp) => {
+            let host = match set(NativeFlag::Host) {
                 Some(host) => host_text(host),
                 None => bracketed_ip(base.http_ip?),
             };
-            (Setting::ListenHttp, format!("{host}:{text}"))
+            FlagResolution::Accept(Setting::ListenHttp, format!("{host}:{text}"))
         }
-        AliasFlag::ExternalUrl => (Setting::ApiBaseUrl, text),
+        ServerFlag::Native(NativeFlag::Scheme) => {
+            FlagResolution::Accept(Setting::Scheme, text.clone())
+        }
+        ServerFlag::Native(NativeFlag::LogLevel) => {
+            FlagResolution::Accept(Setting::LogLevel, text.clone())
+        }
+        ServerFlag::Alias(source) => resolve_alias(source, text, base),
+        ServerFlag::Refused(source) => FlagResolution::Refuse(refused_advice(source, values)),
+    };
+    Some(resolved)
+}
+
+fn resolve_alias(flag: AliasFlag, text: &str, base: &TranslationBase) -> FlagResolution {
+    let (setting, value) = match flag {
         AliasFlag::PublicHost => (
             Setting::PublicBaseUrl,
             format!("{}://{text}", base.public_scheme()),
         ),
-        AliasFlag::Data => (Setting::SeedDir, text),
-        // Only `filesystem` arrives here; the native backends are native inputs.
+        AliasFlag::Data => (Setting::SeedDir, text.to_owned()),
         AliasFlag::Backend => (Setting::Backend, "disk".into()),
-        AliasFlag::CertLocation => (Setting::TlsCert, text),
-        AliasFlag::PrivateKeyLocation => (Setting::TlsKey, text),
-        AliasFlag::CorsHeaders => (Setting::CorsFallback, "allow-all".into()),
-        AliasFlag::Location => (Setting::DefaultLocation, text),
-        AliasFlag::EventPubsubProjectId => (Setting::EventPubsubProjectId, text),
-        AliasFlag::EventPubsubTopic => (Setting::EventPubsubTopic, text),
-        AliasFlag::EventBucket => (Setting::EventBucket, text),
-        AliasFlag::EventObjectPrefix => (Setting::EventObjectPrefix, text),
-        AliasFlag::EventList => (Setting::EventList, text),
-        // A reused fake-gcs-server volume is owned by root, so the unprivileged image could not
-        // write there and would fail to start.
-        AliasFlag::FilesystemRoot => return None,
-        // These name native settings on `serve`, so they arrive as native inputs.
-        AliasFlag::Scheme | AliasFlag::LogLevel => return None,
-    })
-}
-
-fn event_advice(flag: AliasFlag) -> String {
-    format!(
-        "use GCS_MIMIC_{} and an explicit PUBSUB_EMULATOR_HOST; only local emulator delivery is enabled",
-        flag.as_str().replace(['.', '-'], "_").to_ascii_uppercase()
-    )
-}
-
-/// What the user needs to know about `flag`, or `None` when its translation is exact.
-fn alias_difference(
-    flag: AliasFlag,
-    values: &BTreeMap<AliasFlag, &str>,
-    base: &TranslationBase,
-) -> Option<String> {
-    let value = values.get(&flag).copied().unwrap_or_default();
-    Some(match flag {
-        AliasFlag::FilesystemRoot => "it is ignored; data is kept in GCS_MIMIC_DATA_DIR (/var/lib/gcs-mimic in the image), so mount the data volume there; existing fake-gcs-server objects are not loaded, so convert a stopped snapshot with gcs-mimic import fake-gcs-server; remove this setting".into(),
-        AliasFlag::PublicHost => {
-            let url = format!("{}://{value}", base.public_scheme());
-            let example = crate::url::normalize_public_base_url(&url)
-                .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
-            format!("use GCS_MIMIC_PUBLIC_BASE_URL={example}; path-style URLs work with any Host")
-        }
-        AliasFlag::CorsHeaders => "remove this setting: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON requests already allow every valid header".into(),
+        AliasFlag::CertLocation => (Setting::TlsCert, text.to_owned()),
+        AliasFlag::PrivateKeyLocation => (Setting::TlsKey, text.to_owned()),
         AliasFlag::EventPubsubProjectId
         | AliasFlag::EventPubsubTopic
         | AliasFlag::EventBucket
         | AliasFlag::EventObjectPrefix
-        | AliasFlag::EventList => event_advice(flag),
-        AliasFlag::Port
-        | AliasFlag::PortHttp
-        | AliasFlag::Backend
-        | AliasFlag::ExternalUrl
-        | AliasFlag::Scheme
-        | AliasFlag::Host
-        | AliasFlag::Data
-        | AliasFlag::Location
-        | AliasFlag::CertLocation
-        | AliasFlag::PrivateKeyLocation
-        | AliasFlag::LogLevel => {
-            if flag.translates_exactly(value) {
-                return None;
-            }
-            alias_advice(flag, values)
+        | AliasFlag::EventList
+            if !base.pubsub_emulator_host =>
+        {
+            return FlagResolution::Refuse(event_advice(flag));
         }
-    })
+        AliasFlag::EventList if text.trim() == "none" => {
+            return FlagResolution::Refuse("event.list=none is not a fake-gcs-server event selection. Use native --event-list none to disable the global notification rule deliberately".into());
+        }
+        AliasFlag::EventPubsubProjectId => (Setting::EventPubsubProjectId, text.to_owned()),
+        AliasFlag::EventPubsubTopic => (Setting::EventPubsubTopic, text.to_owned()),
+        AliasFlag::EventBucket => (Setting::EventBucket, text.to_owned()),
+        AliasFlag::EventObjectPrefix => (Setting::EventObjectPrefix, text.to_owned()),
+        AliasFlag::EventList => (Setting::EventList, text.to_owned()),
+    };
+    FlagResolution::Accept(setting, value)
+}
+
+fn shell_value(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn event_advice(flag: AliasFlag) -> String {
+    format!(
+        "use --{} (GCS_MIMIC_{}) with --pubsub-emulator-host HOST:PORT or PUBSUB_EMULATOR_HOST; fake-gcs-server can publish to Google, but gcs-mimic never publishes to Google",
+        flag.as_str().replace('.', "-"),
+        flag.as_str().replace(['.', '-'], "_").to_ascii_uppercase()
+    )
 }
 
 fn component<'a>(
-    values: &BTreeMap<AliasFlag, &'a str>,
-    key: AliasFlag,
+    values: &BTreeMap<ServerFlag, &'a str>,
+    key: NativeFlag,
     default: &'a str,
 ) -> &'a str {
     values
-        .get(&key)
+        .get(&ServerFlag::Native(key))
         .copied()
         .filter(|v| !v.is_empty())
         .unwrap_or(default)
@@ -618,64 +711,96 @@ fn component<'a>(
 
 fn safe_url(value: &str) -> bool {
     value.parse::<hyper::Uri>().is_ok_and(|uri| {
-        matches!(uri.scheme_str(), Some("http" | "https"))
+        crate::url::normalize_base_url(value).is_ok()
             && uri.authority().is_some_and(|a| {
-                !a.as_str().contains('@')
-                    && (a.port().is_none() || a.port_u16().is_some())
-                    && (a.host().trim_matches(['[', ']']).parse::<IpAddr>().is_ok()
-                        || crate::config::validate_dns_name(a.host()).is_ok())
+                a.host().trim_matches(['[', ']']).parse::<IpAddr>().is_ok()
+                    || crate::config::validate_dns_name(a.host()).is_ok()
             })
-            && uri.query().is_none()
-            && !value.contains('#')
             && !value.chars().any(char::is_control)
     })
 }
 
-fn alias_advice(flag: AliasFlag, values: &BTreeMap<AliasFlag, &str>) -> String {
-    let host = component(values, AliasFlag::Host, "0.0.0.0")
+fn flag_advice(
+    flag: ServerFlag,
+    values: &BTreeMap<ServerFlag, &str>,
+    base: &TranslationBase,
+) -> String {
+    match flag {
+        ServerFlag::Native(flag) => native_advice(flag, values),
+        ServerFlag::Alias(flag) => alias_advice(flag, values, base),
+        ServerFlag::Refused(flag) => refused_advice(flag, values),
+    }
+}
+
+fn native_advice(flag: NativeFlag, values: &BTreeMap<ServerFlag, &str>) -> String {
+    let host = component(values, NativeFlag::Host, "0.0.0.0")
         .parse()
         .map_or_else(|_| "<IP_ADDRESS>".into(), bracketed_ip);
-    let port = component(values, AliasFlag::Port, "4443")
+    let port = component(values, NativeFlag::Port, "4443")
         .parse::<u16>()
         .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
-    let scheme = component(values, AliasFlag::Scheme, "https");
-    let value = values.get(&flag).copied().unwrap_or_default();
+    let scheme = component(values, NativeFlag::Scheme, "https");
+    let value = values
+        .get(&ServerFlag::Native(flag))
+        .copied()
+        .unwrap_or_default();
     match flag {
-        AliasFlag::Host | AliasFlag::Port => format!("combine HOST and PORT as GCS_MIMIC_LISTEN={host}:{port}; use a valid IP address and port 0..65535"),
-        AliasFlag::Scheme if matches!(scheme, "http" | "https" | "both") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
-        AliasFlag::Scheme => "use GCS_MIMIC_SCHEME=http, https or both; both serves HTTPS on listen and HTTP on listen_http".into(),
-        AliasFlag::PortHttp => {
-            let port = component(values, AliasFlag::PortHttp, "8000").parse::<u16>()
+        NativeFlag::Host | NativeFlag::Port => format!("use --host IP --port PORT or GCS_MIMIC_LISTEN={host}:{port}; use a valid IP address and port 0..65535"),
+        NativeFlag::Scheme if matches!(scheme, "http" | "https" | "both") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
+        NativeFlag::Scheme => "use GCS_MIMIC_SCHEME=http, https or both; both serves HTTPS on listen and HTTP on listen_http".into(),
+        NativeFlag::PortHttp => {
+            let port = component(values, NativeFlag::PortHttp, "8000").parse::<u16>()
                 .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
             format!("use GCS_MIMIC_SCHEME=both with GCS_MIMIC_LISTEN_HTTP={host}:{port}; the primary GCS_MIMIC_LISTEN serves HTTPS")
         }
-        AliasFlag::ExternalUrl if safe_url(value) => format!("use GCS_MIMIC_API_BASE_URL={value}; preserve the client-reachable proxy prefix"),
-        AliasFlag::ExternalUrl => "use GCS_MIMIC_API_BASE_URL=http://gcs:4443/proxy without credentials, query or fragment; unsafe URL values are redacted".into(),
+        NativeFlag::LogLevel if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events and informational diagnostics, not validation warnings/errors or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
+        NativeFlag::LogLevel => "use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
+    }
+}
+
+fn alias_advice(
+    flag: AliasFlag,
+    values: &BTreeMap<ServerFlag, &str>,
+    base: &TranslationBase,
+) -> String {
+    let value = values
+        .get(&ServerFlag::Alias(flag))
+        .copied()
+        .unwrap_or_default();
+    match flag {
         AliasFlag::PublicHost => {
-            let scheme = if matches!(scheme, "https" | "both") { "https" } else if scheme == "http" { "http" } else { "<SCHEME>" };
-            let url = format!("{scheme}://{value}");
+            let url = format!("{}://{value}", base.public_scheme());
             let example = crate::url::normalize_public_base_url(&url)
                 .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
-            format!("Use GCS_MIMIC_PUBLIC_BASE_URL={example} including the scheme; legacy Host matching also requires GCS_MIMIC_COMPAT_PROFILE=legacy-emulator. Native path-style accepts any Host. For SDK XML reads in legacy mode the public authority must match the API endpoint authority; unequal authorities fall back to a hostname bucket")
+            format!("use --public-base-url {} (GCS_MIMIC_PUBLIC_BASE_URL={example}); public-host subdomains select virtual-host buckets, so call the JSON API through a host outside those subdomains or set --api-base-url explicitly", shell_value(&example))
         }
-        AliasFlag::Data => "mount fixtures at /data in the image or use GCS_MIMIC_SEED_DIR=fixtures; seed replays on every startup, overwriting changed objects at fixture names".into(),
-        AliasFlag::FilesystemRoot => "use GCS_MIMIC_DATA_DIR=data only for native storage; the source format differs. Retain the old root for the separately delivered Import conversion; never mount it as native data".into(),
-        AliasFlag::Backend => "backend must be filesystem or memory; use --backend disk or --backend memory".into(),
-        AliasFlag::CertLocation | AliasFlag::PrivateKeyLocation => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
-        // Permissive mode already falls back to allow-all, and strict mode should keep Cloud
-        // Storage's bucket rules, so neither needs a replacement setting.
-        AliasFlag::CorsHeaders => "remove this setting: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON preflight already allows every valid requested header".into(),
-        AliasFlag::Location => match bucket_location(value) {
-            Ok((location, _)) => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={location} or --default-location {location}; applies only to new buckets without a nonempty location; legacy-emulator global location defaults remain unsupported"),
-            Err(_) => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with a supported GCS_MIMIC_DEFAULT_LOCATION, for example US or ASIA-NORTHEAST1; legacy-emulator global location defaults remain unsupported".into(),
-        },
-        AliasFlag::LogLevel if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events, not validation diagnostics or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
-        AliasFlag::LogLevel => "remove this setting; use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
+        AliasFlag::Data => "use --seed-dir PATH or GCS_MIMIC_SEED_DIR; fixtures replay on every startup".into(),
+        AliasFlag::Backend => "use --backend disk or --backend memory".into(),
+        AliasFlag::CertLocation | AliasFlag::PrivateKeyLocation => "supply both --tls-cert PATH (GCS_MIMIC_TLS_CERT) and --tls-key PATH (GCS_MIMIC_TLS_KEY); one-sided overrides fail".into(),
         AliasFlag::EventPubsubProjectId
         | AliasFlag::EventPubsubTopic
         | AliasFlag::EventBucket
         | AliasFlag::EventObjectPrefix
         | AliasFlag::EventList => event_advice(flag),
+    }
+}
+
+fn refused_advice(flag: RefusedFlag, values: &BTreeMap<ServerFlag, &str>) -> String {
+    let value = values
+        .get(&ServerFlag::Refused(flag))
+        .copied()
+        .unwrap_or_default();
+    match flag {
+        RefusedFlag::ExternalUrl => {
+            let example = if safe_url(value) { value } else { "http://gcs:4443" };
+            format!("external-url controls only selfLink/mediaLink in fake-gcs-server; resumable upload Location follows the request address. Use --api-base-url {} (GCS_MIMIC_API_BASE_URL={example}), which also fixes resumable upload URLs to that address; choose an address every client can reach", shell_value(example))
+        }
+        RefusedFlag::FilesystemRoot => "filesystem-root cannot use fake-gcs-server's storage format. Remove it and use --data-dir PATH (GCS_MIMIC_DATA_DIR, /var/lib/gcs-mimic in the image) for native storage; convert a stopped source snapshot with gcs-mimic import fake-gcs-server --source DIR --data-dir NEW".into(),
+        RefusedFlag::CorsHeaders => "cors-headers cannot preserve fake-gcs-server's global request-header allowlist. Remove it: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON preflight already allows every valid requested header. Use --cors-fallback allow-all (GCS_MIMIC_CORS_FALLBACK=allow-all) explicitly to allow every origin on XML buckets without rules".into(),
+        RefusedFlag::Location => {
+            let example = bucket_location(value).map_or_else(|_| "ASIA-NORTHEAST1", |(location, _)| location);
+            format!("location cannot preserve fake-gcs-server's server-wide response location. Use --default-location {example} (GCS_MIMIC_DEFAULT_LOCATION={example}) with GCS_MIMIC_COMPAT_PROFILE=native for new buckets without an explicit location; existing buckets and explicit locations win, and legacy-emulator global location defaults remain unsupported")
+        }
     }
 }
 
@@ -717,7 +842,7 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
     };
     let mut inputs = Inputs::default();
     inputs.cli(args.get(offset..).unwrap_or_default(), CliCommand::Helper);
-    inputs.diagnose_aliases();
+    inputs.diagnose_server_flags();
     inputs.diagnostics
 }
 
@@ -848,30 +973,18 @@ mod tests {
     fn helper_advice(args: &[String]) -> String {
         let mut inputs = Inputs::default();
         inputs.cli(args, CliCommand::Helper);
-        inputs.diagnose_aliases();
+        inputs.diagnose_server_flags();
         emitted(&inputs.diagnostics)
     }
 
-    /// Flags whose accepted values translate exactly and so report nothing.
-    const EXACT: [&str; 11] = [
-        "port",
-        "port-http",
+    const NATIVE: [&str; 5] = ["port", "port-http", "scheme", "host", "log-level"];
+
+    const ALIASES: [&str; 10] = [
         "backend",
-        "scheme",
-        "host",
         "data",
-        "location",
         "cert-location",
         "private-key-location",
-        "external-url",
-        "log-level",
-    ];
-
-    /// Flags whose translation leaves something to report.
-    const DIFFERENT: [&str; 8] = [
-        "filesystem-root",
         "public-host",
-        "cors-headers",
         "event.pubsub-project-id",
         "event.pubsub-topic",
         "event.bucket",
@@ -879,13 +992,24 @@ mod tests {
         "event.list",
     ];
 
+    const REFUSED: [&str; 4] = [
+        "filesystem-root",
+        "external-url",
+        "cors-headers",
+        "location",
+    ];
+
     #[test]
     fn alias_inventory_and_all_flag_forms_are_diagnosed_even_when_empty() {
-        for flag in EXACT.iter().chain(&DIFFERENT) {
-            assert!(flag.parse::<AliasFlag>().is_ok(), "{flag}");
+        for flag in NATIVE.iter().chain(&ALIASES).chain(&REFUSED) {
+            let kind = flag.parse::<ServerFlag>().unwrap();
+            assert_eq!(matches!(kind, ServerFlag::Native(_)), NATIVE.contains(flag));
+            assert_eq!(matches!(kind, ServerFlag::Alias(_)), ALIASES.contains(flag));
+            assert_eq!(
+                matches!(kind, ServerFlag::Refused(_)),
+                REFUSED.contains(flag)
+            );
             for value in ["", "secret-do-not-print\n"] {
-                // `data` accepts any path.
-                let reported = !EXACT.contains(flag) || (!value.is_empty() && *flag != "data");
                 for hyphens in ["-", "--"] {
                     for equals in [false, true] {
                         let key = format!("{hyphens}{flag}");
@@ -896,7 +1020,9 @@ mod tests {
                         };
                         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
                         let text = emitted(&report.diagnostics);
-                        assert!(!text.contains("secret-do-not-print"), "{text}");
+                        if !matches!(*flag, "data" | "cert-location" | "private-key-location") {
+                            assert!(!text.contains("secret-do-not-print"), "{text}");
+                        }
                         if matches!(*flag, "scheme" | "log-level" | "backend") {
                             assert_eq!(report.diagnostics.errors[0].key, key);
                             assert!(report.diagnostics.errors[0].fix.contains(
@@ -908,8 +1034,12 @@ mod tests {
                                     "log_level must"
                                 }
                             ));
-                        } else if reported {
+                        } else if REFUSED.contains(flag)
+                            || flag.starts_with("event.")
+                            || matches!(*flag, "port" | "port-http" | "host" | "public-host")
+                        {
                             assert!(text.contains(&key), "{text}");
+                            assert!(report.diagnostics.is_err());
                         }
                     }
                 }
@@ -928,22 +1058,14 @@ mod tests {
             "http",
             "-port",
             "4443",
-            "-external-url",
-            "http://gcs:4443",
             "-public-host",
             "gcs:4443",
             "-backend",
             "filesystem",
-            "-filesystem-root",
-            "/storage",
             "-data",
             "/data",
             "-log-level",
             "debug",
-            "-cors-headers",
-            "X-Custom",
-            "-location",
-            "asia-northeast1",
         ]);
         assert_eq!(server_arguments(&args), Some(args.as_slice()));
         let report = crate::config::Config::preflight(&args, &image);
@@ -951,8 +1073,10 @@ mod tests {
         let config = &report.config;
         assert!(matches!(config.scheme, crate::config::Scheme::Http));
         assert_eq!(config.listen.to_string(), "0.0.0.0:4443");
-        assert_eq!(config.api_base_url.as_deref(), Some("http://gcs:4443"));
-        assert!(config.public_base_url.is_some());
+        assert_eq!(
+            config.public_base_url.as_ref().map(|url| url.as_str()),
+            Some("http://gcs:4443")
+        );
         assert_eq!(config.data_dir, std::path::Path::new("/var/lib/gcs-mimic"));
         assert_eq!(
             config.seed_dir.as_deref(),
@@ -962,33 +1086,17 @@ mod tests {
             config.log_level,
             crate::diagnostics::LogLevel::Debug
         ));
-        assert!(matches!(
-            config.cors_fallback,
-            Some(crate::config::CorsFallback::AllowAll)
-        ));
-        assert_eq!(config.default_location, "ASIA-NORTHEAST1");
-        let warned: Vec<_> = report
-            .diagnostics
-            .warnings
-            .iter()
-            .map(|d| d.key.as_str())
-            .collect();
-        for key in ["-public-host", "-filesystem-root", "-cors-headers"] {
-            assert!(warned.contains(&key), "{key}: {warned:?}");
-        }
-        for key in [
-            "-scheme",
-            "-port",
-            "-external-url",
-            "-backend",
-            "-data",
-            "-log-level",
-            "-location",
-        ] {
-            assert!(!warned.contains(&key), "{key}: {warned:?}");
-        }
+        assert_eq!(config.cors_fallback, None);
+        assert!(report.diagnostics.warnings.is_empty());
+        assert_eq!(report.diagnostics.info.len(), 1);
         let text = emitted(&report.diagnostics);
-        assert!(text.contains("gcs-mimic import fake-gcs-server"), "{text}");
+        for native in [
+            "--public-base-url 'http://gcs:4443'",
+            "--backend 'disk'",
+            "--seed-dir '/data'",
+        ] {
+            assert!(text.contains(native), "{text}");
+        }
     }
 
     #[test]
@@ -1010,7 +1118,8 @@ mod tests {
             &strings(&["-backend", "memory", "-filesystem-root", "/storage"]),
             &BTreeMap::new(),
         );
-        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert!(report.diagnostics.is_err());
+        has(&report.diagnostics, "-filesystem-root", "--data-dir");
         assert_eq!(
             report.config.data_dir,
             crate::config::Config::default().data_dir
@@ -1022,7 +1131,7 @@ mod tests {
         );
         assert!(report.diagnostics.is_err());
         assert_eq!(report.diagnostics.errors[0].key, "-event.pubsub-topic");
-        assert!(emitted(&report.diagnostics).contains("Event publishing requires"));
+        assert!(emitted(&report.diagnostics).contains("never publishes to Google"));
         assert_eq!(report.diagnostics.errors.len(), 1, "{}", report.diagnostics);
     }
 
@@ -1115,7 +1224,12 @@ mod tests {
             ];
             let configurations = forms.map(|args| {
                 let report = crate::config::Config::preflight(&args, &BTreeMap::new());
-                assert_eq!(emitted(&report.diagnostics), "", "{args:?}");
+                assert!(
+                    !report.diagnostics.is_err(),
+                    "{args:?}: {}",
+                    report.diagnostics
+                );
+                assert!(report.diagnostics.warnings.is_empty());
                 format!("{:?}", report.config)
             });
             assert!(
@@ -1126,7 +1240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_public_host_follows_the_effective_scheme_however_it_was_spelled() {
+    fn public_host_translation_follows_the_effective_scheme() {
         for (args, env) in [
             (&["-scheme", "http", "-public-host", "gcs:4443"][..], None),
             (&["--scheme", "http", "-public-host", "gcs:4443"], None),
@@ -1142,10 +1256,14 @@ mod tests {
                 .collect();
             let report = crate::config::Config::preflight(&strings(args), &env);
             assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-            let origin = report.config.public_base_url.unwrap();
+            assert_eq!(
+                report.config.public_base_url.as_ref().unwrap().as_str(),
+                "http://gcs:4443"
+            );
             assert!(
-                format!("{origin:?}").contains("http://gcs:4443"),
-                "{args:?}: {origin:?}"
+                emitted(&report.diagnostics).contains("--public-base-url 'http://gcs:4443'"),
+                "{args:?}: {}",
+                report.diagnostics
             );
         }
     }
@@ -1229,23 +1347,19 @@ mod tests {
     }
 
     #[test]
-    fn a_port_http_alias_is_ignored_outside_both_but_a_native_listen_http_is_rejected() {
+    fn port_http_and_listen_http_require_both() {
         for (args, key) in [
             (&["-scheme", "http", "-port-http", "8001"][..], "-port-http"),
             (&["--port-http", "8001"], "--port-http"),
         ] {
             let report = crate::config::Config::preflight(&strings(args), &BTreeMap::new());
-            assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
-            assert_eq!(report.config.listen_http, None);
-            assert!(
-                report
-                    .diagnostics
-                    .warnings
-                    .iter()
-                    .any(|d| d.key == key && d.fix.contains("ignored")),
-                "{}",
-                report.diagnostics
+            has(
+                &report.diagnostics,
+                key,
+                &format!("{key} requires scheme=both"),
             );
+            has(&report.diagnostics, key, &format!("remove {key}"));
+            assert!(report.diagnostics.warnings.is_empty());
         }
         let args = strings(&["--scheme", "http", "--listen-http", "127.0.0.1:8001"]);
         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
@@ -1257,18 +1371,14 @@ mod tests {
     }
 
     #[test]
-    fn only_inputs_that_behave_differently_warn() {
+    fn native_options_are_quiet_and_inexact_flags_are_refused() {
         for args in [
             &["-scheme", "http"][..],
             &["-port", "9000"],
             &["-host", "127.0.0.2"],
             &["-scheme", "both", "-port-http", "8001"],
-            &["-backend", "filesystem"],
             &["-backend", "memory"],
-            &["-data", "fixtures"],
             &["-log-level", "warning"],
-            &["-location", "EU"],
-            &["-external-url", "http://gcs:4443"],
         ] {
             let report = crate::config::Config::preflight(&strings(args), &BTreeMap::new());
             assert_eq!(emitted(&report.diagnostics), "", "{args:?}");
@@ -1279,15 +1389,19 @@ mod tests {
                 &["-filesystem-root", "/storage"][..],
                 "gcs-mimic import fake-gcs-server",
             ),
-            (&["-public-host", "gcs:4443"], "GCS_MIMIC_PUBLIC_BASE_URL"),
-            (&["-cors-headers", "X-Custom"], "remove this setting"),
+            (
+                &["-external-url", "http://gcs:4443"],
+                "GCS_MIMIC_API_BASE_URL",
+            ),
+            (&["-cors-headers", "X-Custom"], "--cors-fallback allow-all"),
+            (&["-location", "EU"], "--default-location EU"),
         ] {
             let report = crate::config::Config::preflight(&strings(args), &BTreeMap::new());
-            assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+            assert!(report.diagnostics.is_err());
             assert!(
                 report
                     .diagnostics
-                    .warnings
+                    .errors
                     .iter()
                     .any(|d| d.key == args[0] && d.fix.contains(expected)),
                 "{}",
@@ -1344,14 +1458,17 @@ mod tests {
             &BTreeMap::new(),
         );
         let advice = emitted(&report.diagnostics);
-        assert!(advice.contains("GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid;"));
-        assert!(!advice.contains("Storage.Invalid:80"));
+        assert!(advice.contains("--public-base-url 'http://Storage.Invalid:80'"));
+        assert_eq!(
+            report.config.public_base_url.as_ref().unwrap().as_str(),
+            "http://storage.invalid"
+        );
         // Helper commands have no server settings, so alias flags still fail there.
         let helper = cli_diagnostics(&strings(&["healthcheck", "-public-host", "x"]));
         assert!(
             helper
                 .to_string()
-                .contains("GCS_MIMIC_COMPAT_PROFILE=legacy-emulator")
+                .contains("call the JSON API through a host outside those subdomains")
         );
         for url in [
             "http://user:secret@host/path",
@@ -1383,36 +1500,30 @@ mod tests {
             &BTreeMap::new(),
         );
         let text = emitted(&report.diagnostics);
-        for expected in [
-            "<IP_ADDRESS>:<PORT_0_TO_65535>",
-            "permissive mode already allows every origin, strict mode follows each bucket's cors rules",
-        ] {
-            assert!(text.contains(expected), "{text}");
-        }
+        assert!(text.contains("permissive mode already allows every origin, strict mode follows each bucket's cors rules"), "{text}");
         assert!(!text.contains("secret"));
         assert!(
             helper_advice(&strings(&["-location", "US-CENTRAL1"]))
                 .contains("GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1")
         );
-        // The translated listener is invalid, so startup reports it without echoing values.
+        // Invalid listener components fail independently without echoing values.
         assert!(
             report
                 .diagnostics
                 .errors
                 .iter()
-                .any(|d| d.fix.contains("listen must"))
+                .any(|d| d.key == "-host" && d.fix.contains("host must"))
         );
         let cors = &report
             .diagnostics
-            .warnings
+            .errors
             .iter()
             .find(|d| d.key == "-cors-headers")
             .unwrap()
             .fix;
-        assert!(cors.starts_with("This option works differently here;"));
-        // The alias still selects allow-all, but the advice is to remove it, not to restate it.
-        assert!(cors.contains("remove this setting"), "{cors}");
-        assert!(!cors.contains("GCS_MIMIC_CORS_FALLBACK"), "{cors}");
+        assert!(cors.contains("cannot preserve"));
+        assert!(cors.contains("--cors-fallback allow-all"), "{cors}");
+        assert_eq!(report.config.cors_fallback, None);
     }
 
     #[test]
@@ -1537,7 +1648,7 @@ mod tests {
             assert_eq!(
                 report
                     .diagnostics
-                    .warnings
+                    .errors
                     .iter()
                     .filter(|d| d.key == "-filesystem-root")
                     .count(),
@@ -1641,7 +1752,7 @@ mod tests {
     }
 
     #[test]
-    fn alias_location_advice_uses_effective_native_setting() {
+    fn refused_location_advice_names_the_native_creation_default() {
         for (value, expected) in [
             ("US", Some("US")),
             ("EU", Some("EU")),
@@ -1655,17 +1766,16 @@ mod tests {
         ] {
             let args = strings(&["-location", value]);
             let report = crate::config::Config::preflight(&args, &BTreeMap::new());
-            assert_eq!(report.diagnostics.is_err(), expected.is_none());
+            assert!(report.diagnostics.is_err());
+            assert_eq!(report.config.default_location, "US");
+            assert_eq!(report.diagnostics.errors[0].key, "-location");
             let advice = if let Some(expected) = expected {
-                assert_eq!(report.config.default_location, expected);
-                assert_eq!(emitted(&report.diagnostics), "", "{value}");
-                let advice = helper_advice(&args);
+                let advice = emitted(&report.diagnostics);
                 assert!(advice.contains(&format!("GCS_MIMIC_DEFAULT_LOCATION={expected}")));
                 assert!(advice.contains(&format!("--default-location {expected}")));
                 advice
             } else {
                 let advice = emitted(&report.diagnostics);
-                assert_eq!(report.diagnostics.errors[0].key, "-location");
                 assert!(advice.contains("ASIA-NORTHEAST1"));
                 assert!(!advice.contains(value));
                 advice

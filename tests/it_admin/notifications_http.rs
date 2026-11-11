@@ -2,6 +2,7 @@ use crate::common;
 use common::TestDir;
 
 use common::effects::Server;
+use common::notifications::accept_local_publish;
 use serde_json::{Value, json};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
@@ -494,52 +495,6 @@ impl Drop for EventServer {
             self.child.wait().unwrap();
         }
     }
-}
-
-fn accept_local_publish(listener: &std::net::TcpListener) -> (String, Value) {
-    use std::io::{BufRead, Read, Write};
-    let (mut socket, _) = listener.accept().unwrap();
-    socket
-        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-        .unwrap();
-    let mut reader = std::io::BufReader::new(socket.try_clone().unwrap());
-    let mut path = String::new();
-    reader.read_line(&mut path).unwrap();
-    let mut length = 0;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        if line == "\r\n" {
-            break;
-        }
-        assert!(!line.to_ascii_lowercase().starts_with("authorization:"));
-        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-            length = value.trim().parse().unwrap();
-        }
-    }
-    if path.starts_with("GET ") {
-        let body = r#"{"name":"projects/local/topics/explicit"}"#;
-        socket
-            .write_all(
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
-                    body.len()
-                )
-                .as_bytes(),
-            )
-            .unwrap();
-        return (path, Value::Null);
-    }
-    assert!((1..=131072).contains(&length));
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body).unwrap();
-    socket
-        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"messageIds\":[\"done\"]}")
-        .unwrap();
-    (
-        path,
-        serde_json::from_slice::<Value>(&body).unwrap()["messages"][0].clone(),
-    )
 }
 
 #[test]

@@ -9,7 +9,13 @@ Origin付きなど、ブラウザー由来の管理リクエストは403で拒�
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
-サーバーの起動時、gcs-mimicは既知のフラグのうち対応先があるものをnative設定に読み替えます。警告が出るのは、読み替えだけでは伝わらない違いがあるときだけです。
+0.18.0以降は、移行元で動いていたリクエストを保つ読み替えを受け付けます。
+意味が変わるフラグは、理由とnativeの書き方を示して起動を止めます。
+受け付けた読み替えは、info診断のJSON配列`native_args`に表示します。
+配列を復号し、各要素を1つの引数として渡してください。
+値に引用符・バックスラッシュ・制御文字がなければ、そのまま貼れるシェル用の1行も表示します。
+それらの文字を含む場合は1行を出さず、jqなどで`native_args`を取り出すよう案内します。
+パスや識別子は入力した値を残し、認証情報付きなどの安全でないURLだけを伏せます。
 0.8.0以降は`filesystem`をdiskへ、`memory`を上限付きRAM保存へ対応させます。
 イベント設定は、明示したローカルPub/Subエミュレーターと完全なproject/topic設定が必要です。
 通知設定の作成では、エミュレーターを設定している場合に限り、トピックがエミュレーターに存在するかを確かめ、存在しなければCloud Storageと同じ400を返します。エミュレーターに接続できない場合は503を返し、設定は作られません。エミュレーターがないときは、トピックを確かめずに受け付けます。
@@ -20,6 +26,51 @@ fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応�
 
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)
+
+## 0.18.0のフラグ分類
+
+| フラグ | 分類 | nativeの書き方・対応 |
+| --- | --- | --- |
+| `host` | native | `--host IP` |
+| `port` | native | `--port N` |
+| `port-http` | native | `--scheme both --port-http N` |
+| `scheme` | native | `--scheme`。既定は引き続き`https` |
+| `log-level` | native | `--log-level` |
+| `backend` | native・受理 | `filesystem`は`disk`へ変換。`memory`はそのまま |
+| `public-host` | 受理 | 実効schemeと合わせて`--public-base-url`へ変換 |
+| `data` | 受理 | `--seed-dir PATH` |
+| `cert-location` | 受理 | `--tls-cert PATH`。鍵も必要 |
+| `private-key-location` | 受理 | `--tls-key PATH`。証明書も必要 |
+| `event.pubsub-project-id` | 条件付き受理 | `--event-pubsub-project-id ID` |
+| `event.pubsub-topic` | 条件付き受理 | `--event-pubsub-topic ID` |
+| `event.bucket` | 条件付き受理 | `--event-bucket NAME` |
+| `event.object-prefix` | 条件付き受理 | `--event-object-prefix PREFIX` |
+| `event.list` | 条件付き受理 | `--event-list LIST` |
+| `filesystem-root` | 拒否 | `--data-dir`と`import fake-gcs-server`を使う |
+| `external-url` | 拒否 | `--api-base-url`を選ぶ。再開可能URLも固定される |
+| `cors-headers` | 拒否 | 削除するか、`--cors-fallback allow-all`を明示する |
+| `location` | 拒否 | 新規作成時の既定には`--default-location`を使う |
+
+`event.*`はすべて、`PUBSUB_EMULATOR_HOST`またはnativeの
+`pubsub_emulator_host`が設定されている場合だけ受け付けます。
+gcs-mimicはGoogleへ通知を配信しません。projectとtopicの指定も必要です。
+移行元にない`event.list=none`は拒否します。配信を無効にする場合はnativeの`--event-list none`を使います。
+
+拒否対象は1回の起動ですべて報告し、終了コード1を返します。
+カタログや待受は作りません。`log_level=warn`以上ではinfoを表示しませんが、
+検証時のwarn・errorは常に表示します。
+
+`public-host`にはfake-gcs-serverとのルーティングの違いがあります。
+サブドメイン宛てのリクエストは、仮想ホストのバケットとして扱います。
+JSON APIはそのサブドメイン以外のホストから呼ぶか、`--api-base-url`を明示してください。
+明示したAPIホストが仮想バケットと衝突する場合は、既存の起動時検証で止めます。
+
+`external-url`は、移行元ではselfLinkとmediaLinkの基底だけを決めます。
+再開可能アップロードのLocationは、リクエストが来たアドレスに従います。
+nativeの`api_base_url`は再開可能URLも固定するため、同じ結果にならず拒否します。
+使う場合は、すべてのクライアントから届くアドレスを`--api-base-url`に指定してください。
+
+## 保存と通知の範囲
 
 RAMの既定値は本文が使えるメモリの約半分（64 MiB〜1 GiB）、SQLiteのmain/TEMPがそれぞれ16 MiBで、設定で変えられます。
 これらは保存の上限であり、プロセスRSSの保証ではありません。RAMは再起動で消え、data_dirを開きません。
@@ -118,11 +169,12 @@ HTTPだけで起動する`-scheme http`でも、既定のポートは`4443`で�
 
 `-public-host`は公開URLのホストと、対象オブジェクトルートのHost照合に使います。
 ポートを指定した場合は照合にも含まれます。待受アドレスやアクセス権は変えません。
-`-external-url`は再開可能アップロードなどのAPI応答URL用で、末尾の`/`は除かれます。
+`-external-url`はselfLinkとmediaLinkの基底で、末尾の`/`は除かれます。
+再開可能アップロードのLocationはリクエストが来たアドレスに従います。
 
 `-cors-headers`は全体で許可するリクエストヘッダーの追加です。
 バケットごとのCORSや、公開するレスポンスヘッダーの指定ではありません。
-`-location`は全体のバケット作成時の既定値です。
+`-location`は全体のバケット応答に使うlocationです。
 イベント設定は1つの通知先と絞り込みを設定し、バケット別ポリシーを作りません。
 
 ## 優先順位と入力エラー
@@ -148,7 +200,7 @@ CLIで上書きする場合や追加HTTPリスナーを使わない場合も起�
 gcs-mimicの優先順位はCLI、環境変数、サーバーJSON設定、既定値の順です。
 未知の`GCS_MIMIC_*`はエラーになり、空の値が常に既定値扱いになるわけではありません。
 CLI・環境変数・JSON設定と、独立して読めるTLS・identityの不正をまとめて検査します。
-stderrへ`source`・元の`key`・直し方の`fix`を持つJSONを、警告、エラーの順で出します。
+stderrへ`source`・元の`key`・直し方の`fix`を持つJSONを、info、warn、errorの順で出します。
 エラー時は非ゼロ終了し、ready通知もデータディレクトリ作成も起きません。
 値や秘密は表示せず、安全性を確認した接続先などに限って移行例へ反映します。
 未対応の将来設定を利用可能とは案内しません。
@@ -161,6 +213,7 @@ JSONの`log_level`、環境変数`GCS_MIMIC_LOG_LEVEL`、CLIの`--log-level`で�
 `error`にはデータディレクトリのロック解放失敗を出します。
 空文字や未対応のレベルはカタログを開く前にエラーにします。
 入力の警告・エラー診断と、stdoutの`ready`・`stopped`はレベルに関係なく表示します。
+受け付けたフラグの読み替えを示すinfo診断は、指定した最小レベルに従います。
 `-log-level`は`--log-level`と同じオプションです。
 
 native設定の文字コード不正は、独立したCLIやファイルの不正とまとめて表示します。
@@ -213,7 +266,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
 | 署名付きURLの検証 | `GCS_MIMIC_SIGNED_URLS`・`--signed-urls`・JSONの`signed_urls`、`GCS_MIMIC_TEST_SIGNER` | 移行元に同じ設定はない。permissiveの既定`ignore`は、署名を検証せずに署名付きURLを受け付ける。`verify`は署名付きXMLリクエストをstrictと同じく検証し（リクエストを変えると403 `SignatureDoesNotMatch`、期限切れは400 `ExpiredToken`）、組み込みのテスト署名者の公開鍵、JSON APIで作ったHMACキー、ID文書（`GCS_MIMIC_IDENTITY_FILE`、または文書をそのまま書く`GCS_MIMIC_IDENTITIES`）の公開鍵を使う。検証後は権限を確認せず、permissiveとして処理する。`GCS_MIMIC_TEST_SIGNER`の既定が`enabled`になるのは、`verify`のときと、strictでID文書が`test-signer@gcs-mimic.invalid`を宣言しているときで、署名を検証しない設定で`enabled`を明示すると起動に失敗する。strictで宣言していない署名者は、初期バケットのprojectと、バケット文書が作るバケットのprojectで`roles/storage.objectUser`を持つ。テスト署名者が有効なときは、その署名者自身の署名に限って`GCS_MIMIC_SIGNED_HOST_PORT`の既定が`lenient`になり、Go storageのようにポートを除いて署名したV4 URLも検証を通る。ほかの鍵は、`lenient`を明示しない限りポートも署名する必要がある。`exact`を明示すればそちらが優先される。`verify`は署名付きURLのほか、V2/V4/AWS4の`Authorization`ヘッダー署名とPOSTポリシーも検証するため、適当なHMACキーで署名するS3互換クライアントは拒否される。そうしたクライアントにはJSON APIでHMACキーを作る。strictは常に検証する。[permissiveでの署名検証（英語）](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode)を参照 |
 | アプリのサーバー用の信頼済みリスナー | `GCS_MIMIC_TRUSTED_LISTEN`と`GCS_MIMIC_TRUSTED_PRINCIPAL`、`--trusted-listen`・`--trusted-principal`、JSONの`trusted_listen`・`trusted_principal`。ドットを含むHost名には`GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` | 移行元に同じ設定はなく、移行元は権限を確認しない。strictのみ。追加の平文HTTPリスナーで、認証情報のないリクエストは指定した登録済みIDとして通常のstrictの確認を受ける。`GCS_MIMIC_TRUSTED_PRINCIPAL`を書かない場合は、組み込みの`trusted-app@gcs-mimic.invalid`として扱う。このIDは初期バケットのprojectと、バケット文書が作るバケットのprojectで`roles/storage.admin`を持ち、ID文書に同じIDのエントリーがあればそちらに置き換わる。このときは`GCS_MIMIC_TEST_SIGNER=enabled`のときと同じく、ID文書がなくてもstrictで起動できる。認証情報はメインのリスナーと同じく認証し、ブラウザーからのリクエストは403になる。HostはIPリテラル、`localhost`の名前、ドットのない名前、書いた名前だけを受け付けるので、DNSリバインディングのページは421になる。ポートは公開しない。[信頼済みリスナー](container-usage.md#信頼済みリスナーで非公開バケットを守る)を参照 |
-| ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |
+| ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。入力診断の扱いは「gcs-mimicでの対応」を参照 |
 
 HTTPとHTTPSを同時に受け付ける場合は、次のように起動します。
 
@@ -230,7 +283,7 @@ readyの`listen`はprimaryを保持し、`listeners`に実際の待受アドレ�
 両方をポート0にすると独立して空きポートを確保します。
 どちらかのbindに失敗するとreadyを出さず、socketとカタログのlockを解放します。
 終了時には両方の待受を閉じます。ComposeではHTTPのポートも明示して公開してください。
-`--port-http`は上の設定のポート部分だけを変えます。both以外では警告を出して無視します。
+`--port-http`は上の設定のポート部分だけを変えます。both以外ではエラーで起動を止めます。
 対象ケース`UX-003-DUAL-LISTENER`の範囲は
 [契約と検証結果](../en/slices/configuration-workflows.md#dual-listener-behavior-and-verification)に記載しています。
 親機能`UX-003`は、独立した未対応ケースが残るためPARTIALのままです。
@@ -288,7 +341,8 @@ configurable dual-regionの配置設定とRPOは未対応です。
 legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
 その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
 ほかの明示locationは拒否します。
-`-location`は対応する名前なら大文字に正規化して読み替えます。ヘルパーコマンドに渡すと、
+`-location`は移行元の全体的な応答設定と同じ意味にならないため、起動を止めます。
+修正案として、
 `GCS_MIMIC_COMPAT_PROFILE=native`と`GCS_MIMIC_DEFAULT_LOCATION`を案内します。
 たとえば`US-CENTRAL1`には`GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1`、
 `asia-northeast1`には`GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`を示します。
@@ -296,7 +350,8 @@ legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付�
 UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のUX-003はPARTIALです。
 このスライスでは全体のCORS設定を追加していません。
 後続のDESIGN-100で、CORSルールのないバケットの扱いを選ぶ`GCS_MIMIC_CORS_FALLBACK`（`none`・`allow-all`）を追加しました。
-`-cors-headers`は受け付けますが、削除するよう警告します。代わりの設定は案内しません。
+`-cors-headers`は認証モードによらず拒否し、削除するか`--cors-fallback allow-all`を明示するよう案内します。
+移行元の全体的なリクエストヘッダーの許可リストとは同じ意味にならないためです。
 permissiveはもともとすべてのオリジンを許可します（`cors_fallback`の既定が`allow-all`）。
 strictはCloud Storageと同じくバケットの`cors`ルールに従います。
 JSON APIは正しい形式のヘッダーをすべて許可します。

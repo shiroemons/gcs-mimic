@@ -1683,9 +1683,8 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(events.len(), 2, "{text}");
-    assert_eq!(events[0]["level"], "warn");
-    assert_eq!(events[1]["level"], "error");
+    assert_eq!(events.len(), 1, "{text}");
+    assert_eq!(events[0]["level"], "error");
     let has = |event: &serde_json::Value, source: &str, key: &str| {
         event["diagnostics"]
             .as_array()
@@ -1699,11 +1698,10 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
         ("environment", "GCS_MIMIC_MAX_CONNECTIONS"),
         ("tls", "tls_key"),
         ("identity", "identity_file"),
+        ("cli", "-filesystem-root"),
     ] {
-        assert!(has(&events[1], source, key), "{source}/{key}: {text}");
+        assert!(has(&events[0], source, key), "{source}/{key}: {text}");
     }
-    // A flag that behaves differently warns alongside the independent errors.
-    assert!(has(&events[0], "cli", "-filesystem-root"), "{text}");
 }
 
 #[test]
@@ -2106,15 +2104,13 @@ fn assert_unknown_setting_advice(output: Output, key: &str, source: &str) {
 #[test]
 fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
     let root = TestDir::new();
-    let storage = root.0.join("storage");
     let seed = root.0.join("seed");
     fs::create_dir_all(seed.join("seeded-bucket")).unwrap();
     fs::write(seed.join("seeded-bucket/hello.txt"), "hello").unwrap();
     let mut child = common::server_command()
         .clean_env()
         .args(["-scheme", "http", "-host", "127.0.0.1", "-port", "0"])
-        .args(["-backend", "filesystem", "-filesystem-root"])
-        .arg(&storage)
+        .args(["-backend", "filesystem"])
         .arg("-data")
         .arg(&seed)
         .arg("--data-dir")
@@ -2132,9 +2128,7 @@ fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
             .starts_with("http://127.0.0.1:"),
         "{ready}"
     );
-    // filesystem-root is ignored: a reused root-owned source volume must not stop startup.
     assert!(root.0.join("data").is_dir());
-    assert!(!storage.exists());
     common::stop_server(&mut child, &mut stdout);
     let mut text = String::new();
     child
@@ -2143,16 +2137,22 @@ fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
-    assert_eq!(warning["level"], "warn");
-    // Only the input that behaves differently from fake-gcs-server has anything to report.
-    let keys: Vec<_> = warning["diagnostics"]
+    let info: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(info["level"], "info");
+    let keys: Vec<_> = info["diagnostics"]
         .as_array()
         .unwrap()
         .iter()
         .map(|d| d["key"].as_str().unwrap())
         .collect();
-    assert_eq!(keys, ["-filesystem-root"], "{text}");
+    assert_eq!(keys, ["native_equivalent"], "{text}");
+    assert!(
+        info["diagnostics"][0]["fix"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("--backend 'disk' --seed-dir '{}'", seed.display())),
+        "{text}"
+    );
 }
 
 #[test]

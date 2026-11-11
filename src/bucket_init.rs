@@ -354,6 +354,7 @@ impl Collected {
             errors.push(summary);
         }
         Diagnostics {
+            info: Vec::new(),
             warnings: Vec::new(),
             errors,
         }

@@ -85,6 +85,14 @@ Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level
 directories become buckets and files become objects. Run
 `docker run --rm ghcr.io/shiroemons/gcs-mimic:latest --help` for every option.
 
+In 0.18.0, fake-gcs-server flags either preserve working requests or stop startup
+with a native alternative. Accepted translations emit a `native_args` JSON array
+at info level, plus a shell line when its values need no JSON unescaping.
+`--filesystem-root`, `--external-url`, `--cors-headers` and
+`--location` are refused; `event.*` requires a local Pub/Sub emulator.
+`--host`, `--port` and `--port-http` are native options; `--port-http` requires
+`--scheme both`. See the [complete flag table](docs/en/slices/option-aliases.md).
+
 ## Connect your SDK
 
 The examples connect from the host to the HTTP server above. From a Compose service, use
