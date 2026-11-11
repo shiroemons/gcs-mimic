@@ -55,29 +55,6 @@ pub(crate) enum Evaluation {
     Wait(Option<SystemTime>),
 }
 
-/// Abort validation permits only age and name conditions; share their object arithmetic.
-pub(crate) fn multipart_abort_due(
-    rules: &[LifecycleRule],
-    name: &str,
-    initiated: SystemTime,
-    now: SystemTime,
-) -> Option<SystemTime> {
-    let facts = VersionFacts {
-        name,
-        size: 0,
-        storage_class: StorageClass::Standard,
-        time_created: initiated,
-        custom_time: None,
-        noncurrent_time: None,
-        newer_versions: 0,
-    };
-    rules
-        .iter()
-        .filter(|rule| rule.action == LifecycleAction::AbortIncompleteMultipartUpload)
-        .filter_map(|rule| eligible_at(&rule.condition, &facts, now))
-        .min()
-}
-
 pub(crate) fn evaluate<'a>(
     rules: impl IntoIterator<Item = &'a LifecycleRule>,
     facts: &VersionFacts<'_>,
@@ -266,4 +243,62 @@ fn next_midnight(time: SystemTime) -> Option<SystemTime> {
         }
     };
     catalog_deadline(time.checked_add(remaining)?)
+}
+
+/// Extract the complete supported subset so newly added conditions require an explicit decision.
+pub(crate) fn multipart_abort_due(
+    rules: &[LifecycleRule],
+    name: &str,
+    initiated: SystemTime,
+    now: SystemTime,
+) -> Option<SystemTime> {
+    rules
+        .iter()
+        .filter(|rule| rule.action == LifecycleAction::AbortIncompleteMultipartUpload)
+        .filter_map(|rule| {
+            let LifecycleCondition {
+                age,
+                matches_prefix,
+                matches_suffix,
+                matches_storage_class,
+                created_before: None,
+                custom_time_before: None,
+                days_since_custom_time: None,
+                days_since_noncurrent_time: None,
+                is_live: None,
+                noncurrent_time_before: None,
+                num_newer_versions: None,
+                size_above_bytes: None,
+                size_below_bytes: None,
+            } = &rule.condition
+            else {
+                return None;
+            };
+            if !matches_storage_class.is_empty() {
+                return None;
+            }
+            multipart_condition_due(*age, matches_prefix, matches_suffix, name, initiated, now)
+        })
+        .min()
+}
+
+fn multipart_condition_due(
+    age: Option<i64>,
+    prefixes: &[String],
+    suffixes: &[String],
+    name: &str,
+    initiated: SystemTime,
+    now: SystemTime,
+) -> Option<SystemTime> {
+    if !(prefixes.is_empty() || prefixes.iter().any(|prefix| name.starts_with(prefix)))
+        || !(suffixes.is_empty() || suffixes.iter().any(|suffix| name.ends_with(suffix)))
+    {
+        return None;
+    }
+    let due = match age {
+        Some(0) => next_midnight(initiated)?,
+        Some(days) => after_days(initiated, days)?,
+        None => now,
+    };
+    Some(due.max(now))
 }

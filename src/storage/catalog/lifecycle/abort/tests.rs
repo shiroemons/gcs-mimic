@@ -334,6 +334,40 @@ async fn multipart_abort_busy_leases_rearm_on_release_without_polling() {
 }
 
 #[tokio::test]
+async fn multipart_abort_name_only_rules_match_without_an_age_condition() {
+    let (catalog, clock) = memory().await;
+    create(
+        &catalog,
+        vec![
+            abort(json!({"matchesPrefix":["prefix/"]})),
+            abort(json!({"matchesSuffix":[".tmp"]})),
+        ],
+    )
+    .await;
+    for name in ["prefix/value", "suffix.tmp", "keep"] {
+        begin(&catalog, name).await;
+    }
+    assert_counts(
+        execute(&catalog).await,
+        3,
+        2,
+        0,
+        Some(clock.now() + COALESCE),
+    );
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        1
+    );
+    clock.advance(COALESCE);
+    assert_counts(execute(&catalog).await, 1, 0, 0, None);
+    assert_eq!(
+        catalog.maintain_resumable_sessions().await.unwrap(),
+        Some(UNIX_EPOCH + DAY * 8)
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn multipart_abort_overflow_never_matches_or_schedules() {
     let (catalog, clock) = memory().await;
     create(&catalog, vec![abort(json!({"age":i32::MAX}))]).await;
@@ -369,6 +403,84 @@ async fn multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_sche
     };
     assert_counts(outcome, 0, 0, 0, Some(clock.now() + DAY));
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn multipart_abort_whole_lease_release_alone_rearms_the_next_pass() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![abort(json!({"age":1}))]).await;
+    let target = begin(&catalog, "object").await;
+    let lease = catalog
+        .lease_xml_multipart(target, BucketAccess::Permissive)
+        .await
+        .unwrap();
+    clock.advance(DAY);
+    assert_counts(execute(&catalog).await, 1, 0, 1, None);
+    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    drop(lease);
+    assert!(catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    clock.advance(COALESCE);
+    let LifecycleOutcome::Executed(outcome) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
+    else {
+        panic!("disabled")
+    };
+    assert_counts(outcome, 1, 1, 0, Some(clock.now() + COALESCE));
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        0
+    );
+    clock.advance(COALESCE);
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![abort(json!({"matchesPrefix":["abort/"]}))]).await;
+    begin(&catalog, "abort/object").await;
+    let keep = begin(&catalog, "keep").await;
+    let lease = catalog
+        .lease_xml_multipart(keep, BucketAccess::Permissive)
+        .await
+        .unwrap();
+    assert_counts(
+        execute(&catalog).await,
+        2,
+        1,
+        0,
+        Some(clock.now() + COALESCE),
+    );
+    clock.advance(COALESCE);
+    assert_counts(execute(&catalog).await, 1, 0, 0, None);
+    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    drop(lease);
+    assert!(!catalog.0.lifecycle.dirty.load(Ordering::Acquire));
+    let LifecycleOutcome::Executed(outcome) = catalog.run_lifecycle(Pass::Scheduled).await.unwrap()
+    else {
+        panic!("disabled")
+    };
+    assert_counts(outcome, 0, 0, 0, None);
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        1
+    );
+    catalog.close().await.unwrap();
+}
+
+#[test]
+fn multipart_abort_evaluation_rejects_object_only_conditions_without_validation() {
+    for condition in [
+        json!({"isLive":true}),
+        json!({"matchesStorageClass":["STANDARD"]}),
+        json!({"createdBefore":"9999-12-31"}),
+    ] {
+        let rule = serde_json::from_value(abort(condition)).unwrap();
+        assert_eq!(
+            multipart_abort_due(&[rule], "object", UNIX_EPOCH, UNIX_EPOCH + DAY),
+            None
+        );
+    }
 }
 
 #[tokio::test]
@@ -676,10 +788,9 @@ async fn multipart_abort_scan_seeks_the_existing_list_index_without_sorting() {
         })
         .await
         .unwrap();
-    eprintln!("{}", plan.join("\n"));
     assert!(
         plan.iter().any(|step| step
-            .contains("SEARCH xml_multipart_uploads USING INDEX xml_multipart_uploads_list")),
+            .contains("SEARCH xml_multipart_uploads USING INDEX xml_multipart_uploads_list (bucket=? AND (name,id)>(?,?))")),
         "{plan:?}"
     );
     assert!(

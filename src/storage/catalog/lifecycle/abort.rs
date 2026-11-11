@@ -35,7 +35,9 @@ struct Bucket<'a> {
 
 impl LifecycleSchedule {
     pub(in crate::storage::catalog) fn multipart_released(&self, wake: &tokio::sync::Notify) {
-        if self.enabled.load(Ordering::Acquire) && self.multipart_busy.swap(false, Ordering::AcqRel)
+        if self.multipart_busy.load(Ordering::Acquire)
+            && self.enabled.load(Ordering::Acquire)
+            && self.multipart_busy.swap(false, Ordering::AcqRel)
         {
             self.on_write(wake);
         }
@@ -153,7 +155,7 @@ impl Catalog {
                     outcome.skipped += 1;
                     continue;
                 };
-                self.retire_lifecycle_multipart(&transaction, &id)?;
+                Self::retire_lifecycle_multipart(&transaction, &lease)?;
                 leases.push(lease);
                 outcome.aborted += 1;
                 if outcome.aborted == limit {

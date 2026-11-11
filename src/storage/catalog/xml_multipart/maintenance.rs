@@ -205,10 +205,12 @@ pub(super) fn recover(
 impl Catalog {
     /// The lifecycle caller holds the whole-upload lease and the retirement transaction.
     pub(in crate::storage::catalog) fn retire_lifecycle_multipart(
-        &self,
         connection: &Connection,
-        id: &str,
+        lease: &resumable::WriterGuard,
     ) -> Result<(), ObjectError> {
+        let id = lease.multipart_id().ok_or_else(|| {
+            object_unavailable("multipart retirement requires a whole-upload lease")
+        })?;
         retire(connection, id)
     }
 

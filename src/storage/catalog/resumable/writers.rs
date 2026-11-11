@@ -197,6 +197,18 @@ pub(in crate::storage::catalog) struct WriterGuard {
     _activity: Activity,
 }
 
+impl WriterGuard {
+    pub(in crate::storage::catalog) fn multipart_id(&self) -> Option<&str> {
+        match &self.key {
+            WriterKey::Multipart(id) => Some(id),
+            WriterKey::Resumable(_)
+            | WriterKey::MultipartPart(..)
+            | WriterKey::Rewrite(_)
+            | WriterKey::Derived(_) => None,
+        }
+    }
+}
+
 impl Drop for WriterGuard {
     fn drop(&mut self) {
         self.catalog
