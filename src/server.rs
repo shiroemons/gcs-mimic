@@ -11,8 +11,10 @@ use crate::{
         failure::{BackendFailure, object_unavailable},
     },
     time_limit::TimeLimit,
-    tls, xml,
+    tls::{self, ListenerSecurity},
+    xml,
 };
+use handshake::{Handshake, Undetected};
 use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -107,6 +109,7 @@ mod batch;
 mod browser;
 mod buckets;
 mod context;
+mod handshake;
 mod host;
 mod ingress;
 mod objects;
@@ -749,12 +752,12 @@ pub async fn serve(
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let config = config.into();
-    let acceptor = tls::load_server(&config).map_err(io::Error::other)?;
-    serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
+    let security = tls::load_server(&config).map_err(io::Error::other)?;
+    serve_with_tls(vec![(listener, security)], config, state, shutdown).await
 }
 
 pub(crate) async fn serve_with_tls(
-    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    listeners: Vec<(TcpListener, ListenerSecurity)>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
@@ -763,7 +766,7 @@ pub(crate) async fn serve_with_tls(
 }
 
 pub(crate) async fn serve_with_tls_and_drain(
-    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    listeners: Vec<(TcpListener, ListenerSecurity)>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
@@ -779,8 +782,8 @@ pub(crate) async fn serve_with_tls_and_drain(
 
 /// The TCP listeners of one server. They share `max_connections` and every timeout.
 pub struct TcpListeners {
-    /// The browser-facing listeners, each with its TLS acceptor when it serves HTTPS.
-    pub public: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    /// The browser-facing listeners, each with how it secures its connections.
+    pub public: Vec<(TcpListener, ListenerSecurity)>,
     /// The plain HTTP listener for the application's own servers, where a request without
     /// credentials acts as `trusted_principal`.
     pub trusted: Option<TcpListener>,
@@ -800,9 +803,9 @@ pub async fn serve_with_grpc_and_drain(
         trusted,
         grpc,
     } = listeners;
-    let public = public.into_iter().map(|(listener, tls)| {
+    let public = public.into_iter().map(|(listener, security)| {
         let serving = Serving {
-            tls,
+            security,
             role: ListenerRole::Public,
         };
         (transport::Listener::Tcp(listener), serving)
@@ -810,7 +813,7 @@ pub async fn serve_with_grpc_and_drain(
     // Plain HTTP whatever the scheme: the listener is meant for a private container network.
     let trusted = trusted.map(|listener| {
         let serving = Serving {
-            tls: None,
+            security: ListenerSecurity::Plain,
             role: ListenerRole::Trusted,
         };
         (transport::Listener::Tcp(listener), serving)
@@ -829,9 +832,55 @@ pub async fn serve_with_grpc_and_drain(
 /// How the HTTP connections a listener accepts are served.
 #[derive(Clone)]
 struct Serving {
-    /// Present when the listener serves HTTPS.
-    tls: Option<tokio_rustls::TlsAcceptor>,
+    security: ListenerSecurity,
     role: ListenerRole,
+}
+
+impl Serving {
+    /// Selects the protocol of a TCP connection accepted `at`. The wait for its first byte ends
+    /// at the header read limit counted from `at`, the limit a silent plain HTTP client has.
+    async fn accept_tcp(
+        self,
+        stream: &tokio::net::TcpStream,
+        at: tokio::time::Instant,
+        config: &Config,
+        stopping: &mut watch::Receiver<bool>,
+    ) -> Option<Accepted> {
+        let first_byte_by = config.header_read_timeout.deadline_from(at);
+        match self.security.select(stream, first_byte_by, stopping).await {
+            Ok(handshake) => Some(Accepted {
+                handshake,
+                role: self.role,
+                at,
+            }),
+            Err(Undetected::Silent) => {
+                warn_connection_timeout(
+                    "request headers were not received before header_read_timeout_ms",
+                );
+                None
+            }
+            // A probe that only opens a connection is not a client fault.
+            Err(Undetected::Closed | Undetected::Stopping) => None,
+        }
+    }
+
+    #[cfg(unix)]
+    fn accept_unix(self, at: tokio::time::Instant) -> Accepted {
+        Accepted {
+            handshake: self.security.without_detection(),
+            role: self.role,
+            at,
+        }
+    }
+}
+
+/// A connection whose protocol is known.
+struct Accepted {
+    handshake: Handshake,
+    role: ListenerRole,
+    /// When the listener accepted it. The TLS handshake and a plain connection's first request
+    /// head count from here, so detecting the protocol never extends either.
+    at: tokio::time::Instant,
 }
 
 /// What the requests of one connection learn from the listener that accepted it.
@@ -861,7 +910,7 @@ pub async fn serve_with_unix_and_drain(
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let serving = Serving {
-        tls: None,
+        security: ListenerSecurity::Plain,
         role: ListenerRole::Public,
     };
     serve_transports(
@@ -895,7 +944,7 @@ async fn serve_transports(
         // gRPC serves its connections itself; its calls always authenticate as on a public
         // listener, so nothing here applies to them.
         let unused = Serving {
-            tls: None,
+            security: ListenerSecurity::Plain,
             role: ListenerRole::Public,
         };
         listeners.push((transport::Listener::Tcp(listener), unused));
@@ -1013,19 +1062,27 @@ impl ConnectionStarter<'_> {
         let grpc_index = self.grpc_index;
         let state = self.state.clone();
         let config = self.config.clone();
-        let stopping = self.stop.subscribe();
+        let mut stopping = self.stop.subscribe();
         let slots = self.slots.clone();
+        let accepted_at = tokio::time::Instant::now();
         let connection = async move {
             match stream {
                 transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
                     crate::grpc::serve_connection(stream, &config, state, stopping, &slots).await;
                 }
                 transport::Stream::Tcp(stream) => {
-                    serve_http(stream, serving, state, config, stopping, slots).await;
+                    let Some(accepted) = serving
+                        .accept_tcp(&stream, accepted_at, &config, &mut stopping)
+                        .await
+                    else {
+                        return;
+                    };
+                    serve_http(stream, accepted, state, config, stopping, slots).await;
                 }
                 #[cfg(unix)]
                 transport::Stream::Unix(stream) => {
-                    serve_http(stream, serving, state, config, stopping, slots).await;
+                    let accepted = serving.accept_unix(accepted_at);
+                    serve_http(stream, accepted, state, config, stopping, slots).await;
                 }
             }
         };
@@ -1148,38 +1205,50 @@ fn poll_incoming(
 
 async fn serve_http(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    serving: Serving,
+    accepted: Accepted,
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
     slots: Arc<SlotReclaim>,
 ) {
-    let Serving { tls, role } = serving;
-    if let Some(acceptor) = tls {
-        let handshake = tokio::time::timeout_at(
-            config.tls_handshake_timeout.deadline(),
-            acceptor.accept(stream),
-        );
-        let stream = tokio::select! {
-            biased;
-            _ = stopping.changed() => return,
-            result = handshake => match result {
-                Ok(Ok(stream)) => stream,
-                Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
-                Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
-            }
-        };
-        let listening = Listening {
-            scheme: ConnectionScheme::Https,
-            role,
-        };
-        serve_connection(stream, listening, state, config, stopping, slots).await;
-    } else {
-        let listening = Listening {
-            scheme: ConnectionScheme::Http,
-            role,
-        };
-        serve_connection(stream, listening, state, config, stopping, slots).await;
+    let Accepted {
+        handshake,
+        role,
+        at,
+    } = accepted;
+    match handshake {
+        Handshake::Plain => {
+            let listening = Listening {
+                scheme: ConnectionScheme::Http,
+                role,
+            };
+            serve_connection(stream, listening, at, state, config, stopping, slots).await;
+        }
+        Handshake::Tls(acceptor) => {
+            let handshake = tokio::time::timeout_at(
+                config.tls_handshake_timeout.deadline_from(at),
+                acceptor.accept(stream),
+            );
+            let stream = tokio::select! {
+                biased;
+                _ = stopping.changed() => return,
+                result = handshake => match result {
+                    Ok(Ok(stream)) => stream,
+                    Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
+                    Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
+                }
+            };
+            let listening = Listening {
+                scheme: ConnectionScheme::Https,
+                role,
+            };
+            // The request head gets its own full limit once the handshake is done.
+            let handshaken = tokio::time::Instant::now();
+            serve_connection(
+                stream, listening, handshaken, state, config, stopping, slots,
+            )
+            .await;
+        }
     }
 }
 
@@ -1248,6 +1317,7 @@ fn http1_builder() -> http1::Builder {
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     listening: Listening,
+    first_head_from: tokio::time::Instant,
     state: Arc<State>,
     config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
@@ -1276,6 +1346,7 @@ async fn serve_connection(
         activity,
         reads,
         limits,
+        first_head_from,
         slots,
     };
     let unread = watch.run(&mut connection, &mut stopping).await;
@@ -1486,6 +1557,8 @@ struct ConnectionWatch {
     activity: watch::Sender<ObjectActivity>,
     reads: Arc<ReadActivity>,
     limits: ConnectionLimits,
+    /// Where the header read limit of the first request head starts.
+    first_head_from: tokio::time::Instant,
     slots: Arc<SlotReclaim>,
 }
 
@@ -1501,9 +1574,10 @@ impl ConnectionWatch {
             activity,
             reads,
             limits,
+            first_head_from,
             slots,
         } = self;
-        let deadline = tokio::time::sleep_until(limits.header_read.deadline());
+        let deadline = tokio::time::sleep_until(limits.header_read.deadline_from(first_head_from));
         // Waited on only after a request sets its deadline, which resets this first.
         let object_deadline = tokio::time::sleep_until(limits.header_read.deadline());
         tokio::pin!(deadline, object_deadline);

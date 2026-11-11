@@ -6,7 +6,9 @@ Since 0.18.0, source flags are accepted when their translations preserve
 requests that worked with fake-gcs-server, including broader native support.
 Otherwise startup stops and names the native
 alternative. This slice extends UX-003, which stays `PARTIAL`; DESIGN-100's
-native CORS fallback remains implemented. The scheme default remains `https`.
+native CORS fallback remains implemented. The scheme default is `https` up to
+0.18.0 and `auto` from 0.19.0; `--public-host` still translates to an `https://`
+base without `--scheme`, as fake-gcs-server builds it.
 
 ## Behavior
 
@@ -19,7 +21,7 @@ rules have applied since 0.15.0. `FAKE_GCS_*` variables are not read.
 | `host` | Native | `--host IP`; changes only the listen IP; `localhost` becomes `127.0.0.1` |
 | `port` | Native | `--port N`; changes only the listen port |
 | `port-http` | Native | `--port-http N`; requires `--scheme both` |
-| `scheme` | Native | `--scheme http\|https\|both`; default `https` |
+| `scheme` | Native | `--scheme auto\|http\|https\|both`; default `auto` (`https` up to 0.18.0) |
 | `log-level` | Native | `--log-level debug\|info\|warn\|error`; `warning` aliases `warn` |
 | `backend` | Native or accepted | `memory` and `disk` are native; `filesystem` becomes `--backend disk` |
 | `public-host` | Accepted | `--public-base-url SCHEME://HOST`; see the routing difference below |

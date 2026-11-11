@@ -5,6 +5,10 @@
 This delivery scope belongs to DESIGN-065. DESIGN-055 gains HTTPS link evidence;
 its proxy-derived origins and signing remain separate pending work.
 
+From 0.19.0 the default is `scheme=auto`, which serves this contract's TLS and plain HTTP on
+one port; `scheme=https` keeps the HTTPS-only listener these cases describe. See
+[one port for HTTP and HTTPS](single-port-scheme.md).
+
 ## Contract and sources
 
 Checked on 2026-10-23:

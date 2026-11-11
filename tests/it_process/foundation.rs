@@ -1036,7 +1036,7 @@ fn api_origin_explicit_base_wins_and_conflicts_fail_before_catalog() {
     let (mut stdout, ready) = process_ready(&mut child);
     assert_eq!(
         ready["api_base_url"],
-        format!("https://{}", ready["listen"].as_str().unwrap())
+        format!("http://{}", ready["listen"].as_str().unwrap())
     );
     common::stop_server(&mut child, &mut stdout);
 }
@@ -2227,7 +2227,10 @@ fn running_without_arguments_names_the_command_to_use() {
     let output = common::server_command().clean_env().output().unwrap();
     assert!(!output.status.success(), "{output:?}");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("gcs-mimic serve --scheme http"), "{stderr}");
+    assert!(
+        stderr.contains("start the emulator with gcs-mimic serve,"),
+        "{stderr}"
+    );
 }
 
 #[test]

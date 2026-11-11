@@ -198,8 +198,10 @@ poisoned catalog, this gap does not revoke readiness for good.
 
 Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running catalog work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
 
-The default HTTPS-only listener uses a built-in development certificate/key;
-an optional supplied PEM pair replaces it. A single supplied path fails. Explicit
+The default `scheme=auto` listener serves TLS or plain HTTP on one port, as each
+connection's first byte selects ([design](slices/single-port-scheme.md)); `scheme=https`
+is HTTPS-only. Both use a built-in development certificate/key that an optional
+supplied PEM pair replaces. A single supplied path fails. Explicit
 `scheme=http` retains local HTTP-only operation. The `tls` module loads bounded
 PEM inputs before CLI recovery/bind, while Tokio Rustls wraps the same HTTP/1.1
 handler with TLS 1.2/1.3. Handshakes occupy the existing connection slots and have

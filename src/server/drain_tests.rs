@@ -20,7 +20,7 @@ async fn fatal_listener_failure_drains_background_work_before_catalog_close() {
         .scope(
             Arc::new(std::sync::Mutex::new([libc::EBADF].into())),
             serve_with_tls_and_drain(
-                vec![(listener, None)],
+                vec![(listener, ListenerSecurity::Plain)],
                 Config::default(),
                 state,
                 std::future::pending(),
@@ -107,7 +107,7 @@ async fn exhausted_accept_pause_still_honors_shutdown() {
     let server = tokio::spawn(ACCEPT_FAULTS.scope(
         faults.clone(),
         serve_with_tls_and_drain(
-            vec![(listener, None)],
+            vec![(listener, ListenerSecurity::Plain)],
             Config::default(),
             state,
             async { shutdown.await.map_err(io::Error::other) },
@@ -152,9 +152,12 @@ async fn handler_panic_closes_only_its_connection() {
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(FORCE_HANDLER_PANIC.scope(
         armed.clone(),
-        serve_with_tls(vec![(listener, None)], config, state, async move {
-            stopped.await.map_err(io::Error::other)
-        }),
+        serve_with_tls(
+            vec![(listener, ListenerSecurity::Plain)],
+            config,
+            state,
+            async move { stopped.await.map_err(io::Error::other) },
+        ),
     ));
     // The panicking request gets no response; only its connection is closed.
     assert_eq!(health(address).await, "");

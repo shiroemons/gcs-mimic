@@ -691,7 +691,7 @@ mod tests {
             ..Config::default()
         };
         let server = tokio::spawn(super::super::serve_with_tls(
-            vec![(listener, None)],
+            vec![(listener, crate::tls::ListenerSecurity::Plain)],
             config,
             state.clone(),
             async move { stopped.await.map_err(io::Error::other) },

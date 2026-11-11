@@ -55,7 +55,7 @@ Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the fi
        gcs-mimic --help | -h | -help | --version
 
 Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
-  --scheme MODE                https (http|https|both; both uses HTTPS on the primary port)
+  --scheme MODE                auto (auto|http|https|both; auto serves HTTP and HTTPS on the primary port; both uses HTTPS there and HTTP on --port-http)
   --port N                     4443 (keeps the listen IP; CLI only, GCS_MIMIC_LISTEN in the environment)
   --port-http N                8000 (native HTTP port; requires scheme=both; CLI only)
   --host IP                    127.0.0.1, 0.0.0.0 in the image (keeps the listen port; CLI only)
@@ -73,7 +73,7 @@ Other serve options:
   --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
   --trusted-principal ID       built-in trusted-app@gcs-mimic.invalid with roles/storage.admin in the buckets document's projects and seed_project (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; requires it)
   --trusted-allowed-hosts LIST none (comma-separated dotted DNS names --trusted-listen also accepts as Host, such as a service alias; at most 32; requires --trusted-listen)
-  --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
+  --unix-socket PATH           none (plain HTTP Unix socket; private 0700 parent, scheme=auto or http, no TCP/gRPC/TLS)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
@@ -144,6 +144,7 @@ fake-gcs-server flags preserve working requests or fail before startup:
   --host, --port, --port-http, --scheme and --log-level are native options.
 
 HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+With scheme=auto each connection's first byte selects TLS or plain HTTP on the same port.
 HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
 Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
 Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
@@ -152,7 +153,7 @@ development CA by default; --ca-cert PATH replaces that trust with a supplied CA
 HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health, /_internal/ready
 or the compatible readiness path /_internal/healthcheck.
 Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses ready,
-maps wildcard listeners to loopback and prefers HTTP for scheme=both. Server CLI
+maps wildcard listeners to loopback and probes over HTTP unless scheme=https. Server CLI
 overrides require an explicit --url or matching environment/configuration settings.
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
@@ -333,7 +334,7 @@ fn run() -> Result<(), CliError> {
         [] => Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "command",
-            "No command given; start the emulator with gcs-mimic serve --scheme http, or see gcs-mimic --help.",
+            "No command given; start the emulator with gcs-mimic serve, or see gcs-mimic --help.",
         )
         .into()),
         [command, rest @ ..] if command == "healthcheck" => {
@@ -401,10 +402,10 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     let mut report = Config::preflight_os(rest, std::env::vars_os());
     gcs_mimic::diagnostics::set_log_level(report.config.log_level);
     // Validate supplied TLS material before touching the catalog, seed or listener.
-    let mut acceptor = None;
+    let mut security = tls::ListenerSecurity::Plain;
     if report.valid(&["scheme", "tls_cert", "tls_key"]) {
         match tls::load_server(&report.config) {
-            Ok(value) => acceptor = value,
+            Ok(value) => security = value,
             Err(error) => report.diagnostics.errors.push(Diagnostic::new(
                 DiagnosticSource::Tls,
                 error.setting(),
@@ -495,7 +496,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
             #[cfg(not(any(unix, windows)))]
             tokio::signal::ctrl_c().await
         };
-        startup::serve(config, auth, acceptor, shutdown).await
+        startup::serve(config, auth, security, shutdown).await
     })?;
     Ok(())
 }
@@ -1024,7 +1025,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "00e095a964b1deaf7ef7ee0742579107f55dc0f7d6acd2161a00e2e98465546d"
+            "8a156d8d0e37ab5a4a352fd73c5124197d76a280f35702404b67df2ae18b74d7"
         );
     }
 

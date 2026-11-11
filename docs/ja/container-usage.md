@@ -53,7 +53,8 @@ JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書�
 
 `docker stop gcs-mimic`で停止し、`docker start gcs-mimic`で再開できます。
 停止したコンテナを削除しても、名前付きボリュームのデータは残ります。
-スキームを指定しない場合、サーバーの既定値はHTTPSです。
+スキームを指定しない場合、0.18.0までのサーバーはHTTPSだけを受け付けます。
+0.19.0からの既定値`auto`は、同じポートでHTTPとHTTPSの両方を受け付けます。
 
 ## アプリから接続する
 
@@ -288,7 +289,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 
 | 設定 | 用途 |
 | --- | --- |
-| `GCS_MIMIC_SCHEME` | `https`（既定）、`http`、`both` |
+| `GCS_MIMIC_SCHEME` | `auto`（0.19.0からの既定）は1つのポートでHTTPとHTTPSを受け付けます。`https`（0.18.0までの既定）はHTTPSだけ、`http`はHTTPだけ、`both`はprimaryでHTTPS、別のポートでHTTPです |
 | `GCS_MIMIC_AUTH_MODE` | `permissive`（既定）はfake-gcs-serverと同じくすべてのリクエストを受け付ける。`strict`はローカルのIDに対してIAMとACLで各リクエストを認可する。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_BUCKETS` | 起動時に作るバケットを、`cors`や`iamPolicy`などの設定付きでインラインのJSONに書く。`GCS_MIMIC_BUCKETS_FILE`は同じ文書をファイルから読む。[初期バケット設定](#初期バケット設定ファイルを使う) |
 | `GCS_MIMIC_IDENTITIES` | strictで使うローカルのID・トークン・ロールをインラインのJSONに書く。`GCS_MIMIC_IDENTITY_FILE`は同じ文書をファイルから読む |

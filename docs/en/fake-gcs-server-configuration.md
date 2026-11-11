@@ -101,7 +101,7 @@ generally mean “use the default.” See the
 
 | Source role | Current native setting | Remaining difference |
 | --- | --- | --- |
-| Scheme | `GCS_MIMIC_SCHEME` | `http`, `https` or `both`; primary HTTPS in both mode |
+| Scheme | `GCS_MIMIC_SCHEME` | `auto`, `http`, `https` or `both`; auto serves HTTP and HTTPS on one port; primary HTTPS in both mode |
 | Bind host and port | `GCS_MIMIC_LISTEN`, `--listen`, `--port`, `--host` | One `IP:port` value, or one part of it; `--port` and `--host` keep the other part |
 | Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP`, `--listen-http`, `--port-http` | Requires `scheme=both`; defaults to primary IP:8000. Other schemes fail before startup |
 | Advertised API endpoint | Nothing; `GCS_MIMIC_API_BASE_URL` to fix one | Links follow each request's Host and connection scheme. Unlike source `-external-url`, this setting also fixes resumable upload URLs; choose an address every client can reach. A proxy that rewrites Host needs it. |
@@ -165,7 +165,9 @@ For `serve`, accepted translations take effect and appear together in one
 the original key and the reason their meaning cannot be preserved; exit status
 is 1 and nothing starts. `log_level=warn` or `error` suppresses info, but never
 validation warnings or errors. The [flag table](slices/option-aliases.md)
-records each kind. The HTTPS default is unchanged.
+records each kind. From 0.19.0 the native default `auto` serves HTTP and HTTPS
+on one port, so a fake-gcs-server client keeps its `https://` URL and an SDK
+given `STORAGE_EMULATOR_HOST` connects over HTTP without `-scheme`.
 
 Since 0.15.0, every server option is accepted in one- and two-hyphen forms
 with separate or equals values, and a command line that starts with an option

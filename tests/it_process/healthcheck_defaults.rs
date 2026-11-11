@@ -12,18 +12,18 @@ use std::{
 #[test]
 fn healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin() {
     for (listen, expected) in [
-        (
-            "0.0.0.0:4443",
-            "https://127.0.0.1:4443/_internal/healthcheck",
-        ),
-        ("[::]:8443", "https://[::1]:8443/_internal/healthcheck"),
+        ("0.0.0.0:4443", "127.0.0.1:4443/_internal/healthcheck"),
+        ("[::]:8443", "[::1]:8443/_internal/healthcheck"),
     ] {
         let mut config = Config {
             listen: listen.parse().unwrap(),
             api_base_url: Some("https://advertised.invalid".into()),
             ..Config::default()
         };
-        assert_eq!(config.healthcheck_url(), expected);
+        // The default listener also accepts plain HTTP, which needs no CA.
+        assert_eq!(config.healthcheck_url(), format!("http://{expected}"));
+        config.scheme = Scheme::Https;
+        assert_eq!(config.healthcheck_url(), format!("https://{expected}"));
         config.scheme = Scheme::Both;
         config.listen_http = Some("[::]:8080".parse().unwrap());
         assert_eq!(
@@ -49,6 +49,8 @@ fn healthcheck_defaults_follow_http_https_both_and_changed_ports() {
         ("https", false),
         ("both", true),
         ("http", true),
+        ("auto", false),
+        ("auto", true),
     ] {
         let dir = TestDir::new();
         let path = dir.0.join("server.json");

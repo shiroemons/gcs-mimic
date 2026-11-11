@@ -202,18 +202,25 @@ impl BucketsFileMode {
 
 string_enum! {
     pub enum Scheme {
-        Http => "http",
+        /// HTTP and HTTPS on the primary listener, chosen by each connection's first byte.
         #[default]
+        Auto => "auto",
+        Http => "http",
         Https => "https",
+        /// HTTPS on the primary listener and HTTP on `listen_http`, as fake-gcs-server's
+        /// two-port command line serves them.
         Both => "both",
     }
-    "scheme must be http, https or both"
+    "scheme must be auto, http, https or both"
 }
 
 impl Scheme {
+    /// The scheme of URLs built without a connection to take it from, such as the fallback API
+    /// base and the ready event's primary listener. `auto` uses `http`, which every client can
+    /// follow without trusting a CA.
     pub fn primary(self) -> &'static str {
         match self {
-            Self::Http => "http",
+            Self::Auto | Self::Http => "http",
             Self::Https | Self::Both => "https",
         }
     }
@@ -357,7 +364,7 @@ impl Default for Config {
             grpc_listen: None,
             trusted_listen: None,
             unix_socket: None,
-            scheme: Scheme::Https,
+            scheme: Scheme::Auto,
             tls_cert: None,
             tls_key: None,
             tls_handshake_timeout: TimeLimit::from_millis(5_000),
@@ -457,12 +464,12 @@ impl Config {
 
     pub fn healthcheck_url(&self) -> String {
         let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
-        let scheme = if self.scheme == Scheme::Both {
-            Scheme::Http
-        } else {
-            self.scheme
+        // Plain HTTP wherever a listener accepts it, so the probe needs no CA.
+        let scheme = match self.scheme {
+            Scheme::Auto | Scheme::Http | Scheme::Both => "http",
+            Scheme::Https => "https",
         };
-        format!("{}://{listen}{}", scheme.as_str(), Self::HEALTHCHECK_PATH)
+        format!("{scheme}://{listen}{}", Self::HEALTHCHECK_PATH)
     }
 
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {
@@ -1254,47 +1261,49 @@ impl ConfigurationReport {
     }
 
     fn check_tls(&mut self, settings: &Settings) {
-        let tls_options_supplied = settings.keys().any(|key| {
-            matches!(
-                key.as_str(),
-                "tls_cert" | "tls_key" | "tls_handshake_timeout_ms"
-            )
-        });
         let config = &self.config;
-        match config.scheme {
-            Scheme::Http if tls_options_supplied && !self.invalid.contains("scheme") => {
-                for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
-                    if let Some(input) = settings.get(name)
-                        && !self.invalid.contains(name)
-                    {
-                        self.diagnostics.errors.push(Diagnostic::new(
-                            input.source,
-                            &input.key,
-                            "TLS settings require scheme=https or both; remove TLS settings for HTTP.",
-                        ));
-                        self.invalid.insert(name.into());
-                    }
+        // A listener that never serves TLS would silently ignore every TLS setting.
+        let plain_only = match config.scheme {
+            Scheme::Http => Some(
+                "TLS settings require scheme=auto, https or both; remove TLS settings for HTTP.",
+            ),
+            Scheme::Auto if config.unix_socket.is_some() => {
+                Some("A Unix socket serves plain HTTP only; remove TLS settings or listen on TCP.")
+            }
+            Scheme::Auto | Scheme::Https | Scheme::Both => None,
+        };
+        if let Some(fix) = plain_only {
+            if self.invalid.contains("scheme") {
+                return;
+            }
+            for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
+                if let Some(input) = settings.get(name)
+                    && !self.invalid.contains(name)
+                {
+                    self.diagnostics
+                        .errors
+                        .push(Diagnostic::new(input.source, &input.key, fix));
+                    self.invalid.insert(name.into());
                 }
             }
-            Scheme::Https | Scheme::Both
-                if config.tls_cert.is_some() != config.tls_key.is_some()
-                    && !self.any_invalid(&["scheme", "tls_cert", "tls_key"]) =>
-            {
-                let name = if config.tls_cert.is_some() {
-                    "tls_cert"
-                } else {
-                    "tls_key"
-                };
-                if let Some(input) = settings.get(name) {
-                    self.diagnostics.errors.push(Diagnostic::new(
-                        input.source,
-                        &input.key,
-                        "tls_cert and tls_key must be supplied together; provide both PEM paths.",
-                    ));
-                }
-                self.invalid.insert(name.into());
+            return;
+        }
+        if config.tls_cert.is_some() != config.tls_key.is_some()
+            && !self.any_invalid(&["scheme", "tls_cert", "tls_key"])
+        {
+            let name = if config.tls_cert.is_some() {
+                "tls_cert"
+            } else {
+                "tls_key"
+            };
+            if let Some(input) = settings.get(name) {
+                self.diagnostics.errors.push(Diagnostic::new(
+                    input.source,
+                    &input.key,
+                    "tls_cert and tls_key must be supplied together; provide both PEM paths.",
+                ));
             }
-            _ => {}
+            self.invalid.insert(name.into());
         }
     }
 
@@ -1315,9 +1324,9 @@ impl ConfigurationReport {
         if self.config.unix_socket.is_some() {
             let fix = if !cfg!(unix) {
                 Some("unix_socket requires a Unix platform; no TCP fallback is used.")
-            } else if self.config.scheme != Scheme::Http {
+            } else if matches!(self.config.scheme, Scheme::Https | Scheme::Both) {
                 Some(
-                    "unix_socket requires scheme=http; advertised HTTP(S) origins remain independent.",
+                    "unix_socket serves plain HTTP and requires scheme=auto or http; advertised HTTP(S) origins remain independent.",
                 )
             } else if ["listen", "listen_http", "grpc_listen", "trusted_listen"]
                 .iter()
@@ -2072,7 +2081,7 @@ mod tests {
         ));
         assert_eq!(
             Config::default().effective_api_base_url(bound),
-            "https://[fe80::1]:4443"
+            "http://[fe80::1]:4443"
         );
         assert_eq!(
             Config::default().effective_api_base_url(SocketAddr::V6(std::net::SocketAddrV6::new(
@@ -2081,7 +2090,7 @@ mod tests {
                 7,
                 3
             ))),
-            "https://[::1]:4443"
+            "http://[::1]:4443"
         );
     }
 
@@ -3191,12 +3200,13 @@ mod tests {
     #[test]
     fn tls_configuration_precedence_and_validation() {
         let defaults = Config::default();
-        assert_eq!(defaults.scheme, Scheme::Https);
+        assert_eq!(defaults.scheme, Scheme::Auto);
         assert_eq!(defaults.api_base_url, None);
         let loaded = Config::load(&[], &BTreeMap::new()).unwrap();
-        assert_eq!(loaded.scheme, Scheme::Https);
+        assert_eq!(loaded.scheme, Scheme::Auto);
         assert_eq!(loaded.tls_cert, None);
         assert_eq!(loaded.tls_key, None);
+        // TLS files choose the certificate; only scheme=https refuses plain HTTP.
         assert_eq!(
             Config::load(
                 &[
@@ -3209,7 +3219,7 @@ mod tests {
             )
             .unwrap()
             .scheme,
-            Scheme::Https
+            Scheme::Auto
         );
         assert_eq!(load_http(&[], &BTreeMap::new()).unwrap().api_base_url, None);
         assert_eq!(defaults.tls_handshake_timeout.as_millis(), 5_000);
@@ -3849,14 +3859,31 @@ mod tests {
     #[test]
     fn api_origin_defaults_use_bound_addresses_and_preflight_hosts() {
         for (bound, expected) in [
-            ("0.0.0.0:54321", "https://127.0.0.1:54321"),
-            ("[::]:54321", "https://[::1]:54321"),
-            ("127.0.0.2:54321", "https://127.0.0.2:54321"),
-            ("[::1]:54321", "https://[::1]:54321"),
+            ("0.0.0.0:54321", "http://127.0.0.1:54321"),
+            ("[::]:54321", "http://[::1]:54321"),
+            ("127.0.0.2:54321", "http://127.0.0.2:54321"),
+            ("[::1]:54321", "http://[::1]:54321"),
         ] {
             assert_eq!(
                 Config::default().effective_api_base_url(bound.parse().unwrap()),
                 expected
+            );
+        }
+        // Without a connection to take it from, only the TLS-only modes advertise HTTPS.
+        for (scheme, expected) in [
+            (Scheme::Auto, "http://127.0.0.1:54321"),
+            (Scheme::Http, "http://127.0.0.1:54321"),
+            (Scheme::Https, "https://127.0.0.1:54321"),
+            (Scheme::Both, "https://127.0.0.1:54321"),
+        ] {
+            let config = Config {
+                scheme,
+                ..Config::default()
+            };
+            assert_eq!(
+                config.effective_api_base_url("127.0.0.1:54321".parse().unwrap()),
+                expected,
+                "{scheme:?}"
             );
         }
         for listen in ["127.0.0.1:0", "0.0.0.0:0"] {

@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: **design, not implemented.** Nothing here is supported behavior until the feature ledger records passing acceptance cases. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065); the implementation slice adds its own ledger row before any code changes.
+Status: **implemented on the main branch for 0.19.0, `PARTIAL`.** DESIGN-102 in the feature ledger records which acceptance cases pass; signed URLs over both protocols, concurrency and slot limits, and the SDK, browser and container clients remain pending. The [verification record](../evidence/single-port-scheme.md) lists the commands. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065).
 
 ## Problem
 

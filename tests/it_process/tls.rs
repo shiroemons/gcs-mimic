@@ -19,20 +19,51 @@ struct Server {
     stdout: BufReader<ChildStdout>,
     origin: String,
     address: String,
+    ready: serde_json::Value,
+}
+
+/// The scheme a test starts the server with.
+#[derive(Clone, Copy)]
+enum Mode {
+    Http,
+    Https,
+    /// The default: both protocols on one port. These tests address it over TLS unless they
+    /// build a plain HTTP origin from `Server::address` themselves.
+    Auto,
+}
+
+impl Mode {
+    fn ready_scheme(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+            Self::Auto => "auto",
+        }
+    }
+
+    fn origin_scheme(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https | Self::Auto => "https",
+        }
+    }
 }
 
 impl Server {
+    /// A TLS-only listener with the fixture certificate. Supplying the files alone would also
+    /// serve plain HTTP.
     fn start(dir: &Path, certs: &Path, extra: &[&str]) -> Self {
         let mut command = common::server_command();
         command
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args(["serve", "--scheme", "https", "--listen", "127.0.0.1:0"])
+            .arg("--data-dir")
             .arg(dir)
             .arg("--tls-cert")
             .arg(certs.join("server.pem"))
             .arg("--tls-key")
             .arg(certs.join("server.key"))
             .args(extra);
-        Self::launch(command, "https")
+        Self::launch(command, Mode::Https)
     }
 
     fn start_http(dir: &Path) -> Self {
@@ -47,10 +78,10 @@ impl Server {
                 "--data-dir",
             ])
             .arg(dir);
-        Self::launch(command, "http")
+        Self::launch(command, Mode::Http)
     }
 
-    fn launch(mut command: Command, scheme: &str) -> Self {
+    fn launch(mut command: Command, mode: Mode) -> Self {
         let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
         let (send, receive) = std::sync::mpsc::channel();
@@ -69,13 +100,14 @@ impl Server {
             });
         let ready: serde_json::Value = serde_json::from_str(&line).expect("ready event");
         assert_eq!(ready["event"], "ready");
-        assert_eq!(ready["scheme"], scheme);
+        assert_eq!(ready["scheme"], mode.ready_scheme());
         let address = ready["listen"].as_str().unwrap().to_owned();
         Self {
             child,
             stdout,
-            origin: format!("{scheme}://{address}"),
+            origin: format!("{}://{address}", mode.origin_scheme()),
             address,
+            ready,
         }
     }
 
@@ -105,6 +137,10 @@ fn fixtures(dir: &Path) {
 }
 
 fn curl(server: &Server, ca: &Path, args: &[&str], path: &str) -> Output {
+    curl_at(&server.origin, ca, args, path)
+}
+
+fn curl_at(origin: &str, ca: &Path, args: &[&str], path: &str) -> Output {
     Command::new("curl")
         .args([
             "-q",
@@ -119,7 +155,7 @@ fn curl(server: &Server, ca: &Path, args: &[&str], path: &str) -> Output {
         ])
         .arg(ca)
         .args(args)
-        .arg(format!("{}{path}", server.origin))
+        .arg(format!("{origin}{path}"))
         .output()
         .unwrap()
 }
@@ -131,6 +167,136 @@ fn success(output: Output) -> Vec<u8> {
         String::from_utf8_lossy(&output.stderr)
     );
     output.stdout
+}
+
+/// The value of a response header in curl's `--dump-header -` output.
+fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    head.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case(name).then(|| value.trim())
+    })
+}
+
+/// Whether the server closes the connection, without answering, within `wait`.
+fn closed_within(stream: &mut TcpStream, wait: Duration) -> bool {
+    stream.set_read_timeout(Some(wait)).unwrap();
+    let mut buffer = [0; 64];
+    match stream.read(&mut buffer) {
+        Ok(0) => true,
+        Ok(read) => panic!("the server answered {read} bytes instead of closing"),
+        Err(error) => !matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ),
+    }
+}
+
+#[test]
+fn the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection() {
+    let dir = TestDir::new();
+    let ca = dir.0.join("development-ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.0.join("data"));
+    let server = Server::launch(command, Mode::Auto);
+    // Without a connection to take it from, a listener entry names the scheme every client can use.
+    assert_eq!(server.ready["listeners"][0]["scheme"], "http");
+    assert_eq!(
+        server.ready["api_base_url"],
+        format!("http://{}", server.address)
+    );
+    let origins = ["http", "https"].map(|scheme| format!("{scheme}://{}", server.address));
+    success(curl_at(
+        &origins[0],
+        &ca,
+        &[
+            "--header",
+            "Content-Type: application/json",
+            "--data",
+            r#"{"name":"one-port"}"#,
+        ],
+        "/storage/v1/b?project=local",
+    ));
+    for (index, origin) in origins.iter().enumerate() {
+        let name = format!("over-{index}");
+        let head = success(curl_at(
+            origin,
+            &ca,
+            &[
+                "--dump-header",
+                "-",
+                "--output",
+                "/dev/null",
+                "--header",
+                "Content-Type: application/json",
+                "--data",
+                "{}",
+            ],
+            &format!("/upload/storage/v1/b/one-port/o?uploadType=resumable&name={name}"),
+        ));
+        let head = String::from_utf8(head).unwrap();
+        let session = header(&head, "location").expect("session URL");
+        assert!(
+            session.starts_with(&format!("{origin}/upload/storage/v1/b/one-port/o?")),
+            "{session}"
+        );
+        let bytes = format!("sent over {origin}");
+        success(
+            Command::new("curl")
+                .args(["-q", "--silent", "--show-error", "--fail", "--noproxy", "*"])
+                .args(["--max-time", "4", "--cacert"])
+                .arg(&ca)
+                .args(["--request", "PUT", "--data-binary", &bytes, session])
+                .output()
+                .unwrap(),
+        );
+        // Each protocol reads what the other wrote, and resources link back to the reader's own.
+        let other = &origins[1 - index];
+        let path = format!("/storage/v1/b/one-port/o/{name}");
+        let read = success(curl_at(other, &ca, &[], &format!("{path}?alt=media")));
+        assert_eq!(read, bytes.as_bytes());
+        let resource: serde_json::Value =
+            serde_json::from_slice(&success(curl_at(other, &ca, &[], &path))).unwrap();
+        assert_eq!(resource["selfLink"], format!("{other}{path}"));
+    }
+    server.stop();
+}
+
+#[test]
+fn detection_waits_no_longer_than_the_header_and_handshake_limits() {
+    let dir = TestDir::new();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.0.join("data"))
+        .args(["--header-read-timeout-ms", "4000"])
+        .args(["--tls-handshake-timeout-ms", "1500"]);
+    let server = Server::launch(command, Mode::Auto);
+    let mut silent = TcpStream::connect(&server.address).unwrap();
+    let mut late_tls = TcpStream::connect(&server.address).unwrap();
+    // Before its first byte a connection has the header read limit a silent plain HTTP client
+    // has, not the shorter handshake limit.
+    assert!(!closed_within(&mut late_tls, Duration::from_millis(2000)));
+    assert!(!closed_within(&mut silent, Duration::from_millis(500)));
+    // The handshake limit counts from accept, so a TLS record arriving after it ends at once
+    // instead of getting another 1.5 seconds.
+    late_tls.write_all(&[0x16]).unwrap();
+    assert!(closed_within(&mut late_tls, Duration::from_millis(1000)));
+    assert!(closed_within(&mut silent, Duration::from_secs(10)));
+    // Closing before the first byte leaves the listener serving.
+    drop(TcpStream::connect(&server.address).unwrap());
+    let probe = common::server_command()
+        .args([
+            "healthcheck",
+            "--url",
+            &format!("http://{}/_internal/ready", server.address),
+        ])
+        .output()
+        .unwrap();
+    assert!(probe.status.success(), "{probe:?}");
+    server.stop();
 }
 
 #[test]
@@ -149,7 +315,7 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
             "--identity-file",
             "config/identities.json",
         ]);
-    let server = Server::launch(command, "https");
+    let server = Server::launch(command, Mode::Auto);
     success(curl(
         &server,
         &ca,
@@ -306,7 +472,7 @@ fn virtual_host_https_requires_a_matching_supplied_certificate() {
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
         .arg(dir.0.join("embedded-data"))
         .args(options);
-    let embedded = Server::launch(command, "https");
+    let embedded = Server::launch(command, Mode::Auto);
     let ca = dir.0.join("embedded-ca.pem");
     fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
     let port = embedded.address.split_once(':').unwrap().1;
@@ -409,7 +575,7 @@ fn tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate(
     command
         .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
         .arg(dir.0.join("data"));
-    let server = Server::launch(command, "https");
+    let server = Server::launch(command, Mode::Auto);
     success(
         common::server_command()
             .args([

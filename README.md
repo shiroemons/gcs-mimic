@@ -75,7 +75,7 @@ Add options after the image name, with one or two hyphens. `--name=value` also w
 
 | Option | What it does | In a Compose `environment:` |
 | --- | --- | --- |
-| `--scheme http` | `https` (default), `http` or `both` | `GCS_MIMIC_SCHEME: http` |
+| `--scheme http` | `https` (default up to 0.18.0), `http` or `both`. From 0.19.0 the default `auto` serves HTTP and HTTPS on one port | `GCS_MIMIC_SCHEME: http` |
 | `--port 9000` | Port to listen on. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
 | `--backend memory` | Keep everything in RAM. Objects can use about half of the available memory by default, from 64 MiB to 1 GiB | `GCS_MIMIC_BACKEND: memory` |

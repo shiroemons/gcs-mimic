@@ -74,7 +74,7 @@ The following existing defaults and validation remain unchanged:
 | Setting | Default | Validation/role |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:4443` | IP socket address; port 0 allowed; binds only |
-| `scheme` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
+| `scheme` | `auto` (`https` up to 0.18.0) | `auto`, `http`, `https` or `both`; auto serves HTTP and HTTPS on the primary port; both uses primary HTTPS and secondary HTTP |
 | `tls_cert`, `tls_key` | Bundled public development pair | Both custom nonempty paths or neither; PEM size/trust rules in [TLS contract](local-tls.md) |
 | `tls_handshake_timeout_ms` | `5000` | 0 disables, no upper limit; HTTP rejects TLS settings |
 | `data_dir` | `data` | Nonempty; native catalog/blob destination, not a legacy root |

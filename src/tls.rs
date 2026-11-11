@@ -39,7 +39,7 @@ impl ServerIdentityError {
                 "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
             }
             Self::Identity(_) => {
-                "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=https or both"
+                "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=auto, https or both"
             }
         }
     }
@@ -85,16 +85,35 @@ fn certificates(bytes: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
     Ok(certificates)
 }
 
-pub fn load_server(config: &Config) -> Result<Option<TlsAcceptor>, ServerIdentityError> {
-    if config.scheme == Scheme::Http {
-        if config.tls_cert.is_some() || config.tls_key.is_some() {
-            return Err(ServerIdentityError::Identity(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "TLS files require scheme=https or both",
-            )));
+/// How a TCP listener secures the connections it accepts.
+#[derive(Clone)]
+pub enum ListenerSecurity {
+    /// Plain HTTP only.
+    Plain,
+    /// TLS only.
+    Tls(TlsAcceptor),
+    /// TLS or plain HTTP, as each connection's first byte selects.
+    Detect(TlsAcceptor),
+}
+
+/// Loads the primary listener's security. A `scheme=both` HTTP listener is always
+/// [`ListenerSecurity::Plain`].
+pub fn load_server(config: &Config) -> Result<ListenerSecurity, ServerIdentityError> {
+    let secure: fn(TlsAcceptor) -> ListenerSecurity = match config.scheme {
+        Scheme::Http => {
+            if config.tls_cert.is_some() || config.tls_key.is_some() {
+                return Err(ServerIdentityError::Identity(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "TLS files require scheme=auto, https or both",
+                )));
+            }
+            return Ok(ListenerSecurity::Plain);
         }
-        return Ok(None);
-    }
+        // Validation refuses TLS files with a Unix socket, which is never inspected.
+        Scheme::Auto if config.unix_socket.is_some() => return Ok(ListenerSecurity::Plain),
+        Scheme::Auto => ListenerSecurity::Detect,
+        Scheme::Https | Scheme::Both => ListenerSecurity::Tls,
+    };
     let (cert, key) = match (&config.tls_cert, &config.tls_key) {
         (None, None) => (DEVELOPMENT_CERT_PEM.to_vec(), DEVELOPMENT_KEY_PEM.to_vec()),
         (Some(cert), Some(key)) => (
@@ -127,7 +146,7 @@ pub fn load_server(config: &Config) -> Result<Option<TlsAcceptor>, ServerIdentit
         .map_err(io::Error::other)
         .map_err(ServerIdentityError::Identity)?;
     server.alpn_protocols = vec![b"http/1.1".to_vec()];
-    Ok(Some(TlsAcceptor::from(Arc::new(server))))
+    Ok(secure(TlsAcceptor::from(Arc::new(server))))
 }
 
 pub fn client_config(ca_cert: &Path) -> io::Result<Arc<rustls::ClientConfig>> {

@@ -102,7 +102,7 @@ omission preservation.
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, seed directories, SDK tests, stopping and isolated smoke checks. Ruby and Rails have separately documented [tested scopes](rails-active-storage.md); strict local JWT/signing additions are available since 0.8.0. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 The delivered [local TLS journey](local-https.md#local-https-with-an-explicit-development-ca)
-uses HTTPS by default with a built-in development certificate/key and exported
+uses HTTPS, which the default listener serves, with a built-in development certificate/key and exported
 client CA trust. A supplied PEM chain/key pair overrides the built-in identity.
 Native, non-root container, pinned Go/Ruby and isolated browser checks cover
 TLS 1.2/1.3, SAN/CA/expiry failures, bounded handshakes and HTTPS Locations.
@@ -194,7 +194,7 @@ printf 'Hello from the emulator.\n' > fixtures/local-bucket/hello.txt
 
 This reduced layout follows the checked-in `compose.yaml`: it keeps the image's
 CMD, which binds `0.0.0.0:4443` and stores data on the named volume, and uses the
-default HTTPS scheme. It does not mount the host-loopback development JSON.
+default scheme: HTTPS-only up to 0.18.0, HTTP and HTTPS on one port from 0.19.0. It does not mount the host-loopback development JSON.
 Use `compose.seed.yaml` for fixture replay on every startup; the structured TOML example
 above remains a future target.
 

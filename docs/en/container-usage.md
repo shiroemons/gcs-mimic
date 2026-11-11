@@ -323,7 +323,7 @@ verified subset, recovery behavior and pending work.
 
 | Setting | Purpose |
 | --- | --- |
-| `GCS_MIMIC_SCHEME` | `https` (default), `http` or `both` |
+| `GCS_MIMIC_SCHEME` | `auto` (default from 0.19.0) serves HTTP and HTTPS on one port; `https` (default up to 0.18.0) only HTTPS; `http` only HTTP; `both` HTTPS on the primary port and HTTP on a second one |
 | `GCS_MIMIC_AUTH_MODE` | `permissive` (default) allows every request, as fake-gcs-server does; `strict` authorizes each request by IAM and ACLs for local identities ([strict authentication](getting-started.md#strict-local-authentication)) |
 | `GCS_MIMIC_BUCKETS` | Buckets to create at startup, as inline JSON with settings such as `cors` and `iamPolicy`; `GCS_MIMIC_BUCKETS_FILE` reads the same document from a file ([bucket settings](#initialize-bucket-settings)) |
 | `GCS_MIMIC_IDENTITIES` | Local identities, tokens and roles for strict mode, as inline JSON; `GCS_MIMIC_IDENTITY_FILE` reads the same document from a file |

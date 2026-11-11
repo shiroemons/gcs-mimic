@@ -362,7 +362,7 @@ fn event_aliases_require_an_effective_local_emulator_host() {
             _ => unreachable!(),
         }
         let mut server = Server::launch(&mut command);
-        assert_eq!(server.ready["scheme"], "https");
+        assert_eq!(server.ready["scheme"], "auto");
         let events = stop(&mut server);
         let diagnostics: Vec<_> = events
             .iter()

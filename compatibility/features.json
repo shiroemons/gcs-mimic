@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 96
+    "project_requirement": 97
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -58673,6 +58673,192 @@
       ],
       "implemented_in": null,
       "last_verified": "2026-11-10"
+    },
+    {
+      "id": "DESIGN-102",
+      "kind": "project_requirement",
+      "category": "Developer ergonomics",
+      "title": "HTTP and HTTPS on one port as the default scheme",
+      "interface": "Emulator configuration and listener transport",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://www.rfc-editor.org/rfc/rfc8446#section-5.1",
+        "https://www.rfc-editor.org/rfc/rfc9112#section-3",
+        "https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.peek"
+      ],
+      "source_checked_at": "2026-11-11",
+      "source_evidence": "PROJECT_POLICY",
+      "notes": "Local emulator transport, not Cloud Storage behavior. scheme=auto, the default from 0.19.0 under every auth_mode and compat_profile, serves TLS or plain HTTP on the primary TCP listener as each connection's first byte selects: 0x16, a TLS handshake record, selects TLS and anything else plain HTTP, read with a peek that leaves the byte for the protocol. http, https and both keep their meanings; https refuses plain HTTP. tls_cert and tls_key choose the certificate and never make the port HTTPS-only; without them the bundled development certificate is used. A Unix socket serves plain HTTP under auto, and https, both or TLS settings beside it fail startup. The trusted listener, gRPC listener and both two-port mode are never inspected. The wait for the first byte ends at header_read_timeout_ms from accept and the TLS handshake limit also counts from accept, so detection extends neither; shutdown ends the wait, and a connection closed before its first byte returns without a diagnostic. Without an explicit api_base_url, links and resumable session URLs already followed each request's connection scheme and authority, so they follow the detected protocol; where no connection supplies a scheme, auto uses http (the fallback API base, the ready event's listeners[].scheme and the healthcheck without --url), while the ready event's scheme reports auto. fake-gcs-server --public-host without --scheme still translates to an https:// public base. Design and owner decisions: docs/en/slices/single-port-scheme.md; migration: docs/en/releases/0.19.0-contract-changes.md; evidence: docs/en/evidence/single-port-scheme.md.",
+      "dependencies": [
+        "DESIGN-065"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-102-DEFAULT",
+          "description": "Unset scheme is auto, also with only tls_cert and tls_key; auto, http, https and both parse with the usual precedence and an unknown value names all four; FAKE_GCS_SCHEME is not read; the help digest pins the option line.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::tls_configuration_precedence_and_validation",
+            "config_input::tests::fake_gcs_server_variables_are_not_read",
+            "help_output_keeps_its_exact_bytes"
+          ]
+        },
+        {
+          "id": "DESIGN-102-DETECTION",
+          "description": "A first byte of 0x16 selects TLS and an HTTP/1 request line plain HTTP; the peek leaves the HTTP/2 preface to be read in full; Plain and Tls listeners never wait; a Unix socket under detection serves plain HTTP.",
+          "result": "PASS",
+          "test_ids": [
+            "server::handshake::tests::a_tls_record_selects_tls_and_a_request_line_selects_plain_http",
+            "server::handshake::tests::detection_leaves_the_first_byte_for_the_protocol",
+            "server::handshake::tests::fixed_modes_never_wait_and_a_unix_socket_serves_plain_http_under_detection"
+          ]
+        },
+        {
+          "id": "DESIGN-102-ONE-PORT",
+          "description": "With no scheme setting, one port serves a bucket and object round trip over HTTP and over HTTPS with the development CA trusted; each protocol reads what the other wrote.",
+          "result": "PASS",
+          "test_ids": [
+            "the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection",
+            "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
+          ]
+        },
+        {
+          "id": "DESIGN-102-EXPLICIT-MODES",
+          "description": "scheme=https still refuses plain HTTP with a TLS-only listener, and scheme=http and both keep their listeners.",
+          "result": "PASS",
+          "test_ids": [
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+            "healthcheck_defaults_follow_http_https_both_and_changed_ports"
+          ]
+        },
+        {
+          "id": "DESIGN-102-LINKS",
+          "description": "A resumable initiation returns a session URL on the origin it used, over HTTP and over HTTPS, and each upload completes; selfLink names the reader's origin; the fallback API base uses http under auto and http, https under https and both.",
+          "result": "PASS",
+          "test_ids": [
+            "the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection",
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts"
+          ]
+        },
+        {
+          "id": "DESIGN-102-LIMITS",
+          "description": "A silent connection waits for header_read_timeout_ms rather than the shorter handshake limit and is then closed; a TLS record arriving after the handshake limit, counted from accept, is closed at once; shutdown ends the wait; a connection closed first leaves the listener serving.",
+          "result": "PASS",
+          "test_ids": [
+            "detection_waits_no_longer_than_the_header_and_handshake_limits",
+            "server::handshake::tests::a_client_that_closes_first_is_closed_and_a_silent_one_times_out",
+            "server::handshake::tests::shutdown_ends_the_wait_for_the_first_byte"
+          ]
+        },
+        {
+          "id": "DESIGN-102-UNIX",
+          "description": "unix_socket alone starts under the default scheme; https, both, tls_cert and tls_handshake_timeout_ms beside it fail with their reasons.",
+          "result": "PASS",
+          "test_ids": [
+            "config::unix_tests::a_unix_socket_serves_plain_http_under_the_default_scheme"
+          ]
+        },
+        {
+          "id": "DESIGN-102-READY-HEALTHCHECK",
+          "description": "The ready event reports scheme auto, listeners[0].scheme http and an http:// API base; healthcheck without --url probes an auto server over plain HTTP for loopback and wildcard listeners.",
+          "result": "PASS",
+          "test_ids": [
+            "the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection",
+            "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
+            "healthcheck_defaults_follow_http_https_both_and_changed_ports"
+          ]
+        },
+        {
+          "id": "DESIGN-102-SIGNED-URLS",
+          "description": "A V4 signed URL verifies over both protocols on one port in strict mode, including the signed_host_port rules for a Host without a port.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-102-SLOTS-CONCURRENCY",
+          "description": "Concurrent HTTP and HTTPS clients share one port; with max_connections silent connections held, the next client is served once one times out.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-102-CLIENTS",
+          "description": "The pinned Go and Ruby SDK suites pass against a default server without a scheme setting; a browser loads a public object over both protocols; the container image's HEALTHCHECK passes with defaults.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "server::handshake::tests::a_tls_record_selects_tls_and_a_request_line_selects_plain_http",
+        "server::handshake::tests::detection_leaves_the_first_byte_for_the_protocol",
+        "server::handshake::tests::a_client_that_closes_first_is_closed_and_a_silent_one_times_out",
+        "server::handshake::tests::shutdown_ends_the_wait_for_the_first_byte",
+        "server::handshake::tests::fixed_modes_never_wait_and_a_unix_socket_serves_plain_http_under_detection",
+        "config::tests::tls_configuration_precedence_and_validation",
+        "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+        "config::unix_tests::a_unix_socket_serves_plain_http_under_the_default_scheme",
+        "config_input::tests::fake_gcs_server_variables_are_not_read",
+        "help_output_keeps_its_exact_bytes",
+        "the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection",
+        "detection_waits_no_longer_than_the_header_and_handshake_limits",
+        "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
+        "healthcheck_defaults_follow_http_https_both_and_changed_ports",
+        "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+        "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --lib -- config:: config_input:: tls:: server::handshake",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "server::handshake::tests::a_tls_record_selects_tls_and_a_request_line_selects_plain_http",
+            "server::handshake::tests::detection_leaves_the_first_byte_for_the_protocol",
+            "server::handshake::tests::a_client_that_closes_first_is_closed_and_a_silent_one_times_out",
+            "server::handshake::tests::shutdown_ends_the_wait_for_the_first_byte",
+            "server::handshake::tests::fixed_modes_never_wait_and_a_unix_socket_serves_plain_http_under_detection",
+            "config::tests::tls_configuration_precedence_and_validation",
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+            "config::unix_tests::a_unix_socket_serves_plain_http_under_the_default_scheme",
+            "config_input::tests::fake_gcs_server_variables_are_not_read"
+          ]
+        },
+        {
+          "command": "cargo test --bin gcs-mimic -- help_output_keeps_its_exact_bytes",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "help_output_keeps_its_exact_bytes"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test it_process",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_connection",
+            "detection_waits_no_longer_than_the_header_and_handshake_limits",
+            "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
+            "healthcheck_defaults_follow_http_https_both_and_changed_ports",
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+            "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [
+        "Detection reads one byte, so a client that sends an SSLv2-format hello is served as plain HTTP and fails there; rustls supports neither that format nor those protocol versions. The bundled development key is public, so HTTPS with it authenticates nothing, as under scheme=https. No test reads stderr to confirm that a connection closed before its first byte emits no diagnostic. Verified on macOS only."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-11-11"
     },
     {
       "id": "UX-001",

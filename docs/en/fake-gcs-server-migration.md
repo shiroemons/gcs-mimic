@@ -41,7 +41,7 @@ inexact flags stop startup with a native alternative. Since 0.15.0,
 
 | Before | After in this walkthrough | Why |
 | --- | --- | --- |
-| `-scheme http` | `GCS_MIMIC_SCHEME: http` | Otherwise the default is HTTPS, so existing HTTP clients fail. The image healthcheck follows this setting without an override. |
+| `-scheme http` | `GCS_MIMIC_SCHEME: http` | Up to 0.18.0 the default is HTTPS-only, so existing HTTP clients fail. From 0.19.0 the default `auto` also serves HTTP on the same port and the setting is optional. The image healthcheck follows this setting without an override. |
 | `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | `filesystem` selects native `disk`; `filesystem-root` is refused. Keep the source volume separate and import a stopped snapshot into a new destination. Native `--backend memory` is also available. |

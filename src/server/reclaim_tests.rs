@@ -139,7 +139,7 @@ impl MixedServer {
         };
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
         let listeners = TcpListeners {
-            public: vec![(http, None)],
+            public: vec![(http, ListenerSecurity::Plain)],
             trusted: None,
             grpc: Some(grpc),
         };

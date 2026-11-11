@@ -212,15 +212,17 @@ impl PrimaryListener {
 
 async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
     if let Some(_path) = &config.unix_socket {
-        if config.scheme != gcs_mimic::config::Scheme::Http
-            || config.listen_http.is_some()
+        if matches!(
+            config.scheme,
+            gcs_mimic::config::Scheme::Https | gcs_mimic::config::Scheme::Both
+        ) || config.listen_http.is_some()
             || config.grpc_listen.is_some()
             || config.trusted_listen.is_some()
         {
             return Err(phase(
                 DiagnosticSource::Listener,
                 "unix_socket",
-                "Unix transport requires scheme=http and no TCP HTTP/gRPC listener settings.",
+                "Unix transport serves plain HTTP; it requires scheme=auto or http and no TCP HTTP/gRPC listener settings.",
             ));
         }
         #[cfg(unix)]
@@ -418,7 +420,7 @@ fn shutdown_result(signal: io::Result<()>) -> io::Result<()> {
 pub(crate) async fn serve(
     config: Config,
     auth: Auth,
-    acceptor: Option<tokio_rustls::TlsAcceptor>,
+    security: gcs_mimic::tls::ListenerSecurity,
     shutdown: impl std::future::Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     tokio::pin!(shutdown);
@@ -490,8 +492,8 @@ pub(crate) async fn serve(
     } = listeners;
     match primary {
         PrimaryListener::Tcp(listener) => {
-            let mut public = vec![(listener, acceptor)];
-            public.extend(http.map(|listener| (listener, None)));
+            let mut public = vec![(listener, security)];
+            public.extend(http.map(|listener| (listener, gcs_mimic::tls::ListenerSecurity::Plain)));
             let listeners = server::TcpListeners {
                 public,
                 trusted,

@@ -560,11 +560,13 @@ impl TranslationBase {
         }
     }
 
+    /// fake-gcs-server builds `--public-host` URLs with its own scheme, `https` by default. Native
+    /// `auto` serves HTTPS too, so the translation keeps that default rather than following
+    /// `Scheme::primary`.
     fn public_scheme(&self) -> &'static str {
-        if self.scheme == Some(Scheme::Http) {
-            "http"
-        } else {
-            "https"
+        match self.scheme {
+            Some(Scheme::Http) => "http",
+            Some(Scheme::Auto | Scheme::Https | Scheme::Both) | None => "https",
         }
     }
 }
@@ -739,15 +741,15 @@ fn native_advice(flag: NativeFlag, values: &BTreeMap<ServerFlag, &str>) -> Strin
     let port = component(values, NativeFlag::Port, "4443")
         .parse::<u16>()
         .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
-    let scheme = component(values, NativeFlag::Scheme, "https");
+    let scheme = component(values, NativeFlag::Scheme, Scheme::default().as_str());
     let value = values
         .get(&ServerFlag::Native(flag))
         .copied()
         .unwrap_or_default();
     match flag {
         NativeFlag::Host | NativeFlag::Port => format!("use --host IP --port PORT or GCS_MIMIC_LISTEN={host}:{port}; use a valid IP address and port 0..65535"),
-        NativeFlag::Scheme if matches!(scheme, "http" | "https" | "both") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
-        NativeFlag::Scheme => "use GCS_MIMIC_SCHEME=http, https or both; both serves HTTPS on listen and HTTP on listen_http".into(),
+        NativeFlag::Scheme if scheme.parse::<Scheme>().is_ok() => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
+        NativeFlag::Scheme => "use GCS_MIMIC_SCHEME=auto, http, https or both; auto serves HTTP and HTTPS on listen, both serves HTTPS on listen and HTTP on listen_http".into(),
         NativeFlag::PortHttp => {
             let port = component(values, NativeFlag::PortHttp, "8000").parse::<u16>()
                 .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
@@ -954,7 +956,7 @@ mod tests {
         ]);
         let report = crate::config::Config::preflight(&[], &env);
         assert_eq!(emitted(&report.diagnostics), "");
-        assert!(matches!(report.config.scheme, crate::config::Scheme::Https));
+        assert!(matches!(report.config.scheme, crate::config::Scheme::Auto));
         assert_eq!(
             report.config.listen,
             crate::config::Config::default().listen

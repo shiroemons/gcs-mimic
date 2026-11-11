@@ -239,7 +239,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 
 | 用途 | 現在の設定 | 違い |
 | --- | --- | --- |
-| HTTP・HTTPS | `GCS_MIMIC_SCHEME` | `http`・`https`・`both`。bothではprimaryがHTTPS |
+| HTTP・HTTPS | `GCS_MIMIC_SCHEME` | `auto`・`http`・`https`・`both`。autoは同じポートでHTTPとHTTPS、bothではprimaryがHTTPS |
 | 待受ホスト・ポート | `GCS_MIMIC_LISTEN` | `IP:port`を1つ指定 |
 | 追加のHTTP待受 | `GCS_MIMIC_LISTEN_HTTP` | both専用。既定はprimaryのIPと8000番 |
 | API応答に載せる接続先 | 指定なし。固定するなら`GCS_MIMIC_API_BASE_URL` | リンクは各リクエストのHostと接続のスキームに従う。この設定はAPIのoriginを1つに固定し、公開URLの生成とは別。Hostを書き換えるプロキシでは必要 |
