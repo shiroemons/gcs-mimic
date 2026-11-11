@@ -335,13 +335,9 @@
       "direct_dependencies": [
         {"name": "cloud.google.com/go/iam", "current": "v1.15.1", "license": "Apache-2.0"},
         {"name": "cloud.google.com/go/storage", "current": "v1.70.0", "license": "Apache-2.0"},
-        {"name": "golang.org/x/oauth2", "current": "v0.38.0", "license": "BSD-3-Clause"},
-        {"name": "google.golang.org/api", "current": "v0.312.0", "license": "BSD-3-Clause"},
-        {"name": "google.golang.org/genproto", "current": "v0.0.0-20261110000943-09e21b237f2c", "license": "Apache-2.0"},
-        {"name": "google.golang.org/grpc", "current": "v1.85.0", "license": "Apache-2.0"},
-        {"name": "google.golang.org/protobuf", "current": "v1.36.12", "license": "BSD-3-Clause"}
+        {"name": "google.golang.org/api", "current": "v0.312.0", "license": "BSD-3-Clause"}
       ],
-      "resolution_constraints": "Development-only scorecard probe and TLS front; exact Go requirements and go.sum are checked like the SDK suite, whose verified versions it uses. Added to daily detection on 2026-11-11, when it moved from Go 1.27.3, IAM v1.15.0, OAuth2 v0.37.0, API v0.310.0 and genproto v0.0.0-20261026165753-2ffab32bce7e; go mod tidy also raised oauth2adapt, enterprise-certificate-proxy, x/net, x/sync and genproto/googleapis/api and rpc indirectly. examples/go stays outside detection, like examples/dotnet."
+      "resolution_constraints": "Development-only scorecard probe and TLS front; exact Go requirements and go.sum are checked like the SDK suite, whose verified versions it uses. Added to daily detection on 2026-11-11, when it moved from Go 1.27.3, IAM v1.15.0, OAuth2 v0.37.0, API v0.310.0 and genproto v0.0.0-20261026165753-2ffab32bce7e to OAuth2 v0.38.0 and genproto v0.0.0-20261110000943-09e21b237f2c; go mod tidy then marked OAuth2, genproto, gRPC v1.85.0 and protobuf v1.36.12 indirect, because no package of the module imports them, and raised oauth2adapt, enterprise-certificate-proxy, x/net, x/sync and genproto/googleapis/api and rpc. examples/go stays outside detection, like examples/dotnet."
     },
     {
       "ecosystem": "go", "manifest": "go/sourceexport/go.mod", "source_checked_at": "2026-11-11",
