@@ -56,6 +56,9 @@ struct OracleRule<'a> {
 impl<'a> OracleRule<'a> {
     fn new(rule: &'a LifecycleRule, facts: &VersionFacts<'_>) -> Self {
         let condition = &rule.condition;
+        let custom_time = facts.custom_time.map(|time| {
+            UNIX_EPOCH + Duration::new(u64::try_from(time.secs()).unwrap(), time.subsec_nanos())
+        });
         // The generated domain has no name/size conditions; boundary tests cover those separately.
         assert!(condition.matches_prefix.is_empty() && condition.matches_suffix.is_empty());
         assert!(condition.size_above_bytes.is_none() && condition.size_below_bytes.is_none());
@@ -67,7 +70,7 @@ impl<'a> OracleRule<'a> {
                 .is_none_or(|count| facts.newer_versions >= count as u64)
             && [
                 (condition.created_before, Some(facts.time_created)),
-                (condition.custom_time_before, facts.custom_time),
+                (condition.custom_time_before, custom_time),
                 (condition.noncurrent_time_before, facts.noncurrent_time),
             ]
             .into_iter()
@@ -83,7 +86,7 @@ impl<'a> OracleRule<'a> {
         let mut due = present.then_some(facts.time_created);
         for (days, origin) in [
             (condition.age, Some(facts.time_created)),
-            (condition.days_since_custom_time, facts.custom_time),
+            (condition.days_since_custom_time, custom_time),
             (condition.days_since_noncurrent_time, facts.noncurrent_time),
         ] {
             if let Some(days) = days {
@@ -185,7 +188,7 @@ fn compare(configured: &[LifecycleRule], totals: &mut Counts) {
     ] {
         let mut facts = version();
         facts.time_created = time("2026-01-10T00:00:00Z");
-        facts.custom_time = custom_days.map(|days| facts.time_created - DAY * days);
+        facts.custom_time = custom_days.map(|days| (facts.time_created - DAY * days).into());
         facts.noncurrent_time = noncurrent.then_some(facts.time_created);
         facts.newer_versions = newer;
         let oracle: Vec<_> = configured

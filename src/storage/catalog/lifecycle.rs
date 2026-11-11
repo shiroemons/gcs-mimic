@@ -6,10 +6,10 @@ use crate::{
         BucketAccess, StorageClass,
         lifecycle::{
             LifecycleAction, LifecycleLocation, LifecycleRule,
-            evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate},
+            evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, nanos_time},
         },
     },
-    object::{ObjectError, ObjectRecord, ObjectTarget, custom_time_key},
+    object::{ObjectError, ObjectRecord, ObjectTarget, custom_time_key, unix_nanos::UnixNanos},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
@@ -860,10 +860,14 @@ fn version_facts(
         .as_deref()
         .map(custom_time_key)
         .transpose()?
-        .and_then(|(seconds, nanos)| {
-            crate::clock::system_time_from_unix_seconds(seconds)?
-                .checked_add(Duration::from_nanos(u64::from(nanos)))
-        });
+        .map(|(seconds, nanos)| {
+            UnixNanos::new(seconds, nanos).ok_or(ObjectError::Metadata(
+                crate::metadata_error::MetadataError::CustomTime,
+            ))
+        })
+        .transpose()?;
+    // Creation/noncurrent times are already SystemTime: catalog decoding rejects out-of-range values.
+    // Custom-Time is accepted as RFC3339 text even before Windows' 1601 epoch; keep its integer time.
     Ok(VersionFacts {
         name: &record.name,
         size: record.size,
@@ -936,15 +940,4 @@ fn clear_quarantine(
         params![key.bucket, key.incarnation, key.name, key.generation],
     )?;
     Ok(())
-}
-
-fn nanos_time(value: crate::object::unix_nanos::UnixNanos) -> Option<SystemTime> {
-    // Round up to the platform clock's precision, so a nanosecond retention never spins early.
-    let time = crate::clock::system_time_from_unix_seconds(value.secs())?
-        .checked_add(Duration::from_nanos(u64::from(value.subsec_nanos())))?;
-    if crate::object::unix_nanos::UnixNanos::from(time) < value {
-        time.checked_add(Duration::from_nanos(100))
-    } else {
-        Some(time)
-    }
 }

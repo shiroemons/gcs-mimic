@@ -7,7 +7,7 @@ use crate::bucket::StorageClass;
 use crate::object::unix_nanos::UnixNanos;
 use std::{
     io::Write,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 #[cfg(test)]
@@ -21,7 +21,7 @@ pub(crate) struct VersionFacts<'a> {
     pub storage_class: StorageClass,
     pub time_created: SystemTime,
     /// Parsed Custom-Time; `None` when unset.
-    pub custom_time: Option<SystemTime>,
+    pub custom_time: Option<UnixNanos>,
     /// When the version became noncurrent; `None` for a live version.
     pub noncurrent_time: Option<SystemTime>,
     /// Versions of the same name newer than this one, counting the live one.
@@ -138,24 +138,27 @@ fn eligible_at(
     if !static_conditions_match(condition, facts) {
         return None;
     }
-    let mut due = now;
+    let mut due = UnixNanos::from(now);
     if let Some(age) = condition.age {
         let deadline = if age == 0 {
-            next_midnight(facts.time_created)?
+            next_midnight(facts.time_created.into())?
         } else {
-            after_days(facts.time_created, age)?
+            after_days(facts.time_created.into(), age)?
         };
         due = due.max(deadline);
     }
     for (days, origin) in [
         (condition.days_since_custom_time, facts.custom_time),
-        (condition.days_since_noncurrent_time, facts.noncurrent_time),
+        (
+            condition.days_since_noncurrent_time,
+            facts.noncurrent_time.map(UnixNanos::from),
+        ),
     ] {
         if let Some(days) = days {
             due = due.max(after_days(origin?, days)?);
         }
     }
-    Some(due)
+    nanos_time(due)
 }
 
 fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<'_>) -> bool {
@@ -165,9 +168,12 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
         && condition.num_newer_versions.is_none_or(|count| {
             u64::try_from(count).is_ok_and(|count| facts.newer_versions >= count)
         })
-        && before_date(condition.created_before, Some(facts.time_created))
+        && before_date(condition.created_before, Some(facts.time_created.into()))
         && before_date(condition.custom_time_before, facts.custom_time)
-        && before_date(condition.noncurrent_time_before, facts.noncurrent_time)
+        && before_date(
+            condition.noncurrent_time_before,
+            facts.noncurrent_time.map(UnixNanos::from),
+        )
         && (condition.matches_prefix.is_empty()
             || condition
                 .matches_prefix
@@ -190,7 +196,7 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
             .is_none_or(|size| facts.size < size.bytes())
 }
 
-fn before_date(date: Option<LifecycleDate>, time: Option<SystemTime>) -> bool {
+fn before_date(date: Option<LifecycleDate>, time: Option<UnixNanos>) -> bool {
     date.is_none_or(|date| {
         time.zip(date.midnight())
             .is_some_and(|(time, midnight)| time < midnight)
@@ -198,7 +204,7 @@ fn before_date(date: Option<LifecycleDate>, time: Option<SystemTime>) -> bool {
 }
 
 impl LifecycleDate {
-    fn midnight(self) -> Option<SystemTime> {
+    fn midnight(self) -> Option<UnixNanos> {
         // Reuse calendar validation on a stack buffer; evaluation must not allocate per version.
         let mut timestamp = [0_u8; 20];
         write!(
@@ -211,38 +217,42 @@ impl LifecycleDate {
         .ok()?;
         let timestamp = std::str::from_utf8(&timestamp).ok()?;
         let micros = crate::import::codec::parse_timestamp(timestamp).ok()?;
-        crate::clock::system_time_from_unix_seconds(micros / 1_000_000)
+        // Accepted calendar dates include times before Windows' 1601 SystemTime epoch.
+        UnixNanos::from_micros_and_remainder(micros, 0)
     }
 }
 
-fn after_days(origin: SystemTime, days: i64) -> Option<SystemTime> {
+fn after_days(origin: UnixNanos, days: i64) -> Option<UnixNanos> {
     let micros = days.checked_mul(86_400_000_000)?;
     let deadline = origin.checked_add(Duration::from_micros(u64::try_from(micros).ok()?))?;
     catalog_deadline(deadline)
 }
 
-fn catalog_deadline(deadline: SystemTime) -> Option<SystemTime> {
-    let timestamp = UnixNanos::from(deadline);
+fn catalog_deadline(deadline: UnixNanos) -> Option<UnixNanos> {
     let micros =
-        i128::from(timestamp.secs()) * 1_000_000 + i128::from(timestamp.subsec_nanos() / 1000);
+        i128::from(deadline.secs()) * 1_000_000 + i128::from(deadline.subsec_nanos() / 1000);
     i64::try_from(micros).ok().map(|_| deadline)
 }
 
-fn next_midnight(time: SystemTime) -> Option<SystemTime> {
-    let remaining = match time.duration_since(UNIX_EPOCH) {
-        Ok(since) => Duration::from_secs(86_400 - since.as_secs() % 86_400)
-            .checked_sub(Duration::from_nanos(u64::from(since.subsec_nanos())))?,
-        Err(error) => {
-            let before = error.duration();
-            let remainder = Duration::new(before.as_secs() % 86_400, before.subsec_nanos());
-            if remainder.is_zero() {
-                Duration::from_secs(86_400)
-            } else {
-                remainder
-            }
-        }
-    };
-    catalog_deadline(time.checked_add(remaining)?)
+fn next_midnight(time: UnixNanos) -> Option<UnixNanos> {
+    let seconds = time
+        .secs()
+        .div_euclid(86_400)
+        .checked_add(1)?
+        .checked_mul(86_400)?;
+    catalog_deadline(UnixNanos::new(seconds, 0)?)
+}
+
+pub(crate) fn nanos_time(value: UnixNanos) -> Option<SystemTime> {
+    // An unreachable future deadline needs no wakeup; already-due times are clamped to now first.
+    // Round up to the platform clock's precision, so a nanosecond deadline never spins early.
+    let time = crate::clock::system_time_from_unix_seconds(value.secs())?
+        .checked_add(Duration::from_nanos(u64::from(value.subsec_nanos())))?;
+    if UnixNanos::from(time) < value {
+        time.checked_add(Duration::from_nanos(100))
+    } else {
+        Some(time)
+    }
 }
 
 /// Extract the complete supported subset so newly added conditions require an explicit decision.
@@ -296,9 +306,9 @@ fn multipart_condition_due(
         return None;
     }
     let due = match age {
-        Some(0) => next_midnight(initiated)?,
-        Some(days) => after_days(initiated, days)?,
-        None => now,
+        Some(0) => next_midnight(initiated.into())?,
+        Some(days) => after_days(initiated.into(), days)?,
+        None => now.into(),
     };
-    Some(due.max(now))
+    nanos_time(due.max(now.into()))
 }

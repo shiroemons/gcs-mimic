@@ -95,6 +95,129 @@ async fn creation_dates_at_extremes_and_leap_midnight_are_strict_in_the_sweep() 
 }
 
 #[tokio::test]
+async fn extreme_date_conditions_match_present_timestamps_consistently_in_the_sweep() {
+    for date in ["0001-01-01", "1601-01-01", "9999-12-31"] {
+        for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
+            let (catalog, clock) = memory().await;
+            let mut record = bucket("bucket", "project");
+            record.versioning_enabled = true;
+            catalog.insert_bucket(record).await.unwrap();
+            let original = catalog
+                .put_object(
+                    crate::storage::ObjectUpload {
+                        metadata: ObjectMetadataUpdate {
+                            custom_time: Some(Some("1970-01-02T00:00:00Z".into())),
+                            ..Default::default()
+                        },
+                        ..permissive_upload("bucket", "object", 100)
+                    },
+                    body(vec![Bytes::from_static(b"data")]),
+                )
+                .await
+                .unwrap();
+            put(&catalog, "object").await;
+            // Select noncurrent versions so a Delete cannot turn a live version into a later candidate.
+            rules(&catalog, vec![delete(json!({field:date,"isLive":false}))]).await;
+            let deleted = u64::from(date == "9999-12-31");
+            assert_counts(
+                execute(&catalog).await,
+                2,
+                deleted,
+                0,
+                (deleted > 0).then_some(clock.now() + COALESCE),
+            );
+            assert_eq!(
+                exists(&catalog, version("bucket", "object", original.generation)).await,
+                deleted == 0
+            );
+            assert!(exists(&catalog, live("bucket", "object")).await);
+            clock.advance(COALESCE);
+            assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+            catalog.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn early_custom_times_remain_present_for_date_and_elapsed_day_conditions_in_the_sweep() {
+    for custom in ["0001-01-01T00:00:00Z", "1600-12-31T23:59:59.999999999Z"] {
+        for condition in [
+            json!({"customTimeBefore":"0001-01-01"}),
+            json!({"customTimeBefore":"1601-01-01"}),
+            json!({"customTimeBefore":"9999-12-31"}),
+            json!({"daysSinceCustomTime":0}),
+            json!({"daysSinceCustomTime":1}),
+        ] {
+            let (catalog, clock) = memory().await;
+            create(&catalog, vec![delete(condition.clone())]).await;
+            catalog
+                .put_object(
+                    crate::storage::ObjectUpload {
+                        metadata: ObjectMetadataUpdate {
+                            custom_time: Some(Some(custom.into())),
+                            ..Default::default()
+                        },
+                        ..permissive_upload("bucket", "object", 100)
+                    },
+                    body(vec![Bytes::from_static(b"data")]),
+                )
+                .await
+                .unwrap();
+            put(&catalog, "unset").await;
+            let deleted = u64::from(condition != json!({"customTimeBefore":"0001-01-01"}));
+            assert_counts(
+                execute(&catalog).await,
+                2,
+                deleted,
+                0,
+                (deleted > 0).then_some(clock.now() + COALESCE),
+            );
+            assert_eq!(
+                exists(&catalog, live("bucket", "object")).await,
+                deleted == 0
+            );
+            assert!(exists(&catalog, live("bucket", "unset")).await);
+            clock.advance(COALESCE);
+            assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+            catalog.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn early_custom_times_can_produce_representable_future_day_deadlines_in_the_sweep() {
+    for custom in ["0001-01-01T00:00:00.000123Z", "1600-01-01T00:00:00.000123Z"] {
+        let (catalog, clock) = memory().await;
+        let due = time("1970-01-03T00:00:00.000123Z");
+        let (origin, _) = crate::object::custom_time_key(custom).unwrap();
+        let (end, _) = crate::object::custom_time_key("1970-01-03T00:00:00Z").unwrap();
+        let days = (end - origin) / 86_400;
+        create(&catalog, vec![delete(json!({"daysSinceCustomTime":days}))]).await;
+        catalog
+            .put_object(
+                crate::storage::ObjectUpload {
+                    metadata: ObjectMetadataUpdate {
+                        custom_time: Some(Some(custom.into())),
+                        ..Default::default()
+                    },
+                    ..permissive_upload("bucket", "object", 100)
+                },
+                body(vec![Bytes::from_static(b"data")]),
+            )
+            .await
+            .unwrap();
+        assert_counts(execute(&catalog).await, 1, 0, 0, Some(due));
+        clock.set(due - MICROSECOND);
+        assert_counts(execute(&catalog).await, 1, 0, 0, Some(due));
+        assert!(exists(&catalog, live("bucket", "object")).await);
+        clock.set(due);
+        assert_counts(execute(&catalog).await, 1, 1, 0, Some(due + COALESCE));
+        assert!(!exists(&catalog, live("bucket", "object")).await);
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn combined_time_conditions_use_the_latest_deadline_and_rules_use_the_earliest() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");

@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
+use std::time::UNIX_EPOCH;
 
 mod safety;
 
@@ -11,6 +12,11 @@ fn time(value: &str) -> SystemTime {
     crate::clock::system_time_from_unix_seconds(seconds)
         .and_then(|time| time.checked_add(Duration::from_nanos(u64::from(nanos))))
         .expect("representable test timestamp")
+}
+
+fn timestamp(value: &str) -> UnixNanos {
+    let (seconds, nanos) = crate::object::custom_time_key(value).expect("valid test timestamp");
+    UnixNanos::new(seconds, nanos).expect("valid nanoseconds")
 }
 
 fn version() -> VersionFacts<'static> {
@@ -89,18 +95,17 @@ fn zero_age_waits_for_the_next_utc_midnight_including_midnight_creation() {
 #[test]
 fn overflowing_day_counts_never_match_or_schedule_a_deadline() {
     let mut facts = version();
-    facts.custom_time = Some(facts.time_created);
+    facts.custom_time = Some(facts.time_created.into());
     facts.noncurrent_time = Some(facts.time_created);
     for field in ["age", "daysSinceCustomTime", "daysSinceNoncurrentTime"] {
         let rule = delete(json!({field: i32::MAX}));
         assert_evaluation(&[rule], &facts, facts.time_created + DAY, None, None);
     }
-    assert!(after_days(facts.time_created, i64::MAX).is_none());
-    assert!(after_days(facts.time_created, -1).is_none());
-    if let Some(last) = crate::clock::system_time_from_unix_seconds(i64::MAX) {
-        assert!(after_days(last, 1).is_none());
-        assert!(next_midnight(last).is_none());
-    }
+    assert!(after_days(facts.time_created.into(), i64::MAX).is_none());
+    assert!(after_days(facts.time_created.into(), -1).is_none());
+    let last = UnixNanos::new(i64::MAX, 0).unwrap();
+    assert!(after_days(last, 1).is_none());
+    assert!(next_midnight(last).is_none());
 }
 
 #[test]
@@ -116,7 +121,7 @@ fn deadlines_never_exceed_the_catalog_microsecond_range() {
         ] {
             let mut facts = version();
             facts.time_created = start;
-            facts.custom_time = Some(start);
+            facts.custom_time = Some(start.into());
             facts.noncurrent_time = Some(start);
             // Some platforms reach their SystemTime limit before the catalog limit.
             let expected = in_range
@@ -136,18 +141,51 @@ fn deadlines_never_exceed_the_catalog_microsecond_range() {
 #[test]
 fn zero_age_never_schedules_a_midnight_outside_the_catalog_range() {
     let days = (i64::MAX / 86_400_000_000) as u64;
-    // Windows reaches its SystemTime limit before this catalog boundary.
-    let Some(last_midnight) = UNIX_EPOCH.checked_add(Duration::from_secs(days * 86_400)) else {
-        return;
-    };
-    let mut facts = version();
-    let rules = [delete(json!({"age":0}))];
-    facts.time_created = last_midnight - MICROSECOND;
-    assert_delete_boundary(&rules, &facts, last_midnight);
-    for created in [last_midnight, last_midnight + MICROSECOND] {
-        facts.time_created = created;
-        assert_evaluation(&rules, &facts, created, None, None);
+    let last = UnixNanos::new((days * 86_400) as i64, 0).unwrap();
+    let before = UnixNanos::new(last.secs() - 1, 999_999_000).unwrap();
+    assert_eq!(next_midnight(before), Some(last));
+    assert!(next_midnight(last).is_none());
+    assert!(next_midnight(last.checked_add(MICROSECOND).unwrap()).is_none());
+    if let Some(last_midnight) = nanos_time(last) {
+        let mut facts = version();
+        let rules = [delete(json!({"age":0}))];
+        facts.time_created = last_midnight - MICROSECOND;
+        assert_delete_boundary(&rules, &facts, last_midnight);
+        for created in [last_midnight, last_midnight + MICROSECOND] {
+            facts.time_created = created;
+            assert_evaluation(&rules, &facts, created, None, None);
+        }
     }
+}
+
+#[test]
+fn future_deadlines_beyond_the_platform_clock_never_schedule_an_early_wakeup() {
+    // Rust's Windows SystemTime ends at i64::MAX 100 ns ticks since 1601-01-01.
+    let seconds = i64::MAX / 10_000_000 - 11_644_473_600;
+    let origin = UnixNanos::new(seconds, 0).unwrap();
+    let now = nanos_time(origin).expect("last whole second fits on supported platforms");
+    let deadline = after_days(origin, 1).unwrap();
+    let expected = nanos_time(deadline);
+    #[cfg(windows)]
+    assert!(
+        expected.is_none(),
+        "the clock can never reach this deadline"
+    );
+    let mut facts = version();
+    facts.time_created = now;
+    facts.custom_time = Some(origin);
+    facts.noncurrent_time = Some(now);
+    for field in ["age", "daysSinceCustomTime", "daysSinceNoncurrentTime"] {
+        assert_evaluation(&[delete(json!({field:1}))], &facts, now, None, expected);
+    }
+    let abort = rules(&[json!({
+        "action":{"type":"AbortIncompleteMultipartUpload"}, "condition":{"age":1}
+    })]);
+    assert_eq!(multipart_abort_due(&abort, facts.name, now, now), expected);
+    assert_eq!(
+        next_midnight(origin).and_then(nanos_time).is_some(),
+        expected.is_some()
+    );
 }
 
 #[test]
@@ -162,11 +200,11 @@ fn before_date_conditions_are_strict_at_utc_midnight() {
         ] {
             let mut facts = version();
             facts.time_created = midnight + DAY;
-            facts.custom_time = Some(midnight + 2 * DAY);
+            facts.custom_time = Some((midnight + 2 * DAY).into());
             facts.noncurrent_time = Some(midnight + 3 * DAY);
             match field {
                 "createdBefore" => facts.time_created = instant,
-                "customTimeBefore" => facts.custom_time = Some(instant),
+                "customTimeBefore" => facts.custom_time = Some(instant.into()),
                 "noncurrentTimeBefore" => facts.noncurrent_time = Some(instant),
                 _ => unreachable!("test fields are exhaustive"),
             }
@@ -188,6 +226,8 @@ fn before_date_conditions_are_strict_at_utc_midnight() {
 #[test]
 fn date_conditions_cover_leap_days_and_pre_epoch_dates_without_a_wakeup() {
     for date in [
+        // Windows cannot construct SystemTime before its 1601 FILETIME epoch.
+        #[cfg(not(windows))]
         "0001-01-01",
         "1900-03-01",
         "1969-12-31",
@@ -205,6 +245,82 @@ fn date_conditions_cover_leap_days_and_pre_epoch_dates_without_a_wakeup() {
 }
 
 #[test]
+fn calendar_comparisons_do_not_require_representable_system_times() {
+    for date in [
+        "0001-01-01",
+        "1601-01-01",
+        "1900-03-01",
+        "1969-12-31",
+        "2000-02-29",
+        "9999-12-31",
+    ] {
+        let midnight = timestamp(&format!("{date}T00:00:00Z"));
+        for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
+            let rule = delete(json!({field:date}));
+            let date = rule
+                .condition
+                .created_before
+                .or(rule.condition.custom_time_before)
+                .or(rule.condition.noncurrent_time_before);
+            let before = UnixNanos::new(midnight.secs() - 1, 999_999_999).unwrap();
+            assert!(before_date(date, Some(before)));
+            assert!(!before_date(date, Some(midnight)));
+            assert!(!before_date(date, None));
+            assert!(before_date(
+                date,
+                Some(UnixNanos::new(i64::MIN, 0).unwrap())
+            ));
+            assert!(!before_date(
+                date,
+                Some(UnixNanos::new(i64::MAX, 0).unwrap())
+            ));
+        }
+    }
+}
+
+#[test]
+fn early_custom_times_match_dates_and_already_elapsed_day_counts_without_a_wakeup() {
+    let mut facts = version();
+    for custom in ["0001-01-01T00:00:00Z", "1600-12-31T23:59:59.999999999Z"] {
+        facts.custom_time = Some(timestamp(custom));
+        for condition in [
+            json!({"customTimeBefore":"1601-01-01"}),
+            json!({"customTimeBefore":"9999-12-31"}),
+            json!({"daysSinceCustomTime":0}),
+            json!({"daysSinceCustomTime":1}),
+        ] {
+            assert_evaluation(
+                &[delete(condition)],
+                &facts,
+                facts.time_created,
+                Some(PlannedAction::Delete),
+                None,
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn dates_before_the_windows_filetime_epoch_match_nothing_and_never_schedule() {
+    let midnight = timestamp("0001-01-01T00:00:00Z");
+    assert!(nanos_time(midnight).is_none());
+    let mut facts = version();
+    facts.time_created = time("1601-01-01T00:00:00Z");
+    facts.custom_time = Some(facts.time_created.into());
+    facts.noncurrent_time = Some(facts.time_created);
+    for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
+        assert_evaluation(
+            &[delete(json!({field:"0001-01-01"}))],
+            &facts,
+            facts.time_created,
+            None,
+            None,
+        );
+    }
+}
+
+#[test]
 fn custom_time_days_require_metadata_and_preserve_future_and_past_boundaries() {
     let mut facts = version();
     let now = facts.time_created;
@@ -213,7 +329,7 @@ fn custom_time_days_require_metadata_and_preserve_future_and_past_boundaries() {
         facts.custom_time = None;
         assert_evaluation(&rules, &facts, now, None, None);
         for custom in [now - 3 * DAY, now, now + 3 * DAY] {
-            facts.custom_time = Some(custom);
+            facts.custom_time = Some(custom.into());
             assert_delete_boundary(&rules, &facts, custom + days * DAY);
         }
     }
@@ -626,7 +742,7 @@ fn supported_class_transitions_form_an_acyclic_graph() {
 #[test]
 fn next_due_uses_the_latest_condition_and_earliest_matching_rule() {
     let mut facts = version();
-    facts.custom_time = Some(facts.time_created + DAY);
+    facts.custom_time = Some((facts.time_created + DAY).into());
     facts.noncurrent_time = Some(facts.time_created + 2 * DAY);
     let rules = [
         delete(json!({"age":1,"daysSinceCustomTime":2,"daysSinceNoncurrentTime":2})),
