@@ -728,3 +728,11 @@ The freshness check now reads `TargetFrameworks`, checks the lock of every targe
 - `bash sdk-scorecard/dotnet/run.sh build` built the net11.0 probe with 0 warnings and 0 errors. The scorecard itself was not run.
 - `bash scripts/test-dotnet-frameworks.sh` and `cargo test -p xtask --locked` (221 tests) passed.
 - `cargo xtask dependencies check` at `2026-11-11T01:44:36Z` exited 1 with 123 `CURRENT` lines, the .NET SDK `CURRENT` at 11.0.100 in both .NET manifests; only `.NET LTS SDK: UPDATE_AVAILABLE current=10.0.403 latest=10.0.404` remained, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+
+### LTS .NET SDK 10.0.404
+
+With the owner's approval of the host install, the LTS SDK pin moves from 10.0.403 to 10.0.404, the 10.0 channel's 2026-11-10 security release, which carries runtime 10.0.15. SDK 10.0.403 stays installed on the development host beside it; `global.json` keeps SDK 11.0.100.
+
+- `scripts/sdk-go.sh --with-dotnet`, run through `scripts/with-test-tmpdir.sh`, exited 0: 90 Go tests passed and the HTTPS-only V2 signing test was skipped; the .NET suite printed `dotnet-runtime: .NET 10.0.15` and `dotnet-runtime: .NET 11.0.0`, each followed by `dotnet-http: resumable, metadata, generation, conditions, read, list PASS`, and `PASS: .NET SDK suite on net10.0 and net11.0`.
+- `just check` exited 0.
+- `cargo xtask dependencies check` at `2026-11-11T01:49:28Z` exited 0 with 124 `CURRENT` lines, among them `.NET SDK: CURRENT current=11.0.100 latest=11.0.100` in both .NET manifests and `.NET LTS SDK: CURRENT current=10.0.404 latest=10.0.404`; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.

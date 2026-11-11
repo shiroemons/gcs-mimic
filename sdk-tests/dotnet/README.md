@@ -7,7 +7,7 @@ runtime while it also runs on the newest one. `run.sh` runs every mode, includin
 `--container`, once per target framework, prints `== .NET SDK suite on <framework>`
 and the runtime each run used, and fails if either run fails or runs on another
 major runtime. SDK 11 installs only the .NET 11 runtime; the .NET 10 runtime comes
-from the exact LTS SDK in `.dotnet-lts-sdk-version` (10.0.403, runtime 10.0.14),
+from the exact LTS SDK in `.dotnet-lts-sdk-version` (10.0.404, runtime 10.0.15),
 which CI installs beside the `global.json` SDK. Locally, install that SDK too.
 `bash scripts/test-dotnet-frameworks.sh` checks the per-framework runs with a
 stub `dotnet`.
