@@ -11,7 +11,7 @@ test/harness names. The signed-browser harness uses `GCSM_BINARY` rather than
 introducing a second `GCSM_` name for the binary. The four deliberate
 unknown-setting inputs remain unchanged.
 
-The [migration table](../releases/0.18.0-contract-changes.md#environment-variable-names)
+The [migration table](../releases/0.18.0.md#environment-variable-names)
 names the seven public replacements. The documentation guard derives settings
 from `Setting` and permits those seven deliberately rejected old names,
 the four existing unknown-setting inputs and the explicitly baselined historical

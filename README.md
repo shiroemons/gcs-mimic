@@ -466,7 +466,7 @@ set the matching flag or `GCS_MIMIC_*` variable instead.
 
 The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
 For 0.18.0, rename client, sync, Go subprocess and Compose variables to `GCSM_*`;
-see the [migration table](docs/en/releases/0.18.0-contract-changes.md#environment-variable-names).
+see the [migration table](docs/en/releases/0.18.0.md#environment-variable-names).
 Unknown `GCS_MIMIC_*` names still stop startup; `GCSM_*` names can share the server environment.
 
 It is not a drop-in replacement for every setup. Check these first:
@@ -498,7 +498,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.17.1 release notes](docs/en/releases/0.17.1.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.18.0 release notes](docs/en/releases/0.18.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License

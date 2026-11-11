@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Verified on 2026-11-11 with Rust 1.99.1 on macOS ARM64. Scope: DESIGN-067; the parent row remains PARTIAL. The [startup contract](../slices/startup-phases.md) defines the fields and the [release notes](../releases/0.18.0-contract-changes.md#ready-event-fields) describe the required script edits.
+Verified on 2026-11-11 with Rust 1.99.1 on macOS ARM64. Scope: DESIGN-067; the parent row remains PARTIAL. The [startup contract](../slices/startup-phases.md) defines the fields and the [release notes](../releases/0.18.0.md#ready-event-fields) describe the required script edits.
 
 ## Process acceptance
 

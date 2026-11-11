@@ -6,7 +6,7 @@
 
 The initial kit was a planning baseline with every row unstarted. Current status is recorded only in the ledger. Documentation preparation does not count as API implementation. Fill acceptance cases and dependencies before changing a row to `IN_PROGRESS`.
 
-Historical evidence, past release notes and recorded verification commands retain the environment names used at the time; current non-server variables use `GCSM_*`, as listed in the [environment migration table](releases/0.18.0-contract-changes.md#environment-variable-names). The documentation check permits only the explicit historical file/suffix counts in `scripts/environment-history-baseline.txt`, so a new record or an increased count still fails.
+Historical evidence, past release notes and recorded verification commands retain the environment names used at the time; current non-server variables use `GCSM_*`, as listed in the [environment migration table](releases/0.18.0.md#environment-variable-names). The documentation check permits only the explicit historical file/suffix counts in `scripts/environment-history-baseline.txt`, so a new record or an increased count still fails.
 
 | Status | Meaning |
 | --- | --- |
