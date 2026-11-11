@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
-| behavior | 201 | 82 | 0 | 79 | 40 | 0 | 0 |
+| behavior | 201 | 81 | 0 | 80 | 40 | 0 | 0 |
 | project_requirement | 96 | 22 | 0 | 44 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 83 | 68 | 47 | 3 | 0 | 0 |
+| behavior | 82 | 68 | 48 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 73 |
 
 ## api_operation
@@ -680,7 +680,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-004 | AbortIncompleteMultipartUpload action | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-006 | Custom-time conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
