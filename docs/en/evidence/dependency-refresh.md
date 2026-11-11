@@ -743,3 +743,4 @@ The two Go modules outside daily detection also move to the go1.27.4 toolchain. 
 
 - `go build` of the probe and of `./cmd/tls-front`, `go vet ./...` and `go test ./...` passed in `sdk-scorecard/go` with go1.27.4; `go build` and `go vet ./...` passed in `examples/go`, and `go mod verify` passed in both. Neither the scorecard nor the example was run against a server.
 - `cargo test -p xtask --locked` passed every test binary (221, 11, 3 and 1 tests), including the declared-manifest checks that now require the scorecard module, its scope and its `go.sum` in the snapshot.
+- `cargo xtask dependencies check` at `2026-11-11T02:20:01Z` exited 0 with 129 `CURRENT` lines, the Go toolchain `CURRENT` at 1.27.4 in all four checked Go modules; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
