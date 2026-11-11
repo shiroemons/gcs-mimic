@@ -1,10 +1,10 @@
 # Public contract review for the 1.0.0 freeze
 
-This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidate 1 is implemented. The other decided candidates list the changes the code, examples, documents and tests still need before the freeze, and the points each decision leaves open. The remaining rows of candidate 3 and candidates 8 to 17 are undecided proposals.
+This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidates 1, 2, 4, 5 and 7 and the `data_dir` row of candidate 3 are implemented in `0.18.0`. Candidate 6 needs no code change; its document changes remain. The `scheme` row is a pending design for the next release. Each decided candidate lists what it changed or still needs, and the points it leaves open. The remaining rows of candidate 3 and candidates 8 to 17 are undecided proposals.
 
-While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided here ship in `0.18.0` without a transition period. The deprecation procedure for `1.x` is decided at the freeze.
+While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided here ship in `0.18.0` without a transition period. The `scheme` default is the exception: it changes once, in the next minor release, together with the capability it depends on (candidate 3). The deprecation procedure for `1.x` is decided at the freeze.
 
-Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`.
+Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`. The inventory rows that `0.18.0` changes (environment variables, alias flags, catalog schema and ready event) were reconciled with the `0.18.0` source on 2026-11-11; the other rows still describe the reviewed source.
 
 Lifecycle Delete execution uses the `lifecycle_execution` option below. It defaults to disabled with directory synchronization and enabled otherwise; an explicit choice overrides that default.
 
@@ -66,7 +66,7 @@ A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `heal
 | Limits | At most 1024 supplied settings across sources; keys at most 256 bytes | `src/config_input.rs` `Inputs::push` |
 | Helper commands | Each has its own grammar; see [helper options](#helper-command-options) | `src/main.rs`, `src/sync_cli.rs`, `src/import/mod.rs` |
 
-Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthcheck` without `--url` fail. This includes `GCS_MIMIC_SYNC_TOKEN` (observed) and the client variables that the published examples use; see [environment variables outside the option table](#environment-variables-outside-the-option-table).
+Any `GCS_MIMIC_*` name that is not a setting stops `serve` and makes `healthcheck` without `--url` fail. Since `0.18.0`, the seven names withdrawn by candidate 2 stop it with advice that names their `GCSM_*` replacement; see [environment variables outside the option table](#environment-variables-outside-the-option-table).
 
 ### Server options
 
@@ -148,28 +148,26 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 
 ### Alias flags
 
-These flags stand for native settings, mainly for fake-gcs-server command lines. All are defined by `AliasFlag` and `translation` in `src/config_input.rs` and listed in S `option-aliases.md` and F. They take one or two hyphens and no underscore form. `healthcheck`, `url`, `tls` and `test-signer` reject them with advice; `sync` and `import` reject them as unknown options.
+These flags exist only on the command line, mainly for fake-gcs-server command lines. Since `0.18.0`, `src/config_input.rs` splits them into `NativeFlag`, `AliasFlag` (accepted and translated) and `RefusedFlag`, as decided under candidates 5 and 7; S `option-aliases.md` and F list them. They take one or two hyphens and no underscore form. `healthcheck`, `url`, `tls` and `test-signer` reject them with advice; `sync` and `import` reject them as unknown options.
 
-| Flag | Becomes | Startup notice | Agree |
-| --- | --- | --- | --- |
-| `host` | IP of `listen`; `localhost` becomes `127.0.0.1` | None for a valid value | Yes |
-| `port` | Port of `listen` | None for a valid value | Yes |
-| `port-http` | Port of `listen_http` | Ignored with a warning unless `scheme=both` | Yes |
-| `external-url` | `api_base_url` | None for a safe URL | Yes |
-| `public-host` | `public_base_url` with the scheme of `scheme` | Warns | 6 |
-| `data` | `seed_dir` | None | Yes |
-| `backend filesystem` | `backend=disk` | None | 4 |
-| `filesystem-root` | Nothing; ignored | Warns | Yes |
-| `cert-location` | `tls_cert` | None | Yes |
-| `private-key-location` | `tls_key` | None | Yes |
-| `cors-headers` | `cors_fallback=allow-all`; the value is discarded | Warns | 5 |
-| `location` | `default_location` | None for a supported location | Yes |
-| `event.pubsub-project-id` | `event_pubsub_project_id` | Warns | Yes |
-| `event.pubsub-topic` | `event_pubsub_topic` | Warns | Yes |
-| `event.bucket` | `event_bucket` | Warns | Yes |
-| `event.object-prefix` | `event_object_prefix` | Warns | Yes |
-| `event.list` | `event_list` | Warns | Yes |
-| `scheme`, `log-level` | Native options on `serve`; listed so helper commands can name them | None | Yes |
+| Flag | Kind | Becomes or stops with | Startup output | Agree |
+| --- | --- | --- | --- | --- |
+| `host` | Native | IP of `listen`; `localhost` becomes `127.0.0.1` | None | Yes |
+| `port` | Native | Port of `listen` | None | Yes |
+| `port-http` | Native | Port of `listen_http`; without `scheme=both`, startup fails | None | Yes |
+| `scheme`, `log-level` | Native | The native options of the same name | None | Yes |
+| `backend` | Native or accepted | `memory` and `disk` are native; `filesystem` becomes `backend=disk` | Native-equivalent block for `filesystem` | 4 |
+| `public-host` | Accepted | `public_base_url` with the effective scheme | Native-equivalent block | Yes |
+| `data` | Accepted | `seed_dir` | Native-equivalent block | Yes |
+| `cert-location` | Accepted | `tls_cert` | Native-equivalent block | Yes |
+| `private-key-location` | Accepted | `tls_key` | Native-equivalent block | Yes |
+| `event.pubsub-project-id`, `event.pubsub-topic`, `event.bucket`, `event.object-prefix`, `event.list` | Accepted with a Pub/Sub emulator host, refused without one | The `event_*` setting of the same suffix; `event.list none` is refused | Native-equivalent block, or an error | Yes |
+| `filesystem-root` | Refused | `data_dir` for native storage and `gcs-mimic import fake-gcs-server` for source data | Error | Yes |
+| `external-url` | Refused | `api_base_url` | Error | Yes |
+| `cors-headers` | Refused in every authentication mode | Bucket `cors` rules, or an explicit `cors_fallback=allow-all` | Error | Yes |
+| `location` | Refused | `default_location` | Error | Yes |
+
+The native-equivalent block is one `info` diagnostic with key `native_equivalent` and a `native_args` array that holds the native options in full. An error is keyed by the flag as supplied and names the native replacement; every refused flag is reported in one batch, with exit status 1, before a catalog is opened.
 
 ### Helper command options
 
@@ -196,16 +194,17 @@ An explicit `--url` skips all three steps. Step 3 is what lets the image's `HEAL
 | Variable | Effect | Defined in | Documented in | Agree |
 | --- | --- | --- | --- | --- |
 | `PUBSUB_EMULATOR_HOST` | Same as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`, which wins when both are set | `src/config_input.rs`, `src/config.rs` | H, L, F | Yes |
-| `GCS_MIMIC_SYNC_TOKEN` | Bearer token for `gcs-mimic sync`; `--token-file` wins. Stops `serve` and `healthcheck` without `--url` if set for them | `src/sync_cli.rs` | `sync --help`, S `sync-cli.md` | Yes |
-| `GCS_MIMIC_ENDPOINT` | Address for the client programs in `examples/`. The server does not read it; it stops `serve` and `healthcheck` without `--url` if set for them | `examples/*`, for example `examples/go/main.go` | `examples/README.md` and each example's README, `docs/en/getting-started.md` | Yes |
-| `GCS_MIMIC_GRPC_ENDPOINT` | gRPC address for `examples/rust`. Same effect on the server | `examples/rust/src/main.rs` | `examples/rust/README.md` | Yes |
-| `GCS_MIMIC_BINARY` | Executable that the Go package starts. Same effect on the server, although the package removes every `GCS_MIMIC_*` name from the child it starts | `go/fakestorage/server.go` | `go/README.md` | Yes |
-| `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE`, `GCS_MIMIC_TLS_DIR` | Compose interpolation in `compose*.yaml` and `examples/`; the server rejects each with advice | `src/config.rs` `rejected_setting_fix` | N, F | Yes |
+| `GCSM_SYNC_TOKEN` | Bearer token for `gcs-mimic sync`; `--token-file` wins. The server ignores it | `src/sync_cli.rs` | `sync --help`, S `sync-cli.md` | Yes |
+| `GCSM_ENDPOINT` | Address for the client programs in `examples/`. The server ignores it | `examples/*`, for example `examples/go/main.go` | `examples/README.md` and each example's README, `docs/en/getting-started.md` | Yes |
+| `GCSM_GRPC_ENDPOINT` | gRPC address for `examples/rust`. The server ignores it | `examples/rust/src/main.rs` | `examples/rust/README.md` | Yes |
+| `GCSM_BINARY` | Executable that the Go package starts; the package still removes every `GCS_MIMIC_*` name from the child it starts | `go/fakestorage/server.go` | `go/README.md` | Yes |
+| `GCSM_PORT`, `GCSM_IMAGE`, `GCSM_TLS_DIR` | Compose interpolation in `compose*.yaml` and `examples/` | `compose.yaml`, `compose.tls.yaml`, `examples/*/compose.yaml` | N, F | Yes |
+| `GCS_MIMIC_ENDPOINT`, `GCS_MIMIC_GRPC_ENDPOINT`, `GCS_MIMIC_SYNC_TOKEN`, `GCS_MIMIC_BINARY`, `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE`, `GCS_MIMIC_TLS_DIR` | Withdrawn in `0.18.0`. `serve` and `healthcheck` without `--url` stop and name the `GCSM_*` replacement; `gcs-mimic sync` stops on the old token name even when a new token or `--token-file` is given; the Go package and the examples stop on their old name when nothing else supplies the value; the shipped Compose files pass the three Compose names into the server only when set, so it stops | `src/config_input/environment.rs` `RenamedEnvironmentVariable`, `src/sync_cli.rs`, `go/fakestorage/server.go`, `examples/*` | Release notes 0.18.0 | Yes |
 | `SQLITE_TMPDIR` | Set by the image; read by SQLite, not by gcs-mimic | `Dockerfile` | C | Yes |
 
 `FAKE_GCS_*` variables are not read (`src/config_input.rs` test `fake_gcs_server_variables_are_not_read`; L, F). `STORAGE_EMULATOR_HOST` and similar variables belong to clients.
 
-Every `GCS_MIMIC_[A-Z0-9_]+` name in the repository was compared with `Setting`: 117 distinct names, of which 70 are settings. Besides the 7 names in the table above, 4 are examples or test inputs for unknown settings (`FOO_BAR`, `UPPER_SNAKE_CASE`, `NO_SUCH_SETTING`, `UNKNOWN_SETTING`). The other 40 are read only by tests, the SDK harnesses and repository scripts, and are not part of the contract: `ALLOWED_HOSTS`, `BIN`, `BUCKET`, `CA_CERT`, `CHECK_FAIL`, `CHECK_LOG`, `CHECK_NO_TESTS`, `CHECK_OVERLAP`, `CHECK_ROOT`, `DIFF_ENDPOINT`, `DIFF_GRPC_BEARER`, `DIFF_PROJECT`, `DIFF_TOKEN`, `DOCKER_GATEWAY`, `EGRESS_PROXY`, `GO_TEST_RUN`, `IMPORT_CRASH_CATALOG`, `IMPORT_CRASH_COMMITTED`, `LOCAL_STRICT_ENDPOINT`, `PHP_DOCKER_NETWORK`, `PRE_PUSH_TEST_FAIL`, `PRE_PUSH_TEST_SERIAL`, `PRE_PUSH_TEST_SLEEP`, `PRE_PUSH_TEST_STATE`, `REFERENCE_ONLY`, `REFERENCE_REPO`, `ROOT_LOCK_TEST`, `SDK_SCHEME`, `SIGNED_TESTS`, `SOURCE_FIXTURE_DIR`, `STRICT_ENDPOINT`, `STRICT_GRPC_ENDPOINT`, `TEST_BACKEND_LOG`, `TEST_LOCK_DIR`, `TEST_PUBSUB_EMULATOR_HOST`, `TEST_RECOVERY_DIR`, `TEST_REJECTED_WAL_DIR`, `TEST_REJECTED_WAL_FIXTURE`, `TOKEN` and `TRUSTED_ENDPOINT`.
+On the reviewed source, every `GCS_MIMIC_[A-Z0-9_]+` name in the repository was compared with `Setting`: 117 distinct names, of which 70 are settings. Besides the 7 names in the table above, 4 are examples or test inputs for unknown settings (`FOO_BAR`, `UPPER_SNAKE_CASE`, `NO_SUCH_SETTING`, `UNKNOWN_SETTING`). The other 40 are read only by tests, the SDK harnesses and repository scripts, and are not part of the contract: `ALLOWED_HOSTS`, `BIN`, `BUCKET`, `CA_CERT`, `CHECK_FAIL`, `CHECK_LOG`, `CHECK_NO_TESTS`, `CHECK_OVERLAP`, `CHECK_ROOT`, `DIFF_ENDPOINT`, `DIFF_GRPC_BEARER`, `DIFF_PROJECT`, `DIFF_TOKEN`, `DOCKER_GATEWAY`, `EGRESS_PROXY`, `GO_TEST_RUN`, `IMPORT_CRASH_CATALOG`, `IMPORT_CRASH_COMMITTED`, `LOCAL_STRICT_ENDPOINT`, `PHP_DOCKER_NETWORK`, `PRE_PUSH_TEST_FAIL`, `PRE_PUSH_TEST_SERIAL`, `PRE_PUSH_TEST_SLEEP`, `PRE_PUSH_TEST_STATE`, `REFERENCE_ONLY`, `REFERENCE_REPO`, `ROOT_LOCK_TEST`, `SDK_SCHEME`, `SIGNED_TESTS`, `SOURCE_FIXTURE_DIR`, `STRICT_ENDPOINT`, `STRICT_GRPC_ENDPOINT`, `TEST_BACKEND_LOG`, `TEST_LOCK_DIR`, `TEST_PUBSUB_EMULATOR_HOST`, `TEST_RECOVERY_DIR`, `TEST_REJECTED_WAL_DIR`, `TEST_REJECTED_WAL_FIXTURE`, `TOKEN` and `TRUSTED_ENDPOINT`. Since `0.18.0` these use `GCSM_*`, and `BIN` merged into `GCSM_BINARY` ([verification](evidence/environment-names.md)).
 
 ### Configuration file formats
 
@@ -224,7 +223,7 @@ Every `GCS_MIMIC_[A-Z0-9_]+` name in the repository was compared with `Setting`:
 | --- | --- | --- | --- | --- |
 | Ownership | Exclusive; an advisory lock on `catalog.lock` | `src/storage/lock.rs` | N | Yes |
 | Layout | `catalog.sqlite3`, `catalog.lock`, `blobs/`, `staging/` and other internal entries; treated as opaque | `src/storage/catalog/open.rs`, `src/storage/catalog/objects/recovery.rs` | L (opaque), `docs/en/storage-backends.md` | Yes |
-| Schema | Version 52; older catalogs migrate forward on open; downgrade is not supported | `src/storage/catalog.rs` `CATALOG_SCHEMA_VERSION` | N, `docs/en/release-policy.md` | Yes |
+| Schema | Version 53 since `0.18.0`; older catalogs migrate forward on open; downgrade is not supported | `src/storage/catalog.rs` `CATALOG_SCHEMA_VERSION` | N, `docs/en/release-policy.md` | Yes |
 | Supported upgrades | Data directories from 0.8.0 and later | `tests/it_import_seed/released_data_upgrade.rs`, `tests/fixtures/released-data` | `docs/en/release-policy.md` | Yes |
 | Memory backend | Never opens `data_dir` | `src/config/storage.rs`, `src/storage/catalog/open.rs` | H, N | Yes |
 | Import destination | Absent or empty, or the same unfinished import | `src/import/mod.rs` | `import fake-gcs-server --help`, S `import-filesystem.md` | Yes |
@@ -256,7 +255,8 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 | Diagnostics | One JSON line per batch on stderr: `event: "diagnostics"`, `level` (`warn` or `error`), `diagnostics` of `source`, `key`, `fix`; warnings first, sorted by source then key | `src/diagnostics.rs` | N, F | Yes |
 | Diagnostic sources | `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`, `initializer`, `seed`, `sync`, `import`, `listener`, `runtime` | `src/diagnostics.rs` | Partly, F | Yes |
 | Fix wording | Not stable, by policy | `docs/en/release-policy.md` | `docs/en/release-policy.md` | Yes |
-| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, `protocol`, `gcs_api`, the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets_file`, `scheme`, `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url` | `src/startup.rs` `ReadyEvent` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md` | Yes |
+| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets_file`, `scheme`, `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
+| Data directory notice | One `info` runtime event `data_dir_created` on stderr with the absolute `data_dir`, only when this start initialized the catalog | `src/startup.rs` | S `startup-phases.md`, N | Yes |
 | Stopped event | `{"event":"stopped"}` on stdout | `src/startup.rs` `report_stopped` | N | Yes |
 | Runtime events | JSON lines on stderr with `event`, `level` and fields, filtered by `log_level` | `src/diagnostics.rs` `emit` | N | Yes |
 | Import output | JSON lines on stdout (`import_page`, `import_complete`); diagnostics on stderr | `src/import/mod.rs`, `src/import/filesystem.rs` | `import fake-gcs-server --help` | Yes |
@@ -283,8 +283,8 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 2. `--seed-dir` help says "image: /data". The image sets `GCS_MIMIC_DEFAULT_SEED_DIR`, not `seed_dir` (`Dockerfile`).
 3. `--default-location` help says `US|EU|ASIA`. The code also accepts every region and dual-region in `src/bucket.rs`, as F says.
 4. `backend` accepts `filesystem` from the environment and JSON as well as the flag (`src/config/storage.rs`; observed with `GCS_MIMIC_BACKEND=filesystem`). H, N and the error text say `disk` or `memory`. S `option-aliases.md` presents it as a flag translation only, and the helper advice in `alias_advice` says `filesystem` or `memory`.
-5. The `--cors-headers` warning says "strict mode follows each bucket's cors rules". The flag sets `cors_fallback=allow-all` in strict mode too (observed: ready reports `allow-all`), which contradicts the warning and the comment in `alias_advice`. The owner decided that the flag stops startup in every mode; see candidate 7.
-6. S `option-aliases.md` says `public-host` warns that Host matching needs the legacy profile. The `serve` warning (`alias_difference`) does not mention the profile; only the helper-command advice (`alias_advice`) does.
+5. Resolved in `0.18.0`: on the reviewed source the `--cors-headers` warning said "strict mode follows each bucket's cors rules" while the flag set `cors_fallback=allow-all` in strict mode too. The flag now stops startup in every authentication mode; see candidate 7.
+6. Resolved in `0.18.0`: on the reviewed source S `option-aliases.md` said `public-host` warned that Host matching needs the legacy profile, which only the helper-command advice did. The per-flag warnings are gone; `public-host` is accepted with the native-equivalent block, and S `option-aliases.md` records its routing difference (candidate 5).
 7. N says `buckets` and `identities` have the "same limits" as their file forms. In a JSON config file they are bound by that file's 64 KiB limit (`read_config`).
 8. `--event-list` help says `none` disables the global rule. Alone it fails startup, because event filters need a project and topic (`src/config/notifications.rs`; observed).
 9. C's list of settings that define an empty value omits `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`, which the code accepts empty when `trusted_listen` is set (`src/config.rs` `allowed_hosts`).
@@ -334,6 +334,8 @@ Defaults, value meanings, reserved names and the definition of the contract. The
   - Kept as recorded: the transcripts under `docs/en/evidence/` and past release notes show the commands that actually ran, so they keep the old names. The release notes of `0.18.0` list every rename.
   - The [environment variables outside the option table](#environment-variables-outside-the-option-table) and the [spelling rules](#spelling-rules) in this document, and `llms.txt`.
   - Tests: each old name stops `serve`, `healthcheck` without `--url` and, for the token, `gcs-mimic sync`, with advice that names the new name; a server started with every `GCSM_*` name set starts, which closes the gap listed under [contract areas without a test](#contract-areas-without-a-test-guarding-them); the Go package fails when `GCS_MIMIC_BINARY` is set.
+- **Implemented scope (0.18.0):** every required change above. One enum, `RenamedEnvironmentVariable` in `src/config_input/environment.rs`, defines the seven names and the advice that the server and `gcs-mimic sync` share. The sync CLI rejects the old token name even when it is empty, a new token is set or `--token-file` is given. The Go package and the example programs stop on their old name only when no new name or explicit option supplies the value. The shipped Compose files pass `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` into the server only when set, so an old name left in a shell or `.env` file stops startup instead of selecting Compose's default silently; this answers the Compose limit below for the shipped files. The signed-browser script's binary variable merged into `GCSM_BINARY`, and the harness token variable became `GCSM_TOKEN`, resolving the first open point below. `scripts/check-docs.sh` derives the accepted server names from `Setting` and fails on any other `GCS_MIMIC_*` name outside the rejected inputs and the historical baseline.
+- **Verification limit:** the process, sync, Go and documentation checks in the [verification record](evidence/environment-names.md) passed; container and SDK runs on the integrated source belong to the release verification.
 - **Open points:**
   - Two moved test names sit close to decided names. `GCS_MIMIC_BIN`, the binary for `scripts/signed-browser.sh` that `docs/en/getting-started.md` shows, would become `GCSM_BIN` next to `GCSM_BINARY`; merging it into `GCSM_BINARY` avoids two names for one idea. `GCS_MIMIC_TOKEN` would become `GCSM_TOKEN` next to `GCSM_SYNC_TOKEN`. The other moved names collide with no existing `GCSM_*` name; the `GCS_MIMIC_TEST_*` names join the wrapper's `GCSM_TEST_JOBS`, `GCSM_TEST_RAMDISK` and `GCSM_TEST_RAMDISK_MB`.
   - Whether the example programs also stop when an old name is set. The decision names the server and the CLI; an example that still finds no `GCSM_ENDPOINT` falls back to its default address.
@@ -354,27 +356,21 @@ Changing any of these changes behavior for everyone who left the setting unset, 
 
 - **Fixable compatibly after the freeze:** No, except that another boolean spelling can be added alongside the existing ones.
 - **Owner decisions (2026-11-11):**
-  - `scheme`: the default becomes `http`. Only `compat_profile=legacy-emulator` keeps the reference emulator's `https` default, whether it comes from the flag, the environment or the JSON file. Using fake-gcs-server flags alone does not change the default. When a fake-gcs-server flag is used, `scheme` is not set and the effective scheme falls to the `http` default, startup says so: the default is `http`, and `scheme=https` or `compat_profile=legacy-emulator` matches the reference emulator.
+  - `scheme`: the default does not change in `0.18.0`; it stays `https`. It changes once, in the next minor release, together with a new capability: one port that accepts both HTTP and HTTPS connections. Returning the resumable-upload session URL from the address the client connected to is designed in the same work. The new default value, the rules for profiles and TLS material, and the release-note steps are part of that design and are not decided yet. An earlier decision of the same day (default `http`, `compat_profile=legacy-emulator` keeps `https`, both TLS paths imply `https`) was withdrawn and is not implemented.
   - `data_dir`: the default `data` stays. Startup reports the data directory it opened and whether it created a new catalog or opened an existing one.
   - The other rows of the table (the settings that follow the authentication profile, `buckets_file_mode`, the `latest` image tag and the boolean spellings) are not decided and stay proposals for the freeze.
-- **0.x defaults (2026-11-11, revisable before the freeze):**
-  - When both `tls_cert` and `tls_key` are set and `scheme` is not, the scheme is `https`, because supplying a certificate states the intent. One of them alone, or either with `scheme=http`, stays the current error.
-  - The data directory is reported as an absolute path, joined with the working directory but not canonicalized, in a ready-event field and in an `info` runtime event (`diagnostics::emit`). With `backend=memory`, which never opens `data_dir`, the implementing slice either omits the field or reports a value that says so, and records the choice in this document and in `docs/en/native-binary.md`.
-- **Required change:** every item ships in `0.18.0`.
-  - **Breaking:** the `scheme` default. `Config::default` in `src/config.rs` sets `Scheme::Https`, and configuration stores the scheme as a plain value, so nothing can tell an explicit `https` from the default. Resolution must see whether `scheme` was set, the effective `compat_profile` and whether both TLS paths were given, from every source: the command line, the environment and the JSON file are all read before `collect_settings` (`Config::preflight_os`). The resolved scheme then reaches every place that derives a URL: the listeners, `healthcheck_url` in `src/config.rs`, and the healthcheck's PID 1 fallback (`container_server_args` and `probe_url` in `src/main.rs`). Step 1 of the [healthcheck URL selection](#healthcheck-url-selection) reads only the environment and the JSON file, so a server given `--compat-profile legacy-emulator` or both TLS flags on its command line serves HTTPS while step 1 probes HTTP; the fallback then finds it through PID 1's options. `public-host` uses an explicit `scheme` and otherwise `https` (`TranslationBase::public_scheme` in `src/config_input.rs`); it must use the resolved scheme.
-  - **Breaking:** `tls_handshake_timeout_ms` without `scheme` and without both TLS paths becomes an error, because that setting is an error with `scheme=http` (`src/config.rs`). The release notes say to add `scheme=https`.
-  - **Breaking:** `compose.yaml` sets no scheme and relies on the HTTPS default; `docs/en/local-https.md` says the image and `compose.yaml` default to built-in HTTPS. Either `compose.yaml` sets `GCS_MIMIC_SCHEME: https` or the document changes to HTTP. `compose.tls.yaml` sets `https` and both TLS paths and is unaffected.
-  - The startup notice for a fake-gcs-server flag without `scheme`: a warning in the startup diagnostics, shown with the native spelling block of candidate 5. Wording is not contract.
-  - Help and documents that state the `https` default: the `HELP` constant in `src/main.rs` (its digest test must be updated with it), the "No command given" advice in `src/main.rs`, which suggests `serve --scheme http`, `llms.txt` (the option table and the troubleshooting row for "Received HTTP/0.9"), `README.md`, `docs/en/native-binary.md`, `docs/en/container-usage.md`, `docs/en/local-https.md`, `docs/en/getting-started.md`, `docs/en/fake-gcs-server-migration.md` (the `-scheme http` row and the listener row), `docs/ja/container-usage.md` and `docs/ja/fake-gcs-server-migration.md`. The examples set `GCS_MIMIC_SCHEME: http` explicitly and keep working; dropping that line is optional.
-  - Tests that pin the HTTPS default: `tls_configuration_precedence_and_validation` in `src/config.rs`, `fake_gcs_server_variables_are_not_read` in `src/config_input.rs`, and `healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin` in `tests/it_process/healthcheck_defaults.rs`, which builds its configuration from `Config::default`. New tests: startup without `scheme` listens on HTTP; `compat_profile=legacy-emulator` from each source listens on HTTPS; both TLS paths without `scheme` listen on HTTPS, and one path alone fails; an explicit `scheme` wins in every case; a fake-gcs-server flag without `scheme` gives the notice and HTTP; the healthcheck finds a server started each way without `--url`.
-  - Additive: the `data_dir` report. `Catalog::open_for_server` in `src/storage/catalog/open.rs` knows whether it created a catalog (a stored schema version of 0 runs `initialize_catalog`) but does not return it, and `ReadyEvent` in `src/startup.rs` has no data directory field. The open path returns both facts, `src/startup.rs` puts them in the ready event and emits the `info` event, and a process test pins them for a new directory, an existing one and the memory backend. `docs/en/native-binary.md`, `docs/en/container-usage.md` and the ready-event row of this document list the new fields. The field names are contract under candidate 4 once released.
+- **0.x default (2026-11-11, revisable before the freeze):** the data directory is reported as an absolute path, joined with the working directory but not canonicalized, in a ready-event field and in an `info` runtime event. With `backend=memory`, which never opens `data_dir`, both are omitted.
+- **Required change for `data_dir`:** ships in `0.18.0`; see the implemented scope.
+- **Implemented scope (0.18.0), `data_dir`:** `Catalog::open_for_server` returns the absolute path and a `DataDirState` of `created` or `opened`, decided under the directory lock from the stored schema version; `src/startup.rs` reports them as the ready fields `data_dir` and `data_dir_state` and emits the `info` event `data_dir_created` only when this start initialized the catalog. An existing directory without a catalog, or with an empty database, counts as `created`; once initialization commits, the next start reports `opened` even after a crash before the first ready event. Memory storage omits both fields and the event. Non-UTF-8 path bytes are shown with replacement characters. The process tests named `ready_event_*` in `tests/it_process/foundation.rs` pin each case; see the [verification record](evidence/ready-event.md) and the [startup contract](slices/startup-phases.md).
+- **Verification limit:** the non-UTF-8 working-directory test runs only on Linux and has not run there yet; it belongs to the release verification.
+- **Pending design for the next release, `scheme`:** the design covers the default, the single port for HTTP and HTTPS, the session URL taken from the connection, and the healthcheck's URL selection, which today derives the scheme from the configured value ([healthcheck URL selection](#healthcheck-url-selection)). Nothing in `0.18.0` changes the scheme.
 - **Open points for the freeze:**
-  - Whether the two 0.x defaults above stay.
+  - Whether the `data_dir` default above stays.
   - The undecided rows of the table above.
 
 #### 4. Make machine-readable names and exit codes contract, not wording
 
-- **Reason:** The policy excludes diagnostic wording, but it does not say whether ready fields, diagnostic keys, event names or exit status are stable. `protocol` is always `http1` and `gcs_api` is a fixed string that predates XML and gRPC, though a test pins both (`tests/it_process/foundation.rs`).
+- **Reason:** The policy excluded diagnostic wording, but it did not say whether ready fields, diagnostic keys, event names or exit status are stable. On the reviewed source, `protocol` was always `http1` and `gcs_api` was a fixed string that predates XML and gRPC, though a test pinned both (`tests/it_process/foundation.rs`).
 - **Cost of keeping it undecided:** Every field rename in 1.x becomes an argument, and stale values must stay forever if the ready event is contract.
 - **Breaking change if removed:** Dropping or renaming a ready field breaks scripts that read it, such as the `jq` examples in N. Declaring the fields unstable breaks nothing but withdraws an implied promise.
 - **Fixable compatibly after the freeze:** Partly. Promising more later is compatible; withdrawing a promise is not, and stale values can be dropped only before they are promised.
@@ -384,6 +380,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - [Release policy](release-policy.md): states which machine-readable output is contract. That statement is true of the code today and does not wait for the removal.
   - Documents: an inventory of what is now contract. `docs/en/native-binary.md` names individual ready fields in examples and option rows, and only this document lists them all. Diagnostic sources are documented only partly (F), and runtime event names exist only as string literals at each `diagnostics::emit` call site in `src/`, with no list in code or documents.
   - Tests for what [has no guard](#contract-areas-without-a-test-guarding-them): the exit status value 1, the ready field sets of the other transport and authentication combinations, and a list of event names that fails when one is renamed or removed.
+- **Implemented scope (0.18.0):** `ReadyEvent` no longer has `protocol` or `gcs_api`, and the release policy states which machine-readable output is contract. `process_shutdown_reports_stopped_and_releases_catalog_for_restart` in `tests/it_process/foundation.rs` pins the complete disk ready field set without the two fields, and `ready_event_omits_data_directory_and_creation_diagnostic_for_memory` checks their absence in memory mode. The document inventory and the guard tests listed above remain for a release before the freeze.
 - **Open points for the freeze (outside `0.18.0`):**
   - Whether "diagnostic keys" covers only the member names of a diagnostics line (`event`, `level`, `diagnostics`, `source`, `key`, `fix`) or also the values of `source` and `key`. The `key` value is the input name as supplied, such as `GCS_MIMIC_LOG_LEVEL`, `-cors-headers` or `data_dir`.
   - Whether the fields of runtime events other than `event` and `level` are contract, and whether the import output (`import_page`, `import_complete` and their fields) counts as events.
@@ -392,23 +389,19 @@ Changing any of these changes behavior for everyone who left the setting unset, 
 
 #### 5. Accept a fake-gcs-server flag only when it translates exactly
 
-- **Reason:** Seventeen migration flags would be frozen with their exact translations, including `filesystem-root`, which is accepted and ignored.
+- **Reason:** On the reviewed source, seventeen migration flags would have been frozen with their translations, including `filesystem-root`, which was accepted and ignored.
 - **Cost of keeping them:** Each flag and its value handling must survive every 1.x release, and each one adds to the CLI parser's special cases.
 - **Breaking change if removed:** Removing a flag stops command lines copied from fake-gcs-server. A policy line that makes aliases deprecatable with notice breaks nothing now.
 - **Fixable compatibly after the freeze:** No. Once the flags are inside the contract, removing one or excluding them later withdraws a promise.
-- **Owner decisions (2026-11-11):**
+- **Owner decisions (2026-11-11, final classification):**
   - `--host`, `--port` and `--port-http` are native options and part of the stable contract, like `--scheme` and `--log-level`.
-  - The other flags in the [alias table](#alias-flags) come from fake-gcs-server and follow one rule: a flag whose meaning translates exactly to native settings is accepted, and one that does not stops startup. Either way startup shows the native spelling. For accepted flags, startup prints the native replacements in one block.
-  - `filesystem-root`, which is ignored today, and `cors-headers` (candidate 7) stop startup. `public-host`, the `event.*` flags and `backend filesystem` are checked one by one when the rule is implemented, and each that cannot translate exactly also stops startup.
+  - The other flags in the [alias table](#alias-flags) come from fake-gcs-server and follow one rule: a flag is accepted when every request that worked because of it under fake-gcs-server gives the same result after translation; a translation that also serves more requests is fine. Otherwise the flag is refused.
+  - Accepted and translated, with startup showing the native form: `public-host`, `data`, `backend` (`filesystem`), `cert-location`, `private-key-location`, and the `event.*` flags when a Pub/Sub emulator host is configured.
+  - Refused with a diagnostic that names the native replacement: `filesystem-root`, `cors-headers` in every authentication mode (candidate 7), `location`, `external-url`, and the `event.*` flags without an emulator host. fake-gcs-server can publish to Google, which gcs-mimic never does.
+  - Known difference recorded for `public-host`: requests to a subdomain of the public host are treated as virtual-hosted buckets, so a JSON API client must use a host outside those subdomains or set `api_base_url`.
   - Accepted fake-gcs-server flags are outside the stable contract. The deprecation notice period is decided at the freeze.
-- **Required change:** every item ships in `0.18.0`.
-  - **Breaking:** `filesystem-root` stops startup. Today `translation` in `src/config_input.rs` returns no setting for it and `alias_difference` warns. The error shows the native spelling: mount the data volume at `data_dir` and convert old data with `gcs-mimic import fake-gcs-server`. Tests that use it as an ordinary warning change: `tests/it_process/log_level.rs` and the startup-failure test in `tests/it_process/foundation.rs` that passes `-filesystem-root /storage` next to an invalid setting. `scripts/compare-reference-emulator.sh` passes it only to the reference emulator and is unaffected.
-  - **Breaking:** each of `public-host`, `event.*` and `backend filesystem` that the implementing slice finds inexact stops startup in the same way. Today `public-host` warns that Host matching needs the legacy profile only in helper advice ([disagreement 6](#disagreements-between-code-and-documents)); the `event.*` flags warn that only local emulator delivery is enabled; `backend filesystem` becomes `backend=disk`. The slice records each finding and its test in this document and in `docs/en/slices/option-aliases.md`.
-  - `src/config_input.rs`: `AliasFlag` today mixes the native listener flags (`Host`, `Port`, `PortHttp`), the native `Scheme` and `LogLevel`, and the fake-gcs-server flags. The native flags must not trigger the fake-gcs-server notice or the `scheme` notice of candidate 3. The per-flag warnings of `alias_difference` become one block of native replacements, and helper commands keep rejecting the fake-gcs-server flags with advice (`alias_advice`). The block and the advice are wording, so they are not breaking.
-  - `src/main.rs`: the `HELP` constant already lists `--host`, `--port` and `--port-http` with the native options and does not list the fake-gcs-server flags; it changes only if the slice adds a pointer to the migration guide (the digest test follows).
-  - Documents: the [alias table](#alias-flags) of this document, `docs/en/slices/option-aliases.md`, `docs/en/fake-gcs-server-configuration.md`, `docs/en/fake-gcs-server-migration.md`, `docs/en/migrate-from-fake-gcs-server.md`, `docs/en/fake-gcs-server-storage.md`, `docs/en/container-usage.md`, `docs/en/slices/configuration-workflows.md`, `docs/en/slices/source-storage-contract.md`, `llms.txt`, and the Japanese `fake-gcs-server-configuration.md`, `fake-gcs-server-migration.md`, `migrate-from-fake-gcs-server.md`, `container-usage.md` and `storage-backends.md`, wherever they describe a flag that changes. `docs/en/native-binary.md` and `README.md` already present `--host`, `--port` and `--port-http` as native.
-  - Tests: each accepted flag starts the server with exactly its native settings and prints the block; each stopped flag exits 1 with the native spelling; the native listener flags print neither the block nor a notice.
-  - Ledger: `UX-003` and `DESIGN-100` in `compatibility/features.json` record alias behavior; the slice updates the affected acceptance cases with its evidence.
+- **Implemented scope (0.18.0):** `src/config_input.rs` separates `NativeFlag`, `AliasFlag` and `RefusedFlag`. Native flags print no notice. Accepted flags print one `info` diagnostic with key `native_equivalent` whose `native_args` array holds the complete native options, and, when no value needs escaping, a shell line to copy; `log_level=warn` or `error` hides it. Every refused flag gives an `error` diagnostic keyed by the flag as supplied, all in one batch, with exit status 1, no ready event and no catalog. The code is stricter than the list above in two places: `event.list none` is refused even with an emulator host, because the source has no such selection (native `--event-list none` remains), and `--port-http` without `scheme=both` now stops startup instead of being ignored with a warning. Helper commands keep rejecting the fake-gcs-server flags with advice. S `option-aliases.md` lists the acceptance tests and the reason for each refusal.
+- **Verification limit:** the targeted Rust suites listed in S `option-aliases.md` passed; the full suite, container builds and SDK harnesses on the integrated source belong to the release verification.
 - **Open points for the freeze:**
   - The deprecation notice period for accepted fake-gcs-server flags, and where the notice appears.
   - Whether `--host`, `--port` and `--port-http` keep their alias grammar. As native options they are still command-line only, take one or two hyphens and have no underscore form; the environment and JSON set `listen` and `listen_http` instead.
@@ -449,11 +442,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
 - **Breaking change if removed:** Making it a no-op in strict mode changes behavior for anyone relying on it. Changing only the warning breaks nothing.
 - **Fixable compatibly after the freeze:** The warning, yes, because wording is not contract. The effect, no.
 - **Owner decisions (2026-11-11):** Under the rule of candidate 5, `--cors-headers` cannot translate exactly: it discards its header list and selects `allow-all`. It therefore stops startup in every authentication mode. The error shows the native spelling: set `cors` on the buckets that need rules, or set `cors_fallback=allow-all` where every origin must be allowed.
-- **Required change:** ships in `0.18.0`.
-  - **Breaking:** `translation` in `src/config_input.rs` maps `CorsHeaders` to `cors_fallback=allow-all`, and `alias_difference` warns. Both go; the flag becomes a startup error in permissive and strict mode alike, which also removes the case where the flag overrides an explicit `GCS_MIMIC_CORS_FALLBACK=none` from the environment or JSON. Helper commands keep rejecting the flag with advice (`alias_advice`), which names `cors_fallback=allow-all`.
-  - Tests in `src/config_input.rs` that expect a warning with "remove this setting", including the one whose comment says the alias still selects `allow-all`, expect the error instead. New tests: the flag exits 1 in both modes with the native spelling, and an explicit `cors_fallback=allow-all` without the flag starts in both modes.
-  - Documents: [disagreement 5](#disagreements-between-code-and-documents) and the alias table in this document; the `cors-headers` row of `docs/en/slices/option-aliases.md`; `docs/en/slices/cors-fallback.md`; `docs/en/fake-gcs-server-configuration.md`, `docs/en/fake-gcs-server-migration.md`, `docs/en/migrate-from-fake-gcs-server.md`, `docs/en/fake-gcs-server-storage.md`, `docs/en/container-usage.md` and their Japanese companions where they describe the flag; and the release notes.
-  - Ledger: the `DESIGN-100-CONFIG` acceptance case of `DESIGN-100` in `compatibility/features.json` says that "the alias still selects allow-all"; the implementing slice updates it with its evidence.
+- **Implemented scope (0.18.0):** `cors-headers` is a `RefusedFlag`. It stops startup in permissive and strict mode alike, so it can no longer override an explicit `GCS_MIMIC_CORS_FALLBACK=none`. The error names bucket `cors` rules and an explicit `cors_fallback=allow-all`. `refused_flags_report_every_original_key_before_startup` covers both authentication modes; see S `option-aliases.md`.
 - **Open points:** none beyond those of candidate 5.
 
 ### Can be fixed compatibly after the freeze
@@ -536,9 +525,21 @@ Renames and grammar. These can keep the old name as an alias through 1.x, or add
 - Helper help texts. `URL_PUBLIC_HELP`, `URL_SIGN_HELP`, `TEST_SIGNER_HELP` and the `sync` and `import` help have no digest.
 - Underscore spellings such as `--foo_bar`.
 - `backend=filesystem` from the environment or JSON.
-- The ready event's optional field combinations. The ordinary HTTP startup test now pins the complete field set and effective `lifecycle_execution`; other transport/authentication combinations remain separate checks.
+- The ready event's optional field combinations. `process_shutdown_reports_stopped_and_releases_catalog_for_restart` pins the complete disk field set over HTTP, including `data_dir`, `data_dir_state` and effective `lifecycle_execution`, and the memory case pins the omitted directory fields; other transport/authentication combinations remain separate checks.
 - The exit status value. Tests check `success()` or its negation, not the value 1.
-- A server started with a non-setting name that the project itself hands out, such as `GCS_MIMIC_SYNC_TOKEN` or `GCS_MIMIC_ENDPOINT`. Tests cover only made-up unknown names.
 - The healthcheck's fallback to PID 1's server options. `container_server_args` has no test, and the only probe without `--url` in `scripts/smoke-containers.sh` runs against a container with no server options.
 - Image metadata other than the user and data paths. `scripts/smoke-containers.sh` does not check `EXPOSE`, the `HEALTHCHECK` parameters, `SQLITE_TMPDIR` or the licenses path.
 - `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` with an empty value, which `settings_that_define_an_empty_environment_value_start_with_it` omits.
+
+Since `0.18.0`, a server started with every `GCSM_*` name set is tested, and so is each withdrawn `GCS_MIMIC_*` client name ([verification](evidence/environment-names.md)); that area is no longer unguarded.
+
+## Open at the freeze, not part of 0.18.0
+
+These points are recorded under their candidates and are decided at the freeze:
+
+- The deprecation notice period for the accepted fake-gcs-server flags, and where the notice appears (candidate 5).
+- The `/_internal/*` routes that the decision of candidate 6 does not name: `/_internal/health`, `/_internal/objects`, `/_internal/delete_all` and `/_internal/reseed`.
+- Whether "diagnostic keys" covers only the member names of a diagnostics line or also the values of `source` and `key` (candidate 4).
+- The standard output of `gcs-mimic sync`, which neither candidate 4 nor candidate 6 covers.
+
+The `scheme` default is not a freeze point: it is decided and changes in the next minor release (candidate 3).
