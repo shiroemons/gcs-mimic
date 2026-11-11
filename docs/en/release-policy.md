@@ -36,6 +36,31 @@ configuration formats and defaults, supported API behavior, supported runtime
 platforms, and access to persistent data. Internal functions, implementation
 details and human-readable diagnostic wording are not stable interfaces.
 
+Machine-readable output is covered by name, not by wording: the field names of
+the ready event, diagnostic keys, event names, exit codes, and the response
+fields of the user-facing emulator routes. Messages, `fix` text and other
+human-readable strings may change in any release.
+
+The user-facing emulator routes are `/_internal/healthcheck`, `/_internal/ready`,
+`/_internal/config`, `/_internal/reset` and `/_internal/lifecycle/run`. Their
+request and response keys are kept as currently spelled, and a route that takes a
+request body accepts one of at least 64 KiB; a larger body that a release happens
+to accept is not promised. The `/_internal/sync` routes are the internal protocol
+between a server and `gcs-mimic sync` of the same version and are not covered;
+use the `gcs-mimic sync` command instead.
+
+`--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native
+options and are covered like every other documented option. The other flags in
+the [option aliases](slices/option-aliases.md) come from fake-gcs-server; they
+are migration aids outside the stable contract. The native settings they
+translate to are covered as usual.
+
+The [public contract review](public-contract-review.md) records these
+decisions, the changes they require in a `0.x` minor release before the freeze,
+and the points left for the freeze, such as the `1.x` deprecation procedure and
+the other `/_internal` routes. Until those changes ship, the code behaves as the
+review's inventory describes.
+
 Document breaking changes and migration steps in release notes. Catalog schema
 numbers are separate from application versions; schema changes that preserve the
 documented upgrade path need not be breaking. Never silently reset or discard an
@@ -68,7 +93,7 @@ All of these must pass:
 1. **Freeze the public contract.**
    Document the stable surface: CLI commands and options, environment variables, configuration file formats and defaults, data directory access, and the supported API subset with its recorded limits.
    Before the first release candidate, review that surface for names, aliases and defaults that should not be kept, and ship every remaining breaking change in a `0.x` minor release.
-   The [public contract review](public-contract-review.md) holds the current inventory and the change proposals.
+   The [public contract review](public-contract-review.md) holds the current inventory, the owner's decisions with the changes they still require, and the remaining proposals.
 2. **Upgrade data directories from every supported release.**
    A data directory written by each supported release opens with the new build and serves the same buckets, objects, generations, metadata and bytes.
    The fixtures come from the published images through `scripts/released-data-fixtures.sh` and are checked by `tests/it_import_seed/released_data_upgrade.rs`; each stable release and each release candidate adds its own digest-pinned fixture.
