@@ -1,5 +1,7 @@
 # Response wire format observed on Cloud Storage
 
+<!-- markdownlint-configure-file {"MD024": {"siblings_only": true}} -->
+
 Observed **2026-10-31** with curl requests sent to `storage.googleapis.com`
 from an opt-in test project, using a private, uniquely named bucket with
 uniform bucket-level access in `asia-northeast1` that was deleted afterwards.

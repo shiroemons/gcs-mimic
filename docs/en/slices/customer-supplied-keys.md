@@ -1,6 +1,8 @@
 # Customer-supplied encryption keys
 
-<!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
+<!-- markdownlint-configure-file
+{"MD013": {"code_blocks": false, "tables": false}}
+-->
 
 Scope: BEHAVIOR-OBJECT-037. EXT-XML-015 (`GET /OBJECT?encryption`) remains
 NOT_STARTED. The row is PARTIAL with LOCAL_SIMULATION fidelity: key handling is

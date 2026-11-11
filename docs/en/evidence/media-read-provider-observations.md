@@ -1,5 +1,7 @@
 # Media read headers observed on Cloud Storage
 
+<!-- markdownlint-configure-file {"MD024": {"siblings_only": true}} -->
+
 Observed **2026-10-31** with curl requests sent to `storage.googleapis.com`
 from an opt-in test project, using private, uniquely named buckets that were
 deleted afterwards. The project, buckets and principals are not recorded.

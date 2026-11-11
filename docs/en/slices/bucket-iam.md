@@ -176,7 +176,8 @@ preserve the existing policy, its etag, object data and bucket metadata.
 | Existing overwrite concurrency and preconditions | `auth_http_concurrent_creates_without_delete_have_one_winner`, `forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create` |
 
 The HTTP cases live in `tests/it_xml_auth/auth_http/iam.rs`, using the existing
-`tests/it_xml_auth/auth_http.rs` server and `tests/common` process helpers. The deterministic
+`tests/it_xml_auth/auth_http.rs` server and `tests/common` process helpers.
+The deterministic
 revocation test retains a previously authorized access, revokes its binding,
 then proves each catalog operation and a prepared upload reject it. The HTTP
 race permits a read selected before revocation to finish, and checks every

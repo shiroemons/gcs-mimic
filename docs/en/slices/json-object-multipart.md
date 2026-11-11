@@ -150,12 +150,31 @@ there is no new schema or independent multipart storage backend.
 
 ## gcloud request shape
 
-Google Cloud SDK 591.0.0 (`gcloud storage cp` of a file below its 8 MiB resumable threshold, through apitools and Python's email package) sends `Content-Type: multipart/related; boundary='===============N=='` and frames the body with bare LF line breaks. The JSON multipart/related upload and the local fixture upload therefore also accept:
+Google Cloud SDK 591.0.0 (`gcloud storage cp` of a file below its 8 MiB
+resumable threshold, through apitools and Python's email package) sends
+`Content-Type: multipart/related; boundary='===============N=='` and frames the
+body with bare LF line breaks. The JSON multipart/related upload and the local
+fixture upload therefore also accept:
 
-- a boundary in single quotes when the quoted text is not itself a valid RFC token; a single-quoted token such as `'abc'` keeps its quotes, as RFC 2045 reads it, and an unmatched quote stays invalid;
-- bare-LF framing for the whole body, decided per body as Go's `mime/multipart` decides it: when the first line that starts with `--boundary` ends, after optional spaces and tabs, in a bare LF, every delimiter is LF `--boundary` and every part header line and delimiter line ends in a bare LF. Otherwise the body keeps strict CRLF framing, so CRLF media that contains an LF followed by boundary text (such as `AAA\n--b--\nBBB` with boundary `b`) is stored intact. A body never mixes the two: a CRLF line in an LF-framed body, or an LF delimiter in a CRLF-framed body, is not a line break or delimiter and the request fails as malformed. Under LF framing a CR before a delimiter is media, as in Go.
+- a boundary in single quotes when the quoted text is not itself a valid RFC
+  token; a single-quoted token such as `'abc'` keeps its quotes, as RFC 2045
+  reads it, and an unmatched quote stays invalid;
+- bare-LF framing for the whole body, decided per body as Go's `mime/multipart`
+  decides it: when the first line that starts with `--boundary` ends, after
+  optional spaces and tabs, in a bare LF, every delimiter is LF `--boundary`
+  and every part header line and delimiter line ends in a bare LF. Otherwise
+  the body keeps strict CRLF framing, so CRLF media that contains an LF
+  followed by boundary text (such as `AAA\n--b--\nBBB` with boundary `b`) is
+  stored intact. A body never mixes the two: a CRLF line in an LF-framed body,
+  or an LF delimiter in a CRLF-framed body, is not a line break or delimiter
+  and the request fails as malformed. Under LF framing a CR before a delimiter
+  is media, as in Go.
 
-This leniency follows the production gcloud request shape, which Cloud Storage serves; no live Cloud Storage recording of it was made. XML POST Object forms keep strict CRLF framing and RFC quoting. Every existing negative case (missing boundary, missing close delimiter, extra parts, truncation, header and preamble caps) still fails without publishing.
+This leniency follows the production gcloud request shape, which Cloud Storage
+serves; no live Cloud Storage recording of it was made. XML POST Object forms
+keep strict CRLF framing and RFC quoting. Every existing negative case (missing
+boundary, missing close delimiter, extra parts, truncation, header and preamble
+caps) still fails without publishing.
 
 ## Bounds, errors and unsupported semantics
 

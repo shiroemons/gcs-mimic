@@ -1,6 +1,8 @@
 # Bounded path-style XML PUT Object
 
-<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+<!-- markdownlint-configure-file
+{"MD013": {"code_blocks": false, "tables": false}}
+-->
 
 The subsequent [signed-upload contract](signed-upload.md) adds V4 RSA query
 authentication and bounded optional SHA256 validation. References below to
