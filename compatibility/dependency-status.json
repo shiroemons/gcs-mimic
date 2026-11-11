@@ -204,7 +204,7 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
+  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-scorecard/go/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
   "docker": {
     "status": "PINNED",
     "apt_packages": [

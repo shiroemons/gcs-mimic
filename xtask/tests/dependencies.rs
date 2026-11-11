@@ -8,10 +8,11 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 18);
+    assert_eq!(scopes.len(), 19);
     for (ecosystem, manifest, lockfile) in [
         ("go", "go/go.mod", "go/go.sum"),
         ("go", "go/sourceexport/go.mod", "go/sourceexport/go.sum"),
+        ("go", "sdk-scorecard/go/go.mod", "sdk-scorecard/go/go.sum"),
         (
             "cargo",
             "sdk-tests/rust/Cargo.toml",
