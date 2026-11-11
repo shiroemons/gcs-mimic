@@ -15,9 +15,9 @@ LocalHTTP.install!
 production = ARGV == ["--production"]
 ENV["RAILS_ENV"] = production ? "production" : "test"
 ENV["DATABASE_URL"] = "sqlite3::memory:"
-ENV["GCS_MIMIC_BUCKET"] = "unused-#{SecureRandom.hex(8)}"
+ENV["GCSM_BUCKET"] = "unused-#{SecureRandom.hex(8)}"
 ENV["ACTIVE_STORAGE_SERVICE"] = production ? "local_gcs" : "gcs_emulator"
-ENV["GCS_EMULATOR_ENDPOINT"] = "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/"
+ENV["GCS_EMULATOR_ENDPOINT"] = "#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}/"
 require_relative "config/application"
 Rails.application.initialize!
 

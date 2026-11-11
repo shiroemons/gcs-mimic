@@ -9,10 +9,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    for suffix in ["ENDPOINT", "GRPC_ENDPOINT"] {
+        let old = format!("GCS_MIMIC_{suffix}");
+        let new = format!("GCSM_{suffix}");
+        if std::env::var_os(&new).is_none() && std::env::var_os(&old).is_some() {
+            return Err(format!("{old} was renamed to {new}").into());
+        }
+    }
     let endpoint =
-        std::env::var("GCS_MIMIC_ENDPOINT").unwrap_or_else(|_| "http://localhost:4443".into());
+        std::env::var("GCSM_ENDPOINT").unwrap_or_else(|_| "http://localhost:4443".into());
     let grpc_endpoint =
-        std::env::var("GCS_MIMIC_GRPC_ENDPOINT").unwrap_or_else(|_| "http://localhost:4444".into());
+        std::env::var("GCSM_GRPC_ENDPOINT").unwrap_or_else(|_| "http://localhost:4444".into());
 
     // `Storage` reads and writes objects over HTTP. `StorageControl` manages buckets
     // and lists and deletes objects over gRPC, which gcs-mimic serves on its own port.

@@ -14,8 +14,8 @@ stub `dotnet`.
 
 ```sh
 bash sdk-tests/dotnet/run.sh --self-check
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 bash sdk-tests/dotnet/run.sh
-GCS_MIMIC_IMAGE=gcs-mimic:dev bash sdk-tests/dotnet/run.sh --container
+GCSM_ENDPOINT=http://127.0.0.1:4443 bash sdk-tests/dotnet/run.sh
+GCSM_IMAGE=gcs-mimic:dev bash sdk-tests/dotnet/run.sh --container
 ```
 
 The builder sets `UnauthenticatedAccess=true` and an explicit BaseUri including

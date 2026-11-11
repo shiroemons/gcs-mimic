@@ -12,7 +12,10 @@ import java.util.UUID;
 
 public final class Main {
   public static void main(String[] args) throws Exception {
-    String endpoint = System.getenv().getOrDefault("GCS_MIMIC_ENDPOINT", "http://localhost:4443");
+    if (System.getenv("GCSM_ENDPOINT") == null && System.getenv("GCS_MIMIC_ENDPOINT") != null) {
+      throw new IllegalArgumentException("GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT");
+    }
+    String endpoint = System.getenv().getOrDefault("GCSM_ENDPOINT", "http://localhost:4443");
 
     Storage storage = HttpStorageOptions.newBuilder()
         .setHost(endpoint) // the local gcs-mimic instead of storage.googleapis.com

@@ -171,7 +171,9 @@ native設定の文字コード不正は、独立したCLIやファイルの不�
 イメージの環境変数`GCS_MIMIC_LISTEN=0.0.0.0:4443`と
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`で待受と永続化の既定値を保ちます。
 変更する場合は環境変数を上書きすると、自動ヘルスチェックも同じ待受を使います。
-`GCS_MIMIC_PORT`・`GCS_MIMIC_IMAGE`・`GCS_MIMIC_TLS_DIR`はCompose呼び出し側だけに渡してください。
+`GCSM_PORT`・`GCSM_IMAGE`・`GCSM_TLS_DIR`はComposeの展開用変数です。
+サーバーは`GCSM_*`を読み取らないため、同じ環境に設定しても起動できます。
+旧`GCS_MIMIC_*`名は移行先を示すエラーになります。
 
 イメージは`GCS_MIMIC_DEFAULT_SEED_DIR=/data`を設定します。
 `seed_dir`が未指定なら、存在してデータ・同期ディレクトリと重ならない`/data`を読み込み、
@@ -299,7 +301,7 @@ permissiveはもともとすべてのオリジンを許可します（`cors_fall
 strictはCloud Storageと同じくバケットの`cors`ルールに従います。
 JSON APIは正しい形式のヘッダーをすべて許可します。
 
-リポジトリのComposeで使う`GCS_MIMIC_PORT`はホスト側の公開ポート用です。
+リポジトリのComposeで使う`GCSM_PORT`はホスト側の公開ポート用です。
 サーバー自身の環境変数ではなく、バイナリへ渡しても待受設定にはなりません。
 
 ## 根拠と検証範囲

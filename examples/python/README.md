@@ -15,7 +15,7 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ./run.sh
 ```
 
-Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
+Set `GCSM_ENDPOINT` to use another address (default `http://localhost:4443`).
 
 ## Client setup
 

@@ -26,7 +26,12 @@ Only the Rust example needs the gRPC listener on port 4444; the others use HTTP 
 | [rust](rust/) | `google-cloud-storage` 1.21.0 | Objects over HTTP on 4443, buckets over gRPC on 4444. |
 | [gcloud](gcloud/) | `gcloud storage` (Google Cloud SDK 591.0.0) | Also covers resumable, parallel composite and sliced transfers. |
 
-Each directory's README lists its requirements. Run an example with `./run.sh` (`./gcloud-example.sh` for gcloud); set `GCS_MIMIC_ENDPOINT` to use an address other than `http://localhost:4443`.
+Each directory's README lists its requirements. Run an example with `./run.sh` (`./gcloud-example.sh` for gcloud); set `GCSM_ENDPOINT` to use an address other than `http://localhost:4443`.
+
+The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
+Examples reject the former `GCS_MIMIC_ENDPOINT` when `GCSM_ENDPOINT` is absent;
+the Rust example also rejects the former `GCS_MIMIC_GRPC_ENDPOINT`.
+Rename these variables in your shell or shared `.env`; the server ignores `GCSM_*`.
 
 ## Production-like access
 

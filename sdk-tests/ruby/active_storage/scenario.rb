@@ -19,7 +19,7 @@ if ARGV == ["--self-check"]
     end
     raise "unsafe origin accepted: #{raw}"
   end
-  ENV["GCS_MIMIC_ENDPOINT"] = "http://127.0.0.1:4443"
+  ENV["GCSM_ENDPOINT"] = "http://127.0.0.1:4443"
   %w[http://storage.googleapis.com http://127.0.0.1:4444 https://127.0.0.1:4443].each do |raw|
     begin
       LocalHTTP.validate!(URI(raw))
@@ -35,7 +35,7 @@ end
 LocalHTTP.install!
 ENV["RAILS_ENV"] = "test"
 ENV["DATABASE_URL"] = "sqlite3::memory:"
-ENV["GCS_MIMIC_BUCKET"] = "active-storage-#{SecureRandom.hex(8)}"
+ENV["GCSM_BUCKET"] = "active-storage-#{SecureRandom.hex(8)}"
 require_relative "config/application"
 Rails.application.initialize!
 ActiveRecord::Migration.verbose = false
@@ -44,9 +44,9 @@ load File.join(Gem.loaded_specs.fetch("activestorage").full_gem_path,
 CreateActiveStorageTables.new.change
 
 service = ActiveStorage::Blob.service
-fixture_client = Google::Cloud::Storage.anonymous(endpoint: "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/")
+fixture_client = Google::Cloud::Storage.anonymous(endpoint: "#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}/")
 fixture_client.service.project = "local-project"
-bucket = fixture_client.create_bucket(ENV.fetch("GCS_MIMIC_BUCKET"))
+bucket = fixture_client.create_bucket(ENV.fetch("GCSM_BUCKET"))
 results = []
 
 def assert(condition, message)
@@ -90,7 +90,7 @@ begin
     credentials.expires_at = Time.now + 86_400
     local_service = ActiveStorage::Service::GCSService.new(project: "example-project",
       bucket: bucket.name, credentials: credentials,
-      endpoint: "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/")
+      endpoint: "#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}/")
     key = "local-credentials/#{SecureRandom.hex(8)}"
     bytes = "local credential bytes"
     begin

@@ -2,8 +2,8 @@
 //! real Cloud Storage service and to a local gcs-mimic, normalizes the
 //! responses and reports every difference.
 //!
-//! The harness never contacts Google unless `GCS_MIMIC_DIFF_PROJECT` and
-//! `GCS_MIMIC_DIFF_TOKEN` are both set. See `docs/en/development.md`.
+//! The harness never contacts Google unless `GCSM_DIFF_PROJECT` and
+//! `GCSM_DIFF_TOKEN` are both set. See `docs/en/development.md`.
 
 mod base64;
 mod bucket;
@@ -126,25 +126,21 @@ enum Mode {
 }
 
 fn select_mode(options: &Options) -> Result<Mode> {
-    let project = env::var("GCS_MIMIC_DIFF_PROJECT")
-        .ok()
-        .filter(|v| !v.is_empty());
-    let token = env::var("GCS_MIMIC_DIFF_TOKEN")
-        .ok()
-        .filter(|v| !v.is_empty());
+    let project = env::var("GCSM_DIFF_PROJECT").ok().filter(|v| !v.is_empty());
+    let token = env::var("GCSM_DIFF_TOKEN").ok().filter(|v| !v.is_empty());
     match (project, token, &options.reference) {
         (Some(_), _, Some(_)) | (_, Some(_), Some(_)) => Err(
-            "--reference replays a recording; unset GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN".into(),
+            "--reference replays a recording; unset GCSM_DIFF_PROJECT and GCSM_DIFF_TOKEN".into(),
         ),
         (Some(project), Some(token), None) => {
-            let endpoint = env::var("GCS_MIMIC_DIFF_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.into());
+            let endpoint = env::var("GCSM_DIFF_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.into());
             if !endpoint.starts_with("https://") {
-                return Err("GCS_MIMIC_DIFF_ENDPOINT must start with https://".into());
+                return Err("GCSM_DIFF_ENDPOINT must start with https://".into());
             }
             Ok(Mode::Live { project, token, endpoint })
         }
         (Some(_), None, None) | (None, Some(_), None) => Err(
-            "set both GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN to contact the live service, or neither".into(),
+            "set both GCSM_DIFF_PROJECT and GCSM_DIFF_TOKEN to contact the live service, or neither".into(),
         ),
         (None, None, Some(path)) => Ok(Mode::Replay(path.clone())),
         (None, None, None) => Ok(Mode::SelfCheck),
@@ -533,7 +529,7 @@ pub fn sweep(args: &[String]) -> Result<bool> {
         endpoint,
     } = select_mode(&Options::default())?
     else {
-        return Err("sweep needs GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN".into());
+        return Err("sweep needs GCSM_DIFF_PROJECT and GCSM_DIFF_TOKEN".into());
     };
     let scratch = env::temp_dir().join(format!("gcsmimic-sweep-{}", random_hex()));
     fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;

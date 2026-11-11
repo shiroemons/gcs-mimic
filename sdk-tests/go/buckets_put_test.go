@@ -207,7 +207,7 @@ func TestStrictAuthBucketMetadataReplace(t *testing.T) {
 
 func newStrictBucketService(t *testing.T, ctx context.Context, token string) *raw.Service {
 	t.Helper()
-	endpoint, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	endpoint, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}

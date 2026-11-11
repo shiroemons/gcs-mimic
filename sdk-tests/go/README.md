@@ -90,7 +90,7 @@ GOTOOLCHAIN=auto go test -run XXX ./...
 GOTOOLCHAIN=auto go test -v ./...
 ```
 
-Integration tests skip with an explicit message when `GCS_MIMIC_ENDPOINT` is
+Integration tests skip with an explicit message when `GCSM_ENDPOINT` is
 unset. `-run XXX` compiles every package without running tests. To build and start
 an isolated server, run from the repository root:
 
@@ -99,18 +99,18 @@ bash scripts/sdk-go.sh
 ```
 
 To select tests, pass a Go `-run` regular expression with
-`GCS_MIMIC_GO_TEST_RUN`. Vet still checks all packages. For example, the bucket
+`GCSM_GO_TEST_RUN`. Vet still checks all packages. For example, the bucket
 suite can run independently:
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='TestEmulatorEndpoint|TestBucketLifecycle' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='TestEmulatorEndpoint|TestBucketLifecycle' bash scripts/sdk-go.sh
 ```
 
 The runner requires Bash, Rust, Go and jq. It builds with the pinned Rust toolchain
 and starts three isolated servers, each with its own loopback port and data directory:
-a permissive server for `GCS_MIMIC_ENDPOINT`, a strict server
+a permissive server for `GCSM_ENDPOINT`, a strict server
 (`--auth-mode strict --identity-file config/identities.json`) for
-`GCS_MIMIC_STRICT_ENDPOINT`, and a local-development strict server for the Go
+`GCSM_STRICT_ENDPOINT`, and a local-development strict server for the Go
 suite only. For each server it checks the bound port in the ready
 JSON log (the strict servers must also report `"auth_mode":"strict"`), probes
 `/_internal/ready`, then runs vet and uncached verbose tests. The server must
@@ -134,11 +134,11 @@ holds `roles/storage.objectUser`, both on the default seed project
 own signatures. The runner reads the trusted address from the ready event, which
 must also report no identities, the built-in principal, the enabled signer and
 `signed_host_port` `lenient` with `signed_host_port_signers` `test-signer`, and passes
-`GCS_MIMIC_LOCAL_STRICT_ENDPOINT` and `GCS_MIMIC_TRUSTED_ENDPOINT` to `go test`
+`GCSM_LOCAL_STRICT_ENDPOINT` and `GCSM_TRUSTED_ENDPOINT` to `go test`
 only; the tests skip without them:
 
 - `TestBuiltInSignerURLsPassUnderLenientHostPort` signs with the key that
-  `gcs-mimic test-signer credentials` prints (`GCS_MIMIC_BINARY`) and the
+  `gcs-mimic test-signer credentials` prints (`GCSM_BINARY`) and the
   unmodified `storage.SignedURL` for the server's host:port. GET and PUT with a
   signed Content-Type succeed and record the signer as owner; a tampered query, a
   changed Content-Type and a method change fail with 403
@@ -156,7 +156,7 @@ only; the tests skip without them:
 For an already running emulator:
 
 ```sh
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 go test -count=1 -v ./...
+GCSM_ENDPOINT=http://127.0.0.1:4443 go test -count=1 -v ./...
 ```
 
 ## HTTPS with an explicit development CA
@@ -164,7 +164,7 @@ GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 go test -count=1 -v ./...
 `TestV2RSASignedTransfers` verifies unchanged V2 RSA GET/PUT URLs, signed Content-Type/MD5,
 body integrity and signer permissions. Go Storage 1.70.0's V2 signer always emits
 HTTPS even with `Insecure: true`, so this test explicitly skips HTTP runs; use
-`GCS_MIMIC_SDK_SCHEME=https just check-sdk` from the repository root.
+`GCSM_SDK_SCHEME=https just check-sdk` from the repository root.
 
 The same suite supports HTTPS with explicit CA trust and normal certificate and
 hostname verification. To start isolated HTTPS servers with the built-in local
@@ -172,17 +172,17 @@ development certificate, the runner exports its CA into a temporary file and
 passes it to the Go clients and health probes:
 
 ```sh
-GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh
+GCSM_SDK_SCHEME=https bash scripts/sdk-go.sh
 ```
 
 To use supplied development certificates instead (the server certificate must
 include the `127.0.0.1` IP SAN), provide both paths and the CA:
 
 ```sh
-GCS_MIMIC_SDK_SCHEME=https \
+GCSM_SDK_SCHEME=https \
   GCS_MIMIC_TLS_CERT="$cert_dir/server.pem" \
   GCS_MIMIC_TLS_KEY="$cert_dir/server.key" \
-  GCS_MIMIC_CA_CERT="$cert_dir/ca.pem" bash scripts/sdk-go.sh
+  GCSM_CA_CERT="$cert_dir/ca.pem" bash scripts/sdk-go.sh
 ```
 
 For an existing server using the built-in development certificate, export its
@@ -192,12 +192,12 @@ CA before running `go test` from `sdk-tests/go`:
 cert_dir=$(mktemp -d)
 cargo run --locked -- tls ca > "$cert_dir/ca.pem"
 cd sdk-tests/go
-GCS_MIMIC_ENDPOINT=https://127.0.0.1:4443 \
-  GCS_MIMIC_CA_CERT="$cert_dir/ca.pem" go test -count=1 -v ./...
+GCSM_ENDPOINT=https://127.0.0.1:4443 \
+  GCSM_CA_CERT="$cert_dir/ca.pem" go test -count=1 -v ./...
 rm -r "$cert_dir"
 ```
 
-For a custom certificate, point `GCS_MIMIC_CA_CERT` at its CA. The configured CA replaces the
+For a custom certificate, point `GCSM_CA_CERT` at its CA. The configured CA replaces the
 system root pool for these isolated tests; without it, Go's normal system trust
 applies. `TestHTTPSCertificateTrust` independently checks trusted/untrusted TLS
 and rejects missing or malformed CA files without an emulator. HTTPS integration
@@ -205,7 +205,7 @@ reuses the existing bucket, streamed object and resumable workflow cases.
 
 Only loopback IPs and `localhost` are accepted by default. For a dedicated emulator
 in a container network, opt in to its exact hostname using
-`GCS_MIMIC_ALLOWED_HOSTS=gcs` (comma-separated hostnames, without ports). Never
+`GCSM_ALLOWED_HOSTS=gcs` (comma-separated hostnames, without ports). Never
 allow a real Cloud Storage endpoint. The suite creates randomly named buckets
 under unique test projects and deletes them and their objects, including cleanup
 on test failure; use an isolated emulator.
@@ -227,7 +227,7 @@ explicitly; the conflicting SDK/RPC wording remains a provider question in the
 [compose contract](../../docs/en/slices/object-compose.md). Run just these cases:
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh
 ```
 
 Bucket coverage: create with project, get identity/metageneration/creation time,
@@ -250,7 +250,7 @@ bytes. The [PATCH comparison evidence](../../docs/en/evidence/bucket-metadata-pa
 records the pinned SDK serializer and the independent reference behavior.
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='^TestBucketMetadataUpdate$|^TestStrictAuthBucketMetadataUpdate$' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='^TestBucketMetadataUpdate$|^TestStrictAuthBucketMetadataUpdate$' bash scripts/sdk-go.sh
 ```
 
 Object coverage: raw `net/http` media upload with `ifGenerationMatch=0`, then
@@ -298,7 +298,7 @@ tokens come only from the checked-in local fixture registry.
 Run only these journeys with:
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh
 ```
 
 The raw comparison script additionally covers both compatibility profiles and
@@ -334,7 +334,7 @@ One bounded transport wrapper discards an acknowledged chunk response and return
 `io.ErrUnexpectedEOF`. The test requires a duplicate chunk with the same invocation
 token, successful completion and byte-exact read-back. It uses the existing guarded
 HTTP transport and no proxy or external service. Strict-admin and creator journeys
-use `GCS_MIMIC_STRICT_ENDPOINT`; the other journeys use `GCS_MIMIC_ENDPOINT`.
+use `GCSM_STRICT_ENDPOINT`; the other journeys use `GCSM_ENDPOINT`.
 The creator can create but cannot overwrite, including when an admin creates the
 destination after the creator's first chunk and before finalization.
 Both suites skip when their endpoint is unset.
@@ -345,7 +345,7 @@ separate wire and integration evidence.
 
 ## Strict authentication suite
 
-`strict_auth_test.go` runs only when `GCS_MIMIC_STRICT_ENDPOINT` names an emulator
+`strict_auth_test.go` runs only when `GCSM_STRICT_ENDPOINT` names an emulator
 started in strict mode; otherwise each test skips with an explicit message.
 `scripts/sdk-go.sh` always sets it, so the runner never skips this suite. The
 tests use the local fixture registry `config/identities.json`:
@@ -409,7 +409,7 @@ supported members, concurrency and remaining boundaries.
 Run only bucket IAM coverage with both isolated profiles:
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='TestStrictAuthBucketIAM|TestBucketIAMPermissive' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='TestStrictAuthBucketIAM|TestBucketIAMPermissive' bash scripts/sdk-go.sh
 ```
 
 `TestObjectList` additionally exercises prefix/delimiter/offset filters and one-entry
@@ -464,7 +464,7 @@ supported attributes instead of relying only on reader construction.
 Run just this suite with both isolated profiles:
 
 ```sh
-GCS_MIMIC_GO_TEST_RUN='TestPublicReads|TestXMLReads' bash scripts/sdk-go.sh
+GCSM_GO_TEST_RUN='TestPublicReads|TestXMLReads' bash scripts/sdk-go.sh
 ```
 
 Object IAM, `testIamPermissions`, conditional policies, ACL enforcement, XML writes/listing,

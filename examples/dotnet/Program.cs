@@ -1,7 +1,12 @@
 using System.Text;
 using Google.Cloud.Storage.V1;
 
-var endpoint = Environment.GetEnvironmentVariable("GCS_MIMIC_ENDPOINT") ?? "http://localhost:4443";
+if (Environment.GetEnvironmentVariable("GCSM_ENDPOINT") is null &&
+    Environment.GetEnvironmentVariable("GCS_MIMIC_ENDPOINT") is not null)
+{
+    throw new ArgumentException("GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT");
+}
+var endpoint = Environment.GetEnvironmentVariable("GCSM_ENDPOINT") ?? "http://localhost:4443";
 
 var storage = new StorageClientBuilder
 {

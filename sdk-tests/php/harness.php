@@ -60,7 +60,7 @@ function detail(Throwable $error): string
 function emulatorOrigin(string $raw): array
 {
     $parts = parse_url($raw);
-    $invalid = new InvalidArgumentException('GCS_MIMIC_ENDPOINT must be a loopback HTTP or HTTPS origin');
+    $invalid = new InvalidArgumentException('GCSM_ENDPOINT must be a loopback HTTP or HTTPS origin');
     if ($parts === false || !in_array($parts['scheme'] ?? '', ['http', 'https'], true) || !isset($parts['host'])
         || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
         || !in_array($parts['path'] ?? '', ['', '/'], true)) {
@@ -138,17 +138,17 @@ final class Harness
 
     public function __construct()
     {
-        $this->origin = emulatorOrigin((string)getenv('GCS_MIMIC_ENDPOINT'));
+        $this->origin = emulatorOrigin((string)getenv('GCSM_ENDPOINT'));
         $this->endpoint = originString($this->origin);
         $this->ca = null;
         if ($this->origin[0] === 'https') {
-            $ca = (string)getenv('GCS_MIMIC_CA_CERT');
+            $ca = (string)getenv('GCSM_CA_CERT');
             check($ca !== '' && is_file($ca) && is_readable($ca), 'CA certificate is unreadable');
             $this->ca = $ca;
         }
-        $token = getenv('GCS_MIMIC_TOKEN');
+        $token = getenv('GCSM_TOKEN');
         $this->token = $token === false || $token === '' ? null : $token;
-        $this->dockerGateway = getenv('GCS_MIMIC_DOCKER_GATEWAY') === '1';
+        $this->dockerGateway = getenv('GCSM_DOCKER_GATEWAY') === '1';
         $this->observed = new ArrayObject(['chunks' => 0, 'locations' => []]);
         $this->http = guardedHttp($this->origin, $this->observed, $this->ca, $this->dockerGateway);
         $this->storage = $this->client($this->token, 0);

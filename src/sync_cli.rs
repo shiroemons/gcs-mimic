@@ -2,7 +2,7 @@
 
 use gcs_mimic::{
     bounded_file,
-    config_input::{DurationError, duration, option_pairs},
+    config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{DiagnosticSource, Diagnostics},
     tls,
 };
@@ -31,7 +31,7 @@ The endpoint must be a loopback or private-network HTTP(S) origin with an explic
 Use HTTPS outside loopback to protect the token. HTTPS verifies
 the embedded development CA or the supplied CA and the endpoint hostname.
 The token file contains one local bearer token (at most 8192 bytes), overriding
-the CLI-only GCS_MIMIC_SYNC_TOKEN environment variable when set.
+the CLI-only GCSM_SYNC_TOKEN environment variable when set.
 Status and deletions print one bounded JSON page. Copy next_cursor unchanged;
 approval requires the exact inspected revision, and stale revisions fail.
 No data directory, server config, ambient proxy or Google credentials are opened.
@@ -50,18 +50,23 @@ struct Options {
 }
 
 pub(super) fn run(args: &[String]) -> Result<(), super::CliError> {
+    let variable = RenamedEnvironmentVariable::SyncToken;
+    if std::env::var_os(variable.old_name()).is_some() {
+        return Err(invalid(variable.fix()).into());
+    }
     if args == ["--help"] {
         println!("{HELP}");
         return Ok(());
     }
     let mut options = Options::parse(args)?;
     if options.token.is_none() {
-        options.token = std::env::var_os("GCS_MIMIC_SYNC_TOKEN")
+        let name = variable.name();
+        options.token = std::env::var_os(&name)
             .map(|value| {
                 value
                     .into_string()
-                    .map_err(|_| invalid("GCS_MIMIC_SYNC_TOKEN must be UTF-8"))
-                    .and_then(|value| token_value(&value))
+                    .map_err(|_| invalid(format!("{name} must be UTF-8")))
+                    .and_then(|value| token_value(&value, &name))
             })
             .transpose()?;
     }
@@ -80,7 +85,7 @@ pub(super) fn run(args: &[String]) -> Result<(), super::CliError> {
     Ok(())
 }
 
-fn invalid(message: &'static str) -> io::Error {
+fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, fail(message))
 }
 
@@ -521,13 +526,15 @@ fn read_token(path: &str) -> io::Result<hyper::header::HeaderValue> {
     let token = std::str::from_utf8(&bytes)
         .map_err(|_| invalid("Token file must contain UTF-8"))?
         .trim_end_matches(['\r', '\n']);
-    token_value(token)
+    token_value(token, "Token file")
 }
 
-fn token_value(token: &str) -> io::Result<hyper::header::HeaderValue> {
+fn token_value(token: &str, source: &str) -> io::Result<hyper::header::HeaderValue> {
     if token.is_empty() || token.len() > 8192 || !token.bytes().all(|byte| byte.is_ascii_graphic())
     {
-        return Err(invalid("Token file must contain one nonempty bearer token"));
+        return Err(invalid(format!(
+            "{source} must contain one nonempty bearer token"
+        )));
     }
     hyper::header::HeaderValue::from_str(&format!("Bearer {token}")).map_err(io::Error::other)
 }

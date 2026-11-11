@@ -40,7 +40,7 @@ class Origin:
                 or parts.password is not None or parts.path not in ("", "/")
                 or parts.query or parts.fragment or "?" in raw or "#" in raw
                 or not _is_loopback(parts.hostname)):
-            raise ValueError("GCS_MIMIC_ENDPOINT must be a loopback HTTP or HTTPS origin")
+            raise ValueError("GCSM_ENDPOINT must be a loopback HTTP or HTTPS origin")
         self.scheme = parts.scheme
         self.hostname = parts.hostname
         self.port = port or _DEFAULT_PORTS[parts.scheme]
@@ -135,14 +135,14 @@ class Environment:
     def __init__(self):
         for key in _ISOLATED_ENVIRONMENT:
             os.environ.pop(key, None)
-        self.origin = Origin(os.environ["GCS_MIMIC_ENDPOINT"])
+        self.origin = Origin(os.environ["GCSM_ENDPOINT"])
         require_localhost_loopback(self.origin)
         self.ca_cert = None
         if self.origin.scheme == "https":
-            self.ca_cert = os.environ["GCS_MIMIC_CA_CERT"]
+            self.ca_cert = os.environ["GCSM_CA_CERT"]
             if not (os.path.isfile(self.ca_cert) and os.access(self.ca_cert, os.R_OK)):
                 raise ValueError("CA certificate is unreadable")
-        self.token = os.environ.get("GCS_MIMIC_TOKEN")
+        self.token = os.environ.get("GCSM_TOKEN")
         self.strict = self.token is not None
         self.session = GuardedSession(self.origin, self.ca_cert, self.token)
         # The SDK documents STORAGE_EMULATOR_HOST as scheme-inclusive. Explicit anonymous

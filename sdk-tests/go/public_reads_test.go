@@ -147,8 +147,8 @@ func TestXMLReadsStrict(t *testing.T) {
 }
 
 func TestPublicReadsGrantAndRevoke(t *testing.T) {
-	if os.Getenv("GCS_MIMIC_STRICT_ENDPOINT") == "" {
-		t.Skip("GCS_MIMIC_STRICT_ENDPOINT is unset; public reads require an explicit strict emulator")
+	if os.Getenv("GCSM_STRICT_ENDPOINT") == "" {
+		t.Skip("GCSM_STRICT_ENDPOINT is unset; public reads require an explicit strict emulator")
 	}
 	for _, jsonReads := range []bool{false, true} {
 		t.Run(fmt.Sprintf("JSON=%v", jsonReads), func(t *testing.T) {

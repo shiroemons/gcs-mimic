@@ -1294,14 +1294,14 @@ mod tests {
 
     #[test]
     fn backend_causes_are_actionable_and_private_details_stay_private() {
-        if std::env::var_os("GCS_MIMIC_TEST_BACKEND_LOG").is_none() {
+        if std::env::var_os("GCSM_TEST_BACKEND_LOG").is_none() {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
                     "--nocapture",
                 ])
-                .env("GCS_MIMIC_TEST_BACKEND_LOG", "1")
+                .env("GCSM_TEST_BACKEND_LOG", "1")
                 .output()
                 .unwrap();
             assert!(output.status.success(), "{output:?}");

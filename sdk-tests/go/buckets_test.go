@@ -35,7 +35,7 @@ func emulatorEndpoint(raw, allowedHosts string) (*url.URL, error) {
 	host := u.Hostname()
 	ip := net.ParseIP(host)
 	if host != "localhost" && (ip == nil || !ip.IsLoopback()) && !slices.Contains(strings.Split(allowedHosts, ","), host) {
-		return nil, fmt.Errorf("endpoint host %q is not loopback; explicitly allow an emulator with GCS_MIMIC_ALLOWED_HOSTS", host)
+		return nil, fmt.Errorf("endpoint host %q is not loopback; explicitly allow an emulator with GCSM_ALLOWED_HOSTS", host)
 	}
 	return u, nil
 }
@@ -54,7 +54,7 @@ func emulatorTLSConfig(caFile string) (*tls.Config, error) {
 		}
 		config.RootCAs = x509.NewCertPool()
 		if !config.RootCAs.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("GCS_MIMIC_CA_CERT contains no CA certificates")
+			return nil, fmt.Errorf("GCSM_CA_CERT contains no CA certificates")
 		}
 	}
 	return config, nil
@@ -62,7 +62,7 @@ func emulatorTLSConfig(caFile string) (*tls.Config, error) {
 
 func trustedEmulatorTLS(t *testing.T) *tls.Config {
 	t.Helper()
-	config, err := emulatorTLSConfig(os.Getenv("GCS_MIMIC_CA_CERT"))
+	config, err := emulatorTLSConfig(os.Getenv("GCSM_CA_CERT"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +122,9 @@ func emulatorHTTPClient(t *testing.T, u *url.URL) *http.Client {
 
 func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Client, *url.URL) {
 	t.Helper()
-	raw := os.Getenv("GCS_MIMIC_ENDPOINT")
+	raw := os.Getenv("GCSM_ENDPOINT")
 	if raw == "" {
-		t.Skip("GCS_MIMIC_ENDPOINT is unset; integration requires an explicit local emulator")
+		t.Skip("GCSM_ENDPOINT is unset; integration requires an explicit local emulator")
 	}
 	return newEmulatorHostClient(t, raw, storage.WithJSONReads())
 }
@@ -133,7 +133,7 @@ func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Cl
 // credentials, as the SDK's emulator path does.
 func newEmulatorHostClient(t *testing.T, raw string, opts ...option.ClientOption) (context.Context, *storage.Client, *http.Client, *url.URL) {
 	t.Helper()
-	u, err := emulatorEndpoint(raw, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	u, err := emulatorEndpoint(raw, os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}

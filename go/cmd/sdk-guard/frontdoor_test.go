@@ -245,7 +245,7 @@ func TestGuardChild(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	endpoint := os.Getenv("GCS_MIMIC_ENDPOINT")
+	endpoint := os.Getenv("GCSM_ENDPOINT")
 	transport := h2Client()
 	defer transport.CloseIdleConnections()
 	target := endpoint + rpcPath

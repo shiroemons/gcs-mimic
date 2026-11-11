@@ -5,6 +5,7 @@ use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
     clock::Clock,
     config::Config,
+    config_input::RenamedEnvironmentVariable,
     server::{self, State},
     storage::Catalog,
     time_limit::TimeLimit,
@@ -1965,12 +1966,20 @@ fn fake_gcs_server_variables_do_not_affect_the_server() {
         .env("FAKE_GCS_SCHEME", "https")
         .env("FAKE_GCS_PORT", "not-a-port")
         .env("FAKE_GCS_UNRELATED_APP", "secret-app-value")
+        .envs(
+            RenamedEnvironmentVariable::ALL
+                .map(|variable| (variable.name(), "secret-client-value")),
+        )
+        .env("GCSM_UNKNOWN_SETTING", "secret-app-value")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let (mut stdout, ready) = process_ready(&mut child);
     assert_eq!(ready["event"], "ready");
+    let ready_text = ready.to_string();
+    assert!(!ready_text.contains("GCSM_"), "{ready_text}");
+    assert!(!ready_text.contains("secret"), "{ready_text}");
     common::stop_server(&mut child, &mut stdout);
     let mut text = String::new();
     child
@@ -1980,42 +1989,59 @@ fn fake_gcs_server_variables_do_not_affect_the_server() {
         .read_to_string(&mut text)
         .unwrap();
     assert!(!text.contains("FAKE_GCS"), "{text}");
+    assert!(!text.contains("GCSM_"), "{text}");
+    assert!(!text.contains("secret"), "{text}");
 }
 
 #[test]
-fn compose_only_variables_and_missing_subcommand_report_native_migration() {
+fn non_setting_variables_and_missing_subcommand_report_native_migration() {
     let root = TestDir::new();
-    let output = common::server_command()
-        .clean_env()
-        .args(["serve", "--data-dir"])
-        .arg(root.0.join("data"))
-        .env("GCS_MIMIC_PORT", "secret")
-        .env("GCS_MIMIC_IMAGE", "secret")
-        .env("GCS_MIMIC_TLS_DIR", "secret")
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(!root.0.join("data").exists());
-    let text = String::from_utf8(output.stderr).unwrap();
-    let events: Vec<serde_json::Value> = text
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
-    let event = events
+    let variables = RenamedEnvironmentVariable::ALL;
+    for selected in variables
         .iter()
-        .find(|event| event["level"] == "error")
-        .unwrap();
-    assert_eq!(event["diagnostics"].as_array().unwrap().len(), 3);
-    assert!(!text.contains("secret"));
-    for expected in [
-        "Compose-only",
-        "host port",
-        "image selection",
-        "mount selection",
-        "GCS_MIMIC_TLS_CERT",
-    ] {
-        assert!(text.contains(expected), "{text}");
+        .map(std::slice::from_ref)
+        .chain(std::iter::once(variables.as_slice()))
+    {
+        let output = common::server_command()
+            .clean_env()
+            .args(["serve", "--data-dir"])
+            .arg(root.0.join("data"))
+            .envs(
+                selected
+                    .iter()
+                    .map(|variable| (variable.old_name(), "secret")),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(!root.0.join("data").exists());
+        let text = String::from_utf8(output.stderr).unwrap();
+        let events: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let event = events
+            .iter()
+            .find(|event| event["level"] == "error")
+            .unwrap();
+        let diagnostics = event["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), selected.len());
+        for variable in selected {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic["key"] == variable.old_name())
+                .unwrap();
+            assert_eq!(diagnostic["source"], "environment");
+            assert_eq!(diagnostic["fix"], variable.fix());
+            assert!(
+                diagnostic["fix"]
+                    .as_str()
+                    .unwrap()
+                    .contains(variable.server_alternative())
+            );
+        }
+        assert!(!text.contains("secret"));
     }
     // A first argument that is neither a command nor an option still fails instead of serving.
     let output = common::server_command()
@@ -2027,6 +2053,54 @@ fn compose_only_variables_and_missing_subcommand_report_native_migration() {
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
     assert!(text.contains("--help"), "{text}");
+}
+
+#[test]
+fn non_environment_names_keep_unknown_setting_advice() {
+    let root = TestDir::new();
+    for variable in RenamedEnvironmentVariable::ALL {
+        let name = variable.suffix().to_ascii_lowercase();
+        let config = root.0.join("unknown.json");
+        fs::write(
+            &config,
+            serde_json::to_vec(&BTreeMap::from([(&name, "secret")])).unwrap(),
+        )
+        .unwrap();
+        let output = common::server_command()
+            .args(["serve", "--config"])
+            .arg(&config)
+            .output()
+            .unwrap();
+        assert_unknown_setting_advice(output, &name, "config");
+        if !matches!(variable, RenamedEnvironmentVariable::Port) {
+            let flag = format!("--{}", name.replace('_', "-"));
+            let output = common::server_command()
+                .args(["serve", &flag, "secret"])
+                .output()
+                .unwrap();
+            assert_unknown_setting_advice(output, &flag, "cli");
+        }
+    }
+}
+
+fn assert_unknown_setting_advice(output: Output, key: &str, source: &str) {
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    let event: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+    let diagnostics = event["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{text}");
+    assert_eq!(diagnostics[0]["key"], key);
+    assert_eq!(diagnostics[0]["source"], source);
+    assert!(
+        diagnostics[0]["fix"]
+            .as_str()
+            .unwrap()
+            .starts_with("Unknown setting;"),
+        "{text}"
+    );
+    assert!(!text.contains("secret"));
+    assert!(!text.contains("was renamed"));
 }
 
 #[test]

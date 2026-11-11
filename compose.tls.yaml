@@ -5,6 +5,6 @@ services:
       GCS_MIMIC_TLS_CERT: /tls/server.pem
       GCS_MIMIC_TLS_KEY: /tls/server.key
     volumes:
-      - ${GCS_MIMIC_TLS_DIR:?Set GCS_MIMIC_TLS_DIR to the throwaway certificate directory}:/tls:ro
+      - ${GCSM_TLS_DIR:?Set GCSM_TLS_DIR to the throwaway certificate directory}:/tls:ro
     healthcheck:
       test: [CMD, gcs-mimic, healthcheck, --ca-cert, /tls/ca.pem]

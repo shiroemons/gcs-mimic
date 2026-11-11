@@ -113,7 +113,7 @@ internal static class Program
         if (args.SequenceEqual(["--self-check"])) { SelfCheck(); return; }
         if (args.SequenceEqual(["--container"]))
         {
-            var image = Environment.GetEnvironmentVariable("GCS_MIMIC_IMAGE") ?? throw new ArgumentException("set GCS_MIMIC_IMAGE to the exact image under test");
+            var image = Environment.GetEnvironmentVariable("GCSM_IMAGE") ?? throw new ArgumentException("set GCSM_IMAGE to the exact image under test");
             await using var container = new ContainerBuilder(image).WithPortBinding(4443, true)
                 .WithEnvironment("GCS_MIMIC_SCHEME", "http").WithEnvironment("GCS_MIMIC_ADMIN_ENABLED", "true")
                 .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(request => request.ForPort(4443).ForPath("/_internal/healthcheck")))
@@ -127,6 +127,6 @@ internal static class Program
             await Scenario(origin);
             return;
         }
-        await Scenario(LocalOrigin(Environment.GetEnvironmentVariable("GCS_MIMIC_ENDPOINT") ?? throw new ArgumentException("set GCS_MIMIC_ENDPOINT")));
+        await Scenario(LocalOrigin(Environment.GetEnvironmentVariable("GCSM_ENDPOINT") ?? throw new ArgumentException("set GCSM_ENDPOINT")));
     }
 }

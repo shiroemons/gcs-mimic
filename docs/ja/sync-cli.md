@@ -50,9 +50,12 @@ discardの前に必要なbackupを保持してください。同じoperation_id�
 HTTPSは既定の開発用CAとhostnameを検証します。`--ca-cert PATH`でCAを明示的に置き換えられます。
 HTTPにこのオプションを指定すると失敗し、TLS検証を省くオプションはありません。
 
-認証はCLI専用の`GCS_MIMIC_SYNC_TOKEN`か、優先される`--token-file PATH`を使います。
+認証はCLI専用の`GCSM_SYNC_TOKEN`か、優先される`--token-file PATH`を使います。
 ファイルには末尾の改行を除いて1つのbearer tokenを書き、上限は8192 bytesです。
-CLI専用変数をサーバーの環境変数に混ぜません。サーバーは現在の同期操作権限を検査し直し、
+サーバーはこのCLI専用変数を読み取りません。
+旧`GCS_MIMIC_SYNC_TOKEN`があれば、空文字列でも移行先を示して失敗します。
+新しい変数や`--token-file`を併記しても、旧変数を削除する必要があります。
+サーバーは現在の同期操作権限を検査し直し、
 通常のバケットIAMやfixture管理者の権限で代用することはできません。
 
 通信期限の既定値はrescanが30000 ms、それ以外が10000 msです。rescanでは静穏待ちの上限10秒と、その後の走査を見込みます。

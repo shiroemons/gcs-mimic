@@ -54,9 +54,9 @@ jq . "$native_dir/server.log"
 rm -r "$native_dir"
 ```
 
-Compose-only `GCS_MIMIC_IMAGE`, `GCS_MIMIC_PORT` and `GCS_MIMIC_TLS_DIR` must be
-unset before native startup; the binary explains their image, host-port and
-mount roles. The temporary native catalog above is
+Compose-only `GCSM_IMAGE`, `GCSM_PORT` and `GCSM_TLS_DIR` may stay in the
+native server's environment: the server ignores `GCSM_*`. Their former
+`GCS_MIMIC_*` spellings fail with advice naming the replacement. The temporary native catalog above is
 removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
 Since 0.18.0, ready reports the absolute `data_dir` without resolving symbolic
 links, and `data_dir_state` is `created` for a catalog initialized by this start
@@ -326,7 +326,7 @@ After building the native binary above, run this standalone example in Bash from
 the repository root. It uses fresh data and a separate seed directory.
 
 ```sh
-unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
+unset GCS_MIMIC_API_BASE_URL
 seed_demo=$(mktemp -d)
 mkdir -p "$seed_demo/fixtures/example-bucket"
 printf 'hello world' > "$seed_demo/fixtures/example-bucket/hello.txt"
@@ -408,9 +408,9 @@ the seed source is the checked-in `fixtures/local-bucket/hello.txt`.
 
 ```sh
 export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo-$$
-export GCS_MIMIC_IMAGE="gcs-mimic:seed-demo-$$"
-docker build -t "$GCS_MIMIC_IMAGE" .
-export GCS_MIMIC_PORT=0
+export GCSM_IMAGE="gcs-mimic:seed-demo-$$"
+docker build -t "$GCSM_IMAGE" .
+export GCSM_PORT=0
 docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml up -d --wait
 seed_address=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml port gcs 4443)
 curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b?project=local-project"

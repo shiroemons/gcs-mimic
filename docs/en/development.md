@@ -92,7 +92,7 @@ Do not run the tests as root: three permission-denied sync tests
 tests cannot run locally; keep timestamp tests to values every platform holds exactly.
 
 The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
-repository pin. The SDK recipe clears `GCS_MIMIC_GO_TEST_RUN` so an inherited
+repository pin. The SDK recipe clears `GCSM_GO_TEST_RUN` so an inherited
 filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly,
 preserving its selected pinned/current-stable toolchain; CI does not require
 just. `scripts/test-check.sh` verifies command order and failure propagation
@@ -149,7 +149,7 @@ digest-pinned Composer/PHP image and needs Docker, not a host PHP.
 [The Java](../../sdk-tests/java/README.md), [.NET](../../sdk-tests/dotnet/README.md)
 and [Rust](../../sdk-tests/rust/README.md) suites use host toolchains at their
 exact pins. Each README lists the journeys that its SDK cannot express.
-`GCS_MIMIC_SDK_SCHEME=https just check-sdk` verifies Go, Ruby, Node.js, Python
+`GCSM_SDK_SCHEME=https just check-sdk` verifies Go, Ruby, Node.js, Python
 and PHP with the exported local CA. The Java, .NET and Rust suites guard a plain
 loopback HTTP origin only, so the HTTPS run prints them as `SKIPPED` instead of
 running them. Signature endpoint/payload caveats are
@@ -629,7 +629,7 @@ The object media slice additionally uses bytes 1.12.1, md-5 0.11.0, crc32c 0.6.9
 getrandom 0.4.3, with the selection reasons and package sizes in the
 [dependency policy](dependency-policy.md#dependency-status-evidence).
 
-The Go harness requires Go and jq; it pins Go 1.27.4, storage v1.70.0 and API v0.312.0 with committed go.mod/go.sum. Its high-level HTTP JSON bucket and object listing/Update/Attrs/NewReader/Delete workflows run against an isolated native server; the getting-started guide verifies the same suite against Compose. Raw media upload uses the harness HTTP client; SDK Writer with `ChunkSize=0` exercises multipart metadata, hashes and conditioned publication. The default resumable Writer runs through the JSON resumable session engine (`objects_resumable_test.go`). Media/multipart upload and JSON copy tokens use bounded persistent response replay with or without generation conditions ([replay contract](slices/sdk-upload-replay.md)); GET/DELETE/metadata-update tokens retain their existing acceptance without deduplication (SPEC-013/SPEC-015). `scripts/sdk-go.sh` also starts a second isolated native server with `--auth-mode strict --identity-file config/identities.json`, checks that its ready event reports strict mode, and runs the `TestStrictAuth*` suite against it through `GCS_MIMIC_STRICT_ENDPOINT`. Those clients use an explicit endpoint and an `oauth2.StaticTokenSource` with the public fixture tokens, so no Application Default Credentials or metadata-server lookup occurs; the suite skips only when that variable is unset. Rust `auth_http` and `url_cli` tests cover strict authentication, role enforcement, startup validation and the URL helper offline. See the [strict authentication evidence](evidence/strict-auth.md). Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, generations, condition races, restart and selected SIGKILL publication boundaries. On unix, unit tests also take power-loss snapshots of single-request uploads, resumable finalization and compose/copy/rewrite publication that keep only the file lengths and directory entries the seamed sync points made durable (model and limits in `src/storage/catalog/fault.rs`), so dropping the blob or shard fsync fails them. Renames, unlinks and new-file entries outside the seam, such as recovery's restore-to-staging renames, are not modeled. Every other fsync/deletion instruction window, real power loss and memory/CPU/latency measurements remain unverified. See the [multipart integration evidence](evidence/multipart.md) and [guide transcript](evidence/multipart-guide.txt).
+The Go harness requires Go and jq; it pins Go 1.27.4, storage v1.70.0 and API v0.312.0 with committed go.mod/go.sum. Its high-level HTTP JSON bucket and object listing/Update/Attrs/NewReader/Delete workflows run against an isolated native server; the getting-started guide verifies the same suite against Compose. Raw media upload uses the harness HTTP client; SDK Writer with `ChunkSize=0` exercises multipart metadata, hashes and conditioned publication. The default resumable Writer runs through the JSON resumable session engine (`objects_resumable_test.go`). Media/multipart upload and JSON copy tokens use bounded persistent response replay with or without generation conditions ([replay contract](slices/sdk-upload-replay.md)); GET/DELETE/metadata-update tokens retain their existing acceptance without deduplication (SPEC-013/SPEC-015). `scripts/sdk-go.sh` also starts a second isolated native server with `--auth-mode strict --identity-file config/identities.json`, checks that its ready event reports strict mode, and runs the `TestStrictAuth*` suite against it through `GCSM_STRICT_ENDPOINT`. Those clients use an explicit endpoint and an `oauth2.StaticTokenSource` with the public fixture tokens, so no Application Default Credentials or metadata-server lookup occurs; the suite skips only when that variable is unset. Rust `auth_http` and `url_cli` tests cover strict authentication, role enforcement, startup validation and the URL helper offline. See the [strict authentication evidence](evidence/strict-auth.md). Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, generations, condition races, restart and selected SIGKILL publication boundaries. On unix, unit tests also take power-loss snapshots of single-request uploads, resumable finalization and compose/copy/rewrite publication that keep only the file lengths and directory entries the seamed sync points made durable (model and limits in `src/storage/catalog/fault.rs`), so dropping the blob or shard fsync fails them. Renames, unlinks and new-file entries outside the seam, such as recovery's restore-to-staging renames, are not modeled. Every other fsync/deletion instruction window, real power loss and memory/CPU/latency measurements remain unverified. See the [multipart integration evidence](evidence/multipart.md) and [guide transcript](evidence/multipart-guide.txt).
 
 `dependencies check` contacts official Rust, Cargo, GitHub, Debian, Docker Hub and
 public GCR metadata. Other Rust tests are offline and use only loopback. All direct
@@ -683,10 +683,10 @@ have no CORS configuration, and the permissive allow-all fallback would add
 cargo xtask differential validate            # parse and check the case files, no network
 cargo xtask differential run                 # self-check: gcs-mimic only
 cargo xtask differential run --reference <recording.json>
-GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+GCSM_DIFF_PROJECT=<project> GCSM_DIFF_TOKEN="$(gcloud auth print-access-token)" \
   cargo xtask differential run --record <recording.json>
 # after an interrupted live run: delete the leftover gcsmimic-diff-* buckets
-GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+GCSM_DIFF_PROJECT=<project> GCSM_DIFF_TOKEN="$(gcloud auth print-access-token)" \
   cargo xtask differential sweep
 ```
 
@@ -694,7 +694,7 @@ Modes:
 
 - **Self-check** is the default. Nothing contacts Google. It checks that every
   case runs and that each step meets its `expect_status`.
-- **Live** needs both `GCS_MIMIC_DIFF_PROJECT` and `GCS_MIMIC_DIFF_TOKEN`
+- **Live** needs both `GCSM_DIFF_PROJECT` and `GCSM_DIFF_TOKEN`
   (an OAuth access token); one alone is an error. The token goes to `curl` on
   stdin, never on the command line. Every bucket is private and disposable,
   named `gcsmimic-diff-<run>-...`, with public access prevention `enforced` and
@@ -756,7 +756,7 @@ To refresh one case, record only that case in Live mode, then merge the partial
 recording into the existing reference offline:
 
 ```sh
-GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+GCSM_DIFF_PROJECT=<project> GCSM_DIFF_TOKEN="$(gcloud auth print-access-token)" \
   cargo xtask differential run --filter bkt-notifications --record partial.json
 cargo xtask differential merge compatibility/differential/reference/gcs.json \
   partial.json --out merged-reference.json

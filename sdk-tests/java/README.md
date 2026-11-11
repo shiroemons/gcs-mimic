@@ -11,8 +11,8 @@ Container disposal, Ryuk and nonzero child-exit propagation remain enabled.
 
 ```sh
 bash sdk-tests/java/run.sh --self-check
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 bash sdk-tests/java/run.sh
-GCS_MIMIC_IMAGE=gcs-mimic:dev bash sdk-tests/java/run.sh --container
+GCSM_ENDPOINT=http://127.0.0.1:4443 bash sdk-tests/java/run.sh
+GCSM_IMAGE=gcs-mimic:dev bash sdk-tests/java/run.sh --container
 ```
 
 The HTTP client uses anonymous credentials and checks every URL, including SDK

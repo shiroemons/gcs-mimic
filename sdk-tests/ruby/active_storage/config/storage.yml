@@ -1,13 +1,13 @@
 local_gcs:
   service: GCS
   project: local-project
-  bucket: <%= ENV.fetch("GCS_MIMIC_BUCKET") %>
+  bucket: <%= ENV.fetch("GCSM_BUCKET") %>
   credentials:
     type: service_account
     project_id: local-project
     client_email: local-admin@example.invalid
     private_key: <%= File.read(Rails.root.join("../../../fixtures/signing/test-only-private.pem")).dump %>
-  endpoint: <%= ENV.fetch("GCS_MIMIC_ENDPOINT").delete_suffix("/") %>/
+  endpoint: <%= ENV.fetch("GCSM_ENDPOINT").delete_suffix("/") %>/
 
 # The documented development/test recipe. A non-Google universe_domain makes
 # googleauth sign its own JWT bearer instead of requesting an OAuth token, and
@@ -46,7 +46,7 @@ gcs_emulator_strict: &gcs_emulator_strict
   service: GCS
   project: local-project
   bucket: <%= ENV.fetch("GCS_EMULATOR_BUCKET", "local-bucket") %>
-  endpoint: <%= ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443").delete_suffix("/") %>/
+  endpoint: <%= ENV.fetch("GCSM_ENDPOINT", "http://localhost:4443").delete_suffix("/") %>/
   universe_domain: gcs-emulator.invalid
   credentials:
     type: service_account
@@ -59,7 +59,7 @@ gcs_emulator_strict: &gcs_emulator_strict
 gcs_emulator_strict_browser: &gcs_emulator_strict_browser
   <<: *gcs_emulator_strict
   service: EmulatorGcs
-  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
+  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCSM_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
 
 # A bucket whose policy grants allUsers read; Rails hands out unsigned URLs for it. The stock
@@ -88,7 +88,7 @@ gcs_emulator_test_signer: &gcs_emulator_test_signer
 gcs_emulator_test_signer_browser: &gcs_emulator_test_signer_browser
   <<: *gcs_emulator_test_signer
   service: EmulatorGcs
-  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
+  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCSM_ENDPOINT", "http://localhost:4443")) %>
   cache_control: "public, max-age=3600"
 
 gcs_emulator_test_signer_public:

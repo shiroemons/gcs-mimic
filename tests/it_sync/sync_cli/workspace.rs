@@ -159,7 +159,7 @@ fn live_cli_inspects_stopped_sparse_recovery_and_requires_exact_confirmed_discar
         let mut invalid = resolution(&selected, "unconfirmed");
         invalid.extend(confirmation);
         let output = common::server_command()
-            .env("GCS_MIMIC_SYNC_TOKEN", "all")
+            .env("GCSM_SYNC_TOKEN", "all")
             .args(["sync", "resolve", "--endpoint", &server.endpoint])
             .args(&invalid)
             .output()

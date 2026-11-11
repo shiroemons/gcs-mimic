@@ -19,8 +19,8 @@ import (
 )
 
 func TestRustRuntimeFixtureSDKHandlerAndParallelIsolation(t *testing.T) {
-	if os.Getenv("GCS_MIMIC_BINARY") == "" {
-		t.Fatal("integration requires GCS_MIMIC_BINARY")
+	if os.Getenv("GCSM_BINARY") == "" {
+		t.Fatal("integration requires GCSM_BINARY")
 	}
 	for _, noListener := range []bool{false, true} {
 		t.Run(map[bool]string{false: "listener", true: "facade"}[noListener], func(t *testing.T) {
@@ -95,8 +95,8 @@ func TestRustRuntimeFixtureSDKHandlerAndParallelIsolation(t *testing.T) {
 }
 
 func TestRustRuntimeEventOptionsKeepInitialFixturesQuietAndPublishAllSelectedEvents(t *testing.T) {
-	if os.Getenv("GCS_MIMIC_BINARY") == "" {
-		t.Fatal("integration requires GCS_MIMIC_BINARY")
+	if os.Getenv("GCSM_BINARY") == "" {
+		t.Fatal("integration requires GCSM_BINARY")
 	}
 	messages := make(chan map[string]string, 16)
 	publisher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -17,7 +17,7 @@ def emulator_origin(raw)
   unless uri.is_a?(URI::HTTP) && uri.userinfo.nil? && [nil, "", "/"].include?(uri.path) &&
          uri.query.nil? && uri.fragment.nil? &&
          (uri.hostname == "localhost" || IPAddr.new(uri.hostname).loopback?)
-    raise ArgumentError, "GCS_MIMIC_ENDPOINT must be a loopback HTTP or HTTPS origin"
+    raise ArgumentError, "GCSM_ENDPOINT must be a loopback HTTP or HTTPS origin"
   end
   uri
 rescue URI::InvalidURIError, IPAddr::InvalidAddressError
@@ -79,9 +79,9 @@ if ARGV == ["--self-check"]
   exit
 end
 
-origin = emulator_origin(ENV.fetch("GCS_MIMIC_ENDPOINT"))
+origin = emulator_origin(ENV.fetch("GCSM_ENDPOINT"))
 if origin.scheme == "https"
-  ca = ENV.fetch("GCS_MIMIC_CA_CERT")
+  ca = ENV.fetch("GCSM_CA_CERT")
   raise "CA certificate is unreadable" unless File.file?(ca) && File.readable?(ca)
 end
 %w[http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY].each { |key| ENV.delete(key) }
@@ -91,7 +91,7 @@ storage = Google::Cloud::Storage.anonymous(endpoint: "#{origin.to_s.delete_suffi
                                           retries: 0, timeout: 10, upload_chunk_size: 256 * 1024)
 storage.service.project = "local-project"
 api = storage.service.service
-api.authorization = ENV["GCS_MIMIC_TOKEN"] if ENV.key?("GCS_MIMIC_TOKEN")
+api.authorization = ENV["GCSM_TOKEN"] if ENV.key?("GCSM_TOKEN")
 connection = api.client
 connection.ssl.ca_file = ca if ca
 connection.ssl.verify = true
@@ -141,7 +141,7 @@ if ARGV.empty? || ARGV == ["--bucket-put"]
 end
 
 if ARGV == ["--migration-scenario"]
-  raise "migration scenario requires an anonymous client" if ENV.key?("GCS_MIMIC_TOKEN")
+  raise "migration scenario requires an anonymous client" if ENV.key?("GCSM_TOKEN")
 
   require_relative "migration_scenario"
   migration_scenario(storage)
@@ -248,7 +248,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     end
     puts "ruby-project-service-account passed"
     hmac_email = "sdk-ruby-#{SecureRandom.hex(8)}@local-project.iam.gserviceaccount.com"
-    if ENV.key?("GCS_MIMIC_TOKEN")
+    if ENV.key?("GCSM_TOKEN")
       # roles/storage.admin does not include storage.hmacKeys.*; strict mode must enforce that.
       begin
         storage.create_hmac_key hmac_email
@@ -316,14 +316,14 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     end
     permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
     raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort
-    if ENV.key?("GCS_MIMIC_TOKEN")
+    if ENV.key?("GCSM_TOKEN")
       begin
         api.authorization = "local-viewer-token"
         raise "project permissions mismatch" unless bucket.test_permissions(*permissions) == ["storage.objects.get"]
         api.authorization = "local-bucket-reader-token"
         raise "ungranted permissions mismatch" unless bucket.test_permissions(*permissions).empty?
       ensure
-        api.authorization = ENV.fetch("GCS_MIMIC_TOKEN")
+        api.authorization = ENV.fetch("GCSM_TOKEN")
       end
     end
     puts "ruby-bucket-test-permissions passed"
@@ -383,7 +383,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
                                 if_generation_match: 0)
     objects << object
 
-    if ENV["GCS_MIMIC_SIGNED_TESTS"] == "1"
+    if ENV["GCSM_SIGNED_TESTS"] == "1"
       key = File.read(File.expand_path("../../fixtures/signing/test-only-private.pem", __dir__))
       issuer = "local-admin@example.invalid"
       authority = origin.authority

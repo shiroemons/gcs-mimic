@@ -4,8 +4,8 @@ set -euo pipefail
 usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php] [--with-java] [--with-dotnet] [--with-rust] [--with-clients]'
 with_ruby=false
 with_clients=false
-# Each listed suite provides sdk-tests/<sdk>/run.sh, which reads GCS_MIMIC_ENDPOINT,
-# GCS_MIMIC_STRICT_ENDPOINT and, for HTTPS, GCS_MIMIC_CA_CERT.
+# Each listed suite provides sdk-tests/<sdk>/run.sh, which reads GCSM_ENDPOINT,
+# GCSM_STRICT_ENDPOINT and, for HTTPS, GCSM_CA_CERT.
 suites=()
 add_suite() {
   if [[ " ${suites[*]-} " != *" $1 "* ]]; then suites+=("$1"); fi
@@ -29,13 +29,13 @@ done
 cd "$(dirname "$0")/.."
 root=$PWD
 run_ruby=false
-if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then run_ruby=true; fi
+if [[ $with_ruby == true && -z ${GCSM_GO_TEST_RUN:-} ]]; then run_ruby=true; fi
 if [[ $run_ruby == true ]]; then
   # Select the pinned Ruby before building, so a wrong Ruby fails here and not after the Go suite.
   source scripts/pinned-ruby.sh
   select_pinned_ruby sdk-tests/ruby
 fi
-scheme=${GCS_MIMIC_SDK_SCHEME:-http}
+scheme=${GCSM_SDK_SCHEME:-http}
 if [[ $with_clients == true && $scheme != http ]]; then
   echo 'Additional client harnesses currently require the HTTP profile' >&2
   exit 2
@@ -45,7 +45,7 @@ fi
 http_only_suites=" java dotnet rust "
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
-export GCS_MIMIC_BINARY="$server"
+export GCSM_BINARY="$server"
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
 pid=
 strict_pid=
@@ -90,18 +90,18 @@ case "$scheme" in
   http) ;;
   https)
     if [[ -n ${GCS_MIMIC_TLS_CERT:-} || -n ${GCS_MIMIC_TLS_KEY:-} ]]; then
-      if [[ -z ${GCS_MIMIC_TLS_CERT:-} || -z ${GCS_MIMIC_TLS_KEY:-} || -z ${GCS_MIMIC_CA_CERT:-} ]]; then
-        echo 'Custom HTTPS SDK tests require GCS_MIMIC_TLS_CERT, GCS_MIMIC_TLS_KEY and GCS_MIMIC_CA_CERT' >&2
+      if [[ -z ${GCS_MIMIC_TLS_CERT:-} || -z ${GCS_MIMIC_TLS_KEY:-} || -z ${GCSM_CA_CERT:-} ]]; then
+        echo 'Custom HTTPS SDK tests require GCS_MIMIC_TLS_CERT, GCS_MIMIC_TLS_KEY and GCSM_CA_CERT' >&2
         exit 2
       fi
       tls_args=(--tls-cert "$GCS_MIMIC_TLS_CERT" --tls-key "$GCS_MIMIC_TLS_KEY")
-    elif [[ -z ${GCS_MIMIC_CA_CERT:-} ]]; then
+    elif [[ -z ${GCSM_CA_CERT:-} ]]; then
       "$server" tls ca > "$work/ca.pem"
-      export GCS_MIMIC_CA_CERT="$work/ca.pem"
+      export GCSM_CA_CERT="$work/ca.pem"
     fi
-    health_args=(--ca-cert "$GCS_MIMIC_CA_CERT")
+    health_args=(--ca-cert "$GCSM_CA_CERT")
     ;;
-  *) echo 'GCS_MIMIC_SDK_SCHEME must be http or https' >&2; exit 1 ;;
+  *) echo 'GCSM_SDK_SCHEME must be http or https' >&2; exit 1 ;;
 esac
 
 # Each server starts without any variable it would read as a setting; flags configure it.
@@ -205,14 +205,14 @@ start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$wo
 start_local_strict_server --data-dir "$work/local-strict-data"
 
 cd sdk-tests/go
-export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"
-export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCS_MIMIC_STRICT_GRPC_ENDPOINT="$strict_grpc_endpoint"
+export GCSM_ENDPOINT="$endpoint" GCSM_STRICT_ENDPOINT="$strict_endpoint"
+export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCSM_STRICT_GRPC_ENDPOINT="$strict_grpc_endpoint"
 GOTOOLCHAIN=auto go vet ./...
 # Only the Go suite uses the local-development server, so the other suites keep their environment.
-GCS_MIMIC_LOCAL_STRICT_ENDPOINT="$local_strict_endpoint" GCS_MIMIC_TRUSTED_ENDPOINT="$trusted_endpoint" \
-  GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
+GCSM_LOCAL_STRICT_ENDPOINT="$local_strict_endpoint" GCSM_TRUSTED_ENDPOINT="$trusted_endpoint" \
+  GOTOOLCHAIN=auto go test -count=1 -v -run "${GCSM_GO_TEST_RUN:-.}" ./...
 
-if [[ $with_clients == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+if [[ $with_clients == true && -z ${GCSM_GO_TEST_RUN:-} ]]; then
   (cd "$root/go" && GOTOOLCHAIN=auto go test -race -tags integration ./...)
   (cd "$root/go/sourceexport" && GOTOOLCHAIN=auto go test -race ./...)
 fi
@@ -221,21 +221,21 @@ if [[ $run_ruby == true ]]; then
   cd ../ruby
   BUNDLE_FROZEN=true ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle check
   ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb --self-check
-  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb --migration-scenario
-  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
-  GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
+  env -u GCSM_TOKEN GCSM_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb --migration-scenario
+  env -u GCSM_TOKEN GCSM_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
+  GCSM_ENDPOINT="$strict_endpoint" GCSM_TOKEN=local-admin-token GCSM_SIGNED_TESTS=1 ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
 fi
 
-if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+if [[ -z ${GCSM_GO_TEST_RUN:-} ]]; then
   for sdk in ${suites[@]+"${suites[@]}"}; do
     if [[ $scheme != http && $http_only_suites == *" $sdk "* ]]; then
-      echo "== $sdk SDK suite SKIPPED: it supports only the HTTP profile (GCS_MIMIC_SDK_SCHEME=$scheme)" >&2
+      echo "== $sdk SDK suite SKIPPED: it supports only the HTTP profile (GCSM_SDK_SCHEME=$scheme)" >&2
       continue
     fi
     echo "== $sdk SDK suite" >&2
     (
-      if [[ $sdk == rust ]]; then export GCS_MIMIC_GRPC_ENDPOINT="$grpc_endpoint"; fi
-      GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint" \
+      if [[ $sdk == rust ]]; then export GCSM_GRPC_ENDPOINT="$grpc_endpoint"; fi
+      GCSM_ENDPOINT="$endpoint" GCSM_STRICT_ENDPOINT="$strict_endpoint" \
         bash "$root/sdk-tests/$sdk/run.sh"
     )
   done

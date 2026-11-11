@@ -20,8 +20,11 @@ func main() {
 	// when the emulator is not running.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	endpoint := os.Getenv("GCS_MIMIC_ENDPOINT")
+	endpoint := os.Getenv("GCSM_ENDPOINT")
 	if endpoint == "" {
+		if _, exists := os.LookupEnv("GCS_MIMIC_ENDPOINT"); exists {
+			log.Fatal("GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT")
+		}
 		endpoint = "http://localhost:4443"
 	}
 

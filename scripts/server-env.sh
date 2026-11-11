@@ -1,11 +1,8 @@
 # Sourced by the SDK runners that start their own gcs-mimic servers.
 #
-# The server reads every exported GCS_MIMIC_ variable, and PUBSUB_EMULATOR_HOST, as a setting,
-# and refuses to start on a GCS_MIMIC_ name it does not know. The runners
-# configure each server with flags only, so a variable from the developer's shell, such as the
-# strict local recipe's GCS_MIMIC_BUCKETS or GCS_MIMIC_TEST_SIGNER, or one a runner exports for
-# its clients, such as GCS_MIMIC_ENDPOINT, would change or stop the server. Matching the
-# prefix instead of listing names also removes settings that later releases add.
+# Runners configure servers with flags only, so inherited server settings must not change
+# their isolated scenarios. GCSM_ client and harness variables pass through unchanged.
+# Matching the setting prefix also isolates settings added by later releases.
 
 # Sets the array server_env to an `env` command prefix that removes each such variable exported
 # now. Call it right before starting a server, so a variable exported since an earlier start is

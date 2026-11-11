@@ -9,8 +9,12 @@ Windows rejects `NoListener` explicitly, without a TCP fallback.
 
 The module is source code in this checkout; no separately published module is
 claimed. Use the checkout's `go/` as a local module replacement when adopting it.
-Build the Rust executable first, then set `GCS_MIMIC_BINARY` to that executable
+Build the Rust executable first, then set `GCSM_BINARY` to that executable
 or install `gcs-mimic` on `PATH`.
+The former `GCS_MIMIC_BINARY` fails with replacement advice when neither
+`GCSM_BINARY` nor `Options.Executable` selects a binary. Inherited `GCS_MIMIC_*`
+server settings are removed from each child so that `Options` remains its only
+configuration; `GCSM_*` client variables pass through unchanged.
 
 ```go
 import "github.com/shiroemons/gcs-mimic/go/fakestorage"
@@ -86,7 +90,7 @@ cd go
 go build ./...
 go test -race ./...
 go vet ./...
-# Final integrated runtime only, with GCS_MIMIC_BINARY already set:
+# Final integrated runtime only, with GCSM_BINARY already set:
 go test -race -tags integration ./fakestorage
 ```
 

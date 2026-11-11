@@ -485,7 +485,7 @@ entries it did not apply; `buckets_file_mode=reconcile` applies them instead.
 See the [initializer contract](slices/bucket-initialization.md);
 broader shared-state crash injection remains pending. Seed input and persistent
 destination remain separate. Existing
-source-build Compose `GCS_MIMIC_PORT` publishes a host port; do not reinterpret
+source-build Compose `GCSM_PORT` publishes a host port; do not reinterpret
 it as the container listener. See the
 [configuration contract](fake-gcs-server-migration.md#configuration-compatibility-and-extensions).
 

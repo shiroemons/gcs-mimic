@@ -123,7 +123,7 @@ returns fixed `US-CENTRAL1`; it does not implement configurable regional placeme
 A public URL helper does not establish `-public-host` parity.
 See [option examples](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
 
-`GCS_MIMIC_PORT` in the repository's source-build Compose file is a **Compose
+`GCSM_PORT` in the repository's source-build Compose file is a **Compose
 host-port variable**, not a server environment setting. Passing it to the binary
 does not configure the listener. Do not mechanically rename every `FAKE_GCS_`
 suffix to `GCS_MIMIC_`.
@@ -165,8 +165,10 @@ meaning. The image's `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic` environment defaults retain network
 access and persistence; `--port` and `--host` change one part of that listener.
 
-`GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are Compose-only
-interpolation variables; keep them outside the native server environment.
+`GCSM_PORT`, `GCSM_IMAGE` and `GCSM_TLS_DIR` are Compose-only
+interpolation variables. The server ignores every `GCSM_*` variable, including
+these names in a shared environment; their old `GCS_MIMIC_*` names fail with
+replacement advice.
 Use `LISTEN` for server binding and `TLS_CERT`/`TLS_KEY` for actual PEM files.
 The image sets `GCS_MIMIC_DEFAULT_SEED_DIR=/data`: an existing `/data` that
 does not overlap the data or sync directory is seeded when `seed_dir` is unset,

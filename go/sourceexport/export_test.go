@@ -50,7 +50,7 @@ func sourceFixture(t *testing.T) *fakestorage.Server {
 func TestExportRealSourceHistoryAndExactMetadata(t *testing.T) {
 	source := sourceFixture(t)
 	destination := filepath.Join(t.TempDir(), "snapshot")
-	if output := os.Getenv("GCS_MIMIC_SOURCE_FIXTURE_DIR"); output != "" {
+	if output := os.Getenv("GCSM_SOURCE_FIXTURE_DIR"); output != "" {
 		destination = output
 	}
 	var barrier sync.RWMutex

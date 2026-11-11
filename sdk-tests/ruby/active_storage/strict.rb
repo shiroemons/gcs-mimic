@@ -20,7 +20,7 @@ ENV["RAILS_ENV"] = "test"
 ENV["DATABASE_URL"] = "sqlite3::memory:"
 ENV["GCS_EMULATOR_BUCKET"] ||= "active-storage-strict-#{SecureRandom.hex(8)}"
 ENV["GCS_EMULATOR_PUBLIC_BUCKET"] = "#{ENV.fetch('GCS_EMULATOR_BUCKET')}-public" unless provisioned
-ENV["GCS_MIMIC_BUCKET"] = ENV.fetch("GCS_EMULATOR_BUCKET")
+ENV["GCSM_BUCKET"] = ENV.fetch("GCS_EMULATOR_BUCKET")
 ENV["ACTIVE_STORAGE_SERVICE"] = service_name
 require_relative "config/application"
 Rails.application.initialize!
@@ -201,7 +201,7 @@ begin
     url = URI(blob.url)
     assert(url.query.nil? && url.path == "/#{public_bucket.name}/#{blob.key}", "public url is not an unsigned object path")
     assert(url.host == "storage.googleapis.com", "the stock public url no longer names Google; revisit the adapter")
-    local = URI("#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}#{url.path}")
+    local = URI("#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}#{url.path}")
     response = fetch(local, Net::HTTP::Get.new(local))
     assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "anonymous public GET failed: #{response.code}")
     blob.purge
@@ -216,7 +216,7 @@ begin
     blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new(bytes), filename: "public file.txt", key: key,
       service_name: "#{service_name}_public_browser")
     url = URI(blob.url)
-    expected = "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}/#{folder}/public%20file.txt"
+    expected = "#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}/#{folder}/public%20file.txt"
     assert(url.to_s == expected, "adapter public url differs: #{url}")
     response = fetch(url, Net::HTTP::Get.new(url))
     assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "anonymous adapter public GET failed: #{response.code}")
@@ -230,7 +230,7 @@ begin
     # this load, now names its endpoint. The initializer changes every GCS service in the process,
     # so this case runs last.
     load File.join(__dir__, "initializers/active_storage_gcs_emulator.rb")
-    origin = "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}"
+    origin = "#{ENV.fetch('GCSM_ENDPOINT').delete_suffix('/')}/#{public_bucket.name}"
     bytes = "strict initializer public bytes"
     blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new(bytes), filename: "patched.txt",
       service_name: "#{service_name}_public")

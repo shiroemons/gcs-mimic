@@ -299,9 +299,9 @@ func TestGRPCV1LegacySafety(t *testing.T) {
 }
 
 func TestGRPCV1LegacyStrict(t *testing.T) {
-	endpoint := os.Getenv("GCS_MIMIC_STRICT_GRPC_ENDPOINT")
+	endpoint := os.Getenv("GCSM_STRICT_GRPC_ENDPOINT")
 	if endpoint == "" {
-		t.Skip("GCS_MIMIC_STRICT_GRPC_ENDPOINT is unset")
+		t.Skip("GCSM_STRICT_GRPC_ENDPOINT is unset")
 	}
 	ctx, jsonClient := newStrictClient(t, strictAdminToken)
 	bucket := resumableBucket(t, ctx, jsonClient, strictProject)

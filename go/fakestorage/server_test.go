@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -93,6 +94,41 @@ func runTestChild() {
 }
 
 func testOptions() Options { return Options{Executable: os.Args[0], Scheme: "http"} }
+
+func TestBinaryEnvironmentAndSettingIsolation(t *testing.T) {
+	t.Setenv("GCSM_BINARY", os.Args[0])
+	t.Setenv("GCS_MIMIC_BINARY", "unused-old-binary")
+	t.Setenv("GCS_MIMIC_LISTEN", "invalid-inherited-listener")
+	t.Setenv("GCSM_ENDPOINT", "client-only")
+	s, err := NewServerWithOptions(Options{Scheme: "http"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+	if s.cmd.Path != os.Args[0] {
+		t.Fatalf("binary = %q, want %q", s.cmd.Path, os.Args[0])
+	}
+	for _, entry := range s.cmd.Env {
+		if strings.HasPrefix(entry, "GCS_MIMIC_") {
+			t.Fatalf("inherited server setting: %s", entry)
+		}
+	}
+	if !slices.Contains(s.cmd.Env, "GCSM_ENDPOINT=client-only") {
+		t.Fatal("client environment was removed")
+	}
+}
+
+func TestOldBinaryEnvironmentIsRejected(t *testing.T) {
+	t.Setenv("GCSM_BINARY", "")
+	t.Setenv("GCS_MIMIC_BINARY", "secret-old-binary")
+	s, err := NewServerWithOptions(Options{})
+	if err == nil || s != nil || !strings.Contains(err.Error(), "GCSM_BINARY") {
+		t.Fatalf("old binary variable must fail with replacement advice: %v", err)
+	}
+	if strings.Contains(err.Error(), "secret-old-binary") {
+		t.Fatal("diagnostic exposed the old value")
+	}
+}
 
 func TestFacadeLifecycleAndIsolation(t *testing.T) {
 	t.Parallel()

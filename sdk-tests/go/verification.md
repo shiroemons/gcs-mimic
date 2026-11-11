@@ -89,7 +89,7 @@ discovery is used. The strict raw service does not change emulator environment
 variables or construct an unused high-level client.
 
 The targeted runner is
-`GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`.
+`GCSM_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`.
 It starts isolated native permissive and strict servers and cleans up both.
 Its existing test-name selector includes these tests automatically.
 
@@ -101,7 +101,7 @@ registers bucket PATCH and POST with PATCH override, but no bucket PUT.
 The [bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/bucket.go#L35-L68)
 parses only versioning/default hold and is not reached by PUT.
 
-`GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh`
+`GCSM_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh`
 exercises both reference backends and both local profiles, including 32 PUTs
 per target. The script verifies the source archive digest before building the
 pinned reference and uses the committed Rust and Go toolchains.

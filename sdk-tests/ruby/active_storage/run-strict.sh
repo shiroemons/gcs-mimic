@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 root=$PWD
 source scripts/server-env.sh
-binary=${GCS_MIMIC_BINARY:-$root/target/debug/gcs-mimic}
+binary=${GCSM_BINARY:-$root/target/debug/gcs-mimic}
 if [[ ! -x $binary ]]; then echo 'Build the final emulator with cargo build --locked first' >&2; exit 1; fi
 (cd sdk-tests/ruby/active_storage && BUNDLE_FROZEN=true bundle check)
 work=$(mktemp -d)
@@ -53,7 +53,7 @@ run_variant() {
   if [[ -z $origin ]]; then echo "Strict server readiness timed out: $name" >&2; exit 1; fi
   echo "Variant $name: $(jq -Rc 'fromjson? | select(.event == "ready")
     | {auth_mode, identities, test_signer, listen, trusted_listen, trusted_principal}' "$log")"
-  (cd sdk-tests/ruby/active_storage && GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby strict.rb "$service")
+  (cd sdk-tests/ruby/active_storage && GCSM_ENDPOINT="$origin" bundle exec ruby strict.rb "$service")
   kill -TERM "$pid"
   wait "$pid" || server_status=$?
   pid=

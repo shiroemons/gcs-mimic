@@ -1512,7 +1512,7 @@
       "observed_at": "2026-11-04",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "Every Storage v2 entry point rejects x-goog-user-project presence and checks semantic routing metadata against request resources; streaming calls check their first message and rewrite continuations check their bound names. Native invalid bucket IDs return INVALID_ARGUMENT through shared validation; legacy-emulator IDs follow that profile. The pinned routing annotations define capture keys, but provider-exact status and precedence for invalid IDs and complete SDK routing combinations have not been observed. SDK validation of the expanded checks remains a pre-integration gate: Go and Rust have gRPC harnesses; the existing Node Storage SDK harness exercises HTTP and supplies no dedicated gRPC lane.",
-      "required_resolution": "Verify provider invalid-name and conflicting-routing cases and the pinned Go and Rust gRPC lanes before claiming exact routing/error parity. Run CARGO_BUILD_JOBS=4 env -u GCS_MIMIC_GO_TEST_RUN GCS_MIMIC_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust for the available SDK harnesses. Retain explicit rejection of billing and unsupported routing tokens."
+      "required_resolution": "Verify provider invalid-name and conflicting-routing cases and the pinned Go and Rust gRPC lanes before claiming exact routing/error parity. Run CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust for the available SDK harnesses. Retain explicit rejection of billing and unsupported routing tokens."
     },
     {
       "id": "SPEC-GRPC-DERIVED-OWNER-VIEW",

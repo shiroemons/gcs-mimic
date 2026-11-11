@@ -1,11 +1,15 @@
 <?php
 
+if (getenv('GCSM_ENDPOINT') === false && getenv('GCS_MIMIC_ENDPOINT') !== false) {
+    throw new RuntimeException('GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT');
+}
+
 require __DIR__ . '/vendor/autoload.php';
 
 use Google\Cloud\Core\AnonymousCredentials;
 use Google\Cloud\Storage\StorageClient;
 
-$endpoint = getenv('GCS_MIMIC_ENDPOINT') ?: 'http://localhost:4443';
+$endpoint = getenv('GCSM_ENDPOINT') ?: 'http://localhost:4443';
 
 // Anonymous credentials for the emulator endpoint; buckets need a project.
 $storage = new StorageClient([

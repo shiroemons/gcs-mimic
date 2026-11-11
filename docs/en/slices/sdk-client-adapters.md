@@ -82,7 +82,7 @@ const url = await signV4WithCli(new URL('http://127.0.0.1:4443'), {
 });
 ```
 
-Set `GCS_MIMIC_BINARY` to the integrated executable or install it on PATH. No
+Set `GCSM_BINARY` to the integrated executable or install it on PATH. No
 shell is used; arguments retain literal names/headers/query values, execution
 has a ten-second timeout and output is capped. The signer binds the final
 origin as required by Google's [canonical request contract](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests).
@@ -203,7 +203,7 @@ dependencies/plugins and runtime pins, .NET NuGet/global.json, the standalone
 Rust Cargo graph and Node Testcontainers in the same daily detector and
 canonical snapshot. `scripts/sdk-go.sh --with-clients` adds the native clients,
 Go integration-tag tests and the real-source exporter; it exports
-`GCS_MIMIC_BINARY` for the Node signer and facade. The corresponding CI lane
+`GCSM_BINARY` for the Node signer and facade. The corresponding CI lane
 installs pinned tools, and `just check-client-containers IMAGE` reuses one final
 image for Java/.NET/Node adapters. Actionlint and local setup checks do not
 establish remote CI execution. Actual SDK/container success is recorded

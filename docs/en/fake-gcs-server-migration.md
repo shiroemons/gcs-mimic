@@ -25,7 +25,7 @@ services:
               "-public-host", "gcs:4443", "-external-url", "http://gcs:4443",
               "-backend", "filesystem", "-filesystem-root", "/storage", "-data", "/data"]
     ports:
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+      - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     volumes:
       - ./data:/data:ro
       - source-data:/storage
@@ -133,7 +133,7 @@ services:
   gcs:
     image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+      - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     environment:
       GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
@@ -159,10 +159,10 @@ stays 4443. Run these commands beside the files:
 ```sh
 export COMPOSE_FILE=compose.migration.yaml
 export COMPOSE_PROJECT_NAME=assets-migration
-export GCS_MIMIC_PORT=14443
+export GCSM_PORT=14443
 docker compose up -d --wait
 docker compose exec -T gcs gcs-mimic healthcheck
-api="http://localhost:${GCS_MIMIC_PORT}"
+api="http://localhost:${GCSM_PORT}"
 curl --fail "$api/storage/v1/b/assets"
 curl --fail "$api/storage/v1/b/exports"
 curl --fail -H 'Content-Type: application/json' -d '{"name":"scratch-assets"}' \
@@ -173,7 +173,7 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 ```
 
 For a second worktree use, for example, project `assets-migration-two` and
-`GCS_MIMIC_PORT=24443`; project-scoped volumes keep state separate. Stop with
+`GCSM_PORT=24443`; project-scoped volumes keep state separate. Stop with
 `docker compose down` using the same file/project. The named volume retains data.
 
 ### Bucket file inside compose.yaml
@@ -381,7 +381,7 @@ the built-in test signer for this, and its README shows the entry that uses it.
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. |
 | Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
-| Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
+| Docker reports the host port is in use | Another worktree publishes the same port | Set `GCSM_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
 | A request never finishes, a client's connections stay in use, and the server logs nothing | The client announced a request body (`Content-Length` or chunked) and stopped sending it. With the default `body_inactivity_timeout_ms` of 0 no limit expires, so the server keeps waiting and has nothing to log | To find such clients, set `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`, for example to `30000`. A body silent that long then fails with JSON 408 `uploadBrokenConnection` or XML 400 `RequestTimeout`, and the server logs a `connection_timeout` warning. The default stays 0 so a slow client is never cut off. |
 
@@ -632,7 +632,7 @@ a translated flag wins over a native option of the same setting and warns that
 it overrides it. See the
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics).
 
-`GCS_MIMIC_PORT` in the repository's source-build Compose file controls host
+`GCSM_PORT` in the repository's source-build Compose file controls host
 publication only. It is not a native server option. Seed input, durable storage,
 listener addresses and advertised URLs must retain their distinct meanings.
 

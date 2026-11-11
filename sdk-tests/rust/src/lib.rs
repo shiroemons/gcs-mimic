@@ -25,8 +25,8 @@ pub fn local_origin(raw: &str) -> Result<Url> {
 }
 
 pub fn guarded_origin() -> Result<Url> {
-    let endpoint = local_origin(&std::env::var("GCS_MIMIC_ENDPOINT")?)?;
-    let proxy = local_origin(&std::env::var("GCS_MIMIC_EGRESS_PROXY")?)?;
+    let endpoint = local_origin(&std::env::var("GCSM_ENDPOINT")?)?;
+    let proxy = local_origin(&std::env::var("GCSM_EGRESS_PROXY")?)?;
     if std::env::var("HTTP_PROXY")? != proxy.as_str().trim_end_matches('/')
         || !std::env::var("NO_PROXY")?.is_empty()
     {

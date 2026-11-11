@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ ! ${GCSM_ENDPOINT+x} && ${GCS_MIMIC_ENDPOINT+x} ]]; then
+  echo 'GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT' >&2
+  exit 1
+fi
+
 # Point gcloud at gcs-mimic with no credentials, using a throwaway configuration
 # so your own gcloud settings are neither read nor changed.
 export CLOUDSDK_CONFIG="$(mktemp -d)"
 export CLOUDSDK_CORE_PROJECT=local-project
-export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="${GCS_MIMIC_ENDPOINT:-http://localhost:4443}/"
+export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="${GCSM_ENDPOINT:-http://localhost:4443}/"
 export CLOUDSDK_AUTH_DISABLE_CREDENTIALS=True
 export CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=True
 export CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=True

@@ -619,9 +619,9 @@ fn legacy_global_notification_rules_and_json_configs_publish_to_the_explicit_loc
 }
 
 #[test]
-#[ignore = "requires GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST pointing to an explicitly started local Pub/Sub emulator"]
+#[ignore = "requires GCSM_TEST_PUBSUB_EMULATOR_HOST pointing to an explicitly started local Pub/Sub emulator"]
 fn opted_in_pubsub_emulator_receives_the_notification() {
-    let address = std::env::var("GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST")
+    let address = std::env::var("GCSM_TEST_PUBSUB_EMULATOR_HOST")
         .expect("explicit local Pub/Sub test endpoint is required");
     let socket: std::net::SocketAddr = address
         .parse()

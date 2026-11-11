@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(test_names("module::tests::a_test"), ["a_test"]);
         assert_eq!(test_names("TestSuite/Subtest"), ["TestSuite", "Subtest"]);
         assert!(test_names("guide-native-object-media").is_empty());
-        assert!(test_names("https.rb (GCS_MIMIC_SIGNED_TESTS=1)").is_empty());
+        assert!(test_names("https.rb (GCSM_SIGNED_TESTS=1)").is_empty());
     }
 
     #[test]

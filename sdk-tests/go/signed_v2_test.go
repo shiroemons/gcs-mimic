@@ -16,13 +16,13 @@ import (
 
 func TestV2RSASignedTransfers(t *testing.T) {
 	ctx, bucket, attrs, payload := strictFixture(t, "v2")
-	endpoint, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	endpoint, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The V2 SDK signer always emits HTTPS, including when Insecure is true.
 	if endpoint.Scheme != "https" {
-		t.Skip("Go V2 SignedURL requires GCS_MIMIC_SDK_SCHEME=https; URLs must remain unchanged")
+		t.Skip("Go V2 SignedURL requires GCSM_SDK_SCHEME=https; URLs must remain unchanged")
 	}
 	key, err := os.ReadFile("../../fixtures/signing/test-only-private.pem")
 	if err != nil {

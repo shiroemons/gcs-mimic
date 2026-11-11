@@ -14,11 +14,11 @@ Storage v1の移行プロファイルは[その契約](grpc-v1-legacy.md)を参�
 ルーティングメタデータの変更を統合する前に、既存のGo・RustのgRPCハーネスを実行します。
 
 ```sh
-CARGO_BUILD_JOBS=4 env -u GCS_MIMIC_GO_TEST_RUN GCS_MIMIC_SDK_SCHEME=http \
+CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http \
   bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust
 ```
 
-起動スクリプトがGo用のpermissive・strictエンドポイントとRust用のGCS_MIMIC_GRPC_ENDPOINTを設定します。
+起動スクリプトがGo用のpermissive・strictエンドポイントとRust用のGCSM_GRPC_ENDPOINTを設定します。
 追加のRustスイートを動かすため、Goのフィルターは解除します。
 これはRustワークスペースのテストとは別のSDKゲートであり、文書更新だけでは実行済みになりません。
 BEHAVIOR-RPC-005とDESIGN-082はPARTIALのままです。

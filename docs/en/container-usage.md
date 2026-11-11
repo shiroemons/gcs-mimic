@@ -411,7 +411,7 @@ image prints as a service account key file; the image holds no copy of the
 repository:
 
 ```sh
-docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+docker run --rm "${GCSM_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
 ```
 
 Its private key is public, so use it only for local tests; see the
@@ -607,7 +607,7 @@ The built-in identity has no token, because the application never presents one.
 To give it only the roles the application needs, declare
 `trusted-app@gcs-mimic.invalid` in the identity document with those roles, as the
 recipe's README shows. Pages then use
-`http://localhost:${GCS_MIMIC_PORT:-4443}`: a bucket whose policy grants `allUsers`
+`http://localhost:${GCSM_PORT:-4443}`: a bucket whose policy grants `allUsers`
 `roles/storage.objectViewer` is readable there anonymously, and a private object
 answers 401 unless the page has a signed URL. The application signs such URLs
 for that browser-facing address, never for `gcs:4444`, with a key the identity

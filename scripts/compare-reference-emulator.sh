@@ -2,11 +2,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-repository=${GCS_MIMIC_REFERENCE_REPO:?Set GCS_MIMIC_REFERENCE_REPO to the pinned repository URL listed in the README comparison sources}
+repository=${GCSM_REFERENCE_REPO:?Set GCSM_REFERENCE_REPO to the pinned repository URL listed in the README comparison sources}
 revision=896ece51e49eed0946089f3089f6343855c0d106
 archive_sha256=13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc
 go_toolchain=$(awk '$1 == "toolchain" {print $2}' sdk-tests/go/go.mod)
-reference_only=${GCS_MIMIC_REFERENCE_ONLY:-0}
+reference_only=${GCSM_REFERENCE_ONLY:-0}
 [[ $reference_only == 0 || $reference_only == 1 ]] || exit 1
 for command in curl jq go cargo tar shasum git nc; do
   if ! command -v "$command" >/dev/null; then echo "Missing command: $command" >&2; exit 1; fi

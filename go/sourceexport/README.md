@@ -110,7 +110,7 @@ nonzero sub-microsecond capture on this host. Nonzero nanosecond import behavior
 has separate synthetic coverage in the Rust reader tests.
 
 For the native reader interoperability check, optionally set
-`GCS_MIMIC_SOURCE_FIXTURE_DIR` to a new output path when running
+`GCSM_SOURCE_FIXTURE_DIR` to a new output path when running
 `TestExportRealSourceHistoryAndExactMetadata`; otherwise the test removes its
 temporary fixture. This is a small migration-format check, separate from final
 SDK and container validation.

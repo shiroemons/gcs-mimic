@@ -339,7 +339,7 @@ try {
         return '3 chunks of 256 KiB; Location keeps the emulator origin';
     });
 
-    if ($strict && getenv('GCS_MIMIC_SIGNED_TESTS') === '1') {
+    if ($strict && getenv('GCSM_SIGNED_TESTS') === '1') {
         $signedCleanup = [];
         try {
             foreach (signedUrlJourney($h, $bucket, $signedCleanup) as $id => $case) $runner->run($id, $case);
@@ -349,7 +349,7 @@ try {
             }
         }
     } elseif ($strict) {
-        $runner->skip('php-signed-urls', 'GCS_MIMIC_SIGNED_TESTS is not 1');
+        $runner->skip('php-signed-urls', 'GCSM_SIGNED_TESTS is not 1');
     }
 
     if ($object !== null) {

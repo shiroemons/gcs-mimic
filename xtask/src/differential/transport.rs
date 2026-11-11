@@ -237,7 +237,7 @@ const STORAGE_PROTO: &str = "google/storage/v2/storage.proto";
 /// token never appears in the process arguments.
 /// Lets `-format-error` decode `google.rpc.ErrorInfo` and friends in status details.
 const ERROR_DETAILS_PROTO: &str = "google/rpc/error_details.proto";
-const TOKEN_ENV: &str = "GCS_MIMIC_DIFF_GRPC_BEARER";
+const TOKEN_ENV: &str = "GCSM_DIFF_GRPC_BEARER";
 /// `grpcurl` exits with this offset plus the gRPC status code on a failed call.
 const STATUS_EXIT_OFFSET: i32 = 64;
 

@@ -35,7 +35,7 @@ just pre-push
 
 1. Rustとシェルの検証。
 2. Go・Ruby・Node.js・Python・PHP・Java・.NET・Rust SDKの全テスト。
-   Java・.NET・RustはHTTP専用のため、`GCS_MIMIC_SDK_SCHEME=https`では`SKIPPED`と表示して飛ばします。
+   Java・.NET・RustはHTTP専用のため、`GCSM_SDK_SCHEME=https`では`SKIPPED`と表示して飛ばします。
 3. AMD64・ARM64のコンテナ検証を並列実行。
 
 各環境は、自分のビルドが終わり次第、動作確認へ進みます。

@@ -13,8 +13,8 @@ import (
 )
 
 func TestRustBucketHelpersRetainOptionsAndProtectObjects(t *testing.T) {
-	if os.Getenv("GCS_MIMIC_BINARY") == "" {
-		t.Fatal("integration requires GCS_MIMIC_BINARY")
+	if os.Getenv("GCSM_BINARY") == "" {
+		t.Fatal("integration requires GCSM_BINARY")
 	}
 	server, err := NewServerWithOptions(Options{Scheme: "http", NoListener: true})
 	if err != nil {

@@ -15,7 +15,7 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ./gcloud-example.sh
 ```
 
-Set `GCS_MIMIC_ENDPOINT` to use an endpoint other than `http://localhost:4443`. `gcloud storage rm -r gs://BUCKET` is not supported yet (gcs-mimic has no managed folders API); delete with `gcloud storage rm "gs://BUCKET/**"` and `gcloud storage buckets delete gs://BUCKET`, as the script does. Without a local SDK, run it in the official image on Linux:
+Set `GCSM_ENDPOINT` to use an endpoint other than `http://localhost:4443`. `gcloud storage rm -r gs://BUCKET` is not supported yet (gcs-mimic has no managed folders API); delete with `gcloud storage rm "gs://BUCKET/**"` and `gcloud storage buckets delete gs://BUCKET`, as the script does. Without a local SDK, run it in the official image on Linux:
 
 ```sh
 docker run --rm --network host -v "$PWD:/example:ro" \

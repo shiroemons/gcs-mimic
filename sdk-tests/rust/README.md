@@ -7,8 +7,8 @@ emulator's workspace or production dependency graph. `Cargo.lock` is committed.
 ```sh
 cargo check --locked --manifest-path sdk-tests/rust/Cargo.toml
 cargo test --locked --manifest-path sdk-tests/rust/Cargo.toml --lib
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 \
-  GCS_MIMIC_GRPC_ENDPOINT=127.0.0.1:4444 bash sdk-tests/rust/run.sh
+GCSM_ENDPOINT=http://127.0.0.1:4443 \
+  GCSM_GRPC_ENDPOINT=127.0.0.1:4444 bash sdk-tests/rust/run.sh
 ```
 
 Start the emulator with distinct HTTP and gRPC listeners and pass their exact

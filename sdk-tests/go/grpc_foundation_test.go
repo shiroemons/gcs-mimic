@@ -117,9 +117,9 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 }
 
 func TestGRPCFoundationStrictAuth(t *testing.T) {
-	endpoint := os.Getenv("GCS_MIMIC_STRICT_GRPC_ENDPOINT")
+	endpoint := os.Getenv("GCSM_STRICT_GRPC_ENDPOINT")
 	if endpoint == "" {
-		t.Skip("GCS_MIMIC_STRICT_GRPC_ENDPOINT is unset")
+		t.Skip("GCSM_STRICT_GRPC_ENDPOINT is unset")
 	}
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {

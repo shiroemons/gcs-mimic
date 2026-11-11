@@ -272,7 +272,7 @@ seeded journey.
 
 ```sh
 export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo
-export GCS_MIMIC_PORT=0
+export GCSM_PORT=0
 docker compose -f compose.yaml -f compose.seed.yaml up -d --wait
 seed_address="$(docker compose -f compose.yaml -f compose.seed.yaml port gcs 4443)"
 curl --fail "http://$seed_address/storage/v1/b?project=local-project"

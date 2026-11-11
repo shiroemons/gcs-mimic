@@ -1386,7 +1386,7 @@ async fn malformed_versions_are_quarantined_once_while_healthy_pages_finish() {
 }
 
 fn diagnostic_parent(test: &str, events: &[(&str, usize)]) -> bool {
-    if std::env::var_os("GCS_MIMIC_TEST_LIFECYCLE_DIAGNOSTIC").is_some() {
+    if std::env::var_os("GCSM_TEST_LIFECYCLE_DIAGNOSTIC").is_some() {
         return false;
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -1395,7 +1395,7 @@ fn diagnostic_parent(test: &str, events: &[(&str, usize)]) -> bool {
             &format!("storage::catalog::lifecycle::tests::{test}"),
             "--nocapture",
         ])
-        .env("GCS_MIMIC_TEST_LIFECYCLE_DIAGNOSTIC", "1")
+        .env("GCSM_TEST_LIFECYCLE_DIAGNOSTIC", "1")
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);

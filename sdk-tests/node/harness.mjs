@@ -35,7 +35,7 @@ export function emulatorOrigin(raw) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
       !['', '/'].includes(url.pathname) || url.search || url.hash || raw.includes('?') ||
       !isLoopback(url.hostname)) {
-    throw new TypeError('GCS_MIMIC_ENDPOINT must be a loopback HTTP or HTTPS origin');
+    throw new TypeError('GCSM_ENDPOINT must be a loopback HTTP or HTTPS origin');
   }
   return url;
 }

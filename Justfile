@@ -28,11 +28,11 @@ check-markdown:
 
 # Run the complete pinned Go, Ruby, Node.js, Python, PHP, Java, .NET and Rust SDK suites against isolated servers.
 check-sdk:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust
+    env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust
 
 # Run the pinned Java, .NET and Rust clients plus the Go facade/export adapter.
 check-sdk-clients:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients
+    env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients
 
 # Exercise strict local JWT authentication and final-origin Rails signing.
 check-active-storage-strict:
@@ -40,9 +40,9 @@ check-active-storage-strict:
 
 # Use an already built final-source image; no duplicate image build is performed.
 check-client-containers image:
-    GCS_MIMIC_IMAGE={{ quote(image) }} bash sdk-tests/java/run.sh --container
-    GCS_MIMIC_IMAGE={{ quote(image) }} bash sdk-tests/dotnet/run.sh --container
-    cd sdk-tests/testcontainers/node && npm ci --ignore-scripts --no-audit --no-fund && GCS_MIMIC_IMAGE={{ quote(image) }} node scenario.mjs
+    GCSM_IMAGE={{ quote(image) }} bash sdk-tests/java/run.sh --container
+    GCSM_IMAGE={{ quote(image) }} bash sdk-tests/dotnet/run.sh --container
+    cd sdk-tests/testcontainers/node && npm ci --ignore-scripts --no-audit --no-fund && GCSM_IMAGE={{ quote(image) }} node scenario.mjs
 
 # Report Rails GCS compatibility cases independently; known failures return nonzero.
 check-active-storage:

@@ -20,30 +20,30 @@ done
 printf 'exec "$@"\n' >"$work/scripts/with-test-tmpdir.sh"
 cat >"$work/scripts/check.sh" <<'SH'
 set -euo pipefail
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == check ]]; then exit 23; fi
-sleep "${GCS_MIMIC_PRE_PUSH_TEST_SLEEP:-0}"
-touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/check.done"
+if [[ ${GCSM_PRE_PUSH_TEST_FAIL:-} == check ]]; then exit 23; fi
+sleep "${GCSM_PRE_PUSH_TEST_SLEEP:-0}"
+touch "$GCSM_PRE_PUSH_TEST_STATE/check.done"
 SH
 cat >"$work/scripts/sdk-go.sh" <<'SH'
 set -euo pipefail
-test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/check.done"
+test -f "$GCSM_PRE_PUSH_TEST_STATE/check.done"
 test "$*" = '--with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust'
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == sdk ]]; then exit 23; fi
-touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
+if [[ ${GCSM_PRE_PUSH_TEST_FAIL:-} == sdk ]]; then exit 23; fi
+touch "$GCSM_PRE_PUSH_TEST_STATE/sdk.done"
 SH
 cat >"$work/scripts/smoke-containers.sh" <<'SH'
 set -euo pipefail
-test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
+test -f "$GCSM_PRE_PUSH_TEST_STATE/sdk.done"
 test "$#" = 1
 case "$1" in
   linux/amd64) arch=amd64; peer=arm64 ;;
   linux/arm64) arch=arm64; peer=amd64 ;;
   *) exit 2 ;;
 esac
-state=$GCS_MIMIC_PRE_PUSH_TEST_STATE
+state=$GCSM_PRE_PUSH_TEST_STATE
 touch "$state/$arch.started"
 trap 'touch "$state/$arch.cleaned"' EXIT
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_SERIAL:-} == true ]]; then
+if [[ ${GCSM_PRE_PUSH_TEST_SERIAL:-} == true ]]; then
   mkdir "$state/active"
   trap 'rmdir "$state/active"; touch "$state/$arch.cleaned"' EXIT
 else
@@ -56,10 +56,10 @@ else
 fi
 echo 'stdout marker'
 echo 'stderr marker' >&2
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == "$arch" || ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == both ]]; then
+if [[ ${GCSM_PRE_PUSH_TEST_FAIL:-} == "$arch" || ${GCSM_PRE_PUSH_TEST_FAIL:-} == both ]]; then
   exit 23
 fi
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == "$peer" ]]; then
+if [[ ${GCSM_PRE_PUSH_TEST_FAIL:-} == "$peer" ]]; then
   for ((attempt = 0; attempt < 100; attempt++)); do
     if [[ -f "$state/$peer.cleaned" ]]; then break; fi
     sleep 0.05
@@ -71,9 +71,9 @@ touch "$state/$arch.passed"
 SH
 
 for failure in none amd64 arm64 both check sdk; do
-  export GCS_MIMIC_PRE_PUSH_TEST_STATE="$work/$failure"
-  export GCS_MIMIC_PRE_PUSH_TEST_FAIL=$failure
-  mkdir "$GCS_MIMIC_PRE_PUSH_TEST_STATE"
+  export GCSM_PRE_PUSH_TEST_STATE="$work/$failure"
+  export GCSM_PRE_PUSH_TEST_FAIL=$failure
+  mkdir "$GCSM_PRE_PUSH_TEST_STATE"
   status=0
   just --justfile "$work/Justfile" --jobs 2 pre-push >"$work/output" 2>&1 || status=$?
   if [[ $failure == none ]]; then test "$status" = 0; else test "$status" = 23; fi
@@ -88,32 +88,32 @@ for failure in none amd64 arm64 both check sdk; do
   fi
   for arch in amd64 arm64; do
     if [[ $failure == check || $failure == sdk ]]; then
-      test ! -e "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.started"
+      test ! -e "$GCSM_PRE_PUSH_TEST_STATE/$arch.started"
     else
-      test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.cleaned"
+      test -f "$GCSM_PRE_PUSH_TEST_STATE/$arch.cleaned"
       grep -Fx "[linux/$arch] stdout marker" "$work/output" >/dev/null
       grep -Fx "[linux/$arch] stderr marker" "$work/output" >/dev/null
       if [[ $failure != "$arch" && $failure != both ]]; then
-        test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.passed"
+        test -f "$GCSM_PRE_PUSH_TEST_STATE/$arch.passed"
       fi
     fi
   done
 done
 
-export GCS_MIMIC_PRE_PUSH_TEST_STATE="$work/serial"
-export GCS_MIMIC_PRE_PUSH_TEST_FAIL=none
-export GCS_MIMIC_PRE_PUSH_TEST_SERIAL=true
-mkdir "$GCS_MIMIC_PRE_PUSH_TEST_STATE"
+export GCSM_PRE_PUSH_TEST_STATE="$work/serial"
+export GCSM_PRE_PUSH_TEST_FAIL=none
+export GCSM_PRE_PUSH_TEST_SERIAL=true
+mkdir "$GCSM_PRE_PUSH_TEST_STATE"
 just --justfile "$work/Justfile" --jobs 1 pre-push >"$work/output" 2>&1
 for arch in amd64 arm64; do
-  test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.passed"
-  test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.cleaned"
+  test -f "$GCSM_PRE_PUSH_TEST_STATE/$arch.passed"
+  test -f "$GCSM_PRE_PUSH_TEST_STATE/$arch.cleaned"
 done
 
 # A slow stage gets periodic reports, and the reporter stops with the run.
-export GCS_MIMIC_PRE_PUSH_TEST_STATE="$work/periodic"
-export GCS_MIMIC_PRE_PUSH_TEST_SERIAL=false GCS_MIMIC_PRE_PUSH_TEST_SLEEP=3 GCSM_PRE_PUSH_PROGRESS_INTERVAL=1
-mkdir "$GCS_MIMIC_PRE_PUSH_TEST_STATE"
+export GCSM_PRE_PUSH_TEST_STATE="$work/periodic"
+export GCSM_PRE_PUSH_TEST_SERIAL=false GCSM_PRE_PUSH_TEST_SLEEP=3 GCSM_PRE_PUSH_PROGRESS_INTERVAL=1
+mkdir "$GCSM_PRE_PUSH_TEST_STATE"
 just --justfile "$work/Justfile" --jobs 2 pre-push >"$work/output" 2>&1
 grep -E '^\[pre-push 1/3 [0-9]+%\] Rust and shell checks running for [0-9]+s \(last run took [0-9]+s\); about [0-9ms]+ left overall$' "$work/output" >/dev/null
 test ! -e "$work/target/pre-push-progress/state"

@@ -16,7 +16,7 @@ Nothing needs preparing:
 
 Rails always needs that file, even when it signs no URLs: it signs its own token with the key in its credentials.
 
-This recipe needs gcs-mimic 0.14.0 or later. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`, and with `auth_mode=strict requires identity_file`. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
+This recipe needs gcs-mimic 0.14.0 or later. 0.13.0 stops at startup with `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` and `GCS_MIMIC_BUCKETS`, and with `auth_mode=strict requires identity_file`. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCSM_IMAGE=gcs-mimic:local`.
 
 The [full application example](../full-stack/README.md) shows a Go API, a Rails app and a frontend connected to this service.
 
@@ -30,12 +30,16 @@ services:
   # Production-like local Cloud Storage from gcs-mimic's examples/strict-local recipe.
   # Local development and tests only: the built-in test signer's private key is public.
   gcs:
-    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.1}
+    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.1}
     ports:
       # Browsers use the main listener. Never publish the trusted port 4444: anything
       # that reaches it acts as trusted-app@gcs-mimic.invalid without credentials.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+      - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     environment:
+      # Obsolete Compose names are passed only so the server refuses them with replacement advice.
+      GCS_MIMIC_PORT:
+      GCS_MIMIC_IMAGE:
+      GCS_MIMIC_TLS_DIR:
       GCS_MIMIC_SCHEME: http
       GCS_MIMIC_AUTH_MODE: strict
       # Application servers on the Compose network use gcs:4444 without credentials.
@@ -79,13 +83,13 @@ services:
   api:
     environment:
       STORAGE_EMULATOR_HOST: gcs:4444
-      GCS_BROWSER_HOST: localhost:${GCS_MIMIC_PORT:-4443}
+      GCS_BROWSER_HOST: localhost:${GCSM_PORT:-4443}
     depends_on:
       gcs:
         condition: service_healthy
 ```
 
-Set `FRONTEND_PORT` when your frontend does not run on port 3000, and `GCS_MIMIC_PORT` when port 4443 is taken, then run `docker compose up -d --wait`.
+Set `FRONTEND_PORT` when your frontend does not run on port 3000, and `GCSM_PORT` when port 4443 is taken, then run `docker compose up -d --wait`.
 
 ## What each line does
 
@@ -136,7 +140,7 @@ The buckets:
 | Client | Address | Credentials |
 | --- | --- | --- |
 | Your servers on the Compose network | `gcs:4444` (trusted listener) | None; they act as `trusted-app@gcs-mimic.invalid` |
-| Browser | `http://localhost:${GCS_MIMIC_PORT:-4443}` (main listener) | None for `app-public`; signed URLs for `app-private` |
+| Browser | `http://localhost:${GCSM_PORT:-4443}` (main listener) | None for `app-public`; signed URLs for `app-private` |
 | Rails Active Storage | The main listener | Its own token, signed with the test signer's key |
 
 ### Go servers
@@ -215,22 +219,22 @@ Rails uses one `endpoint` both for its own requests and for the URLs it gives th
 ```yaml
 services:
   gcs:
-    ports: ["127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"]
+    ports: ["127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"]
     environment:
-      GCS_MIMIC_LISTEN: 0.0.0.0:${GCS_MIMIC_PORT:-4443}
+      GCS_MIMIC_LISTEN: 0.0.0.0:${GCSM_PORT:-4443}
     networks:
       default:
         aliases: [gcs.localhost]
   web: # your Rails service
     environment:
-      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/
+      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCSM_PORT:-4443}/
 ```
 
-Replace the recipe's `ports` entry with this one and add the other lines to its service. Containers resolve `gcs.localhost` through the network alias, browsers send every `*.localhost` name to your machine, and because the main listener inside the container uses the published port, `http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/` reaches the emulator from both. Each worktree can then set its own `GCS_MIMIC_PORT` and Compose project name. The image healthcheck follows `GCS_MIMIC_LISTEN`. The trusted listener accepts `gcs.localhost:4444` as well, because it is a `.localhost` name; `gcs:4444` stays the address for your other servers. The [full application example](../full-stack/README.md) uses this variant.
+Replace the recipe's `ports` entry with this one and add the other lines to its service. Containers resolve `gcs.localhost` through the network alias, browsers send every `*.localhost` name to your machine, and because the main listener inside the container uses the published port, `http://gcs.localhost:${GCSM_PORT:-4443}/` reaches the emulator from both. Each worktree can then set its own `GCSM_PORT` and Compose project name. The image healthcheck follows `GCS_MIMIC_LISTEN`. The trusted listener accepts `gcs.localhost:4444` as well, because it is a `.localhost` name; `gcs:4444` stays the address for your other servers. The [full application example](../full-stack/README.md) uses this variant.
 
 ### Browser
 
-Pages use `http://localhost:${GCS_MIMIC_PORT:-4443}`: `/app-public/OBJECT` reads a public object, and a private object answers 401 unless the page has a signed URL. The trusted port is not published, and it refuses browser requests anyway.
+Pages use `http://localhost:${GCSM_PORT:-4443}`: `/app-public/OBJECT` reads a public object, and a private object answers 401 unless the page has a signed URL. The trusted port is not published, and it refuses browser requests anyway.
 
 ## Change the buckets
 
@@ -261,7 +265,7 @@ The JSON is part of the service's environment, so a changed value makes Compose 
 | The browser reports a CORS error | The page's origin is not `http://localhost:${FRONTEND_PORT:-3000}`, or the request sets a header the bucket's `responseHeader` does not list | Set `FRONTEND_PORT` or list the header, then run `docker compose up -d`. |
 | Rails in a container: images do not load and direct uploads fail with `Error storing ... Status: 0` | Rails handed the browser URLs on a name only containers resolve, such as `gcs` | Use the [container variant](#rails-in-a-container). |
 | Compose reports `invalid interpolation format` for `GCS_MIMIC_BUCKETS` | The JSON holds a literal `$` | Write it as `$$`. |
-| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use 0.14.0 or later, as compose.yaml does unless `GCS_MIMIC_IMAGE` selects another image. |
+| Startup reports `Unknown setting` for `GCS_MIMIC_TRUSTED_LISTEN`, `GCS_MIMIC_TEST_SIGNER` or `GCS_MIMIC_BUCKETS` and `auth_mode=strict requires identity_file`, or `test-signer credentials` says `Options require --name VALUE pairs` | The image is 0.13.0 or older | Use 0.14.0 or later, as compose.yaml does unless `GCSM_IMAGE` selects another image. |
 
 ## What is verified
 

@@ -96,12 +96,12 @@ Before integrating changes to routing metadata, run the pinned Go and Rust gRPC
 harnesses with their existing loopback servers:
 
 ```sh
-CARGO_BUILD_JOBS=4 env -u GCS_MIMIC_GO_TEST_RUN GCS_MIMIC_SDK_SCHEME=http \
+CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http \
   bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust
 ```
 
 The launcher sets both permissive and strict gRPC endpoints for Go and
-GCS_MIMIC_GRPC_ENDPOINT for the Rust harness. Keep the Go filter unset so the
+GCSM_GRPC_ENDPOINT for the Rust harness. Keep the Go filter unset so the
 additional Rust suite runs. This is a required SDK gate, separate from Rust's
 workspace tests; a documentation update alone does not establish SDK results.
 

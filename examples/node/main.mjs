@@ -1,7 +1,10 @@
 import {randomBytes} from 'node:crypto';
 import {Storage} from '@google-cloud/storage';
 
-const endpoint = process.env.GCS_MIMIC_ENDPOINT ?? 'http://localhost:4443';
+if (process.env.GCSM_ENDPOINT === undefined && process.env.GCS_MIMIC_ENDPOINT !== undefined) {
+  throw new Error('GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT');
+}
+const endpoint = process.env.GCSM_ENDPOINT ?? 'http://localhost:4443';
 
 // A custom apiEndpoint without credentials sends anonymous requests.
 const storage = new Storage({projectId: 'local-project', apiEndpoint: endpoint});

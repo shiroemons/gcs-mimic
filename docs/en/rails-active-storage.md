@@ -195,7 +195,7 @@ Use the name `gcs.localhost` on both sides. Browsers send `*.localhost` to your
 own machine, and a Compose network alias sends it to the emulator inside
 Docker, so Rails and the browser use the same URL. The port must match on both
 sides too, so the emulator listens inside the container on the port it
-publishes. `GCS_MIMIC_PORT` picks that port, so each worktree or project can use
+publishes. `GCSM_PORT` picks that port, so each worktree or project can use
 its own:
 
 ```yaml
@@ -204,10 +204,10 @@ services:
     image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
       # The host port equals the container port, so one URL works on both sides.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
+      - "127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_LISTEN: 0.0.0.0:${GCS_MIMIC_PORT:-4443}
+      GCS_MIMIC_LISTEN: 0.0.0.0:${GCSM_PORT:-4443}
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - ./buckets.json:/buckets.json:ro
@@ -217,12 +217,12 @@ services:
           - gcs.localhost
   web: # your Rails service
     environment:
-      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/
+      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCSM_PORT:-4443}/
 ```
 
-Set `GCS_MIMIC_PORT`, for example in a worktree's `.env` file, when port 4443
+Set `GCSM_PORT`, for example in a worktree's `.env` file, when port 4443
 is taken; Compose substitutes it in the file. Other services on the Compose
-network then reach the emulator at `http://gcs:${GCS_MIMIC_PORT:-4443}` too.
+network then reach the emulator at `http://gcs:${GCSM_PORT:-4443}` too.
 When the Rails port also changes per worktree, the CORS origin in the bucket
 document must follow it. With 0.14.0 or later, write the document
 inline in `GCS_MIMIC_BUCKETS` instead of `GCS_MIMIC_BUCKETS_FILE`, so that
@@ -355,7 +355,7 @@ URL, so the URL verifies without `signed_host_port=lenient`; never rewrite the
 host afterwards. For direct uploads it also signs `x-goog-content-length-range`
 and, when the service sets `cache_control`, `Cache-Control`. With Rails in a
 container, `endpoint` and `public_endpoint` both name
-`gcs.localhost:${GCS_MIMIC_PORT:-4443}`.
+`gcs.localhost:${GCSM_PORT:-4443}`.
 
 The strict Rails suite (`sdk-tests/ruby/active_storage/run-strict.sh`) runs
 the same credentials against a strict server on which the signer has only

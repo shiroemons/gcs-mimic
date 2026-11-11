@@ -1,10 +1,13 @@
 import os
 import secrets
 
+if "GCSM_ENDPOINT" not in os.environ and "GCS_MIMIC_ENDPOINT" in os.environ:
+    raise SystemExit("GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT")
+
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
 
-endpoint = os.environ.get("GCS_MIMIC_ENDPOINT", "http://localhost:4443")
+endpoint = os.environ.get("GCSM_ENDPOINT", "http://localhost:4443")
 
 # Anonymous credentials for the emulator endpoint; buckets need a project.
 client = storage.Client(

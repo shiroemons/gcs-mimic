@@ -43,7 +43,7 @@ type Options struct {
 	BucketsLocation       string
 	CertificateLocation   string
 	PrivateKeyLocation    string
-	Executable            string // Defaults to GCS_MIMIC_BINARY, then gcs-mimic on PATH.
+	Executable            string // Defaults to GCSM_BINARY, then gcs-mimic on PATH.
 	EventOptions          EventManagerOptions
 	PubSubEmulatorHost    string // Explicit local Pub/Sub endpoint; otherwise PUBSUB_EMULATOR_HOST.
 	MemoryMaxBytes        uint64 // Zero uses the bounded Rust memory backend default.
@@ -136,6 +136,11 @@ func NewServerWithContext(ctx context.Context, options Options) (*Server, error)
 }
 
 func validateOptions(options Options) error {
+	if options.Executable == "" && os.Getenv("GCSM_BINARY") == "" {
+		if _, exists := os.LookupEnv("GCS_MIMIC_BINARY"); exists {
+			return errors.New("GCS_MIMIC_BINARY was renamed to GCSM_BINARY; rename the variable or set Options.Executable")
+		}
+	}
 	if options.Seed != "" && len(options.InitialObjects) != 0 {
 		return errors.New("provide either Seed or InitialObjects")
 	}
@@ -175,7 +180,7 @@ func executable(options Options) string {
 	if options.Executable != "" {
 		return options.Executable
 	}
-	if binary := os.Getenv("GCS_MIMIC_BINARY"); binary != "" {
+	if binary := os.Getenv("GCSM_BINARY"); binary != "" {
 		return binary
 	}
 	return "gcs-mimic"
@@ -322,6 +327,7 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 }
 
 func childEnvironment() []string {
+	// Options fully configure each isolated child; inherited server settings must not override them.
 	var env []string
 	for _, value := range os.Environ() {
 		name, _, _ := strings.Cut(value, "=")

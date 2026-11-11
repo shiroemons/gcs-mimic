@@ -36,7 +36,7 @@ export function signingArguments(origin, {bucket, object, method = 'GET', expire
 
 // The Rust signer binds the final host:port; @google-cloud/storage 8.4.0 drops that port.
 export async function signV4WithCli(origin, options) {
-  const {stdout} = await execute(process.env.GCS_MIMIC_BINARY || 'gcs-mimic', signingArguments(origin, options),
+  const {stdout} = await execute(process.env.GCSM_BINARY || 'gcs-mimic', signingArguments(origin, options),
     {timeout: 10000, maxBuffer: 64 * 1024, encoding: 'utf8', windowsHide: true});
   const result = new URL(stdout.trim());
   if (result.origin !== origin.origin) throw new Error('signer changed the final origin');

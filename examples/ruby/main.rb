@@ -1,8 +1,12 @@
+if !ENV.key?("GCSM_ENDPOINT") && ENV.key?("GCS_MIMIC_ENDPOINT")
+  abort "GCS_MIMIC_ENDPOINT was renamed to GCSM_ENDPOINT"
+end
+
 require "google/cloud/storage"
 require "securerandom"
 require "stringio"
 
-endpoint = ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")
+endpoint = ENV.fetch("GCSM_ENDPOINT", "http://localhost:4443")
 
 # Anonymous client for the emulator endpoint. Creating a bucket needs a
 # project, and the anonymous client has no public API to set one, so this sets

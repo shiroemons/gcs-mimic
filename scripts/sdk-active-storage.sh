@@ -55,7 +55,7 @@ cd "$suite"
 bundle exec ruby scenario.rb --self-check
 # The default-auth scenario reports a known failure; still run the storage.yml recipe check.
 suite_status=0
-GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby scenario.rb || suite_status=$?
-GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby attachments.rb || suite_status=$?
-GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby attachments.rb --production || suite_status=$?
+GCSM_ENDPOINT="$origin" bundle exec ruby scenario.rb || suite_status=$?
+GCSM_ENDPOINT="$origin" bundle exec ruby attachments.rb || suite_status=$?
+GCSM_ENDPOINT="$origin" bundle exec ruby attachments.rb --production || suite_status=$?
 exit "$suite_status"

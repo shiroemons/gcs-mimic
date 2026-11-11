@@ -10,7 +10,9 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
+mod environment;
 mod options;
+pub use environment::RenamedEnvironmentVariable;
 pub use options::{DurationError, Fix, PairError, UrlStyle, duration, option_pairs};
 
 pub(crate) const MAX_SETTINGS: usize = 1024;

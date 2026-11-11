@@ -998,7 +998,7 @@
         "naming_rule": "Use native GCS_MIMIC_ names and document source-to-native role mappings. Identical CLI names and environment suffixes are not required. Keep source inventory and accepted runtime settings distinct.",
         "precedence": "CLI overrides environment; contradictory renamed/native settings at the same precedence fail deterministically.",
         "storage_boundary": "DATA is seed input; DATA_DIR is destination persistence. FILESYSTEM_ROOT requires explicit source conversion, not in-place reinterpretation.",
-        "port_boundary": "Existing Compose GCS_MIMIC_PORT means host publication, not the process listener; keep container/server mappings separate."
+        "port_boundary": "Existing Compose GCSM_PORT means host publication, not the process listener; keep container/server mappings separate."
       },
       "storage_contract": "Prefer a transactional metadata catalog plus bounded opaque immutable files; keep foreign seed/filesystem/live-export readers separate from internal persistence. Preserve original data and identities, block lossy import, and validate coherent backup/recovery before cutover. SQLite is the current justified default, not a universal performance winner.",
       "configuration_contract": {
@@ -50934,7 +50934,7 @@
         "advertised_endpoint_precedence_and_validation",
         "bkt_http_crud_metadata_conditions_and_errors",
         "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
-        "compose_only_variables_and_missing_subcommand_report_native_migration",
+        "non_setting_variables_and_missing_subcommand_report_native_migration",
         "native_helper_values_that_look_like_alias_flags_are_preserved",
         "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
         "obj_http_encoded_names_and_invalid_names",
@@ -51031,7 +51031,7 @@
           "artifact": "docs/en/evidence/configuration-diagnostics.md",
           "test_ids": [
             "config_input::tests::alias_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
-            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "non_setting_variables_and_missing_subcommand_report_native_migration",
             "native_helper_values_that_look_like_alias_flags_are_preserved"
           ]
         },
@@ -52541,6 +52541,20 @@
           "test_ids": [
             "config::tests::transfer_timeout_precedence_and_bounds"
           ]
+        },
+        {
+          "id": "DESIGN-064-ENVIRONMENT-NAMESPACE",
+          "description": "The server ignores all GCSM_ client variables, including a shared environment containing all seven renamed public names without leaking them in readiness output, and rejects each former GCS_MIMIC_ name with its replacement, individually and all seven together. Only environment inputs receive migration advice; CLI and configuration keys retain unknown-setting advice. The sync CLI reads GCSM_SYNC_TOKEN, preserves token-file precedence and rejects any old token variable, including empty values and simultaneous replacement inputs. The Go facade selects GCSM_BINARY and rejects the old variable without a replacement. Documentation checks reject any unregistered GCS_MIMIC_ name except explicit negative and migration inputs.",
+          "result": "PASS",
+          "test_ids": [
+            "fake_gcs_server_variables_do_not_affect_the_server",
+            "non_setting_variables_and_missing_subcommand_report_native_migration",
+            "non_environment_names_keep_unknown_setting_advice",
+            "live_cli_strict_controls_require_project_authority_and_honor_token_file_precedence",
+            "live_cli_rejects_old_token_environment_without_sending_a_request",
+            "TestBinaryEnvironmentAndSettingIsolation",
+            "TestOldBinaryEnvironmentIsRejected"
+          ]
         }
       ],
       "test_ids": [
@@ -52553,9 +52567,31 @@
         "config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range",
         "config::tests::connection_timeout_alias_fills_every_setting_it_replaces",
         "config::tests::an_explicit_timeout_beats_the_alias_from_any_source",
-        "obj_http_ready_event_reports_the_alias_and_explicit_overrides"
+        "obj_http_ready_event_reports_the_alias_and_explicit_overrides",
+        "fake_gcs_server_variables_do_not_affect_the_server",
+        "non_setting_variables_and_missing_subcommand_report_native_migration",
+        "non_environment_names_keep_unknown_setting_advice",
+        "live_cli_strict_controls_require_project_authority_and_honor_token_file_precedence",
+        "live_cli_rejects_old_token_environment_without_sending_a_request",
+        "TestBinaryEnvironmentAndSettingIsolation",
+        "TestOldBinaryEnvironmentIsRejected"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test it_process variables; cargo test --locked --offline --test it_process non_environment_names_keep_unknown_setting_advice; cargo test --locked --offline --test it_sync live_cli_; (cd go && go test -mod=readonly ./...); bash scripts/test-check.sh; bash scripts/check-docs.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/evidence/environment-names.md",
+          "test_ids": [
+            "fake_gcs_server_variables_do_not_affect_the_server",
+            "non_setting_variables_and_missing_subcommand_report_native_migration",
+            "non_environment_names_keep_unknown_setting_advice",
+            "live_cli_strict_controls_require_project_authority_and_honor_token_file_precedence",
+            "live_cli_rejects_old_token_environment_without_sending_a_request",
+            "TestBinaryEnvironmentAndSettingIsolation",
+            "TestOldBinaryEnvironmentIsRejected"
+          ]
+        },
         {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- phase_deadlines","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["config::tests::capacity_settings_accept_their_raised_bounds_only","config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config","config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range","config::tests::connection_timeout_alias_fills_every_setting_it_replaces","config::tests::an_explicit_timeout_beats_the_alias_from_any_source","obj_http_ready_event_reports_the_alias_and_explicit_overrides"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -58257,7 +58293,7 @@
         },
         {
           "id": "DESIGN-101-COMPOSE",
-          "description": "The strict local recipe examples/strict-local/compose.yaml, the block its README shows, starts with the image built from the checkout, a read-only root, no identity document, the buckets inline in GCS_MIMIC_BUCKETS and only the main listener published: ready reports strict mode, the explicitly enabled test signer and its startup warning, lenient signed host ports by default, trusted_listen, the built-in trusted_principal trusted-app@gcs-mimic.invalid outside listeners and two created buckets. From another container on the Compose network, Host gcs:4444 without credentials lists both buckets, reads the public bucket's allUsers policy and the private bucket's policy without allUsers, uploads to and reads back from the private bucket, whose object has the owner user-trusted-app@gcs-mimic.invalid, and uploads to the public one. From the host, the main listener without credentials answers 401 for the private object through JSON and XML, serves the public object through both, and returns Access-Control-Allow-Origin for the configured frontend origin. A built-in signer URL signed for http://localhost without the port, as Go storage signs, and one signed for http://localhost:PORT both read the private object at localhost:PORT, the first logging signature_host_port_omitted; a changed X-Goog-Expires gets 403 SignatureDoesNotMatch; a signed PUT passes its CORS preflight for content-type and writes the private bucket. On the trusted listener an Origin header gets 403 and Host evil.example:4444 gets 421. docker compose run test-signer credentials prints the signer's key file. After a FRONTEND_PORT change, a plain docker compose up recreates the container and reconciles both buckets in the existing volume, after which the public bucket allows the new origin and no longer the old one. The full application example examples/full-stack/compose.yaml runs with its smoke override, which replaces the Go API, Rails and frontend services with idle curl containers, on a free GCS_MIMIC_PORT other than 4443 that is the published and the listening port: the key that test-signer credentials prints is mounted into the API and Rails stand-ins as a Compose secret; inside the API stand-in, STORAGE_EMULATOR_HOST without credentials writes and reads both buckets and records trusted-app as owner; inside the Rails stand-in, GCS_EMULATOR_ENDPOINT http://gcs.localhost:PORT/, resolved through the network alias, answers 401 for the private object through JSON and XML and 200 for the public one; from the host as the browser, the public object carries the frontend origin's Access-Control-Allow-Origin, the unsigned private object answers 401, URLs signed without the port, with it and on gcs.localhost:PORT read it, a signed PUT passes its preflight and writes the bucket, and a Rails direct upload preflight from the Rails origin passes. A FRONTEND_PORT change with a plain up recreates gcs, reconciles both buckets, moves the allowed origin and keeps the objects. Requests are sent with curl.",
+          "description": "The strict local recipe examples/strict-local/compose.yaml, the block its README shows, starts with the image built from the checkout, a read-only root, no identity document, the buckets inline in GCS_MIMIC_BUCKETS and only the main listener published: ready reports strict mode, the explicitly enabled test signer and its startup warning, lenient signed host ports by default, trusted_listen, the built-in trusted_principal trusted-app@gcs-mimic.invalid outside listeners and two created buckets. From another container on the Compose network, Host gcs:4444 without credentials lists both buckets, reads the public bucket's allUsers policy and the private bucket's policy without allUsers, uploads to and reads back from the private bucket, whose object has the owner user-trusted-app@gcs-mimic.invalid, and uploads to the public one. From the host, the main listener without credentials answers 401 for the private object through JSON and XML, serves the public object through both, and returns Access-Control-Allow-Origin for the configured frontend origin. A built-in signer URL signed for http://localhost without the port, as Go storage signs, and one signed for http://localhost:PORT both read the private object at localhost:PORT, the first logging signature_host_port_omitted; a changed X-Goog-Expires gets 403 SignatureDoesNotMatch; a signed PUT passes its CORS preflight for content-type and writes the private bucket. On the trusted listener an Origin header gets 403 and Host evil.example:4444 gets 421. docker compose run test-signer credentials prints the signer's key file. After a FRONTEND_PORT change, a plain docker compose up recreates the container and reconciles both buckets in the existing volume, after which the public bucket allows the new origin and no longer the old one. The full application example examples/full-stack/compose.yaml runs with its smoke override, which replaces the Go API, Rails and frontend services with idle curl containers, on a free GCSM_PORT other than 4443 that is the published and the listening port: the key that test-signer credentials prints is mounted into the API and Rails stand-ins as a Compose secret; inside the API stand-in, STORAGE_EMULATOR_HOST without credentials writes and reads both buckets and records trusted-app as owner; inside the Rails stand-in, GCS_EMULATOR_ENDPOINT http://gcs.localhost:PORT/, resolved through the network alias, answers 401 for the private object through JSON and XML and 200 for the public one; from the host as the browser, the public object carries the frontend origin's Access-Control-Allow-Origin, the unsigned private object answers 401, URLs signed without the port, with it and on gcs.localhost:PORT read it, a signed PUT passes its preflight and writes the bucket, and a Rails direct upload preflight from the Rails origin passes. A FRONTEND_PORT change with a plain up recreates gcs, reconciles both buckets, moves the allowed origin and keeps the objects. Requests are sent with curl.",
           "result": "PASS",
           "test_ids": [
             "scripts/smoke-containers.sh:strict-local:linux/arm64",
@@ -59029,7 +59065,7 @@
             "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
             "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
             "fake_gcs_server_variables_do_not_affect_the_server",
-            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "non_setting_variables_and_missing_subcommand_report_native_migration",
             "native_helper_values_that_look_like_alias_flags_are_preserved",
             "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
             "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
@@ -59205,7 +59241,7 @@
         "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
         "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
         "fake_gcs_server_variables_do_not_affect_the_server",
-        "compose_only_variables_and_missing_subcommand_report_native_migration",
+        "non_setting_variables_and_missing_subcommand_report_native_migration",
         "native_helper_values_that_look_like_alias_flags_are_preserved",
         "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
         "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
@@ -59374,7 +59410,7 @@
             "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
             "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
             "fake_gcs_server_variables_do_not_affect_the_server",
-            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "non_setting_variables_and_missing_subcommand_report_native_migration",
             "native_helper_values_that_look_like_alias_flags_are_preserved",
             "non_utf8_environment_values_aggregate_errors_only_for_settings_the_server_reads",
             "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",

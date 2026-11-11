@@ -2,14 +2,14 @@
 
 These adapters use generic containers, preserving the normal image entrypoint.
 They avoid wrappers hard-coded to `fsouza/fake-gcs-server` or to the executable
-name `fake-gcs-server`. Set `GCS_MIMIC_IMAGE` to the exact local or digest-pinned
+name `fake-gcs-server`. Set `GCSM_IMAGE` to the exact local or digest-pinned
 image under test; no published future image is assumed.
 
 ```sh
 cd sdk-tests/testcontainers/node
 npm ci --ignore-scripts --no-audit --no-fund
 node scenario.mjs --self-check
-GCS_MIMIC_IMAGE=gcs-mimic:dev node scenario.mjs
+GCSM_IMAGE=gcs-mimic:dev node scenario.mjs
 ```
 
 Java and .NET adapters are in `sdk-tests/java` and `sdk-tests/dotnet`; run their

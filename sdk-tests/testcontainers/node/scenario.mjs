@@ -45,8 +45,8 @@ if (process.argv.includes('--self-check')) {
   finally { restore(); }
   console.log('node-testcontainers-origin-guard: PASS');
 } else {
-  assert(process.env.GCS_MIMIC_IMAGE, 'set GCS_MIMIC_IMAGE to the exact image under test');
-  const container = await new GenericContainer(process.env.GCS_MIMIC_IMAGE)
+  assert(process.env.GCSM_IMAGE, 'set GCSM_IMAGE to the exact image under test');
+  const container = await new GenericContainer(process.env.GCSM_IMAGE)
     .withEnvironment({GCS_MIMIC_SCHEME: 'http', GCS_MIMIC_ADMIN_ENABLED: 'true'})
     .withExposedPorts(4443).withWaitStrategy(Wait.forHttp('/_internal/healthcheck', 4443)).start();
   try {

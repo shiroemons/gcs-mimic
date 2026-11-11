@@ -30,12 +30,12 @@ identical to `sdk-scorecard/node/package-lock.json`. Installation uses
 ## Running
 
 `scripts/sdk-go.sh --with-node` starts both servers and then runs `bash sdk-tests/node/run.sh` with
-`GCS_MIMIC_ENDPOINT`, `GCS_MIMIC_STRICT_ENDPOINT` and, for HTTPS,
-`GCS_MIMIC_CA_CERT`:
+`GCSM_ENDPOINT`, `GCSM_STRICT_ENDPOINT` and, for HTTPS,
+`GCSM_CA_CERT`:
 
 ```sh
 bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node
-GCS_MIMIC_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node
+GCSM_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node
 ```
 
 To run against servers you started yourself (the permissive one seeded with
@@ -44,8 +44,8 @@ the `assets` bucket in `local-project`, the strict one with
 `scripts/sdk-go.sh` prepares them):
 
 ```sh
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 \
-  GCS_MIMIC_STRICT_ENDPOINT=http://127.0.0.1:4444 bash sdk-tests/node/run.sh
+GCSM_ENDPOINT=http://127.0.0.1:4443 \
+  GCSM_STRICT_ENDPOINT=http://127.0.0.1:4444 bash sdk-tests/node/run.sh
 ```
 
 `run.sh` installs with `npm ci --ignore-scripts --no-audit --no-fund` (offline
@@ -55,8 +55,8 @@ when the npm cache already holds the locked packages), then runs four
 1. `self-check.test.mjs`: origin and socket-guard checks without a server.
 2. `migration-scenario.test.mjs`: anonymous, against the permissive server.
 3. `suite.test.mjs`: anonymous, against the permissive server.
-4. `suite.test.mjs` with `GCS_MIMIC_TOKEN=local-admin-token` and
-   `GCS_MIMIC_SIGNED_TESTS=1`, against the strict server.
+4. `suite.test.mjs` with `GCSM_TOKEN=local-admin-token` and
+   `GCSM_SIGNED_TESTS=1`, against the strict server.
 
 Any failing case makes `run.sh` exit nonzero, which fails the runner.
 

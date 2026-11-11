@@ -32,15 +32,15 @@ if [ "${1:-}" = visit ] && [ "$#" = 3 ]; then
 fi
 
 if [ "$#" != 0 ]; then
-  echo 'Usage: GCS_MIMIC_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh' >&2
+  echo 'Usage: GCSM_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh' >&2
   echo 'Needs Docker with Compose and jq; only pulling images and installing Chromium uses the network.' >&2
   exit 2
 fi
 
 cd "$(dirname "$0")/.."
 export COMPOSE_FILE=examples/strict-local/compose.yaml
-export GCS_MIMIC_IMAGE=${GCS_MIMIC_IMAGE:-gcs-mimic:local}
-export GCS_MIMIC_PORT=0
+export GCSM_IMAGE=${GCSM_IMAGE:-gcs-mimic:local}
+export GCSM_PORT=0
 # Below the Linux ephemeral range, which Docker uses for the published port.
 export FRONTEND_PORT=${FRONTEND_PORT:-$((20000 + RANDOM % 12000))}
 browser_image=node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
@@ -153,7 +153,7 @@ port=${address##*:}
 api=http://localhost:$port
 frontend=http://localhost:$FRONTEND_PORT
 checkout=$(git rev-parse HEAD)
-echo "image under test: $GCS_MIMIC_IMAGE $(docker image inspect "$GCS_MIMIC_IMAGE" --format '{{.Id}}'), checkout $checkout"
+echo "image under test: $GCSM_IMAGE $(docker image inspect "$GCSM_IMAGE" --format '{{.Id}}'), checkout $checkout"
 echo 'PASS: recipe up, only 4443 published, strict mode, test signer enabled'
 
 private_name=browser/private.txt

@@ -13,8 +13,8 @@ import (
 )
 
 func TestRustFixtureACLAndRetention(t *testing.T) {
-	if os.Getenv("GCS_MIMIC_BINARY") == "" {
-		t.Fatal("integration requires GCS_MIMIC_BINARY")
+	if os.Getenv("GCSM_BINARY") == "" {
+		t.Fatal("integration requires GCSM_BINARY")
 	}
 	// The server displays retention times at millisecond precision (observed 2026-10-31), so the
 	// sub-millisecond part of what was sent is not read back.

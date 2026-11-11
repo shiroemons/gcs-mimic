@@ -4,7 +4,7 @@
 
 The file shows wiring: which address each service uses, with which credentials, and why. It does not list every setting. The dictionary of every setting is the settings table in [native binary and configuration](../../docs/en/native-binary.md#native-binary-and-configuration), with each default, and the [configuration reference](../../docs/en/fake-gcs-server-configuration.md) maps fake-gcs-server's options to those settings. Every line in compose.yaml either connects two services or departs from a default, so a line you do not find there is a default you can look up.
 
-This example needs gcs-mimic 0.14.0 or later, like the recipe. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCS_MIMIC_IMAGE=gcs-mimic:local`.
+This example needs gcs-mimic 0.14.0 or later, like the recipe. To try a checkout instead of the release, build an image with `docker build -t gcs-mimic:local .` and set `GCSM_IMAGE=gcs-mimic:local`.
 
 ## Start it
 
@@ -22,7 +22,7 @@ Four variables choose the ports on your machine:
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `GCS_MIMIC_PORT` | 4443 | The emulator, on both sides of its port mapping |
+| `GCSM_PORT` | 4443 | The emulator, on both sides of its port mapping |
 | `FRONTEND_PORT` | 3000 | The frontend's origin, also written into the buckets' CORS rules |
 | `WEB_PORT` | 3001 | The Rails pages' origin, also written into the private bucket's CORS rule |
 | `API_PORT` | 8080 | The Go API that the frontend calls |
@@ -35,7 +35,7 @@ A second worktree sets other values and its own `COMPOSE_PROJECT_NAME`, for exam
 
 The recipe's service with the [per-worktree port variant](../strict-local/README.md#rails-in-a-container) for Rails:
 
-- `ports` maps `GCS_MIMIC_PORT` to the same port in the container, and `GCS_MIMIC_LISTEN` makes the main listener use it. Rails can then give the browser the URL it uses itself.
+- `ports` maps `GCSM_PORT` to the same port in the container, and `GCS_MIMIC_LISTEN` makes the main listener use it. Rails can then give the browser the URL it uses itself.
 - The network alias `gcs.localhost` lets containers reach the emulator under a name that browsers send to your machine.
 - The private bucket's CORS rule admits the Rails pages' origin as well as the frontend's, because Rails direct uploads come from Rails pages.
 
@@ -75,7 +75,7 @@ url, err := storage.SignedURL("app-private", name, &storage.SignedURLOptions{
 
 | Line | Why |
 | --- | --- |
-| `GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/` | Rails' requests and the URLs it hands the browser share this endpoint on the main listener. Rails sends its own token there, signed with the test signer's key, so it needs no trusted listener. |
+| `GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCSM_PORT:-4443}/` | Rails' requests and the URLs it hands the browser share this endpoint on the main listener. Rails sends its own token there, signed with the test signer's key, so it needs no trusted listener. |
 | `GCS_EMULATOR_KEY_FILE` | Where `config/storage.yml` reads the key. |
 | `depends_on` with `service_healthy` | Rails starts once the emulator answers its healthcheck. |
 
@@ -104,7 +104,7 @@ The test signer holds `roles/storage.objectUser` on `local-project`, enough for 
 
 ## Browser flows
 
-The browser reaches the emulator only on `http://localhost:${GCS_MIMIC_PORT:-4443}` (or `gcs.localhost` on the same port), where a request without credentials is anonymous.
+The browser reaches the emulator only on `http://localhost:${GCSM_PORT:-4443}` (or `gcs.localhost` on the same port), where a request without credentials is anonymous.
 
 ### Reading a public image
 
@@ -132,7 +132,7 @@ Edit `GCS_MIMIC_BUCKETS`, or set another port, then run `docker compose up -d`. 
 
 ## What is verified
 
-`scripts/smoke-containers.sh` runs this file with [compose.smoke.yaml](compose.smoke.yaml), a test-only override that your application never needs. It replaces `api`, `web` and `frontend` with idle containers from the pinned curl image and runs each service's requests inside it, with the environment, network and secret this file gives that service. Each run picks a free port other than 4443 for `GCS_MIMIC_PORT`. The test checks:
+`scripts/smoke-containers.sh` runs this file with [compose.smoke.yaml](compose.smoke.yaml), a test-only override that your application never needs. It replaces `api`, `web` and `frontend` with idle containers from the pinned curl image and runs each service's requests inside it, with the environment, network and secret this file gives that service. Each run picks a free port other than 4443 for `GCSM_PORT`. The test checks:
 
 - the key from `test-signer credentials`, mounted into `api` and `web`;
 - the published port on both sides, the read-only root, and a ready event with the built-in trusted principal, the enabled test signer, `lenient` host ports and two created buckets;

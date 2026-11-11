@@ -2,14 +2,18 @@
 # app and a browser frontend. Local development and tests only: the test signer's key is public.
 services:
   gcs:
-    image: ${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.1}
+    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.17.1}
     ports:
       # Equal host and container ports let Rails hand the browser the URL it uses itself.
       # Never publish the trusted port 4444.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
+      - "127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"
     environment:
+      # Obsolete Compose names are passed only so the server refuses them with replacement advice.
+      GCS_MIMIC_PORT:
+      GCS_MIMIC_IMAGE:
+      GCS_MIMIC_TLS_DIR:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_LISTEN: 0.0.0.0:${GCS_MIMIC_PORT:-4443}
+      GCS_MIMIC_LISTEN: 0.0.0.0:${GCSM_PORT:-4443}
       GCS_MIMIC_AUTH_MODE: strict
       GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
       GCS_MIMIC_TEST_SIGNER: enabled
@@ -50,7 +54,7 @@ services:
       # Go storage sends no credentials here, and the trusted listener admits it.
       STORAGE_EMULATOR_HOST: gcs:4444
       # The API's own settings for the URLs it signs for the browser.
-      GCS_BROWSER_HOST: localhost:${GCS_MIMIC_PORT:-4443}
+      GCS_BROWSER_HOST: localhost:${GCSM_PORT:-4443}
       GCS_SIGNER_EMAIL: test-signer@gcs-mimic.invalid
       GCS_SIGNER_KEY_FILE: /run/secrets/gcs-test-signer
       FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-3000}
@@ -65,7 +69,7 @@ services:
       - "127.0.0.1:${WEB_PORT:-3001}:3000"
     environment:
       # Rails requests and the URLs it gives the browser share this endpoint.
-      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/
+      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCSM_PORT:-4443}/
       GCS_EMULATOR_KEY_FILE: /run/secrets/gcs-test-signer
     secrets: [gcs-test-signer]
     depends_on:
@@ -78,7 +82,7 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     environment:
       API_ORIGIN: http://localhost:${API_PORT:-8080}
-      PUBLIC_BUCKET_URL: http://localhost:${GCS_MIMIC_PORT:-4443}/app-public
+      PUBLIC_BUCKET_URL: http://localhost:${GCSM_PORT:-4443}/app-public
 
 secrets:
   # The built-in test signer's private key, saved once as the README shows.

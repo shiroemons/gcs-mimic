@@ -9,7 +9,7 @@ require "base64"
 require_relative "local_http"
 require_relative "lib/active_storage/service/emulator_gcs_service"
 
-ENV["GCS_MIMIC_ENDPOINT"] = "http://127.0.0.1:4443"
+ENV["GCSM_ENDPOINT"] = "http://127.0.0.1:4443"
 LocalHTTP.install!
 private_key = File.read(File.join(__dir__, "../../../fixtures/signing/test-only-private.pem"))
 public_key = OpenSSL::PKey::RSA.new(private_key).public_key

@@ -89,10 +89,11 @@ HTTPS verifies the embedded development CA by default. `--ca-cert PATH`
 replaces it with the supplied CA while retaining hostname verification. That
 option is invalid for HTTP; there is no insecure TLS bypass.
 
-Use the CLI-only `GCS_MIMIC_SYNC_TOKEN` environment variable or `--token-file
+Use the CLI-only `GCSM_SYNC_TOKEN` environment variable or `--token-file
 PATH` (which takes precedence). A file holds one bearer token of at most 8192
-bytes, with optional final newlines. Do not put this CLI-only setting in the
-server environment. The server repeats its current control authorization;
+bytes, with optional final newlines. The server ignores this CLI-only variable.
+The old `GCS_MIMIC_SYNC_TOKEN` always fails with replacement advice, including
+an empty value or a simultaneous new token or token file. The server repeats its current control authorization;
 Google bucket IAM or fixture-administrator authority does not bypass it.
 
 Rescan has a default 30000 ms total network deadline to allow for the ten-second

@@ -355,7 +355,7 @@ strictモードでは既定値が`none`で、Cloud Storageと同じく、ブラ�
 この構成では組み込みのテスト署名者を受け付けます。イメージにはリポジトリが含まれないため、公開済みの鍵はイメージ自身がサービスアカウントの鍵ファイルとして出力します。
 
 ```sh
-docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+docker run --rm "${GCSM_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
 ```
 
 秘密鍵は公開されているため、ローカルのテストだけで使います（[組み込みのテスト署名者](../en/signed-urls.md#built-in-test-signer)、英語）。
@@ -496,7 +496,7 @@ services:
 
 アプリはトークンを送らないので、組み込みのIDにトークンはありません。
 アプリに必要なロールだけを与えるには、レシピのREADMEのように、IDの文書に`trusted-app@gcs-mimic.invalid`をそのロールで書きます。
-ページは`http://localhost:${GCS_MIMIC_PORT:-4443}`を使います。
+ページは`http://localhost:${GCSM_PORT:-4443}`を使います。
 ポリシーで`allUsers`に`roles/storage.objectViewer`を与えたバケットは匿名で読め、非公開のオブジェクトは署名URLがなければ401になります。
 アプリはこの署名URLを、`gcs:4444`ではなくブラウザーが使うアドレスに対して、IDの文書に登録した鍵か組み込みテスト署名者で作ります（[署名URL](../en/signed-urls.md)、英語）。
 イメージのhealthcheckはメインのリスナーを確認するので、変更は不要です。

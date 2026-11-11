@@ -138,6 +138,11 @@ curl -sS --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' 
 
 **Every server option.** Each `--foo-bar` below also exists as the variable `GCS_MIMIC_FOO_BAR` and the JSON config key `foo_bar`. A flag wins over a variable, a variable over the JSON file, and the file over the default. An unknown `GCS_MIMIC_*` name stops startup. Exceptions: `--sync-reinitialize` is a flag only, `--config` has no JSON key, and `--port`, `--port-http` and `--host` are flags only. `PUBSUB_EMULATOR_HOST` is accepted as well as `GCS_MIMIC_PUBSUB_EMULATOR_HOST`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.17.1 --help` gives the default and range of each.
 
+The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
+Use `GCSM_ENDPOINT`, `GCSM_GRPC_ENDPOINT`, `GCSM_SYNC_TOKEN`, `GCSM_BINARY`,
+`GCSM_PORT`, `GCSM_IMAGE` and `GCSM_TLS_DIR` for examples, helpers and Compose.
+Their old prefix fails with replacement advice. The server ignores `GCSM_*`.
+
 - General: `--config`, `--log-level`
 - Listeners: `--scheme`, `--listen`, `--listen-http`, `--grpc-listen`, `--unix-socket`, `--trusted-listen`, `--trusted-principal`, `--trusted-allowed-hosts`
 - TLS: `--tls-cert`, `--tls-key`, `--tls-handshake-timeout-ms`

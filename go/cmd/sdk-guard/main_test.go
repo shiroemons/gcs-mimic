@@ -51,7 +51,7 @@ func TestChildEnvironmentCannotBypassProxyOrDiscoverCredentials(t *testing.T) {
 	t.Setenv("NO_PROXY", "*")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "must-not-read")
 	t.Setenv("STORAGE_EMULATOR_HOST", "external.invalid")
-	t.Setenv("GCS_MIMIC_GRPC_ENDPOINT", "must-not-inherit")
+	t.Setenv("GCSM_GRPC_ENDPOINT", "must-not-inherit")
 	env := strings.Join(guardedEnvironment("http://127.0.0.1:4443", "http://127.0.0.1:1234"), "\n")
 	for _, forbidden := range []string{"NO_PROXY=*", "must-not-read", "external.invalid", "must-not-inherit"} {
 		if strings.Contains(env, forbidden) {

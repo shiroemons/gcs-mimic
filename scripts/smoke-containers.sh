@@ -93,23 +93,23 @@ free_port() {
 for platform in "$@"; do
   arch=${platform#linux/}
   export DOCKER_DEFAULT_PLATFORM=$platform
-  export GCS_MIMIC_IMAGE=${prebuilt_image:-"gcs-mimic:bucket-smoke-${arch}-$$"}
-  export GCS_MIMIC_PORT=0
+  export GCSM_IMAGE=${prebuilt_image:-"gcs-mimic:bucket-smoke-${arch}-$$"}
+  export GCSM_PORT=0
   project="gcs-mimic-bucket-${arch}-$$"
   if [[ -z "$prebuilt_image" ]]; then
-    docker buildx build --platform "$platform" --load --tag "$GCS_MIMIC_IMAGE" .
+    docker buildx build --platform "$platform" --load --tag "$GCSM_IMAGE" .
   fi
-  [[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$GCS_MIMIC_IMAGE") == "$platform" ]] || exit 1
-  [[ $(docker image inspect --format '{{.Config.User}}' "$GCS_MIMIC_IMAGE") == 10001:10001 ]] || exit 1
-  docker run --rm --network none --read-only "$GCS_MIMIC_IMAGE" --help
-  docker run --rm --network none --read-only "$GCS_MIMIC_IMAGE" --version
+  [[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$GCSM_IMAGE") == "$platform" ]] || exit 1
+  [[ $(docker image inspect --format '{{.Config.User}}' "$GCSM_IMAGE") == 10001:10001 ]] || exit 1
+  docker run --rm --network none --read-only "$GCSM_IMAGE" --help
+  docker run --rm --network none --read-only "$GCSM_IMAGE" --version
 
   volume="${project}-isolated"
   docker volume create "$volume" >/dev/null
   container=$(docker run --detach --network none --read-only --no-healthcheck --cap-drop ALL \
     --mount "type=volume,src=$volume,dst=/var/lib/gcs-mimic" \
     --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 \
-    --ulimit nofile=1024:1024 "$GCS_MIMIC_IMAGE" serve --scheme http --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic)
+    --ulimit nofile=1024:1024 "$GCSM_IMAGE" serve --scheme http --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic)
   ready=false
   for ((attempt = 0; attempt < 40; attempt++)); do
     if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then ready=true; break; fi
@@ -130,8 +130,8 @@ for platform in "$@"; do
   address=$(docker compose -p "$project" port gcs 4443)
   [[ $address == 127.0.0.1:* ]] || exit 1
   # Reuse the allocated port as an explicit host mapping to exercise Compose's API default.
-  export GCS_MIMIC_PORT=${address##*:}
-  [[ $GCS_MIMIC_PORT != 4443 ]] || exit 1
+  export GCSM_PORT=${address##*:}
+  [[ $GCSM_PORT != 4443 ]] || exit 1
   docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
   service=$(docker compose -p "$project" ps --quiet gcs)
   [[ $(docker compose -p "$project" port gcs 4443) == "$address" ]] || exit 1
@@ -285,7 +285,7 @@ for platform in "$@"; do
   # The image's default_seed_dir must load a fake-gcs-server style /data mount without
   # any seed variable.
   container=$(docker run --detach --publish 127.0.0.1::4443 --env GCS_MIMIC_SCHEME=http \
-    --mount "type=bind,src=$PWD/fixtures,dst=/data,readonly" "$GCS_MIMIC_IMAGE")
+    --mount "type=bind,src=$PWD/fixtures,dst=/data,readonly" "$GCSM_IMAGE")
   ready=false
   for ((attempt = 0; attempt < 40; attempt++)); do
     if docker exec "$container" gcs-mimic healthcheck; then ready=true; break; fi
@@ -312,7 +312,7 @@ for platform in "$@"; do
     --memory 128m --cpus 1 --pids-limit 64 --publish 127.0.0.1::4443 \
     --mount "type=volume,src=$volume,dst=/state" \
     -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/state/data -e GCS_MIMIC_SYNC_DIR=/state/sync \
-    "$GCS_MIMIC_IMAGE")
+    "$GCSM_IMAGE")
   wait_sync_ready() {
     for ((attempt = 0; attempt < 40; attempt++)); do
       if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then
@@ -400,7 +400,7 @@ for platform in "$@"; do
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.
   # COMPOSE_FILE also points the failure cleanup at this project's file.
   project="gcs-mimic-strict-local-${arch}-$$"
-  export COMPOSE_FILE=examples/strict-local/compose.yaml GCS_MIMIC_PORT=0
+  export COMPOSE_FILE=examples/strict-local/compose.yaml GCSM_PORT=0
   unset FRONTEND_PORT
   docker compose -p "$project" config --quiet
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
@@ -521,9 +521,9 @@ for platform in "$@"; do
   export COMPOSE_FILE=examples/full-stack/compose.yaml:examples/full-stack/compose.smoke.yaml
   export GCS_SMOKE_PEER_IMAGE=$peer_image GCS_SMOKE_TEST_SIGNER_KEY=$work/full-stack-signer.pem
   unset FRONTEND_PORT WEB_PORT API_PORT
-  GCS_MIMIC_PORT=$(free_port)
-  export GCS_MIMIC_PORT
-  port=$GCS_MIMIC_PORT
+  GCSM_PORT=$(free_port)
+  export GCSM_PORT
+  port=$GCSM_PORT
   # The README's one preparation step, run with the example file alone.
   docker compose -p "$project" -f examples/full-stack/compose.yaml config --quiet
   docker compose -p "$project" -f examples/full-stack/compose.yaml run --rm gcs test-signer credentials \

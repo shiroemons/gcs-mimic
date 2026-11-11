@@ -199,7 +199,7 @@ The real Pub/Sub emulator check is explicitly opt-in and is not run by default.
 Start the separately supplied emulator and set a numeric loopback endpoint:
 
 ```sh
-GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST=127.0.0.1:8085 \
+GCSM_TEST_PUBSUB_EMULATOR_HOST=127.0.0.1:8085 \
   cargo test --locked --offline --test it_admin \
   it_admin::notifications_http::opted_in_pubsub_emulator_receives_the_notification -- --ignored --exact
 ```

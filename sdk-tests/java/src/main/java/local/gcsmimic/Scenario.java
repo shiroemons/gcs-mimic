@@ -130,8 +130,8 @@ public final class Scenario {
   public static void main(String[] args) throws Exception {
     if (args.length == 1 && args[0].equals("--self-check")) { selfCheck(); return; }
     if (args.length == 1 && args[0].equals("--container")) {
-      String image = System.getenv("GCS_MIMIC_IMAGE");
-      if (image == null || image.isBlank()) throw new IllegalArgumentException("set GCS_MIMIC_IMAGE to the exact image under test");
+      String image = System.getenv("GCSM_IMAGE");
+      if (image == null || image.isBlank()) throw new IllegalArgumentException("set GCSM_IMAGE to the exact image under test");
       try (GenericContainer<?> container = new GenericContainer<>(image).withExposedPorts(4443)
           .withEnv("GCS_MIMIC_SCHEME", "http").withEnv("GCS_MIMIC_ADMIN_ENABLED", "true")
           .waitingFor(Wait.forHttp("/_internal/healthcheck").forPort(4443).forStatusCode(200))
@@ -143,6 +143,6 @@ public final class Scenario {
       }
       return;
     }
-    scenario(localOrigin(System.getenv("GCS_MIMIC_ENDPOINT")));
+    scenario(localOrigin(System.getenv("GCSM_ENDPOINT")));
   }
 }

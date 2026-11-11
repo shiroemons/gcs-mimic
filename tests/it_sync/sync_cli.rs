@@ -1,6 +1,7 @@
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use crate::common;
+use gcs_mimic::config_input::RenamedEnvironmentVariable;
 use std::fs;
 mod ambiguous;
 mod authority;
@@ -105,7 +106,7 @@ impl Server {
     ) -> Value {
         let mut client = common::server_command();
         if let Some(token) = token {
-            client.env("GCS_MIMIC_SYNC_TOKEN", token);
+            client.env("GCSM_SYNC_TOKEN", token);
         }
         let Output {
             status,
@@ -239,6 +240,50 @@ fn live_cli_strict_controls_require_project_authority_and_honor_token_file_prece
         true,
     );
     assert_eq!(status["auth_mode"], "strict");
+}
+
+#[test]
+fn live_cli_rejects_old_token_environment_without_sending_a_request() {
+    let root = TestDir::new();
+    let token = root.0.join("token");
+    fs::write(&token, "secret-file-token").unwrap();
+    let variable = RenamedEnvironmentVariable::SyncToken;
+    for (new, file, old) in [
+        (None, None, "secret-old-token"),
+        (Some("secret-new-token"), None, "secret-old-token"),
+        (None, Some(&token), "secret-old-token"),
+        (Some(""), None, ""),
+    ] {
+        let mut command = common::server_command();
+        command.env(variable.old_name(), old);
+        if let Some(new) = new {
+            command.env(variable.name(), new);
+        }
+        let mut args = vec!["sync", "status", "--endpoint", "http://127.0.0.1:1"];
+        if file.is_some() {
+            args.extend(["--token-file", token.to_str().unwrap()]);
+        }
+        let output = command.args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        let event: Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(event["diagnostics"][0]["key"], "sync");
+        assert_eq!(event["diagnostics"][0]["fix"], variable.fix());
+        assert!(!text.contains("secret"));
+    }
+    let output = common::server_command()
+        .env(variable.name(), "")
+        .args(["sync", "status", "--endpoint", "http://127.0.0.1:1"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        text.contains("GCSM_SYNC_TOKEN must contain one nonempty bearer token"),
+        "{text}"
+    );
+    assert!(!text.contains("Token file"), "{text}");
 }
 
 #[test]

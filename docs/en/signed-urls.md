@@ -177,8 +177,7 @@ advertised API base; the helper receives the actual final client endpoint.
 ```sh
 cargo build --locked
 signed_binary=./target/debug/gcs-mimic
-env -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
-  "$signed_binary" serve --scheme http --listen 127.0.0.1:0 \
+"$signed_binary" serve --scheme http --listen 127.0.0.1:0 \
   --xml-virtual-host-domains localhost \
   --data-dir "$signed_work/native-data" --auth-mode strict \
   --identity-file "$signed_work/identities.json" > "$signed_work/native.log" 2>&1 &
@@ -197,14 +196,14 @@ wait "$signed_pid"
 
 First build the source image using the
 [Compose build block](getting-started.md#build-and-start-with-compose). Retain the
-same `GCS_MIMIC_IMAGE` if you selected a custom tag. This isolated project uses
+same `GCSM_IMAGE` if you selected a custom tag. This isolated project uses
 the strict override with its registry mount replaced by the generated
 `identities.json`. The server never mounts `private.pem`; only the short-lived,
 network-disabled signing container reads it.
 
 ```sh
 signed_project="gcs-mimic-signed-$$"
-export GCS_MIMIC_PORT=0
+export GCSM_PORT=0
 cat > "$signed_work/compose.signed.yaml" <<EOF
 services:
   gcs:
@@ -225,7 +224,7 @@ signed_endpoint="http://$(signed_compose port gcs 4443)"
 signed_sign() {
   docker run --rm --network none --read-only --user "$(id -u):$(id -g)" \
     --mount "type=bind,src=$signed_work/private.pem,dst=/key.pem,readonly" \
-    "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" url sign --base-url "$2" \
+    "${GCSM_IMAGE:-gcs-mimic:dev}" url sign --base-url "$2" \
     --bucket signed-guide-bucket --object "$3" --method "$1" --expires 5m \
     --signer guide-signer@example.invalid --private-key /key.pem "${@:4}"
 }
@@ -247,7 +246,7 @@ cmp "$signed_work/input.txt" "$signed_work/peer.txt"
 echo 'PASS: signed Docker restart and independently signed Compose peer URL'
 signed_compose down --volumes
 rm -r "$signed_work"
-unset GCS_MIMIC_PORT
+unset GCSM_PORT
 ```
 
 The host PC and browser use the published loopback port; a Compose peer uses
@@ -438,7 +437,7 @@ images do not have the command:
 
 ```sh
 gcs-mimic test-signer credentials > test-signer.json
-docker run --rm "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
+docker run --rm "${GCSM_IMAGE:-gcs-mimic:dev}" test-signer credentials > test-signer.json
 jq -r .private_key test-signer.json > test-signer.pem
 ```
 

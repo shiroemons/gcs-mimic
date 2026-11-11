@@ -443,7 +443,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
 
 #[test]
 fn import_journal_crash_child() {
-    let Some(path) = std::env::var_os("GCS_MIMIC_IMPORT_CRASH_CATALOG") else {
+    let Some(path) = std::env::var_os("GCSM_IMPORT_CRASH_CATALOG") else {
         return;
     };
     let mut connection = Connection::open(path).unwrap();
@@ -454,7 +454,7 @@ fn import_journal_crash_child() {
             [9_u64.to_be_bytes()],
         )
         .unwrap();
-    if std::env::var_os("GCS_MIMIC_IMPORT_CRASH_COMMITTED").is_some() {
+    if std::env::var_os("GCSM_IMPORT_CRASH_COMMITTED").is_some() {
         transaction.commit().unwrap();
     }
     std::process::exit(0);
@@ -481,12 +481,9 @@ async fn import_journal_observation_crashes_preserve_committed_baselines() {
                 "--exact",
                 "storage::catalog::import_journal::tests::import_journal_crash_child",
             ])
-            .env(
-                "GCS_MIMIC_IMPORT_CRASH_CATALOG",
-                dir.0.join("catalog.sqlite3"),
-            );
+            .env("GCSM_IMPORT_CRASH_CATALOG", dir.0.join("catalog.sqlite3"));
         if committed {
-            command.env("GCS_MIMIC_IMPORT_CRASH_COMMITTED", "1");
+            command.env("GCSM_IMPORT_CRASH_COMMITTED", "1");
         }
         assert!(command.status().unwrap().success());
         let catalog = Catalog::open(&dir.0).await.unwrap();

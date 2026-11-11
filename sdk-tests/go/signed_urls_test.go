@@ -27,7 +27,7 @@ import (
 // The key is deliberately public test material; signing never calls IAM or ADC.
 func TestV4RSASignedDownload(t *testing.T) {
 	ctx, bucket, attrs, payload := strictFixture(t, "signed")
-	endpoint, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	endpoint, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,8 +47,8 @@ cd ../..
 cert_dir=$(mktemp -d)
 cargo run --locked -- tls ca > "$cert_dir/ca.pem"
 cd sdk-tests/ruby
-GCS_MIMIC_ENDPOINT=https://127.0.0.1:4443 \
-  GCS_MIMIC_CA_CERT="$cert_dir/ca.pem" bundle exec ruby https.rb
+GCSM_ENDPOINT=https://127.0.0.1:4443 \
+  GCSM_CA_CERT="$cert_dir/ca.pem" bundle exec ruby https.rb
 rm -r "$cert_dir"
 ```
 
@@ -62,17 +62,17 @@ Then run the same suite without a CA input:
 
 ```sh
 cd sdk-tests/ruby
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 bundle exec ruby https.rb
+GCSM_ENDPOINT=http://127.0.0.1:4443 bundle exec ruby https.rb
 ```
 
 Both journeys default to an isolated permissive emulator. To exercise the
 existing strict fixture, add `--auth-mode strict --identity-file config/identities.json`
-to the server command and set `GCS_MIMIC_TOKEN=local-admin-token` for the runner.
+to the server command and set `GCSM_TOKEN=local-admin-token` for the runner.
 The suite uses the fixture project `local-project`. It constructs an anonymous
 client, then attaches this optional static token without credential discovery.
 
 A custom development certificate whose SAN
-includes the endpoint hostname/IP is also supported: point `GCS_MIMIC_CA_CERT` at
+includes the endpoint hostname/IP is also supported: point `GCSM_CA_CERT` at
 its CA. The [local HTTPS guide](../../docs/en/getting-started.md)
 documents listener startup and custom certificate inputs. The runner requires an
 explicit loopback HTTP or HTTPS origin; HTTPS also requires a readable CA file.
@@ -128,8 +128,8 @@ silently. Before building, `scripts/sdk-go.sh` selects the Ruby that `.ruby-vers
 Ruby on `PATH` when it is that version, otherwise, when mise is installed, `mise exec ruby@<pin>`
 with auto-install off, so mise's global default Ruby is never used. Any other Ruby stops the run
 before the servers start, naming both versions; `bash scripts/test-pinned-ruby.sh` covers this
-selection. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
-with verification enabled. A targeted `GCS_MIMIC_GO_TEST_RUN` retains Go-only
+selection. `GCSM_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
+with verification enabled. A targeted `GCSM_GO_TEST_RUN` retains Go-only
 iteration; the unfiltered recipe executes Ruby as well.
 
 The strict run adds official `File#signed_url(version: :v4, method: "GET"/"PUT",

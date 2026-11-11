@@ -1295,7 +1295,7 @@ async fn directory_lock_lives_until_the_last_handle_drops() {
             "storage::catalog_tests::catalog_child_process",
             "--nocapture",
         ])
-        .env("GCS_MIMIC_TEST_LOCK_DIR", &dir.0)
+        .env("GCSM_TEST_LOCK_DIR", &dir.0)
         .output()
         .unwrap();
     assert!(
@@ -1692,12 +1692,12 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
 
 #[test]
 fn catalog_child_process() {
-    if let Some(dir) = std::env::var_os("GCS_MIMIC_TEST_REJECTED_WAL_DIR") {
+    if let Some(dir) = std::env::var_os("GCSM_TEST_REJECTED_WAL_DIR") {
         let connection = Connection::open(PathBuf::from(dir).join("catalog.sqlite3")).unwrap();
         connection
             .pragma_update(None, "wal_autocheckpoint", 0)
             .unwrap();
-        let sql = match std::env::var("GCS_MIMIC_TEST_REJECTED_WAL_FIXTURE")
+        let sql = match std::env::var("GCSM_TEST_REJECTED_WAL_FIXTURE")
             .unwrap()
             .as_str()
         {
@@ -1719,7 +1719,7 @@ fn catalog_child_process() {
         .enable_all()
         .build()
         .unwrap();
-    if let Some(dir) = std::env::var_os("GCS_MIMIC_TEST_LOCK_DIR") {
+    if let Some(dir) = std::env::var_os("GCSM_TEST_LOCK_DIR") {
         runtime.block_on(async {
             assert!(
                 Catalog::open(dir)
@@ -1731,7 +1731,7 @@ fn catalog_child_process() {
             );
         });
     }
-    if let Some(dir) = std::env::var_os("GCS_MIMIC_TEST_RECOVERY_DIR") {
+    if let Some(dir) = std::env::var_os("GCSM_TEST_RECOVERY_DIR") {
         runtime.block_on(async {
             let catalog = Catalog::open(dir).await.unwrap();
             catalog
@@ -1756,8 +1756,8 @@ async fn rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes() {
                 "storage::catalog_tests::catalog_child_process",
                 "--nocapture",
             ])
-            .env("GCS_MIMIC_TEST_REJECTED_WAL_DIR", &dir.0)
-            .env("GCS_MIMIC_TEST_REJECTED_WAL_FIXTURE", fixture)
+            .env("GCSM_TEST_REJECTED_WAL_DIR", &dir.0)
+            .env("GCSM_TEST_REJECTED_WAL_FIXTURE", fixture)
             .output()
             .unwrap();
         assert!(
@@ -1796,7 +1796,7 @@ async fn recovers_committed_wal_after_process_exit_without_drop() {
             "storage::catalog_tests::catalog_child_process",
             "--nocapture",
         ])
-        .env("GCS_MIMIC_TEST_RECOVERY_DIR", &dir.0)
+        .env("GCSM_TEST_RECOVERY_DIR", &dir.0)
         .output()
         .unwrap();
     assert!(

@@ -234,7 +234,7 @@ jobs:
         run: docker build --build-arg CARGO_BUILD_JOBS=4 --tag gcs-mimic:client-ci .
       - name: Run the three independent Testcontainers adapters
         env:
-          GCS_MIMIC_IMAGE: gcs-mimic:client-ci
+          GCSM_IMAGE: gcs-mimic:client-ci
         run: |
           bash sdk-tests/java/run.sh --container
           bash sdk-tests/dotnet/run.sh --container

@@ -1,4 +1,4 @@
-"""Strict-profile authorization and signed URL journeys; requires GCS_MIMIC_TOKEN."""
+"""Strict-profile authorization and signed URL journeys; requires GCSM_TOKEN."""
 
 from datetime import timedelta
 from pathlib import Path
@@ -19,7 +19,7 @@ RESPONSE_LIMIT = 64 * 1024
 def setUpModule():
     if not environment().strict:
         # Fail rather than skip, so a misconfigured strict run cannot pass silently.
-        raise RuntimeError("strict journeys require GCS_MIMIC_TOKEN")
+        raise RuntimeError("strict journeys require GCSM_TOKEN")
 
 
 class StrictJourney(unittest.TestCase):

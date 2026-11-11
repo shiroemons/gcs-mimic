@@ -37,18 +37,18 @@ permissive and strict servers and then this suite:
 
 ```sh
 bash scripts/sdk-go.sh --with-php
-GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-php
+GCSM_SDK_SCHEME=https bash scripts/sdk-go.sh --with-php
 ```
 
 `run.sh` can also target servers you started yourself:
 
 ```sh
-GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 \
-  GCS_MIMIC_STRICT_ENDPOINT=http://127.0.0.1:4444 \
+GCSM_ENDPOINT=http://127.0.0.1:4443 \
+  GCSM_STRICT_ENDPOINT=http://127.0.0.1:4444 \
   bash sdk-tests/php/run.sh
 ```
 
-For HTTPS endpoints, also set `GCS_MIMIC_CA_CERT` to the CA file (for example,
+For HTTPS endpoints, also set `GCSM_CA_CERT` to the CA file (for example,
 the output of `gcs-mimic tls ca`); it is mounted read-only into the container.
 The strict server must use `--auth-mode strict` with `config/identities.json`
 extended by the public signing fixture for `local-admin@example.invalid`, as
@@ -59,10 +59,10 @@ into the gitignored `vendor/` as the invoking user, lints the PHP files, and
 then runs, stopping at the first failing step:
 
 1. `--self-check`: the origin guard, without a server.
-2. `--migration-scenario` against `GCS_MIMIC_ENDPOINT` (anonymous).
-3. The full suite against `GCS_MIMIC_ENDPOINT` (permissive, anonymous).
-4. The full suite against `GCS_MIMIC_STRICT_ENDPOINT` with
-   `GCS_MIMIC_TOKEN=local-admin-token` and `GCS_MIMIC_SIGNED_TESTS=1`.
+2. `--migration-scenario` against `GCSM_ENDPOINT` (anonymous).
+3. The full suite against `GCSM_ENDPOINT` (permissive, anonymous).
+4. The full suite against `GCSM_STRICT_ENDPOINT` with
+   `GCSM_TOKEN=local-admin-token` and `GCSM_SIGNED_TESTS=1`.
 
 Each step uses a named, `--rm` container that the exit trap also removes.
 
@@ -82,7 +82,7 @@ origin.
   uses `--network host` on Linux, where `127.0.0.1` in the container is the
   host's loopback and no `CONNECT_TO` is needed.
 
-Set `GCS_MIMIC_PHP_DOCKER_NETWORK=host` or `gateway` to override the choice
+Set `GCSM_PHP_DOCKER_NETWORK=host` or `gateway` to override the choice
 (for example, Docker Desktop on Linux needs `gateway`, unless its host
 networking feature is enabled). Only the macOS Docker Desktop path has been
 run; the Linux path is untested.

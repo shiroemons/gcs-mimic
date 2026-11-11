@@ -68,9 +68,9 @@ project and a dynamically allocated loopback port to avoid other local emulators
 ```sh
 export COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-$$
 export COMPOSE_FILE=compose.yaml:compose.http.yaml
-export GCS_MIMIC_IMAGE="gcs-mimic:object-demo-$$"
-docker build -t "$GCS_MIMIC_IMAGE" .
-export GCS_MIMIC_PORT=0
+export GCSM_IMAGE="gcs-mimic:object-demo-$$"
+docker build -t "$GCSM_IMAGE" .
+export GCSM_PORT=0
 docker compose config --quiet
 docker compose up -d --wait
 address=$(docker compose port gcs 4443)
@@ -91,7 +91,7 @@ Later steps recreate the service, so keep the allocated host port for them; the
 named volume preserves its catalog:
 
 ```sh
-export GCS_MIMIC_PORT=${address##*:}
+export GCSM_PORT=${address##*:}
 ```
 
 Host clients use `$endpoint`. Peers on the Compose network use `http://gcs:4443`.
@@ -744,7 +744,7 @@ only: accepting `Origin` does not establish CORS/preflight support, and no brows
 upload is claimed here. Cancel the address-check session before continuing.
 
 ```sh
-browser_origin="http://localhost:${GCS_MIMIC_PORT}"
+browser_origin="http://localhost:${GCSM_PORT}"
 status=$(curl --disable --noproxy '*' --silent --show-error -X POST \
   -H 'Content-Length: 0' -H 'Origin: http://localhost:3000' \
   --dump-header "$work_dir/resumable-browser.headers" --output /dev/null \
@@ -966,7 +966,7 @@ journey. Generate URLs on the native host for the exact API host and port the
 browser will use, then run the browser in the container:
 
 ```sh
-GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+GCSM_BINARY=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
   prepare https://gcs:54477 signed-browser-strict initial > target/signed-browser-run/initial.json
 docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
   run target/signed-browser-run/initial.json
@@ -976,7 +976,7 @@ After SIGINT and restart with the same data directory and browser origin,
 generate fresh URLs and verify persistence and cleanup:
 
 ```sh
-GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+GCSM_BINARY=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
   prepare https://gcs:54477 signed-browser-strict restart > target/signed-browser-run/restart.json
 docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
   run target/signed-browser-run/restart.json
@@ -1055,7 +1055,7 @@ Install Go (the harness downloads pinned Go 1.27.4), then run against the Compos
 endpoint from the repository root:
 
 ```sh
-(cd sdk-tests/go && GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...)
+(cd sdk-tests/go && GCSM_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...)
 ```
 
 The harness pins `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
@@ -1516,7 +1516,7 @@ and a static token source, without Application Default Credentials or the
 metadata server:
 
 ```sh
-(cd sdk-tests/go && GCS_MIMIC_STRICT_ENDPOINT="$endpoint" GOTOOLCHAIN=auto \
+(cd sdk-tests/go && GCSM_STRICT_ENDPOINT="$endpoint" GOTOOLCHAIN=auto \
   go test -count=1 -v -run '^(TestStrictAuth|TestXMLReadsStrict|TestXMLReadsEncodedNames|TestPublicReads)' ./...)
 ```
 
@@ -1574,9 +1574,9 @@ network, disposable volume, temporary files and this walkthrough's exact image t
 
 ```sh
 docker compose down --volumes
-docker image rm "$GCS_MIMIC_IMAGE"
+docker image rm "$GCSM_IMAGE"
 rm -r "$work_dir"
-unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
+unset GCSM_IMAGE GCSM_PORT GCS_MIMIC_API_BASE_URL
 ```
 
 ## Verification and troubleshooting

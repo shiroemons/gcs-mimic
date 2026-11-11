@@ -141,7 +141,7 @@ resolution within the existing bind-to-State boundary, not a startup-phase
 reordering; it does not depend on `shared-startup-phases`. Shared state owns
 any later phase restructuring and preserves this boundary. A Compose environment that fixes
 the base must use the actual host-published port, for example
-`https://localhost:${GCS_MIMIC_PORT:-4443}`, and one fixed origin cannot serve unrelated
+`https://localhost:${GCSM_PORT:-4443}`, and one fixed origin cannot serve unrelated
 host/peer/browser address spaces; leaving it unset lets each request use its own.
 Proxy-derived origins/allowed-host policy remain DESIGN-056 work.
 
@@ -259,10 +259,10 @@ records the dispositions of the earlier versions.
 | `FAKE_GCS_EVENT_LIST` | Unsupported publisher events; remove this key; no accepted-but-ignored event list | Separate event plan |
 
 In those versions, unknown `FAKE_GCS_*` variables produced warnings and did not prevent ready.
-`GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are the complete
-Compose-only interpolation names in the current files. Each is a server-input
-error: remove it from the native process environment and keep it in the Compose
-invocation. PORT controls host publication (use LISTEN for server binding), IMAGE
+`GCSM_PORT`, `GCSM_IMAGE` and `GCSM_TLS_DIR` are the complete
+Compose-only interpolation names in the current files. The server ignores every
+`GCSM_*` variable, so a shared environment is safe. Their old `GCS_MIMIC_*` names
+fail with replacement advice. PORT controls host publication (use LISTEN for server binding), IMAGE
 selects the image (no server equivalent), and TLS_DIR selects a mount (native
 TLS_CERT/TLS_KEY take the two actual files). They are not aliases.
 

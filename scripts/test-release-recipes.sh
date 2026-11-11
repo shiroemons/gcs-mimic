@@ -8,7 +8,7 @@ mkdir -p "$work/scripts" "$work/examples/strict-local" "$work/examples/full-stac
 cp scripts/check-release-recipes.sh "$work/scripts/"
 recipes=(examples/strict-local/compose.yaml examples/full-stack/compose.yaml)
 write_recipe() {
-  printf "image: \${GCS_MIMIC_IMAGE:-ghcr.io/shiroemons/gcs-mimic:%s}\n" "$2" > "$work/$1"
+  printf "image: \${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:%s}\n" "$2" > "$work/$1"
 }
 for version in 0.17.1 1.0.0-rc.1 1.0.0; do
   printf '[package]\nversion = "%s"\n' "$version" > "$work/Cargo.toml"

@@ -12,7 +12,7 @@ module LocalHTTP
     unless uri.is_a?(URI::HTTP) && uri.scheme == "http" && uri.userinfo.nil? &&
            [nil, "", "/"].include?(uri.path) && uri.query.nil? && uri.fragment.nil? &&
            (uri.hostname == "localhost" || IPAddr.new(uri.hostname).loopback?)
-      raise ArgumentError, "GCS_MIMIC_ENDPOINT must be a loopback HTTP origin, e.g. http://127.0.0.1:4443"
+      raise ArgumentError, "GCSM_ENDPOINT must be a loopback HTTP origin, e.g. http://127.0.0.1:4443"
     end
     uri
   rescue URI::InvalidURIError, IPAddr::InvalidAddressError
@@ -20,14 +20,14 @@ module LocalHTTP
   end
 
   def self.validate!(uri)
-    expected = origin(ENV.fetch("GCS_MIMIC_ENDPOINT"))
+    expected = origin(ENV.fetch("GCSM_ENDPOINT"))
     unless [uri.scheme, uri.hostname, uri.port] == [expected.scheme, expected.hostname, expected.port]
       raise ArgumentError, "request targets #{uri.scheme}://#{uri.host}:#{uri.port}; use local credentials and endpoint (e.g. http://127.0.0.1:4443/); see sdk-active-storage-scenario.md"
     end
   end
 
   def self.install!
-    origin(ENV.fetch("GCS_MIMIC_ENDPOINT"))
+    origin(ENV.fetch("GCSM_ENDPOINT"))
     %w[http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY].each { |key| ENV.delete(key) }
     Net::HTTP.prepend(self)
   end

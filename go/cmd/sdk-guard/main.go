@@ -101,15 +101,15 @@ func guardedEnvironment(origin, proxy string) []string {
 		lower := strings.ToLower(name)
 		if strings.HasSuffix(lower, "_proxy") || strings.HasPrefix(name, "GOOGLE_") ||
 			strings.HasPrefix(name, "GCLOUD_") || strings.HasPrefix(name, "STORAGE_EMULATOR_") ||
-			strings.HasPrefix(name, "GCS_MIMIC_ENDPOINT") || name == "GCS_MIMIC_EGRESS_PROXY" ||
-			name == "GCS_MIMIC_GRPC_ENDPOINT" {
+			strings.HasPrefix(name, "GCSM_ENDPOINT") || name == "GCSM_EGRESS_PROXY" ||
+			name == "GCSM_GRPC_ENDPOINT" {
 			continue
 		}
 		env = append(env, value)
 	}
 	return append(env, "HTTP_PROXY="+proxy, "http_proxy="+proxy, "HTTPS_PROXY="+proxy, "https_proxy="+proxy,
 		"ALL_PROXY="+proxy, "all_proxy="+proxy, "NO_PROXY=", "no_proxy=", "GCE_METADATA_DISABLED=true",
-		"GCS_MIMIC_ENDPOINT="+origin, "GCS_MIMIC_EGRESS_PROXY="+proxy)
+		"GCSM_ENDPOINT="+origin, "GCSM_EGRESS_PROXY="+proxy)
 }
 
 func boundedHTTP2() *http.HTTP2Config {

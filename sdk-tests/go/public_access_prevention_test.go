@@ -53,7 +53,7 @@ func TestPublicAccessPrevention(t *testing.T) {
 	}
 	requireStrictError(t, bucket.IAM().SetPolicy(ctx, stored), 412, "conditionNotMet")
 
-	endpoint, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	endpoint, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}

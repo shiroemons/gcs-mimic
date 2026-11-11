@@ -5,15 +5,15 @@ cd "$(dirname "$0")/.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin" "$work/tests" "$work/pkg"
-export GCS_MIMIC_CHECK_ROOT="$work"
+export GCSM_CHECK_ROOT="$work"
 cat >"$work/bin/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-echo "$*" >>"$GCS_MIMIC_CHECK_LOG"
-if [[ $* == "${GCS_MIMIC_CHECK_FAIL:-}" ]]; then exit 23; fi
+echo "$*" >>"$GCSM_CHECK_LOG"
+if [[ $* == "${GCSM_CHECK_FAIL:-}" ]]; then exit 23; fi
 if [[ $* == 'test --workspace --locked --offline --no-run --message-format=json-render-diagnostics' &&
-  -z ${GCS_MIMIC_CHECK_NO_TESTS:-} ]]; then
-  root=$GCS_MIMIC_CHECK_ROOT
+  -z ${GCSM_CHECK_NO_TESTS:-} ]]; then
+  root=$GCSM_CHECK_ROOT
   # A library without a test executable and a non-test example must not be run.
   jq -cn --arg manifest "$root/pkg/Cargo.toml" --arg root "$root" '
     {reason: "compiler-artifact", manifest_path: $manifest, profile: {test: true}, executable: ($root + "/tests/unit-0a1b")},
@@ -28,10 +28,10 @@ cat >"$work/tests/binary" <<'SH'
 set -euo pipefail
 name=${0##*/}
 name=${name%-*}
-root=$GCS_MIMIC_CHECK_ROOT
+root=$GCSM_CHECK_ROOT
 echo "$name $PWD $CARGO_MANIFEST_DIR" >>"$root/ran"
 touch "$root/$name.started"
-if [[ ${GCS_MIMIC_CHECK_OVERLAP:-} == true ]]; then
+if [[ ${GCSM_CHECK_OVERLAP:-} == true ]]; then
   # Neither binary can finish unless both have started; serial execution fails.
   peer=unit
   if [[ $name == unit ]]; then peer=integration; fi
@@ -41,7 +41,7 @@ if [[ ${GCS_MIMIC_CHECK_OVERLAP:-} == true ]]; then
   done
   test -f "$root/$peer.started"
 fi
-if [[ ${GCS_MIMIC_CHECK_FAIL:-} == "binary $name" ]]; then exit 23; fi
+if [[ ${GCSM_CHECK_FAIL:-} == "binary $name" ]]; then exit 23; fi
 echo 'test result: ok. 1 passed; 0 failed'
 SH
 for name in unit-0a1b integration-4e5f example-2c3d; do cp "$work/tests/binary" "$work/tests/$name"; done
@@ -55,7 +55,7 @@ printf '%s\n' x86_64-pc-windows-msvc x86_64-unknown-linux-gnu x86_64-unknown-lin
 SH
 chmod +x "$work/bin/cargo" "$work/bin/rustc" "$work/bin/rustup" "$work"/tests/*
 export PATH="$work/bin:$PATH"
-export GCS_MIMIC_CHECK_LOG="$work/actual"
+export GCSM_CHECK_LOG="$work/actual"
 unset GCSM_TEST_JOBS
 cat >"$work/expected" <<'TEXT'
 fetch --locked
@@ -84,13 +84,13 @@ run_check() {
   bash scripts/check.sh >"$work/output" 2>&1 || status=$?
 }
 
-GCS_MIMIC_CHECK_FAIL='' run_check
+GCSM_CHECK_FAIL='' run_check
 test "$status" = 0
 diff -u "$work/expected" "$work/actual"
 sort "$work/ran" | diff -u "$work/expected-ran" -
 grep -F 'PASS: 2 test binaries and doctests with 1 concurrent binaries' "$work/output" >/dev/null
 
-GCS_MIMIC_CHECK_FAIL='' GCS_MIMIC_CHECK_OVERLAP=true GCSM_TEST_JOBS=2 run_check
+GCSM_CHECK_FAIL='' GCSM_CHECK_OVERLAP=true GCSM_TEST_JOBS=2 run_check
 test "$status" = 0
 sort "$work/ran" | diff -u "$work/expected-ran" -
 
@@ -100,14 +100,14 @@ while IFS= read -r command; do
   if [[ $command == 'test --workspace --locked --offline --doc' ]]; then
     # A failing test binary still lets the other binaries and the doctest lane finish.
     for name in unit integration; do
-      GCS_MIMIC_CHECK_FAIL="binary $name" run_check
+      GCSM_CHECK_FAIL="binary $name" run_check
       test "$status" = 23
       diff -u "$work/prefix" "$work/actual"
       sort "$work/ran" | diff -u "$work/expected-ran" -
       grep -Fx "FAIL $name (exit 23)" "$work/output" >/dev/null
     done
   fi
-  GCS_MIMIC_CHECK_FAIL="$command" run_check
+  GCSM_CHECK_FAIL="$command" run_check
   if [[ $status == 0 ]]; then
     echo "Checks continued after failure: $command" >&2
     exit 1
@@ -117,15 +117,15 @@ while IFS= read -r command; do
 done <"$work/expected"
 
 # Skipping the other targets leaves every other check in order; an invalid switch runs nothing.
-GCS_MIMIC_CHECK_FAIL='' GCSM_CHECK_CROSS=0 run_check
+GCSM_CHECK_FAIL='' GCSM_CHECK_CROSS=0 run_check
 test "$status" = 0
 grep -v -- '--target ' "$work/expected" | diff -u - "$work/actual"
-GCS_MIMIC_CHECK_FAIL='' GCSM_CHECK_CROSS=2 run_check
+GCSM_CHECK_FAIL='' GCSM_CHECK_CROSS=2 run_check
 test "$status" = 2
 grep -v -- '--target ' "$work/expected" | sed -n '1,/^xtask lint$/p' | diff -u - "$work/actual"
 
 no_tests_prefix=$(sed -n '1,/--no-run/p' "$work/expected")
-GCS_MIMIC_CHECK_FAIL='' GCS_MIMIC_CHECK_NO_TESTS=1 run_check
+GCSM_CHECK_FAIL='' GCSM_CHECK_NO_TESTS=1 run_check
 test "$status" = 1
 diff -u <(printf '%s\n' "$no_tests_prefix") "$work/actual"
 grep -F 'reported no test executables' "$work/output" >/dev/null
@@ -156,4 +156,49 @@ done
 status=0
 bash scripts/with-test-tmpdir.sh >"$work/output" 2>&1 || status=$?
 test "$status" = 2
+# Documentation checks reject an unregistered server-prefix name before running Cargo.
+cat >"$work/bin/git" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'fixture:1:GCS_MIMIC_LISTEN'
+printf 'fixture:2:GCS_MIMIC_%s\n' DRIFT_CHECK
+SH
+chmod +x "$work/bin/git"
+: >"$work/actual"
+status=0
+bash scripts/check-docs.sh >"$work/output" 2>&1 || status=$?
+test "$status" = 1
+test ! -s "$work/actual"
+grep -F 'fixture:2:' "$work/output" >/dev/null
+grep -Fx 'Environment namespace check: 1 invalid occurrences' "$work/output" >/dev/null
+
+# Only the recorded file and its existing occurrence budget are exempt.
+cat >"$work/bin/git" <<'SH'
+#!/usr/bin/env bash
+cat "$GCSM_CHECK_ROOT/namespace-fixture"
+SH
+for scenario in historical excess new_record; do
+  : >"$work/namespace-fixture"
+  count=2
+  path=docs/en/slices/cross-protocol-objects.md
+  case $scenario in
+    historical) ;;
+    excess) count=3 ;;
+    new_record) path=docs/en/evidence/new-record.md; count=1 ;;
+  esac
+  for ((occurrence = 1; occurrence <= count; occurrence++)); do
+    printf '%s:%s:GCS_MIMIC_%s\n' "$path" "$occurrence" GO_TEST_RUN >>"$work/namespace-fixture"
+  done
+  : >"$work/actual"
+  status=0
+  GCSM_CHECK_FAIL='xtask compatibility check' bash scripts/check-docs.sh >"$work/output" 2>&1 || status=$?
+  if [[ $scenario == historical ]]; then
+    test "$status" = 23
+    grep -Fx 'xtask compatibility check' "$work/actual" >/dev/null
+    grep -Fx 'Historical environment records: 2 occurrences preserved by scripts/environment-history-baseline.txt' "$work/output" >/dev/null
+  else
+    test "$status" = 1
+    test ! -s "$work/actual"
+    grep -Fx 'Environment namespace check: 1 invalid occurrences' "$work/output" >/dev/null
+  fi
+done
 echo 'PASS: shared checks run in order, run every test binary, and stop at every failing command'

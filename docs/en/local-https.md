@@ -54,12 +54,12 @@ Build and run the same journey with the non-root, read-only source image:
 
 ```sh
 export COMPOSE_PROJECT_NAME=gcs-mimic-tls-demo-$$
-export GCS_MIMIC_IMAGE=gcs-mimic:tls-dev
-export GCS_MIMIC_PORT=54444
-docker build -t "$GCS_MIMIC_IMAGE" .
+export GCSM_IMAGE=gcs-mimic:tls-dev
+export GCSM_PORT=54444
+docker build -t "$GCSM_IMAGE" .
 docker compose config --quiet
 docker compose up -d --no-build --wait
-bash scripts/tls-smoke.sh "https://localhost:$GCS_MIMIC_PORT" "$cert_dir/ca.pem"
+bash scripts/tls-smoke.sh "https://localhost:$GCSM_PORT" "$cert_dir/ca.pem"
 docker compose stop
 docker compose start --wait
 docker compose exec -T --interactive=false gcs \
@@ -90,9 +90,9 @@ throwaway two-day fixtures with OpenSSL and select the read-only TLS override:
 ```sh
 custom_cert_dir="$tls_work/custom-certs"
 bash scripts/tls-fixtures.sh "$custom_cert_dir"
-export GCS_MIMIC_TLS_DIR="$custom_cert_dir"
+export GCSM_TLS_DIR="$custom_cert_dir"
 docker compose -f compose.yaml -f compose.tls.yaml up -d --no-build --wait
-bash scripts/tls-smoke.sh "https://localhost:$GCS_MIMIC_PORT" "$custom_cert_dir/ca.pem"
+bash scripts/tls-smoke.sh "https://localhost:$GCSM_PORT" "$custom_cert_dir/ca.pem"
 ```
 
 Custom probes use `--ca-cert /tls/ca.pem`; the default probe trusts only the

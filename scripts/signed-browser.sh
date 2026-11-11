@@ -5,13 +5,13 @@ cd "$(dirname "$0")/.."
 usage() {
   echo 'Usage: signed-browser.sh prepare https://LOCAL_HOST:PORT signed-browser-NAME initial|restart > urls.json' >&2
   echo '       signed-browser.sh run urls.json' >&2
-  echo 'Prepare uses GCS_MIMIC_BIN (default target/debug/gcs-mimic); run needs Node.js and trusted Chromium.' >&2
+  echo 'Prepare uses GCSM_BINARY (default target/debug/gcs-mimic); run needs Node.js and trusted Chromium.' >&2
   exit 2
 }
 if [ "${1:-}" = prepare ]; then
   [ "$#" = 4 ] || usage
-  binary=${GCS_MIMIC_BIN:-target/debug/gcs-mimic}
-  if [ -n "${GCS_MIMIC_BIN:-}" ] && [[ "$binary" != /* ]]; then binary=$caller_dir/$binary; fi
+  binary=${GCSM_BINARY:-target/debug/gcs-mimic}
+  if [ -n "${GCSM_BINARY:-}" ] && [[ "$binary" != /* ]]; then binary=$caller_dir/$binary; fi
   node - "$2" "$3" "$4" "$binary" <<'NODE'
 const {execFileSync} = require('node:child_process');
 const [endpoint, bucket, phase, binary] = process.argv.slice(2);

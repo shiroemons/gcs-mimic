@@ -4,7 +4,7 @@ use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::{AuthMode, SignedUrls, TestSigner, signature::SignedHostPort},
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs, RenamedEnvironmentVariable},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     time_limit::TimeLimit,
     url::PublicOrigin,
@@ -656,7 +656,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                 inputs.diagnostics.errors.push(Diagnostic::new(
                     source,
                     &input.key,
-                    rejected_setting_fix(&input.name),
+                    rejected_setting_fix(input),
                 ));
                 continue;
             }
@@ -666,24 +666,19 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
     settings
 }
 
-fn rejected_setting_fix(name: &str) -> &'static str {
-    match name {
-        "sync_reinitialize" => {
-            "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
-        }
-        "port" => {
-            "GCS_MIMIC_PORT is Compose-only host port publication; keep it in the Compose invocation, remove it from the server environment and use GCS_MIMIC_LISTEN=0.0.0.0:4443 for server binding."
-        }
-        "image" => {
-            "GCS_MIMIC_IMAGE is Compose-only image selection; remove it from the server environment; there is no server equivalent."
-        }
-        "tls_dir" => {
-            "GCS_MIMIC_TLS_DIR is Compose-only mount selection; remove it from the server environment and supply GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem."
-        }
-        _ => {
-            "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
-        }
+fn rejected_setting_fix(input: &Input) -> String {
+    if input.source == DiagnosticSource::Environment
+        && let Some(variable) = RenamedEnvironmentVariable::ALL
+            .into_iter()
+            .find(|variable| variable.suffix().eq_ignore_ascii_case(&input.name))
+    {
+        return variable.fix();
     }
+    if input.name == "sync_reinitialize" {
+        "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
+    } else {
+        "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
+    }.to_owned()
 }
 
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the

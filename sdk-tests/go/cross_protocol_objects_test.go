@@ -819,7 +819,7 @@ func TestCrossProtocolObjectVersions(t *testing.T) {
 
 func strictCrossHTTP(t *testing.T) (*http.Client, *url.URL) {
 	t.Helper()
-	u, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	u, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,7 +827,7 @@ func strictCrossHTTP(t *testing.T) (*http.Client, *url.URL) {
 }
 
 func TestCrossProtocolObjectsStrict(t *testing.T) {
-	grpcEndpoint := crossGRPCEndpoint(t, "GCS_MIMIC_STRICT_GRPC_ENDPOINT")
+	grpcEndpoint := crossGRPCEndpoint(t, "GCSM_STRICT_GRPC_ENDPOINT")
 	ctx, adminClient := newStrictClient(t, strictAdminToken)
 	bucket := resumableBucket(t, ctx, adminClient, strictProject)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)

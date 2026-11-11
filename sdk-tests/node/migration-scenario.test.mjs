@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createStorage, emulatorOrigin, guardSockets, scrubEnvironment} from './harness.mjs';
 
-const origin = emulatorOrigin(process.env.GCS_MIMIC_ENDPOINT);
-assert(!process.env.GCS_MIMIC_TOKEN, 'migration scenario requires an anonymous client');
+const origin = emulatorOrigin(process.env.GCSM_ENDPOINT);
+assert(!process.env.GCSM_TOKEN, 'migration scenario requires an anonymous client');
 scrubEnvironment();
 guardSockets(origin);
 const bucket = createStorage(origin).bucket('assets');

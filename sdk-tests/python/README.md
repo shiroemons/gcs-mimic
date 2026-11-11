@@ -33,7 +33,7 @@ The repository runner starts both servers and calls `run.sh`:
 
 ```sh
 bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-python
-GCS_MIMIC_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-python
+GCSM_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-python
 ```
 
 `run.sh` needs [uv](https://docs.astral.sh/uv/). It runs `uv sync --locked`,
@@ -42,14 +42,14 @@ wheels, then runs four steps and prints one line per case:
 
 1. `test_self_check`: offline origin, guard and trust-context checks.
 2. `test_migration`: the anonymous migration scenario against the runner's
-   preinitialized `assets` bucket on `GCS_MIMIC_ENDPOINT`.
-3. `test_journeys`: every journey against the permissive `GCS_MIMIC_ENDPOINT`.
+   preinitialized `assets` bucket on `GCSM_ENDPOINT`.
+3. `test_journeys`: every journey against the permissive `GCSM_ENDPOINT`.
 4. `test_journeys` and `test_strict`: the same journeys plus authorization
-   denial and signed URLs against `GCS_MIMIC_STRICT_ENDPOINT`, with the fixture
+   denial and signed URLs against `GCSM_STRICT_ENDPOINT`, with the fixture
    token `local-admin-token`.
 
 Any failure exits nonzero. To run against servers you started yourself, export
-`GCS_MIMIC_ENDPOINT` and `GCS_MIMIC_STRICT_ENDPOINT`, plus `GCS_MIMIC_CA_CERT`
+`GCSM_ENDPOINT` and `GCSM_STRICT_ENDPOINT`, plus `GCSM_CA_CERT`
 for HTTPS (for example from `cargo run --locked -- tls ca`). The strict server
 must use the runner's identity file, in which the fixture admin principal also
 holds the public key from `fixtures/signing/test-only-public.pem`.
@@ -69,7 +69,7 @@ holds the public key from `fixtures/signing/test-only-public.pem`.
 - In strict runs the session attaches the static fixture bearer token itself; no
   google-auth credential refreshes it. Signed and anonymous requests use a
   separate guarded session without the token.
-- HTTPS trusts only `GCS_MIMIC_CA_CERT` and keeps peer and hostname
+- HTTPS trusts only `GCSM_CA_CERT` and keeps peer and hostname
   verification with Python's default flags, including `VERIFY_X509_STRICT` on
   Python 3.13+. A live case also verifies that the public trust store rejects
   the local certificate.

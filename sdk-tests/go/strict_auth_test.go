@@ -45,11 +45,11 @@ func newStrictClient(t *testing.T, token string) (context.Context, *storage.Clie
 
 func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool, log *readRequestLog) (context.Context, *storage.Client) {
 	t.Helper()
-	raw := os.Getenv("GCS_MIMIC_STRICT_ENDPOINT")
+	raw := os.Getenv("GCSM_STRICT_ENDPOINT")
 	if raw == "" {
-		t.Skip("GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict")
+		t.Skip("GCSM_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict")
 	}
-	u, err := emulatorEndpoint(raw, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	u, err := emulatorEndpoint(raw, os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,5 @@
 // Official @google-cloud/storage journeys against one isolated gcs-mimic origin. The permissive run
-// is anonymous; the strict run sets GCS_MIMIC_TOKEN (and GCS_MIMIC_SIGNED_TESTS=1 for signed URLs).
+// is anonymous; the strict run sets GCSM_TOKEN (and GCSM_SIGNED_TESTS=1 for signed URLs).
 import assert from 'node:assert/strict';
 import {createHash, randomBytes, verify} from 'node:crypto';
 import {createReadStream, existsSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
@@ -12,16 +12,16 @@ import {createSigner, createStorage, emulatorOrigin, guardSockets, observeHttp, 
   scrubEnvironment, signerEmail, signingPublicKey} from './harness.mjs';
 import {replaceLifecycleRules, signV4WithCli, uploadWithLocalAuth} from './migration-adapters.mjs';
 
-const origin = emulatorOrigin(process.env.GCS_MIMIC_ENDPOINT);
+const origin = emulatorOrigin(process.env.GCSM_ENDPOINT);
 if (origin.protocol === 'https:') {
-  const ca = process.env.GCS_MIMIC_CA_CERT;
-  assert(ca && existsSync(ca), 'HTTPS requires a readable GCS_MIMIC_CA_CERT');
+  const ca = process.env.GCSM_CA_CERT;
+  assert(ca && existsSync(ca), 'HTTPS requires a readable GCSM_CA_CERT');
   assert.equal(process.env.NODE_EXTRA_CA_CERTS, ca, 'run.sh trusts the CA through NODE_EXTRA_CA_CERTS');
 }
 scrubEnvironment();
 guardSockets(origin);
 const observed = observeHttp(origin);
-const token = process.env.GCS_MIMIC_TOKEN;
+const token = process.env.GCSM_TOKEN;
 const strict = Boolean(token);
 const storage = createStorage(origin, {token});
 const unique = purpose => `sdk-node-${purpose}-${randomBytes(6).toString('hex')}`;
@@ -322,7 +322,7 @@ test('node-resumable-upload-three-chunks', async () => {
     preconditionOpts: {ifGenerationMatch: 0}}));
 });
 
-if (process.env.GCS_MIMIC_SIGNED_TESTS === '1') {
+if (process.env.GCSM_SIGNED_TESTS === '1') {
   const signer = createSigner(origin);
   const signed = (file, options) => signer.bucket(bucket.name).file(file)
     .getSignedUrl({expires: Date.now() + 300000, ...options}).then(([url]) => url);

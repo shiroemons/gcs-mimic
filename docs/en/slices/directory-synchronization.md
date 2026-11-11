@@ -914,7 +914,7 @@ Reserve the following emulator-only routes outside Google API namespaces.
 `gcs-mimic sync status|approve|conflicts|resolve|rescan|wait` calls them through
 the live server and never opens the data directory. CLI accepts `--url` and
 `--ca-cert`, verifies TLS using the shared connector and accepts a bearer token
-from `GCS_MIMIC_SYNC_TOKEN` without printing it. It must not follow redirects
+from `GCSM_SYNC_TOKEN` without printing it. It must not follow redirects
 carrying credentials. These commands are future interfaces, not runnable today.
 
 In strict mode **all** routes below, including reads/wait, require a registered

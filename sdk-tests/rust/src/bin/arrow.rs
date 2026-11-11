@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
         .with_client_options(
             ClientOptions::new()
                 .with_allow_http(true)
-                .with_proxy_url(std::env::var("GCS_MIMIC_EGRESS_PROXY")?)
+                .with_proxy_url(std::env::var("GCSM_EGRESS_PROXY")?)
                 .with_proxy_excludes(""),
         )
         .build()?;

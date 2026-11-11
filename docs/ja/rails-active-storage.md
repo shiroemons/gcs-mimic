@@ -171,7 +171,7 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 両方で`gcs.localhost`という名前を使います。
 ブラウザは`*.localhost`を自分のマシンに送り、ComposeのネットワークエイリアスはDocker内でエミュレーターに送るので、Railsとブラウザが同じURLを使えます。
 ポートも両方で同じにする必要があるため、エミュレーターはコンテナ内でも公開するポートで待ち受けます。
-そのポートは`GCS_MIMIC_PORT`で選べるので、ワークツリーやプロジェクトごとに別のポートを使えます。
+そのポートは`GCSM_PORT`で選べるので、ワークツリーやプロジェクトごとに別のポートを使えます。
 
 ```yaml
 services:
@@ -179,10 +179,10 @@ services:
     image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
       # The host port equals the container port, so one URL works on both sides.
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:${GCS_MIMIC_PORT:-4443}"
+      - "127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"
     environment:
       GCS_MIMIC_SCHEME: http
-      GCS_MIMIC_LISTEN: 0.0.0.0:${GCS_MIMIC_PORT:-4443}
+      GCS_MIMIC_LISTEN: 0.0.0.0:${GCSM_PORT:-4443}
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - ./buckets.json:/buckets.json:ro
@@ -192,11 +192,11 @@ services:
           - gcs.localhost
   web: # your Rails service
     environment:
-      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCS_MIMIC_PORT:-4443}/
+      GCS_EMULATOR_ENDPOINT: http://gcs.localhost:${GCSM_PORT:-4443}/
 ```
 
-4443番が使用中なら、ワークツリーの`.env`などで`GCS_MIMIC_PORT`を設定します。Composeがファイル内で置き換えます。
-Composeネットワーク上のほかのサービスも、`http://gcs:${GCS_MIMIC_PORT:-4443}`でエミュレーターに届きます。
+4443番が使用中なら、ワークツリーの`.env`などで`GCSM_PORT`を設定します。Composeがファイル内で置き換えます。
+Composeネットワーク上のほかのサービスも、`http://gcs:${GCSM_PORT:-4443}`でエミュレーターに届きます。
 Railsのポートもワークツリーごとに変わる場合は、バケット文書のCORSのoriginもそれに合わせる必要があります。
 0.14.0以降では、`GCS_MIMIC_BUCKETS_FILE`の代わりに`GCS_MIMIC_BUCKETS`へ文書をインラインで書くと、Composeがそこでもポートを置き換えます。
 例えば、自分で決めた変数を使って`"origin": ["http://localhost:${RAILS_PORT:-3000}"]`と書きます。
@@ -304,7 +304,7 @@ gcs_emulator:
 
 アダプターはURLを出力する前に`public_endpoint`のhostとportを署名するため、`signed_host_port=lenient`なしで検証に通ります。署名後にhostを書き換えません。
 ダイレクトアップロードでは`x-goog-content-length-range`も署名し、サービスに`cache_control`を設定した場合は`Cache-Control`も署名します。
-Railsをコンテナで動かす場合は、`endpoint`と`public_endpoint`のどちらも`gcs.localhost:${GCS_MIMIC_PORT:-4443}`を指します。
+Railsをコンテナで動かす場合は、`endpoint`と`public_endpoint`のどちらも`gcs.localhost:${GCSM_PORT:-4443}`を指します。
 
 strictのRailsテスト（`sdk-tests/ruby/active_storage/run-strict.sh`）は、同じ認証情報を使い、署名者が`roles/storage.objectUser`だけを持つstrictのサーバーに対して実行しています。
 JWTによるアップロードとダウンロード、V2の署名付きGET、標準のV2と`EmulatorGcs`アダプターのV4によるダイレクトアップロード、

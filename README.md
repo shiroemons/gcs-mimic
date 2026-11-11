@@ -456,6 +456,11 @@ volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data`
 mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read, so
 set the matching flag or `GCS_MIMIC_*` variable instead.
 
+The server reads `GCS_MIMIC_*`; every other program in this project reads `GCSM_*`.
+For 0.18.0, rename client, sync, Go subprocess and Compose variables to `GCSM_*`;
+see the [migration table](docs/en/releases/0.18.0-contract-changes.md#environment-variable-names).
+Unknown `GCS_MIMIC_*` names still stop startup; `GCSM_*` names can share the server environment.
+
 It is not a drop-in replacement for every setup. Check these first:
 
 - **Objects in your `/storage` volume stay behind.** The format differs, and only

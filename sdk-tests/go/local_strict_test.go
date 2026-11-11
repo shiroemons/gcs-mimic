@@ -42,11 +42,11 @@ type trustedSetup struct {
 
 func newTrustedSetup(t *testing.T, label string) trustedSetup {
 	t.Helper()
-	rawMain, rawTrusted := os.Getenv("GCS_MIMIC_LOCAL_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_TRUSTED_ENDPOINT")
+	rawMain, rawTrusted := os.Getenv("GCSM_LOCAL_STRICT_ENDPOINT"), os.Getenv("GCSM_TRUSTED_ENDPOINT")
 	if rawMain == "" || rawTrusted == "" {
-		t.Skip("GCS_MIMIC_LOCAL_STRICT_ENDPOINT or GCS_MIMIC_TRUSTED_ENDPOINT is unset; scripts/sdk-go.sh starts a strict server with the test signer and a trusted listener, as the strict local recipe does")
+		t.Skip("GCSM_LOCAL_STRICT_ENDPOINT or GCSM_TRUSTED_ENDPOINT is unset; scripts/sdk-go.sh starts a strict server with the test signer and a trusted listener, as the strict local recipe does")
 	}
-	mainURL, err := emulatorEndpoint(rawMain, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	mainURL, err := emulatorEndpoint(rawMain, os.Getenv("GCSM_ALLOWED_HOSTS"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +67,9 @@ func newTrustedSetup(t *testing.T, label string) trustedSetup {
 // image users get without a repository checkout, and returns its signer and private key.
 func testSignerKey(t *testing.T) (string, []byte) {
 	t.Helper()
-	binary := os.Getenv("GCS_MIMIC_BINARY")
+	binary := os.Getenv("GCSM_BINARY")
 	if binary == "" {
-		t.Skip("GCS_MIMIC_BINARY is unset; scripts/sdk-go.sh exports the emulator binary that prints the test signer credentials")
+		t.Skip("GCSM_BINARY is unset; scripts/sdk-go.sh exports the emulator binary that prints the test signer credentials")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -159,7 +159,7 @@ func TestBuiltInSignerURLsPassUnderLenientHostPort(t *testing.T) {
 	t.Run("ExactServerNamesTheSetting", func(t *testing.T) {
 		// The exact server registers the same published key for local-admin@example.invalid.
 		ctx, bucket, fixture, _ := strictFixture(t, "exact-port")
-		exact, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+		exact, err := emulatorEndpoint(os.Getenv("GCSM_STRICT_ENDPOINT"), os.Getenv("GCSM_ALLOWED_HOSTS"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -111,7 +111,7 @@ services:
   gcs:
     image: ghcr.io/shiroemons/gcs-mimic:0.17.1
     ports:
-      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+      - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     environment:
       GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
@@ -134,10 +134,10 @@ healthcheckの上書きは不要です。アプリの起動待ちは
 ```sh
 export COMPOSE_FILE=compose.migration.yaml
 export COMPOSE_PROJECT_NAME=assets-migration
-export GCS_MIMIC_PORT=14443
+export GCSM_PORT=14443
 docker compose up -d --wait
 docker compose exec -T gcs gcs-mimic healthcheck
-api="http://localhost:${GCS_MIMIC_PORT}"
+api="http://localhost:${GCSM_PORT}"
 curl --fail "$api/storage/v1/b/assets"
 curl --fail "$api/storage/v1/b/exports"
 curl --fail -H 'Content-Type: application/json' -d '{"name":"scratch-assets"}' \
@@ -148,7 +148,7 @@ test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
 ```
 
 作業ツリーごとにComposeプロジェクト名とホスト側ポートを変えます。
-2つ目なら`COMPOSE_PROJECT_NAME=assets-migration-two`、`GCS_MIMIC_PORT=24443`が例です。
+2つ目なら`COMPOSE_PROJECT_NAME=assets-migration-two`、`GCSM_PORT=24443`が例です。
 内部ポートは4443のままです。名前付きボリュームもプロジェクト別です。
 同じファイル・プロジェクトを指定して`docker compose down`で停止すると、データは残ります。
 
@@ -330,7 +330,7 @@ strict localレシピはそのために組み込みのテスト署名者を有�
 | 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |
 | HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`を指定し、`GCS_MIMIC_LISTEN`はイメージの既定`0.0.0.0:4443`のままにして、probeにも継承させる。 |
 | 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
-| ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。コンテナからの接続先`http://gcs:4443`は変えない。 |
+| ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCSM_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。コンテナからの接続先`http://gcs:4443`は変えない。 |
 | 取り消しの`curl --fail`が499で失敗する | JSON resumableの取り消し成功は499 | 上の例のように`%{http_code}`で検査し、取り消しに限って499を成功とする。 |
 | リクエストが終わらず、クライアントの接続が使われたままで、ログにも何も出ない | クライアントがリクエスト本文（`Content-Length`またはchunked）を宣言したまま送信を止めている。`body_inactivity_timeout_ms`の既定値0では期限切れが起きないため、サーバーは待ち続け、ログに書くこともない | 該当するクライアントを見つけるには、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`を例えば`30000`に設定する。その時間本文が届かないと、JSONは408 `uploadBrokenConnection`、XMLは400 `RequestTimeout`で失敗し、サーバーは`connection_timeout`の警告を記録する。遅いクライアントを切らないよう、既定値は0のまま。 |
 

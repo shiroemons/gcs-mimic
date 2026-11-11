@@ -144,7 +144,7 @@ async fn sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacemen
             "--exact",
             "storage::catalog::sync_state::root::tests::sync_root_lock_child",
         ])
-        .env("GCS_MIMIC_ROOT_LOCK_TEST", &root.0)
+        .env("GCSM_ROOT_LOCK_TEST", &root.0)
         .output()
         .unwrap();
     assert!(
@@ -407,7 +407,7 @@ async fn sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved() {
 
 #[test]
 fn sync_root_lock_child() {
-    if let Some(path) = std::env::var_os("GCS_MIMIC_ROOT_LOCK_TEST") {
+    if let Some(path) = std::env::var_os("GCSM_ROOT_LOCK_TEST") {
         assert!(
             matches!(lock::acquire_directory(Path::new(&path)), Err(error) if error.kind() == io::ErrorKind::WouldBlock)
         );
