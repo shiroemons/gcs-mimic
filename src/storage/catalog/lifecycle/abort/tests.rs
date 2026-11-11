@@ -972,6 +972,7 @@ async fn multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_jo
 async fn multipart_abort_reclamation_failures_leave_a_retryable_journal() {
     for step in [
         Step::MultipartReclaim,
+        #[cfg(unix)]
         Step::MultipartReclaimSync,
         Step::MultipartReclaimForget,
     ] {
