@@ -744,3 +744,124 @@ The two Go modules outside daily detection also move to the go1.27.4 toolchain. 
 - `go build` of the probe and of `./cmd/tls-front`, `go vet ./...` and `go test ./...` passed in `sdk-scorecard/go` with go1.27.4; `go build` and `go vet ./...` passed in `examples/go`, and `go mod verify` passed in both. Neither the scorecard nor the example was run against a server.
 - `cargo test -p xtask --locked` passed every test binary (221, 11, 3 and 1 tests), including the declared-manifest checks that now require the scorecard module, its scope and its `go.sum` in the snapshot.
 - `cargo xtask dependencies check` at `2026-11-11T02:20:01Z` exited 0 with 129 `CURRENT` lines, the Go toolchain `CURRENT` at 1.27.4 in all four checked Go modules; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+
+### rusqlite 0.42.0
+
+The 2026-11-11 refresh adopts rusqlite 0.42.0 and its required
+libsqlite3-sys 0.40.0. Only those two package records change in Cargo.lock;
+application code, SQL, catalog schema and feature statuses are unchanged.
+There is no new direct dependency or additional enabled feature.
+
+The official [Cargo index](https://index.crates.io/ru/sq/rusqlite) selected
+0.42.0 as the highest numeric non-yanked stable release at
+`2026-11-11T08:43:45Z`. The [publisher release](https://github.com/rusqlite/rusqlite/releases/tag/v0.42.0)
+was published at `2026-11-11T06:47:37Z`; both archives record source revision
+`812d63147ebea21c9c3de4db9e556f2e4e9f8161`. The publisher repository remains
+unarchived, with its last push at `2026-11-11T06:47:36Z`.
+Official downloaded archives match both index checksums and Cargo's cached archives.
+
+| Package | Previous | Adopted | License | Compressed bytes | Declared Rust | SHA-256 |
+| --- | --- | --- | --- | --- | --- | --- |
+| rusqlite | 0.41.1 | 0.42.0 | MIT | 184,670 | 1.89.0 | `a4edff0039f148731aee2fd80f76dbfeb12d204ab3d1c544838d34e02151049b` |
+| libsqlite3-sys | 0.39.1 | 0.40.0 | MIT | 2,759,453 | 1.88.0 | `b06e69070b7e12262b0cd90832f0a7396f142a2b330181255562decf9f0c6215` |
+
+Sources: [rusqlite archive](https://static.crates.io/crates/rusqlite/rusqlite-0.42.0.crate),
+[binding index](https://index.crates.io/li/bs/libsqlite3-sys),
+[binding archive](https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.40.0.crate).
+Both distributed manifests retain edition 2024 and fit the pinned Rust 1.99.1.
+Sizes describe source archives, not binary growth or runtime memory.
+
+#### Source compatibility comparison
+
+Comparing the previous and adopted distributed `Cargo.toml.orig` files shows
+unchanged definitions for the three enabled features: `bundled` selects the
+bundled C library and `modern_sqlite` (prebuilt bundled bindings), `cache`
+selects hashlink, and `fallible_uint` enables checked unsigned integer
+conversions without adding a dependency. `src/cache.rs`,
+`src/types/to_sql.rs` and `src/types/from_sql.rs` are byte-identical between
+rusqlite 0.41.1 and 0.42.0. Unsigned writes still reject values above
+`i64::MAX`, and unsigned reads still reject negative integers.
+`cargo tree --locked --offline -e features -i rusqlite` confirms the same
+three explicit features, implied `modern_sqlite` and hashlink, with defaults disabled.
+
+Between libsqlite3-sys 0.39.1 and 0.40.0, the SQLite amalgamation, header,
+prebuilt bundled bindings and complete `build.rs` are byte-identical:
+
+| File | SHA-256 in both releases |
+| --- | --- |
+| `sqlite3/sqlite3.c` | `0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52` |
+| `sqlite3/sqlite3.h` | `d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c` |
+| `sqlite3/bindgen_bundled_version.rs` | `a25057a06d8cb5053a61c8f0ff746cc3d81b3bd778fbd3199ba12c8a6ee2945d` |
+| `build.rs` | `769b31370a41aa722e1d5a530012432c985bb142eab34d095481ffd1a3436e1b` |
+
+SQLite remains **3.54.1**, source ID
+`2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76`.
+The unchanged build retains `SQLITE_THREADSAFE=1`, API armor and default foreign
+keys, along with the same extension and platform flags. No synchronization or
+durability setting changes. Existing catalog tests cover WAL, synchronous FULL,
+foreign keys, bounded caches, disabled mmap, busy timeout and checked SQL values.
+
+The release repairs callback ownership and allocation failure handling, extends
+SQLCipher support and adds `RawValue`. Session, function, collation and SQLCipher
+features remain disabled; the application does not adopt the new type. No API
+migration is required. Both packaged MIT license texts remain byte-identical
+(SHA-256 `c10c1f27337546471e5f7e4e97fdd398b35b9d4e126115dcd22de8d8e65abf6f`),
+as does SQLite's public-domain notice. Release packaging discovers the resolved
+crate versions and copies these notices automatically; there is no rusqlite
+version-specific notice exception to update.
+
+#### Freshness result
+
+`cargo xtask dependencies check` at `2026-11-11T08:46:02Z` exited 0 with
+129 `CURRENT` lines, zero updates and zero check errors. The following relevant
+lines are verbatim; the pinned migration reference is intentionally not an
+updatable dependency, and the Composer informational difference concerns only
+an undeclared platform:
+
+```text
+rusqlite: CURRENT current=0.42.0 latest=0.42.0
+docker library/composer:latest: CURRENT on declared platforms linux/amd64, linux/arm64
+INFO: latest differs only on linux/riscv64
+github.com/fsouza/fake-gcs-server: PINNED_REFERENCE current=v1.56.1 latest=v1.56.1; migration contract is revision 896ece51e49eed0946089f3089f6343855c0d106
+```
+
+#### Validation performed for rusqlite 0.42.0
+
+| Command/check | Result |
+| --- | --- |
+| `cargo update -p rusqlite --precise 0.42.0 --offline` | PASS: only rusqlite and libsqlite3-sys change |
+| `cargo check --locked --tests` | PASS |
+| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
+| `cargo xtask lint` | PASS: 0 new production violations; 0 ratcheted findings |
+| `cargo test --locked --lib` | PASS with local socket/watch permissions: 2,042 passed, 0 failed, 0 ignored |
+| `cargo test --locked --test it_import_seed` | PASS: 94 passed, 0 failed, 0 ignored |
+| Native `cargo xtask release prepare aarch64-apple-darwin target/debug/gcs-mimic <output>` | PASS: generated notices include rusqlite 0.42.0 and libsqlite3-sys 0.40.0 MIT texts and SQLite's public-domain text |
+| `npx --yes markdownlint-cli2 docs/en/dependency-policy.md docs/en/development.md docs/en/evidence/dependency-refresh.md` | PASS: 0 issues |
+| `cargo xtask dependencies check` | PASS: exit 0, 129 CURRENT lines; verbatim relevant output above |
+
+The import/seed target includes
+`every_supported_release_has_a_fixture` and
+`supported_release_data_directories_upgrade_without_changing_resources`.
+It opens the fixtures from releases 0.8.0 through 0.17.1, compares metadata and
+object bytes through HTTP, and reopens each upgraded directory a second time.
+The native notice check packages a debug binary only; it is not a release build
+or publication. `<output>` stands for an external temporary directory.
+
+The initial sandbox library run exited 101 with
+`test result: FAILED. 1824 passed; 218 failed; 0 ignored; 0 measured; 0 filtered out; finished in 233.97s`;
+local socket creation reported
+`Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }`
+and native observation was unavailable. The same command was then rerun once
+with those local permissions, producing the passing result above without source
+or test changes. The initial network-limited freshness and Markdown checks also
+failed on DNS resolution; their authorized network runs passed.
+
+After rebasing onto `371c8e5a`, the type check, workspace Clippy, production lint
+and all 94 import/seed integration tests passed again. The 2,042-test library
+result precedes that rebase; it was not repeated because the integrated CLI
+changes do not alter the adopted dependency graph or storage implementation.
+
+The full test suite, SDK suites, container builds, Linux/Windows
+runtime checks, benchmarks and remote CI were not run. Final combined validation
+belongs to integration. No feature-ledger or generated-matrix change is required;
+Japanese companion guides contain no corresponding version sentence to update.

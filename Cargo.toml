@@ -62,7 +62,7 @@ workspace = true
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
+rusqlite = { version = "0.42.0", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
 serde_json = { workspace = true, features = ["raw_value", "preserve_order"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "signal", "time", "sync", "macros", "fs", "io-util"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
