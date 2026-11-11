@@ -28,6 +28,13 @@ done
 
 cd "$(dirname "$0")/.."
 root=$PWD
+run_ruby=false
+if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then run_ruby=true; fi
+if [[ $run_ruby == true ]]; then
+  # Select the pinned Ruby before building, so a wrong Ruby fails here and not after the Go suite.
+  source scripts/pinned-ruby.sh
+  select_pinned_ruby sdk-tests/ruby
+fi
 scheme=${GCS_MIMIC_SDK_SCHEME:-http}
 if [[ $with_clients == true && $scheme != http ]]; then
   echo 'Additional client harnesses currently require the HTTP profile' >&2
@@ -210,13 +217,13 @@ if [[ $with_clients == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   (cd "$root/go/sourceexport" && GOTOOLCHAIN=auto go test -race ./...)
 fi
 
-if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+if [[ $run_ruby == true ]]; then
   cd ../ruby
-  BUNDLE_FROZEN=true bundle check
-  bundle exec ruby https.rb --self-check
-  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb --migration-scenario
-  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb
-  GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 bundle exec ruby https.rb
+  BUNDLE_FROZEN=true ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle check
+  ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb --self-check
+  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb --migration-scenario
+  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
+  GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 ${ruby_cmd[@]+"${ruby_cmd[@]}"} bundle exec ruby https.rb
 fi
 
 if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then

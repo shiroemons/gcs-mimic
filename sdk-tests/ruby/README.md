@@ -124,7 +124,11 @@ The repository-root `just check-sdk` runs all eight pinned SDK suites (Go,
 Ruby, Node.js, Python, PHP, Java, .NET and Rust) against isolated
 permissive/strict servers. Install the pinned Ruby/Bundler/gems
 above first; the command does not substitute the host Ruby or install dependencies
-silently. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
+silently. Before building, `scripts/sdk-go.sh` selects the Ruby that `.ruby-version` pins: the
+Ruby on `PATH` when it is that version, otherwise, when mise is installed, `mise exec ruby@<pin>`
+with auto-install off, so mise's global default Ruby is never used. Any other Ruby stops the run
+before the servers start, naming both versions; `bash scripts/test-pinned-ruby.sh` covers this
+selection. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
 with verification enabled. A targeted `GCS_MIMIC_GO_TEST_RUN` retains Go-only
 iteration; the unfiltered recipe executes Ruby as well.
 

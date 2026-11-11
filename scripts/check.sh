@@ -18,6 +18,7 @@ bash scripts/test-container-release.sh
 bash scripts/test-container-mirror.sh
 bash scripts/test-apply-pin-patch.sh
 bash scripts/test-find-release-dry-run.sh
+bash scripts/test-pinned-ruby.sh
 for script in scripts/*.sh; do bash -n "$script"; done
 # macOS ships bash 3.2, whose `set -e` ignores a failed `[[ ]]` statement, so such a check stops
 # only on CI. Spell out the failure instead: `[[ ... ]] || exit 1`, or `|| return 1` in a function.
