@@ -369,13 +369,13 @@
       "resolution_constraints": "Exact literal Maven pins; dependencies.lock records the independent graph. Daily checks cover packages, build plugins, Maven and the newest Temurin GA runtime. Source target Java 17 is a minimum, separate from the verified runtime. Package sizes/provenance and maintenance: docs/en/slices/sdk-client-adapters.md."
     },
     {
-      "ecosystem": "nuget", "manifest": "sdk-tests/dotnet/Scenario.csproj", "source_checked_at": "2026-10-30",
-      "toolchain": {"version": "10.0.403", "pin": "sdk-tests/dotnet/global.json"},
+      "ecosystem": "nuget", "manifest": "sdk-tests/dotnet/Scenario.csproj", "source_checked_at": "2026-11-11",
+      "toolchain": {"version": "11.0.100", "pin": "sdk-tests/dotnet/global.json", "target_framework": "net11.0"},
       "direct_dependencies": [
         {"name": "Google.Cloud.Storage.V1", "current": "5.0.0", "license": "Apache-2.0", "nupkg_bytes": 291825},
         {"name": "Testcontainers", "current": "4.16.0", "license": "MIT", "nupkg_bytes": 1441518}
       ],
-      "resolution_constraints": "Exact NuGet references, requested/resolved lock graph and content hashes; rollForward disabled. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels. Compile/self-check evidence is separate from runtime acceptance."
+      "resolution_constraints": "Exact NuGet references, requested/resolved lock graph and content hashes; rollForward disabled. The project targets net11.0 because SDK 11.0.100 installs only the .NET 11 runtime, so one runtime builds and runs it locally and in CI; on net11.0 the lock no longer lists Microsoft.Extensions.DependencyInjection.Abstractions and Microsoft.Extensions.Logging.Abstractions, which the shared framework supplies. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels. Compile/self-check evidence is separate from runtime acceptance."
     },
     {
       "ecosystem": "cargo", "manifest": "sdk-scorecard/rust/Cargo.toml", "source_checked_at": "2026-10-31",
@@ -410,12 +410,12 @@
       "resolution_constraints": "Development-only scorecard probe; exact literal Maven pins, with dependencies.lock recording the independent graph and checked against the pins. google-auth-library-oauth2-http is the version the SDK already resolves and is named for offline RSA signing; its license is not recorded here because no local registry artifact states it. Daily checks cover packages, build plugins, Maven and the newest Temurin GA runtime."
     },
     {
-      "ecosystem": "nuget", "manifest": "sdk-scorecard/dotnet/Probe.csproj", "source_checked_at": "2026-10-31",
-      "toolchain": {"version": "10.0.403", "pin": "sdk-scorecard/dotnet/global.json"},
+      "ecosystem": "nuget", "manifest": "sdk-scorecard/dotnet/Probe.csproj", "source_checked_at": "2026-11-11",
+      "toolchain": {"version": "11.0.100", "pin": "sdk-scorecard/dotnet/global.json", "target_framework": "net11.0"},
       "direct_dependencies": [
         {"name": "Google.Cloud.Storage.V1", "current": "5.0.0", "license": "Apache-2.0", "nupkg_bytes": 291825}
       ],
-      "resolution_constraints": "Development-only scorecard probe; exact NuGet reference, requested/resolved lock graph and content hashes restored with --locked-mode; rollForward disabled. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels."
+      "resolution_constraints": "Development-only scorecard probe; exact NuGet reference, requested/resolved lock graph and content hashes restored with --locked-mode; rollForward disabled. Targets net11.0 for the same single-runtime reason as the SDK suite; the lock no longer lists Microsoft.Extensions.DependencyInjection.Abstractions, which the shared framework supplies. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels."
     },
     {
       "ecosystem": "npm", "manifest": "sdk-tests/testcontainers/node/package.json", "source_checked_at": "2026-10-30",

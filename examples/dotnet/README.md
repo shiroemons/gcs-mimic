@@ -1,6 +1,6 @@
 # .NET example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with the official `Google.Cloud.Storage.V1` 5.0.0 client. Requires .NET SDK 10.0.403 (`global.json`).
+Creates a bucket, uploads, lists, downloads and deletes an object with the official `Google.Cloud.Storage.V1` 5.0.0 client. Requires .NET SDK 11.0.100 (`global.json`) and targets `net11.0`, the runtime that SDK installs.
 
 ## Start gcs-mimic
 

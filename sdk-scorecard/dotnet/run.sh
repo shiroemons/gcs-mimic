@@ -19,4 +19,4 @@ case "${1:-}" in
   --no-build) shift ;;
   *) build ;;
 esac
-exec dotnet bin/Release/net10.0/Probe.dll "$@"
+exec dotnet bin/Release/net11.0/Probe.dll "$@"

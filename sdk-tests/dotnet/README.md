@@ -1,7 +1,10 @@
 # Official .NET HTTP SDK and Testcontainers
 
-`global.json` pins .NET SDK 10.0.403. `Scenario.csproj` pins Storage 5.0.0 and
+`global.json` pins .NET SDK 11.0.100. `Scenario.csproj` pins Storage 5.0.0 and
 Testcontainers 4.16.0; `packages.lock.json` records the complete graph.
+The project targets `net11.0`: SDK 11 installs only the .NET 11 runtime, so a
+`net10.0` target would also need a separately installed .NET 10 runtime, locally
+and in CI, to run.
 
 ```sh
 bash sdk-tests/dotnet/run.sh --self-check

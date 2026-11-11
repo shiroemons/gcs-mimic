@@ -100,7 +100,7 @@ sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg java "$("${JAVA_HOME:+$JAVA_HOME/bin/}java" -version 2>&1 | sed -n '1p')" \
   --arg java_sdk "$(sed -n 's/^.*com\.google\.cloud:google-cloud-storage:jar:\([^:]*\):compile$/\1/p' "$root/sdk-scorecard/java/dependencies.lock")" \
   --arg dotnet "dotnet SDK $(cd "$root/sdk-scorecard/dotnet" && dotnet --version)" \
-  --arg dotnet_sdk "$(jq -er '.dependencies["net10.0"]["Google.Cloud.Storage.V1"].resolved' "$root/sdk-scorecard/dotnet/packages.lock.json")" \
+  --arg dotnet_sdk "$(jq -er '.dependencies["net11.0"]["Google.Cloud.Storage.V1"].resolved' "$root/sdk-scorecard/dotnet/packages.lock.json")" \
   --arg rust "$(docker run --rm "$rust_image" rustc --version)" \
   --arg rust_sdk "$(awk '$0 == "name = \"google-cloud-storage\"" {getline; gsub(/"/, "", $3); print $3}' "$root/sdk-scorecard/rust/Cargo.lock")" \
   --arg rust_image "$rust_image" \
