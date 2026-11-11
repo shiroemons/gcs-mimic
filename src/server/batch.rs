@@ -556,9 +556,113 @@ mod tests {
         );
         assert!(timed_out.contains("request_timeout_ms"), "{timed_out}");
         drop(busy);
-        assert!(next_text(&mut body).await.contains("204"));
+        let deleted = next_text(&mut body).await;
+        assert!(deleted.contains("HTTP/1.1 204 No Content"), "{deleted}");
         assert_eq!(next_text(&mut body).await, format!("--{BOUNDARY}--\r\n"));
         harness.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_catalog_delete_past_the_request_limit_keeps_its_successful_response() {
+        delayed_delete("/storage/v1/b/bucket/o/a").await;
+    }
+
+    #[tokio::test]
+    async fn an_xml_catalog_delete_past_the_request_limit_keeps_its_successful_response() {
+        delayed_delete("/bucket/a").await;
+    }
+
+    fn delete_part(uri: &str) -> Part {
+        Part {
+            id: None,
+            request: Request::builder()
+                .method("DELETE")
+                .uri(uri)
+                .body(RequestBody::Buffered(Full::new(Bytes::new())))
+                .unwrap(),
+        }
+    }
+
+    async fn delayed_delete(uri: &str) {
+        use crate::storage::fault::{Fault, Step};
+        use std::sync::{Mutex, mpsc};
+
+        let harness = Harness::start(Config {
+            request_timeout: TimeLimit::from_millis(100),
+            ..Config::default()
+        })
+        .await;
+        harness.objects(&["a"]).await;
+        let (entered, reached) = tokio::sync::oneshot::channel();
+        let (release, held) = mpsc::channel();
+        harness.state.catalog.inject(
+            Step::ReclaimUnlink,
+            0,
+            Fault::Block {
+                entered: Arc::new(Mutex::new(Some(entered))),
+                release: Arc::new(Mutex::new(held)),
+            },
+        );
+        let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity);
+        tokio::pin!(rendered);
+        tokio::select! {
+            result = &mut rendered => panic!("answered before reclamation: {}", String::from_utf8_lossy(&result)),
+            result = reached => result.unwrap(),
+        }
+        // The delete has committed; delayed disk cleanup must not turn its reply into a timeout.
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let polled = std::future::poll_fn(|cx| Poll::Ready(rendered.as_mut().poll(cx))).await;
+        release.send(()).unwrap();
+        tokio::time::resume();
+        if let Poll::Ready(response) = polled {
+            panic!(
+                "answered while catalog work was held: {}",
+                String::from_utf8_lossy(&response)
+            );
+        }
+        let rendered = String::from_utf8(rendered.await).unwrap();
+        assert!(rendered.contains("HTTP/1.1 204 No Content"), "{rendered}");
+        assert_eq!(
+            harness.status("GET", "/storage/v1/b/bucket/o/a", b"").await,
+            StatusCode::NOT_FOUND
+        );
+        harness.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn catalog_deletes_waiting_for_admission_expire_without_mutation() {
+        for uri in ["/storage/v1/b/bucket/o/a", "/bucket/a"] {
+            let mut harness = Harness::start(Config {
+                request_timeout: TimeLimit::from_millis(100),
+                ..Config::default()
+            })
+            .await;
+            harness.objects(&["a"]).await;
+            let budget = std::mem::replace(
+                &mut harness.config.catalog_wait_timeout,
+                TimeLimit::from_millis(1),
+            );
+            let admission = harness.state.catalog.hold_admission();
+            // No filesystem work can start while admission is held, so only the controlled
+            // catalog budget can end this wait, without a detached commit behind its reply.
+            tokio::time::pause();
+            let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity).await;
+            tokio::time::resume();
+            drop(admission);
+            harness.config.catalog_wait_timeout = budget;
+            let rendered = String::from_utf8(rendered).unwrap();
+            assert!(
+                rendered.contains("HTTP/1.1 503 Service Unavailable"),
+                "{rendered}"
+            );
+            assert!(rendered.contains("catalog_wait_timeout_ms"), "{rendered}");
+            assert_eq!(
+                harness.status("GET", "/storage/v1/b/bucket/o/a", b"").await,
+                StatusCode::OK
+            );
+            harness.state.catalog.close().await.unwrap();
+        }
     }
 
     /// The connection's limit on a silent response body measures the client, and a client cannot

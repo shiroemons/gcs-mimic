@@ -109,9 +109,7 @@ pub(super) async fn respond(
         }
         ObjectRequest::Delete { target, conditions } => {
             json::validate_object_get_headers(request.headers())?;
-            ctx.state
-                .catalog
-                .delete_object(target, conditions, &access)
+            ctx.await_catalog(ctx.state.catalog.delete_object(target, conditions, &access))
                 .await?;
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }

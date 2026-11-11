@@ -55,11 +55,13 @@ pub(super) async fn respond(
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {
-        ctx.state
-            .catalog
-            .delete_object(operation.target, conditions, &access)
-            .await
-            .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
+        ctx.await_catalog(
+            ctx.state
+                .catalog
+                .delete_object(operation.target, conditions, &access),
+        )
+        .await
+        .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
     }
     read(&request, operation, conditions, ctx, &access, key).await
