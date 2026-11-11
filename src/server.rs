@@ -867,7 +867,7 @@ impl Serving {
     #[cfg(unix)]
     fn accept_unix(self, at: tokio::time::Instant) -> Accepted {
         Accepted {
-            handshake: self.security.without_detection(),
+            handshake: self.security.for_unix_socket(),
             role: self.role,
             at,
         }

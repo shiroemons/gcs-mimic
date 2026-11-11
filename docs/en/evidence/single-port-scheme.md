@@ -14,6 +14,7 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `bash scripts/with-test-tmpdir.sh bash scripts/test-rust.sh` | Every binary except `it_process` passed (library: 2058 tests). `it_process` then failed 12 tests that asserted the former `https` default; after updating them it passed as above. |
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
 | `cargo xtask lint` | PASS: no new production violation; test wall-clock calls within the baseline |
+| `bash scripts/check-cross.sh` | PASS for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, with no new production Clippy violation. The first CI run of the feature failed this check on Windows, where the Unix-socket handshake was unused; it now compiles only on Unix. |
 
 ## What the tests establish
 
@@ -23,7 +24,8 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `server::handshake::tests::detection_leaves_the_first_byte_for_the_protocol` | Detection peeks: the HTTP/2 preface is still read in full afterwards |
 | `server::handshake::tests::a_client_that_closes_first_is_closed_and_a_silent_one_times_out` | A connection closed before its first byte is `Closed`; one that sends nothing until the deadline is `Silent` |
 | `server::handshake::tests::shutdown_ends_the_wait_for_the_first_byte` | The stop signal ends the wait |
-| `server::handshake::tests::fixed_modes_never_wait_and_a_unix_socket_serves_plain_http_under_detection` | `Plain` and `Tls` listeners select at once even with a past deadline; a Unix socket under detection serves plain HTTP |
+| `server::handshake::tests::fixed_modes_never_wait_for_the_first_byte` | `Plain` and `Tls` listeners select at once even with a past deadline |
+| `server::handshake::tests::a_unix_socket_serves_plain_http_under_detection` | On Unix, a socket under detection serves plain HTTP; the handshake selection that only Unix sockets use compiles only there, so Windows builds have no unused code |
 | `config::tests::tls_configuration_precedence_and_validation` | The default is `auto`, also when only `tls_cert` and `tls_key` are supplied |
 | `config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts` | The fallback API base uses `http` under `auto` and `http`, `https` under `https` and `both` |
 | `config::unix_tests::a_unix_socket_serves_plain_http_under_the_default_scheme` | `unix_socket` alone is valid; `https`, `both`, `tls_cert` and `tls_handshake_timeout_ms` beside it fail with their reasons |

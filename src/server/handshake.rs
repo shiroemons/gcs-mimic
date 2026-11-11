@@ -48,9 +48,10 @@ impl ListenerSecurity {
         }
     }
 
-    /// The handshake for a transport that is never inspected. A Unix socket serves plain HTTP
-    /// under detection, because no TLS client reaches it.
-    pub(super) fn without_detection(self) -> Handshake {
+    /// The handshake for a Unix socket, which is never inspected: it serves plain HTTP under
+    /// detection, because no TLS client reaches it.
+    #[cfg(unix)]
+    pub(super) fn for_unix_socket(self) -> Handshake {
         match self {
             Self::Plain | Self::Detect(_) => Handshake::Plain,
             Self::Tls(acceptor) => Handshake::Tls(acceptor),
@@ -173,7 +174,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fixed_modes_never_wait_and_a_unix_socket_serves_plain_http_under_detection() {
+    async fn fixed_modes_never_wait_for_the_first_byte() {
         let (_stop, stopping) = watch::channel(false);
         let (_client, server) = pair().await;
         let past = Instant::now();
@@ -181,18 +182,26 @@ mod tests {
             .select(&server, past, &mut stopping.clone())
             .await;
         assert!(matches!(plain, Ok(Handshake::Plain)));
-        assert!(matches!(detecting().without_detection(), Handshake::Plain));
         let ListenerSecurity::Detect(acceptor) = detecting() else {
             panic!("auto loads a detecting listener");
         };
         assert!(matches!(
-            ListenerSecurity::Tls(acceptor.clone())
+            ListenerSecurity::Tls(acceptor)
                 .select(&server, past, &mut stopping.clone())
                 .await,
             Ok(Handshake::Tls(_))
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_unix_socket_serves_plain_http_under_detection() {
+        assert!(matches!(detecting().for_unix_socket(), Handshake::Plain));
+        let ListenerSecurity::Detect(acceptor) = detecting() else {
+            panic!("auto loads a detecting listener");
+        };
         assert!(matches!(
-            ListenerSecurity::Tls(acceptor).without_detection(),
+            ListenerSecurity::Tls(acceptor).for_unix_socket(),
             Handshake::Tls(_)
         ));
     }
