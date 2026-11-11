@@ -134,11 +134,12 @@ fn assert_counts(
             outcome.aborted,
             outcome.deleted,
             outcome.archived,
+            outcome.transitioned,
             outcome.blocked,
             outcome.skipped,
             outcome.next
         ),
-        (scanned, aborted, 0, 0, 0, skipped, next)
+        (scanned, aborted, 0, 0, 0, 0, skipped, next)
     );
 }
 
@@ -768,6 +769,121 @@ async fn multipart_abort_keyset_pages_share_the_action_budget_with_object_deleti
         0
     );
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 0);
+    clock.advance(COALESCE);
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit() {
+    let (catalog, clock) = memory().await;
+    create(&catalog, vec![
+        abort(json!({"age":1,"matchesPrefix":["abort/"]})),
+        json!({"action":{"type":"Delete"},"condition":{"age":1,"matchesPrefix":["delete/"]}}),
+        json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1,"matchesPrefix":["transition/"]}}),
+    ]).await;
+    let mut versioned = bucket("versions", "project");
+    versioned.versioning_enabled = true;
+    versioned.lifecycle =
+        vec![json!({"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}})];
+    catalog.insert_bucket(versioned).await.unwrap();
+    for _ in 0..ACTION_LIMIT - 4 {
+        begin(&catalog, "abort/value").await;
+    }
+    for (bucket, name) in [
+        ("bucket", "transition/object"),
+        ("bucket", "delete/object"),
+        ("versions", "archive/a"),
+        ("versions", "archive/b"),
+        ("versions", "archive/c"),
+    ] {
+        catalog
+            .put_object(
+                permissive_upload(bucket, name, 100),
+                body(vec![Bytes::from_static(b"object")]),
+            )
+            .await
+            .unwrap();
+    }
+    clock.advance(DAY);
+    let first = execute(&catalog).await;
+    let actions = (
+        first.aborted,
+        first.transitioned,
+        first.deleted,
+        first.archived,
+    );
+    assert_eq!(actions, (ACTION_LIMIT - 4, 1, 1, 2));
+    assert_eq!(first.applied(), ACTION_LIMIT);
+    assert_eq!(first.scanned, ACTION_LIMIT);
+    assert_eq!((first.blocked, first.skipped), (0, 0));
+    assert_eq!(first.next, Some(clock.now()));
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM xml_multipart_uploads").await,
+        0
+    );
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket='bucket' AND name='delete/object'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM objects WHERE bucket='bucket' AND name='transition/object' AND storage_class='COLDLINE'").await,
+        1
+    );
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket='versions' AND time_deleted IS NOT NULL"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket='versions' AND time_deleted IS NULL"
+        )
+        .await,
+        1
+    );
+    let second = execute(&catalog).await;
+    let actions = (
+        second.aborted,
+        second.transitioned,
+        second.deleted,
+        second.archived,
+    );
+    assert_eq!(actions, (0, 0, 0, 1));
+    assert_eq!(second.applied(), 1);
+    assert_eq!(second.scanned, 4);
+    assert_eq!((second.blocked, second.skipped), (0, 0));
+    assert_eq!(second.next, Some(clock.now() + COALESCE));
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket='versions' AND time_deleted IS NOT NULL"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket='versions' AND time_deleted IS NULL"
+        )
+        .await,
+        0
+    );
+    clock.advance(COALESCE);
+    assert_counts(execute(&catalog).await, 4, 0, 0, None);
+    assert_eq!(
+        catalog.maintain_resumable_sessions().await.unwrap(),
+        Some(clock.now() + COALESCE)
+    );
     clock.advance(COALESCE);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     catalog.close().await.unwrap();
