@@ -31989,7 +31989,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Validated metadata storage and insert/get/list/PATCH/PUT round trips, schema 23 to 24 migration and ordinary Go/Ruby lifecycle APIs. Thirteen scoped condition fields include sizeAboveBytes/sizeBelowBytes as int64 strings or numbers from 0 through 5 TiB; stored values and HTTP responses normalize them to decimal strings. Invalid sizes leave state unchanged. Existing stored rows are not rewritten; typed conversion preserves their values, and new writes use canonical field order. Three actions, nonnegative int32 values, calendar dates, 100 rules and 1000 total prefixes/suffixes are bounded. Stored Delete and supported SetStorageClass rules now execute through the bounded sweep, including class-dependent Delete, location restrictions and applied-class preservation after rule replacement. Multipart abort remains separate. XML and initializer lifecycle remain unsupported. Contract and verification: docs/en/slices/sdk-lifecycle-config.md, docs/en/slices/lifecycle-execution.md and docs/en/slices/lifecycle-storage-class.md. Unsupported class transitions remain accepted but inert; location-dependent legacy matchesStorageClass combinations are checked.",
+      "notes": "Validated metadata storage and insert/get/list/PATCH/PUT round trips, schema 23 to 24 migration and ordinary Go/Ruby lifecycle APIs. Thirteen scoped condition fields include sizeAboveBytes/sizeBelowBytes as int64 strings or numbers from 0 through 5 TiB; stored values and HTTP responses normalize them to decimal strings. Invalid sizes leave state unchanged. Existing stored rows are not rewritten; typed conversion preserves their values, and new writes use canonical field order. Three actions, nonnegative int32 values, calendar dates, 100 rules and 1000 total prefixes/suffixes are bounded. Stored Delete and supported SetStorageClass rules now execute through the bounded sweep, including class-dependent Delete, location restrictions and applied-class preservation after rule replacement. XML multipart abort executes with initiation-age/name conditions, Busy exclusion and transactional part reclamation. XML and initializer lifecycle configuration remain unsupported. Contract and verification: docs/en/slices/sdk-lifecycle-config.md, docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md. Unsupported class transitions remain accepted but inert; location-dependent legacy matchesStorageClass combinations are checked.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -32407,7 +32407,7 @@
         }
       ],
       "known_deviations": [
-        "Delete and supported class transitions execute under deterministic local scheduling without provider propagation or infrastructure timing; multipart abort remains separate. XML lifecycle and initialization-file lifecycle remain unsupported; matchesPattern retains the shared unsupported response. Storage v2 cannot represent size conditions and rejects reads requesting lifecycle; masked reads excluding it succeed. Its mutation precheck uses a metageneration match, with bounded retries for implicit matches, but neither updates nor retention locking prevent same-name recreation with the same metageneration between precheck and mutation. BucketRecord still stores JSON values decoded at validation boundaries. REGIONAL and RAPID object/action classes remain outside the existing StorageClass model. SPEC-LIFECYCLE-CONFIG records default normalization and unverified provider error detail; the behavior row remains PARTIAL.",
+        "Delete, supported class transitions and XML multipart abort execute under deterministic local scheduling without provider propagation or infrastructure timing. Multipart age zero at UTC midnight is an unverified local decision. XML lifecycle and initialization-file lifecycle configuration remain unsupported; matchesPattern retains the shared unsupported response. Storage v2 cannot represent size conditions and rejects reads requesting lifecycle; masked reads excluding it succeed. Its mutation precheck uses a metageneration match, with bounded retries for implicit matches, but neither updates nor retention locking prevent same-name recreation with the same metageneration between precheck and mutation. BucketRecord still stores JSON values decoded at validation boundaries. REGIONAL and RAPID object/action classes remain outside the existing StorageClass model. SPEC-LIFECYCLE-CONFIG records default normalization and unverified provider error detail; the behavior row remains PARTIAL.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
       "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
@@ -32971,7 +32971,7 @@
         {"id":"parts-and-missing-upload","description":"Retirement atomically journals parts, reclaims disk and memory bytes, and upload-part, list-parts, completion and abort XML handlers return 404 NoSuchUpload.","result":"PASS","test_ids":["multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"]},
         {"id":"no-object-effects","description":"Abort emits no notification and changes no published objects or resumable sessions; Delete and SetStorageClass do not act on uploads. Object-only conditions are rejected independently of rule validation.","result":"PASS","test_ids":["multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory","multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules","multipart_abort_evaluation_rejects_object_only_conditions_without_validation"]},
         {"id":"execution-controls","description":"Disabled execution and the synchronization default preserve uploads; explicit enable executes them and complete admin HTTP responses include aborted for enabled and disabled execution.","result":"PASS","test_ids":["multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled","lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"]},
-        {"id":"bounded-indexed-pages","description":"Only buckets with abort rules scan uploads, through bounded indexed keyset pages and the shared 1024-action cap with object deletions.","result":"PASS","test_ids":["multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion","multipart_abort_scan_seeks_the_existing_list_index_without_sorting","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules"]},
+        {"id":"bounded-indexed-pages","description":"Only buckets with abort rules scan uploads, through bounded indexed keyset pages. Abort, transition, deletion and archive share one strict 1024-action cap with exact continuation deadlines and preserved stored state.","result":"PASS","test_ids":["multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion","multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit","multipart_abort_scan_seeks_the_existing_list_index_without_sorting","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules"]},
         {"id":"incarnation-and-quarantine","description":"Each page rechecks bucket incarnation and rules; recreated buckets exclude old uploads, malformed rules quarantine the bucket and API repair resumes execution.","result":"PASS","test_ids":["multipart_abort_rechecks_bucket_incarnation_after_recreation","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules"]},
         {"id":"restart-and-reclamation-faults","description":"Failed page commits roll back upload/part/journal state. Process-crash and power-loss snapshots at the second page recover idempotently; failed reclaim, directory-sync and journal-forget steps retain retryable deletion rows.","result":"PASS","test_ids":["multipart_abort_commit_failure_rolls_back_and_retries_without_losing_parts","multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_journal","multipart_abort_reclamation_failures_leave_a_retryable_journal"]},
         {"id":"provider-zero-age-midnight","description":"Needs authorized real-provider evidence for whether abort age zero waits until the next UTC midnight and whether initiation exactly at midnight waits a full day.","result":"PENDING","test_ids":[]},
@@ -32989,6 +32989,7 @@
         "multipart_abort_completion_lease_wins_or_missing_id_prevents_completion",
         "multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled",
         "multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion",
+        "multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit",
         "multipart_abort_scan_seeks_the_existing_list_index_without_sorting",
         "multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules",
         "multipart_abort_rechecks_bucket_incarnation_after_recreation",
@@ -33002,12 +33003,13 @@
       ],
       "verification": [
         {"command":"cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods"]},
+        {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit"]},
         {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["multipart_abort_whole_lease_release_alone_rearms_the_next_pass","multipart_abort_success_does_not_rearm_on_an_unrelated_lease_release","multipart_abort_evaluation_rejects_object_only_conditions_without_validation"]},
         {"command":"cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-multipart-abort.md","test_ids":["multipart_abort_age_uses_initiation_and_exact_shared_deadlines","multipart_abort_zero_age_waits_for_next_midnight_including_midnight_initiation","multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources","multipart_abort_name_only_rules_match_without_an_age_condition","multipart_abort_busy_leases_rearm_on_release_without_polling","multipart_abort_overflow_never_matches_or_schedules","multipart_lease_release_without_a_skipped_abort_does_not_dirty_the_schedule","multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory","multipart_abort_completion_lease_wins_or_missing_id_prevents_completion","multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled","multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion","multipart_abort_scan_seeks_the_existing_list_index_without_sorting","multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules","multipart_abort_rechecks_bucket_incarnation_after_recreation","multipart_abort_commit_failure_rolls_back_and_retries_without_losing_parts","multipart_abort_restart_mid_pass_and_power_loss_recover_the_deletion_journal","multipart_abort_reclamation_failures_leave_a_retryable_journal"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Execution uses the injected local clock and shared coalescing/action limits without Google configuration propagation or infrastructure timing.","The shared evaluator's next-midnight age-zero behavior, including a full day for initiation exactly at midnight, is an unverified local decision for multipart uploads.","An abort error rolls back its page and stops object actions, including Delete, for the same bucket in that pass; individual corrupt upload rows are not quarantined.","A page retires up to 128 uploads in one transaction and holds all whole-upload leases until commit; uploads with many parts can delay other catalog requests for that page."],
-      "implemented_in": "016bf150",
+      "known_deviations": ["Execution uses the injected local clock and shared coalescing/action limits without Google configuration propagation or infrastructure timing.","The shared evaluator's next-midnight age-zero behavior, including a full day for initiation exactly at midnight, is an unverified local decision for multipart uploads.","An abort error rolls back its page and stops object actions, including Delete and SetStorageClass, for the same bucket in that pass; individual corrupt upload rows are not quarantined.","A page retires up to 128 uploads in one transaction and holds all whole-upload leases until commit; uploads with many parts can delay other catalog requests for that page."],
+      "implemented_in": "4c934eb4",
       "last_verified": "2026-11-11"
     },
     {
@@ -33179,7 +33181,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Delete runs through a deterministic injected-clock model. Supported storage-class transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without promoting this row's condition-only evidence into transition coverage. Multipart abort and provider propagation/timing remain outside the subset. Age zero follows the guide's next UTC midnight instead of the pinned protobuf's immediate-match description; the source conflict is recorded in docs/en/slices/lifecycle-execution-research.md. Waiting until the following day when creation is exactly at midnight remains a local choice without real-cloud verification."
+        "Delete runs through a deterministic injected-clock model. Supported storage-class transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without promoting this row's condition-only evidence into transition coverage. Multipart initiation-age execution is covered separately by BEHAVIOR-LIFECYCLE-004; provider propagation/timing remains unverified. Age zero follows the guide's next UTC midnight instead of the pinned protobuf's immediate-match description; the source conflict is recorded in docs/en/slices/lifecycle-execution-research.md. Waiting until the following day when creation is exactly at midnight remains a local choice without real-cloud verification."
       ],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
@@ -33316,7 +33318,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tested Custom-Time Delete subset executes under deterministic local scheduling, including zero days, past metadata and strict date boundaries. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003; this row does not claim transition coverage for every Custom-Time boundary. Multipart abort and provider propagation/timing remain outside the subset."
+        "The tested Custom-Time Delete subset executes under deterministic local scheduling, including zero days, past metadata and strict date boundaries. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003; this row does not claim transition coverage for every Custom-Time boundary. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept Custom-Time conditions. Provider propagation/timing remains unverified."
       ],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
@@ -33493,7 +33495,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Pure evaluation and catalog execution cover case-sensitive name lists, typed class membership and action precedence. Applied transitions change the stored class, which determines same-pass and later Delete rules; replacing rules preserves the already-applied class. Independent Delete rules retain their deadlines. Incompatible locations and unlisted transitions stay inert. matchesPattern remains rejected as Early Access/allowlist-only; see docs/en/slices/lifecycle-storage-class.md.",
+      "notes": "Pure evaluation and catalog execution cover case-sensitive name lists, typed class membership and action precedence. Applied transitions change the stored class, which determines same-pass and later Delete rules; replacing rules preserves the already-applied class. Independent Delete rules retain their deadlines. Incompatible locations and unlisted transitions stay inert. XML multipart abort executes case-sensitive prefix/suffix lists, combined age conditions and alternative rules; see docs/en/slices/lifecycle-multipart-abort.md. matchesPattern remains rejected as Early Access/allowlist-only; see docs/en/slices/lifecycle-storage-class.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33593,9 +33595,12 @@
         },
         {
           "id": "multipart-abort-execution",
-          "description": "Waiting for the multipart-abort execution slice; name conditions do not yet cause incomplete uploads to be aborted.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "XML multipart abort uses case-sensitive prefix/suffix lists with OR within lists and between rules, AND across conditions, and immediate matching for name-only rules without age.",
+          "result": "PASS",
+          "test_ids": [
+            "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+            "multipart_abort_name_only_rules_match_without_an_age_condition"
+          ]
         },
         {
           "id": "unsupported-pattern-execution",
@@ -33622,9 +33627,21 @@
         "class_dependent_delete_without_a_transition_uses_the_stored_class",
         "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline",
         "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-        "location_incompatible_transitions_are_stored_but_inert"
+        "location_incompatible_transitions_are_stored_but_inert",
+        "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+        "multipart_abort_name_only_rules_match_without_an_age_condition"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture",
+          "result": "PASS",
+          "verified_at": "2026-11-11",
+          "artifact": "docs/en/slices/lifecycle-multipart-abort.md",
+          "test_ids": [
+            "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
+            "multipart_abort_name_only_rules_match_without_an_age_condition"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib lifecycle",
           "result": "PASS",
@@ -33676,7 +33693,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Name/class-dependent Delete and supported transitions execute under deterministic local scheduling. Same-pass chains and protected independent Delete precedence need authorized provider evidence. Multipart abort remains separate. REGIONAL and RAPID object/action classes are not represented by the existing StorageClass type. Regional DRA to MULTI_REGIONAL is stored but inert; defensive unknown-location exclusion does not establish public zonal-bucket support. matchesPattern remains unsupported.",
+        "Name/class-dependent Delete, supported transitions and name-conditioned XML multipart abort execute under deterministic local scheduling. Same-pass chains and protected independent Delete precedence need authorized provider evidence. Multipart provider timing and age-zero midnight interpretation remain unverified under BEHAVIOR-LIFECYCLE-004. REGIONAL and RAPID object/action classes are not represented by the existing StorageClass type. Regional DRA to MULTI_REGIONAL is stored but inert; defensive unknown-location exclusion does not establish public zonal-bucket support. matchesPattern remains unsupported.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
       "implemented_in": "d05207d0554b27719c22f98cd9fe485f3855bdbd",
@@ -33729,7 +33746,7 @@
         {"command":"cargo test --lib lifecycle","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["stored_body_sizes_use_strict_thresholds_at_equality_and_each_adjacent_byte","small_bodies_compare_against_thresholds_at_and_near_five_tebibytes","catalog_sizes_around_five_tebibytes_use_small_bodies_and_strict_comparisons"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["The tested data-size Delete subset executes under deterministic local scheduling. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without claiming this row's size-boundary tests as transition evidence; multipart abort remains separate. Sweep comparisons at 5 TiB use test-only SQL size records at the limit and each adjacent byte with four-byte bodies; no actual 5 TiB upload or correct size publication from such a body is proven here. Real small bodies also exercise thresholds at and near the limit. Storage v2 has no size fields and returns UNIMPLEMENTED for reads requesting lifecycle; masked reads excluding lifecycle succeed. UpdateBucket uses an explicit or injected metageneration match and retries implicit conflicts at most twice. Retention locking uses its mandatory match. Neither operation prevents same-name recreation with the same metageneration between precheck and mutation. Legacy v1 lifecycle remains unsupported. Provider propagation/timing is not simulated."],
+      "known_deviations": ["The tested data-size Delete subset executes under deterministic local scheduling. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without claiming this row's size-boundary tests as transition evidence. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept size conditions. Sweep comparisons at 5 TiB use test-only SQL size records at the limit and each adjacent byte with four-byte bodies; no actual 5 TiB upload or correct size publication from such a body is proven here. Real small bodies also exercise thresholds at and near the limit. Storage v2 has no size fields and returns UNIMPLEMENTED for reads requesting lifecycle; masked reads excluding lifecycle succeed. UpdateBucket uses an explicit or injected metageneration match and retries implicit conflicts at most twice. Retention locking uses its mandatory match. Neither operation prevents same-name recreation with the same metageneration between precheck and mutation. Legacy v1 lifecycle remains unsupported. Provider propagation/timing is not simulated."],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
     },
@@ -33750,7 +33767,7 @@
       ],
       "source_checked_at": "2026-11-10",
       "source_evidence": "SPEC_BASED",
-      "notes": "Deterministic local scheduling evaluates current facts on the injected clock, with exact clean-schedule/protection deadlines, one-second write coalescing, rising-edge wakeup, descending primary-key pages and restart reconstruction. The strict 1024-action cap may stop mid-chain and returns now; continuation uses the stored class. A protected class-dependent Delete schedules an applicable future transition, while independent Delete retains its existing blocking behavior. Execution defaults off with sync_dir and on otherwise. Multipart abort remains separate. Contracts: docs/en/slices/lifecycle-execution.md and docs/en/slices/lifecycle-storage-class.md.",
+      "notes": "Deterministic local scheduling evaluates current facts on the injected clock, with exact clean-schedule/protection deadlines, one-second write coalescing, rising-edge wakeup, descending primary-key pages and restart reconstruction. The strict 1024-action cap may stop mid-chain and returns now; continuation uses the stored class. A protected class-dependent Delete schedules an applicable future transition, while independent Delete retains its existing blocking behavior. Execution defaults off with sync_dir and on otherwise. XML multipart abort shares the same action cap and execution setting, with initiation-age deadlines and lease-release wakeups covered by BEHAVIOR-LIFECYCLE-004. Contracts: docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",

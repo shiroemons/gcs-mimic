@@ -1,6 +1,6 @@
 # Lifecycle multipart abort execution
 
-The feature ledger owns status for `BEHAVIOR-LIFECYCLE-004` and the multipart-abort acceptance case of `BEHAVIOR-LIFECYCLE-001`. Stored `AbortIncompleteMultipartUpload` rules now execute for XML multipart uploads in the shared lifecycle pass. The achieved scope remains `LOCAL_SIMULATION` and `PARTIAL` against the `EXACT` target: provider propagation, execution timing and the age-zero midnight interpretation have not been checked against Google Cloud.
+The feature ledger owns status for `BEHAVIOR-LIFECYCLE-004` and the multipart-abort acceptance cases of `BEHAVIOR-LIFECYCLE-001` and `BEHAVIOR-LIFECYCLE-008`. Stored `AbortIncompleteMultipartUpload` rules now execute for XML multipart uploads in the shared lifecycle pass. The achieved scope remains `LOCAL_SIMULATION` and `PARTIAL` against the `EXACT` target: provider propagation, execution timing and the age-zero midnight interpretation have not been checked against Google Cloud.
 
 ## Contract and sources
 
@@ -16,11 +16,11 @@ The lifecycle pass visits upload pages before object actions in each selected bu
 
 Rule-bearing buckets currently use separate validation jobs and rule caches for upload and object selection. This adds one initial rule decode for the upload sweep even when the bucket has no abort rule; it does not scan uploads in that case.
 
-Each page retires up to 128 uploads in one transaction and holds their whole-upload leases until commit. Uploads with many parts can therefore delay other catalog requests for that page. An abort error rolls back its page and stops object actions, including Delete, for the same bucket in that pass; other buckets continue and earlier committed pages remain applied. Individual corrupt upload rows are not quarantined. This is a known limit; ordinary startup validates upload rows before serving requests.
+Each page retires up to 128 uploads in one transaction and holds their whole-upload leases until commit. Uploads with many parts can therefore delay other catalog requests for that page. An abort error rolls back its page and stops object actions, including Delete and SetStorageClass, for the same bucket in that pass; other buckets continue and earlier committed pages remain applied. Individual corrupt upload rows are not quarantined. This is a known limit; ordinary startup validates upload rows before serving requests.
 
 An upload held by a part or completion lease increments `skipped` and remains available. A single in-memory flag records that some upload was skipped. Client multipart lease release consumes that flag and marks the lifecycle schedule dirty; the ordinary one-second write-coalescing gate then allows another pass. Maintenance leases never rearm lifecycle. A release without a skipped abort leaves the schedule clean. With all matching uploads Busy, lifecycle returns no immediate deadline; ordinary multipart expiry still supplies its seven-day deadline. Repeated maintenance passes before a write, release or deadline perform no lifecycle rescan. The flag is catalog-wide: an unrelated multipart lease release can consume it and cause one extra scan, but a later scan seeing the still-Busy upload rearms it.
 
-Abort shares the 1024-action pass budget with object actions. The admin outcome adds `aborted`; `scanned` includes visited uploads and object versions. Reaching the cap returns the current injected time. Existing uploads' future match instants participate in the lifecycle deadline. Successful mutations can also return the existing one-second coalescing deadline for one follow-up scan.
+Abort shares the strict 1024-action pass budget with Delete, versioned archive and SetStorageClass. The admin outcome includes `aborted` and `transitioned`; `scanned` includes visited uploads and object versions. Reaching the cap returns the current injected time. Existing uploads' future match instants participate in the lifecycle deadline. Successful mutations can also return the existing one-second coalescing deadline for one follow-up scan.
 
 Retirement calls the existing multipart `retire` path: it journals every part blob and deletes the upload with cascading part removal in the same SQLite transaction. The following multipart sweep reclaims journaled disk staging files or memory blobs. Upload-part, list-parts, completion and abort subsequently return XML 404 `NoSuchUpload`. Abort does not publish an object, touch existing object versions or resumable sessions, or write object notifications or synchronization events. Delete and SetStorageClass rules do not select uploads.
 
@@ -47,6 +47,7 @@ All execution cases use the real catalog lifecycle pass and manual clock. XML mi
 | Disk/memory part reclamation, no notification, all four XML missing-ID operations | `multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory` |
 | Disabled execution, synchronization default, explicit enable and admin serialization | `multipart_abort_disabled_and_sync_defaults_preserve_uploads_until_enabled` |
 | Multiple same-name pages and shared action cap with object Delete | `multipart_abort_keyset_pages_share_the_action_budget_with_object_deletion` |
+| Abort, transition, deletion and archive in one capped pass; continuation preserves the applied class and archived versions | `multipart_aborts_transitions_deletes_and_archives_share_one_strict_action_limit` |
 | Indexed query plan with no full scan or temporary sort | `multipart_abort_scan_seeks_the_existing_list_index_without_sorting` |
 | No upload scan for other actions, rule quarantine and API repair | `multipart_abort_does_not_scan_uploads_for_other_actions_or_quarantined_rules` |
 | Bucket deletion/recreation between passes excludes the old incarnation | `multipart_abort_rechecks_bucket_incarnation_after_recreation` |
@@ -65,11 +66,14 @@ Verified on 2026-11-11:
 | Command | Result |
 | --- | --- |
 | `cargo check --locked --offline --tests` | Passed |
-| `cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture` | 20 passed, 0 failed |
-| `cargo test --locked --offline --test it_admin lifecycle_run_uses_admin_guards_and_refuses_time_travel_or_invalid_methods -- --nocapture` | 1 passed, 0 failed |
+| `cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture` | 21 passed, 0 failed |
+| `cargo test --locked --offline --lib lifecycle --quiet -- --test-threads=4` | 195 passed, 0 failed |
+| `cargo test --locked --offline --test it_admin lifecycle -- --nocapture` | 2 passed, 0 failed |
 | `cargo xtask lint` | 0 new production violations, 0 ratcheted findings |
-| `cargo test --locked --offline --no-fail-fast` | 3071 passed, 0 failed; 1 existing ignored local Pub/Sub opt-in test |
-| `cargo xtask compatibility validate` | 607 feature rows validated |
-| `npx --yes markdownlint-cli2 docs/en/slices/lifecycle-multipart-abort.md docs/en/slices/lifecycle-execution.md docs/en/releases/lifecycle-execution.md` | 0 issues |
+| `cargo fmt --all --check` | Passed |
+| `cargo test --locked --offline --no-fail-fast -- --test-threads=4` | 3124 passed, 0 failed; 1 existing ignored local Pub/Sub opt-in test |
+| `cargo xtask compatibility render` | 607 feature rows validated; regenerated English and Japanese matrices |
+| `cargo xtask compatibility check` | 607 feature rows validated; matrices and test IDs consistent |
+| `just check-markdown` | 384 Markdown files and 2 generated views; 0 issues |
 
 SDK harnesses, container builds, guide walkthroughs, resource measurements and real-provider calls were not run for this slice. No new dependency is needed; dependency pins and final integrated SDK/container verification belong to the concurrent integration work. The next lifecycle scope is provider evidence for the stated midnight and timing questions, or the remaining action interactions recorded in the ledger.

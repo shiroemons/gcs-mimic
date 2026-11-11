@@ -38,9 +38,10 @@ cases pass.
   midnight is strict, zero custom/noncurrent days use the exact metadata/archive
   instant, and newer-version counts include a live version when present.
   Each test checks counts, stored-object presence and exact returned deadlines.
-- Later execution slices must apply SetStorageClass and multipart abort.
-  Class-dependent Delete stays deferred until storage transitions execute;
-  transition bucket-location restrictions belong to that later slice.
+- The [storage class slice](lifecycle-storage-class.md) executes supported
+  transitions, class-dependent Delete and transition bucket-location restrictions.
+  The [multipart abort slice](lifecycle-multipart-abort.md) executes XML upload
+  retirement using initiation age and name conditions.
 - XML and initialization-file lifecycle configuration depend on their own
   configuration features.
 - Deliberately unsupported: matchesPattern and REGIONAL/RAPID object/action
