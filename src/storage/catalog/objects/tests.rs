@@ -921,6 +921,7 @@ async fn upload_reports_a_failed_final_write_instead_of_a_short_blob() {
         body,
         cancellation,
         &catalog,
+        None,
     )
     .await;
     assert!(

@@ -104,7 +104,7 @@ pub(super) use schema::{
     GENERATION_SCHEMA, METADATA_SCHEMA, SCHEMA, VERSIONING_SCHEMA, migrate, migrate_metadata,
     migrate_versioning,
 };
-pub(super) use upload::{OwnerAssignment, PublishIdentity, UploadSink, write_stream};
+pub(super) use upload::{OwnerAssignment, PublishIdentity, UploadSink, UploadedBody, write_stream};
 
 /// A streamed upload's destination and everything its publication checks and records,
 /// apart from the body and the admission permit.

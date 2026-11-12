@@ -20,12 +20,34 @@ impl CommitOutcome {
     }
 }
 
-/// The streamed body's size and digests.
-struct UploadedBody {
-    size: u64,
-    md5: [u8; 16],
-    crc32c: u32,
+/// The streamed body's size and the digests every object stores.
+#[derive(Debug)]
+pub(in crate::storage::catalog) struct UploadedBody {
+    pub(in crate::storage::catalog) size: u64,
+    pub(in crate::storage::catalog) md5: [u8; 16],
+    pub(in crate::storage::catalog) crc32c: u32,
+}
+
+/// An upload that a retry with the same idempotency token can replay. Only the replay
+/// fingerprint compares SHA-256, so a body is hashed with it only when a token was sent.
+struct ReplayedUpload {
+    replay: super::super::upload_replay::UploadReplay,
     sha256: [u8; 32],
+}
+
+impl ReplayedUpload {
+    /// Pairs `replay` with the SHA-256 of the body that was streamed through `body`.
+    fn new(
+        replay: super::super::upload_replay::UploadReplay,
+        body: ring::digest::Context,
+    ) -> Result<Self, ObjectError> {
+        let sha256 = body
+            .finish()
+            .as_ref()
+            .try_into()
+            .map_err(object_unavailable)?;
+        Ok(Self { replay, sha256 })
+    }
 }
 
 /// Everything a single-request upload commits once its blob is durable.
@@ -41,7 +63,7 @@ struct UploadCommit {
     mode: super::super::admin::PublishMode,
     identity: PublishIdentity,
     owner: OwnerAssignment,
-    replay: Option<super::super::upload_replay::UploadReplay>,
+    replay: Option<ReplayedUpload>,
     clock: Arc<dyn Clock>,
     blob_id: BlobId,
     body: UploadedBody,
@@ -93,7 +115,7 @@ impl PublishIdentity {
 
 impl UploadCommit {
     /// Identifies the request for upload replay: target, metadata, conditions and body.
-    fn fingerprint(&self) -> Vec<u8> {
+    fn fingerprint(&self, sha256: [u8; 32]) -> Vec<u8> {
         super::super::upload_replay::UploadFingerprint {
             bucket: &self.bucket,
             name: &self.name,
@@ -101,7 +123,7 @@ impl UploadCommit {
             metadata: &self.metadata,
             conditions: self.conditions,
             size: self.body.size,
-            sha256: self.body.sha256,
+            sha256,
         }
         .digest()
     }
@@ -139,8 +161,11 @@ impl UploadCommit {
         let now = PublicationTime::read(self.clock.as_ref())?;
         let (_, delete_permission) = authorized_bucket(&transaction, &self.bucket, &self.access)?;
         let micros = now.micros;
-        let fingerprint = self.replay.as_ref().map(|_| self.fingerprint());
-        if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
+        let replay = self
+            .replay
+            .as_ref()
+            .map(|replayed| (&replayed.replay, self.fingerprint(replayed.sha256)));
+        if let Some((replay, fingerprint)) = &replay {
             replay.check_incarnation(&transaction, &self.bucket)?;
             if let Some(record) = replay.replay(&transaction, micros, fingerprint)? {
                 return Ok(CommitOutcome::Replayed(record));
@@ -204,7 +229,7 @@ impl UploadCommit {
             },
         )?;
         let appendable = self.finish_metadata(&transaction, &record)?;
-        if let (Some(replay), Some(fingerprint)) = (&self.replay, &fingerprint) {
+        if let Some((replay, fingerprint)) = &replay {
             replay.store(
                 &transaction,
                 micros,
@@ -419,7 +444,11 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let (_request, cancellation) = oneshot::channel::<()>();
-        let replay = permit.replay.take();
+        // A replayable upload carries the hashing context its fingerprint needs from the start.
+        let mut replay = permit
+            .replay
+            .take()
+            .map(|replay| (replay, ring::digest::Context::new(&ring::digest::SHA256)));
         // Cancellation must not release directory ownership during publication or cleanup.
         crate::task::spawn_supervised("object-upload", async move {
             let _permit = permit;
@@ -430,9 +459,16 @@ impl Catalog {
             let published = blob.blob_path(&catalog.0.data_dir);
             let mut file = catalog.0.backend.stage(&id).await?;
             let result = async {
-                let (size, md5, crc32c, sha256) =
-                    write_stream(&mut file, expected, max_bytes, body, cancellation, &catalog)
-                        .await?;
+                let uploaded = write_stream(
+                    &mut file,
+                    expected,
+                    max_bytes,
+                    body,
+                    cancellation,
+                    &catalog,
+                    replay.as_mut().map(|(_, sha256)| sha256),
+                )
+                .await?;
                 match file {
                     UploadSink::Memory(memory) => memory.publish(id.to_hex())?,
                     UploadSink::Disk(file) => {
@@ -454,15 +490,12 @@ impl Catalog {
                     mode,
                     identity,
                     owner,
-                    replay,
+                    replay: replay
+                        .map(|(replay, sha256)| ReplayedUpload::new(replay, sha256))
+                        .transpose()?,
                     clock: catalog.0.clock.clone(),
                     blob_id: id,
-                    body: UploadedBody {
-                        size,
-                        md5,
-                        crc32c,
-                        sha256,
-                    },
+                    body: uploaded,
                 };
                 catalog
                     .run_upload(move |connection| commit.commit(connection))
@@ -496,6 +529,7 @@ pub(in crate::storage::catalog) enum UploadSink {
     Memory(super::super::super::memory::Stage),
 }
 
+/// Streams the body into `file`, also feeding `sha256` when the caller needs that digest.
 pub(in crate::storage::catalog) async fn write_stream(
     file: &mut UploadSink,
     mut expected: ExpectedHashes,
@@ -503,10 +537,10 @@ pub(in crate::storage::catalog) async fn write_stream(
     mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     mut cancellation: oneshot::Receiver<()>,
     catalog: &Catalog,
-) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
+    mut sha256: Option<&mut ring::digest::Context>,
+) -> Result<UploadedBody, ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
-    let mut sha256 = ring::digest::Context::new(&ring::digest::SHA256);
     let closing = catalog.0.admin_shutdown.notified();
     tokio::pin!(closing);
     closing.as_mut().enable();
@@ -554,7 +588,9 @@ pub(in crate::storage::catalog) async fn write_stream(
             .ok_or(ObjectError::TooLarge)?;
         for part in chunk.chunks(CHUNK_SIZE) {
             hasher.update(part);
-            sha256.update(part);
+            if let Some(sha256) = sha256.as_deref_mut() {
+                sha256.update(part);
+            }
             #[cfg(test)]
             fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
             match file {
@@ -581,14 +617,5 @@ pub(in crate::storage::catalog) async fn write_stream(
     if let UploadSink::Disk(staged) = file {
         staged.make_durable().await?;
     }
-    Ok((
-        size,
-        md5,
-        crc32c,
-        sha256
-            .finish()
-            .as_ref()
-            .try_into()
-            .map_err(object_unavailable)?,
-    ))
+    Ok(UploadedBody { size, md5, crc32c })
 }
