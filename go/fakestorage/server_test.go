@@ -25,7 +25,20 @@ func TestMain(m *testing.M) {
 		runTestChild()
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("gcs-mimic " + testChildVersion())
+		return
+	}
 	os.Exit(m.Run())
+}
+
+// testChildVersion is the version the test child reports: this package's own unless a test
+// sets GCSM_TEST_CHILD_VERSION, where "none" leaves it out of the ready event.
+func testChildVersion() string {
+	if version := os.Getenv("GCSM_TEST_CHILD_VERSION"); version != "" {
+		return version
+	}
+	return moduleVersion
 }
 
 func runTestChild() {
@@ -79,6 +92,9 @@ func runTestChild() {
 	}), ReadHeaderTimeout: time.Second}
 	go func() { _ = server.Serve(listener) }()
 	ready := map[string]string{"event": "ready", "listen": listener.Addr().String(), "transport": "tcp"}
+	if version := testChildVersion(); version != "none" {
+		ready["version"] = version
+	}
 	if socketPath != "" {
 		ready["listen"] = ""
 		ready["transport"] = "unix"

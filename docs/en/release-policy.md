@@ -126,8 +126,10 @@ wait for synchronization. Parallel work is assigned versions at integration.
 Choose the next version from the last published release and its actual changes.
 Use the highest required increment when combining changes. Documentation-only
 edits do not require a product release. Update the application manifest and
-lockfile, user examples, release notes and artifact references together when
-preparing the chosen release. A local preview image is not a published version.
+lockfile, the Go package's `moduleVersion`, user examples, release notes and
+artifact references together when preparing the chosen release;
+`scripts/check-release-recipes.sh` fails when the recipes or the Go package
+name another version. A local preview image is not a published version.
 
 ## The 1.0.0 gate
 

@@ -176,6 +176,15 @@ func validateOptions(options Options) error {
 	return nil
 }
 
+// readyEvent holds the fields of gcs-mimic's ready line that this package reads.
+type readyEvent struct {
+	Event      string `json:"event"`
+	Version    string `json:"version"`
+	Listen     string `json:"listen"`
+	Transport  string `json:"transport"`
+	UnixSocket string `json:"unix_socket"`
+}
+
 func executable(options Options) string {
 	if options.Executable != "" {
 		return options.Executable
@@ -251,7 +260,8 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 	if options.PubSubEmulatorHost != "" {
 		args = append(args, "--pubsub-emulator-host", options.PubSubEmulatorHost)
 	}
-	s.cmd = exec.Command(executable(options), args...)
+	binary := executable(options)
+	s.cmd = exec.Command(binary, args...)
 	s.cmd.Env = childEnvironment()
 	logs := &lockedWriter{writer: options.Writer}
 	s.cmd.Stderr = logs
@@ -262,7 +272,6 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 	if err := s.cmd.Start(); err != nil {
 		return fmt.Errorf("start gcs-mimic: %w", err)
 	}
-	type readyEvent struct{ Event, Listen, Transport, UnixSocket string }
 	ready := make(chan readyEvent, 1)
 	go func() {
 		scanner := bufio.NewScanner(stdout)
@@ -273,13 +282,10 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 			if _, outputErr = logs.Write(append(append([]byte(nil), line...), '\n')); outputErr != nil {
 				break
 			}
-			var event struct {
-				Event, Listen, Transport string
-				UnixSocket               string `json:"unix_socket"`
-			}
+			var event readyEvent
 			if json.Unmarshal(line, &event) == nil && event.Event == "ready" {
 				select {
-				case ready <- readyEvent{event.Event, event.Listen, event.Transport, event.UnixSocket}:
+				case ready <- event:
 				default:
 				}
 			}
@@ -294,6 +300,9 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 	defer timer.Stop()
 	select {
 	case event := <-ready:
+		if err := checkBinary(binary, event.Version); err != nil {
+			return err
+		}
 		if options.NoListener {
 			if event.Transport != "unix" || event.UnixSocket != s.socketPath || event.Listen != "" {
 				return errors.New("NoListener child did not confirm the private Unix transport")
@@ -306,10 +315,11 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 			return fmt.Errorf("invalid ready endpoint: %w", err)
 		}
 	case <-s.done:
-		if s.exitErr == nil {
-			return errors.New("gcs-mimic exited before readiness")
+		exited := errors.New("gcs-mimic exited before readiness")
+		if s.exitErr != nil {
+			exited = fmt.Errorf("gcs-mimic exited before readiness: %w", s.exitErr)
 		}
-		return fmt.Errorf("gcs-mimic exited before readiness: %w", s.exitErr)
+		return errors.Join(probeBinary(ctx, binary), exited)
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:

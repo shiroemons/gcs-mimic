@@ -10,3 +10,11 @@ for recipe in examples/strict-local/compose.yaml examples/full-stack/compose.yam
     exit 1
   }
 done
+# The Go package refuses binaries of another release by this constant, so it moves with the
+# manifest version; a stale one would refuse the binary built from the same commit.
+module=go/fakestorage/version.go
+go_version=$(sed -n 's/^const moduleVersion = "\(.*\)"$/\1/p' "$module")
+if [[ "$go_version" != "$version" ]]; then
+  echo "$module moduleVersion must equal the manifest version $version" >&2
+  exit 1
+fi

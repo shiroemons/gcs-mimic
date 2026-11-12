@@ -11,6 +11,16 @@ The module is source code in this checkout; no separately published module is
 claimed. Use the checkout's `go/` as a local module replacement when adopting it.
 Build the Rust executable first, then set `GCSM_BINARY` to that executable
 or install `gcs-mimic` on `PATH`.
+
+The package passes options and reads ready fields of its own release, so it
+starts only a binary of a supported release. During `0.x` that is the same
+minor release as the checkout, such as any `0.20.y` for a `0.20.0` checkout,
+because a `0.x` minor release may break; from `1.0.0` it is the same major
+release at or above the checkout's minor. It reads the `version` of the ready
+event, and when a binary exits before ready it asks `--version`. Another
+release fails with `*fakestorage.UnsupportedBinaryError`, which names the
+binary's path and both versions; use `errors.As` to detect it. Build the
+executable from the same checkout to match.
 The former `GCS_MIMIC_BINARY` fails with replacement advice when neither
 `GCSM_BINARY` nor `Options.Executable` selects a binary. Inherited `GCS_MIMIC_*`
 server settings are removed from each child so that `Options` remains its only
