@@ -421,10 +421,16 @@ The implemented ordinary-object write stages under a random 128-bit opaque ID on
 data filesystem. It streams and hashes the entire body within the configured cap,
 validates declared hashes and syncs the file. It creates/syncs the blob shard's parent,
 renames the staged file into that shard without replacing an existing entry and syncs
-the shard. Only then does a short
-immediate SQL transaction check bucket existence and all conditions, advance the
-persistent generation high-water mark, replace the live reference and journal any
-old blob for deletion. File publication and SQL commit are separate operations.
+the shard. Only then does it queue its commit. The next holder of the catalog writer
+publishes every queued single-request upload in one short immediate SQL transaction,
+each under its own savepoint, so one WAL sync makes the whole batch durable; nothing
+waits for a batch to fill. Under its savepoint each upload checks bucket existence and
+all conditions, advances the persistent generation high-water mark, replaces the live
+reference and journals any old blob for deletion. An upload's error or panic rolls back
+only its savepoint, and every upload is answered only after the commit. A failed batch
+commit fails each upload in it, and an upload whose commit is still queued is withdrawn
+before it reports a failure, so it cannot publish after its cleanup.
+File publication and SQL commit are separate operations.
 An ambiguous commit error is followed by a reference check before cleanup; committed
 live data must not be removed as though the write had failed.
 

@@ -333,6 +333,7 @@ impl Catalog {
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
                 executor: executor::Executor::start("gcs-mimic-catalog")?,
+                upload_commits: objects::CommitQueue::default(),
                 read_pool,
                 parent_policy,
                 read_cache: read_cache::ReadCache::new(crate::fd_limit::cacheable_files()),

@@ -306,7 +306,9 @@ impl From<io::Error> for IoCause {
     }
 }
 
-/// A backend failure sorted into the variants both error enums share.
+/// A backend failure sorted into the variants both error enums share. A clone shares the
+/// underlying error, so every request that shared a failed transaction can report it.
+#[derive(Clone)]
 pub(crate) enum Classified {
     Corrupt(BackendCause),
     Io(IoCause),

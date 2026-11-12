@@ -1,5 +1,8 @@
 use super::*;
 
+mod group_commit;
+pub(in crate::storage::catalog) use group_commit::CommitQueue;
+
 enum CommitOutcome {
     Published {
         record: ObjectRecord,
@@ -154,27 +157,26 @@ impl UploadCommit {
         Ok(record)
     }
 
-    /// Publishes the upload in one immediate transaction, or returns the replayed or
-    /// unchanged record.
-    fn commit(self, connection: &mut Connection) -> Result<CommitOutcome, ObjectError> {
-        let transaction = sql::immediate(connection)?;
+    /// Publishes the upload inside `transaction`, or returns the replayed or unchanged record.
+    /// The caller commits; [`group_commit`] shares one transaction between queued uploads.
+    fn apply(&self, transaction: &Transaction<'_>) -> Result<CommitOutcome, ObjectError> {
         let now = PublicationTime::read(self.clock.as_ref())?;
-        let (_, delete_permission) = authorized_bucket(&transaction, &self.bucket, &self.access)?;
+        let (_, delete_permission) = authorized_bucket(transaction, &self.bucket, &self.access)?;
         let micros = now.micros;
         let replay = self
             .replay
             .as_ref()
             .map(|replayed| (&replayed.replay, self.fingerprint(replayed.sha256)));
         if let Some((replay, fingerprint)) = &replay {
-            replay.check_incarnation(&transaction, &self.bucket)?;
-            if let Some(record) = replay.replay(&transaction, micros, fingerprint)? {
+            replay.check_incarnation(transaction, &self.bucket)?;
+            if let Some(record) = replay.replay(transaction, micros, fingerprint)? {
                 return Ok(CommitOutcome::Replayed(record));
             }
-            super::super::upload_replay::make_room(&transaction, micros)?;
+            super::super::upload_replay::make_room(transaction, micros)?;
         }
-        let bucket = BucketPublication::load(&transaction, &self.bucket)?;
+        let bucket = BucketPublication::load(transaction, &self.bucket)?;
         let storage_class = bucket.storage_class(self.metadata.storage_class);
-        let previous = lookup(&transaction, &self.bucket, &self.name)?;
+        let previous = lookup(transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(
             previous.as_ref(),
@@ -200,7 +202,7 @@ impl UploadCommit {
             time: now.time,
             owner: match &self.owner {
                 OwnerAssignment::Request => Some(super::super::object_owner::for_publication(
-                    &transaction,
+                    transaction,
                     &self.bucket,
                     &self.access,
                     self.principals.as_ref(),
@@ -210,7 +212,7 @@ impl UploadCommit {
             },
         };
         let (record, retired, ()) = publish_in_transaction(
-            &transaction,
+            transaction,
             previous.as_ref(),
             &bucket,
             NewVersion {
@@ -228,10 +230,10 @@ impl UploadCommit {
                 Ok((record, ()))
             },
         )?;
-        let appendable = self.finish_metadata(&transaction, &record)?;
+        let appendable = self.finish_metadata(transaction, &record)?;
         if let Some((replay, fingerprint)) = &replay {
             replay.store(
-                &transaction,
+                transaction,
                 micros,
                 fingerprint,
                 &record,
@@ -239,7 +241,6 @@ impl UploadCommit {
                 None,
             )?;
         }
-        commit_publication(transaction)?;
         Ok(CommitOutcome::Published {
             record,
             retired,
@@ -291,13 +292,9 @@ impl Catalog {
             .executor
             .run(move || {
                 let _execution = execution;
-                match inner.with_connection(operation) {
-                    Ok(result) => result,
-                    Err(super::super::ConnectionUnavailable::Closed) => Err(object_unavailable(
-                        crate::storage::failure::BackendFailure::CatalogClosed,
-                    )),
-                    Err(error) => Err(object_unavailable(error)),
-                }
+                inner
+                    .with_connection(operation)
+                    .unwrap_or_else(|error| Err(error.into()))
             })
             .await
             .map_err(object_unavailable)?
@@ -497,9 +494,7 @@ impl Catalog {
                     blob_id: id,
                     body: uploaded,
                 };
-                catalog
-                    .run_upload(move |connection| commit.commit(connection))
-                    .await
+                catalog.commit_upload(commit).await
             }
             .await;
             match &result {

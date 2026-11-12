@@ -38,6 +38,27 @@ impl crate::storage::failure::StorageCause for ConnectionUnavailable {
     }
 }
 
+/// A closed catalog reports the same failure as every other closed-catalog path.
+impl From<ConnectionUnavailable> for CatalogError {
+    fn from(error: ConnectionUnavailable) -> Self {
+        match error {
+            ConnectionUnavailable::Closed => unavailable(BackendFailure::CatalogClosed),
+            error => unavailable(error),
+        }
+    }
+}
+
+/// A closed catalog reports the same failure as every other closed-catalog path.
+impl From<ConnectionUnavailable> for crate::object::ObjectError {
+    fn from(error: ConnectionUnavailable) -> Self {
+        use crate::storage::failure::object_unavailable;
+        match error {
+            ConnectionUnavailable::Closed => object_unavailable(BackendFailure::CatalogClosed),
+            error => object_unavailable(error),
+        }
+    }
+}
+
 /// Why a transaction abandoned by a panic could not be confirmed as rolled back.
 #[derive(Debug)]
 pub(super) enum RollbackError {
@@ -187,13 +208,9 @@ impl Catalog {
             .executor
             .run(move || {
                 let (_admission, _execution) = (admission, execution);
-                let result = match inner.with_connection(operation) {
-                    Ok(result) => result,
-                    Err(ConnectionUnavailable::Closed) => {
-                        Err(unavailable(BackendFailure::CatalogClosed).into())
-                    }
-                    Err(error) => Err(unavailable(error).into()),
-                };
+                let result = inner
+                    .with_connection(operation)
+                    .unwrap_or_else(|error| Err(CatalogError::from(error).into()));
                 // Release ownership before the reply publishes completion to an immediate reopen.
                 drop(inner);
                 result

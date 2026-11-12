@@ -176,6 +176,8 @@ struct Inner {
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
     executor: executor::Executor,
+    /// Upload commits waiting for the writer, which its next holder publishes together.
+    upload_commits: objects::CommitQueue,
     /// Absent for a RAM catalog, whose database exists only inside the writer's connection.
     read_pool: Option<read_pool::ReadPool>,
     parent_policy: Arc<read_pool::ParentPolicy>,
