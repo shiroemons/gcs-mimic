@@ -1,0 +1,157 @@
+{
+  "buckets": {
+    "items": [
+      {
+        "etag": "CAE=",
+        "generation": "1794448385554893174",
+        "iamConfiguration": {
+          "bucketPolicyOnly": {
+            "enabled": false
+          },
+          "publicAccessPrevention": "inherited",
+          "uniformBucketLevelAccess": {
+            "enabled": false
+          }
+        },
+        "id": "plain",
+        "kind": "storage#bucket",
+        "location": "US",
+        "locationType": "multi-region",
+        "metageneration": "1",
+        "name": "plain",
+        "projectNumber": "0",
+        "rpo": "DEFAULT",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/plain",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.554Z",
+        "updated": "2026-11-12T01:53:05.554Z"
+      },
+      {
+        "etag": "CAE=",
+        "generation": "1794448385543016716",
+        "iamConfiguration": {
+          "bucketPolicyOnly": {
+            "enabled": false
+          },
+          "publicAccessPrevention": "inherited",
+          "uniformBucketLevelAccess": {
+            "enabled": false
+          }
+        },
+        "id": "released",
+        "kind": "storage#bucket",
+        "location": "US",
+        "locationType": "multi-region",
+        "metageneration": "1",
+        "name": "released",
+        "projectNumber": "0",
+        "rpo": "DEFAULT",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/released",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.543Z",
+        "updated": "2026-11-12T01:53:05.543Z",
+        "versioning": {
+          "enabled": true
+        }
+      }
+    ],
+    "kind": "storage#buckets"
+  },
+  "image": "ghcr.io/shiroemons/gcs-mimic@sha256:9b0f0c0a276b4d16684a0cfa6b07ad87755be91c025c1e7d16139ed716e3d4d1",
+  "plain": {
+    "items": [
+      {
+        "bucket": "plain",
+        "contentType": "application/octet-stream",
+        "crc32c": "xtIFFg==",
+        "etag": "CJnb3pSpgZgDEAE=",
+        "generation": "1794448385617305",
+        "id": "plain/a.bin/1794448385617305",
+        "kind": "storage#object",
+        "md5Hash": "M2PsPK1l2X05YWz4bf8w5A==",
+        "mediaLink": "http://127.0.0.1:14480/download/storage/v1/b/plain/o/a.bin?generation=1794448385617305&alt=media",
+        "metageneration": "1",
+        "name": "a.bin",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/plain/o/a.bin",
+        "size": "11",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.617Z",
+        "timeFinalized": "2026-11-12T01:53:05.617Z",
+        "timeStorageClassUpdated": "2026-11-12T01:53:05.617Z",
+        "updated": "2026-11-12T01:53:05.617Z"
+      }
+    ],
+    "kind": "storage#objects"
+  },
+  "released": {
+    "items": [
+      {
+        "bucket": "released",
+        "contentType": "text/plain",
+        "crc32c": "PsIpqA==",
+        "etag": "CO3X25SpgZgDEAE=",
+        "generation": "1794448385567725",
+        "id": "released/dir/hello.txt/1794448385567725",
+        "kind": "storage#object",
+        "md5Hash": "gL0NorkpUON0M6xJ6qdRMQ==",
+        "mediaLink": "http://127.0.0.1:14480/download/storage/v1/b/released/o/dir%2Fhello.txt?generation=1794448385567725&alt=media",
+        "metageneration": "1",
+        "name": "dir/hello.txt",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/released/o/dir%2Fhello.txt",
+        "size": "16",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.567Z",
+        "timeDeleted": "2026-11-12T01:53:05.582Z",
+        "timeFinalized": "2026-11-12T01:53:05.567Z",
+        "timeStorageClassUpdated": "2026-11-12T01:53:05.567Z",
+        "updated": "2026-11-12T01:53:05.567Z"
+      },
+      {
+        "bucket": "released",
+        "cacheControl": "no-cache",
+        "contentType": "text/plain",
+        "crc32c": "tZgLSQ==",
+        "etag": "CMLL3JSpgZgDEAI=",
+        "generation": "1794448385582530",
+        "id": "released/dir/hello.txt/1794448385582530",
+        "kind": "storage#object",
+        "md5Hash": "hbALb+mwTXt4RohkK4UvFA==",
+        "mediaLink": "http://127.0.0.1:14480/download/storage/v1/b/released/o/dir%2Fhello.txt?generation=1794448385582530&alt=media",
+        "metadata": {
+          "origin": "released"
+        },
+        "metageneration": "2",
+        "name": "dir/hello.txt",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/released/o/dir%2Fhello.txt",
+        "size": "17",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.582Z",
+        "timeFinalized": "2026-11-12T01:53:05.582Z",
+        "timeStorageClassUpdated": "2026-11-12T01:53:05.582Z",
+        "updated": "2026-11-12T01:53:05.593Z"
+      },
+      {
+        "bucket": "released",
+        "contentType": "text/plain",
+        "crc32c": "XFLi/A==",
+        "etag": "CJn43ZSpgZgDEAE=",
+        "generation": "1794448385604633",
+        "id": "released/日本語 file.txt/1794448385604633",
+        "kind": "storage#object",
+        "md5Hash": "9V0KLL4FP5PUmjgF7l7T2w==",
+        "mediaLink": "http://127.0.0.1:14480/download/storage/v1/b/released/o/%E6%97%A5%E6%9C%AC%E8%AA%9E%20file.txt?generation=1794448385604633&alt=media",
+        "metageneration": "1",
+        "name": "日本語 file.txt",
+        "selfLink": "http://127.0.0.1:14480/storage/v1/b/released/o/%E6%97%A5%E6%9C%AC%E8%AA%9E%20file.txt",
+        "size": "12",
+        "storageClass": "STANDARD",
+        "timeCreated": "2026-11-12T01:53:05.604Z",
+        "timeFinalized": "2026-11-12T01:53:05.604Z",
+        "timeStorageClassUpdated": "2026-11-12T01:53:05.604Z",
+        "updated": "2026-11-12T01:53:05.604Z"
+      }
+    ],
+    "kind": "storage#objects"
+  },
+  "version": "0.19.0"
+}
