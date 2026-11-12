@@ -46,6 +46,21 @@ case "$server_scheme" in
   auto) scheme_args=() ;;
   *) echo "GCSM_SDK_SERVER_SCHEME must be auto or $scheme (GCSM_SDK_SCHEME)" >&2; exit 1 ;;
 esac
+# GCSM_SDK_COMPAT_PROFILE selects the compat_profile of every server started here, and the
+# suites read it to expect that profile's behavior. A server setting variable cannot do this:
+# server-env.sh removes GCS_MIMIC_* before each start, so GCS_MIMIC_COMPAT_PROFILE would reach
+# the suites but not the servers, and the suites would test one profile against the other.
+if [[ -n ${GCS_MIMIC_COMPAT_PROFILE:-} ]]; then
+  echo "GCS_MIMIC_COMPAT_PROFILE never reaches these servers; set GCSM_SDK_COMPAT_PROFILE=$GCS_MIMIC_COMPAT_PROFILE instead" >&2
+  exit 1
+fi
+compat_profile=${GCSM_SDK_COMPAT_PROFILE:-native}
+case "$compat_profile" in
+  native | fake-gcs-server) ;;
+  *) echo 'GCSM_SDK_COMPAT_PROFILE must be native or fake-gcs-server' >&2; exit 1 ;;
+esac
+export GCSM_SDK_COMPAT_PROFILE="$compat_profile"
+profile_args=(--compat-profile "$compat_profile")
 if [[ $with_clients == true && $scheme != http ]]; then
   echo 'Additional client harnesses currently require the HTTP profile' >&2
   exit 2
@@ -156,7 +171,7 @@ start_server() {
   if [[ $server_scheme == auto ]]; then base_args=(); fi
   set_server_env
   "${server_env[@]}" \
-    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} --listen "$address" --grpc-listen "$grpc_address" ${base_args[@]+"${base_args[@]}"} ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
+    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} "${profile_args[@]}" --listen "$address" --grpc-listen "$grpc_address" ${base_args[@]+"${base_args[@]}"} ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"
   printf -v "$endpoint_var" '%s' "$origin"
@@ -184,7 +199,7 @@ start_local_strict_server() {
   origin="$scheme://$address"
   set_server_env
   "${server_env[@]}" \
-    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
+    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} "${profile_args[@]}" --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
     --auth-mode strict --test-signer enabled --trusted-listen 127.0.0.1:0 "$@" \
     >"$work/local-strict-server.log" 2>&1 &
   local_strict_pid=$!

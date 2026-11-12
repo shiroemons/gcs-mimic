@@ -159,6 +159,13 @@ both protocols and links follow each request's origin while the clients keep
 the scheme `GCSM_SDK_SCHEME` names. Signature endpoint/payload caveats are
 recorded in [the signed-access evidence](evidence/signed-urls.md).
 
+`GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk` starts every server of
+the run with `--compat-profile fake-gcs-server`, and the suites read the same
+variable to expect that profile where it differs. The default is `native`. A
+server setting variable cannot select it: `scripts/server-env.sh` removes every
+`GCS_MIMIC_*` variable before a runner starts a server, so the runner refuses
+`GCS_MIMIC_COMPAT_PROFILE` and names `GCSM_SDK_COMPAT_PROFILE` instead.
+
 No Git hook is installed and no commit or push is performed. Re-run the checks
 after changes. A local pass does not establish native amd64 or GitHub Actions
 success: the configured remote lanes must also pass after pushing.

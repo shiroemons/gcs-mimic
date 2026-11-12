@@ -184,6 +184,16 @@ links from each request, also set `GCSM_SDK_SERVER_SCHEME=auto`:
 GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby
 ```
 
+The runner starts its servers in the native profile. `GCSM_SDK_COMPAT_PROFILE`
+selects `fake-gcs-server` instead for every server of the run, and cases whose
+expectation differs by profile read the same variable. `GCS_MIMIC_COMPAT_PROFILE`
+is refused, because the runner removes server settings from each server's
+environment and it would reach only the tests:
+
+```sh
+GCSM_SDK_COMPAT_PROFILE=fake-gcs-server bash scripts/sdk-go.sh
+```
+
 To use supplied development certificates instead (the server certificate must
 include the `127.0.0.1` IP SAN), provide both paths and the CA:
 

@@ -19,7 +19,7 @@ import (
 func TestMigrationAppScenarioBucketList(t *testing.T) {
 	ctx, _, httpClient, endpoint := newEmulatorClient(t)
 	status := http.StatusOK
-	if os.Getenv("GCS_MIMIC_COMPAT_PROFILE") != "fake-gcs-server" {
+	if os.Getenv("GCSM_SDK_COMPAT_PROFILE") != "fake-gcs-server" {
 		status = http.StatusBadRequest
 	}
 	_, body := migrationHTTP(t, ctx, httpClient, http.MethodGet, endpoint.String()+"/storage/v1/b", "", nil, status)
