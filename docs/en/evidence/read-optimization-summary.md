@@ -70,7 +70,7 @@ implementation, not the API contract or a fixed performance target.
 | Existing Tokio worker setting, for example 4/6/8 | 10 MiB at c=1 and c=128, plus CPU/GiB and p99 | Reducing workers may reduce throughput; adding workers may consume more shared CPU without useful gain |
 | Bounded sharing of immutable-generation chunks | Concurrent requests overlapping the same generation and range | A cyclic 100 × 10 MiB working set may have few hits; budgets must include response-held bytes after eviction |
 | Less metadata cloning and repeated stable-header formatting | Small objects and metadata GETs | It may not materially affect the large-body kernel copy cost |
-| Narrower read-cache invalidation | Reads mixed with writes to different objects or buckets | Missing policy or metadata dependencies could return stale results; read-only throughput should not be credited with this change |
+| Narrower read-cache invalidation | Reads mixed with writes to different objects or buckets | Missing policy or metadata dependencies could return stale results; read-only throughput should not be credited with this change. The [write path investigation](write-path-performance.md) measured the reads it could recover and deferred it |
 | Read-ahead hints | Controlled cold-file reads and interleaved ranges | Warm-cache reads do not need prefetch; advice on shared file descriptions can affect other reads |
 | mmap or kernel-copy transport | A separate ownership/failure and transport investigation | Mapping alone does not prove safe external-file lifetime; sendfile does not remove page-cache lookup or handle current TLS automatically |
 
