@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 81 | 40 | 0 | 0 |
-| project_requirement | 97 | 22 | 0 | 44 | 31 | 0 | 0 |
+| project_requirement | 98 | 22 | 0 | 45 | 31 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
 | behavior | 81 | 68 | 49 | 3 | 0 | 0 |
-| project_requirement | 22 | 0 | 0 | 0 | 1 | 74 |
+| project_requirement | 22 | 0 | 0 | 0 | 1 | 75 |
 
 ## api_operation
 
@@ -874,6 +874,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-069 | Deterministic clock and maintenance stepping | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-100 | CORS fallback for buckets without rules for fake-gcs-server migration | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-102 | HTTP and HTTPS on one port as the default scheme | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
+| DESIGN-103 | Breaking changes before the 1.0.0 contract freeze | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### End-to-end onboarding
 

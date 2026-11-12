@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 97
+    "project_requirement": 98
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -59068,6 +59068,178 @@
       "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-11-12"
+    },
+    {
+      "id": "DESIGN-103",
+      "kind": "project_requirement",
+      "category": "Developer ergonomics",
+      "title": "Breaking changes before the 1.0.0 contract freeze",
+      "interface": "Emulator configuration, ready event, synchronization CLI and Go package",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://semver.org/spec/v2.0.0.html#spec-item-4",
+        "https://pkg.go.dev/errors#As"
+      ],
+      "source_checked_at": "2026-11-13",
+      "source_evidence": "PROJECT_POLICY",
+      "notes": "Project contract, not Cloud Storage behavior. The 0.x breaking changes the public contract review decided on 2026-11-12, shipped together in 0.20.0 without aliases: buckets_mode replaces buckets_file_mode and defaults to reconcile for a file too, and the ready field buckets_file becomes buckets; connection_timeout_ms is removed; underscore spellings of server options are refused; backend=filesystem is a flag translation only; compat_profile=legacy-emulator becomes fake-gcs-server; gcs-mimic sync and the server exchange x-gcs-mimic-version and refuse another release; sync approve refuses --revision; the Go package refuses a binary outside its minor release. Every withdrawn name or value stops startup from each source with one diagnostic that names its replacement in that source's spelling. Contract: docs/en/slices/contract-cleanup.md; review: docs/en/public-contract-review.md; release notes: docs/en/releases/0.20.0.md.",
+      "dependencies": [
+        "DESIGN-062",
+        "DESIGN-064",
+        "DESIGN-072"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-103-BUCKETS-MODE",
+          "description": "Unset buckets_mode reconciles a file and an inline document alike: an API change to a written member is undone, an edit applies and an unchanged restart writes nothing; create keeps buckets and warns; both modes refuse a public policy against stored prevention before any write; the ready field is buckets.",
+          "result": "PASS",
+          "test_ids": [
+            "an_edited_buckets_document_reconciles_an_existing_data_directory_by_default",
+            "config::document::tests::the_buckets_mode_is_the_same_for_a_file_and_an_inline_document",
+            "buckets_mode_defaults_to_reconcile_and_requires_a_buckets_document",
+            "a_public_policy_its_own_entry_prevents_is_refused_on_every_volume",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
+        {
+          "id": "DESIGN-103-WITHDRAWN-NAMES",
+          "description": "buckets_file_mode and connection_timeout_ms stop startup from the command line, the environment and the JSON file with one diagnostic that names the replacement in that source's spelling.",
+          "result": "PASS",
+          "test_ids": [
+            "buckets_file_mode_was_renamed_to_buckets_mode",
+            "config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings"
+          ]
+        },
+        {
+          "id": "DESIGN-103-WITHDRAWN-VALUES",
+          "description": "compat_profile=legacy-emulator and backend=filesystem stop startup from each source naming the new value; the -backend filesystem flag still starts with disk; a withdrawn string_enum value fails with its own fix.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::compat_profile_precedence_and_validation",
+            "config::storage::tests::backend_filesystem_is_a_flag_translation_only",
+            "config::tests::a_withdrawn_value_fails_with_its_own_fix"
+          ]
+        },
+        {
+          "id": "DESIGN-103-UNDERSCORE",
+          "description": "--max_connections 10 and -max_connections=10 exit 1 before a catalog with one cli diagnostic naming --max-connections; environment and JSON names and helper commands are unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "config_input::tests::server_options_spelled_with_underscores_name_the_hyphenated_option",
+            "an_underscore_option_spelling_stops_before_startup"
+          ]
+        },
+        {
+          "id": "DESIGN-103-SYNC-VERSION",
+          "description": "A server refuses another version and a missing one with 400 versionMismatch before authorization or any wait, after the browser guard; the command sends its version and refuses an answer from another release or without one, naming both; matching releases work as before.",
+          "result": "PASS",
+          "test_ids": [
+            "sync::handshake::tests::only_the_same_release_passes_and_a_mismatch_names_both_versions",
+            "a_client_of_another_release_is_refused_before_authorization_or_any_wait",
+            "native_cli_refuses_a_server_of_another_release",
+            "wire_client_decodes_chunked_json_and_preserves_failure_status",
+            "management_routes_refuse_page_initiated_requests_without_mutation"
+          ]
+        },
+        {
+          "id": "DESIGN-103-SYNC-APPROVE",
+          "description": "sync approve --revision exits 1 without a request and names --deletion-set.",
+          "result": "PASS",
+          "test_ids": [
+            "approval_requires_an_explicit_exact_revision",
+            "live_cli_observes_rescans_waits_and_rejects_stale_revisions"
+          ]
+        },
+        {
+          "id": "DESIGN-103-GO-VERSION",
+          "description": "The Go package starts a binary of its minor release and refuses another one, or a ready event without a version, with *UnsupportedBinaryError; an early exit of another release reports the version, and of the same release keeps its own error; the version grammar matches xtask's.",
+          "result": "PASS",
+          "test_ids": [
+            "TestReleaseGrammarMatchesThePublicationGrammar",
+            "TestSupportedBinaryRange",
+            "TestStartRefusesABinaryOfAnotherRelease",
+            "TestAnEarlyExitOfTheSameReleaseKeepsItsOwnError"
+          ]
+        }
+      ],
+      "test_ids": [
+        "an_edited_buckets_document_reconciles_an_existing_data_directory_by_default",
+        "config::document::tests::the_buckets_mode_is_the_same_for_a_file_and_an_inline_document",
+        "buckets_mode_defaults_to_reconcile_and_requires_a_buckets_document",
+        "a_public_policy_its_own_entry_prevents_is_refused_on_every_volume",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+        "buckets_file_mode_was_renamed_to_buckets_mode",
+        "config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings",
+        "config::tests::compat_profile_precedence_and_validation",
+        "config::storage::tests::backend_filesystem_is_a_flag_translation_only",
+        "config::tests::a_withdrawn_value_fails_with_its_own_fix",
+        "config_input::tests::server_options_spelled_with_underscores_name_the_hyphenated_option",
+        "an_underscore_option_spelling_stops_before_startup",
+        "sync::handshake::tests::only_the_same_release_passes_and_a_mismatch_names_both_versions",
+        "a_client_of_another_release_is_refused_before_authorization_or_any_wait",
+        "native_cli_refuses_a_server_of_another_release",
+        "wire_client_decodes_chunked_json_and_preserves_failure_status",
+        "management_routes_refuse_page_initiated_requests_without_mutation",
+        "approval_requires_an_explicit_exact_revision",
+        "live_cli_observes_rescans_waits_and_rejects_stale_revisions",
+        "TestReleaseGrammarMatchesThePublicationGrammar",
+        "TestSupportedBinaryRange",
+        "TestStartRefusesABinaryOfAnotherRelease",
+        "TestAnEarlyExitOfTheSameReleaseKeepsItsOwnError"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/contract-cleanup.md",
+          "test_ids": [
+            "an_edited_buckets_document_reconciles_an_existing_data_directory_by_default",
+            "config::document::tests::the_buckets_mode_is_the_same_for_a_file_and_an_inline_document",
+            "buckets_mode_defaults_to_reconcile_and_requires_a_buckets_document",
+            "a_public_policy_its_own_entry_prevents_is_refused_on_every_volume",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+            "buckets_file_mode_was_renamed_to_buckets_mode",
+            "config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings",
+            "config::tests::compat_profile_precedence_and_validation",
+            "config::storage::tests::backend_filesystem_is_a_flag_translation_only",
+            "config::tests::a_withdrawn_value_fails_with_its_own_fix",
+            "config_input::tests::server_options_spelled_with_underscores_name_the_hyphenated_option",
+            "an_underscore_option_spelling_stops_before_startup",
+            "sync::handshake::tests::only_the_same_release_passes_and_a_mismatch_names_both_versions",
+            "a_client_of_another_release_is_refused_before_authorization_or_any_wait",
+            "native_cli_refuses_a_server_of_another_release",
+            "wire_client_decodes_chunked_json_and_preserves_failure_status",
+            "management_routes_refuse_page_initiated_requests_without_mutation",
+            "approval_requires_an_explicit_exact_revision",
+            "live_cli_observes_rescans_waits_and_rejects_stale_revisions"
+          ]
+        },
+        {
+          "command": "cd go && go test -race -count=1 ./fakestorage; GCSM_BINARY=<checkout>/target/debug/gcs-mimic go test -race -count=1 -tags integration ./fakestorage",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/contract-cleanup.md",
+          "test_ids": [
+            "TestReleaseGrammarMatchesThePublicationGrammar",
+            "TestSupportedBinaryRange",
+            "TestStartRefusesABinaryOfAnotherRelease",
+            "TestAnEarlyExitOfTheSameReleaseKeepsItsOwnError"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [
+        "The container smoke checks, the pinned SDK harnesses, just pre-push and the cross-target builds have not run on the integrated source; they run once on the release source. Until then the row stays PARTIAL."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-11-13"
     },
     {
       "id": "UX-001",

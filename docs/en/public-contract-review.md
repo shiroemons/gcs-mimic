@@ -1,10 +1,10 @@
 # Public contract review for the 1.0.0 freeze
 
-This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidates 1, 2, 4, 5 and 7 and the `data_dir` row of candidate 3 are implemented in `0.18.0`. Candidate 6 needs no code change; its document changes remain. The `scheme` row is a pending design for the next release. Each decided candidate lists what it changed or still needs, and the points it leaves open. On 2026-11-12 the owner decided the remaining rows of candidate 3, the open points of candidates 4, 5 and 6, candidates 8 to 17, and a new candidate 18; no candidate is undecided. The changes those decisions require are not implemented: each is listed under its candidate as a required change for a `0.x` minor release before the freeze, without a commitment to a particular one, and the inventory keeps describing the current code.
+This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidates 1, 2, 4, 5 and 7 and the `data_dir` row of candidate 3 are implemented in `0.18.0`. Candidate 6 needs no code change; its document changes remain. The `scheme` row is a pending design for the next release. Each decided candidate lists what it changed or still needs, and the points it leaves open. On 2026-11-12 the owner decided the remaining rows of candidate 3, the open points of candidates 4, 5 and 6, candidates 8 to 17, and a new candidate 18; no candidate is undecided. The changes those decisions require are implemented for `0.20.0`, except the major image alias of candidate 15, which ships with `1.0.0`; each candidate lists its implemented scope, and the [design](slices/contract-cleanup.md) collects them as DESIGN-103.
 
-While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided on 2026-11-11 shipped in `0.18.0` without a transition period, except the `scheme` default, which changed in `0.19.0` together with the capability it depends on (candidate 3). The breaking changes decided on 2026-11-12 ship in `0.x` minor releases before the freeze, also without a transition period; which release carries each is not fixed. Candidate 5 holds the deprecation procedure for `1.x`.
+While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided on 2026-11-11 shipped in `0.18.0` without a transition period, except the `scheme` default, which changed in `0.19.0` together with the capability it depends on (candidate 3). The breaking changes decided on 2026-11-12 ship together in `0.20.0`, also without a transition period, so that a configuration changes once. Candidate 5 holds the deprecation procedure for `1.x`.
 
-Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`. The inventory rows that `0.18.0` changes (environment variables, alias flags, catalog schema and ready event) were reconciled with the `0.18.0` source on 2026-11-11; the other rows still describe the reviewed source.
+Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`. The inventory rows that `0.18.0` changes (environment variables, alias flags, catalog schema and ready event) were reconciled with the `0.18.0` source on 2026-11-11, and the rows that the decisions of 2026-11-12 change (spelling rules, `backend`, `buckets_mode`, `connection_timeout_ms`, `compat_profile`, the `backend` flag and the ready event) with the `0.20.0` source on 2026-11-13; the other rows still describe the reviewed source.
 
 Lifecycle Delete execution uses the `lifecycle_execution` option below. It defaults to disabled with directory synchronization and enabled otherwise; an explicit choice overrides that default.
 
@@ -58,7 +58,7 @@ A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `heal
 
 | Surface | Rule | Defined in |
 | --- | --- | --- |
-| Server option | `--foo-bar`, `-foo-bar`, `--foo_bar` or `-foo_bar`, because `-` and `_` are interchangeable in the name; value after a space or `=`. `--max_connections 10` starts the server (observed) | `src/config_input.rs` `Inputs::cli` |
+| Server option | `--foo-bar` or `-foo-bar`; value after a space or `=`. Since `0.20.0` an underscore spelling such as `--max_connections` stops startup and names the hyphenated option (candidate 13) | `src/config_input.rs` `Inputs::cli` |
 | Environment | `GCS_MIMIC_FOO_BAR`; the suffix is lowercased and must match a setting exactly | `src/config_input.rs` `Inputs::environment_os` |
 | JSON key | `foo_bar` | `src/config.rs` `read_selected_config` |
 | Precedence | CLI, then environment, then JSON file, then default | `src/config.rs` `collect_settings` |
@@ -86,7 +86,7 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `tls_key` | Embedded test key | PEM path, at most 1 MiB; needs `tls_cert`; an error with `scheme=http` | `src/config.rs`, `src/tls.rs` | H, L, N, F | Yes |
 | `tls_handshake_timeout_ms` | 5000 | Unsigned integer, 0 disables; an error with `scheme=http` | `src/config.rs` | H, L, N | Yes |
 | `data_dir` | `data`; image `/var/lib/gcs-mimic` | Nonempty path | `src/config.rs` | H, L, N, C, F | Yes |
-| `backend` | `disk` | `disk`, `memory`, and `filesystem` meaning `disk` | `src/config/storage.rs` | H, L, N, F, R | 4 |
+| `backend` | `disk` | `disk`, `memory`; `filesystem` stops startup and names `disk` (the flag translates it) | `src/config/storage.rs` | H, L, N, F, R | Yes |
 | `memory_max_bytes` | Half of available memory after 32 MiB, 64 MiB to 1 GiB; 1 GiB where memory is not read | 1 to 2^40; needs `backend=memory` | `src/config/storage.rs`, `src/memory_limit.rs` | H, L | 15 |
 | `memory_catalog_max_bytes` | 16777216 | 1048576 to 2^40; needs `backend=memory` | `src/config/storage.rs` | H, L | Yes |
 | `seed_dir` | none | Nonempty path | `src/config.rs` | H, L, N, C, F, S `seed.md` | 2 |
@@ -105,7 +105,7 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `lifecycle_execution` | `disabled` with `sync_dir`, `enabled` otherwise | `enabled` or `disabled`; explicit enabled also deletes synchronized host files. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
 | `buckets_file` | none | Path; not with `buckets` | `src/config/document.rs` | H, L, N, C, F, S `bucket-initialization.md` | Yes |
 | `buckets` | none | The document inline; not with `buckets_file` | `src/config/document.rs` | H, L, N, C, F, R, S `bucket-initialization.md` | 7 |
-| `buckets_file_mode` | `create` for a file, `reconcile` inline | `create`, `reconcile`; needs a document | `src/config.rs` | H, L, N, C, F | Yes |
+| `buckets_mode` | `reconcile` | `create`, `reconcile`; needs a document. `buckets_file_mode`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
 | `max_buckets_per_batch` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
 | `api_base_url` | Each request's Host | Absolute HTTP(S) base without credentials, query or fragment | `src/config.rs`, `src/url.rs` | H, L, N, C, F | Yes |
 | `public_base_url` | none | HTTP(S) origin | `src/config.rs`, `src/url.rs` | H, L, F | Yes |
@@ -126,13 +126,12 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `header_read_timeout_ms` | 30000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
 | `body_inactivity_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, C, F | Yes |
 | `request_timeout_ms` | 180000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
-| `connection_timeout_ms` | none | Sets the three settings above; each named explicitly wins | `src/config.rs` | H, L, N, F | Yes |
 | `keep_alive_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
 | `object_request_timeout_ms` | 0 (off) | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
 | `catalog_wait_timeout_ms` | 120000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N, F | Yes |
 | `shutdown_timeout_ms` | 5000 | Unsigned integer, 0 disables | `src/config.rs` | H, L, N | Yes |
 | `auth_mode` | `permissive` | `permissive`, `strict` | `src/auth/mod.rs`, `src/config/auth.rs` | H, L, N, C, R | Yes |
-| `compat_profile` | `native` | `native`, `legacy-emulator` | `src/config.rs` | H, L, N, C, F | Yes |
+| `compat_profile` | `native` | `native`, `fake-gcs-server`; `legacy-emulator`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
 | `cors_fallback` | `allow-all` permissive, `none` strict | `none`, `allow-all` | `src/config.rs` | H, L, N, C, F | Yes |
 | `signed_host_port` | `lenient` where the test signer is enabled, else `exact` | `exact`, `lenient` | `src/auth/signature.rs` | H, L, N, C, F | Yes |
 | `identity_file` | none | Path, at most 16 MiB; not with `identities` | `src/config/document.rs`, `src/auth/mod.rs` | H, L, N, C, F | Yes |
@@ -156,7 +155,7 @@ These flags exist only on the command line, mainly for fake-gcs-server command l
 | `port` | Native | Port of `listen` | None | Yes |
 | `port-http` | Native | Port of `listen_http`; without `scheme=both`, startup fails | None | Yes |
 | `scheme`, `log-level` | Native | The native options of the same name | None | Yes |
-| `backend` | Native or accepted | `memory` and `disk` are native; `filesystem` becomes `backend=disk` | Native-equivalent block for `filesystem` | 4 |
+| `backend` | Native or accepted | `memory` and `disk` are native; `filesystem` becomes `backend=disk` | Native-equivalent block for `filesystem` | Yes |
 | `public-host` | Accepted | `public_base_url` with the effective scheme | Native-equivalent block | Yes |
 | `data` | Accepted | `seed_dir` | Native-equivalent block | Yes |
 | `cert-location` | Accepted | `tls_cert` | Native-equivalent block | Yes |
@@ -255,7 +254,7 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 | Diagnostics | One JSON line per batch on stderr: `event: "diagnostics"`, `level` (`warn` or `error`), `diagnostics` of `source`, `key`, `fix`; warnings first, sorted by source then key | `src/diagnostics.rs` | N, F | Yes |
 | Diagnostic sources | `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`, `catalog`, `initializer`, `seed`, `sync`, `import`, `listener`, `runtime` | `src/diagnostics.rs` | Partly, F | Yes |
 | Fix wording | Not stable, by policy | `docs/en/release-policy.md` | `docs/en/release-policy.md` | Yes |
-| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets_file`, `scheme`, `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
+| Ready event | One JSON line on stdout with `event: "ready"`, `executable`, `version`, `healthcheck_path`, `admin_enabled`, effective `lifecycle_execution` (`enabled` or `disabled`), `message`, `listen`, `listeners`, optional `trusted_listen` and `trusted_principal`, `transport`, optional `unix_socket`, with disk storage `data_dir` (absolute, symbolic links not resolved) and `data_dir_state` (`created` or `opened`), the limits and timeouts, `backend`, `auth_mode`, optional `identities`, `test_signer`, `signed_urls`, `seed`, `buckets` (`buckets_file` before `0.20.0`), `scheme`, `public_base_url`, `public_virtual_host_enabled`, `cors_fallback`, `signed_host_port`, optional `signed_host_port_signers`, `api_base_url`. `protocol` and `gcs_api` were removed in `0.18.0` | `src/startup.rs` `ReadyEvent`, `ReadyDataDirectory` | N, C, S `runtime-admin-endpoints.md`, S `lifecycle-execution.md`, S `startup-phases.md` | Yes |
 | Data directory notice | One `info` runtime event `data_dir_created` on stderr with the absolute `data_dir`, only when this start initialized the catalog | `src/startup.rs` | S `startup-phases.md`, N | Yes |
 | Stopped event | `{"event":"stopped"}` on stdout | `src/startup.rs` `report_stopped` | N | Yes |
 | Runtime events | JSON lines on stderr with `event`, `level` and fields, filtered by `log_level`. About 80 names, written as string literals at each call site; no list exists in code or documents | `src/diagnostics.rs` `emit` | N | Yes |
@@ -282,14 +281,14 @@ Management routes refuse browser-initiated requests with 403 and unapproved DNS 
 1. Resolved in `0.19.1`: `--sync-delete-guard` help said "deletion ingestion pending" although the code applies the guard during deletion ingestion (`src/sync/deletion.rs`). The help now states the threshold and the approval.
 2. Resolved in `0.19.1`: `--seed-dir` help said "image: /data", which the image sets as `GCS_MIMIC_DEFAULT_SEED_DIR`. The help now says that `seed_dir` wins over `default_seed_dir`.
 3. Resolved in `0.19.1`: `--default-location` help said `US|EU|ASIA` although the code also accepts every region and dual-region (`src/bucket.rs`). The help now names them.
-4. `backend` accepts `filesystem` from the environment and JSON as well as the flag (`src/config/storage.rs`; observed with `GCS_MIMIC_BACKEND=filesystem`). H, N and the error text say `disk` or `memory`. S `option-aliases.md` presents it as a flag translation only, and the helper advice in `alias_advice` says `filesystem` or `memory`.
+4. Resolved in `0.20.0`: `backend` accepted `filesystem` from the environment and JSON as well as the flag, while H, N and the error text said `disk` or `memory`. As candidate 14 decided, only the flag translates it now. This item also said that `alias_advice` offers `filesystem`; on the checked source it says `--backend disk or --backend memory`, so that part was never a disagreement.
 5. Resolved in `0.18.0`: on the reviewed source the `--cors-headers` warning said "strict mode follows each bucket's cors rules" while the flag set `cors_fallback=allow-all` in strict mode too. The flag now stops startup in every authentication mode; see candidate 7.
 6. Resolved in `0.18.0`: on the reviewed source S `option-aliases.md` said `public-host` warned that Host matching needs the legacy profile, which only the helper-command advice did. The per-flag warnings are gone; `public-host` is accepted with the native-equivalent block, and S `option-aliases.md` records its routing difference (candidate 5).
 7. Resolved in `0.19.1`: N said `buckets` and `identities` have the "same limits" as their file forms, while in a JSON config file that file's 64 KiB limit binds them (`read_config`). N now says so.
 8. Resolved in `0.19.1`: `--event-list` help said `none` disables the global rule, while alone it fails startup, because event filters need a project and topic (`src/config/notifications.rs`). The help now says that any value other than `finalize` needs the topic settings.
 9. Resolved in `0.19.1`: C's list of settings that define an empty value omitted `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS`, which the code accepts empty beside `trusted_listen`. C and its Japanese companion now list it, and `settings_that_define_an_empty_environment_value_start_with_it` covers it.
 10. Resolved in `0.19.1`: L listed the bucket entry's optional fields as `cors`, `iamPolicy`, `versioning` and `softDeletePolicy`, while the code also accepts `project`, `location`, `storageClass`, `labels`, `defaultEventBasedHold` and `iamConfiguration` (`src/bucket_init.rs` `Entry`). L now lists all ten.
-11. Resolved in `0.19.1`, except for the duplicate spellings of candidate 9: the main help listed `sync findings` and `sync deletions`, but `sync --help` showed only `status --view`, and the approval error named `--revision` while the help names `--deletion-set`. `sync --help` now shows both forms, and the error names `--deletion-set`. `sync approve` still accepts `--revision`, undocumented.
+11. Resolved in `0.19.1`, except for the duplicate spellings of candidate 9: the main help listed `sync findings` and `sync deletions`, but `sync --help` showed only `status --view`, and the approval error named `--revision` while the help names `--deletion-set`. `sync --help` now shows both forms, and the error names `--deletion-set`. Since `0.20.0` `sync approve` refuses the undocumented `--revision` (candidate 9).
 12. Resolved in `0.19.1`: `url sign --help` listed GET, HEAD, PUT and DELETE, while the code also signs POST with `x-goog-resumable: start` (`src/auth/signature.rs`). The help now lists POST and the header it needs.
 13. Resolved in `0.19.1`: the main help's usage line omitted `--h` and `-version`, which the code accepts. It now lists every accepted spelling.
 14. Resolved: release tooling accepts `MAJOR.MINOR.PATCH-rc.N` with positive `N`, publishes only its immutable exact container tag and marks its GitHub Release as a non-latest prerelease. Stable versions alone determine floating tags. Each candidate is a supported upgrade source with its own released-data fixture; see candidate 1 and the [release policy](release-policy.md).
@@ -370,11 +369,12 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - The `latest` image tag keeps meaning the highest stable version across major versions. Candidate 15 adds the tag that follows one major line.
   - The boolean spellings stay as they are: `admin_enabled` and `sync_delete_guard` take `true` or `false`, and `test_signer` and `lifecycle_execution` take `enabled` or `disabled`. A new on/off setting takes `enabled` or `disabled`.
   - The `data_dir` default `data` stays.
-- **Required change for `buckets_file_mode` (a `0.x` minor release, not implemented):**
+- **Required change for `buckets_file_mode` (shipped in `0.20.0`):**
   - **Breaking:** `BucketsFileMode::resolve` returns `reconcile` when no mode is configured, for either form. A bucket file that an existing volume was created from then applies its written fields at the next start: an API change to a written field is undone, fields an entry omits keep their values, and the public access prevention check judges a written `iamPolicy` against the stored bucket's prevention, so a start can stop where it passed in `create` mode. The release notes state this and name `create` as the way to keep the old behavior.
   - Documents: the three guides above, `docs/en/slices/bucket-initialization.md`, `llms.txt`, the Japanese companions and the option rows in `--help` and `docs/en/native-binary.md`.
   - Tests and scripts that expect `reconciled:0` after restarting with a bucket file, such as `scripts/smoke-containers.sh`.
   - Candidate 8 renames the setting in the same release, so users change this setting once.
+- **Implemented scope (0.20.0), `buckets_file_mode`:** `BucketsMode` carries `#[default] Reconcile`, so `Config` holds the mode itself and `BucketsFileMode::resolve`, which chose by the document's form, is gone. Create-mode warnings now say that `buckets_mode=create` keeps existing buckets. The public access prevention fix text is unchanged, because `create` judges a written policy too and cannot bypass it. Tests that relied on the file default select `create` explicitly; `an_edited_buckets_document_reconciles_an_existing_data_directory_by_default` covers the file form, an API change undone, an edit applied and an unchanged restart. `scripts/smoke-containers.sh` keeps `reconciled:0` after its restart, because its entries do not write the labels its API call changes. The guides above were checked: `docs/en/rails-active-storage.md` never mentioned the mode, so the decision's list was one guide too long.
 - **Open points:** none.
 
 #### 4. Make machine-readable names and exit codes contract, not wording
@@ -397,6 +397,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - Ready values: a field that reports a setting uses that setting's documented values, which are contract already, and `transport` is `tcp` or `unix`, which the Go package reads. `message` is wording.
   - `gcs-mimic sync`: its options and its output are outside the `1.0` contract; only the exit status is covered. Directory synchronization is tracked under DESIGN-062, DESIGN-072 and DESIGN-074, all `PARTIAL`, and completing it is the roadmap's first priority, so freezing the command now would bind work that is still changing it. Candidate 9 follows from this.
 - **Required change:** the [release policy](release-policy.md) states all of the above, which is true of the code today. The guard tests listed under the decision of 2026-11-11 still remain; the list of event names to guard is now the seven above.
+- **Implemented scope (0.20.0):** the release policy lists the diagnostics members and the 13 `source` values. `every_source_keeps_its_published_name` pins those values through a `match` without a wildcard arm, so a new source does not compile until its name is decided. A dry run's last line is now checked to be `import_summary`, the one contract event name no test observed; the other six were already observed by the tests that read them. `assert_ready_fields` in `tests/common/process.rs` holds the fields every start reports, and the disk, memory, Unix socket, strict-with-trusted-listener and test-signer starts each pin their complete set through it. Exit status 1 was already asserted on several failure paths, so the earlier remark that tests only checked `success()` was too broad; the new process tests assert 1 too.
 - **Open points:** none.
 
 #### 5. Accept a fake-gcs-server flag only when it translates exactly
@@ -449,8 +450,9 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - The sync routes get a version check: `gcs-mimic sync` sends its version, and a server of another release refuses the request naming both versions. Today the command sends only `Connection`, `Accept`, `Authorization` and `Content-Type` (`src/sync_cli.rs`), so an older client reaches a newer server unchecked and "outside the contract" would show up as an unexplained failure.
 - **Required change:**
   - The [release policy](release-policy.md) names the routes, the statuses and the exclusions; that statement is true today.
-  - **Breaking (a `0.x` minor release, not implemented):** the version check on the `/_internal/sync` routes, with tests for a matching and a differing version.
+  - **Breaking (shipped in `0.20.0`):** the version check on the `/_internal/sync` routes, with tests for a matching and a differing version.
   - Tests: the response keys of `/_internal/health`, `/_internal/reseed` and `/_internal/objects` are pinned beside those of the routes decided on 2026-11-11.
+- **Implemented scope (0.20.0):** `src/sync/handshake.rs` defines `x-gcs-mimic-version` and a typed `Mismatch` that tells each side which release to use. The server checks it first in `control()`, after the browser and host guards and before authentication and any catalog wait, and answers 400 `versionMismatch`; every control answer carries the server's version. The command sends its version and refuses an answer from another release, or without one, after printing it. `admin_contract.rs` pins the probe, reseed and reset response keys, accepts a 64 KiB body on `/_internal/config` and `/_internal/reset`, and checks that `/_internal/objects` answers the object resource the JSON API returns rather than a fixed key list.
 - **Open points:** none.
 
 #### 7. Stop on `--cors-headers` in every mode
@@ -476,7 +478,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Removing the old flag, variable and JSON key breaks configurations.
 - **Fixable compatibly after the freeze:** Yes, with the old name kept as an alias.
 - **Owner decision (2026-11-12):** Rename the setting to `buckets_mode`, with the flag `--buckets-mode` and the matching environment variable, and the ready field `buckets_file` to `buckets`, without an alias. The old setting name stops startup and names the new one. In the repository only `scripts/smoke-containers.sh` reads the ready field.
-- **Required change (a `0.x` minor release, not implemented):** **Breaking:** the `Setting` variant, its help line, the rejection advice, the `ReadyEvent` field, the documents and scripts that name either, and the release notes. It ships with the default change of candidate 3.
+- **Required change (shipped in `0.20.0`):** **Breaking:** the `Setting` variant, its help line, the rejection advice, the `ReadyEvent` field, the documents and scripts that name either, and the release notes. It ships with the default change of candidate 3.
+- **Implemented scope (0.20.0):** `WithdrawnSetting` in `src/config/rejection.rs` stops `buckets_file_mode` from every source and names `buckets_mode` in that source's spelling, through the `Spelled` display that also replaced two hand-written flag spellings. The ready field is `buckets`. Besides `scripts/smoke-containers.sh`, `tests/it_import_seed/bucket_initialization.rs`, the shared ready field list and `examples/strict-local/README.md` read or named the field, so the decision's "only" was too narrow; all of them changed.
 
 #### 9. Reduce duplicate spellings in `gcs-mimic sync`
 
@@ -485,7 +488,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Scripts using the removed spelling fail with a usage error.
 - **Fixable compatibly after the freeze:** Yes, by naming one spelling as primary and keeping the other until a major version.
 - **Owner decision (2026-11-12):** The options of `gcs-mimic sync` are outside the `1.0` contract (candidate 4), so the documented pairs stay and are not frozen: `findings` and `status --view findings`, and `--timeout` and `--timeout-ms`. One spelling goes: `sync approve --revision`, which no document names. `--revision` remains the option of `findings`, `deletions` and `resolve`; `approve` takes `--deletion-set` and converts it internally (`Options::parse` in `src/sync_cli.rs`).
-- **Required change (a `0.x` minor release, not implemented):** `sync approve` refuses `--revision` with a usage error that names `--deletion-set`, with a test.
+- **Required change (shipped in `0.20.0`):** `sync approve` refuses `--revision` with a usage error that names `--deletion-set`, with a test.
+- **Implemented scope (0.20.0):** `Options::parse` refuses `--revision` on `approve` before any request, with empty stdout and exit status 1; `findings`, `deletions` and `resolve` keep it.
 
 #### 10. Rename `connection_timeout_ms`
 
@@ -494,7 +498,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Users must set the three timeouts by name.
 - **Fixable compatibly after the freeze:** Yes, with the old name kept as an alias.
 - **Owner decision (2026-11-12):** Remove it rather than rename it. It is the single timeout of releases before `0.12.0`, kept as an alias when that release split it into `header_read_timeout_ms`, `body_inactivity_timeout_ms` and `request_timeout_ms`; that migration is over, and the alias carries its own precedence rule in `collect_settings`. The `0.12.0` release notes offered it as the way to restore the five-second deadline, so some configurations set it: the name stops startup and names the three settings.
-- **Required change (a `0.x` minor release, not implemented):** **Breaking:** remove the `Setting` variant, its precedence code and its tests; add the rejection advice; update `--help`, `llms.txt`, `docs/en/native-binary.md`, `docs/en/design.md`, `docs/en/slices/configuration-workflows.md`, `docs/en/slices/json-object-media.md` and the release notes.
+- **Required change (shipped in `0.20.0`):** **Breaking:** remove the `Setting` variant, its precedence code and its tests; add the rejection advice; update `--help`, `llms.txt`, `docs/en/native-binary.md`, `docs/en/design.md`, `docs/en/slices/configuration-workflows.md`, `docs/en/slices/json-object-media.md` and the release notes.
+- **Implemented scope (0.20.0):** the variant and the precedence pass in `apply_settings` are gone, so the settings loop is plain again. `WithdrawnSetting::ConnectionTimeoutMs` names the three settings in the spelling of the source that named it. `docs/en/fake-gcs-server-configuration.md` and its Japanese companion also named the alias and changed with the list above.
 
 #### 11. Choose names that do not expose implementation
 
@@ -504,6 +509,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Fixable compatibly after the freeze:** Yes, with the old names kept as aliases.
 - **Owner decision (2026-11-12):** Keep the four names. They are tuning settings: `1.x` keeps accepting them and their value ranges, but what a value does to the process is not promised and may become approximate if the runtime or the catalog changes. A new name would say no more than the old one once the implementation moves.
 - **Required change:** the option rows of `docs/en/native-binary.md` and the [release policy](release-policy.md) say so. No code changes.
+- **Implemented scope (0.20.0):** the release policy already stated it; the four option rows of `docs/en/native-binary.md` now say that the name and range are kept and the effect is not promised.
 
 #### 12. Reconsider the name `legacy-emulator`
 
@@ -512,7 +518,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Removing the value breaks configurations that select it. Removing the profile breaks the migrations that rely on it.
 - **Fixable compatibly after the freeze:** The name, yes, with the old value kept as an alias. Removing the profile, no.
 - **Owner decision (2026-11-12):** Rename the value to `fake-gcs-server`, without an alias, and keep the profile. The value then says which emulator's behavior it selects, and matches `gcs-mimic import fake-gcs-server` and the word a migrating user searches for. The string is defined once (`CompatProfile` in `src/config.rs`); the cost is in the documents and in the callers that pass it: `go/fakestorage/server.go`, `sdk-tests/go`, `scripts/compare-reference-emulator.sh` and the SDK harness READMEs. The old value stops startup and names the new one.
-- **Required change (a `0.x` minor release, not implemented):** **Breaking:** the value, the rejection advice, every document and caller above, and the release notes. The Go package passes the value to whatever binary it starts, so this ships in the same release as the version check of candidate 18.
+- **Required change (shipped in `0.20.0`):** **Breaking:** the value, the rejection advice, every document and caller above, and the release notes. The Go package passes the value to whatever binary it starts, so this ships in the same release as the version check of candidate 18.
+- **Implemented scope (0.20.0):** `string_enum!` gained a `withdrawn` clause, so `CompatProfile` refuses `legacy-emulator` with a fix that names `fake-gcs-server` from every source; the Rust variant is `FakeGcsServer`. The callers above were not all: the integration tests, the ledger's verification commands and the Japanese guides used the value too, and all changed. Evidence transcripts and past release notes keep the commands that ran.
 
 #### 13. Decide whether `--foo_bar` spellings are supported
 
@@ -521,7 +528,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Rejecting them breaks only undocumented use.
 - **Fixable compatibly after the freeze:** Yes while they stay undocumented, because the policy covers documented options. The owner should say so explicitly.
 - **Owner decision (2026-11-12):** Refuse them. A server option is spelled with hyphens on the command line; an underscore spelling stops startup and names the hyphen spelling. They work only because `Inputs::cli` in `src/config_input.rs` replaces `-` with `_` before looking the name up, and no document, example, script or test in the repository uses one.
-- **Required change (a `0.x` minor release, not implemented):** **Breaking** for undocumented use: the parser refuses a native option name that contains `_`, with a test, and the [spelling rules](#spelling-rules) drop the two underscore forms.
+- **Required change (shipped in `0.20.0`):** **Breaking** for undocumented use: the parser refuses a native option name that contains `_`, with a test, and the [spelling rules](#spelling-rules) drop the two underscore forms.
+- **Implemented scope (0.20.0):** `Inputs::cli` marks such an input `InputError::Spelling` and reports one `cli` diagnostic keyed as supplied. The input stays native, so its value is consumed and nothing depending on it reports a second error. The `healthcheck` fallback reads PID 1's options through the same parser, which matters only if PID 1 used such a spelling, and then it never started.
 
 #### 14. Limit `backend=filesystem` to the flag, or document it
 
@@ -530,7 +538,8 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Rejecting it from the environment and JSON breaks only undocumented use.
 - **Fixable compatibly after the freeze:** Yes while it stays undocumented.
 - **Owner decision (2026-11-12):** Limit it to the flag. `-backend filesystem` stays an accepted fake-gcs-server flag that translates to `backend=disk` (candidate 5); `backend=filesystem` from the environment or JSON stops startup and names `disk`. Aliases then live in one place, the command line. The setting's parser accepts the value from every source today (`src/config/storage.rs`), and nothing in the repository sets it outside the flag.
-- **Required change (a `0.x` minor release, not implemented):** **Breaking** for undocumented use: move the translation into the alias flag, reject the value in the setting's parser, correct the helper advice in `alias_advice` that offers `filesystem`, and add tests for both sources. This resolves [disagreement 4](#disagreements-between-code-and-documents).
+- **Required change (shipped in `0.20.0`):** **Breaking** for undocumented use: move the translation into the alias flag, reject the value in the setting's parser, correct the helper advice in `alias_advice` that offers `filesystem`, and add tests for both sources. This resolves [disagreement 4](#disagreements-between-code-and-documents).
+- **Implemented scope (0.20.0):** the translation was already in the alias flag (`resolve_alias`), and `alias_advice` already said `--backend disk or --backend memory`, so neither changed. `Backend` now uses `string_enum!` like the other choices and lists `filesystem` in its withdrawn clause, which names `disk`.
 
 #### 15. Add a major image alias
 
@@ -567,26 +576,23 @@ Found on 2026-11-12 while checking candidate 12; the inventory above does not li
 - **Fixable compatibly after the freeze:** Yes; a check can be added or widened in any release.
 - **Owner decision (2026-11-12):** The Go package reads `version` from the ready event and stops, naming both versions, when the binary is outside the range the module supports.
 - **0.x default (2026-11-12, revisable before the freeze):** in `0.x` the range is the module's own minor version; from `1.0.0` it is the same major version at or above the module's minor.
-- **Required change (a `0.x` minor release, not implemented):** the check in `go/fakestorage/server.go` with tests for a supported and an unsupported version, and `go/README.md` states the range. It ships before or with candidate 12.
+- **Required change (shipped in `0.20.0`):** the check in `go/fakestorage/server.go` with tests for a supported and an unsupported version, and `go/README.md` states the range. It ships before or with candidate 12.
+- **Implemented scope (0.20.0):** the package had no version of its own, so `moduleVersion` in `go/fakestorage/version.go` records it and `scripts/check-release-recipes.sh` keeps it equal to `Cargo.toml`. A start reads `version` from the ready event and returns `*UnsupportedBinaryError`, naming the path and both versions, outside the range. A binary of another release can refuse the options before it reports anything, so after an exit before ready the package asks `--version` once and reports a mismatch as the cause.
 
 ## Contract areas without a test guarding them
 
-- Helper help texts. `URL_PUBLIC_HELP`, `URL_SIGN_HELP`, `TEST_SIGNER_HELP` and the `sync` and `import` help have no digest.
-- Underscore spellings such as `--foo_bar`.
-- `backend=filesystem` from the environment or JSON.
-- The ready event's optional field combinations. `process_shutdown_reports_stopped_and_releases_catalog_for_restart` pins the complete disk field set over HTTP, including `data_dir`, `data_dir_state` and effective `lifecycle_execution`, and the memory case pins the omitted directory fields; other transport/authentication combinations remain separate checks.
-- The exit status value. Tests check `success()` or its negation, not the value 1.
-- The healthcheck's fallback to PID 1's server options. `container_server_args` has no test, and the only probe without `--url` in `scripts/smoke-containers.sh` runs against a container with no server options.
 - Image metadata other than the user and data paths. `scripts/smoke-containers.sh` does not check `EXPOSE`, the `HEALTHCHECK` parameters, `SQLITE_TMPDIR` or the licenses path.
-- `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` with an empty value, which `settings_that_define_an_empty_environment_value_start_with_it` omits.
+- The healthcheck's fallback inside a container. `container_server_args` parses PID 1's command line in a unit-tested function since `0.20.0`, but the only probe without `--url` in `scripts/smoke-containers.sh` runs against a container with no server options.
+
+Guarded since `0.20.0`, each with the tests named under its candidate: the helper help texts of `url public`, `url sign`, `test-signer` and `import fake-gcs-server`, by digest (the `sync` help is outside the contract); underscore spellings; `backend=filesystem` from the environment and JSON; the complete ready field set of each start the inventory names; and the exit status value 1. `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` with an empty value was already covered by its own case in `settings_that_define_an_empty_environment_value_start_with_it`.
 
 Since `0.18.0`, a server started with every `GCSM_*` name set is tested, and so is each withdrawn `GCS_MIMIC_*` client name ([verification](evidence/environment-names.md)); that area is no longer unguarded.
 
 The option list is no longer unguarded either. `--help` is built from one exhaustive `match` with a line for every `Setting`, so a new setting does not compile without one, and lists the settings in their declaration order after the common ones. The tests in `src/config/help.rs` require it to list every `Setting` except `config` plus the CLI-only `--port`, `--port-http` and `--host` once, the option table of `docs/en/native-binary.md` to name each of them and `config` once with its `GCS_MIMIC_*` variable, and the "Every server option" list of `llms.txt` to name every `Setting` once. `scripts/check-docs.sh` runs them, so a documentation-only change is checked too. The table had lacked 18 options and `llms.txt` lacked `--lifecycle-execution`; both now list them.
 
-## Decided on 2026-11-12, to implement before the freeze
+## Decided on 2026-11-12, shipped in 0.20.0
 
-No point remains open for the freeze. These decisions change behavior and are not implemented. Each ships in a `0.x` minor release before the first release candidate; no particular release is promised. Each is recorded under its candidate:
+No point remains open for the freeze. These decisions change behavior and ship together in `0.20.0`, before the first release candidate, as DESIGN-103 ([design](slices/contract-cleanup.md), [release notes](releases/0.20.0.md)). Each is recorded under its candidate:
 
 | Change | Candidate |
 | --- | --- |
@@ -600,4 +606,4 @@ No point remains open for the freeze. These decisions change behavior and are no
 | `backend=filesystem` is refused from the environment and JSON | 14 |
 | The Go package refuses a binary outside its supported versions | 18 |
 
-The major image alias (candidate 15) ships with `1.0.0`. The decisions that only define the contract (candidates 4, 5, 6 and 11) are stated in the [release policy](release-policy.md) and need the guard tests listed under [contract areas without a test](#contract-areas-without-a-test-guarding-them).
+The major image alias (candidate 15) ships with `1.0.0`. The decisions that only define the contract (candidates 4, 5, 6 and 11) are stated in the [release policy](release-policy.md), and their guard tests are listed under [contract areas without a test](#contract-areas-without-a-test-guarding-them).
