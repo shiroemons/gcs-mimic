@@ -84,6 +84,16 @@ func TestBucketMetadataReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstAttrs = requireBucketReplacement(t, ctx, bucket, firstAttrs, pap)
+	if fakeGCSServerProfile() {
+		// The profile's PUT preserves omitted settings (SPEC-BUCKET-PUT), so a body with only PAP keeps
+		// what the first PUT wrote. The rest of this case follows Cloud Storage's replacement.
+		if !firstAttrs.VersioningEnabled || !firstAttrs.DefaultEventBasedHold || firstAttrs.StorageClass != "NEARLINE" ||
+			!maps.Equal(firstAttrs.Labels, map[string]string{"keep": "one", "remove": "two"}) ||
+			firstAttrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
+			t.Fatalf("profile PUT must preserve omitted settings and set PAP: %+v", firstAttrs)
+		}
+		return
+	}
 	// Cloud Storage replaces the whole resource on PUT: omitted labels and versioning are cleared and the
 	// storage class keeps its value (recorded bkt-patch-put-edges). The default event-based hold is cleared
 	// by extrapolation from those fields; the recording has no defaultEventBasedHold.

@@ -35,7 +35,12 @@ func TestGRPCUpdateCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !attrs.VersioningEnabled || attrs.Labels["keep"] != "yes" {
+	// The fake-gcs-server profile ignores labels on insert, so it has none for the update to keep.
+	wantLabel := "yes"
+	if fakeGCSServerProfile() {
+		wantLabel = ""
+	}
+	if !attrs.VersioningEnabled || attrs.Labels["keep"] != wantLabel {
 		t.Fatalf("unmasked labels changed: %+v", attrs)
 	}
 	_, err = bucket.If(storage.BucketConditions{MetagenerationMatch: attrs.MetaGeneration + 1}).Update(ctx, storage.BucketAttrsToUpdate{VersioningEnabled: false})
@@ -71,7 +76,12 @@ func TestGRPCUpdateCopy(t *testing.T) {
 		t.Fatalf("copy destination condition: %v", err)
 	}
 	otherName := name + "-other"
-	if err := jsonClient.Bucket(otherName).Create(ctx, "local-project", &storage.BucketAttrs{Location: "EU"}); err != nil {
+	// The copy crosses buckets; the fake-gcs-server profile refuses locations other than US.
+	otherLocation := "EU"
+	if fakeGCSServerProfile() {
+		otherLocation = "US"
+	}
+	if err := jsonClient.Bucket(otherName).Create(ctx, "local-project", &storage.BucketAttrs{Location: otherLocation}); err != nil {
 		t.Fatal(err)
 	}
 	copied, err := client.Bucket(otherName).Object("copied").CopierFrom(bucket.Object("source").Generation(original.Generation)).Run(ctx)
@@ -120,7 +130,7 @@ func TestGRPCUpdateCopy(t *testing.T) {
 	settings := storage.BucketAttrsToUpdate{VersioningEnabled: false, UniformBucketLevelAccess: &storage.UniformBucketLevelAccess{Enabled: true}, Lifecycle: &life}
 	settings.SetLabel("owner", "grpc")
 	attrs, err = bucket.Update(ctx, settings)
-	if err != nil || attrs.VersioningEnabled || !attrs.UniformBucketLevelAccess.Enabled || len(attrs.Lifecycle.Rules) != 1 || attrs.Labels["keep"] != "yes" {
+	if err != nil || attrs.VersioningEnabled || !attrs.UniformBucketLevelAccess.Enabled || len(attrs.Lifecycle.Rules) != 1 || attrs.Labels["keep"] != wantLabel {
 		t.Fatalf("bucket settings: %+v %v", attrs, err)
 	}
 	observed, err := jb.Attrs(ctx)

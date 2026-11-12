@@ -23,6 +23,8 @@ guardSockets(origin);
 const observed = observeHttp(origin);
 const token = process.env.GCSM_TOKEN;
 const strict = Boolean(token);
+// scripts/sdk-go.sh starts the servers with this profile, so cases expect it where it differs.
+const fakeGcsServer = process.env.GCSM_SDK_COMPAT_PROFILE === 'fake-gcs-server';
 const storage = createStorage(origin, {token});
 const unique = purpose => `sdk-node-${purpose}-${randomBytes(6).toString('hex')}`;
 const metadata = async resource => (await resource.getMetadata())[0];
@@ -87,7 +89,8 @@ test('node-bucket-patch-preserves-unrelated-settings', async () => {
     await b.setMetadata({iamConfiguration: {publicAccessPrevention: 'enforced'}});
     const meta = await metadata(b);
     assert.equal(meta.versioning?.enabled, true, 'PATCH lost versioning');
-    assert.deepEqual(meta.labels, {keep: 'yes'}, 'PATCH lost labels');
+    // The fake-gcs-server profile ignores labels on insert, so there are none to keep.
+    assert.deepEqual(meta.labels ?? {}, fakeGcsServer ? {} : {keep: 'yes'}, 'PATCH lost labels');
     assert.equal(meta.iamConfiguration.publicAccessPrevention, 'enforced');
   });
 });
@@ -99,6 +102,14 @@ test('node-default-create-bucket', async () => {
 });
 
 test('node-regional-location', async () => {
+  if (fakeGcsServer) {
+    // The profile reports one fixed region and refuses another location instead of storing a
+    // placement the caller did not get.
+    const name = unique('region');
+    await rejectsWith(400, () => storage.createBucket(name, {location: 'ASIA-NORTHEAST1'}), 'badRequest');
+    assert.equal((await storage.bucket(name).exists())[0], false, 'a refused create left a bucket');
+    return;
+  }
   await withBucket('region', {location: 'ASIA-NORTHEAST1'}, async b => {
     assert.equal(b.metadata.location, 'ASIA-NORTHEAST1');
     assert.equal(b.metadata.locationType, 'region');

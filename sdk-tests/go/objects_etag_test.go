@@ -97,7 +97,13 @@ func TestReadETagValidators(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = api.Buckets.Get(bucket.BucketName()).IfNoneMatch(bucketMetadata.Etag).Context(ctx).Do()
+	validator := bucketMetadata.Etag
+	if fakeGCSServerProfile() {
+		// A profile bucket's JSON etag keeps the source's representation, so the HTTP validator is
+		// the response header (json-read-etag-validators).
+		validator = bucketMetadata.ServerResponse.Header.Get("ETag")
+	}
+	_, err = api.Buckets.Get(bucket.BucketName()).IfNoneMatch(validator).Context(ctx).Do()
 	if !googleapi.IsNotModified(err) {
 		t.Fatalf("conditional bucket GET: %v", err)
 	}

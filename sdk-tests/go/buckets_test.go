@@ -120,6 +120,12 @@ func emulatorHTTPClient(t *testing.T, u *url.URL) *http.Client {
 	}
 }
 
+// fakeGCSServerProfile reports whether scripts/sdk-go.sh started the servers with
+// --compat-profile fake-gcs-server, so that a case expects that profile where it differs.
+func fakeGCSServerProfile() bool {
+	return os.Getenv("GCSM_SDK_COMPAT_PROFILE") == "fake-gcs-server"
+}
+
 func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Client, *url.URL) {
 	t.Helper()
 	raw := os.Getenv("GCSM_ENDPOINT")

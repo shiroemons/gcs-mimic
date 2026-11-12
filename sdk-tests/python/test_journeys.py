@@ -15,6 +15,9 @@ import requests
 
 from harness import CHUNK_SIZE, PROJECT, GuardedSession, delete_bucket, environment, unique
 
+# scripts/sdk-go.sh starts the servers with this profile, so cases expect it where it differs.
+FAKE_GCS_SERVER = os.environ.get("GCSM_SDK_COMPAT_PROFILE") == "fake-gcs-server"
+
 
 class Journey(unittest.TestCase):
     @classmethod
@@ -81,10 +84,20 @@ class BucketJourneys(Journey):
         bucket.update()
         bucket.reload()
         self.assertTrue(bucket.versioning_enabled)
-        self.assertEqual(bucket.labels, {"keep": "yes"})
+        # The fake-gcs-server profile ignores labels on insert, so there are none to keep.
+        self.assertEqual(bucket.labels, {} if FAKE_GCS_SERVER else {"keep": "yes"})
         self.assertEqual(bucket.iam_configuration.public_access_prevention, "enforced")
 
     def test_regional_location(self):
+        if FAKE_GCS_SERVER:
+            # The profile reports one fixed region and refuses another location instead of
+            # storing a placement the caller did not get.
+            name = unique("sdk-python-region")
+            with self.assertRaises(exceptions.BadRequest) as raised:
+                self.client.create_bucket(name, location="ASIA-NORTHEAST1", retry=None)
+            self.assertEqual(raised.exception.errors[0]["reason"], "badRequest")
+            self.assertIsNone(self.client.lookup_bucket(name))
+            return
         bucket = self.new_bucket("sdk-python-region", location="ASIA-NORTHEAST1")
         self.assertEqual((bucket.location, bucket.location_type), ("ASIA-NORTHEAST1", "region"))
         bucket.reload()

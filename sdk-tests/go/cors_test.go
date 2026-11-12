@@ -97,11 +97,17 @@ func TestBucketCORS(t *testing.T) {
 		t.Fatalf("XML preflight from SDK-configured bucket: status=%s headers=%v", response.Status, response.Header)
 	}
 	// A PUT replaces the whole resource, so omitting CORS clears it (recorded bkt-patch-put-edges).
+	// The fake-gcs-server profile's PUT preserves omitted settings instead (SPEC-BUCKET-PUT).
+	kept := len(attrs.CORS)
 	if _, err := api.Buckets.Update(name, &raw.Bucket{}).Context(ctx).Do(); err != nil {
 		t.Fatal(err)
 	}
 	attrs, err = bucket.Attrs(ctx)
-	if err != nil || len(attrs.CORS) != 0 {
+	if fakeGCSServerProfile() {
+		if err != nil || kept == 0 || len(attrs.CORS) != kept {
+			t.Fatalf("omitted profile PUT CORS must keep %d rules: attrs=%+v err=%v", kept, attrs, err)
+		}
+	} else if err != nil || len(attrs.CORS) != 0 {
 		t.Fatalf("omitted PUT CORS must clear configuration: attrs=%+v err=%v", attrs, err)
 	}
 }

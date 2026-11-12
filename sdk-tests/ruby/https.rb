@@ -85,6 +85,8 @@ if origin.scheme == "https"
   raise "CA certificate is unreadable" unless File.file?(ca) && File.readable?(ca)
 end
 %w[http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY].each { |key| ENV.delete(key) }
+# scripts/sdk-go.sh starts the servers with this profile, so cases expect it where it differs.
+fake_gcs_server = ENV["GCSM_SDK_COMPAT_PROFILE"] == "fake-gcs-server"
 
 # Anonymous construction and an optional static fixture token prevent credential discovery.
 storage = Google::Cloud::Storage.anonymous(endpoint: "#{origin.to_s.delete_suffix('/')}/",
@@ -118,8 +120,15 @@ if ARGV.empty? || ARGV == ["--bucket-put"]
       observed[:requests] == [[:put, "/storage/v1/b/#{put_bucket.name}"]]
 
     put_bucket.reload!
-    raise "PUT kept versioning" if put_bucket.versioning?
-    raise "PUT kept labels" unless put_bucket.labels.empty?
+    if fake_gcs_server
+      # The profile's PUT preserves what the block omits, for exactly these update blocks
+      # (SPEC-BUCKET-PUT), and it ignores labels on insert, so there are none to keep.
+      raise "profile PUT dropped versioning" unless put_bucket.versioning?
+      raise "profile insert kept labels" unless put_bucket.labels.empty?
+    else
+      raise "PUT kept versioning" if put_bucket.versioning?
+      raise "PUT kept labels" unless put_bucket.labels.empty?
+    end
     raise "PUT did not change PAP" unless put_bucket.public_access_prevention_enforced?
 
     # Setters outside a block are PATCHes and preserve everything they do not name.
@@ -159,14 +168,27 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     bucket = storage.create_bucket("sdk-ruby-basic-#{SecureRandom.hex(8)}")
     puts "ruby-default-create-bucket passed"
     regional_bucket = nil
-    begin
-      regional_bucket = storage.create_bucket("sdk-ruby-region-#{SecureRandom.hex(8)}", location: "ASIA-NORTHEAST1")
-      raise "regional create location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
-      regional_bucket.reload!
-      raise "regional get location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
-      puts "ruby-regional-location passed"
-    ensure
-      regional_bucket&.delete
+    regional_name = "sdk-ruby-region-#{SecureRandom.hex(8)}"
+    if fake_gcs_server
+      # The profile reports one fixed region and refuses another location instead of storing a
+      # placement the caller did not get.
+      begin
+        storage.create_bucket(regional_name, location: "ASIA-NORTHEAST1")
+        raise "profile accepted a regional location"
+      rescue Google::Cloud::InvalidArgumentError
+        raise "refused regional create left a bucket" if storage.bucket(regional_name)
+      end
+      puts "ruby-regional-location passed: the fake-gcs-server profile refuses it"
+    else
+      begin
+        regional_bucket = storage.create_bucket(regional_name, location: "ASIA-NORTHEAST1")
+        raise "regional create location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
+        regional_bucket.reload!
+        raise "regional get location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
+        puts "ruby-regional-location passed"
+      ensure
+        regional_bucket&.delete
+      end
     end
     begin
       # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.

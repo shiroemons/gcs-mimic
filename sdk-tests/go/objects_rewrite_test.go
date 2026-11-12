@@ -70,6 +70,11 @@ func TestObjectRewriteCopier(t *testing.T) {
 		{"exact byte boundary", "EU", 2 << 20, 2},
 		{"empty object", "EU", 0, 1},
 	} {
+		if fakeGCSServerProfile() {
+			// The profile refuses locations other than US, so every rewrite stays in one location
+			// and completes in one call; the chunked cross-location path is native only.
+			tc.location, tc.calls = "US", 1
+		}
 		t.Run(tc.name, func(t *testing.T) {
 			log := &rewriteRequestLog{base: httpClient.Transport}
 			recordedHTTP := *httpClient

@@ -80,13 +80,17 @@ if ($mode === '--migration-scenario') {
 }
 check($mode === '', 'usage: php suite.php [--self-check|--migration-scenario]');
 
-$runner->run('php-bucket-patch-preserves-unrelated-settings', function () use ($storage) {
+// scripts/sdk-go.sh starts the servers with this profile, so cases expect it where it differs.
+$fakeGcsServer = getenv('GCSM_SDK_COMPAT_PROFILE') === 'fake-gcs-server';
+
+$runner->run('php-bucket-patch-preserves-unrelated-settings', function () use ($storage, $fakeGcsServer) {
     $bucket = $storage->createBucket(uniqueName('sdk-php-put'), ['versioning' => ['enabled' => true], 'labels' => ['keep' => 'yes']]);
     try {
         $bucket->update(['iamConfiguration' => ['publicAccessPrevention' => 'enforced']]);
         $info = $bucket->reload();
         check(($info['versioning']['enabled'] ?? false) === true, 'PATCH lost versioning');
-        check(($info['labels'] ?? null) === ['keep' => 'yes'], 'PATCH lost labels');
+        // The fake-gcs-server profile ignores labels on insert, so there are none to keep.
+        check(($info['labels'] ?? []) === ($fakeGcsServer ? [] : ['keep' => 'yes']), 'PATCH lost labels');
         check($info['iamConfiguration']['publicAccessPrevention'] === 'enforced', 'PATCH did not change PAP');
     } finally {
         dropBucket($bucket);
@@ -112,7 +116,19 @@ try {
     });
     if ($bucket === null) $runner->finish("PHP SDK suite ($profile)");
 
-    $runner->run('php-regional-location', function () use ($storage) {
+    $runner->run('php-regional-location', function () use ($storage, $fakeGcsServer) {
+        if ($fakeGcsServer) {
+            // The profile reports one fixed region and refuses another location instead of
+            // storing a placement the caller did not get.
+            $name = uniqueName('sdk-php-region');
+            try {
+                $storage->createBucket($name, ['location' => 'ASIA-NORTHEAST1']);
+                check(false, 'the fake-gcs-server profile accepted a regional location');
+            } catch (\Google\Cloud\Core\Exception\BadRequestException) {
+            }
+            check(!$storage->bucket($name)->exists(), 'a refused create left a bucket');
+            return;
+        }
         $regional = $storage->createBucket(uniqueName('sdk-php-region'), ['location' => 'ASIA-NORTHEAST1']);
         try {
             $info = $regional->info();

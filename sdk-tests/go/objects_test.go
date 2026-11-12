@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"testing"
 	"time"
 
@@ -166,7 +165,7 @@ func TestObjectMediaLifecycle(t *testing.T) {
 			}
 			readObject(t, ctx, object, payload, attrs.Generation)
 			nonemptyStatus := http.StatusConflict
-			if os.Getenv("GCSM_SDK_COMPAT_PROFILE") == "fake-gcs-server" {
+			if fakeGCSServerProfile() {
 				nonemptyStatus = http.StatusPreconditionFailed
 			}
 			requireObjectStatus(t, bucket.Delete(ctx), nonemptyStatus)

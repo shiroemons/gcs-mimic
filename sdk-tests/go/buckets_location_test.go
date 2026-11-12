@@ -3,7 +3,9 @@ package gcsmimic_test
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,16 @@ func TestBucketLocations(t *testing.T) {
 	} {
 		t.Run(tc.location, func(t *testing.T) {
 			bucket := client.Bucket(fmt.Sprintf("sdk-locations-%x-%d", nonce, index))
+			if fakeGCSServerProfile() {
+				// The profile reports one fixed region and refuses another location instead of
+				// storing a placement the caller did not get.
+				err := bucket.Create(ctx, project, &storage.BucketAttrs{Location: tc.location})
+				requireObjectStatus(t, err, http.StatusBadRequest)
+				if _, err := bucket.Attrs(ctx); !errors.Is(err, storage.ErrBucketNotExist) {
+					t.Fatalf("a refused create must leave no bucket: %v", err)
+				}
+				return
+			}
 			if err := bucket.Create(ctx, project, &storage.BucketAttrs{Location: tc.location}); err != nil {
 				t.Fatal(err)
 			}

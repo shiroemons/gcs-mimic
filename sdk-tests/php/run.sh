@@ -59,7 +59,8 @@ php() {
   while [[ $1 != -- ]]; do docker_args+=("$1"); shift; done
   shift
   docker run --rm --name "$container" "${user_args[@]}" "${network_args[@]}" ${ca_args[@]+"${ca_args[@]}"} \
-    -e GCSM_DOCKER_GATEWAY="$gateway" ${docker_args[@]+"${docker_args[@]}"} \
+    -e GCSM_DOCKER_GATEWAY="$gateway" -e GCSM_SDK_COMPAT_PROFILE="${GCSM_SDK_COMPAT_PROFILE:-native}" \
+    ${docker_args[@]+"${docker_args[@]}"} \
     -v "$root:/work:ro" -w /work/sdk-tests/php "$image" php "$@"
 }
 for file in harness.php migration_scenario.php migration_adapters.php signed.php suite.php; do
