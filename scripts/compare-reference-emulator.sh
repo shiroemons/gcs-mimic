@@ -389,7 +389,7 @@ patch_bucket patch-hold-enable '{"defaultEventBasedHold":true}'
 patch_bucket patch-hold-disable '{"defaultEventBasedHold":false}'
 patch_bucket patch-unknown '{"futureUnknownField":{"enabled":true}}'
 for field in cors lifecycle retentionPolicy iamConfiguration; do
-  patch_bucket "patch-unsupported-$field" "{\"$field\":null}"
+  patch_bucket "patch-clear-$field" "{\"$field\":null}"
 done
 patch_bucket patch-malformed '{"labels":'
 patch_bucket patch-missing '{}' '' compare-patch-missing
@@ -432,7 +432,8 @@ echo 'PATCH-ASSERT reference status, ignored fields, settings and revision behav
 if [[ $reference_only == 0 ]]; then
   jq -es '
     def resource($rows; $case): $rows[$case].body | fromjson;
-    [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
+    ["patch-settings-omitted","patch-unknown","patch-projection-full","patch-projection-noacl"] as $noops
+    | [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
     | ($targets | length == 2) and all($targets[];
       (map({key:.case,value:.}) | from_entries) as $rows
       | [.[] | select(.request.method == "PATCH")] as $patches
@@ -440,9 +441,13 @@ if [[ $reference_only == 0 ]]; then
         and all($patches[];
           .status == (if .case == "patch-malformed" then 400
             elif .case == "patch-missing" then 404
-            elif (.case | startswith("patch-unsupported-")) or .case == "patch-predefined-acl"
-              or .case == "patch-predefined-default-acl" or .case == "patch-user-project" then 400
-            elif .case == "patch-match-stale" or .case == "patch-notmatch-failure" then 412
+            elif .case == "patch-predefined-acl" or .case == "patch-predefined-default-acl" then
+              (if .target == "mimic-native" then 200 else 400 end)
+            elif .case == "patch-user-project" then 400
+            elif .case == "patch-match-stale" then 412
+            # Cloud Storage answers a failed ifMetagenerationNotMatch on a writing PATCH with
+            # an empty 304, as tests/it_json/bucket_http.rs records.
+            elif .case == "patch-notmatch-failure" then 304
             else 200 end))
         and (resource($rows; "patch-label-add").labels == {keep:"one",remove:"two"})
         and (resource($rows; "patch-label-merge").labels == {keep:"one",remove:"two",add:"three"})
@@ -469,9 +474,14 @@ if [[ $reference_only == 0 ]]; then
             else
               .ok = (.ok and
                 (resource($rows; $patch.case + "-list-state").items | map(select(.name == $name))) == [$after]
-                and (if $patch.status == 200 then
+                # A PATCH returns projection=full by default, so only its ACL members differ from
+                # the GET; a body without a writable setting is a no-op, as observed on Cloud Storage.
+                and (if $patch.status == 200 and any($noops[]; . == $patch.case) then
+                  ($patch.body | fromjson | del(.acl, .defaultObjectAcl, .owner)) == $after
+                  and $after == $before
+                elif $patch.status == 200 then
                   ($patch.request.body | fromjson) as $input
-                  | ($patch.body | fromjson) == $after
+                  | ($patch.body | fromjson | del(.acl, .defaultObjectAcl, .owner)) == $after
                   and ($after.metageneration | tonumber) == (($before.metageneration | tonumber) + 1)
                   and $after.updated >= $before.updated and $after.updated >= $after.timeCreated and $after.etag != $before.etag
                   and $after.timeCreated == $before.timeCreated and $after.name == $before.name
@@ -512,7 +522,7 @@ put_bucket put-settings-null '{"versioning":null,"defaultEventBasedHold":null}'
 put_bucket put-class-null '{"storageClass":null}'
 put_bucket put-unknown '{"futureUnknownField":{"enabled":true}}'
 for field in cors lifecycle retentionPolicy iamConfiguration; do
-  put_bucket "put-unsupported-$field" "{\"$field\":null}"
+  put_bucket "put-clear-$field" "{\"$field\":null}"
 done
 put_bucket put-empty-acl '{"acl":[]}'
 put_bucket put-nonempty-acl '{"acl":[{"entity":"allUsers","role":"READER"}]}'
@@ -588,20 +598,30 @@ echo 'PUT-ASSERT reference backends reject bucket PUT with JSON 404 and preserve
 if [[ $reference_only == 0 ]]; then
   jq -es '
     def resource($rows; $case): $rows[$case].body | fromjson;
+    # The contract of each profile is docs/en/slices/bucket-metadata-put.md: the native profile
+    # replaces the resource as Cloud Storage did, ignores a generation query, keeps the class for
+    # a null storageClass and applies predefinedAcl; the fake-gcs-server profile preserves what
+    # a PUT omits. Both replace ACLs given in the body and clear a setting given as null.
+    def expected:
+      (.target == "mimic-native") as $native
+      | if .case == "put-malformed" then [400,"invalid"]
+        elif .case == "put-class-null" then (if $native then [200,null] else [400,"invalid"] end)
+        elif .case == "put-settings-null" then (if $native then [400,"invalid"] else [200,null] end)
+        elif .case == "put-projection-invalid" then [400,"invalidParameter"]
+        elif .case == "put-generation" then (if $native then [200,null] else [400,"invalidParameter"] end)
+        elif .case == "put-missing" then [404,"notFound"]
+        elif .case == "put-predefined-acl" or .case == "put-predefined-default-acl" then
+          (if $native then [200,null] else [400,"badRequest"] end)
+        elif .case == "put-user-project" then [400,"badRequest"]
+        elif .case == "put-match-stale" or .case == "put-notmatch-failure" then [412,"conditionNotMet"]
+        else [200,null] end;
     [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
     | ($targets | length == 2) and all($targets[];
-      (map({key:.case,value:.}) | from_entries) as $rows
+      (.[0].target == "mimic-native") as $native
+      | (map({key:.case,value:.}) | from_entries) as $rows
       | [.[] | select(.request.method == "PUT")] as $puts
       | ($puts | length == 32) and all($puts[];
-          (if .case == "put-malformed" then [400,(if .target == "mimic-native" then "parseError" else "invalid" end)]
-            elif .case == "put-class-null" then [400,(if .target == "mimic-native" then "invalidArgument" else "invalid" end)]
-            elif .case == "put-settings-null" and .target == "mimic-native" then [400,"invalidArgument"]
-            elif .case == "put-projection-invalid" or .case == "put-generation" then [400,"invalidParameter"]
-            elif .case == "put-missing" then [404,"notFound"]
-            elif (.case | startswith("put-unsupported-")) or .case == "put-nonempty-acl" or .case == "put-default-acl"
-              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then [400,"badRequest"]
-            elif .case == "put-match-stale" or .case == "put-notmatch-failure" then [412,"conditionNotMet"]
-            else [200,null] end) as $expected
+          expected as $expected
           | .status == $expected[0]
             and (if .status == 200 then true
               else (.body | fromjson | .error.errors[0].reason) == $expected[1] end))
@@ -624,23 +644,26 @@ if [[ $reference_only == 0 ]]; then
                 (resource($rows; $put.case + "-list-state").items | map(select(.name == $name))) == [$after]
                 and (if $put.status == 200 then
                   ($put.request.body | fromjson) as $input
-                  | ($put.body | fromjson) == $after
+                  | ($put.body | fromjson | del(.acl, .defaultObjectAcl, .owner)) == $after
                     and ($after.metageneration | tonumber) == (($before.metageneration | tonumber) + 1)
                     and $after.etag != $before.etag and $after.updated >= $before.updated
                     and $after.updated >= $after.timeCreated and $after.timeCreated == $before.timeCreated
                     and $after.name == $before.name and $after.id == $before.id
                     and $after.location == $before.location and $after.projectNumber == $before.projectNumber
-                    and ($after.labels // {}) == (if $input | has("labels") then $input.labels // {} else $before.labels // {} end)
+                    and ($after.labels // {}) == (if $input | has("labels") then $input.labels // {}
+                      elif $native then {} else $before.labels // {} end)
                     and $after.storageClass == ($input.storageClass // $before.storageClass)
-                    and ($after.versioning.enabled // false) == (if $input | has("versioning") then $input.versioning.enabled // false else $before.versioning.enabled // false end)
-                    and ($after.defaultEventBasedHold // false) == (if $input | has("defaultEventBasedHold") then $input.defaultEventBasedHold // false else $before.defaultEventBasedHold // false end)
+                    and ($after.versioning.enabled // false) == (if $input | has("versioning") then $input.versioning.enabled // false
+                      elif $native then false else $before.versioning.enabled // false end)
+                    and ($after.defaultEventBasedHold // false) == (if $input | has("defaultEventBasedHold") then $input.defaultEventBasedHold // false
+                      elif $native then false else $before.defaultEventBasedHold // false end)
                 else $after == $before end))
               | .previous[$name] = $after
             end) | .ok)
         and (resource($rows; "put-objects").items | map(.name)) == ["kept.txt"]
         and $rows["put-object-bytes"].body == "PUT preserved payload")
   ' "$work/results.jsonl" >/dev/null
-  echo 'PUT-ASSERT mimic profiles preserve omitted metadata, enforce conditions and preserve objects: PASS'
+  echo 'PUT-ASSERT mimic profiles replace (native) or preserve (fake-gcs-server) omitted metadata, enforce conditions and preserve objects: PASS'
 fi
 
 echo
