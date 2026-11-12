@@ -13,7 +13,7 @@ passed before committing the typed conversion.
 
 Legacy object metadata and bucket replacements construct shared typed updates
 directly from protobuf fields. Native bucket replacement clears omitted
-CORS/lifecycle/versioning/unlocked retention as before; the legacy profile keeps
+CORS/lifecycle/versioning/unlocked retention as before; the fake-gcs-server profile keeps
 its omission rules. Bucket insertion still uses the JSON insert parser pending a
 shared creation builder.
 

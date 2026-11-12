@@ -34,7 +34,7 @@ Storage v1 Discovery revision `20261020` has SHA-256 `eeb0831df501d131c9497534b2
 
 The shared static table contains 43 regions, six predefined dual-regions and three multi-regions. No table is fetched or built at startup.
 Native administrative bucket definitions use this same table and require a canonical location/type pair, allowing initializer publication without weakening metadata validation. The catalog schema, transactions and startup order are unchanged.
-The `-location` flag sets the corresponding uppercase native default (for example `US-CENTRAL1` or `ASIA-NORTHEAST1`). Unknown values are redacted and receive valid examples; the legacy profile's fixed behavior is unchanged.
+The `-location` flag sets the corresponding uppercase native default (for example `US-CENTRAL1` or `ASIA-NORTHEAST1`). Unknown values are redacted and receive valid examples; the fake-gcs-server profile's fixed behavior is unchanged.
 
 | Location type / area | Names |
 | --- | --- |

@@ -107,7 +107,7 @@ registered unsigned-token bypass and key overlap/removal.
 IAM denials and unchanged objects, private/public/allAuthenticatedUsers behavior,
 PAP with explicit bearer and V4 signer grants, browser-equivalent direct-upload
 preflight headers, and key removal/re-registration across restart in both
-native and legacy profiles.
+native and fake-gcs-server profiles.
 
 The isolated Rails scenario uses the existing pinned gem graph, an in-memory
 Rails database and only loopback Net::HTTP connections. It exercises ordinary

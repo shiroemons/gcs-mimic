@@ -16,7 +16,7 @@ This is a product goal, not an achieved replacement claim. The migration
 contract is `docs/en/fake-gcs-server-migration.md`; it includes Go embedding,
 legacy Storage v1 gRPC, TLS/defaults, helpers/events and both backend modes.
 Google strict behavior and permissive source behavior need separate profiles
-and evidence. The existing permissive auth mode is not a complete legacy profile.
+and evidence. The existing permissive auth mode is not a complete fake-gcs-server profile.
 
 Replacement also requires an inspectable bucket/object directory with
 bidirectional synchronization. The scoped implementation retains SQLite and
@@ -721,7 +721,7 @@ API settings. The bucket initialization file creates missing buckets
 only; restart preserves existing settings and later API changes. See the
 [option mapping and configuration contract](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
 Seed input, durable storage and Compose host-port publication remain distinct.
-The source README's permissive signed URL behavior belongs to the legacy profile,
+The source README's permissive signed URL behavior belongs to the fake-gcs-server profile,
 separate from strict validation.
 
 Docker targets are `linux/amd64` and `linux/arm64`, supporting both standard CI hosts and Apple Silicon development. Use a multi-stage build, a non-root runtime, explicit writable data/temp mounts, and bounded optional tmpfs. A read-only root must not break SQLite WAL or temporary uploads. Keep seeding input distinct from durable storage so reboots do not silently reimport or overwrite data. Provide native binary installation after the core workflow works.

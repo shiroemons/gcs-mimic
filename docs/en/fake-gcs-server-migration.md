@@ -378,7 +378,7 @@ the built-in test signer for this, and its README shows the entry that uses it.
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when a server hands an unsigned session URI to a browser. |
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Leave `GCS_MIMIC_SCHEME` unset, so the default `auto` serves HTTP, or set it to `http`, and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. Up to 0.18.0 the default served only HTTPS. |
-| Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
+| Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The fake-gcs-server profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCSM_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
 | A request never finishes, a client's connections stay in use, and the server logs nothing | The client announced a request body (`Content-Length` or chunked) and stopped sending it. With the default `body_inactivity_timeout_ms` of 0 no limit expires, so the server keeps waiting and has nothing to log | To find such clients, set `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`, for example to `30000`. A body silent that long then fails with JSON 408 `uploadBrokenConnection` or XML 400 `RequestTimeout`, and the server logs a `connection_timeout` warning. The default stays 0 so a slow client is never cut off. |
@@ -601,7 +601,7 @@ for new configurations.
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | Native `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr and informational diagnostic severity; validation warnings/errors and stdout lifecycle remain unfiltered |
 | `-cors-headers` | Refused; remove it or explicitly choose `--cors-fallback allow-all` | The source's global header allowlist cannot be preserved. Permissive mode already allows every origin without bucket rules; strict mode follows bucket rules. Explicit fallback applies only to XML/public buckets without rules; stored rules and JSON behavior stay unchanged |
-| `-location` | Refused; choose `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION` or JSON `default_location` | The source controls a server-wide response location; native defaults affect only new buckets without an explicit location. Existing buckets and explicit locations win; legacy profile rejects the default |
+| `-location` | Refused; choose `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION` or JSON `default_location` | The source controls a server-wide response location; native defaults affect only new buckets without an explicit location. Existing buckets and explicit locations win; the fake-gcs-server profile rejects the default |
 | `-event.pubsub-project-id`, `-event.pubsub-topic`, `-event.bucket`, `-event.object-prefix`, `-event.list` | Native `--event-*` spellings | Accepted only with a configured local Pub/Sub emulator host. gcs-mimic never publishes to Google. Use native `--event-list none` to disable the global rule |
 | `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` since 0.8.0 | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
 
@@ -678,7 +678,7 @@ Keep Google-contract/strict behavior and legacy emulator compatibility distinct.
 The accepted option `--compat-profile fake-gcs-server` implements the limited
 bucket baseline above. The broader `fake-gcs-server compatibility profile`
 remains a design target; freeze additional behavior with each affected slice.
-The existing `auth_mode=permissive` is not already a complete legacy profile.
+The existing `auth_mode=permissive` is not already a complete fake-gcs-server profile.
 
 - A compatibility corpus reproduces the pinned emulator's observable contract,
   including its tested permissive URL, metadata and error behavior.

@@ -59,10 +59,10 @@ the legacy service, as the earlier insert/object-metadata contracts record.
 | `bucket_patch_settings_control_future_object_effects` | Enable/disable versioning and default hold | Future uploads/overwrites use new settings; prior holds/history survive setting changes |
 | `bucket_patch_legacy_rendering_and_restart` | Source-only name, settings, class/labels, restart and native carry-over | Source location/framing retained; PATCH exposes actual mutable metadata/revisions consistently on GET/list |
 | `bucket_patch_full_resource_round_trip_preserves_unchanged_fields` | GET resource patched back in both profiles with a label edit | Accept the rendered location; preserve all fields except labels, revision, etag and clock-derived updated |
-| `bucket_patch_location_comparison_is_case_insensitive` | Mixed-case native/profile-rendered location; changed location; legacy stored US input | Unchanged rendered location matches ignoring ASCII case and is never rewritten; relocation and legacy location:"US" return 501 without mutation |
+| `bucket_patch_location_comparison_is_case_insensitive` | Mixed-case native/profile-rendered location; changed location; fake-gcs-server profile stored US input | Unchanged rendered location matches ignoring ASCII case and is never rewritten; relocation and fake-gcs-server profile location:"US" return 501 without mutation |
 | `bucket_get_rejects_patch_only_acl_query_parameters` | predefinedAcl/predefinedDefaultObjectAcl on GET versus PATCH | GET retains 400 invalidParameter for unrecognized method parameters; PATCH returns 501 notImplemented |
 | `bucket_patch_rejects_get_only_generation_query_parameter` | generation=1 on PATCH versus GET | PATCH returns 400 invalidParameter because generation is absent from its Discovery parameters; GET keeps 501 for recognized unsupported semantics; neither mutates the bucket |
-| `bucket_patch_null_settings_follow_profile_defaults` | Null versioning, versioning.enabled and defaultEventBasedHold | Legacy null resets the supplied setting to false; native null fails 400 without mutation; omitted settings remain intact |
+| `bucket_patch_null_settings_follow_profile_defaults` | Null versioning, versioning.enabled and defaultEventBasedHold | fake-gcs-server profile null resets the supplied setting to false; native null fails 400 without mutation; omitted settings remain intact |
 | `bucket_patch_accepts_only_empty_lifecycle_rules` | Exact empty lifecycle rule list and similar unsupported shapes | Accept only lifecycle:{"rule":[]} without any lifecycle effect; nonempty rules and extra members return 501 without mutation |
 | `bucket_patch_missing_bucket_validates_body_before_lookup` | Permissive PATCH on missing bucket with invalid versus valid body | Invalid JSON/types return 400 before lookup; valid empty object returns 404; no bucket is created |
 
@@ -91,7 +91,7 @@ tests above and do not claim direct-service evidence.
 
 Omitted settings are preserved. `versioning.enabled` and
 `defaultEventBasedHold` accept booleans; false disables their future effect.
-Empty versioning objects preserve enabled. Legacy null `versioning`,
+Empty versioning objects preserve enabled. In the fake-gcs-server profile, null `versioning`,
 `versioning.enabled` and `defaultEventBasedHold` reset the supplied setting
 to false, matching insert and the pinned reference's zero-valued boolean
 decoding. Native rejects those null settings with 400. This native rejection
@@ -169,7 +169,7 @@ state. Unsupported protection settings remain fail-closed in both profiles.
 
 Two known limitations remain outside this change. Native insert still compares
 location case-sensitively, while native PATCH accepts unchanged locations
-case-insensitively. Legacy rendering at metageneration 1 hides labels and fixes
+case-insensitively. The fake-gcs-server profile's rendering at metageneration 1 hides labels and fixes
 storageClass to STANDARD even for a native-created bucket reopened in that
 profile with stored labels and a different class. Its GET resource is therefore
 not a lossless GET-to-PATCH round trip: PATCH can reset the hidden default class

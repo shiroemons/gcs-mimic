@@ -143,7 +143,7 @@ Common Discovery query parameters apply to all four methods:
 The common-parameter documentation also describes `callback`; it is rejected 501 (no JSONP).
 Nothing is ignored merely because it is inconvenient to implement.
 Responses are pretty-printed with two-space indentation in the recorded Cloud Storage field order,
-as Discovery documents; `prettyPrint=false`, which official SDKs send, selects compact JSON. The legacy profile stays compact.
+as Discovery documents; `prettyPrint=false`, which official SDKs send, selects compact JSON. The fake-gcs-server profile stays compact.
 
 ## Insert body and resource fields
 
@@ -178,7 +178,7 @@ A field name alone does not establish output-only behavior.
 
 Emitted bucket resource fields, in the recorded Cloud Storage order: `kind="storage#bucket"`,
 `selfLink`, `id=name`, `name`, `projectNumber`, `generation` (the catalog's stored bucket version;
-the legacy profile omits it), `metageneration`, `location`, `storageClass`, `etag`, `timeCreated`,
+the fake-gcs-server profile omits it), `metageneration`, `location`, `storageClass`, `etag`, `timeCreated`,
 `updated`, `softDeletePolicy` when configured, `iamConfiguration` (`bucketPolicyOnly`,
 `uniformBucketLevelAccess`, `publicAccessPrevention`), `locationType`, and `labels` only when nonempty. All int64/uint64 fields are JSON strings.
 `selfLink` percent-encodes the bucket segment. Its origin is the `api_base_url` configuration

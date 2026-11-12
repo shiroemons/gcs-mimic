@@ -38,8 +38,8 @@ operation is authorized or required by this slice.
 
 ## Exact selected subset
 
-The target is flat-namespace immutable objects, native and existing
-legacy profiles, persisted catalog/blob storage, existing supported storage
+The target is flat-namespace immutable objects, the native and
+fake-gcs-server profiles, persisted catalog/blob storage, existing supported storage
 classes, versioning/event holds and strict local grants. Supported metadata
 and publication rules come from the derived-object copy foundation. Composite
 fixtures verify component propagation and CRC32C without a resource MD5; they

@@ -51,7 +51,7 @@ soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-
 バケットのPATCHは省略項目を保持します。PUTは指定したlabelsのマップを全置換します。
 ネイティブのプロファイルでは、省略したlabels・versioning・CORS・lifecycle・保持ポリシー（Cloud Storageでの記録どおり）と
 既定のイベントホールド（記録した他の項目から推定）を消します（storageClass・soft delete・アクセス設定は保持）。
-レガシー互換のプロファイルは省略項目を保持します。
+fake-gcs-serverのプロファイルは省略項目を保持します。
 オブジェクトのPUTは省略項目のリセットを含む置換で比較します。
 標準メタデータはContent-Typeなどの内容属性で、オブジェクト本体は変更しません。
 対象フィールド、nullの扱い、gcs-mimic独自の既定値は

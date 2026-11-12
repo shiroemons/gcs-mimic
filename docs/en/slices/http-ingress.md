@@ -141,5 +141,5 @@ regressions. The two existing server::upload_frame_tests cases passed as well.
 Owned Rust formatting, Markdown lint for both HTTP slice documents and
 git diff --check passed.
 SDK, container and full integration checks belong to the final combined source
-verification. Legacy-profile and ACL-specific override wire cases remain
+verification. The fake-gcs-server profile and ACL-specific override wire cases remain
 unverified by this slice.

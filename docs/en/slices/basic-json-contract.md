@@ -76,7 +76,7 @@ about undocumented provider limits.
 | Shared input | Frozen supported subset and boundary |
 | --- | --- |
 | Authorization | Optional in permissive mode; strict Bearer registry and exact route permission below; project and matching bucket grants combine and mutation transactions recheck grants/owning project |
-| `alt`, `prettyPrint` | JSON is default; `alt=media` only on object GET; bodies are 2-space pretty JSON by default and with `prettyPrint=true`, compact with `prettyPrint=false` (the legacy profile stays compact); invalid values 400 |
+| `alt`, `prettyPrint` | JSON is default; `alt=media` only on object GET; bodies are 2-space pretty JSON by default and with `prettyPrint=true`, compact with `prettyPrint=false` (the fake-gcs-server profile stays compact); invalid values 400 |
 | `fields` | Supported JSON resource/list responses per [fields contract](json-response-fields.md); DELETE ignores it; media combination and named selector edges are explicit 501 under SPEC-FIELDS-EDGES; session capability URLs cannot override the frozen selector |
 | `projection` | `noAcl`/`full` accepted on the methods below; PUT defaults full, other basic methods noAcl locally; both render the same supported fields, with no ACL/owner; full projection's additional permissions/fields remain pending |
 | Common unsupported queries | `userProject`, `oauth_token`, `quotaUser`, `userIp`, `callback` are 501 where recognized; no requester-pays, query-token, quota or JSONP semantics; method-inappropriate inputs remain 400 |

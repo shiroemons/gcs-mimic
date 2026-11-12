@@ -108,7 +108,7 @@ Unresolved by documents:
 ## Decisions needed
 
 - `deleteRecursive`: its GA status is unresolved. The recommendation is `PARTIAL` with a deviation linked to `SPEC-006`; otherwise it keeps answering 400.
-- Legacy profile: the recommendation is to enable hierarchical namespace only in the native profile first and keep the legacy rejection.
+- fake-gcs-server profile: the recommendation is to enable hierarchical namespace only in the native profile first and keep the legacy rejection.
 
 ## Overlap
 

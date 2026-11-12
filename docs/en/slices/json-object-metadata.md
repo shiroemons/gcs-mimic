@@ -79,7 +79,7 @@ requests without query parameters or ACL body fields, although the
 [objects.update reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update)
 documents `full` as the default. The JSON adapter follows the recorded response;
 explicit `projection=full` still includes authorized ACL and owner fields.
-PUT bodies containing `acl` also default to `noAcl`, and legacy-profile object PUT uses the same default; neither behavior has live-recording confirmation.
+PUT bodies containing `acl` also default to `noAcl`, and an object PUT in the fake-gcs-server profile uses the same default; neither behavior has live-recording confirmation.
 A full ACL replacement does not preserve the owner entry position.
 Permission transfer in permissive mode has no test coverage.
 `userProject`, `predefinedAcl`, `overrideUnlockedRetention`, partial fields,

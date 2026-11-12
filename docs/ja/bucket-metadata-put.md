@@ -12,7 +12,7 @@ PUTで更新を送るクライアント（生成されたGo APIの`Buckets.Updat
 Ruby google-cloud-storage 1.62.1の`bucket.update`ブロックもPUTを送るため、触れなかったversioningとlabelsが消えます。
 属性への直接代入はPATCHなので、名前を挙げなかった設定を保ちます（Rubyの受け入れケース`bucket_put_ruby_update_block_replaces_and_setters_patch`）。
 
-## レガシー互換のプロファイル
+## fake-gcs-serverのプロファイル
 
 Ruby google-cloud-storage 1.62.1の`bucket.update`ブロックは、変更した属性だけをPUTで送ります。
 PAPだけを変更しても、既存のversioningとlabelsが残るようにしました。

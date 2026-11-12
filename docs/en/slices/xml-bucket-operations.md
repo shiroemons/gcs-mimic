@@ -103,7 +103,7 @@ validates the root, scalar fields and duplicates. It does not confuse syntactic
 XML validity with supported bucket settings.
 
 Custom placement, encryption configuration, predefined ACLs, requester billing
-and other unsupported settings fail explicitly. The legacy compatibility profile
+and other unsupported settings fail explicitly. The fake-gcs-server profile
 supports default creation but rejects location/class configuration rather than
 silently ignoring it. These limits do not narrow the parent operation's scope.
 

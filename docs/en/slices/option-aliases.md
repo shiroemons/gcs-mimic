@@ -89,8 +89,8 @@ can reach, or omit it to derive links from requests.
 
 `location` is a server-wide response location in the pinned source. Native
 `default_location` affects only new buckets without an explicit location;
-existing buckets and explicit values win. The legacy profile keeps its fixed
-location and rejects an explicit native default.
+existing buckets and explicit values win. The fake-gcs-server profile keeps its
+fixed location and rejects an explicit native default.
 
 `cors-headers` adds a global request-header allowlist in the source. Mapping
 it to `allow-all` discarded that list. Permissive mode already allows every

@@ -112,7 +112,7 @@ email without account lookup and keeping entity case as sent, omitting
 `id`/`selfLink` from default object entries, omitting ACL fields instead of
 failing when a strict caller lacks ACL read permission, rejecting duplicate
 entities, and null ACL rejection. Resource ACL replacements use 400
-`invalidArgument` under UBLA (legacy bucket profile: `invalid`); dedicated ACL
+`invalidArgument` under UBLA (fake-gcs-server profile: `invalid`); dedicated ACL
 routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
 
 ## Limitations

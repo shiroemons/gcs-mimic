@@ -165,7 +165,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
         let preserved = server.request("PUT", path, "{}");
         preserved.expect(200);
         // A native PUT replaces the resource, so an omitted lifecycle is cleared (recorded
-        // 2026-10-31); the legacy profile keeps merging.
+        // 2026-10-31); the fake-gcs-server profile keeps merging.
         assert_eq!(
             preserved.json().get("lifecycle"),
             (profile != "native").then_some(&replacement)
@@ -318,7 +318,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
 /// SDK request shapes whose provider treatment was an open source question
 /// (SPEC-JSON-UNKNOWN-QUERY and SPEC-LIFECYCLE-ARRAY). Cloud Storage was recorded on 2026-10-31
 /// accepting both: it ignores a query parameter the method does not define, and it takes a
-/// lifecycle array as a member that sets nothing. The legacy profile keeps rejecting them with
+/// lifecycle array as a member that sets nothing. The fake-gcs-server profile keeps rejecting them with
 /// actionable 400s that leave the bucket unchanged.
 #[test]
 fn sdk_append_query_and_array_lifecycle_follow_the_profile() {
@@ -583,7 +583,7 @@ fn bucket_put_empty_null_and_invalid_inputs() {
             );
         }
         // The native profile replaces the labels for a labels member that is not a map and takes a
-        // null storageClass as no change; the legacy profile rejects them.
+        // null storageClass as no change; the fake-gcs-server profile rejects them.
         let tolerated = [
             r#"{"labels":[]}"#,
             r#"{"labels":""}"#,
@@ -1374,7 +1374,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
         assert!(value.get("labels").is_none());
         // The native profile clears the labels for a labels member that is not a map (a string was
         // confirmed in the recording; an array or other type is extrapolated from it) and leaves
-        // the class alone for a null storageClass; the legacy profile rejects all three.
+        // the class alone for a null storageClass; the fake-gcs-server profile rejects all three.
         for body in [
             r#"{"labels":[]}"#,
             r#"{"labels":""}"#,
@@ -3280,7 +3280,7 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
             .json();
         assert_eq!(replaced["cors"], updated_rules);
         // A native PUT replaces the resource, so an omitted `cors` is cleared (recorded
-        // 2026-10-31); the legacy profile keeps merging.
+        // 2026-10-31); the fake-gcs-server profile keeps merging.
         assert_eq!(
             server.request("PUT", path, "{}").json().get("cors"),
             (profile != "native").then_some(&updated_rules)
@@ -3883,7 +3883,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             ))
             .expect(404);
     }
-    // The legacy profile still rejects a parameter the method does not define, which the native
+    // The fake-gcs-server profile still rejects a parameter the method does not define, which the native
     // profile ignores.
     let legacy_dir = TestDir::new();
     let legacy = profile_server(&legacy_dir, "fake-gcs-server");
