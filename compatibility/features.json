@@ -59093,7 +59093,7 @@
         "DESIGN-072"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-103-BUCKETS-MODE",
@@ -59235,9 +59235,7 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "just pre-push (Rust, cross-target Clippy, the eight native-profile SDK suites and both container architectures) and just check-sdk-clients passed on the integrated source. Since 0.18.0 the SDK runs could not select the fake-gcs-server profile; GCSM_SDK_COMPAT_PROFILE now does, and GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk fails 19 Go cases on documented profile differences: 16 because the profile refuses the location US that Go Storage sends by default on create, two because a profile PUT preserves omitted settings, one because a profile bucket's JSON etag is not its HTTP validator. The other SDK suites have not run under that profile; the renamed value is covered by the Rust integration tests. scripts/compare-reference-emulator.sh and the release builds of all eight archives have not run."
-      ],
+      "known_deviations": ["Its own acceptance cases pass with the release gates, including all eight SDK suites under both profiles, but it depends on DESIGN-062 and DESIGN-072, which remain PARTIAL; scripts/compare-reference-emulator.sh and the release builds of all eight archives have not run."],
       "implemented_in": null,
       "last_verified": "2026-11-13"
     },

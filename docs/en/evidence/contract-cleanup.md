@@ -43,19 +43,21 @@ Each change was checked before it was committed; these are the suites that cover
 
 `just check-sdk-clients`, which adds the Go `fakestorage` facade against the binary of the same source, passed too.
 
-## Known gap: SDK runs under the fake-gcs-server profile
+## SDK runs under the fake-gcs-server profile
 
-`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk` failed two Go cases, `TestObjectMediaLifecycle` and `TestMigrationAppScenarioBucketList`: they expected the fake-gcs-server profile and met the native one. The same command with `legacy-emulator` fails the same two cases on the source before these changes (`7016b7ee`), so the renaming did not cause it. Since `0.18.0`, `scripts/server-env.sh` removed every `GCS_MIMIC_*` variable before a runner started its server, and `scripts/sdk-go.sh` passed no `--compat-profile`, so the variable reached the tests but never the server.
+`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk` failed two Go cases, `TestObjectMediaLifecycle` and `TestMigrationAppScenarioBucketList`: they expected the fake-gcs-server profile and met the native one. The same command with `legacy-emulator` fails the same two cases on the source before these changes (`7016b7ee`), so the renaming did not cause it. Since `0.18.0`, `scripts/server-env.sh` removed every `GCS_MIMIC_*` variable before a runner started its server, and `scripts/sdk-go.sh` passed no `--compat-profile`, so the variable reached the tests but never the server, and no SDK run had exercised the profile since 2026-10-22.
 
-`GCSM_SDK_COMPAT_PROFILE` now selects the profile of every server a run starts. With it, both cases above pass under `fake-gcs-server`, and `TestMigrationAppScenarioBucketList` passes under each profile. The full `GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk` fails 19 other Go cases, all documented profile differences that the suite has not exercised since the last profile run on 2026-10-22:
+`GCSM_SDK_COMPAT_PROFILE` now selects the profile of every server a run starts. The first full profile run then met differences in cases written since:
 
-| Cases | Difference |
-| --- | --- |
-| 16 cases that create buckets with the Go client | The profile refuses a create `location` other than `US-CENTRAL1` (since 2026-10-25), and Go Storage v1.70.0 sends `"location":"US"` by default, so the official client cannot create a bucket with default attributes |
-| `TestBucketMetadataReplace`, `TestBucketCORS` | A profile PUT preserves omitted settings ([PUT contract](../slices/bucket-metadata-put.md)) |
-| `TestReadETagValidators` | A profile bucket's JSON `etag` is not its HTTP validator ([validator contract](../slices/json-read-etag-validators.md)) |
+| Cases | Cause | Resolution |
+| --- | --- | --- |
+| Go cases that create buckets with default attributes, and others that create them through the client | Go Storage v1.70.0 sends `"location":"US"` by default, and the profile refused every create location but `US-CENTRAL1` since 2026-10-25 | The profile accepts `US` on create too (`a785f01b`) |
+| Regional location cases in Go, Ruby, Node.js, Python and PHP | The profile refuses a regional create location | The cases check the 400 and that no bucket remains |
+| Update cases in Go, Ruby, Node.js, Python and PHP | The profile ignores insert labels and preserves settings a PUT omits ([PUT contract](../slices/bucket-metadata-put.md)) | The cases check the profile's result |
+| `TestReadETagValidators` | A profile bucket's JSON `etag` is not its HTTP validator ([validator contract](../slices/json-read-etag-validators.md)) | The case uses the response header |
+| `TestObjectRewriteCopier`, `TestGRPCUpdateCopy` | Their second bucket names a location other than `US` | They use `US` under the profile |
 
-Because the Go suite fails first, the other SDK suites have not run under that profile. The Rust integration tests that start the server with `--compat-profile fake-gcs-server` cover the renamed value.
+On the final source, `GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk` and `just check-sdk` both pass all eight suites, `just check-sdk-clients` passes, and `cargo test --locked --workspace --no-fail-fast` passes 3427 tests with 0 failures and 1 ignored.
 
 ## Not run
 
