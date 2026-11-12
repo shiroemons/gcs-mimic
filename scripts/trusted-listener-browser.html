@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>gcs-mimic trusted listener browser check</title>
+<body data-status="running"><pre id="results"></pre>
+<script>
+"use strict";
+// A page on another origin that tries to use the strict recipe's trusted listener, which acts as
+// trusted-app@gcs-mimic.invalid for any request without credentials. scripts/strict-recipe-browser.sh
+// opens it with ?target=<trusted origin>&case=<case>&label=<label> and checks the outcome on the
+// server's side and in Chromium's net log, because the page itself sees no status.
+const output = document.querySelector("#results");
+const report = message => { output.textContent += `${message}\n`; };
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const target = params.get("target");
+  const label = params.get("label");
+  const upload = name =>
+    `${target}/upload/storage/v1/b/app-private/o?uploadType=media&name=${encodeURIComponent(name)}`;
+  report(`page origin: ${location.origin}; trusted origin: ${target}; case: ${params.get("case")}`);
+  switch (params.get("case")) {
+    // A link or script navigation the page starts, unlike a URL the user types.
+    case "navigate":
+      location.replace(`${target}/app-private/browser/private.txt`);
+      return;
+    // A cross-site form POST, which needs no CORS, as a CSRF attempt to write an object.
+    case "form-post": {
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.enctype = "text/plain";
+      form.action = upload(`browser/form-post-${label}.txt`);
+      const field = document.createElement("input");
+      field.name = "written";
+      field.value = "by a page";
+      form.append(field);
+      document.body.append(form);
+      form.submit();
+      return;
+    }
+    // Requests a page can send without a preflight, and an embed, which needs no CORS.
+    case "subresources": {
+      try {
+        await fetch(upload(`browser/fetch-post-${label}.txt`), {
+          method: "POST", mode: "no-cors", credentials: "omit",
+          headers: {"Content-Type": "text/plain"}, body: "written by a page",
+          signal: AbortSignal.timeout(15000)
+        });
+        report("fetch-post: sent, opaque response");
+      } catch (error) {
+        report(`fetch-post: ${error.name}`);
+      }
+      try {
+        const response = await fetch(`${target}/app-private/browser/private.txt`, {
+          credentials: "omit", signal: AbortSignal.timeout(15000)
+        });
+        report(`fetch-get: readable ${response.status} ${await response.text()}`);
+      } catch (error) {
+        report(`fetch-get: ${error.name}`);
+      }
+      const image = await new Promise(resolve => {
+        const element = new Image();
+        element.onload = () => resolve(`loaded ${element.naturalWidth}`);
+        element.onerror = () => resolve("error");
+        element.src = `${target}/app-private/browser/picture.svg`;
+      });
+      report(`img: ${image}`);
+      document.body.dataset.status = "done";
+      return;
+    }
+    default:
+      throw new Error("unknown case");
+  }
+})().catch(error => {
+  report(`ERROR: ${error}`);
+  document.body.dataset.status = "error";
+});
+</script>

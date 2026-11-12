@@ -509,7 +509,13 @@ The listener works like this:
   token, so the server must still know its signer: the built-in test signer
   with `GCS_MIMIC_TEST_SIGNER=enabled`, or a key the identity document registers.
 - A request with any `Origin` header, or a `Sec-Fetch-Site` other than `none`,
-  gets 403 before routing. Server-side clients send neither header.
+  gets 403 before routing. Server-side clients send neither header. Browsers
+  send `Sec-Fetch-Site` only to loopback and HTTPS origins, so a browser on the
+  Compose network, such as an end-to-end test runner, sends a GET navigation or
+  an image to `http://gcs:4444` with neither header: a page it opens can make it
+  read there as the trusted principal, though not see the response. Point such
+  browsers at the main listener; see the
+  [browser check](evidence/trusted-listener.md#trusted-listener-in-a-browser).
 - The request's Host must be an IP literal (`127.0.0.1:4444`, `[::1]:4444`),
   `localhost` or a name ending in `.localhost`, a single-label name such as the
   Compose service name `gcs`, or a name listed in `trusted_allowed_hosts`. Any

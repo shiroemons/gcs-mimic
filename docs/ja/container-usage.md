@@ -437,6 +437,10 @@ strictモードでは、認証情報のないリクエストは匿名になり�
   [Rails Active Storageのレシピ](rails-active-storage.md)は常に自分のトークンを送るので、サーバーがその署名者を知っている必要があります。`GCS_MIMIC_TEST_SIGNER=enabled`の組み込みテスト署名者か、IDの文書に登録した鍵を使います。
 - `Origin`ヘッダーがある、または`Sec-Fetch-Site`が`none`以外のリクエストは、ルーティングの前に403になります。
   サーバー側のクライアントはどちらのヘッダーも送りません。
+  ブラウザーが`Sec-Fetch-Site`を送るのはループバックとHTTPSのオリジンだけです。
+  そのため、E2Eテストのランナーのような、Composeネットワーク上のブラウザーは、`http://gcs:4444`へのGETの遷移や画像をどちらのヘッダーもなしで送ります。
+  そのブラウザーが開いたページは、信頼済みプリンシパルとして読ませることはできますが、応答は見られません。
+  こうしたブラウザーはメインのリスナーに向けてください。[ブラウザーでの確認（英語）](../en/evidence/trusted-listener.md#trusted-listener-in-a-browser)も参照してください。
 - リクエストのHostは、IPリテラル（`127.0.0.1:4444`、`[::1]:4444`）、`localhost`または`.localhost`で終わる名前、Composeのサービス名`gcs`のようなドットのない名前、`trusted_allowed_hosts`に書いた名前のいずれかでなければなりません。
   それ以外のHostやHostのないリクエストは、認証情報の有無にかかわらず421 `misdirected`になります。
   これはDNSリバインディングを防ぐためです。`http://evil.example`のページは自分の名前をこのリスナーに向けられ、そのときの同一オリジンのGETには`Origin`が付かず、ループバック以外への平文HTTPなら`Sec-Fetch-Site`も付きません。それでもHostは`evil.example`のままです。

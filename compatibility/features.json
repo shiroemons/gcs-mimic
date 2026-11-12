@@ -58461,6 +58461,16 @@
             "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
             "scripts/strict-recipe-browser.sh:network-audit:linux/arm64"
           ]
+        },
+        {
+          "id": "DESIGN-101-TRUSTED-BROWSER",
+          "description": "Chromium 150 in a container on the strict local recipe's Compose network, with a byte-for-byte TCP relay from its loopback port 4444 to gcs:4444, reaches the unpublished trusted listener as http://localhost:4444 and as http://gcs:4444 and holds no credential. A typed URL of the private object shows its bytes under both names, with Sec-Fetch-Site none on loopback and no header by service name. A page on another origin then navigates to the object, submits a cross-site text/plain form POST to the upload route, sends a no-cors text/plain fetch POST and a CORS fetch GET, and embeds a private image. The net log records every request sent to port 4444 with its Origin and Sec-Fetch-Site headers and status, and the script compares the list exactly: on loopback each page-initiated request carries Sec-Fetch-Site same-site and gets 403; by service name none carries Sec-Fetch-Site, the requests with Origin (both POSTs and the CORS GET) get 403, and the navigation and the image get 200. The page reads no response: both fetches end in TypeError, the image fails because its 200 response carried Cross-Origin-Resource-Policy: same-origin, which the net log shows, and the navigated tab belongs to the trusted origin; the form POSTs show the 403 refusal, and the bucket afterwards holds no object either POST wrote. The browser connects only to the page origin and port 4444 and sends UDP only to Docker's embedded DNS server.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/strict-recipe-browser.sh:trusted-requests:linux/arm64",
+            "scripts/strict-recipe-browser.sh:trusted-page-reach:linux/arm64",
+            "scripts/strict-recipe-browser.sh:trusted-network-audit:linux/arm64"
+          ]
         }
       ],
       "test_ids": [
@@ -58469,6 +58479,9 @@
         "scripts/strict-recipe-browser.sh:page-denied-origin:linux/arm64",
         "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
         "scripts/strict-recipe-browser.sh:network-audit:linux/arm64",
+        "scripts/strict-recipe-browser.sh:trusted-requests:linux/arm64",
+        "scripts/strict-recipe-browser.sh:trusted-page-reach:linux/arm64",
+        "scripts/strict-recipe-browser.sh:trusted-network-audit:linux/arm64",
         "TestTrustedListenerServesTheEmulatorHostClient",
         "config::tests::a_trusted_listener_needs_strict_mode_and_its_own_address",
         "the_built_in_app_manages_the_setups_projects_only_on_the_trusted_listener",
@@ -58685,16 +58698,19 @@
           ]
         },
         {
-          "command": "GCS_MIMIC_IMAGE=<image built from the checkout> bash scripts/strict-recipe-browser.sh (linux/arm64, Chromium 150.0.7871.181)",
+          "command": "GCSM_IMAGE=<image built from the checkout> bash scripts/strict-recipe-browser.sh (linux/arm64, Chromium 150.0.7871.181)",
           "result": "PASS",
-          "verified_at": "2026-11-10",
+          "verified_at": "2026-11-12",
           "artifact": "docs/en/evidence/strict-recipe-browser.txt",
           "test_ids": [
             "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
             "scripts/strict-recipe-browser.sh:page-stock:linux/arm64",
             "scripts/strict-recipe-browser.sh:page-denied-origin:linux/arm64",
             "scripts/strict-recipe-browser.sh:page-get-added:linux/arm64",
-            "scripts/strict-recipe-browser.sh:network-audit:linux/arm64"
+            "scripts/strict-recipe-browser.sh:network-audit:linux/arm64",
+            "scripts/strict-recipe-browser.sh:trusted-requests:linux/arm64",
+            "scripts/strict-recipe-browser.sh:trusted-page-reach:linux/arm64",
+            "scripts/strict-recipe-browser.sh:trusted-network-audit:linux/arm64"
           ]
         }
       ],
@@ -58716,10 +58732,10 @@
         }
       ],
       "known_deviations": [
-        "The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl. The Chromium run covers the main listener on linux/arm64; the recipe does not publish the trusted port, so no real browser meets its browser checks, which the wire tests cover with the same headers, and neither Firefox nor WebKit runs. The browser and Host checks keep web pages out but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
+        "The container smoke test runs the strict local recipe on linux/arm64 and sends its requests with curl. Chromium 150 runs on linux/arm64 against the main listener and, from the Compose network, against the trusted listener; neither Firefox nor WebKit runs. Browsers send Sec-Fetch-Site only to loopback and HTTPS origins, so a browser on the Compose network sends a GET navigation or an image to http://gcs:4444 with neither Origin nor Sec-Fetch-Site: a page it opens can make it read as trusted_principal, though the page cannot see the response, and Cross-Origin-Resource-Policy blocks the image. The browser and Host checks keep web pages from writing and reading but no other program: anything that reaches the port with an accepted Host, such as its IP address, acts as trusted_principal, so keeping the port unpublished remains the protection. Responses hyper writes itself for a malformed request head carry no added headers. Shared connection limits and timeouts follow from the shared accept loop and are not measured separately."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-10"
+      "last_verified": "2026-11-12"
     },
     {
       "id": "DESIGN-102",

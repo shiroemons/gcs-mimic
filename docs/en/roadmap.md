@@ -52,7 +52,10 @@ key, `signed_urls=verify` checks signatures in permissive mode as well, and the
 identity and bucket documents can be written inline in `GCS_MIMIC_IDENTITIES`
 and `GCS_MIMIC_BUCKETS`. The [strict local recipe](../../examples/strict-local/README.md)
 combines them in a few settings. These are local extensions, not Cloud Storage
-behavior; DESIGN-101 stays `PARTIAL` until a browser runs against the recipe.
+behavior. Chromium has run against both the recipe's main listener and its
+trusted listener; DESIGN-101 stays `PARTIAL` because a browser on the Compose
+network can still be made to read through the trusted listener without seeing
+the result, and because nothing but an unpublished port keeps other programs out.
 
 ## Missing capabilities, in priority order
 

@@ -1,10 +1,36 @@
 #!/usr/bin/env bash
 # Runs real Chromium against the published main listener of examples/strict-local/compose.yaml.
 # The browser runs in a throwaway container on the host network, so `localhost:PORT` is the same
-# loopback address that the recipe publishes. Both subcommands below run inside that container.
+# loopback address that the recipe publishes. A copy of that container then joins the recipe's
+# network and opens hostile pages against the unpublished trusted listener, as a browser beside
+# the application's servers, such as a test runner's, could. The subcommands below run inside
+# those containers.
 set -euo pipefail
 
 harness=/harness
+
+if [ "${1:-}" = trusted-origin ] && [ "$#" = 2 ]; then
+  # The page origin, plus a plain TCP relay from loopback port 4444 to gcs:4444, so the browser
+  # reaches the trusted listener both as a loopback origin, to which it sends Sec-Fetch-Site, and
+  # by its Compose service name. The relay passes the browser's bytes unchanged.
+  exec node - "$2" > "$harness/trusted-origin.log" 2>&1 <<'NODE'
+const http = require('node:http'), net = require('node:net'), fs = require('node:fs');
+const harness = '/harness', port = Number(process.argv[2]);
+const html = fs.readFileSync(`${harness}/trusted-listener-browser.html`);
+let listening = 0;
+const ready = () => { if (++listening === 2) fs.writeFileSync(`${harness}/trusted-origin.ready`, 'ready\n'); };
+http.createServer((request, response) => {
+  response.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'});
+  response.end(html);
+}).listen(port, '127.0.0.1', ready);
+net.createServer(client => {
+  const upstream = net.connect(4444, 'gcs');
+  client.pipe(upstream).pipe(client);
+  client.on('error', () => upstream.destroy());
+  upstream.on('error', () => client.destroy());
+}).listen(4444, '127.0.0.1', ready);
+NODE
+fi
 
 if [ "${1:-}" = origin ] && [ "$#" = 2 ]; then
   exec node - "$2" > "$harness/origin.log" 2>&1 <<'NODE'
@@ -28,7 +54,7 @@ if [ "${1:-}" = visit ] && [ "$#" = 3 ]; then
   args=(--headless --disable-gpu --no-sandbox --no-first-run --no-proxy-server
     --disable-background-networking --disable-component-update --disable-sync
     "--ignore-certificate-errors-spki-list=$(cat "$harness/development-ca.spki")"
-    '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
+    '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE gcs'
     "--log-net-log=$harness/netlog/$2.json" "--user-data-dir=$(mktemp -d)"
     --dump-dom --timeout=60000 --virtual-time-budget=30000)
   exec chromium "${args[@]}" "$3" 2> "$harness/browser-$2.log"
@@ -50,15 +76,19 @@ browser_image=node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a943
 peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 project=gcs-mimic-strict-browser-$$
 container=$project-browser
+network_container=$project-network-browser
+network_image=$project-browser:installed
 work=$(mktemp -d)
 
 cleanup() {
   local status=$?
   if [ "$status" != 0 ]; then
     docker exec "$container" sh -c "tail -n 40 $harness/origin.log $harness/browser-*.log" >&2 || true
+    docker exec "$network_container" sh -c "tail -n 40 $harness/trusted-origin.log $harness/browser-*.log" >&2 || true
     docker compose -p "$project" logs --no-color --tail 40 gcs >&2 || true
   fi
-  docker rm --force "$container" >/dev/null 2>&1 || true
+  docker rm --force "$container" "$network_container" >/dev/null 2>&1 || true
+  docker image rm "$network_image" >/dev/null 2>&1 || true
   docker compose -p "$project" down --volumes >/dev/null 2>&1 || true
   rm -r "$work"
   exit "$status"
@@ -140,6 +170,7 @@ docker exec "$container" bash /app/scripts/install-chromium.sh >"$work/install-c
   || { tail -n 40 "$work/install-chromium.log" >&2; fail 'Chromium could not be installed in the browser container'; }
 docker cp -q scripts/strict-recipe-browser.sh "$container:$harness/"
 docker cp -q scripts/strict-recipe-browser.html "$container:$harness/"
+docker cp -q scripts/trusted-listener-browser.html "$container:$harness/"
 docker exec "$container" chromium --version
 docker exec "$container" node --version
 
@@ -314,4 +345,134 @@ for log in "$work"/netlog/*.json; do
     "$log" >/dev/null || fail "the browser connected elsewhere or sent UDP in $(basename "$log")"
 done
 echo "PASS: scenario network-audit: TCP connections in $(find "$work/netlog" -name '*.json' | wc -l | tr -d ' ') net logs went only to the published listener and the page origin on loopback, no UDP datagrams were sent, and name resolution outside loopback is blocked"
+
+# The trusted listener, seen by a browser on the recipe's network. The copy keeps the installed
+# Chromium, so the network-side browser is the same build.
+docker commit "$container" "$network_image" >/dev/null
+docker run --detach --name "$network_container" --network "${project}_default" "$network_image" \
+  sleep infinity >/dev/null
+docker exec "$network_container" sh -c "rm -rf $harness/netlog $harness/*.ready && mkdir $harness/netlog"
+trusted_page_port=$((FRONTEND_PORT + 1))
+docker exec --detach "$network_container" bash "$harness/strict-recipe-browser.sh" trusted-origin "$trusted_page_port"
+for _ in {1..50}; do
+  if docker exec "$network_container" test -f "$harness/trusted-origin.ready"; then break; fi
+  sleep 0.1
+done
+docker exec "$network_container" test -f "$harness/trusted-origin.ready" || fail 'the trusted page origin did not start'
+in_network_browser() {
+  docker exec "$network_container" bash "$harness/strict-recipe-browser.sh" visit "$@"
+}
+trusted_page=http://localhost:$trusted_page_port
+loopback_trusted=http://localhost:4444
+network_trusted=http://gcs:4444
+for target in "$loopback_trusted" "$network_trusted"; do
+  label=${target#http://}
+  label=${label%%:*}
+  in_network_browser "typed-$label" "$target/app-private/$private_name" >"$work/typed-$label.html" \
+    || fail "typed navigation to $target did not complete"
+  in_network_browser "navigate-$label" "$trusted_page/?target=$target&case=navigate&label=$label" \
+    >"$work/navigate-$label.html" || fail "page navigation to $target did not complete"
+  in_network_browser "form-post-$label" "$trusted_page/?target=$target&case=form-post&label=$label" \
+    >"$work/form-post-$label.html" || fail "form POST to $target did not complete"
+  in_network_browser "subresources-$label" "$trusted_page/?target=$target&case=subresources&label=$label" \
+    >"$work/subresources-$label.html" || fail "subresource page for $target did not complete"
+done
+docker cp -q "$network_container:$harness/netlog" "$work/trusted-netlog"
+# Each request the browser sent to the trusted listener, as "log | method | URL | status |
+# browser-initiation headers", from Chromium's own record of what it sent and received. A request
+# without the headers is the browser's favicon probe or an explicit navigation, so only those
+# named below are compared.
+trusted_requests() {
+  local log name
+  for log in "$work"/trusted-netlog/*.json; do
+    name=$(basename "$log" .json)
+    jq -r --arg name "$name" '
+      .constants.logEventTypes as $type
+      | reduce (.events[] | select(.params != null)) as $event ({};
+          ($event.source.id | tostring) as $id
+          | if $event.type == $type.URL_REQUEST_START_JOB then
+              .[$id] += {url: $event.params.url, method: $event.params.method}
+            elif $event.type == $type.HTTP_TRANSACTION_SEND_REQUEST_HEADERS then
+              .[$id] += {sent: $event.params.headers}
+            elif $event.type == $type.HTTP_TRANSACTION_READ_RESPONSE_HEADERS then
+              .[$id] += {status: ($event.params.headers[0] | split(" ")[1])}
+            else . end)
+      | .[] | select((.url // "") | test("^http://(localhost|gcs):4444/") and (test("/favicon.ico$") | not))
+      | [$name, .method, .url, (.status // "none"),
+         ([.sent[]? | select(test("^(origin|sec-fetch-site):"; "i")) | ascii_downcase] | join(" ")
+          | if . == "" then "-" else . end)]
+      | join(" | ")' "$log"
+  done | LC_ALL=C sort
+}
+upload_path=upload/storage/v1/b/app-private/o?uploadType=media
+LC_ALL=C sort >"$work/trusted-expected.txt" <<EXPECTED
+form-post-gcs | POST | $network_trusted/$upload_path&name=browser%2Fform-post-gcs.txt | 403 | origin: $trusted_page
+form-post-localhost | POST | $loopback_trusted/$upload_path&name=browser%2Fform-post-localhost.txt | 403 | origin: $trusted_page sec-fetch-site: same-site
+navigate-gcs | GET | $network_trusted/app-private/$private_name | 200 | -
+navigate-localhost | GET | $loopback_trusted/app-private/$private_name | 403 | sec-fetch-site: same-site
+subresources-gcs | GET | $network_trusted/app-private/$picture_name | 200 | -
+subresources-gcs | GET | $network_trusted/app-private/$private_name | 403 | origin: $trusted_page
+subresources-gcs | POST | $network_trusted/$upload_path&name=browser%2Ffetch-post-gcs.txt | 403 | origin: $trusted_page
+subresources-localhost | GET | $loopback_trusted/app-private/$picture_name | 403 | sec-fetch-site: same-site
+subresources-localhost | GET | $loopback_trusted/app-private/$private_name | 403 | origin: $trusted_page sec-fetch-site: same-site
+subresources-localhost | POST | $loopback_trusted/$upload_path&name=browser%2Ffetch-post-localhost.txt | 403 | origin: $trusted_page sec-fetch-site: same-site
+typed-gcs | GET | $network_trusted/app-private/$private_name | 200 | -
+typed-localhost | GET | $loopback_trusted/app-private/$private_name | 200 | sec-fetch-site: none
+EXPECTED
+trusted_requests >"$work/trusted-actual.txt"
+diff "$work/trusted-expected.txt" "$work/trusted-actual.txt" >&2 \
+  || fail 'the browser sent other requests to the trusted listener, or they got other answers'
+cat "$work/trusted-actual.txt"
+echo 'PASS: scenario trusted-requests: on loopback the browser marks every page-initiated request, which gets 403; by service name it sends no Sec-Fetch-Site, so requests with Origin get 403 and a page-initiated navigation or image gets 200'
+
+# What the page could do with those 200 responses: the navigation shows the object in a tab of
+# another origin, which the page cannot read, and the image is blocked by the response's
+# Cross-Origin-Resource-Policy, which Chromium recorded receiving.
+jq -e --arg url "$network_trusted/app-private/$picture_name" '
+  .constants.logEventTypes as $type
+  | [.events[] | select(.params != null)] as $events
+  | ($events | map(select(.type == $type.URL_REQUEST_START_JOB and .params.url == $url)) | first | .source.id) as $id
+  | any($events[]; .source.id == $id and .type == $type.HTTP_TRANSACTION_READ_RESPONSE_HEADERS
+      and any(.params.headers[]; ascii_downcase == "cross-origin-resource-policy: same-origin"))' \
+  "$work/trusted-netlog/subresources-gcs.json" >/dev/null \
+  || fail 'the trusted listener image response carried no Cross-Origin-Resource-Policy'
+for label in localhost gcs; do
+  page_results=$(sed -n '/<pre id="results">/,/<\/pre>/p' "$work/subresources-$label.html")
+  for expected in 'fetch-post: TypeError' 'fetch-get: TypeError' 'img: error'; do
+    case $page_results in *"$expected"*) ;; *) fail "subresources-$label: the page did not report $expected: $page_results" ;; esac
+  done
+  case $page_results in *"$private_body"*) fail "subresources-$label: the page read the private object" ;; esac
+  grep -q 'refuses browser-initiated requests' "$work/form-post-$label.html" \
+    || fail "form-post-$label does not show the trusted listener's refusal"
+  grep -q "$private_body" "$work/typed-$label.html" || fail "typed-$label does not show the private object"
+done
+grep -q 'refuses browser-initiated requests' "$work/navigate-localhost.html" \
+  || fail 'navigate-localhost does not show the trusted listener refusal'
+grep -q "$private_body" "$work/navigate-gcs.html" \
+  || fail 'navigate-gcs does not show the private object in its own tab'
+peer --fail 'http://gcs:4444/storage/v1/b/app-private/o' \
+  | jq -e '[.items[].name] == ["browser/picture.svg", "browser/private.txt", "browser/uploaded.svg"]' >/dev/null \
+  || fail 'a page-initiated write to the trusted listener published an object'
+echo 'PASS: scenario trusted-page-reach: no page read a trusted response or wrote an object; a typed URL acts as the trusted principal on both names'
+# Resolving the service name sends UDP to Docker's embedded DNS server, which every container on a
+# user-defined network uses, so that one address is the only UDP peer allowed here. Chromium also
+# connects a UDP socket to a public address to learn whether IPv6 works, but sends nothing on it,
+# so only sockets that sent bytes count.
+for log in "$work"/trusted-netlog/*.json; do
+  peers=$(jq -r '
+    .constants.logEventTypes as $types
+    | [.events[] | select(.type == $types.UDP_CONNECT and .params.address != null)
+        | {key: (.source.id | tostring), value: .params.address}] as $udp
+    | ($udp | from_entries) as $udp_peer
+    | [.events[] | select(.type == $types.TCP_CONNECT_ATTEMPT and .params.address != null)
+        | "tcp " + .params.address]
+      + [.events[] | select(.type == $types.UDP_BYTES_SENT)
+        | "udp " + ($udp_peer[.source.id | tostring] // "unconnected")]
+    | unique | .[]' "$log")
+  unexpected=$(printf '%s\n' "$peers" \
+    | grep -vxE "tcp (127\.0\.0\.1|\[::1\]):($trusted_page_port|4444)|tcp [0-9.]+:4444|udp 127\.0\.0\.11:53" || true)
+  [[ -n $peers && -z $unexpected ]] \
+    || fail "the network-side browser reached other peers in $(basename "$log"): ${unexpected:-none at all}"
+done
+echo "PASS: scenario trusted-network-audit: in $(find "$work/trusted-netlog" -name '*.json' | wc -l | tr -d ' ') net logs the browser connected only to the page origin and port 4444, and sent UDP only to Docker's embedded DNS server"
 echo 'PASS: strict local recipe browser check completed'

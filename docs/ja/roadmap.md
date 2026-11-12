@@ -41,7 +41,9 @@ strictでは信頼済みリスナーがアプリのサーバー用のポート�
 組み込みのテスト署名者は公開済みの鍵でそのURLに署名し、`signed_urls=verify`はpermissiveでも署名を検査します。
 ID文書とバケット文書は`GCS_MIMIC_IDENTITIES`と`GCS_MIMIC_BUCKETS`にインラインで書けます。
 [strictのローカル構成（英語）](../../examples/strict-local/README.md)は、これらを少数の設定で組み合わせます。
-これらはローカル独自の機能で、Cloud Storageの動作ではありません。構成をブラウザーで動かすまで、DESIGN-101は`PARTIAL`のままです。
+これらはローカル独自の機能で、Cloud Storageの動作ではありません。
+Chromiumは構成のメインのリスナーとtrustedリスナーの両方に対して実行済みです。
+Composeネットワーク上のブラウザーには、結果を見せないままtrustedリスナー経由で読ませることができ、ほかのプログラムを防ぐのはポートを公開しないことだけなので、DESIGN-101は`PARTIAL`のままです。
 
 ## 不足機能の優先順位
 

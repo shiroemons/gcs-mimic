@@ -1,24 +1,24 @@
-Source of the image: dd2b11f72bde87a63309b1f8c860e3e26ab092f2. The commit that adds this transcript changes no file under src/, Cargo.toml, Cargo.lock or the Dockerfile.
+Source of the image: dd2b11f72bde87a63309b1f8c860e3e26ab092f2. Later commits up to the one that adds this transcript change no file under src/, Cargo.toml, Cargo.lock or the Dockerfile.
 Executed 2026-11-12 on linux/arm64 with scripts/strict-recipe-browser.sh as that commit adds it. Signed URLs are not printed. Exit status: 0.
 
 Command output: GCSM_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh
 Chromium 150.0.7871.181 built on Debian GNU/Linux 13 (trixie)
 v24.22.3
- Network gcs-mimic-strict-browser-12801_default Creating 
- Volume gcs-mimic-strict-browser-12801_gcs-data Creating 
- Volume gcs-mimic-strict-browser-12801_gcs-data Creating 
- Network gcs-mimic-strict-browser-12801_default Creating 
- Volume gcs-mimic-strict-browser-12801_gcs-data Created 
- Volume gcs-mimic-strict-browser-12801_gcs-data Created 
- Network gcs-mimic-strict-browser-12801_default Created 
- Network gcs-mimic-strict-browser-12801_default Created 
- Container gcs-mimic-strict-browser-12801-gcs-1 Creating 
- Container gcs-mimic-strict-browser-12801-gcs-1 Created 
- Container gcs-mimic-strict-browser-12801-gcs-1 Starting 
- Container gcs-mimic-strict-browser-12801-gcs-1 Started 
- Container gcs-mimic-strict-browser-12801-gcs-1 Waiting 
- Container gcs-mimic-strict-browser-12801-gcs-1 Healthy 
-image under test: gcs-mimic:local sha256:f8aab08041962086a19dc265305aa8756d8804233507caf976dd6dc063c2b159, checkout dd2b11f72bde87a63309b1f8c860e3e26ab092f2
+ Network gcs-mimic-strict-browser-37689_default Creating 
+ Volume gcs-mimic-strict-browser-37689_gcs-data Creating 
+ Volume gcs-mimic-strict-browser-37689_gcs-data Creating 
+ Network gcs-mimic-strict-browser-37689_default Creating 
+ Volume gcs-mimic-strict-browser-37689_gcs-data Created 
+ Volume gcs-mimic-strict-browser-37689_gcs-data Created 
+ Network gcs-mimic-strict-browser-37689_default Created 
+ Network gcs-mimic-strict-browser-37689_default Created 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Creating 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Created 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Starting 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Started 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Waiting 
+ Container gcs-mimic-strict-browser-37689-gcs-1 Healthy 
+image under test: gcs-mimic:local sha256:f8aab08041962086a19dc265305aa8756d8804233507caf976dd6dc063c2b159, checkout 24f4e15ce2a404d249505f9270c8238c113e6ecf
 PASS: recipe up, only 4443 published, strict mode, test signer enabled
 PASS: fixtures seeded through the unpublished trusted listener
 PASS: navigation download shows private bytes for the browser
@@ -36,7 +36,7 @@ PASS: navigation download-http-signed-over-https shows private bytes for the bro
 PASS: navigation download-https-signed-over-http shows private bytes for the browser
 PASS: navigation unsigned-https shows AuthenticationRequired
 PASS: scenario navigation over HTTP and HTTPS on the one published port
-page origin: http://localhost:25786; API origin: http://localhost:55316; role: allowed; phase: stock
+page origin: http://localhost:31097; API origin: http://localhost:55322; role: allowed; phase: stock
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: fetch reads a public object anonymously through its allUsers grant
@@ -65,7 +65,7 @@ PASS: a request header the bucket's rule does not list fails the signed upload p
 PASS: allowed stock browser checks completed
 
 PASS: scenario page-stock
-page origin: http://127.0.0.1:25786; API origin: http://localhost:55316; role: denied; phase: stock
+page origin: http://127.0.0.1:31097; API origin: http://localhost:55322; role: denied; phase: stock
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: an origin the recipe does not list cannot read a public object with fetch
@@ -75,7 +75,7 @@ PASS: denied stock browser checks completed
 
 PASS: scenario page-denied-origin
 PASS: the signed upload stored exact bytes owned by the test signer; every refused or blocked write published nothing
-page origin: http://localhost:25786; API origin: http://localhost:55316; role: allowed; phase: get-added
+page origin: http://localhost:31097; API origin: http://localhost:55322; role: allowed; phase: get-added
 PASS: the page and the published main listener are distinct origins
 PASS: the page origin matches its role against the recipe's configured frontend origin
 PASS: with GET in the bucket's rule a page fetches the signed download
@@ -90,4 +90,19 @@ PASS: allowed get-added browser checks completed
 PASS: scenario page-get-added
 PASS: every blocked upload sent its preflight and no PUT; blocked reads reached the server
 PASS: scenario network-audit: TCP connections in 17 net logs went only to the published listener and the page origin on loopback, no UDP datagrams were sent, and name resolution outside loopback is blocked
+form-post-gcs | POST | http://gcs:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=browser%2Fform-post-gcs.txt | 403 | origin: http://localhost:31098
+form-post-localhost | POST | http://localhost:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=browser%2Fform-post-localhost.txt | 403 | origin: http://localhost:31098 sec-fetch-site: same-site
+navigate-gcs | GET | http://gcs:4444/app-private/browser/private.txt | 200 | -
+navigate-localhost | GET | http://localhost:4444/app-private/browser/private.txt | 403 | sec-fetch-site: same-site
+subresources-gcs | GET | http://gcs:4444/app-private/browser/picture.svg | 200 | -
+subresources-gcs | GET | http://gcs:4444/app-private/browser/private.txt | 403 | origin: http://localhost:31098
+subresources-gcs | POST | http://gcs:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=browser%2Ffetch-post-gcs.txt | 403 | origin: http://localhost:31098
+subresources-localhost | GET | http://localhost:4444/app-private/browser/picture.svg | 403 | sec-fetch-site: same-site
+subresources-localhost | GET | http://localhost:4444/app-private/browser/private.txt | 403 | origin: http://localhost:31098 sec-fetch-site: same-site
+subresources-localhost | POST | http://localhost:4444/upload/storage/v1/b/app-private/o?uploadType=media&name=browser%2Ffetch-post-localhost.txt | 403 | origin: http://localhost:31098 sec-fetch-site: same-site
+typed-gcs | GET | http://gcs:4444/app-private/browser/private.txt | 200 | -
+typed-localhost | GET | http://localhost:4444/app-private/browser/private.txt | 200 | sec-fetch-site: none
+PASS: scenario trusted-requests: on loopback the browser marks every page-initiated request, which gets 403; by service name it sends no Sec-Fetch-Site, so requests with Origin get 403 and a page-initiated navigation or image gets 200
+PASS: scenario trusted-page-reach: no page read a trusted response or wrote an object; a typed URL acts as the trusted principal on both names
+PASS: scenario trusted-network-audit: in 8 net logs the browser connected only to the page origin and port 4444, and sent UDP only to Docker's embedded DNS server
 PASS: strict local recipe browser check completed

@@ -11,9 +11,13 @@ and the [full application example](../../../examples/full-stack/README.md) with
 the image built from the checkout; see [Container recipe](#container-recipe).
 The same day the pinned Go storage client ran unmodified against the trusted
 listener; see [Go SDK run](#go-sdk-run). On **2026-11-10** Chromium ran against
-the recipe's published main listener; see [Browser run](#browser-run). The row
+the recipe's published main listener; see [Browser run](#browser-run). On
+**2026-11-12** the same check also opened hostile pages against the unpublished
+trusted listener from a Chromium on the recipe's network; see
+[Trusted listener in a browser](#trusted-listener-in-a-browser). The row
 stays PARTIAL because of its remaining `known_deviations`, listed under
-[Browser run](#browser-run); every acceptance case of the row passes. No
+[Trusted listener in a browser](#trusted-listener-in-a-browser); every
+acceptance case of the row passes. No
 real-cloud run was performed. gRPC has no trusted listener.
 
 ## Commands
@@ -248,16 +252,16 @@ in [strict-recipe-browser.txt](strict-recipe-browser.txt).
 
 ```sh
 docker build -t gcs-mimic:local .
-GCS_MIMIC_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh
+GCSM_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh
 ```
 
-The run on 2026-11-10 used an image built from the source of this change under
-another local tag, and exited 0.
+The recorded run on 2026-11-12 used an image built from the source named in the
+transcript, and exited 0.
 
 | Input | Executed value |
 | --- | --- |
-| Browser container | `node:24.22.2-trixie-slim`, the digest in `compatibility/dependency-status.json`, linux/arm64 |
-| Node | `v24.22.2` |
+| Browser container | `node:24.22.3-trixie-slim`, the digest in `compatibility/dependency-status.json`, linux/arm64 |
+| Node | `v24.22.3` |
 | Chromium | `150.0.7871.181-1~deb13u1` from Debian trixie, through `scripts/install-chromium.sh` at the `snapshot.debian.org` timestamp recorded with it. Debian's newer 156 builds are in the security and proposed-updates suites, which this pinned archive does not serve, so this is not the 156 of the [signed browser run](signed-browser.md) |
 | Peer for the trusted listener | `curlimages/curl:8.23.0`, the digest pinned in `scripts/smoke-containers.sh` |
 | Frontend and page origin | `http://localhost:FRONTEND_PORT`, a random port written into `GCS_MIMIC_BUCKETS` as the recipe's `FRONTEND_PORT` |
@@ -270,7 +274,7 @@ signer signs inside the recipe's container.
 
 | Scenario | Browser observation |
 | --- | --- |
-| `navigation` | Top-level navigation shows the private bytes through URLs the built-in signer made for `http://localhost:PORT` and for `http://localhost` without the port, and the public bytes unsigned. The unsigned private object and the XML and JSON lists show `AuthenticationRequired` or `Anonymous` and reveal no object name. A tampered signature, an expired URL and a URL signed for `127.0.0.1:PORT` show `SignatureDoesNotMatch`, `ExpiredToken` and `SignatureDoesNotMatch` |
+| `navigation` | Top-level navigation shows the private bytes through URLs the built-in signer made for `http://localhost:PORT` and for `http://localhost` without the port, and the public bytes unsigned. The unsigned private object and the XML and JSON lists show `AuthenticationRequired` or `Anonymous` and reveal no object name. A tampered signature, an expired URL and a URL signed for `127.0.0.1:PORT` show `SignatureDoesNotMatch`, `ExpiredToken` and `SignatureDoesNotMatch`. Over HTTPS on the same port, which the recipe serves because it sets no scheme, the public object, a signed download, a URL signed for each protocol fetched over the other and the unsigned private object behave the same; the [single-port verification](single-port-scheme.md) describes how the browser trusts the certificate |
 | `page-stock` | From `http://localhost:FRONTEND_PORT`, fetch reads the public object through XML and JSON, sees the listed `Content-Type` and not the unlisted `ETag` (which the script confirms the server sends), and a `HEAD` reads its `Content-Type`; a browser PUT to the public bucket, an unsigned XML GET and a signed fetch GET of the private bucket are blocked, as their rules do not allow them. Anonymous JSON list, metadata and media read 401. A signed embed loads, while unsigned, tampered and expired embeds fail. A signed PUT with a preflighted `Content-Type` answers 200 and loads through its own signed URL. Tampered, expired, changed-`Content-Type` and unsigned uploads read 403, 400, 403 and 401; a request header outside the rule fails the preflight |
 | `page-denied-origin` | From `http://127.0.0.1:FRONTEND_PORT`, an origin the recipe does not list, the public object and the signed upload preflight are blocked, while a signed embed still loads, because CORS is not authorization |
 | `page-get-added` | After `GET` is added to the private bucket's rule, as the [README](../../../examples/strict-local/README.md) advises for pages that `fetch()` signed downloads, fetch reads the bytes; tampered, expired and unsigned downloads read 403 `SignatureDoesNotMatch`, 400 `ExpiredToken` and 401 `AuthenticationRequired`, and the URLs of the failed embeds are refused the same way, so those embeds failed at the server and not on a broken URL |
@@ -295,18 +299,12 @@ rejects another port, a non-loopback connection, a UDP datagram and a log with n
 connections. Provisioning is separate: pulling the pinned images and installing
 Chromium contact Docker Hub and the Debian archive, and no Google service.
 
-What keeps DESIGN-101 `PARTIAL` is its remaining `known_deviations`, which this run
-does not change: the responses hyper writes for a malformed request head carry none
-of the trusted listener's added headers, anything that reaches the port with an
-accepted Host acts as `trusted_principal`, and shared connection limits and timeouts
-are not measured separately.
-
 Limits:
 
 - It ran on linux/arm64 only, through Docker Desktop on macOS, whose host network is
   the Docker VM; `linux/amd64` and Firefox or WebKit did not run.
-- The recipe does not publish port 4444, so a real browser cannot reach the trusted
-  listener; the wire tests in the [results above](#results) cover its browser checks.
+- The recipe does not publish port 4444, so this browser cannot reach the trusted
+  listener; [the next section](#trusted-listener-in-a-browser) runs one that can.
 - `page-get-added` applies the README's rule with a `PATCH` through the trusted
   listener rather than editing `GCS_MIMIC_BUCKETS`; the container smoke test covers
   the reconciliation of an edited bucket document.
@@ -318,3 +316,70 @@ Limits:
 - The image was built once, from the source commit named in the transcript. Later
   commits change the check, the ledger and the dependency records, and not `src/`,
   `Cargo.toml`, `Cargo.lock` or the `Dockerfile`.
+
+## Trusted listener in a browser
+
+The browser checks of the trusted listener rest on headers that a browser decides
+to send, so the same script then asks a real browser. After the run above it copies
+the browser container, with its installed Chromium, into a second container on the
+recipe's Compose network, as an end-to-end test runner beside the application's
+servers would sit. There a page origin listens on loopback, and a plain TCP relay
+passes loopback port 4444 to `gcs:4444` without changing a byte, so the same browser
+reaches the trusted listener under two names:
+
+- `http://localhost:4444`, a loopback origin, which browsers treat as potentially
+  trustworthy;
+- `http://gcs:4444`, the Compose service name over plain HTTP, which they do not.
+
+For each name it opens the trusted listener's private object as a typed URL, then
+loads [a hostile page](../../../scripts/trusted-listener-browser.html) on another
+origin that navigates to that object, submits a cross-site form POST that would
+upload an object, and sends a `no-cors` `fetch` POST, a `fetch` GET and an image of
+a private object. Chromium's net log records each request it sent to port 4444 with
+its `Origin` and `Sec-Fetch-Site` headers and the status it received, and the script
+compares that list with the expected one exactly (`trusted-requests` in the
+[transcript](strict-recipe-browser.txt)).
+
+| Request | `localhost:4444` | `gcs:4444` |
+| --- | --- | --- |
+| Typed URL | `Sec-Fetch-Site: none`, 200, the private bytes shown | no header, 200, the private bytes shown |
+| Navigation the page starts | `Sec-Fetch-Site: same-site`, 403 | **no header, 200**, the private bytes shown in the navigated tab |
+| Cross-site form POST | `Origin` and `Sec-Fetch-Site: same-site`, 403 | `Origin`, 403 |
+| `fetch` POST, `no-cors`, `text/plain` | `Origin` and `Sec-Fetch-Site`, 403 | `Origin`, 403 |
+| `fetch` GET, CORS | `Origin` and `Sec-Fetch-Site`, 403 | `Origin`, 403 |
+| Image of a private object | `Sec-Fetch-Site: same-site`, 403 | **no header, 200**, then blocked by the browser |
+
+On loopback Chromium marks every request a page starts, so each one gets 403. To
+`gcs:4444` it sends no `Sec-Fetch-Site` at all, as the Fetch Metadata draft says for
+an origin that is not potentially trustworthy, so only `Origin` remains: requests
+that carry it get 403, while a navigation and an image, which carry neither header,
+reach the listener and act as `trusted-app@gcs-mimic.invalid`. Neither gives the page
+the response: the navigated tab belongs to another origin, which the page cannot
+read, and Chromium refused the image because the 200 response carried
+`Cross-Origin-Resource-Policy: same-origin`, which the script confirms in the net
+log. The page itself reports `TypeError` for both `fetch` calls and an error for the
+image under both names, and the trusted listener's bucket listing afterwards shows
+that neither form POST nor `fetch` POST published an object (`trusted-page-reach`).
+The relay and the service name need Docker's embedded DNS server, so this browser's
+net-log audit allows TCP to the page origin and port 4444 and UDP datagrams to
+`127.0.0.11:53` only (`trusted-network-audit`).
+
+What keeps DESIGN-101 `PARTIAL` is its remaining `known_deviations`: a browser on the
+Compose network sends GET navigations and embeds to `gcs:4444` without either header,
+so a page it opens can make it read as `trusted_principal`, though not see what it
+read; anything that is not a browser and reaches the port with an accepted Host acts
+as `trusted_principal`; the responses hyper writes for a malformed request head carry
+none of the trusted listener's added headers; and shared connection limits and
+timeouts are not measured separately.
+
+Limits:
+
+- Only Chromium 150 ran, on linux/arm64. Firefox and WebKit decide differently when to
+  send these headers and were not run.
+- The pages use `localhost` for their own origin, so `localhost:4444` counts as
+  same-site; a page on a public origin would make Chromium send `cross-site`, which the
+  wire tests cover. The [Private Network Access](https://wicg.github.io/private-network-access/)
+  check let the loopback page reach the private address of `gcs`; a public page would
+  first face that check, which this run does not exercise.
+- No GET route of the trusted listener changes state, so the navigation and the image
+  read without writing; the run does not prove that for routes added later.
