@@ -141,7 +141,7 @@ const READY_FIELDS: [&str; 36] = [
     "test_signer",
     "signed_urls",
     "seed",
-    "buckets_file",
+    "buckets",
     "scheme",
     "tls_handshake_timeout_ms",
     "public_base_url",

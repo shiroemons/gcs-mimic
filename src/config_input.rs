@@ -2,7 +2,7 @@
 
 use crate::{
     bucket::bucket_location,
-    config::{Scheme, Setting},
+    config::{Scheme, Setting, Spelled},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };
 use std::{
@@ -409,7 +409,7 @@ impl Inputs {
             };
             if let ServerFlag::Alias(source) = flag {
                 equivalent.extend([
-                    format!("--{}", setting.as_str().replace('_', "-")),
+                    setting.spelled(DiagnosticSource::Cli).to_string(),
                     if *source == AliasFlag::PublicHost && !safe_url(&value) {
                         "<REDACTED>"
                     } else {
@@ -450,8 +450,8 @@ impl Inputs {
                     alias.source,
                     &alias.key,
                     format!(
-                        "This input overrides --{} from the same command line; remove one of them.",
-                        alias.name.replace('_', "-")
+                        "This input overrides {} from the same command line; remove one of them.",
+                        Spelled::new(&alias.name, DiagnosticSource::Cli)
                     ),
                 )
             });

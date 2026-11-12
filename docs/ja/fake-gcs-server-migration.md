@@ -192,9 +192,9 @@ gcs-mimicは結果をそのままJSONとして読み、何も展開しません�
 0.13.0までのリリースは未対応として拒否します。
 
 名前付きボリュームは`docker compose down`の後も残るので、次回起動ではバケットが既にあります。
-インラインの文書ではこうしたバケットにも反映します。`GCS_MIMIC_BUCKETS_FILE_MODE`の既定値が`reconcile`なので、
+文書はこうしたバケットにも反映します。`GCS_MIMIC_BUCKETS_MODE`の既定値が`reconcile`なので、
 各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、書かないフィールドはAPIでの変更を保ち、
-変更したバケット数をreadyの`buckets_file.reconciled`に数えます。既存バケットをそのまま残すには、モードを`create`にします。
+変更したバケット数をreadyの`buckets.reconciled`に数えます。既存バケットをそのまま残すには、モードを`create`にします。
 値はサービスのenvironmentの一部なので、編集した後は`docker compose up -d`だけでComposeがコンテナを作り直し、次の起動で反映します。
 `docker compose restart`では古い値のままです。
 フィールドを消しても元には戻りません。上の`iamPolicy`を消しても
@@ -206,15 +206,13 @@ gcs-mimicは結果をそのままJSONとして読み、何も展開しません�
 [Composeのconfigsリファレンス](https://docs.docker.com/reference/compose-file/configs/)によると、
 `content`はDocker Compose 2.23.1以降で使えます。
 また、サービスに`read_only: true`を付けないでください。Composeは中身をコンテナへコピーするため、読み取り専用のコンテナでは作成を拒否します。
-バケットファイルの既定値は`create`で、既存バケットの編集はstderrの警告とreadyの`unapplied`で知らせるだけなので、
-反映するには`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`を追加します。
+バケットファイルも、インラインの文書と同じく既存バケットへ反映します。
 
 ```yaml
 services:
   gcs:
     environment:
       GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
-      GCS_MIMIC_BUCKETS_FILE_MODE: reconcile
     configs:
       - source: gcs_buckets
         target: /etc/gcs-mimic/buckets.json

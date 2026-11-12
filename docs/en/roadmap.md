@@ -148,11 +148,11 @@ By default the bucket initialization file creates **missing buckets only**.
 Restart keeps existing settings and objects, including API changes, and warns
 when an edited entry was not applied. Removing a file entry does not delete a
 bucket. Its [version-1 schema and local administrative authority](slices/bucket-initialization.md)
-are implemented, including an `iamPolicy` a new bucket starts with. The opt-in
-`buckets_file_mode=reconcile` applies the fields each entry writes to its
-existing bucket at startup, except its location and owner. The same document
-written inline in `GCS_MIMIC_BUCKETS` defaults to reconcile, because an edit
-there is meant to apply at the next start; reconcile never resets a field that
+are implemented, including an `iamPolicy` a new bucket starts with.
+`buckets_mode=reconcile`, the default for a file and for the same document
+written inline in `GCS_MIMIC_BUCKETS`, applies the fields each entry writes to
+its existing bucket at startup, except its location and owner, because an edit
+to the document is meant to apply at the next start; reconcile never resets a field that
 an entry stops writing.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,

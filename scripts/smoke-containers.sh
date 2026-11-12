@@ -224,7 +224,7 @@ for platform in "$@"; do
   service=$("${init_compose[@]}" ps --quiet gcs)
   address=$("${init_compose[@]}" port gcs 4443)
   docker inspect "$service" | jq -e '.[0].Mounts | any(.Destination == "/buckets.json" and .RW == false)' >/dev/null
-  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/initialized-assets" | jq -e '.versioning.enabled and .cors[0].origin == ["https://browser.example"]' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X PATCH \
@@ -233,7 +233,7 @@ for platform in "$@"; do
   "${init_compose[@]}" stop --timeout 15
   "${init_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
   address=$("${init_compose[@]}" port gcs 4443)
-  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/initialized-assets" | jq -e '.labels.owner == "api"' >/dev/null
   "${init_compose[@]}" down --volumes
@@ -428,7 +428,7 @@ for platform in "$@"; do
       and .signed_urls == "verify" and .signed_host_port == "lenient"
       and .listeners == [{listen: "0.0.0.0:4443", scheme: "http"}]
       and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "trusted-app@gcs-mimic.invalid"
-      and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+      and .buckets == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   strict_peer() {
     docker run --rm --read-only --network "${project}_default" "$peer_image" \
       --disable --noproxy '*' --silent --show-error --max-time 5 "$@"
@@ -506,7 +506,7 @@ for platform in "$@"; do
   [[ $(docker compose -p "$project" ps --quiet gcs) != "$service" ]] || exit 1
   service=$(docker compose -p "$project" ps --quiet gcs)
   address=$(docker compose -p "$project" port gcs 4443)
-  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
+  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -D "$work/strict-headers" -o "$work/strict-body" -H 'Origin: http://localhost:3001' \
     "http://$address/app-public/hello.txt"
@@ -551,7 +551,7 @@ for platform in "$@"; do
     any(.event == "ready" and .auth_mode == "strict" and .test_signer == "enabled" and .signed_host_port == "lenient"
       and .listeners == [{listen: $listen, scheme: "http"}]
       and .trusted_listen == "0.0.0.0:4444" and .trusted_principal == "trusted-app@gcs-mimic.invalid"
-      and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
+      and .buckets == {outcome:"applied",created:2,existing:0,project_mismatches:0,unapplied:0,reconciled:0})' >/dev/null
   for app in api web; do
     docker compose -p "$project" exec -T "$app" cat /run/secrets/gcs-test-signer | cmp - "$GCS_SMOKE_TEST_SIGNER_KEY"
   done
@@ -631,7 +631,7 @@ for platform in "$@"; do
   docker compose -p "$project" up --detach --wait --wait-timeout 40
   [[ $(docker compose -p "$project" ps --quiet gcs) != "$service" ]] || exit 1
   service=$(docker compose -p "$project" ps --quiet gcs)
-  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
+  docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .buckets == {outcome:"applied",created:0,existing:2,project_mismatches:0,unapplied:0,reconciled:2})' >/dev/null
   browser --fail -D "$work/full-headers" -o /dev/null -H 'Origin: http://localhost:3002' \
     "http://localhost:$port/app-public/images/logo.png"
   tr -d '\r' < "$work/full-headers" | grep -Fxi 'access-control-allow-origin: http://localhost:3002' >/dev/null

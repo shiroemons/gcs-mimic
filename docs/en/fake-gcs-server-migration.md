@@ -204,10 +204,10 @@ as `$$`. `iamPolicy` gives a new bucket its policy, replacing the default one as
 `setIamPolicy` does; releases up to 0.13.0 reject it as unsupported.
 
 The named volume outlives `docker compose down`, so its buckets already exist on
-the next start. The inline document reconciles them: `GCS_MIMIC_BUCKETS_FILE_MODE`
-defaults to `reconcile` for it, so each start writes the fields an entry sets
-whose value differs, fields it omits keep their API changes, and ready counts the
-changed buckets in `buckets_file.reconciled`. Set the mode to `create` to keep
+the next start. The document reconciles them: `GCS_MIMIC_BUCKETS_MODE` defaults
+to `reconcile`, so each start writes the fields an entry sets whose value differs,
+fields it omits keep their API changes, and ready counts the changed buckets in
+`buckets.reconciled`. Set the mode to `create` to keep
 existing buckets as they are. The value is part of the service's environment, so
 after an edit a plain `docker compose up -d` recreates the container and the next
 start applies it; `docker compose restart` keeps the old value. Deleting a field
@@ -220,16 +220,14 @@ file that `GCS_MIMIC_BUCKETS_FILE` names; the service's `configs:` mounts it at
 `target`. Inline `content` needs Docker Compose 2.23.1 or later, according to the
 [Compose configs reference](https://docs.docker.com/reference/compose-file/configs/),
 and a service without `read_only: true`: Compose copies the content into the
-container and refuses a read-only one. A bucket file defaults to `create`, which
-only reports an edit of an existing bucket as `unapplied` with a stderr warning,
-so add `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile` to apply edits:
+container and refuses a read-only one. A bucket file reconciles existing buckets
+the same way as the inline document:
 
 ```yaml
 services:
   gcs:
     environment:
       GCS_MIMIC_BUCKETS_FILE: /etc/gcs-mimic/buckets.json
-      GCS_MIMIC_BUCKETS_FILE_MODE: reconcile
     configs:
       - source: gcs_buckets
         target: /etc/gcs-mimic/buckets.json
@@ -655,15 +653,14 @@ environment-variable suffixes or overload a global public-host setting with
 bucket permissions or CORS.
 
 The `--buckets-file PATH` extension reads a version-1 JSON initialization file
-listing multiple buckets and their individual settings. On startup, create only
-missing buckets. Existing bucket settings and objects survive unchanged, even
-when the file differs, and an edited entry that was not applied warns on stderr;
-removing an entry does not delete its bucket. This keeps restart from undoing
-API changes. Changing an existing bucket remains an API operation unless the
-opt-in `buckets_file_mode=reconcile` applies each entry's written fields to it at
-startup. Select the file with `GCS_MIMIC_BUCKETS_FILE` or server JSON
-`buckets_file`, and the mode with `GCS_MIMIC_BUCKETS_FILE_MODE` or
-`buckets_file_mode`; CLI overrides environment, then config. See the
+listing multiple buckets and their individual settings. On startup, create
+missing buckets and apply each entry's written fields to existing ones; fields an
+entry omits and objects survive unchanged, and removing an entry does not delete
+its bucket. `buckets_mode=create` instead keeps existing buckets as they are, so
+restart never undoes an API change, and warns on stderr about an edited entry it
+did not apply. Select the file with `GCS_MIMIC_BUCKETS_FILE` or server JSON
+`buckets_file`, and the mode with `GCS_MIMIC_BUCKETS_MODE` or `buckets_mode`; CLI
+overrides environment, then config. See the
 [runnable example](container-usage.md#initialize-bucket-settings).
 
 The initializer always uses native field validation and local administrative

@@ -8,7 +8,7 @@ use super::{
 use crate::{
     auth::{Policy, PublicAccess},
     bucket::BucketRecord,
-    config::BucketsFileMode,
+    config::BucketsMode,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     storage::admin::{
         AdminError, BucketDefinition,
@@ -135,7 +135,7 @@ impl Report {
             index,
             format!("buckets[{index}]"),
             format!(
-                "This entry changed after its bucket was created or last reconciled, and existing settings are kept: the bucket still differs in {fields}. Set buckets_file_mode=reconcile to apply the written fields, change the bucket through the API, or restore the entry.{location}"
+                "This entry changed after its bucket was created or last reconciled, and existing settings are kept: the bucket still differs in {fields}. buckets_mode=create keeps existing buckets as they are; remove it to apply the written fields, change the bucket through the API, or restore the entry.{location}"
             ),
         );
     }
@@ -149,7 +149,7 @@ impl Report {
             index,
             format!("buckets[{index}]"),
             format!(
-                "The bucket existed without a recorded entry, created through the API or by an earlier release, and existing settings are kept: it differs from this entry in {fields}. Set buckets_file_mode=reconcile to apply the written fields, or change the bucket through the API. Later starts compare with this entry and do not repeat this warning.{location}"
+                "The bucket existed without a recorded entry, created through the API or by an earlier release, and existing settings are kept: it differs from this entry in {fields}. buckets_mode=create keeps existing buckets as they are; remove it to apply the written fields, or change the bucket through the API. Later starts compare with this entry and do not repeat this warning.{location}"
             ),
         );
     }
@@ -193,7 +193,7 @@ pub(super) fn plan(
     entries: Vec<Prepared>,
     observed: Vec<Observed>,
     bucket_limit: Option<NonZeroUsize>,
-    mode: BucketsFileMode,
+    mode: BucketsMode,
 ) -> Result<(Vec<Planned>, Report), PlanError> {
     let mut run = Run {
         report: Report::default(),
@@ -225,7 +225,7 @@ struct Run {
     report: Report,
     /// Entries whose stored state refuses them; every entry is checked before any is applied.
     rejected: Collected,
-    mode: BucketsFileMode,
+    mode: BucketsMode,
 }
 
 impl Run {
@@ -257,8 +257,8 @@ impl Run {
             }
         }
         match self.mode {
-            BucketsFileMode::Create => Ok(self.keep(index, &entry, &stored, observed.parent)),
-            BucketsFileMode::Reconcile => self.reconcile(index, entry, &stored, observed.parent),
+            BucketsMode::Create => Ok(self.keep(index, &entry, &stored, observed.parent)),
+            BucketsMode::Reconcile => self.reconcile(index, entry, &stored, observed.parent),
         }
     }
 

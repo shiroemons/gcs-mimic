@@ -480,8 +480,9 @@ flowchart TD
 For settings, document equivalent uses through native `GCS_MIMIC_*` options;
 identical flag names and suffixes are not required. The version-1 multi-bucket
 initialization file creates missing buckets, optionally with an IAM policy, and
-by default preserves existing API settings on restart, warning about edited
-entries it did not apply; `buckets_file_mode=reconcile` applies them instead.
+by default applies the fields each entry writes to existing buckets on restart;
+`buckets_mode=create` preserves existing API settings instead, warning about
+edited entries it did not apply.
 See the [initializer contract](slices/bucket-initialization.md);
 broader shared-state crash injection remains pending. Seed input and persistent
 destination remain separate. Existing

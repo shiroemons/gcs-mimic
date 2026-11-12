@@ -1,5 +1,6 @@
 use super::{SettingFix, bounded, unknown_setting};
-use crate::time_limit::TimeLimit;
+use crate::{diagnostics::DiagnosticSource, time_limit::TimeLimit};
+use std::fmt;
 
 pub(super) const UNKNOWN_SETTING: &str = "Unknown setting; remove it and use --help.";
 pub(crate) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
@@ -42,7 +43,7 @@ super::string_enum! {
         MaxSyncDepth => "max_sync_depth",
         BucketsFile => "buckets_file",
         Buckets => "buckets",
-        BucketsFileMode => "buckets_file_mode",
+        BucketsMode => "buckets_mode",
         MaxBucketsPerBatch => "max_buckets_per_batch",
         ApiBaseUrl => "api_base_url",
         PublicBaseUrl => "public_base_url",
@@ -136,7 +137,7 @@ impl Setting {
             | Self::LifecycleExecution
             | Self::BucketsFile
             | Self::Buckets
-            | Self::BucketsFileMode
+            | Self::BucketsMode
             | Self::ApiBaseUrl
             | Self::PublicBaseUrl
             | Self::AdminEnabled
@@ -170,6 +171,41 @@ impl Setting {
 
     pub(super) fn time_limit(self, value: &str) -> Result<TimeLimit, SettingFix> {
         self.integer(value).map(TimeLimit::from_millis)
+    }
+}
+
+/// A setting name as one source writes it, so that a fix can be copied back into that source:
+/// `--foo-bar` on the command line, `GCS_MIMIC_FOO_BAR` in the environment and `foo_bar` in
+/// the JSON file. Every other source names settings as the JSON file does.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Spelled<'a> {
+    name: &'a str,
+    source: DiagnosticSource,
+}
+
+impl<'a> Spelled<'a> {
+    /// `name` is a setting name in its JSON form, such as `buckets_mode`.
+    pub(crate) const fn new(name: &'a str, source: DiagnosticSource) -> Self {
+        Self { name, source }
+    }
+}
+
+impl Setting {
+    pub(crate) fn spelled(self, source: DiagnosticSource) -> Spelled<'static> {
+        Spelled::new(self.as_str(), source)
+    }
+}
+
+impl fmt::Display for Spelled<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fmt::Write as _;
+        let (prefix, map): (&str, fn(char) -> char) = match self.source {
+            DiagnosticSource::Cli => ("--", |c| if c == '_' { '-' } else { c }),
+            DiagnosticSource::Environment => ("GCS_MIMIC_", |c| c.to_ascii_uppercase()),
+            _ => ("", |c| c),
+        };
+        f.write_str(prefix)?;
+        self.name.chars().try_for_each(|c| f.write_char(map(c)))
     }
 }
 

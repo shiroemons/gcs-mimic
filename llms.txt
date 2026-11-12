@@ -148,7 +148,7 @@ Their old prefix fails with replacement advice. The server ignores `GCSM_*`.
 - Storage: `--data-dir`, `--backend`, `--memory-max-bytes`, `--memory-catalog-max-bytes`
 - Seed: `--seed-dir`, `--default-seed-dir`, `--seed-project`, `--seed-content-type`, `--max-seed-entries`, `--max-seed-depth`
 - Sync: `--sync-dir`, `--sync-delete-guard`, `--sync-reinitialize`, `--max-sync-entries`, `--max-sync-depth`
-- Buckets: `--buckets`, `--buckets-file`, `--buckets-file-mode`, `--max-buckets-per-batch`, `--default-location`, `--default-soft-delete-retention-seconds`, `--lifecycle-execution`
+- Buckets: `--buckets`, `--buckets-file`, `--buckets-mode`, `--max-buckets-per-batch`, `--default-location`, `--default-soft-delete-retention-seconds`, `--lifecycle-execution`
 - URLs: `--api-base-url`, `--public-base-url`, `--xml-virtual-host-domains`
 - Admin: `--admin-enabled`, `--admin-principal`, `--admin-allowed-hosts`
 - Access: `--auth-mode`, `--compat-profile`, `--cors-fallback`, `--signed-urls`, `--signed-host-port`, `--identity-file`, `--identities`, `--test-signer`, `--local-creator-email`

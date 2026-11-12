@@ -242,9 +242,9 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "JSON",
             "none (the --buckets-file document itself, with the same format and limits; not with --buckets-file)",
         ),
-        Setting::BucketsFileMode => (
+        Setting::BucketsMode => (
             "MODE",
-            "reconcile for --buckets, create for --buckets-file (create|reconcile; reconcile also applies each entry's written fields to its existing bucket; requires --buckets-file or --buckets)",
+            "reconcile (create|reconcile; reconcile also applies each entry's written fields to its existing bucket, create only adds missing buckets; requires --buckets-file or --buckets)",
         ),
         Setting::MaxBucketsPerBatch => (
             "N",
@@ -518,7 +518,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "340fcd40c42925a37619edce26f2727944042bfd0e51c220d313d1bea9ddd4c7"
+            "6c7d18bd1dc3068a82c307ab26dcf16faaa8f2e3a6fd7cbf90cabfe57b596c4e"
         );
     }
 }

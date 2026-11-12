@@ -109,7 +109,7 @@ The recipe leaves these to their defaults:
 - **The trusted listener's identity.** Without `GCS_MIMIC_TRUSTED_PRINCIPAL`, requests without credentials on port 4444 act as `trusted-app@gcs-mimic.invalid`, which holds `roles/storage.admin` on the project of every bucket the bucket document creates and on the seed project (`local-project` unless `GCS_MIMIC_SEED_PROJECT` says otherwise). An entry for it in the identities replaces these roles.
 - **The test signer's roles.** The enabled signer holds `roles/storage.objectUser` on the same projects, unless the identities declare it. Declaring it there also enables it, so the `GCS_MIMIC_TEST_SIGNER` line becomes optional; an explicit `GCS_MIMIC_TEST_SIGNER` always wins. Startup warns once that the signer's key is published.
 - **Signatures without the port.** With the test signer enabled, `signed_host_port` is `lenient` for that signer's own signatures, and ready reports `signed_host_port_signers` `test-signer`: a V4 signature by the test signer whose host leaves out the port, as Go storage signs, verifies, and the host name, path, query, signed headers and expiry stay bound. Any other key, and every signature without the test signer, is `exact`; set `GCS_MIMIC_SIGNED_HOST_PORT=lenient` to accept such signatures from every signer.
-- **Edits reach existing buckets.** The inline `GCS_MIMIC_BUCKETS` uses `buckets_file_mode` `reconcile`, so each start writes the fields an entry sets to a bucket that already exists in the volume; a bucket file keeps `create`. See [Change the buckets](#change-the-buckets).
+- **Edits reach existing buckets.** The bucket document uses `buckets_mode` `reconcile`, the default, so each start writes the fields an entry sets to a bucket that already exists in the volume. See [Change the buckets](#change-the-buckets).
 - **No CORS without rules.** Strict mode answers XML requests to a bucket without `cors` rules with no CORS headers (`cors_fallback` `none`), as Cloud Storage does. Permissive mode allows every origin there instead.
 
 The buckets:
@@ -242,7 +242,7 @@ Edit `GCS_MIMIC_BUCKETS`, or set another `FRONTEND_PORT`, then run:
 docker compose up -d
 ```
 
-The JSON is part of the service's environment, so a changed value makes Compose recreate the container. `docker compose restart` restarts the old container with its old value. On the next start the server writes the fields each entry sets and the ready event counts the changed buckets in `buckets_file.reconciled`. Removing a field never resets it: write the value you want instead, such as `"iamPolicy": {"bindings": []}`. Removing an entry never deletes its bucket.
+The JSON is part of the service's environment, so a changed value makes Compose recreate the container. `docker compose restart` restarts the old container with its old value. On the next start the server writes the fields each entry sets and the ready event counts the changed buckets in `buckets.reconciled`. Removing a field never resets it: write the value you want instead, such as `"iamPolicy": {"bindings": []}`. Removing an entry never deletes its bucket.
 
 ## Security
 

@@ -393,12 +393,13 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 既定のlegacyバインディングが必要なら一緒に書きます。公開アクセス防止が公開メンバーを
 拒否する場合は、何も変更せずに起動を止めます。
 
-バケットファイルでバケットの作成後に項目を編集すると、次回起動はバケットを保ったまま、まだ異なる
-フィールドをstderrで警告し、readyの`unapplied`へ件数を出します。Composeを再起動しても
-残るボリュームなどで既存バケットへ反映するには、`GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`
-を指定します。各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、変更した
-バケット数をreadyの`reconciled`へ出します。項目が書かないフィールドはAPIでの変更を保ち、
-バケットのロケーションは変わりません。
+バケットの作成後に項目を編集すると、Composeを再起動しても残るボリュームなどでも、次回起動で
+既存バケットへ反映します。各起動は項目が書いたフィールドのうち値が異なるものだけを書き込み、
+変更したバケット数をreadyの`buckets.reconciled`へ出します。項目が書くフィールドへのAPIでの変更も
+同じく元に戻ります。項目が書かないフィールドはAPIでの変更を保ち、バケットのロケーションは変わりません。
+これは`GCS_MIMIC_BUCKETS_MODE: reconcile`で、バケットファイルとインラインの`GCS_MIMIC_BUCKETS`の
+どちらでも既定値です。既存バケットをそのまま残すには`create`を指定します。そのときは、編集した項目の
+まだ異なるフィールドをstderrで警告し、readyの`unapplied`へ件数を出すだけです。
 
 項目からフィールドを消しても、どちらのモードでもバケットは元に戻りません。`allUsers`の
 `iamPolicy`を消してもバケットは公開のままで、次回起動で一度だけ`iamPolicy`を書かなくなった
@@ -407,10 +408,11 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 
 選択順は`--buckets-file PATH`、`GCS_MIMIC_BUCKETS_FILE`、サーバーJSONの
 `buckets_file`です。インラインの文書も`--buckets`、`GCS_MIMIC_BUCKETS`、サーバーJSONの`buckets`の順に選びます。
-`buckets_file_mode`（`--buckets-file-mode`、`GCS_MIMIC_BUCKETS_FILE_MODE`）も同じ順で選び、
-どちらの文書もないのに指定すると起動を止めます。既定値はインラインの`GCS_MIMIC_BUCKETS`では`reconcile`、バケットファイルでは`create`です。
+`buckets_mode`（`--buckets-mode`、`GCS_MIMIC_BUCKETS_MODE`）も同じ順で選び、
+どちらの文書もないのに指定すると起動を止めます。既定値はどちらの形でも`reconcile`です。
 インラインの値を編集すると、Composeは`docker compose up -d`だけでコンテナを作り直すので、編集がそのまま既存バケットに届きます。
-ready通知は、どちらの形でも`buckets_file`として結果を返します。エントリの`project`、ファイルの`project`、`seed_project`
+ready通知は、どちらの形でも`buckets`として結果を返します。
+0.20.0より前は、この設定の名前が`buckets_file_mode`で、バケットファイルの既定値は`create`、readyの項目名は`buckets_file`でした。エントリの`project`、ファイルの`project`、`seed_project`
 （既定`local-project`）の順に所有projectを決めます。
 strictでもローカル管理として初期化し、項目が書いたポリシー以外のAPI権限は付与しません。
 ACL、lifecycle、UBLA、`iam`、`bindings`以外のポリシー項目、未知フィールドは

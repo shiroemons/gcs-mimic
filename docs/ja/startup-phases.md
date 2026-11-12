@@ -4,7 +4,7 @@
 
 対象はDESIGN-062、DESIGN-072、DESIGN-074です。各機能の広い範囲はPARTIALのままです。UX-002の初期ファイル読み込み後にreadyを出す範囲はIMPLEMENTEDを維持します。[英語の契約](../en/slices/startup-phases.md)と[共有契約](../en/slices/onboarding-state-contract.md)を正本とします。
 
-設定・TLS・IDレジストリを検証した後、カタログのopenと復旧、PAP、バケット初期化、seed、bind、保守処理の開始、readyの順に進みます。ready JSONの既存フィールドに`buckets_file`の適用結果を加えます。
+設定・TLS・IDレジストリを検証した後、カタログのopenと復旧、PAP、バケット初期化、seed、bind、保守処理の開始、readyの順に進みます。ready JSONの既存フィールドに`buckets`の適用結果を加えます。
 
 同期ディレクトリを設定した起動では、同期ワーカーの起動に成功してからreadyを出します。readyの`healthcheck_path`とCLIの既定プローブ先は`/_internal/healthcheck`で統一し、従来の`/_internal/ready`も引き続き使えます。TLSとIDレジストリの起動エラーには、秘密のトークン値を出さずに原因を表示します。
 

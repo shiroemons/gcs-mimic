@@ -144,7 +144,7 @@ argument is an option.
 | `--max-sync-depth` | `GCS_MIMIC_MAX_SYNC_DEPTH` | 0 (unlimited) | 0–1024; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk still stops at 1024 levels, which keeps its descriptors bounded and is deeper than any object name can nest |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved. At most 1 GiB, or with `max_buckets_per_batch` set, 1 KiB per allowed bucket and at least 32 MiB |
 | `--buckets` | `GCS_MIMIC_BUCKETS` | none | JSON key `buckets`; the `buckets_file` document itself, with the same format, limits and validation, so a Compose file can hold it in `environment:`. In the JSON config file the value is the document object or a string containing it, and there the config file's 64 KiB limit bounds it. Naming it with `buckets_file` fails startup. Diagnostics name `buckets` and the entry path, never the document text |
-| `--buckets-file-mode` | `GCS_MIMIC_BUCKETS_FILE_MODE` | `reconcile` for `buckets`, `create` for `buckets_file` | `create` or `reconcile`; JSON key `buckets_file_mode`; requires `buckets_file` or `buckets`, and governs both; an explicit value wins. `create` keeps existing buckets as they are; `reconcile` also writes each entry's written fields to its existing bucket, except its location and owner, and leaves the members an entry does not write to the API. An inline document defaults to `reconcile` because the file that starts the server, such as `compose.yaml`, is then the source of truth. See [bucket initialization](slices/bucket-initialization.md) |
+| `--buckets-mode` | `GCS_MIMIC_BUCKETS_MODE` | `reconcile` | `create` or `reconcile`; JSON key `buckets_mode`; requires `buckets_file` or `buckets`, and governs both. `reconcile` writes each entry's written fields to its existing bucket, except its location and owner, and leaves the members an entry does not write to the API; `create` keeps existing buckets as they are. Named `buckets_file_mode` before 0.20.0, which now stops startup. See [bucket initialization](slices/bucket-initialization.md) |
 | `--max-buckets-per-batch` | `GCS_MIMIC_MAX_BUCKETS_PER_BATCH` | 0 (unlimited) | 0–2^64−1; buckets one buckets document (`buckets_file` or `buckets`) or one seed may declare, not all buckets of the server. Either is one atomic publication, so its memory grows with them |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Each request's Host and connection scheme | Set it to fix the advertised origin. A Host that selects an XML virtual bucket uses the configured domain with the same port, never the bucket label. An invalid or missing Host falls back to the bound listener URL: wildcard IP becomes loopback and port 0 becomes the allocated port. Explicit absolute HTTP(S) base with optional base path, no credentials/query/fragment. Ready reports the explicit or bound base |
 | `--public-base-url` | `GCS_MIMIC_PUBLIC_BASE_URL` | none | JSON key `public_base_url`; the public origin for XML host routing and for the URL helpers given an explicit config file |
@@ -297,7 +297,7 @@ target/debug/gcs-mimic serve --scheme http --buckets-file config/buckets.json
 
 This creates `initialized-assets` with XML CORS and versioning and
 `initialized-private` in a different project with PAP enforced. The stdout ready
-event includes `buckets_file` with `created`, `existing`, `project_mismatches`,
+event includes `buckets` with `created`, `existing`, `project_mismatches`,
 `unapplied` and `reconciled`.
 Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
 The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
@@ -315,20 +315,19 @@ services:
          "buckets":[{"name":"app-uploads"}]}
 ```
 
-The ready event keeps the field name `buckets_file` for compatibility and reports the
-same counts for either setting; it never repeats the document. Naming both settings
-fails startup. gcs-mimic reads the value as plain text, but Compose expands `${VAR}`
-in it first, so write a literal `$` as `$$`.
+The ready field `buckets` reports the same counts for either setting; it never
+repeats the document, and it is not the seed's `seed.buckets` count. Naming both
+settings fails startup. gcs-mimic reads the value as plain text, but Compose expands
+`${VAR}` in it first, so write a literal `$` as `$$`.
 
-Restart with the same data directory to retain API changes and object versions;
-with a file, only missing buckets are created, even if settings in the file change,
-and an edited entry that was not applied warns on stderr and counts as `unapplied`.
-`--buckets-file-mode reconcile` instead writes each entry's written fields to its
-existing bucket, except its location and owner. That is the default for the inline
-`buckets` document, which lives in the file that starts the server: an edit to it
-applies at the next start, while members the entry does not write keep their API
-values. `--buckets-file-mode create` keeps the file behavior for it. Removed
-entries remain stored. Different existing projects warn without changing owners.
+The document is the source of truth for what its entries write. At each start,
+`--buckets-mode reconcile`, the default for a file and an inline document alike,
+writes each entry's written fields to its existing bucket, except its location and
+owner: an edit to the document applies, and an API change to a written field is
+undone, while members the entry does not write keep their API values. Restart with
+the same data directory to retain those API changes and object versions.
+`--buckets-mode create` only creates missing buckets instead; an edited entry it did
+not apply warns on stderr and counts as `unapplied`. Removed entries remain stored. Different existing projects warn without changing owners.
 Initialization runs before seed, using local administrative authority in strict
 and permissive modes, and grants no API permissions beyond an entry's
 `iamPolicy`. Invalid entries stop startup with complete diagnostics and no ready

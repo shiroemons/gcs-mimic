@@ -6,12 +6,13 @@ set -euo pipefail
 # Foundation checks skips, so a new documentation check belongs here.
 cd "$(dirname "$0")/.."
 # Setting is the only source of accepted server environment names. The exceptions are
-# deliberately rejected inputs retained in migration diagnostics and negative tests.
+# deliberately rejected inputs retained in migration diagnostics and negative tests,
+# including the settings that WithdrawnSetting in src/config/rejection.rs still names.
 # The explicit history baseline preserves original execution records, not current instructions.
 # shortcut: per-file counts cannot detect a replacement at the same count; use line fingerprints if needed.
 git grep -n -oE 'GCS_MIMIC_[A-Z0-9_]+' | awk -F: '
   BEGIN {
-    count = split("FOO_BAR UPPER_SNAKE_CASE NO_SUCH_SETTING UNKNOWN_SETTING ENDPOINT GRPC_ENDPOINT SYNC_TOKEN BINARY PORT IMAGE TLS_DIR", names, " ")
+    count = split("FOO_BAR UPPER_SNAKE_CASE NO_SUCH_SETTING UNKNOWN_SETTING ENDPOINT GRPC_ENDPOINT SYNC_TOKEN BINARY PORT IMAGE TLS_DIR BUCKETS_FILE_MODE", names, " ")
     for (i = 1; i <= count; i++) allowed["GCS_MIMIC_" names[i]] = 1
   }
   FILENAME == ARGV[1] { allowed[$0] = 1; next }

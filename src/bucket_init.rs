@@ -7,7 +7,7 @@ use crate::{
     bounded_file::{self, ReadError},
     bucket::BucketRecord,
     clock::Clock,
-    config::{BucketsFileMode, CompatProfile, DocumentKind, DocumentSource, Form, Setting},
+    config::{CompatProfile, DocumentKind, DocumentSource, Form, Setting},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
     storage::{
@@ -1182,7 +1182,7 @@ pub async fn apply(
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
     let bucket_limit = config.max_buckets_per_batch;
-    let mode = BucketsFileMode::resolve(config.buckets_file_mode, source.form());
+    let mode = config.buckets_mode;
     let entries = crate::task::run_blocking("bucket-initializer", move || {
         load(
             &source,

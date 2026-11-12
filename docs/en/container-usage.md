@@ -455,18 +455,18 @@ The policy replaces the default one, as `setIamPolicy` does, so write the legacy
 bindings too if you need them. Startup fails before any change when public access
 prevention refuses a public member.
 
-When you edit an entry of a bucket file after its bucket exists, the next startup
-keeps the bucket, warns on stderr which fields still differ and increments ready's
-`unapplied`. To apply the written fields to existing buckets, for example on a
-volume that outlives Compose restarts, set `GCS_MIMIC_BUCKETS_FILE_MODE: reconcile`.
-Each startup then writes only the fields an entry sets whose value differs and
-counts the changed buckets in ready's `reconciled`; fields an entry omits keep
-their API changes, and a bucket's location never changes. The mode also reads
-`--buckets-file-mode` or server JSON `buckets_file_mode`. It defaults to
-`reconcile` for the inline `GCS_MIMIC_BUCKETS`, whose edits Compose delivers by
-recreating the container on a plain `docker compose up -d`, and to `create` for a
-bucket file; it fails startup when neither is selected. The ready event reports
-both forms under `buckets_file`.
+When you edit an entry after its bucket exists, for example on a volume that
+outlives Compose restarts, the next startup applies it: each start writes only the
+fields an entry sets whose value differs and counts the changed buckets in ready's
+`buckets.reconciled`. An API change to a field the entry sets is undone the same
+way; fields an entry omits keep their API changes, and a bucket's location never
+changes. This is `GCS_MIMIC_BUCKETS_MODE: reconcile`, the default for a bucket file
+and the inline `GCS_MIMIC_BUCKETS` alike, also read from `--buckets-mode` or server
+JSON `buckets_mode`. Set it to `create` to keep existing buckets as they are: an
+edited entry then only warns on stderr which fields still differ and increments
+ready's `unapplied`. The mode fails startup when no document is selected. Releases
+before 0.20.0 named it `buckets_file_mode`, defaulted a bucket file to `create`
+and reported the result under `buckets_file`.
 
 Removing a field from an entry never resets the bucket, in either mode: after you
 drop an `allUsers` `iamPolicy`, the bucket stays public, and the next startup

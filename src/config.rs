@@ -39,7 +39,7 @@ pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
 };
-pub(crate) use setting::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, Setting};
+pub(crate) use setting::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH, Setting, Spelled};
 pub use storage::Backend;
 
 /// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
@@ -200,28 +200,17 @@ impl CorsFallbackChoice {
 }
 
 string_enum! {
-    no_default
-    /// What a start does with an existing bucket that the buckets document names; see
-    /// [`BucketsFileMode::resolve`] for the default.
-    pub enum BucketsFileMode {
+    /// What a start does with an existing bucket that the buckets document names, whether the
+    /// document comes from `buckets_file` or inline from `buckets`: the document is the source
+    /// of truth either way, so its edits apply unless `create` is chosen.
+    pub enum BucketsMode {
         /// Creates missing buckets only; existing ones keep every setting.
         Create => "create",
         /// Also applies the members each entry writes to its existing bucket.
+        #[default]
         Reconcile => "reconcile",
     }
-    "buckets_file_mode must be create or reconcile"
-}
-
-impl BucketsFileMode {
-    /// An explicit setting wins. An inline document lives in the file that starts the server,
-    /// such as compose.yaml, which is then the source of truth, so its edits apply; a separate
-    /// buckets file only creates what is missing, as it always has.
-    pub(crate) fn resolve(configured: Option<Self>, form: Form) -> Self {
-        configured.unwrap_or(match form {
-            Form::File => Self::Create,
-            Form::Inline => Self::Reconcile,
-        })
-    }
+    "buckets_mode must be create or reconcile"
 }
 
 string_enum! {
@@ -310,9 +299,8 @@ pub struct Config {
     pub lifecycle_execution: Option<LifecycleExecution>,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
     pub buckets: Option<DocumentSource>,
-    /// The explicit `buckets_file_mode`, which governs both document settings;
-    /// [`BucketsFileMode::resolve`] applies the default for the document's form.
-    pub buckets_file_mode: Option<BucketsFileMode>,
+    /// What the buckets document does to existing buckets; it governs both document settings.
+    pub buckets_mode: BucketsMode,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
     /// Local management routes are disabled unless the operator explicitly enables them.
@@ -414,7 +402,7 @@ impl Default for Config {
             default_soft_delete_retention_seconds: None,
             lifecycle_execution: None,
             buckets: None,
-            buckets_file_mode: None,
+            buckets_mode: BucketsMode::default(),
             api_base_url: None,
             public_base_url: None,
             admin_enabled: false,
@@ -566,7 +554,7 @@ impl Config {
         report.config.runtime_endpoints =
             RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
         report.check_document_sources(&settings);
-        report.check_buckets_file(&settings);
+        report.check_buckets_mode(&settings);
         report.check_sync(&settings);
         report.check_backend(&settings);
         report.check_tls(&settings);
@@ -735,7 +723,7 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), Sett
         | Setting::DefaultLocation
         | Setting::DefaultSoftDeleteRetentionSeconds
         | Setting::LifecycleExecution
-        | Setting::BucketsFileMode => apply_storage_setting(config, setting, value),
+        | Setting::BucketsMode => apply_storage_setting(config, setting, value),
         Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
         Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
         Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, value),
@@ -921,7 +909,7 @@ fn apply_storage_setting(
                 .enabled();
         }
         Setting::LifecycleExecution => config.lifecycle_execution = Some(value.parse()?),
-        Setting::BucketsFileMode => config.buckets_file_mode = Some(value.parse()?),
+        Setting::BucketsMode => config.buckets_mode = value.parse()?,
         _ => return Err(unknown_setting()),
     }
     Ok(())
@@ -1163,8 +1151,8 @@ impl ConfigurationReport {
     }
 
     /// The mode only changes what a buckets document does, so naming it without one is a mistake.
-    fn check_buckets_file(&mut self, settings: &Settings) {
-        let mode = Setting::BucketsFileMode.as_str();
+    fn check_buckets_mode(&mut self, settings: &Settings) {
+        let mode = Setting::BucketsMode.as_str();
         if self.config.buckets.is_none()
             && self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
             && let Some(input) = settings.get(mode)
@@ -2817,54 +2805,49 @@ mod tests {
     }
 
     #[test]
-    fn buckets_file_mode_defaults_to_create_and_requires_a_buckets_file() {
+    fn buckets_mode_defaults_to_reconcile_and_requires_a_buckets_document() {
         let directory = crate::test_support::TestDir::new();
         let file = directory.0.join("config.json");
         std::fs::write(
             &file,
-            r#"{"buckets_file":"buckets.json","buckets_file_mode":"reconcile"}"#,
+            r#"{"buckets_file":"buckets.json","buckets_mode":"create"}"#,
         )
         .unwrap();
         let args = vec!["--config".into(), file.to_str().unwrap().into()];
-        let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE_MODE".into(), "create".into())]);
+        let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_MODE".into(), "reconcile".into())]);
         assert_precedence(
             &args,
             &env,
-            &["--buckets-file-mode", "reconcile"],
+            &["--buckets-mode", "create"],
             [
-                None,
-                Some(BucketsFileMode::Reconcile),
-                Some(BucketsFileMode::Create),
-                Some(BucketsFileMode::Reconcile),
+                BucketsMode::Reconcile,
+                BucketsMode::Create,
+                BucketsMode::Reconcile,
+                BucketsMode::Create,
             ],
             Config::load,
-            |config| config.buckets_file_mode,
-        );
-        // A file creates what is missing unless asked; config::document::tests covers inline.
-        assert_eq!(
-            BucketsFileMode::resolve(None, Form::File),
-            BucketsFileMode::Create
+            |config| config.buckets_mode,
         );
         assert_rejected(
-            "buckets_file_mode",
+            "buckets_mode",
             &["", "Reconcile", "merge", "true"],
             "create or reconcile",
         );
         // Each source of the mode is refused alone, and the fix names the missing setting.
-        std::fs::write(&file, r#"{"buckets_file_mode":"create"}"#).unwrap();
+        std::fs::write(&file, r#"{"buckets_mode":"create"}"#).unwrap();
         for (key, args, env) in [
             (
-                "--buckets-file-mode",
-                vec!["--buckets-file-mode".to_owned(), "reconcile".into()],
+                "--buckets-mode",
+                vec!["--buckets-mode".to_owned(), "reconcile".into()],
                 BTreeMap::new(),
             ),
             (
-                "GCS_MIMIC_BUCKETS_FILE_MODE",
+                "GCS_MIMIC_BUCKETS_MODE",
                 vec![],
-                BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE_MODE".into(), "reconcile".into())]),
+                BTreeMap::from([("GCS_MIMIC_BUCKETS_MODE".into(), "reconcile".into())]),
             ),
             (
-                "buckets_file_mode",
+                "buckets_mode",
                 vec!["--config".into(), file.to_str().unwrap().into()],
                 BTreeMap::new(),
             ),
@@ -2879,13 +2862,63 @@ mod tests {
         }
         // An invalid selector is reported once, without a second error about the mode.
         let errors = Config::load(
-            &["--buckets-file", "", "--buckets-file-mode", "reconcile"].map(str::to_owned),
+            &["--buckets-file", "", "--buckets-mode", "reconcile"].map(str::to_owned),
             &BTreeMap::new(),
         )
         .unwrap_err()
         .errors;
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(errors[0].key, "--buckets-file");
+    }
+
+    /// The old name stops startup from every source and names the new one as that source
+    /// spells it, so the fix can be copied back.
+    #[test]
+    fn buckets_file_mode_was_renamed_to_buckets_mode() {
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"buckets_file":"buckets.json","buckets_file_mode":"create"}"#,
+        )
+        .unwrap();
+        for (key, replacement, args, env) in [
+            (
+                "--buckets-file-mode",
+                "use --buckets-mode.",
+                [
+                    "--buckets-file",
+                    "buckets.json",
+                    "--buckets-file-mode",
+                    "create",
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+                BTreeMap::new(),
+            ),
+            (
+                "GCS_MIMIC_BUCKETS_FILE_MODE",
+                "use GCS_MIMIC_BUCKETS_MODE.",
+                ["--buckets-file", "buckets.json"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE_MODE".into(), "create".into())]),
+            ),
+            (
+                "buckets_file_mode",
+                "use buckets_mode.",
+                vec!["--config".into(), file.to_str().unwrap().into()],
+                BTreeMap::new(),
+            ),
+        ] {
+            let errors = Config::load(&args, &env).unwrap_err().errors;
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert_eq!(errors[0].key, key);
+            assert_eq!(
+                errors[0].fix,
+                format!("buckets_file_mode was renamed to buckets_mode; {replacement}")
+            );
+        }
     }
 
     #[test]

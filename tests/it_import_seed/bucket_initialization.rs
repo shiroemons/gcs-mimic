@@ -45,6 +45,13 @@ fn selected(root: &Path) -> Command {
     command
 }
 
+/// `selected` in create mode, which keeps every existing bucket as it is.
+fn creating(root: &Path) -> Command {
+    let mut command = selected(root);
+    command.args(["--buckets-mode", "create"]);
+    command
+}
+
 impl Server {
     fn start(command: &mut Command) -> Self {
         Self::launch(command.stderr(Stdio::piped()))
@@ -122,7 +129,7 @@ fn applied(server: &Server, nonzero: Value) {
         assert!(expected.get(count).is_some(), "unknown count {count}");
         expected[count] = value.clone();
     }
-    assert_eq!(server.ready["buckets_file"], expected);
+    assert_eq!(server.ready["buckets"], expected);
 }
 
 /// The initializer's warning diagnostics, which precede ready on stderr.
@@ -188,7 +195,7 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
         &dir.0,
         json!([{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"},{"name":"new-bucket"}]),
     );
-    let server = Server::start(selected(&dir.0).args(["--default-location", "ASIA"]));
+    let server = Server::start(creating(&dir.0).args(["--default-location", "ASIA"]));
     // Only the entry that writes another location changed; a new default location is not an
     // entry change.
     applied(&server, json!({"created":1,"existing":2,"unapplied":1}));
@@ -373,7 +380,7 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
         &dir.0,
         json!([{"name":"assets-bucket","labels":{"owner":"secret-value"},"versioning":{"enabled":false}},{"name":"new-bucket"}]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     // The edited entry is reported, and the bucket keeps every API change.
     applied(&server, json!({"created":1,"existing":1,"unapplied":1}));
     assert_eq!(
@@ -680,7 +687,7 @@ fn validation_reports_all_entries_before_seed_or_mutation() {
         assert!(keys.contains(&key), "{key} in {keys:?}");
     }
     let server = Server::start(&mut command(&dir.0));
-    assert_eq!(server.ready["buckets_file"], json!({"outcome":"disabled"}));
+    assert_eq!(server.ready["buckets"], json!({"outcome":"disabled"}));
     assert_eq!(
         server
             .request("GET", "/storage/v1/b/valid-bucket", "", "")
@@ -873,7 +880,7 @@ fn a_changed_entry_warns_on_every_start_until_the_bucket_matches_it() {
         json!([{"name":"edited-bucket","labels":{"env":"secret-value"}},{"name":"steady-bucket"}]),
     );
     for _ in 0..2 {
-        let server = Server::start(&mut selected(&dir.0));
+        let server = Server::start(&mut creating(&dir.0));
         applied(&server, json!({"existing":2,"unapplied":1}));
         assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
         assert_eq!(labels(&server, "steady-bucket"), json!({"owner":"api"}));
@@ -884,7 +891,7 @@ fn a_changed_entry_warns_on_every_start_until_the_bucket_matches_it() {
         assert!(!warnings[0].to_string().contains("secret"));
     }
     // Once the API brings the bucket in line, the entry becomes the recorded one.
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     server.json(
         "PATCH",
         "/storage/v1/b/edited-bucket",
@@ -892,7 +899,7 @@ fn a_changed_entry_warns_on_every_start_until_the_bucket_matches_it() {
     );
     server.stop();
     for _ in 0..2 {
-        let server = Server::start(&mut selected(&dir.0));
+        let server = Server::start(&mut creating(&dir.0));
         applied(&server, json!({"existing":2}));
         assert!(warnings(&server.stop()).is_empty());
     }
@@ -918,7 +925,7 @@ fn a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the
             {"name":"matching-bucket","labels":{"owner":"file"}}
         ]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     applied(&server, json!({"existing":2,"unapplied":1}));
     assert_eq!(labels(&server, "api-bucket"), json!({"owner":"api"}));
     let warnings_now = warnings(&server.stop());
@@ -939,7 +946,7 @@ fn a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the
             {"name":"matching-bucket","labels":{"owner":"file"}}
         ]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     applied(&server, json!({"existing":2}));
     assert!(warnings(&server.stop()).is_empty());
     input(
@@ -949,7 +956,7 @@ fn a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the
             {"name":"matching-bucket","labels":{"owner":"file"}}
         ]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     applied(&server, json!({"existing":2,"unapplied":1}));
     let warnings = warnings(&server.stop());
     let fix = warnings[0]["fix"].as_str().unwrap();
@@ -964,7 +971,7 @@ fn a_bucket_without_a_recorded_entry_reports_its_differences_once_and_adopts_the
 
 fn reconciling(root: &Path) -> Command {
     let mut command = selected(root);
-    command.args(["--buckets-file-mode", "reconcile"]);
+    command.args(["--buckets-mode", "reconcile"]);
     command
 }
 
@@ -1007,7 +1014,7 @@ fn reconcile_applies_the_written_members_once_and_leaves_the_others_to_the_api()
     server.stop();
 
     // Create mode keeps every API change while the entry is unchanged.
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     applied(&server, json!({"existing":1}));
     assert_eq!(bucket(&server, "tuned-bucket"), changed);
     server.stop();
@@ -1067,14 +1074,17 @@ fn an_edited_entry_waits_in_create_mode_and_applies_in_reconcile_mode() {
             {"name":"policy-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}}
         ]),
     );
-    let server = Server::start(&mut selected(&dir.0));
+    let server = Server::start(&mut creating(&dir.0));
     applied(&server, json!({"existing":2,"unapplied":2}));
     assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
     let fix = warnings(&server.stop())[0]["fix"]
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(fix.contains("buckets_file_mode=reconcile"), "{fix}");
+    assert!(
+        fix.contains("buckets_mode=create keeps existing buckets"),
+        "{fix}"
+    );
     let server = Server::start(&mut reconciling(&dir.0));
     applied(&server, json!({"existing":2,"reconciled":2}));
     assert_eq!(labels(&server, "edited-bucket"), json!({"env":"prod"}));
@@ -1154,7 +1164,7 @@ fn a_location_reconcile_keeps_stays_reported_in_create_mode() {
     assert_eq!(labels(&server, "placed-bucket"), json!({"env":"prod"}));
     server.stop();
     for _ in 0..2 {
-        let server = Server::start(&mut selected(&dir.0));
+        let server = Server::start(&mut creating(&dir.0));
         applied(&server, json!({"existing":1,"unapplied":1}));
         let warnings = warnings(&server.stop());
         assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -1287,8 +1297,9 @@ fn a_public_policy_its_own_entry_prevents_is_refused_on_every_volume() {
     let before = bucket(&server, "guarded-bucket");
     server.stop();
     input(&existing.0, contradicting);
+    // Both modes judge the policy against the stored prevention, so neither can bypass it.
+    refused(&mut creating(&existing.0));
     refused(&mut selected(&existing.0));
-    refused(&mut reconciling(&existing.0));
     let server = Server::start(&mut command(&existing.0));
     assert_eq!(bucket(&server, "guarded-bucket"), before);
     server.stop();
@@ -1363,11 +1374,11 @@ fn reconcile_checks_public_access_prevention_against_stored_state_before_any_cha
 fn the_mode_without_a_buckets_file_fails_startup() {
     let dir = TestDir::new();
     let output = command(&dir.0)
-        .args(["--buckets-file-mode", "reconcile"])
+        .args(["--buckets-mode", "reconcile"])
         .output()
         .unwrap();
     let event = diagnostic(&output);
-    assert_eq!(event["diagnostics"][0]["key"], "--buckets-file-mode");
+    assert_eq!(event["diagnostics"][0]["key"], "--buckets-mode");
     assert!(
         event.to_string().contains("requires buckets_file"),
         "{event}"
@@ -1456,12 +1467,8 @@ fn a_memory_backend_starts_buckets_with_their_file_policy() {
         json!([{"name":"memory-bucket","iamPolicy":{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}}]),
     );
     for mode in ["create", "reconcile"] {
-        let server = Server::start(selected(&dir.0).args([
-            "--backend",
-            "memory",
-            "--buckets-file-mode",
-            mode,
-        ]));
+        let server =
+            Server::start(selected(&dir.0).args(["--backend", "memory", "--buckets-mode", mode]));
         // A RAM catalog starts empty, so every start creates the bucket again.
         counts(&server, 1, 0, 0);
         assert_eq!(
@@ -1705,10 +1712,10 @@ fn an_inline_document_initializes_buckets_from_every_source() {
     assert!(fix.contains("buckets and buckets_file"), "{fix}");
 }
 
-/// An inline document lives in the file that starts the server, so an edit to it applies to an
-/// existing data directory without naming the mode, while an explicit create keeps waiting.
+/// An edit to the buckets document applies to an existing data directory without naming the
+/// mode, inline or from a file, while an explicit create keeps waiting.
 #[test]
-fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() {
+fn an_edited_buckets_document_reconciles_an_existing_data_directory_by_default() {
     let dir = TestDir::new();
     let document = |env: &str| {
         json!({"version":1,"project":"project-a","buckets":[
@@ -1728,7 +1735,7 @@ fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() 
     let server = Server::start(
         command(&dir.0)
             .env("GCS_MIMIC_BUCKETS", document("prod"))
-            .env("GCS_MIMIC_BUCKETS_FILE_MODE", "create"),
+            .env("GCS_MIMIC_BUCKETS_MODE", "create"),
     );
     applied(&server, json!({"existing":1,"unapplied":1}));
     assert_eq!(labels(&server, "edited-bucket"), json!({"env":"dev"}));
@@ -1736,7 +1743,10 @@ fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() 
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(fix.contains("buckets_file_mode=reconcile"), "{fix}");
+    assert!(
+        fix.contains("buckets_mode=create keeps existing buckets"),
+        "{fix}"
+    );
 
     let server = Server::start(command(&dir.0).env("GCS_MIMIC_BUCKETS", document("prod")));
     applied(&server, json!({"existing":1,"reconciled":1}));
@@ -1745,7 +1755,7 @@ fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() 
     assert_eq!(reconciled["versioning"], json!({"enabled":true}));
     assert!(warnings(&server.stop()).is_empty());
 
-    // The same edit in a file still waits unless the mode is named.
+    // A buckets file behaves the same: the document is the source of truth wherever it lives.
     let file = TestDir::new();
     input(
         &file.0,
@@ -1753,14 +1763,28 @@ fn an_edited_inline_document_reconciles_an_existing_data_directory_by_default() 
     );
     let server = Server::start(&mut selected(&file.0));
     counts(&server, 1, 0, 0);
+    // An API change to a member the entry writes is undone at the next start.
+    server.json(
+        "PATCH",
+        "/storage/v1/b/file-bucket",
+        json!({"labels":{"env":"api"}}),
+    );
+    server.stop();
+    let server = Server::start(&mut selected(&file.0));
+    applied(&server, json!({"existing":1,"reconciled":1}));
+    assert_eq!(labels(&server, "file-bucket"), json!({"env":"dev"}));
     server.stop();
     input(
         &file.0,
         json!([{"name":"file-bucket","labels":{"env":"prod"}}]),
     );
     let server = Server::start(&mut selected(&file.0));
-    applied(&server, json!({"existing":1,"unapplied":1}));
-    assert_eq!(labels(&server, "file-bucket"), json!({"env":"dev"}));
+    applied(&server, json!({"existing":1,"reconciled":1}));
+    assert_eq!(labels(&server, "file-bucket"), json!({"env":"prod"}));
+    assert!(warnings(&server.stop()).is_empty());
+    // An unchanged restart writes nothing.
+    let server = Server::start(&mut selected(&file.0));
+    applied(&server, json!({"existing":1}));
     server.stop();
 }
 

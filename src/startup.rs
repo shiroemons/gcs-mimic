@@ -95,7 +95,7 @@ pub(crate) struct ReadyEvent {
     test_signer: &'static str,
     signed_urls: &'static str,
     seed: SeedOutcome,
-    buckets_file: InitOutcome,
+    buckets: InitOutcome,
     scheme: &'static str,
     tls_handshake_timeout_ms: TimeLimit,
     public_base_url: Option<String>,
@@ -116,7 +116,7 @@ impl ReadyEvent {
         listen: SocketAddr,
         listen_http: Option<SocketAddr>,
         seed: SeedOutcome,
-        buckets_file: InitOutcome,
+        buckets: InitOutcome,
         api_base_url: String,
     ) -> Self {
         let mut listeners = vec![ReadyListener {
@@ -163,7 +163,7 @@ impl ReadyEvent {
             test_signer: auth.test_signer().as_str(),
             signed_urls: auth.signed_urls().as_str(),
             seed,
-            buckets_file,
+            buckets,
             scheme: config.scheme.as_str(),
             tls_handshake_timeout_ms: config.tls_handshake_timeout,
             public_base_url: config
@@ -190,7 +190,7 @@ struct BoundListeners {
 struct BoundStartup {
     listeners: BoundListeners,
     seed: SeedOutcome,
-    buckets_file: InitOutcome,
+    buckets: InitOutcome,
     sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
 }
 
@@ -343,7 +343,7 @@ async fn prepare_startup(
     complete!(configure_catalog_policy(catalog, projects))?;
     complete!(catalog.start_notifications(config)).map_err(io::Error::other)?;
     // Loading has no effects; submitted administrative jobs retain their permits through close.
-    let buckets_file = complete!(gcs_mimic::bucket_init::apply(
+    let buckets = complete!(gcs_mimic::bucket_init::apply(
         catalog,
         config,
         clock.clone()
@@ -382,7 +382,7 @@ async fn prepare_startup(
     Ok(PhaseResult::Complete(BoundStartup {
         listeners,
         seed,
-        buckets_file,
+        buckets,
         sync_root,
     }))
 }
@@ -435,7 +435,7 @@ pub(crate) async fn serve(
     let BoundStartup {
         listeners,
         seed,
-        buckets_file,
+        buckets,
         sync_root,
     } = match prepare_startup(
         &catalog,
@@ -449,7 +449,7 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return finish_startup(&catalog, result.map(|_| ())).await,
     };
-    let ready = ready_event(&config, &auth, &catalog, &listeners, seed, buckets_file);
+    let ready = ready_event(&config, &auth, &catalog, &listeners, seed, buckets);
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => {
@@ -518,7 +518,7 @@ fn ready_event(
     catalog: &Catalog,
     listeners: &BoundListeners,
     seed: SeedOutcome,
-    buckets_file: InitOutcome,
+    buckets: InitOutcome,
 ) -> io::Result<(String, String)> {
     listeners
         .primary
@@ -541,7 +541,7 @@ fn ready_event(
                 address.unwrap_or(config.listen),
                 address_http,
                 seed,
-                buckets_file,
+                buckets,
                 api_base_url.clone(),
             );
             event.data_directory = catalog.data_directory().map(|(path, data_dir_state)| ReadyDataDirectory {

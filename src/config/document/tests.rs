@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    config::{AuthProfile, BucketsFileMode, read_public_base_url, test_support::assert_precedence},
+    config::{AuthProfile, BucketsMode, read_public_base_url, test_support::assert_precedence},
     diagnostics::DiagnosticSource,
     test_support::TestDir,
 };
@@ -257,12 +257,12 @@ fn inline_identities_pair_with_the_profile_like_an_identity_file() {
 fn the_buckets_mode_accepts_either_document_setting() {
     let empty = BTreeMap::new();
     for args in [
-        &["--buckets", BUCKETS, "--buckets-file-mode", "create"][..],
-        &["--buckets-file", "b.json", "--buckets-file-mode", "create"],
+        &["--buckets", BUCKETS, "--buckets-mode", "create"][..],
+        &["--buckets-file", "b.json", "--buckets-mode", "create"],
     ] {
         assert!(Config::load(&strings(args), &empty).is_ok(), "{args:?}");
     }
-    let errors = Config::load(&strings(&["--buckets-file-mode", "create"]), &empty)
+    let errors = Config::load(&strings(&["--buckets-mode", "create"]), &empty)
         .unwrap_err()
         .errors;
     assert!(
@@ -271,7 +271,7 @@ fn the_buckets_mode_accepts_either_document_setting() {
     );
     // An invalid inline document is reported once, without a second error about the mode.
     let errors = Config::load(
-        &strings(&["--buckets", "", "--buckets-file-mode", "reconcile"]),
+        &strings(&["--buckets", "", "--buckets-mode", "reconcile"]),
         &empty,
     )
     .unwrap_err()
@@ -280,46 +280,37 @@ fn the_buckets_mode_accepts_either_document_setting() {
     assert_eq!(errors[0].key, "--buckets");
 }
 
-/// An inline document lives where the server is started, so its edits apply by default; a file
-/// keeps creating only what is missing. An explicit mode wins for both.
+/// The document is the source of truth wherever it comes from, so its edits apply by default
+/// for a file as for an inline document. An explicit mode wins for both.
 #[test]
-fn the_buckets_mode_defaults_by_where_the_document_comes_from() {
+fn the_buckets_mode_is_the_same_for_a_file_and_an_inline_document() {
     let empty = BTreeMap::new();
     for (args, form, expected) in [
         (
             &["--buckets", BUCKETS][..],
             Form::Inline,
-            BucketsFileMode::Reconcile,
+            BucketsMode::Reconcile,
         ),
         (
             &["--buckets-file", "b.json"],
             Form::File,
-            BucketsFileMode::Create,
+            BucketsMode::Reconcile,
         ),
         (
-            &["--buckets", BUCKETS, "--buckets-file-mode", "create"],
+            &["--buckets", BUCKETS, "--buckets-mode", "create"],
             Form::Inline,
-            BucketsFileMode::Create,
+            BucketsMode::Create,
         ),
         (
-            &[
-                "--buckets-file",
-                "b.json",
-                "--buckets-file-mode",
-                "reconcile",
-            ],
+            &["--buckets-file", "b.json", "--buckets-mode", "create"],
             Form::File,
-            BucketsFileMode::Reconcile,
+            BucketsMode::Create,
         ),
     ] {
         let config = Config::load(&strings(args), &empty).unwrap();
         let source = config.buckets.as_ref().unwrap();
         assert_eq!(source.form(), form, "{args:?}");
-        assert_eq!(
-            BucketsFileMode::resolve(config.buckets_file_mode, source.form()),
-            expected,
-            "{args:?}"
-        );
+        assert_eq!(config.buckets_mode, expected, "{args:?}");
     }
 }
 

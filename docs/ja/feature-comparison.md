@@ -98,7 +98,7 @@ gcs-mimicの公開主体判定はローカルのstrictの範囲です。ACLとUB
 | 外部編集後にhash・世代も整合させる | 🚧 作成・編集を継続監視で取り込み、削除は承認後だけ反映（Linux・macOS） | ❌ | ❌ |
 | 任意のメモリ保存モード | ✅ 上限付きRAM（`--backend memory`） | ✅ | ✅ |
 | バケット・ファイルの初期ディレクトリ読込 | ✅ 毎回の起動時・明示的に有効にしたreseed | ✅ 起動・reseed | ❌ |
-| 起動時の文書から、設定（CORS・versioning・プロジェクト・IAMポリシー）付きでバケットを作る | 🚧 `buckets_file`のJSON文書か、`GCS_MIMIC_BUCKETS`のインラインの文書。最初の`iamPolicy`を書け、適用しなかった編集は警告し、`buckets_file_mode=reconcile`（インラインの文書の既定）は編集したフィールドを既存バケットに書く。インライン・`iamPolicy`・reconcileは0.14.0以降が必要。クラッシュ境界とレビューのケースは未完了（DESIGN-062は`PARTIAL`） | ❌ 起動時のバケット文書なし。初期ディレクトリは設定なしでバケットを作る | ❌ 起動時のバケット文書なし |
+| 起動時の文書から、設定（CORS・versioning・プロジェクト・IAMポリシー）付きでバケットを作る | 🚧 `buckets_file`のJSON文書か、`GCS_MIMIC_BUCKETS`のインラインの文書。最初の`iamPolicy`を書け、既定の`buckets_mode=reconcile`は編集したフィールドを既存バケットに書き、`create`は既存バケットを保って適用しなかった編集を警告する。インライン・`iamPolicy`・reconcileは0.14.0以降、`buckets_mode`の名前とファイルでの既定は0.20.0以降が必要。クラッシュ境界とレビューのケースは未完了（DESIGN-062は`PARTIAL`） | ❌ 起動時のバケット文書なし。初期ディレクトリは設定なしでバケットを作る | ❌ 起動時のバケット文書なし |
 | 公開済みのDockerイメージ | ✅ GHCR・Docker Hub（amd64・arm64） | ✅ | ✅ |
 | 公開済みの単体バイナリ | ✅ macOS・Windows・Linux | ✅ | ❌ Pythonが必要 |
 
