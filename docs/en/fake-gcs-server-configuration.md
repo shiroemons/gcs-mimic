@@ -126,9 +126,10 @@ generally mean “use the default.” See the
 
 The legacy profile never applies a default soft delete policy and rejects a
 positive `default_soft_delete_retention_seconds`; it accepts `0`.
-It also rejects explicit `default_location`. Its create API accepts
-only case-insensitive `US-CENTRAL1` when location is explicit, stores `US` and
-returns fixed `US-CENTRAL1`; it does not implement configurable regional placement.
+It also rejects explicit `default_location`. Its create API accepts an explicit
+location only when it is case-insensitive `US-CENTRAL1` or `US`, which official
+clients such as Go Storage send by default; it stores `US` and returns fixed
+`US-CENTRAL1`, and it does not implement configurable regional placement.
 A public URL helper does not establish `-public-host` parity.
 See [option examples](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
 

@@ -113,10 +113,11 @@ The following existing defaults and validation remain unchanged:
 | `log_level` | `info` (`config-log-level`) | `--log-level` / `GCS_MIMIC_LOG_LEVEL`; `debug`, `info`, `warn`, `error`, accepting `warning` as `warn`. Reject other levels. Filtering must affect emitted events; fatal validation diagnostics and stdout lifecycle events remain visible. |
 | `default_location` | Native `US` (implemented in `config-remaining-settings`, expanded by `sdk-regional-locations`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; case-insensitive official regional/predefined dual-region and `US`, `EU`, `ASIA` names. Empty string or JSON null uses `US`. Applies to omitted/null/empty API and initializer locations; nonempty resource location wins. Never rewrites existing buckets or simulates physical placement. Explicit use in `fake-gcs-server` is rejected. See [location contract](sdk-regional-locations.md). |
 
-The location subset is deliberately native-only: the current legacy profile
-rejects create-time locations other than case-insensitive `US-CENTRAL1`
-(including `us-central1`); it accepts that value
-without preserving it, stores `US` and renders fixed `US-CENTRAL1`.
+The location subset is deliberately native-only: the fake-gcs-server profile
+rejects create-time locations other than case-insensitive `US-CENTRAL1` and,
+since 0.20.0, `US`, the location official clients such as Go Storage send by
+default; it accepts those values without preserving them, stores `US` and
+renders fixed `US-CENTRAL1`.
 Accepting a new global default in that profile would therefore have no effect.
 Without the new setting its existing behavior stays unchanged; with it, report
 unsupported and recommend `compat_profile=native` with, for example,

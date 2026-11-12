@@ -188,17 +188,24 @@ fn insert_bool(
     }
 }
 
+/// The create locations the fake-gcs-server profile accepts: the region it reports, and `US`,
+/// which it stores and which official clients such as Go Storage send when the caller names no
+/// location. Refusing `US` would refuse those clients' default create. Any other location is
+/// refused rather than stored as `US`, so a caller never believes it got a placement it did not.
+fn fake_gcs_server_accepts_location(location: &str) -> bool {
+    location.eq_ignore_ascii_case(LEGACY_LOCATION) || location.eq_ignore_ascii_case("US")
+}
+
 fn insert_location(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
     default_location: &str,
 ) -> Result<String, JsonError> {
     if profile == CompatProfile::FakeGcsServer {
-        if body.get("location").is_some_and(|value| {
-            !value
-                .as_str()
-                .is_some_and(|location| location.eq_ignore_ascii_case(LEGACY_LOCATION))
-        }) {
+        if body
+            .get("location")
+            .is_some_and(|value| !value.as_str().is_some_and(fake_gcs_server_accepts_location))
+        {
             return Err(JsonError::unsupported("location"));
         }
         return Ok("US".into());

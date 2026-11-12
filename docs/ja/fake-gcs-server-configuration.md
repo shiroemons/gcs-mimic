@@ -338,7 +338,7 @@ configurable dual-regionの配置設定とRPOは未対応です。
 固定した名前の一覧・確認日・制限は[契約](../en/slices/sdk-regional-locations.md)を参照してください。
 設定を変えて再起動しても既存バケットは書き換えません。物理的な配置は再現しません。
 `fake-gcs-server`では明示した既定値を拒否します。
-legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
+`fake-gcs-server`プロファイルの作成APIは、`US-CENTRAL1`と、Go Storageなど公式クライアントが既定で送る`US`を大文字小文字を区別せず受け付けますが、
 その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
 ほかの明示locationは拒否します。
 `-location`は移行元の全体的な応答設定と同じ意味にならないため、起動を止めます。

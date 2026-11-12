@@ -2534,10 +2534,13 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
 fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
     let dir = TestDir::new();
     let mut server = profile_server(&dir, "fake-gcs-server");
+    // `US` is what official clients such as Go Storage send when the caller names no location.
     for (index, location) in [
         json!("US-CENTRAL1"),
         json!("us-central1"),
         json!("Us-Central1"),
+        json!("US"),
+        json!("us"),
     ]
     .into_iter()
     .enumerate()
@@ -2547,16 +2550,9 @@ fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
         reply.expect(200);
         assert_eq!(reply.json()["location"], "US-CENTRAL1");
     }
-    for (index, location) in [
-        json!("EU"),
-        json!("US"),
-        json!("ASIA"),
-        json!(""),
-        Value::Null,
-        json!(1),
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, location) in [json!("EU"), json!("ASIA"), json!(""), Value::Null, json!(1)]
+        .into_iter()
+        .enumerate()
     {
         let name = format!("invalid-region-{index}");
         let body = json!({"name":name,"location":location}).to_string();
@@ -2569,7 +2565,7 @@ fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
     }
     server.stop();
     let server = Server::start_options(&dir, &["--default-location", "ASIA"]);
-    for index in 0..3 {
+    for index in 0..5 {
         assert_eq!(
             server
                 .request("GET", &format!("/storage/v1/b/region-bucket-{index}"), "")
