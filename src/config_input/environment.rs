@@ -1,5 +1,5 @@
 /// Withdrawn client variables share one definition across server and helper diagnostics.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenamedEnvironmentVariable {
     Endpoint,
     GrpcEndpoint,
@@ -59,6 +59,14 @@ impl RenamedEnvironmentVariable {
                 "use GCS_MIMIC_TLS_CERT and GCS_MIMIC_TLS_KEY for server certificates",
             ),
         }
+    }
+
+    /// The withdrawn variable that a server setting name such as `port` stands for, the name
+    /// being the lowercase suffix after `GCS_MIMIC_`.
+    pub(crate) fn from_setting_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|variable| variable.suffix().eq_ignore_ascii_case(name))
     }
 
     pub const fn suffix(self) -> &'static str {

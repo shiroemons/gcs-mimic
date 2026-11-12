@@ -207,7 +207,7 @@ fn run() -> Result<(), CliError> {
         _ => (),
     }
     if gcs_mimic::config_input::requests_version(&args) {
-        println!("gcs-mimic {}", env!("CARGO_PKG_VERSION"));
+        println!("gcs-mimic {}", gcs_mimic::VERSION);
         return Ok(());
     }
     if let Some(options) = gcs_mimic::config_input::server_arguments(&args) {

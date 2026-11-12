@@ -43,3 +43,7 @@ pub mod time_limit;
 pub mod tls;
 pub mod url;
 mod xml;
+
+/// The product version from the package manifest. `--version` and the ready event report this
+/// one string.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

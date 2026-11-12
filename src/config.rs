@@ -4,7 +4,7 @@ use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::{AuthMode, SignedUrls, TestSigner, signature::SignedHostPort},
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, InputKind, Inputs, RenamedEnvironmentVariable},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     time_limit::TimeLimit,
     url::PublicOrigin,
@@ -21,6 +21,7 @@ mod auth;
 mod document;
 mod help;
 mod notifications;
+mod rejection;
 mod runtime;
 mod setting;
 mod storage;
@@ -72,15 +73,21 @@ impl std::fmt::Display for InvalidChoice {
 
 impl std::error::Error for InvalidChoice {}
 
+/// An enum spelled by fixed strings, with `as_str` and an exact-match `FromStr`.
+///
+/// An optional `; withdrawn { "old" => "fix" }` after the error lists values a release removed or
+/// renamed: parsing one fails with its own fix, which names the replacement, instead of the
+/// generic error. The clause follows the error because an expression may start with any
+/// identifier, so a leading keyword could not be told apart from it.
 macro_rules! string_enum {
     // `listed` also lists every variant, for an enum whose every value a text such as the help
     // must name.
     (no_default listed $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr) => {
+    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
         $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
             $($(#[$variant_meta])* $variant => $value),+
-        } $error }
+        } $error; [$($($old => $fix),+)?] }
 
         impl $name {
             /// Every variant, in declaration order.
@@ -89,21 +96,21 @@ macro_rules! string_enum {
     };
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr) => {
+    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
         $crate::config::string_enum! { @impl [Default] $(#[$meta])* $vis enum $name {
             $($(#[$variant_meta])* $variant => $value),+
-        } $error }
+        } $error; [$($($old => $fix),+)?] }
     };
     (no_default $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr) => {
+    } $error:expr $(; withdrawn { $($old:literal => $fix:literal),+ $(,)? })?) => {
         $crate::config::string_enum! { @impl [] $(#[$meta])* $vis enum $name {
             $($(#[$variant_meta])* $variant => $value),+
-        } $error }
+        } $error; [$($($old => $fix),+)?] }
     };
     (@impl [$($derive:ident),*] $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
-    } $error:expr) => {
+    } $error:expr; [$($old:literal => $fix:literal),*]) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug, PartialEq, Eq, $($derive),*)]
         $vis enum $name {
@@ -122,6 +129,7 @@ macro_rules! string_enum {
             fn from_str(value: &str) -> Result<Self, Self::Err> {
                 match value {
                     $($value => Ok(Self::$variant),)+
+                    $($old => Err($crate::config::InvalidChoice($fix)),)*
                     _ => Err($crate::config::InvalidChoice($error)),
                 }
             }
@@ -672,36 +680,19 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                     "Duplicate option; supply each --name VALUE option exactly once.",
                 ));
             }
-            if input.name.parse::<Setting>().is_err()
-                || (input.name == "config" && source == DiagnosticSource::Config)
-                || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
-            {
-                inputs.diagnostics.errors.push(Diagnostic::new(
+            match input.setting() {
+                Ok(_) => {
+                    settings.insert(input.name.clone(), input.clone());
+                }
+                Err(rejection) => inputs.diagnostics.errors.push(Diagnostic::new(
                     source,
                     &input.key,
-                    rejected_setting_fix(input),
-                ));
-                continue;
+                    rejection.to_string(),
+                )),
             }
-            settings.insert(input.name.clone(), input.clone());
         }
     }
     settings
-}
-
-fn rejected_setting_fix(input: &Input) -> String {
-    if input.source == DiagnosticSource::Environment
-        && let Some(variable) = RenamedEnvironmentVariable::ALL
-            .into_iter()
-            .find(|variable| variable.suffix().eq_ignore_ascii_case(&input.name))
-    {
-        return variable.fix();
-    }
-    if input.name == "sync_reinitialize" {
-        "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
-    } else {
-        "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
-    }.to_owned()
 }
 
 /// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
@@ -1734,6 +1725,32 @@ mod tests {
     use super::test_support::{assert_precedence, assert_rejected};
     use super::*;
     use crate::{auth::TestSignerChoice, test_support::TestDir};
+
+    #[test]
+    fn a_withdrawn_value_fails_with_its_own_fix() {
+        string_enum! {
+            enum Shape {
+                #[default]
+                Round => "round",
+                Square => "square",
+            }
+            "shape must be round or square";
+            withdrawn {
+                "circle" => "shape=circle was renamed; use shape=round",
+            }
+        }
+        assert_eq!("round".parse(), Ok(Shape::Round));
+        assert_eq!(
+            "circle".parse::<Shape>(),
+            Err(InvalidChoice("shape=circle was renamed; use shape=round"))
+        );
+        assert_eq!(
+            "oval".parse::<Shape>(),
+            Err(InvalidChoice("shape must be round or square"))
+        );
+        assert_eq!(Shape::default().as_str(), "round");
+        assert_eq!(Shape::Square.as_str(), "square");
+    }
 
     #[test]
     fn strict_admin_requires_an_instance_principal_and_hosts_are_validated() {
