@@ -136,8 +136,7 @@ jobs:
       - name: Install native musl compiler
         if: endsWith(matrix.target, '-musl')
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends musl-tools
+          sudo bash scripts/install-runner-musl-tools.sh
           echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
           linker="CARGO_TARGET_${TARGET^^}_LINKER"
           echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
@@ -234,8 +233,7 @@ jobs:
       - name: Install native musl compiler
         if: endsWith(matrix.target, '-musl')
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends musl-tools
+          sudo bash scripts/install-runner-musl-tools.sh
           echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
           linker="CARGO_TARGET_${TARGET^^}_LINKER"
           echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
