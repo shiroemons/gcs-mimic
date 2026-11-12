@@ -36,8 +36,9 @@ jobs:
           test -n "$pin"
           rustup toolchain install "$pin" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
-      # The xtask build is small; a separate key keeps it from replacing the
-      # Foundation checks caches.
+      # The xtask build and the library's test build for the option-list
+      # comparison; a separate key keeps them from replacing the Foundation
+      # checks caches.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: docs

@@ -8,7 +8,7 @@ pub(crate) const MAX_OBJECT_BYTES: u64 = 5 * 1024_u64.pow(4);
 pub(crate) const MAX_TREE_DEPTH: usize = 1024;
 
 super::string_enum! {
-    no_default pub(crate) enum Setting {
+    no_default listed pub(crate) enum Setting {
         Config => "config",
         LogLevel => "log_level",
         Listen => "listen",

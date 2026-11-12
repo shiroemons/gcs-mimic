@@ -521,7 +521,6 @@ Renames and grammar. These can keep the old name as an alias through 1.x, or add
 
 ## Contract areas without a test guarding them
 
-- The option list. No test compares `Setting` with `--help`, `llms.txt` or `docs/en/native-binary.md`, so a new or renamed option can miss them. The digest test in `src/main.rs` pins only the help text itself.
 - Helper help texts. `URL_PUBLIC_HELP`, `URL_SIGN_HELP`, `TEST_SIGNER_HELP` and the `sync` and `import` help have no digest.
 - Underscore spellings such as `--foo_bar`.
 - `backend=filesystem` from the environment or JSON.
@@ -532,6 +531,8 @@ Renames and grammar. These can keep the old name as an alias through 1.x, or add
 - `GCS_MIMIC_TRUSTED_ALLOWED_HOSTS` with an empty value, which `settings_that_define_an_empty_environment_value_start_with_it` omits.
 
 Since `0.18.0`, a server started with every `GCSM_*` name set is tested, and so is each withdrawn `GCS_MIMIC_*` client name ([verification](evidence/environment-names.md)); that area is no longer unguarded.
+
+The option list is no longer unguarded either. The tests in `src/config/help.rs` require `--help` to list every `Setting` except `config` plus the CLI-only `--port`, `--port-http` and `--host`, the option table of `docs/en/native-binary.md` to name each of them and `config` once with its `GCS_MIMIC_*` variable, and the "Every server option" list of `llms.txt` to name every `Setting` once. `scripts/check-docs.sh` runs them, so a documentation-only change is checked too. The table had lacked 18 options and `llms.txt` lacked `--lifecycle-execution`; both now list them.
 
 ## Open at the freeze, not part of 0.18.0
 

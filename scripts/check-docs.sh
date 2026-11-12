@@ -42,6 +42,9 @@ git grep -n -oE 'GCS_MIMIC_[A-Z0-9_]+' | awk -F: '
   }' <(sed -n '/enum Setting {/,/^    }/p' src/config/setting.rs |
     awk -F '"' '/=>/ { print "GCS_MIMIC_" toupper($2) }') scripts/environment-history-baseline.txt -
 cargo xtask compatibility check
+# The option lists in --help, docs/en/native-binary.md and llms.txt are compared with the
+# settings the server accepts. A documentation-only change runs no other test, so these run here.
+cargo test --locked --lib -- config::help::tests
 # The strict local recipe's README shows the block to paste, and the container smoke test runs
 # its compose.yaml, so the block must be that file byte for byte.
 awk '/^<!-- strict-local compose.yaml -->$/ { marked = 1; next }

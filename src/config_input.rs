@@ -65,7 +65,7 @@ where
 }
 
 crate::config::string_enum! {
-    no_default
+    no_default listed
     /// Native CLI options, including the independently configurable parts of a listener.
     #[derive(PartialOrd, Ord)]
     pub(crate) enum NativeFlag {
