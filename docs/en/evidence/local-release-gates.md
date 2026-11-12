@@ -1,8 +1,22 @@
 # Local release gates on the integrated source
 
-## 0.19.0 source before the tag
+## Published 0.19.0 source
 
-Recorded **2026-11-12** on macOS (Apple Silicon) for commit `b8aa76d46fc4aebd26502a98511e4942c5cd5f92`, tree `7e64f557afdc4f2df8b5e8290b9d15ff93816e44` (package version 0.19.0). That commit adopts BuildKit v0.35.0 after the first tag publication stopped, as described under [First 0.19.0 tag](#first-0190-tag). The recording commit changes only this document and the [0.19.0 release notes](../releases/0.19.0.md), so it touches none of the protected paths listed under [Source relation](#source-relation).
+Recorded **2026-11-12** for tag `v0.19.0`, commit `a20f9d8a33521b6ab5c303fd5e08542c10e2ae2d`, tree `07473309437608eb588de32803a4227738a481e5`. Remote results were read back from GitHub after publication; every run below names that commit:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 16m42s; library tests 2059 passed | On commit `b8aa76d4`, recorded below |
+| Foundation checks | `success` | [Run 43130102366](https://github.com/shiroemons/gcs-mimic/actions/runs/43130102366) |
+| Documentation checks | `success` | [Run 43130102374](https://github.com/shiroemons/gcs-mimic/actions/runs/43130102374) |
+| Release binaries dry run | `success`; all eight native build and test targets passed | [Run 43130114091](https://github.com/shiroemons/gcs-mimic/actions/runs/43130114091) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43135431922](https://github.com/shiroemons/gcs-mimic/actions/runs/43135431922) |
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check, which also passed locally just before the tag was created. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.19.0) has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`, whose `source_commit` is the tagged commit. The public multi-architecture image index is `sha256:9b0f0c0a276b4d16684a0cfa6b07ad87755be91c025c1e7d16139ed716e3d4d1`, with `sha256:b664cea96b7582d03a547d36fcacb67666b2d661f9c6895602838958b99b99ef` for `linux/amd64` and `sha256:ff9dba97a87a92050a8c0ff6a4221b4aaac34d6fd71abe8612da240c0c2ee1a1` for `linux/arm64`. GHCR `0.19.0`, `0.19` and `latest` and Docker Hub `0.19.0` and `latest` resolved to that index, and the GHCR image printed `gcs-mimic 0.19.0`.
+
+### Local gates on the 0.19.0 source
+
+Recorded on macOS (Apple Silicon) for commit `b8aa76d46fc4aebd26502a98511e4942c5cd5f92`, tree `7e64f557afdc4f2df8b5e8290b9d15ff93816e44` (package version 0.19.0). That commit adopts BuildKit v0.35.0 after the first tag publication stopped, as described under [First 0.19.0 tag](#first-0190-tag). The tagged commit changes only this document and the [0.19.0 release notes](../releases/0.19.0.md), so it touches none of the protected paths listed under [Source relation](#source-relation).
 
 | Command | Exit | Summary line from the output |
 | --- | --- | --- |
@@ -23,9 +37,7 @@ The first `v0.19.0` tag named commit `364a6d36e28646f3225c51ad8ff905d1efcce762`,
 
 The wrapper that recorded that exit status failed after `just pre-push` returned, because zsh reserves the name `status`; the exit above is inferred from the final progress line, which the recipe prints only after its last stage succeeds. An earlier `just pre-push` on commit `cb2667f9` was stopped before its cross-target stage, after the first CI run of the feature showed that `x86_64-pc-windows-msvc` Clippy rejected an unused Unix-only method; commit `95c4769c` fixed it and `bash scripts/check-cross.sh` then passed for the Windows, Linux glibc and Linux musl targets.
 
-[Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43038868679) and the [Release binaries dry run](https://github.com/shiroemons/gcs-mimic/actions/runs/43038869036) succeeded on that commit once their musl jobs were rerun; the earlier attempts failed only because the runners could not resolve the Ubuntu archive hosts during an outage of Canonical's DNS. The [tag publication](https://github.com/shiroemons/gcs-mimic/actions/runs/43126574525) then stopped in `validate`, before any job that publishes: BuildKit v0.35.0 had been released after the dry run, and the release-scoped check reported the pinned v0.34.2 as outdated. No Release, image or archive was published from that tag.
-
-The Release binaries dry run and the tag publication of the final source are recorded after they run.
+[Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43038868679) and the [Release binaries dry run](https://github.com/shiroemons/gcs-mimic/actions/runs/43038869036) succeeded on that commit once their musl jobs were rerun; the earlier attempts failed only because the runners could not resolve the Ubuntu archive hosts during an outage of Canonical's DNS. The [tag publication](https://github.com/shiroemons/gcs-mimic/actions/runs/43126574525) then stopped in `validate`, before any job that publishes: BuildKit v0.35.0 had been released after the dry run, and the release-scoped check reported the pinned v0.34.2 as outdated. No Release, image or archive was published from that tag. It was then deleted from GitHub and `v0.19.0` was created again on commit `a20f9d8a`, so the tag that published is the only one users could have received with release artifacts.
 
 ## Published 0.18.0 source
 
