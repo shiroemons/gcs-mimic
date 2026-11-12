@@ -1,8 +1,8 @@
 # Public contract review for the 1.0.0 freeze
 
-This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidates 1, 2, 4, 5 and 7 and the `data_dir` row of candidate 3 are implemented in `0.18.0`. Candidate 6 needs no code change; its document changes remain. The `scheme` row is a pending design for the next release. Each decided candidate lists what it changed or still needs, and the points it leaves open. On 2026-11-12 the owner decided the remaining rows of candidate 3, the open points of candidates 4, 5 and 6, candidates 8 to 17, and a new candidate 18; no candidate is undecided. The changes those decisions require are not implemented: each is listed under its candidate as a required change for `0.20.0`, and the inventory keeps describing the current code.
+This document supports step 1 of the [1.0.0 gate](release-policy.md#the-100-gate), "Freeze the public contract". It inventories the stable surface and proposes changes for the project owner to decide. The owner has decided candidates 1, 2, 4, 5, 6 and 7, and the `scheme` and `data_dir` rows of candidate 3. Candidates 1, 2, 4, 5 and 7 and the `data_dir` row of candidate 3 are implemented in `0.18.0`. Candidate 6 needs no code change; its document changes remain. The `scheme` row is a pending design for the next release. Each decided candidate lists what it changed or still needs, and the points it leaves open. On 2026-11-12 the owner decided the remaining rows of candidate 3, the open points of candidates 4, 5 and 6, candidates 8 to 17, and a new candidate 18; no candidate is undecided. The changes those decisions require are not implemented: each is listed under its candidate as a required change for a `0.x` minor release before the freeze, without a commitment to a particular one, and the inventory keeps describing the current code.
 
-While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided on 2026-11-11 shipped in `0.18.0` without a transition period, except the `scheme` default, which changed in `0.19.0` together with the capability it depends on (candidate 3). The breaking changes decided on 2026-11-12 ship together in `0.20.0`, also without a transition period. Candidate 5 holds the deprecation procedure for `1.x`.
+While the project is in `0.x`, a minor release may make breaking changes, so the breaking changes decided on 2026-11-11 shipped in `0.18.0` without a transition period, except the `scheme` default, which changed in `0.19.0` together with the capability it depends on (candidate 3). The breaking changes decided on 2026-11-12 ship in `0.x` minor releases before the freeze, also without a transition period; which release carries each is not fixed. Candidate 5 holds the deprecation procedure for `1.x`.
 
 Reviewed source: version `0.17.1`, commit `a53a1f8c`, on 2026-11-10. The decisions of 2026-11-11 were checked against version `0.17.1`, commit `10266125`. The inventory rows that `0.18.0` changes (environment variables, alias flags, catalog schema and ready event) were reconciled with the `0.18.0` source on 2026-11-11; the other rows still describe the reviewed source.
 
@@ -370,7 +370,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - The `latest` image tag keeps meaning the highest stable version across major versions. Candidate 15 adds the tag that follows one major line.
   - The boolean spellings stay as they are: `admin_enabled` and `sync_delete_guard` take `true` or `false`, and `test_signer` and `lifecycle_execution` take `enabled` or `disabled`. A new on/off setting takes `enabled` or `disabled`.
   - The `data_dir` default `data` stays.
-- **Required change for `buckets_file_mode` (`0.20.0`, not implemented):**
+- **Required change for `buckets_file_mode` (a `0.x` minor release, not implemented):**
   - **Breaking:** `BucketsFileMode::resolve` returns `reconcile` when no mode is configured, for either form. A bucket file that an existing volume was created from then applies its written fields at the next start: an API change to a written field is undone, fields an entry omits keep their values, and the public access prevention check judges a written `iamPolicy` against the stored bucket's prevention, so a start can stop where it passed in `create` mode. The release notes state this and name `create` as the way to keep the old behavior.
   - Documents: the three guides above, `docs/en/slices/bucket-initialization.md`, `llms.txt`, the Japanese companions and the option rows in `--help` and `docs/en/native-binary.md`.
   - Tests and scripts that expect `reconciled:0` after restarting with a bucket file, such as `scripts/smoke-containers.sh`.
@@ -416,7 +416,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
 - **Verification limit:** the targeted Rust suites listed in S `option-aliases.md` passed; the full suite, container builds and SDK harnesses on the integrated source belong to the release verification.
 - **Owner decisions (2026-11-12):**
   - Deprecation in `1.x`: a covered name or value is deprecated in a minor release, where the old spelling keeps working, startup reports a `warn` diagnostic that names the replacement and the release notes list it; the next major release removes it. An accepted fake-gcs-server flag is outside the contract and may be removed in a minor release once at least one earlier minor release has warned about it.
-  - No code path accepts a deprecated input with a warning today: every withdrawal so far (`RenamedEnvironmentVariable`, `RefusedFlag`, an unknown setting) stops startup with advice. The warning path is built with the first deprecation, not before. This is why the renames of candidates 8, 10 and 12 ship in `0.20.0`, where the old name can simply stop with advice.
+  - No code path accepts a deprecated input with a warning today: every withdrawal so far (`RenamedEnvironmentVariable`, `RefusedFlag`, an unknown setting) stops startup with advice. The warning path is built with the first deprecation, not before. This is why the renames of candidates 8, 10 and 12 ship in `0.x`, where the old name can simply stop with advice.
   - `--host`, `--port` and `--port-http` keep their grammar: command-line only, one or two hyphens.
   - `backend=filesystem` follows the flag rule; see candidate 14.
 - **Open points:** none.
@@ -449,7 +449,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   - The sync routes get a version check: `gcs-mimic sync` sends its version, and a server of another release refuses the request naming both versions. Today the command sends only `Connection`, `Accept`, `Authorization` and `Content-Type` (`src/sync_cli.rs`), so an older client reaches a newer server unchecked and "outside the contract" would show up as an unexplained failure.
 - **Required change:**
   - The [release policy](release-policy.md) names the routes, the statuses and the exclusions; that statement is true today.
-  - **Breaking (`0.20.0`, not implemented):** the version check on the `/_internal/sync` routes, with tests for a matching and a differing version.
+  - **Breaking (a `0.x` minor release, not implemented):** the version check on the `/_internal/sync` routes, with tests for a matching and a differing version.
   - Tests: the response keys of `/_internal/health`, `/_internal/reseed` and `/_internal/objects` are pinned beside those of the routes decided on 2026-11-11.
 - **Open points:** none.
 
@@ -467,7 +467,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
 
 Renames and grammar. These can keep the old name as an alias through 1.x, or add a form, so they do not need to happen before the freeze.
 
-The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias kept through `1.x` needs the accepted-with-a-warning path that does not exist yet (candidate 5), while in `0.x` the old name can stop startup with advice, as `RenamedEnvironmentVariable` does. The renames and withdrawals below therefore ship together in `0.20.0`, so that users change their configuration once. None is implemented.
+The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias kept through `1.x` needs the accepted-with-a-warning path that does not exist yet (candidate 5), while in `0.x` the old name can stop startup with advice, as `RenamedEnvironmentVariable` does. The renames and withdrawals below therefore ship in `0.x` minor releases before the freeze; the release is not fixed, and changes to the same setting ship together so that users change it once. None is implemented.
 
 #### 8. Rename `buckets_file_mode`
 
@@ -476,7 +476,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Removing the old flag, variable and JSON key breaks configurations.
 - **Fixable compatibly after the freeze:** Yes, with the old name kept as an alias.
 - **Owner decision (2026-11-12):** Rename the setting to `buckets_mode`, with the flag `--buckets-mode` and the matching environment variable, and the ready field `buckets_file` to `buckets`, without an alias. The old setting name stops startup and names the new one. In the repository only `scripts/smoke-containers.sh` reads the ready field.
-- **Required change (`0.20.0`, not implemented):** **Breaking:** the `Setting` variant, its help line, the rejection advice, the `ReadyEvent` field, the documents and scripts that name either, and the release notes. It ships with the default change of candidate 3.
+- **Required change (a `0.x` minor release, not implemented):** **Breaking:** the `Setting` variant, its help line, the rejection advice, the `ReadyEvent` field, the documents and scripts that name either, and the release notes. It ships with the default change of candidate 3.
 
 #### 9. Reduce duplicate spellings in `gcs-mimic sync`
 
@@ -485,7 +485,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Scripts using the removed spelling fail with a usage error.
 - **Fixable compatibly after the freeze:** Yes, by naming one spelling as primary and keeping the other until a major version.
 - **Owner decision (2026-11-12):** The options of `gcs-mimic sync` are outside the `1.0` contract (candidate 4), so the documented pairs stay and are not frozen: `findings` and `status --view findings`, and `--timeout` and `--timeout-ms`. One spelling goes: `sync approve --revision`, which no document names. `--revision` remains the option of `findings`, `deletions` and `resolve`; `approve` takes `--deletion-set` and converts it internally (`Options::parse` in `src/sync_cli.rs`).
-- **Required change (`0.20.0`, not implemented):** `sync approve` refuses `--revision` with a usage error that names `--deletion-set`, with a test.
+- **Required change (a `0.x` minor release, not implemented):** `sync approve` refuses `--revision` with a usage error that names `--deletion-set`, with a test.
 
 #### 10. Rename `connection_timeout_ms`
 
@@ -494,7 +494,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Users must set the three timeouts by name.
 - **Fixable compatibly after the freeze:** Yes, with the old name kept as an alias.
 - **Owner decision (2026-11-12):** Remove it rather than rename it. It is the single timeout of releases before `0.12.0`, kept as an alias when that release split it into `header_read_timeout_ms`, `body_inactivity_timeout_ms` and `request_timeout_ms`; that migration is over, and the alias carries its own precedence rule in `collect_settings`. The `0.12.0` release notes offered it as the way to restore the five-second deadline, so some configurations set it: the name stops startup and names the three settings.
-- **Required change (`0.20.0`, not implemented):** **Breaking:** remove the `Setting` variant, its precedence code and its tests; add the rejection advice; update `--help`, `llms.txt`, `docs/en/native-binary.md`, `docs/en/design.md`, `docs/en/slices/configuration-workflows.md`, `docs/en/slices/json-object-media.md` and the release notes.
+- **Required change (a `0.x` minor release, not implemented):** **Breaking:** remove the `Setting` variant, its precedence code and its tests; add the rejection advice; update `--help`, `llms.txt`, `docs/en/native-binary.md`, `docs/en/design.md`, `docs/en/slices/configuration-workflows.md`, `docs/en/slices/json-object-media.md` and the release notes.
 
 #### 11. Choose names that do not expose implementation
 
@@ -512,7 +512,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Removing the value breaks configurations that select it. Removing the profile breaks the migrations that rely on it.
 - **Fixable compatibly after the freeze:** The name, yes, with the old value kept as an alias. Removing the profile, no.
 - **Owner decision (2026-11-12):** Rename the value to `fake-gcs-server`, without an alias, and keep the profile. The value then says which emulator's behavior it selects, and matches `gcs-mimic import fake-gcs-server` and the word a migrating user searches for. The string is defined once (`CompatProfile` in `src/config.rs`); the cost is in the documents and in the callers that pass it: `go/fakestorage/server.go`, `sdk-tests/go`, `scripts/compare-reference-emulator.sh` and the SDK harness READMEs. The old value stops startup and names the new one.
-- **Required change (`0.20.0`, not implemented):** **Breaking:** the value, the rejection advice, every document and caller above, and the release notes. The Go package passes the value to whatever binary it starts, so this ships in the same release as the version check of candidate 18.
+- **Required change (a `0.x` minor release, not implemented):** **Breaking:** the value, the rejection advice, every document and caller above, and the release notes. The Go package passes the value to whatever binary it starts, so this ships in the same release as the version check of candidate 18.
 
 #### 13. Decide whether `--foo_bar` spellings are supported
 
@@ -521,7 +521,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Rejecting them breaks only undocumented use.
 - **Fixable compatibly after the freeze:** Yes while they stay undocumented, because the policy covers documented options. The owner should say so explicitly.
 - **Owner decision (2026-11-12):** Refuse them. A server option is spelled with hyphens on the command line; an underscore spelling stops startup and names the hyphen spelling. They work only because `Inputs::cli` in `src/config_input.rs` replaces `-` with `_` before looking the name up, and no document, example, script or test in the repository uses one.
-- **Required change (`0.20.0`, not implemented):** **Breaking** for undocumented use: the parser refuses a native option name that contains `_`, with a test, and the [spelling rules](#spelling-rules) drop the two underscore forms.
+- **Required change (a `0.x` minor release, not implemented):** **Breaking** for undocumented use: the parser refuses a native option name that contains `_`, with a test, and the [spelling rules](#spelling-rules) drop the two underscore forms.
 
 #### 14. Limit `backend=filesystem` to the flag, or document it
 
@@ -530,7 +530,7 @@ The owner decided each of them on 2026-11-12. "Compatibly" has a price: an alias
 - **Breaking change if removed:** Rejecting it from the environment and JSON breaks only undocumented use.
 - **Fixable compatibly after the freeze:** Yes while it stays undocumented.
 - **Owner decision (2026-11-12):** Limit it to the flag. `-backend filesystem` stays an accepted fake-gcs-server flag that translates to `backend=disk` (candidate 5); `backend=filesystem` from the environment or JSON stops startup and names `disk`. Aliases then live in one place, the command line. The setting's parser accepts the value from every source today (`src/config/storage.rs`), and nothing in the repository sets it outside the flag.
-- **Required change (`0.20.0`, not implemented):** **Breaking** for undocumented use: move the translation into the alias flag, reject the value in the setting's parser, correct the helper advice in `alias_advice` that offers `filesystem`, and add tests for both sources. This resolves [disagreement 4](#disagreements-between-code-and-documents).
+- **Required change (a `0.x` minor release, not implemented):** **Breaking** for undocumented use: move the translation into the alias flag, reject the value in the setting's parser, correct the helper advice in `alias_advice` that offers `filesystem`, and add tests for both sources. This resolves [disagreement 4](#disagreements-between-code-and-documents).
 
 #### 15. Add a major image alias
 
@@ -567,7 +567,7 @@ Found on 2026-11-12 while checking candidate 12; the inventory above does not li
 - **Fixable compatibly after the freeze:** Yes; a check can be added or widened in any release.
 - **Owner decision (2026-11-12):** The Go package reads `version` from the ready event and stops, naming both versions, when the binary is outside the range the module supports.
 - **0.x default (2026-11-12, revisable before the freeze):** in `0.x` the range is the module's own minor version; from `1.0.0` it is the same major version at or above the module's minor.
-- **Required change (`0.20.0`, not implemented):** the check in `go/fakestorage/server.go` with tests for a supported and an unsupported version, and `go/README.md` states the range. It ships before or with candidate 12.
+- **Required change (a `0.x` minor release, not implemented):** the check in `go/fakestorage/server.go` with tests for a supported and an unsupported version, and `go/README.md` states the range. It ships before or with candidate 12.
 
 ## Contract areas without a test guarding them
 
@@ -584,9 +584,9 @@ Since `0.18.0`, a server started with every `GCSM_*` name set is tested, and so 
 
 The option list is no longer unguarded either. `--help` is built from one exhaustive `match` with a line for every `Setting`, so a new setting does not compile without one, and lists the settings in their declaration order after the common ones. The tests in `src/config/help.rs` require it to list every `Setting` except `config` plus the CLI-only `--port`, `--port-http` and `--host` once, the option table of `docs/en/native-binary.md` to name each of them and `config` once with its `GCS_MIMIC_*` variable, and the "Every server option" list of `llms.txt` to name every `Setting` once. `scripts/check-docs.sh` runs them, so a documentation-only change is checked too. The table had lacked 18 options and `llms.txt` lacked `--lifecycle-execution`; both now list them.
 
-## Decided on 2026-11-12, to implement in 0.20.0
+## Decided on 2026-11-12, to implement before the freeze
 
-No point remains open for the freeze. These decisions change behavior and are not implemented; each is recorded under its candidate:
+No point remains open for the freeze. These decisions change behavior and are not implemented. Each ships in a `0.x` minor release before the first release candidate; no particular release is promised. Each is recorded under its candidate:
 
 | Change | Candidate |
 | --- | --- |
