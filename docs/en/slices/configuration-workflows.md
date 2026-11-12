@@ -229,6 +229,8 @@ are `port`, `port-http`, `backend`, `filesystem-root`, `public-host`,
 native syntax guidance. Native names accept the same four forms, and a native
 name takes precedence when identical (`scheme`, `log-level` and `backend`); only
 a value that belongs to the flag alone, `backend filesystem`, is translated.
+Since 0.20.0 the native setting does not take that value: `backend=filesystem`
+from the environment or the JSON file stops startup and names `disk`.
 A command line whose first argument is an option runs `serve`, so the option
 spelling never selects the command.
 

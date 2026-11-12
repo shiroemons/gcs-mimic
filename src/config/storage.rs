@@ -1,30 +1,22 @@
 use super::{Config, ConfigurationReport, Diagnostic, Setting, SettingFix, Settings};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Backend {
-    #[default]
-    Disk,
-    Memory,
-}
-
-impl Backend {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Disk => "disk",
-            Self::Memory => "memory",
-        }
+super::string_enum! {
+    pub enum Backend {
+        #[default]
+        Disk => "disk",
+        Memory => "memory",
+    }
+    "backend must be disk or memory";
+    // fake-gcs-server's name for its disk backend. Its flag `-backend filesystem` still
+    // translates to disk (`AliasFlag::Backend`); a setting value is native, so it does not.
+    withdrawn {
+        "filesystem" => "backend=filesystem is only the fake-gcs-server flag -backend filesystem; set backend=disk",
     }
 }
 
 pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
     match setting {
-        Setting::Backend => {
-            config.backend = match value {
-                "disk" | "filesystem" => Backend::Disk,
-                "memory" => Backend::Memory,
-                _ => return Err("backend must be disk or memory".into()),
-            }
-        }
+        Setting::Backend => config.backend = value.parse()?,
         Setting::MemoryMaxBytes => config.memory_max_bytes = setting.integer(value)?,
         Setting::MemoryCatalogMaxBytes => {
             config.memory_catalog_max_bytes = setting.integer(value)?
@@ -60,6 +52,43 @@ impl ConfigurationReport {
 mod tests {
     use super::*;
     use std::{collections::BTreeMap, num::NonZeroU64};
+
+    /// `filesystem` is fake-gcs-server's word, so only its command-line flag translates it.
+    /// The native setting from the environment or the JSON file names `disk` instead.
+    #[test]
+    fn backend_filesystem_is_a_flag_translation_only() {
+        let data = crate::test_support::TestDir::new();
+        let file = data.0.join("config.json");
+        std::fs::write(&file, br#"{"backend":"filesystem"}"#).unwrap();
+        let fix = "backend=filesystem is only the fake-gcs-server flag -backend filesystem; set backend=disk";
+        for (key, args, env) in [
+            (
+                "GCS_MIMIC_BACKEND",
+                Vec::new(),
+                BTreeMap::from([("GCS_MIMIC_BACKEND".into(), "filesystem".into())]),
+            ),
+            (
+                "backend",
+                vec!["--config".into(), file.to_str().unwrap().into()],
+                BTreeMap::new(),
+            ),
+        ] {
+            let errors = Config::load(&args, &env).unwrap_err().errors;
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert_eq!(errors[0].key, key);
+            assert_eq!(errors[0].fix, fix);
+        }
+        for flag in ["-backend", "--backend"] {
+            let config = Config::load(&[flag.into(), "filesystem".into()], &BTreeMap::new())
+                .unwrap_or_else(|error| panic!("{flag}: {error}"));
+            assert_eq!(config.backend, Backend::Disk);
+        }
+        super::super::test_support::assert_rejected(
+            "backend",
+            &["Disk", "fs", ""],
+            "backend must be disk or memory",
+        );
+    }
 
     #[test]
     fn lifecycle_execution_defaults_on_and_disable_obeys_native_precedence() {
