@@ -15,7 +15,7 @@ body `name` differs from the path. A client that sends PUT for an update, such
 as the generated Go API `Buckets.Update`, therefore loses the settings it leaves
 out in this profile.
 
-**Legacy-emulator profile.** PUT preserves omitted modeled settings, including
+**fake-gcs-server profile.** PUT preserves omitted modeled settings, including
 labels, default storage class, versioning, default event-based hold, CORS, PAP,
 UBLA, lifecycle, retention and soft-delete policies. Explicit values retain
 their existing validation and effects. This local compatibility choice supports
