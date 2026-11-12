@@ -58824,15 +58824,20 @@
         },
         {
           "id": "DESIGN-102-SIGNED-URLS",
-          "description": "A V4 signed URL verifies over both protocols on one port in strict mode, including the signed_host_port rules for a Host without a port.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "In strict mode under the default scheme, a V4 URL signed for the https:// origin and one signed for the http:// origin each verify over HTTPS and over plain HTTP on the one port, because V4 signs the Host and never the scheme; a changed Host gets 403 SignatureDoesNotMatch over both; a URL signed for a Host without the port gets 403 naming signed_host_port=lenient over both while signed_host_port is exact, and verifies over both once it is lenient.",
+          "result": "PASS",
+          "test_ids": [
+            "a_signed_url_verifies_over_both_protocols_on_one_port"
+          ]
         },
         {
           "id": "DESIGN-102-SLOTS-CONCURRENCY",
-          "description": "Concurrent HTTP and HTTPS clients share one port; with max_connections silent connections held, the next client is served once one times out.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "With max_connections=2 and header_read_timeout_ms=2000, two connections that send nothing hold both slots: the next plain HTTP client gets no response, and the next HTTPS client no completed handshake, within one second, and each is served once a silent connection times out; each silent connection reports one connection_timeout warning and a connection closed before its first byte reports nothing. Eight clients, alternating HTTP and HTTPS, upload ten objects each at the same time, and each object is read back over the other protocol.",
+          "result": "PASS",
+          "test_ids": [
+            "silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out",
+            "http_and_https_clients_share_one_port_concurrently"
+          ]
         },
         {
           "id": "DESIGN-102-CLIENTS",
@@ -58858,7 +58863,10 @@
         "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
         "healthcheck_defaults_follow_http_https_both_and_changed_ports",
         "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
-        "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
+        "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate",
+        "a_signed_url_verifies_over_both_protocols_on_one_port",
+        "silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out",
+        "http_and_https_clients_share_one_port_concurrently"
       ],
       "verification": [
         {
@@ -58901,14 +58909,25 @@
             "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
             "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test it_process -- tls::",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "a_signed_url_verifies_over_both_protocols_on_one_port",
+            "silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out",
+            "http_and_https_clients_share_one_port_concurrently"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Detection reads one byte, so a client that sends an SSLv2-format hello is served as plain HTTP and fails there; rustls supports neither that format nor those protocol versions. The bundled development key is public, so HTTPS with it authenticates nothing, as under scheme=https. No test reads stderr to confirm that a connection closed before its first byte emits no diagnostic. Verified on macOS only."
+        "Detection reads one byte, so a client that sends an SSLv2-format hello is served as plain HTTP and fails there; rustls supports neither that format nor those protocol versions. The bundled development key is public, so HTTPS with it authenticates nothing, as under scheme=https. On port 443 or 80 a client of the other protocol names the port in Host, so a URL signed for the protocol whose default port it is verifies over the other one only with signed_host_port=lenient; tests use ephemeral ports and do not bind those ports. Verified on macOS only."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-12"
     },
     {
       "id": "UX-001",

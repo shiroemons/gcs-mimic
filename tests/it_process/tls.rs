@@ -114,6 +114,11 @@ impl Server {
     fn stop(mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
+
+    /// The HTTPS and plain HTTP origins of a listener that serves both, as the default does.
+    fn origins(&self) -> [String; 2] {
+        ["https", "http"].map(|scheme| format!("{scheme}://{}", self.address))
+    }
 }
 
 impl Drop for Server {
@@ -207,7 +212,7 @@ fn the_default_scheme_serves_http_and_https_on_one_port_and_links_follow_the_con
         server.ready["api_base_url"],
         format!("http://{}", server.address)
     );
-    let origins = ["http", "https"].map(|scheme| format!("{scheme}://{}", server.address));
+    let origins = server.origins();
     success(curl_at(
         &origins[0],
         &ca,
@@ -299,6 +304,186 @@ fn detection_waits_no_longer_than_the_header_and_handshake_limits() {
     server.stop();
 }
 
+/// The warn-level event names a server wrote to its stderr, in order.
+fn warnings(stderr: impl Read) -> Vec<String> {
+    BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["level"] == "warn")
+        .map(|event| event["event"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The protocol a client speaks to the default listener.
+#[derive(Clone, Copy, Debug)]
+enum Protocol {
+    Http,
+    Https,
+}
+
+const READY_REQUEST: &[u8] =
+    b"GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+
+/// Drives `step`, which must not finish within a second while every slot is held, and must
+/// finish once a silent connection gives its slot up at the header read limit.
+async fn held_then_done<T>(step: impl Future<Output = T>) -> T {
+    tokio::pin!(step);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), &mut step)
+            .await
+            .is_err(),
+        "served while every slot was held"
+    );
+    // A hang guard only.
+    tokio::time::timeout(Duration::from_secs(20), step)
+        .await
+        .expect("served once a slot was given up")
+}
+
+async fn read_response(mut stream: impl tokio::io::AsyncRead + Unpin) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.unwrap();
+    response
+}
+
+/// Asks for readiness over `protocol` while every slot is held by a silent connection, and
+/// returns the response the client gets once one is given up.
+async fn served_after_a_silent_connection(address: &str, protocol: Protocol, ca: &Path) -> Vec<u8> {
+    use tokio::io::AsyncWriteExt;
+    let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+    match protocol {
+        Protocol::Http => {
+            socket.write_all(READY_REQUEST).await.unwrap();
+            held_then_done(read_response(socket)).await
+        }
+        Protocol::Https => {
+            let connector =
+                tokio_rustls::TlsConnector::from(gcs_mimic::tls::client_config(ca).unwrap());
+            let name = tokio_rustls::rustls::pki_types::ServerName::try_from("localhost").unwrap();
+            let mut tls = held_then_done(connector.connect(name, socket))
+                .await
+                .unwrap();
+            tls.write_all(READY_REQUEST).await.unwrap();
+            read_response(tls).await
+        }
+    }
+}
+
+/// A connection that has sent nothing holds its slot until the header read limit, so with every
+/// slot held that way the next client of either protocol waits, and is served once one ends.
+#[test]
+fn silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out() {
+    const SLOTS: usize = 2;
+    let dir = TestDir::new();
+    let ca = dir.0.join("development-ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.0.join("data"))
+        .args(["--max-connections", &SLOTS.to_string()])
+        .args(["--header-read-timeout-ms", "2000"])
+        .stderr(Stdio::piped());
+    let mut server = Server::launch(command, Mode::Auto);
+    let stderr = server.child.stderr.take().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for protocol in [Protocol::Http, Protocol::Https] {
+        let _silent: Vec<_> = (0..SLOTS)
+            .map(|_| TcpStream::connect(&server.address).unwrap())
+            .collect();
+        let response = runtime.block_on(served_after_a_silent_connection(
+            &server.address,
+            protocol,
+            &ca,
+        ));
+        assert!(
+            response.starts_with(b"HTTP/1.1 200"),
+            "{protocol:?}: {}",
+            String::from_utf8_lossy(&response)
+        );
+    }
+    // A probe that closes before its first byte is not a client fault, so it reports nothing.
+    drop(TcpStream::connect(&server.address).unwrap());
+    let probe = fetch(
+        &format!("http://{}", server.address),
+        &ca,
+        &[],
+        "/_internal/ready",
+    );
+    assert_eq!(probe.status, 200, "{probe:?}");
+    server.stop();
+    assert_eq!(warnings(stderr), vec!["connection_timeout"; 2 * SLOTS]);
+}
+
+/// Clients of both protocols use the one port at the same time, and each reads what the other
+/// wrote.
+#[test]
+fn http_and_https_clients_share_one_port_concurrently() {
+    const CLIENTS: usize = 8;
+    const OBJECTS: usize = 10;
+    let dir = TestDir::new();
+    let ca = dir.0.join("development-ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.0.join("data"));
+    let server = Server::launch(command, Mode::Auto);
+    let origins = server.origins();
+    success(curl_at(
+        &origins[0],
+        &ca,
+        &[
+            "--header",
+            "Content-Type: application/json",
+            "--data",
+            r#"{"name":"shared-port"}"#,
+        ],
+        "/storage/v1/b?project=local",
+    ));
+    let ca = ca.as_path();
+    let body = |client: usize, object: usize| format!("client {client} object {object}");
+    let origin_of = |client: usize| &origins[client % origins.len()];
+    std::thread::scope(|scope| {
+        for client in 0..CLIENTS {
+            scope.spawn(move || {
+                for object in 0..OBJECTS {
+                    success(curl_at(
+                        origin_of(client),
+                        ca,
+                        &["--data-binary", &body(client, object)],
+                        &format!(
+                            "/upload/storage/v1/b/shared-port/o?uploadType=media&name={client}-{object}"
+                        ),
+                    ));
+                }
+            });
+        }
+    });
+    std::thread::scope(|scope| {
+        for client in 0..CLIENTS {
+            // The neighbouring client wrote over the other protocol.
+            let reader = (client + 1) % CLIENTS;
+            scope.spawn(move || {
+                for object in 0..OBJECTS {
+                    let read = success(curl_at(
+                        origin_of(reader),
+                        ca,
+                        &[],
+                        &format!("/storage/v1/b/shared-port/o/{client}-{object}?alt=media"),
+                    ));
+                    assert_eq!(read, body(client, object).into_bytes());
+                }
+            });
+        }
+    });
+    server.stop();
+}
+
 #[test]
 fn signed_private_download_uses_the_https_listener_host_and_port() {
     let data = TestDir::new();
@@ -356,6 +541,170 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
     let denied = curl(&server, &ca, &["-H", "Host: changed.invalid:4443"], path);
     assert_eq!(denied.status.code(), Some(22));
     assert!(String::from_utf8_lossy(&denied.stderr).contains("403"));
+    server.stop();
+}
+
+/// A response whose status a test inspects, which `curl_at` would hide behind `--fail`.
+#[derive(Debug, PartialEq, Eq)]
+struct Reply {
+    status: u16,
+    body: String,
+}
+
+impl Reply {
+    fn ok(body: &str) -> Self {
+        Self {
+            status: 200,
+            body: body.to_owned(),
+        }
+    }
+}
+
+fn fetch(origin: &str, ca: &Path, args: &[&str], path: &str) -> Reply {
+    let output = Command::new("curl")
+        .args([
+            "-q",
+            "--silent",
+            "--show-error",
+            "--noproxy",
+            "*",
+            "--max-time",
+            "4",
+            "--write-out",
+            "\n%{http_code}",
+            "--cacert",
+        ])
+        .arg(ca)
+        .args(args)
+        .arg(format!("{origin}{path}"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    let (body, status) = text.rsplit_once('\n').unwrap();
+    Reply {
+        status: status.parse().unwrap(),
+        body: body.to_owned(),
+    }
+}
+
+fn signed_path(url: &str, signer: &str, now: std::time::SystemTime) -> String {
+    let signed = sign_url(SignUrlRequest {
+        url,
+        method: &hyper::Method::GET,
+        signer,
+        private_key: include_bytes!("../../fixtures/signing/test-only-private.pem"),
+        expires: 300,
+        now,
+        headers: hyper::HeaderMap::new(),
+    })
+    .unwrap();
+    let uri: hyper::Uri = signed.parse().unwrap();
+    uri.path_and_query().unwrap().as_str().to_owned()
+}
+
+/// V4 signs the Host and never the scheme, so under the default scheme a URL signed for either
+/// protocol verifies over both on the one port, and `signed_host_port` treats a Host without a
+/// port the same way over both.
+#[test]
+fn a_signed_url_verifies_over_both_protocols_on_one_port() {
+    let data = TestDir::new();
+    let config = TestDir::new();
+    let ca = config.0.join("ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let strict = |extra: &[&str]| {
+        let mut command = common::server_command();
+        command
+            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .arg(&data.0)
+            .args([
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                "config/identities.json",
+            ])
+            .args(extra);
+        Server::launch(command, Mode::Auto)
+    };
+    let server = strict(&[]);
+    assert_eq!(server.ready["signed_host_port"], "exact");
+    let origins = server.origins();
+    let [https, http] = &origins;
+    let admin = "Authorization: Bearer local-admin-token";
+    success(curl_at(
+        http,
+        &ca,
+        &[
+            "-H",
+            admin,
+            "-H",
+            "Content-Type: application/json",
+            "--data",
+            r#"{"name":"both-bucket"}"#,
+        ],
+        "/storage/v1/b?project=local-project",
+    ));
+    success(curl_at(
+        https,
+        &ca,
+        &["-H", admin, "--data-binary", "signed over both"],
+        "/upload/storage/v1/b/both-bucket/o?uploadType=media&name=object",
+    ));
+    let now = std::time::SystemTime::now();
+    let viewer = "local-viewer@example.invalid";
+    let stored = Reply::ok("signed over both");
+    for signed_for in &origins {
+        let path = signed_path(&format!("{signed_for}/both-bucket/object"), viewer, now);
+        for fetched_over in &origins {
+            assert_eq!(
+                fetch(fetched_over, &ca, &[], &path),
+                stored,
+                "signed for {signed_for}, fetched over {fetched_over}"
+            );
+            let moved = fetch(
+                fetched_over,
+                &ca,
+                &["-H", "Host: changed.invalid:4443"],
+                &path,
+            );
+            assert_eq!(moved.status, 403, "{moved:?}");
+            assert!(
+                moved.body.contains("<Code>SignatureDoesNotMatch</Code>"),
+                "{moved:?}"
+            );
+        }
+    }
+    // Go storage signs the host without its port. Exact verification refuses that over both
+    // protocols and names the setting that accepts it.
+    let portless = signed_path("http://127.0.0.1/both-bucket/object", viewer, now);
+    for fetched_over in &origins {
+        let refused = fetch(fetched_over, &ca, &[], &portless);
+        assert_eq!(refused.status, 403, "{fetched_over}: {refused:?}");
+        assert!(
+            refused.body.contains("set signed_host_port=lenient"),
+            "{refused:?}"
+        );
+    }
+    server.stop();
+
+    let server = strict(&["--signed-host-port", "lenient"]);
+    assert_eq!(server.ready["signed_host_port"], "lenient");
+    let portless = signed_path(
+        "http://127.0.0.1/both-bucket/object",
+        viewer,
+        std::time::SystemTime::now(),
+    );
+    for fetched_over in &server.origins() {
+        assert_eq!(
+            fetch(fetched_over, &ca, &[], &portless),
+            stored,
+            "{fetched_over}"
+        );
+    }
     server.stop();
 }
 

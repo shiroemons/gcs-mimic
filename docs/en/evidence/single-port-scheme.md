@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Verified on 2026-11-11 on macOS (Apple Silicon) with the pinned Rust toolchain, at the source that adds `scheme=auto`. The row stays `PARTIAL`: signed URLs over both protocols, concurrent use of both protocols, the connection-slot case, SDK suites, a browser and the container image have not run against this change.
+Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Verified on 2026-11-11 on macOS (Apple Silicon) with the pinned Rust toolchain, at the source that adds `scheme=auto`. Signed URLs over both protocols, concurrent use of both protocols and the connection-slot case were added on 2026-11-12 on the same platform. The row stays `PARTIAL` until the client cases below pass.
 
 ## Commands and results
 
@@ -15,6 +15,7 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
 | `cargo xtask lint` | PASS: no new production violation; test wall-clock calls within the baseline |
 | `bash scripts/check-cross.sh` | PASS for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, with no new production Clippy violation. The first CI run of the feature failed this check on Windows, where the Unix-socket handshake was unused; it now compiles only on Unix. |
+| `bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test it_process -- tls::` (2026-11-12) | PASS, including the three tests added for signed URLs, slots and concurrency |
 
 ## What the tests establish
 
@@ -37,11 +38,12 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `tls_rejects_untrusted_wrong_host_expired_and_plaintext` | With an explicit `scheme=https`, plain HTTP is still refused |
 | `tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate` | The default listener serves HTTPS with the embedded development certificate |
 | `help_output_keeps_its_exact_bytes` | The help text names `auto` and its meaning |
+| `a_signed_url_verifies_over_both_protocols_on_one_port` | In strict mode with the default scheme, URLs signed for the `https://` and the `http://` origin each return the object over both protocols; a changed Host gets 403 `SignatureDoesNotMatch` over both; a URL signed for a Host without the port gets 403 naming `signed_host_port=lenient` over both, and after a restart with `--signed-host-port lenient` returns the object over both |
+| `silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out` | With `--max-connections 2 --header-read-timeout-ms 2000`, two connections that send nothing hold both slots: the next plain HTTP client gets no response, and the next HTTPS client no completed handshake, within one second, and each is served once a silent connection times out; the server's stderr holds exactly one `connection_timeout` warning per silent connection and nothing for a connection closed before its first byte |
+| `http_and_https_clients_share_one_port_concurrently` | Eight clients, alternating HTTP and HTTPS, upload ten objects each at the same time; each object is then read over the other protocol, also concurrently |
 
 ## Not established
 
-- A V4 signed URL verified over both protocols on one port, including `signed_host_port`.
-- Concurrent HTTP and HTTPS clients on one port, and a full `max_connections` of silent connections releasing a slot when one times out.
 - The pinned Go and Ruby SDK suites, a browser and the container image's `HEALTHCHECK` against a default server.
-- That a connection closed before its first byte emits no diagnostic: the code path returns without one, but no test reads stderr for it.
+- Signed URLs on ports 80 and 443, where a client of the other protocol names the port in Host; the tests use ephemeral ports.
 - Linux and Windows runs.

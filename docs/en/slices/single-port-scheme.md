@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: **implemented on the main branch for 0.19.0, `PARTIAL`.** DESIGN-102 in the feature ledger records which acceptance cases pass; signed URLs over both protocols, concurrency and slot limits, and the SDK, browser and container clients remain pending. The [verification record](../evidence/single-port-scheme.md) lists the commands. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065).
+Status: **implemented in 0.19.0, `PARTIAL`.** DESIGN-102 in the feature ledger records which acceptance cases pass; the SDK, browser and container clients remain pending. The [verification record](../evidence/single-port-scheme.md) lists the commands. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065).
 
 ## Problem
 
@@ -61,6 +61,14 @@ Where no connection supplies a scheme, `auto` uses `http`, which every client ca
 - the `listeners[].scheme` member of the ready event, so a URL built from that member and `listen` works. The top-level `scheme` member reports `auto`.
 
 No response redirects between the protocols, and no response carries `Strict-Transport-Security`: a browser that remembered HTTPS for the host could no longer use plain HTTP on the same port.
+
+### Signed URLs
+
+A V4 signature covers the Host the client sends, never the scheme, and verification does not depend on the protocol a connection selected. So under `auto`:
+
+- A URL signed for `https://HOST:PORT` and one signed for `http://HOST:PORT` both verify over HTTPS and over plain HTTP on that port.
+- `signed_host_port` applies the same way over both: while it is `exact`, a URL signed for a Host without the port is refused with a message that names `signed_host_port=lenient`, and once it is `lenient` that URL verifies over both.
+- A signer drops the default port of the URL's own scheme, as browsers do. On port 443 a plain HTTP client sends `Host: HOST:443`, and on port 80 an HTTPS client sends `Host: HOST:80`, so a URL signed for the other protocol's default port verifies there only with `signed_host_port=lenient`. This follows from the rules above; tests use ephemeral ports and do not bind 80 or 443.
 
 ### Healthcheck
 
