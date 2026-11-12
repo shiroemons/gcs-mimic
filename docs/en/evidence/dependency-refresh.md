@@ -865,3 +865,32 @@ The full test suite, SDK suites, container builds, Linux/Windows
 runtime checks, benchmarks and remote CI were not run. Final combined validation
 belongs to integration. No feature-ledger or generated-matrix change is required;
 Japanese companion guides contain no corresponding version sentence to update.
+
+## Refresh: 2026-11-12
+
+The v0.19.0 tag publication ([run 43126574525](https://github.com/shiroemons/gcs-mimic/actions/runs/43126574525)) stopped in `validate`, before any job that publishes: the release-scoped check reported `docker moby/buildkit:latest: UPDATE_AVAILABLE on linux/amd64, linux/arm64`. BuildKit v0.35.0 had been released at `2026-11-11T20:12:10Z`, after the v0.19.0 dry run. BuildKit is a release input, so it is adopted before the release.
+
+| Input | Previous | Adopted | Change |
+| --- | --- | --- | --- |
+| moby/buildkit | v0.34.2 `sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe` | v0.35.0 `sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb` | Built-in Dockerfile frontend 1.29.0, retries for HTTP sources, refreshed registry credentials, and fixes for races in build progress, cache access, provenance and exporters |
+
+BuildKit v0.35.0 platform digests are `sha256:a521fc1fd903a46c611c733dd692548512232fba2e0386d6055846a903d05a71` (linux/amd64) and `sha256:7dc61a9fab7c7f5a50b1cdbbefa4180829e68c6c0172206eb54ad934de097ddf` (linux/arm64), and `latest` resolves to the same index. The [release notes](https://github.com/moby/buildkit/releases/tag/v0.35.0) list no removed option and no change to the attestation formats. The release `Dockerfile` names its frontend by the pinned `docker/dockerfile:1` digest, so the built-in frontend update does not change how it is parsed. Dockerfile frontend 1.29.0 was released at the same time, but `docker/dockerfile:1` still resolved to the pinned digest in the checks below.
+
+The same full check reports development-only updates, which are not adopted in this change:
+
+| Input | Current | Latest | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.312.0 | v0.313.0 | Three of the four checked Go modules |
+| google-cloud-auth | 1.18.0 | 1.19.0 | `sdk-tests/rust`, `sdk-scorecard/rust` |
+| google-cloud-storage (Rust) | 1.21.0 | 1.22.0 | `sdk-tests/rust`, `sdk-scorecard/rust` |
+| google-cloud-wkt | 1.10.0 | 1.11.0 | `sdk-scorecard/rust` |
+| node:24-trixie-slim | `sha256:0820eaa8…` | `sha256:462ec7f2…` on linux/amd64 | Moving tag; the pinned `node:24.22.2-trixie-slim` stays `CURRENT` |
+
+Under the [release-scope rule](../dependency-policy.md#ci-lanes) they do not block publishing artifacts that do not contain them. They stay visible in the daily check until they are adopted or recorded as exceptions; no exception is recorded.
+
+### Validation performed on 2026-11-12
+
+- `cargo test -p xtask --locked` passed every test binary (221, 11, 3 and 1 tests), including the check of the actual pins against the snapshot.
+- `cargo xtask dependencies check --scope release` at `2026-11-12T00:28:24Z` exited 0 with 41 `CURRENT` lines, among them `docker moby/buildkit:v0.35.0: CURRENT` and `docker moby/buildkit:latest: CURRENT`, both at `sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb`.
+- `cargo xtask dependencies check` at `2026-11-12T00:26:46Z` exited 1 with 120 `CURRENT` lines; every `UPDATE_AVAILABLE` line names one of the development-only inputs above, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
+- On macOS (Apple Silicon), a `docker-container` Buildx builder started from the adopted pinned image reported `BuildKit version: v0.35.0`. With it, the release `Dockerfile` at the v0.19.0 source built for linux/arm64 with `--load`, and `bash scripts/smoke-containers.sh --image <image> linux/arm64` printed seven `PASS` lines, the strict local recipe and the full application example included. The same build exported as OCI with `--provenance=mode=max` and the pinned SBOM generator passed the checks `scripts/container-release.sh` applies to a pushed platform index: one linux/arm64 manifest plus its attestation manifest, an `SPDX-2.3` SBOM, and SLSA v1 provenance whose `buildType` is the BuildKit attestation definitions document. linux/amd64 was not built with v0.35.0 locally; the GHCR workflow builds it natively.

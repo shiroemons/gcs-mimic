@@ -13,7 +13,7 @@ defaults:
     shell: bash
 env:
   VERSION: ${{ inputs.version }}
-  BUILDKIT_IMAGE: moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+  BUILDKIT_IMAGE: moby/buildkit:v0.35.0@sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb
   SBOM_GENERATOR: docker/buildkit-syft-scanner:stable-1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
 jobs:
   platform:
