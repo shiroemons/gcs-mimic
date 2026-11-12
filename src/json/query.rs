@@ -465,7 +465,7 @@ fn parse(
     match (method, bucket) {
         (&Method::POST, None) => {
             let enable_object_retention = boolean(&mut query, "enableObjectRetention")?;
-            if profile == CompatProfile::LegacyEmulator {
+            if profile == CompatProfile::FakeGcsServer {
                 query
                     .entry("project".into())
                     .or_insert_with(|| seed_project.into());
@@ -487,8 +487,8 @@ fn parse(
                 || query.contains_key("predefinedDefaultObjectAcl");
             // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl
             // and owner; PUT did so only with predefined ACL parameters. Insert/get default to
-            // noAcl. The legacy profile retains its earlier PUT-only full default.
-            let default_projection = if (profile == CompatProfile::LegacyEmulator
+            // noAcl. The fake-gcs-server profile retains its earlier PUT-only full default.
+            let default_projection = if (profile == CompatProfile::FakeGcsServer
                 && *method == Method::PUT)
                 || (profile == CompatProfile::Native
                     && (*method == Method::PATCH || (*method == Method::PUT && predefined)))
@@ -537,7 +537,7 @@ fn parse_bucket_list(
 ) -> Result<BucketRequest, JsonError> {
     let soft_deleted = boolean(query, "softDeleted")?;
     false_only(query, "returnPartialSuccess")?;
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         query
             .entry("project".into())
             .or_insert_with(|| seed_project.into());
@@ -751,7 +751,7 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, 
 }
 
 /// Bucket reads and writes ignore a query parameter they do not define, as Cloud Storage does for
-/// `append=false` on insert and PATCH (recorded 2026-10-31). The legacy profile rejects it.
+/// `append=false` on insert and PATCH (recorded 2026-10-31). The fake-gcs-server profile rejects it.
 fn finish_bucket(
     query: &BTreeMap<String, String>,
     profile: CompatProfile,

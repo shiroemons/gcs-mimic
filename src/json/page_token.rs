@@ -36,7 +36,7 @@ fn encode_bucket_cursor(
         return Err(invalid());
     }
     // Native listing must retain cursors for source-only names after a profile switch.
-    validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
+    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     let payload = serde_json::json!([version, project, prefix, last_name]).to_string();
     let encoded = crate::hashing::encode_lower(payload.as_bytes());
     Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
@@ -71,7 +71,7 @@ pub(crate) fn encode_soft_deleted_page_token(
     if prefix.len() > 222 || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
+    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     let payload = serde_json::json!([
         SOFT_DELETED,
         project,
@@ -100,7 +100,7 @@ pub(crate) fn decode_soft_deleted_page_token(
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(name, CompatProfile::LegacyEmulator).map_err(|_| invalid())?;
+    validate_bucket_name_for_profile(name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
     let generation = generation.parse::<i64>().map_err(|_| invalid())?;
     Ok((name.clone(), generation))
 }
@@ -140,7 +140,7 @@ fn decode_bucket_cursor(
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(name, CompatProfile::LegacyEmulator).map_err(|_| invalid())?;
+    validate_bucket_name_for_profile(name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
     Ok(name.clone())
 }
 

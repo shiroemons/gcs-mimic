@@ -199,7 +199,7 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
             tonic::Code::InvalidArgument
         );
     }
-    storage.compat_profile = CompatProfile::LegacyEmulator;
+    storage.compat_profile = CompatProfile::FakeGcsServer;
     let created = pb::storage_server::Storage::create_bucket(
         &storage,
         Request::new(pb::CreateBucketRequest {
@@ -236,7 +236,7 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
         &[message],
         async |request| {
             dispatch(
-                service(state.clone(), 1024, CompatProfile::LegacyEmulator),
+                service(state.clone(), 1024, CompatProfile::FakeGcsServer),
                 request,
             )
             .await

@@ -121,7 +121,7 @@ fn parse(
             value.insert(field.into(), Value::String(child.text.trim().into()));
         }
     }
-    if profile == crate::config::CompatProfile::LegacyEmulator
+    if profile == crate::config::CompatProfile::FakeGcsServer
         && (value.get("location").is_some() || value.get("storageClass").is_some())
     {
         return Err(Error::unsupported(

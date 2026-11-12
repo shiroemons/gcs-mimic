@@ -778,7 +778,7 @@ impl RangeRequest<'_> {
 /// Copy and rewrite responses name the calling creator as `owner` even without the full
 /// projection, while still omitting `acl` (recorded 2026-11-01). A project-owners owner is left
 /// out: the recordings only show a user owner, so that case is an inference that keeps the
-/// legacy emulator profile unchanged.
+/// fake-gcs-server profile unchanged.
 pub(crate) fn add_derived_owner(value: &mut Value, object: &ObjectRecord) {
     if let Some(crate::object::owner::ObjectOwner::Principal {
         entity: Some(entity),

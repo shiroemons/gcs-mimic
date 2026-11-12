@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn typed_bucket_replacements_keep_native_and_legacy_omission_rules() {
-        for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+        for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
             let current = pb::Bucket {
                 name: "example-bucket".into(),
                 ..Default::default()

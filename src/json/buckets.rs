@@ -98,13 +98,13 @@ pub fn parse_insert(
     parse_insert_with_profile(bytes, project, now, CompatProfile::Native, "US")
 }
 
-/// The legacy profile keeps fake-gcs-server's wording; Cloud Storage reports a parser position.
+/// The fake-gcs-server profile keeps fake-gcs-server's wording; Cloud Storage reports a parser position.
 fn bucket_parse_error(
     bytes: &[u8],
     error: &serde_json::Error,
     profile: CompatProfile,
 ) -> JsonError {
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         return JsonError::legacy_parse_error("Invalid JSON bucket resource");
     }
     JsonError::parse_error(bytes, error)
@@ -112,7 +112,7 @@ fn bucket_parse_error(
 
 /// fake-gcs-server reads only the first JSON value of an insert body and ignores the rest.
 fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, JsonError> {
-    let parsed = if profile == CompatProfile::LegacyEmulator {
+    let parsed = if profile == CompatProfile::FakeGcsServer {
         serde_json::Deserializer::from_slice(bytes)
             .into_iter::<Value>()
             .next()
@@ -181,7 +181,7 @@ fn insert_bool(
 ) -> Result<bool, JsonError> {
     match value {
         None => Ok(false),
-        Some(Value::Null) if profile == CompatProfile::LegacyEmulator => Ok(false),
+        Some(Value::Null) if profile == CompatProfile::FakeGcsServer => Ok(false),
         Some(value) => value
             .as_bool()
             .ok_or_else(|| JsonError::invalid(format!("{field} must be a boolean"))),
@@ -193,7 +193,7 @@ fn insert_location(
     profile: CompatProfile,
     default_location: &str,
 ) -> Result<String, JsonError> {
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         if body.get("location").is_some_and(|value| {
             !value
                 .as_str()
@@ -212,7 +212,7 @@ fn insert_location(
     insert_string(body, "location", Some(default_location))
 }
 
-/// The legacy profile ignores labels on insert.
+/// The fake-gcs-server profile ignores labels on insert.
 fn insert_labels(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
@@ -257,13 +257,12 @@ pub(crate) fn parse_insert_with_profile(
         .as_object()
         .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
     reject_unsupported_insert_fields(body, profile)?;
-    let name = if profile == CompatProfile::LegacyEmulator
-        && body.get("name").is_none_or(Value::is_null)
-    {
-        String::new()
-    } else {
-        insert_string(body, "name", None)?
-    };
+    let name =
+        if profile == CompatProfile::FakeGcsServer && body.get("name").is_none_or(Value::is_null) {
+            String::new()
+        } else {
+            insert_string(body, "name", None)?
+        };
     if profile == CompatProfile::Native {
         validate_new_bucket_name(&name)?;
     } else {
@@ -272,7 +271,7 @@ pub(crate) fn parse_insert_with_profile(
     }
     let versioning_enabled = match body.get("versioning") {
         None => false,
-        Some(Value::Null) if profile == CompatProfile::LegacyEmulator => false,
+        Some(Value::Null) if profile == CompatProfile::FakeGcsServer => false,
         Some(value) => {
             let versioning = value
                 .as_object()
@@ -287,7 +286,7 @@ pub(crate) fn parse_insert_with_profile(
     )?;
     let location = insert_location(body, profile, default_location)?;
     let (location, location_type) = bucket_location(&location)?;
-    let storage_class = if profile == CompatProfile::LegacyEmulator {
+    let storage_class = if profile == CompatProfile::FakeGcsServer {
         "STANDARD".into()
     } else {
         insert_string(body, "storageClass", Some("STANDARD"))?
@@ -469,7 +468,7 @@ fn parse_bucket_update(
     let boolean = |value: Option<&Value>, field: &str| {
         value
             .map(|value| {
-                if value.is_null() && profile == CompatProfile::LegacyEmulator {
+                if value.is_null() && profile == CompatProfile::FakeGcsServer {
                     return Ok(false);
                 }
                 value
@@ -510,7 +509,7 @@ fn parse_bucket_update(
     // The location of a bucket cannot change, and Cloud Storage ignored a different one in a
     // PATCH or PUT body like any other output-only member (recorded 2026-10-31).
     let mut location = if native { None } else { string("location")? };
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         if location
             .as_ref()
             .is_some_and(|location| !location.eq_ignore_ascii_case(LEGACY_LOCATION))
@@ -649,7 +648,7 @@ fn update_touches_bucket(body: &serde_json::Map<String, Value>) -> bool {
 
 /// A lifecycle member. A JSON array is not a lifecycle message; the recording shows it accepted, but
 /// it was sent to a bucket without rules, so it cannot tell "cleared" from "left alone". Leaving
-/// the rules alone is the choice that cannot destroy data; the legacy profile rejects it.
+/// the rules alone is the choice that cannot destroy data; the fake-gcs-server profile rejects it.
 fn parse_lifecycle(
     value: Option<&Value>,
     profile: CompatProfile,
@@ -837,7 +836,7 @@ pub(crate) fn bucket_predefined_acls(
     profile: CompatProfile,
 ) -> Result<BucketPredefinedAcls, JsonError> {
     let query = super::parse_query(query.unwrap_or_default())?;
-    // The legacy profile never applied canned ACLs; it refuses them as before.
+    // The fake-gcs-server profile never applied canned ACLs; it refuses them as before.
     if profile != CompatProfile::Native {
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
             if query.contains_key(key) {
@@ -947,7 +946,7 @@ pub(crate) fn bucket_resource(
 pub(crate) fn storage_layout_resource(bucket: &BucketRecord, profile: CompatProfile) -> Value {
     let (location, location_type) = match profile {
         CompatProfile::Native => (bucket.location.as_str(), bucket.location_type.as_str()),
-        CompatProfile::LegacyEmulator => (LEGACY_LOCATION, "region"),
+        CompatProfile::FakeGcsServer => (LEGACY_LOCATION, "region"),
     };
     json!({
         "kind": "storage#storageLayout",
@@ -1040,7 +1039,7 @@ pub(crate) fn bucket_resource_with_profile(
         }
     }
     add_optional_bucket_fields(&mut value, bucket, profile)?;
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         value.insert("location".into(), LEGACY_LOCATION.into());
         value.insert("locationType".into(), "region".into());
         value.insert("projectNumber".into(), "0".into());
@@ -1086,7 +1085,7 @@ fn add_optional_bucket_fields(
     }
     if bucket.versioning_enabled
         || bucket.versioning_configured
-        || profile == CompatProfile::LegacyEmulator
+        || profile == CompatProfile::FakeGcsServer
     {
         value.insert(
             "versioning".into(),
@@ -1113,7 +1112,7 @@ fn add_optional_bucket_fields(
     if let Some(object_retention) = super::object_retention::render_bucket(bucket) {
         value.insert("objectRetention".into(), object_retention);
     }
-    if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
+    if bucket.default_event_based_hold || profile == CompatProfile::FakeGcsServer {
         value.insert(
             "defaultEventBasedHold".into(),
             bucket.default_event_based_hold.into(),

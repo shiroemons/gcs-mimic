@@ -14,7 +14,7 @@ use std::future::Future;
 pub(crate) enum ResponseFormat {
     /// Two-space indentation, the Cloud Storage default.
     Pretty,
-    /// No insignificant whitespace, for `prettyPrint=false` and the legacy emulator profile.
+    /// No insignificant whitespace, for `prettyPrint=false` and the fake-gcs-server profile.
     Compact,
 }
 
@@ -26,8 +26,8 @@ impl ResponseFormat {
     /// The format a request selects. Each method validates the `prettyPrint` value itself, so an
     /// invalid value fails with 400 and its error body uses the default format.
     pub(crate) fn for_request(query: Option<&str>, profile: CompatProfile) -> Self {
-        // fake-gcs-server writes compact JSON, which the legacy profile reproduces.
-        if profile == CompatProfile::LegacyEmulator {
+        // fake-gcs-server writes compact JSON, which the fake-gcs-server profile reproduces.
+        if profile == CompatProfile::FakeGcsServer {
             return Self::Compact;
         }
         // The spellings match the shared boolean query parser.
@@ -78,7 +78,7 @@ mod tests {
             );
         }
         assert_eq!(
-            ResponseFormat::for_request(None, CompatProfile::LegacyEmulator),
+            ResponseFormat::for_request(None, CompatProfile::FakeGcsServer),
             ResponseFormat::Compact
         );
     }

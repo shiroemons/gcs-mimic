@@ -6101,7 +6101,7 @@
         },
         {
           "id": "STORAGE-LAYOUT-LEGACY",
-          "description": "The LegacyEmulator profile reports its fixed bucket location and type.",
+          "description": "The fake-gcs-server profile reports its fixed bucket location and type.",
           "result": "PASS",
           "test_ids": [
             "storage_layout_follows_the_legacy_profile_location"
@@ -56490,7 +56490,7 @@
         {"id":"grpc_go_client_fails_fast","description":"Storage.NewGRPCClient uses STORAGE_EMULATOR_HOST_GRPC; Bucket.Attrs, Writer through Close and SDK-required bidi multi-range fail immediately with UNIMPLEMENTED/ErrorInfo, ShouldRetry=false, and distinct not-found errors. Contract: docs/en/slices/grpc-v2-foundation.md.","result":"PASS","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]},
         {
           "id": "GO-UNSUPPORTED-FAILS-FAST",
-          "description": "Recognized unsupported JSON inputs and pinned Google routes return 400 badRequest before a 10-second deadline; XML uses 400 InvalidArgument, genuine missing resources/unknown paths retain 404, diagnostics identify the setting/route and remedy, and LegacyEmulator uses the same policy. Contract: docs/en/slices/sdk-unsupported-fail-fast.md.",
+          "description": "Recognized unsupported JSON inputs and pinned Google routes return 400 badRequest before a 10-second deadline; XML uses 400 InvalidArgument, genuine missing resources/unknown paths retain 404, diagnostics identify the setting/route and remedy, and the fake-gcs-server profile uses the same policy. Contract: docs/en/slices/sdk-unsupported-fail-fast.md.",
           "result": "PASS",
           "test_ids": ["TestUnsupportedFailsFast", "unsupported_google_routes_and_inputs", "unsupported_legacy_profile", "xml::xml_unsupported_operations_fail_before_reading_a_body"]
         },

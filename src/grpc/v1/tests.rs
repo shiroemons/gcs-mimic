@@ -51,7 +51,7 @@ async fn storage(dir: &TestDir, auth: Auth) -> Storage {
     Storage {
         state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
-        compat_profile: crate::config::CompatProfile::LegacyEmulator,
+        compat_profile: crate::config::CompatProfile::FakeGcsServer,
     }
 }
 

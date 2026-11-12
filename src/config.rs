@@ -143,7 +143,7 @@ string_enum! {
         #[default]
         Native => "native",
         /// fake-gcs-server's behavior where it differs from Cloud Storage, for migrations.
-        LegacyEmulator => "fake-gcs-server",
+        FakeGcsServer => "fake-gcs-server",
     }
     "compat_profile must be native or fake-gcs-server";
     withdrawn {
@@ -1191,7 +1191,7 @@ impl ConfigurationReport {
                 .errors
                 .push(Diagnostic::new(source, key, error.to_string()));
         }
-        if config.compat_profile == CompatProfile::LegacyEmulator
+        if config.compat_profile == CompatProfile::FakeGcsServer
             && let Some(input) = settings.get("default_location")
             && !self.invalid.contains("default_location")
         {
@@ -1202,7 +1202,7 @@ impl ConfigurationReport {
             ));
             self.invalid.insert("default_location".into());
         }
-        if config.compat_profile == CompatProfile::LegacyEmulator
+        if config.compat_profile == CompatProfile::FakeGcsServer
             && !config.local_creator_email.is_empty()
             && let Some(input) = settings.get("local_creator_email")
             && !self.invalid.contains("local_creator_email")
@@ -1230,8 +1230,8 @@ impl ConfigurationReport {
             ));
             self.invalid.insert("local_creator_email".into());
         }
-        // Zero is what the legacy profile does anyway, so only a positive request conflicts.
-        if config.compat_profile == CompatProfile::LegacyEmulator
+        // Zero is what the fake-gcs-server profile does anyway, so only a positive request conflicts.
+        if config.compat_profile == CompatProfile::FakeGcsServer
             && config.default_soft_delete_retention_seconds.is_some()
             && let Some(input) = settings.get("default_soft_delete_retention_seconds")
             && !self
@@ -3487,9 +3487,9 @@ mod tests {
             &["--compat-profile", "fake-gcs-server"],
             [
                 CompatProfile::Native,
-                CompatProfile::LegacyEmulator,
+                CompatProfile::FakeGcsServer,
                 CompatProfile::Native,
-                CompatProfile::LegacyEmulator,
+                CompatProfile::FakeGcsServer,
             ],
             load_http,
             |config| config.compat_profile,

@@ -478,7 +478,7 @@ mod tests {
             let mut headers = hyper::HeaderMap::new();
             headers.insert("host", origin.authority().as_str().parse().unwrap());
             let config = crate::config::Config {
-                compat_profile: crate::config::CompatProfile::LegacyEmulator,
+                compat_profile: crate::config::CompatProfile::FakeGcsServer,
                 xml_virtual_host_domains: origin.dns_name().map(|name| vec![name.to_owned()]).unwrap_or_default(),
                 public_base_url: Some(origin), ..Default::default()
             };

@@ -16,7 +16,7 @@ Scope: DESIGN-082 and DESIGN-083. This changes rejection behavior, not support f
 | error-message-actionable | Messages name the unsupported field/header/route and suggest removing the option or using a supported operation, with an example. |
 | go-sdk-fails-fast | Default high-level SDK calls fail within three seconds under a ten-second context, expose googleapi.Error 400 badRequest, and differ from ErrBucketNotExist/ErrObjectNotExist. |
 | ruby-sdk-fails-fast | High-level calls with the default retry count raise InvalidArgumentError (ServiceAccount exposes Google::Apis::ClientError directly), with status 400/reason badRequest within three seconds, rather than a not-found error. |
-| legacy-profile | Native and LegacyEmulator use the same rejection policy; strict authentication still precedes rejection. No pinned legacy contract requires false 404s for these routes. |
+| legacy-profile | The native and fake-gcs-server profiles use the same rejection policy; strict authentication still precedes rejection. No pinned legacy contract requires false 404s for these routes. |
 
 ## Sources and local decision
 

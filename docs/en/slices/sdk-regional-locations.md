@@ -15,7 +15,7 @@ Feature: `JSON-BUCKETS-005` remains PARTIAL because broader bucket policies and 
 | configurable-dual-region-unsupported | Nonempty `customPlacementConfig` uses the shared unsupported error; no bucket is published. |
 | unknown-location-rejected | Unknown names fail with 400 `invalidArgument`, identifying location and valid examples `US`, `ASIA-NORTHEAST1`. |
 | default-location-config | Configuration and bucket initialization share the same static names; omitted, null and empty location inputs use the default. |
-| legacy-profile-unchanged | LegacyEmulator retains fixed `US-CENTRAL1` response behavior and existing input restrictions. |
+| legacy-profile-unchanged | The fake-gcs-server profile retains fixed `US-CENTRAL1` response behavior and existing input restrictions. |
 | sdk-go | High-level `BucketHandle.Create` and `Attrs` support a regional and predefined dual-region bucket. |
 | sdk-ruby | High-level `create_bucket` returns regional location and location_type. |
 

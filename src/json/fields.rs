@@ -448,7 +448,7 @@ mod tests {
             bucket_metageneration: None,
         };
         let policy = json::parse_policy(br#"{"etag":"AQ==","bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).unwrap();
-        for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+        for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
             check(
                 &json::bucket_resource_with_profile(&bucket, base, json::Projection::Full, profile)
                     .unwrap(),

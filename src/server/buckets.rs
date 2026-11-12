@@ -134,7 +134,7 @@ pub(super) async fn respond<'a>(
     Ok(json_response_selected(&mut value, &fields, cache))
 }
 
-/// The legacy profile keeps reporting the project owners team as `owner` for a bucket under
+/// The fake-gcs-server profile keeps reporting the project owners team as `owner` for a bucket under
 /// uniform bucket-level access; Cloud Storage reports none (recorded 2026-10-31).
 fn add_legacy_uniform_owner(value: &mut Value, profile: CompatProfile) {
     let uniform = value
@@ -143,7 +143,7 @@ fn add_legacy_uniform_owner(value: &mut Value, profile: CompatProfile) {
         .and_then(|value| value.get("enabled"))
         .and_then(Value::as_bool)
         == Some(true);
-    if profile == CompatProfile::LegacyEmulator && uniform && value.get("owner").is_none() {
+    if profile == CompatProfile::FakeGcsServer && uniform && value.get("owner").is_none() {
         let number = value["projectNumber"].as_str().unwrap_or("0").to_owned();
         if let Some(value) = value.as_object_mut() {
             value.insert(
@@ -683,7 +683,7 @@ async fn delete(
         .delete_bucket(bucket, conditions, access)
         .await
         .map_err(|error| bucket_catalog_error(error, ctx.profile, None))?;
-    Ok(if ctx.profile == CompatProfile::LegacyEmulator {
+    Ok(if ctx.profile == CompatProfile::FakeGcsServer {
         let mut response = Response::new(Full::new(Bytes::from_static(b"null\n")));
         response.headers_mut().insert(
             "content-type",
@@ -700,7 +700,7 @@ fn bucket_catalog_error(
     profile: CompatProfile,
     name: Option<&str>,
 ) -> JsonError {
-    if profile == CompatProfile::LegacyEmulator {
+    if profile == CompatProfile::FakeGcsServer {
         match error {
             CatalogError::NotFound => {
                 return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");

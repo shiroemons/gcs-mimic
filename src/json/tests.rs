@@ -62,25 +62,25 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
             Projection::Full,
         ),
         (
-            CompatProfile::LegacyEmulator,
+            CompatProfile::FakeGcsServer,
             Method::GET,
             "",
             Projection::NoAcl,
         ),
         (
-            CompatProfile::LegacyEmulator,
+            CompatProfile::FakeGcsServer,
             Method::PUT,
             "predefinedAcl=private",
             Projection::Full,
         ),
         (
-            CompatProfile::LegacyEmulator,
+            CompatProfile::FakeGcsServer,
             Method::PATCH,
             "",
             Projection::NoAcl,
         ),
         (
-            CompatProfile::LegacyEmulator,
+            CompatProfile::FakeGcsServer,
             Method::PUT,
             "",
             Projection::Full,
@@ -104,7 +104,7 @@ fn parsed_bucket_projection_keeps_profile_defaults_and_explicit_overrides() {
             );
         }
     }
-    for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+    for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
         for method in [Method::POST, Method::GET] {
             let uri: Uri = "/storage/v1/b?project=project".parse().unwrap();
             let operation = route_with_profile(&method, &uri, profile, "project")
@@ -298,7 +298,7 @@ fn resource(bucket: &BucketRecord) -> Value {
 
 #[test]
 fn lifecycle_insert_defaults_and_unknown_resource_fields() {
-    for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+    for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
         for lifecycle in [
             json!(false),
             json!({"rule":false}),
@@ -480,7 +480,7 @@ fn bkt_qry_001_duplicate_unknown_and_misplaced_parameters() {
         let legacy = route_with_profile(
             &method,
             &path.parse().unwrap(),
-            CompatProfile::LegacyEmulator,
+            CompatProfile::FakeGcsServer,
             "seed",
         );
         assert!(legacy.unwrap().is_err(), "{path}");
@@ -565,12 +565,12 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             )
             .is_ok()
         );
-        // The legacy profile never applies canned ACLs; the native profile applies them on
+        // The fake-gcs-server profile never applies canned ACLs; the native profile applies them on
         // PATCH and PUT, refuses them on insert, and rejects them under uniform access.
         for (write, profile, expected) in [
             (
                 BucketAclWrite::Update,
-                CompatProfile::LegacyEmulator,
+                CompatProfile::FakeGcsServer,
                 JsonError::unsupported(parameter).reason,
             ),
             (

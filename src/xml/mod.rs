@@ -481,7 +481,7 @@ fn legacy_public_authority<'a>(
     config: &Config,
     endpoints: &'a EndpointSnapshot,
 ) -> Option<&'a hyper::http::uri::Authority> {
-    if config.compat_profile != crate::config::CompatProfile::LegacyEmulator {
+    if config.compat_profile != crate::config::CompatProfile::FakeGcsServer {
         return None;
     }
     endpoints

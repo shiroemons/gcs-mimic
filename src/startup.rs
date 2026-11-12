@@ -278,7 +278,7 @@ async fn open_catalog(
                 );
             }
             catalog.set_default_soft_delete_retention(match config.compat_profile {
-                gcs_mimic::config::CompatProfile::LegacyEmulator => None,
+                gcs_mimic::config::CompatProfile::FakeGcsServer => None,
                 gcs_mimic::config::CompatProfile::Native => {
                     config.default_soft_delete_retention_seconds
                 }

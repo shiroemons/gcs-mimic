@@ -676,7 +676,7 @@ async fn ram_grpc_appendable_and_legacy_share_the_same_catalog_and_readers() {
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::LegacyEmulator,
+        crate::config::CompatProfile::FakeGcsServer,
     );
     let insert = v1::pb::InsertObjectRequest {
         first_message: Some(
@@ -799,7 +799,7 @@ async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versio
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::LegacyEmulator,
+        crate::config::CompatProfile::FakeGcsServer,
     );
     let (code, _): (_, Vec<v1::pb::Object>) = rpc(
         &mut legacy,
@@ -929,7 +929,7 @@ async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_v
     let mut legacy = v1::service(
         state.clone(),
         8192,
-        crate::config::CompatProfile::LegacyEmulator,
+        crate::config::CompatProfile::FakeGcsServer,
     );
     let insert = v1::pb::InsertObjectRequest {
         first_message: Some(

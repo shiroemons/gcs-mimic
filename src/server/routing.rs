@@ -788,7 +788,7 @@ async fn respond_bucket(
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
         .unwrap_or_else(JsonError::into_response);
-    if profile == CompatProfile::LegacyEmulator && response.status() != StatusCode::NOT_MODIFIED {
+    if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
         return boxed(legacy_bucket_body(response).await);
     }
     boxed(response)
@@ -796,7 +796,7 @@ async fn respond_bucket(
 
 /// fake-gcs-server reports these bucket errors with its own reasons and messages.
 fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonError {
-    if profile == CompatProfile::LegacyEmulator
+    if profile == CompatProfile::FakeGcsServer
         && error.status == StatusCode::BAD_REQUEST
         && matches!(
             error.kind,
@@ -805,7 +805,7 @@ fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonErro
     {
         error.reason = "invalid";
     }
-    if profile == CompatProfile::LegacyEmulator && error.is_missing_bucket() {
+    if profile == CompatProfile::FakeGcsServer && error.is_missing_bucket() {
         error.message = "Not Found".into();
     }
     error

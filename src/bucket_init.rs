@@ -3167,7 +3167,7 @@ mod tests {
                 legacy,
                 "local-project",
                 FixedClock.now(),
-                CompatProfile::LegacyEmulator,
+                CompatProfile::FakeGcsServer,
                 "US"
             )
             .is_ok()

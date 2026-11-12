@@ -306,7 +306,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
     }
-    // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
+    // The fake-gcs-server profile keeps project-owner objects, as fake-gcs-server does.
     if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
         auth = auth.with_local_creator_email(&report.config.local_creator_email);
     }
