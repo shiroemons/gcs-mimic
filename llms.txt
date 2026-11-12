@@ -248,7 +248,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Other settings are `GCS_MIMIC_SIGNED_URLS` (`verify` checks signatures in default mode), `GCS_MIMIC_GRPC_LISTEN` and `GCS_MIMIC_LOG_LEVEL`. `docker run --rm ghcr.io/shiroemons/gcs-mimic:0.19.1 --help` lists every option.
 - A passing SDK scorecard means ordinary workflows work, not that the API is complete.
 
-**Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data` mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read and nothing warns about them, so `FAKE_GCS_SCHEME=http` leaves the server on HTTPS; use the matching flag or `GCS_MIMIC_*` variable. These do not carry over:
+**Moving from fake-gcs-server.** It is not a drop-in replacement for every setup. Replace the image and mount a new volume at `/var/lib/gcs-mimic`. Most command-line flags and the `./data:/data` mount keep working. Since 0.15.0, `FAKE_GCS_*` variables are not read and nothing warns about them, so `FAKE_GCS_PORT=9000` leaves the server listening on 4443; use the matching flag or `GCS_MIMIC_*` variable. These do not carry over:
 
 - Objects in a `/storage` volume. `gcs-mimic import fake-gcs-server` stops on objects uploaded through fake-gcs-server's API in 0.14.0. Stop fake-gcs-server and copy names and bytes as below, then mount `./data:/data:ro`. Content types are derived again from file extensions; generations and custom metadata are lost.
 - Shells inside the container, and running as root.
