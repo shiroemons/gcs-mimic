@@ -45,7 +45,17 @@ Each change was checked before it was committed; these are the suites that cover
 
 ## Known gap: SDK runs under the fake-gcs-server profile
 
-`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk` failed two Go cases, `TestObjectMediaLifecycle` and `TestMigrationAppScenarioBucketList`: they expected the fake-gcs-server profile and met the native one. The same command with `legacy-emulator` fails the same two cases on the source before these changes (`7016b7ee`), so the renaming did not cause it. Since `0.18.0`, `scripts/server-env.sh` removes every `GCS_MIMIC_*` variable before a runner starts its server, and `scripts/sdk-go.sh` passes no `--compat-profile`, so the variable reaches the tests but never the server. The SDK suites therefore have not exercised the fake-gcs-server profile since `0.18.0`; the Rust integration tests that start the server with `--compat-profile fake-gcs-server` still do.
+`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk` failed two Go cases, `TestObjectMediaLifecycle` and `TestMigrationAppScenarioBucketList`: they expected the fake-gcs-server profile and met the native one. The same command with `legacy-emulator` fails the same two cases on the source before these changes (`7016b7ee`), so the renaming did not cause it. Since `0.18.0`, `scripts/server-env.sh` removed every `GCS_MIMIC_*` variable before a runner started its server, and `scripts/sdk-go.sh` passed no `--compat-profile`, so the variable reached the tests but never the server.
+
+`GCSM_SDK_COMPAT_PROFILE` now selects the profile of every server a run starts. With it, both cases above pass under `fake-gcs-server`, and `TestMigrationAppScenarioBucketList` passes under each profile. The full `GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk` fails 19 other Go cases, all documented profile differences that the suite has not exercised since the last profile run on 2026-10-22:
+
+| Cases | Difference |
+| --- | --- |
+| 16 cases that create buckets with the Go client | The profile refuses a create `location` other than `US-CENTRAL1` (since 2026-10-25), and Go Storage v1.70.0 sends `"location":"US"` by default, so the official client cannot create a bucket with default attributes |
+| `TestBucketMetadataReplace`, `TestBucketCORS` | A profile PUT preserves omitted settings ([PUT contract](../slices/bucket-metadata-put.md)) |
+| `TestReadETagValidators` | A profile bucket's JSON `etag` is not its HTTP validator ([validator contract](../slices/json-read-etag-validators.md)) |
+
+Because the Go suite fails first, the other SDK suites have not run under that profile. The Rust integration tests that start the server with `--compat-profile fake-gcs-server` cover the renamed value.
 
 ## Not run
 
