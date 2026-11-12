@@ -35,19 +35,43 @@ Compatibility covers documented CLI commands and options, environment variables,
 configuration formats and defaults, supported API behavior, supported runtime
 platforms, and access to persistent data. Internal functions, implementation
 details and human-readable diagnostic wording are not stable interfaces.
+`worker_threads`, `max_blocking_threads`, `catalog_wait_timeout_ms` and
+`memory_catalog_max_bytes` are tuning settings: their names and value ranges are
+covered, but what a value does to the process is not.
 
 Machine-readable output is covered by name, not by wording: the field names of
-the ready event, diagnostic keys, event names, exit codes, and the response
-fields of the user-facing emulator routes. Messages, `fix` text and other
-human-readable strings may change in any release.
+the ready event, the member names of a diagnostics line, the listed event names,
+exit codes, and the response fields of the user-facing emulator routes. Messages,
+`fix` text and other human-readable strings may change in any release.
 
-The user-facing emulator routes are `/_internal/healthcheck`, `/_internal/ready`,
-`/_internal/config`, `/_internal/reset` and `/_internal/lifecycle/run`. Their
-request and response keys are kept as currently spelled, and a route that takes a
-request body accepts one of at least 64 KiB; a larger body that a release happens
-to accept is not promised. The `/_internal/sync` routes are the internal protocol
-between a server and `gcs-mimic sync` of the same version and are not covered;
-use the `gcs-mimic sync` command instead.
+- **Events.** The covered event names are `ready`, `stopped`, `diagnostics` and
+  `data_dir_created`, and `import_page`, `import_summary` and `import_complete`
+  from `gcs-mimic import`. Every other event on stderr reports what the
+  implementation is doing; its name and fields may change in any release, and so
+  may the fields inside an import `summary` or `page`.
+- **Ready values.** A ready field that reports a setting uses that setting's
+  documented values, and `transport` is `tcp` or `unix`; these values are covered.
+  `message` is not.
+- **Diagnostics.** The values of `source` are covered. A `key` from the command
+  line, the environment or the configuration file is the name as supplied; other
+  keys locate the problem and are not covered.
+- **Exit status.** 0 on success and 1 on any failure, for every command.
+
+The user-facing emulator routes are `/_internal/health`, `/_internal/healthcheck`,
+`/_internal/ready`, `/_internal/config`, `/_internal/objects`, `/_internal/reset`,
+`/_internal/reseed` and `/_internal/lifecycle/run`. Their methods, success status
+and request and response keys are kept as currently spelled, and a route that
+takes a request body accepts one of at least 64 KiB; a larger body that a release
+happens to accept is not promised. Management routes keep answering 404 while
+`admin_enabled` is off, 403 to a browser-initiated request and 421 to a host that
+is not approved, and their error bodies keep `error.code`; other members of an
+error body are not covered. `/_internal/delete_all` is fake-gcs-server's reset
+form, a migration aid outside the contract like the flags below. The
+`/_internal/sync` routes are the internal protocol between a server and
+`gcs-mimic sync` of the same version and are not covered; use the `gcs-mimic
+sync` command instead. Directory synchronization is not complete, so the options
+and the output of `gcs-mimic sync` are not covered either; only its exit status
+is.
 
 `--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native
 options and are covered like every other documented option. The other flags in
@@ -55,11 +79,17 @@ the [option aliases](slices/option-aliases.md) come from fake-gcs-server; they
 are migration aids outside the stable contract. The native settings they
 translate to are covered as usual.
 
+After `1.0.0`, a covered name or value is withdrawn in two steps. A minor release
+deprecates it: the old spelling keeps working, startup reports a `warn`
+diagnostic that names the replacement, and the release notes list it. The next
+major release removes it. A fake-gcs-server flag, being outside the contract, may
+be removed in a minor release once at least one earlier minor release has warned
+about it.
+
 The [public contract review](public-contract-review.md) records these
-decisions, the changes they require in a `0.x` minor release before the freeze,
-and the points left for the freeze, such as the `1.x` deprecation procedure and
-the other `/_internal` routes. Until those changes ship, the code behaves as the
-review's inventory describes.
+decisions and the changes they require in a `0.x` minor release before the
+freeze. Until those changes ship, the code behaves as the review's inventory
+describes.
 
 Document breaking changes and migration steps in release notes. Catalog schema
 numbers are separate from application versions; schema changes that preserve the
