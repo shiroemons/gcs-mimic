@@ -59236,7 +59236,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The container smoke checks, the pinned SDK harnesses, just pre-push and the cross-target builds have not run on the integrated source; they run once on the release source. Until then the row stays PARTIAL."
+        "just pre-push (Rust, cross-target Clippy, the eight native-profile SDK suites and both container architectures) and just check-sdk-clients passed on the integrated source. The SDK suites cannot select the fake-gcs-server profile: since 0.18.0 scripts/server-env.sh removes GCS_MIMIC_* before a runner starts its server and scripts/sdk-go.sh passes no --compat-profile, so GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk fails two Go cases, as the same command with legacy-emulator does before these changes. The renamed value is covered by the Rust integration tests only. scripts/compare-reference-emulator.sh and the release builds of all eight archives have not run."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"

@@ -31,10 +31,24 @@ Each change was checked before it was committed; these are the suites that cover
 | Go version check | `go test -race -count=1 ./fakestorage`, with and without `-tags integration` | Passed |
 | `compat_profile=fake-gcs-server` | `cargo test --locked --workspace --no-fail-fast` | 3427 passed, 0 failed |
 
+## Release gates on the integrated source
+
+`just pre-push` passed on commit `12c73149` in 17m25s:
+
+| Stage | Result |
+| --- | --- |
+| `just check` | 3423 Rust tests passed in 16 test binaries, 0 failed, 1 ignored; Clippy and the production lint gate passed on the host and on `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`; documentation and script checks passed |
+| `just check-sdk` | The pinned Go, Ruby, Node.js, Python, PHP, Java, .NET (net10.0 and net11.0) and Rust suites passed in the native profile. Four cases were skipped by their own conditions: Go V2 signing and two Node.js cases need HTTPS, and one Node.js case runs in the strict profile only |
+| `just check-containers` | `linux/amd64` and `linux/arm64` images built, including release musl binaries, and each passed all seven smoke checks; the bucket initialization restart reported `reconciled:0`, as expected, because its entries do not write the labels its API call changes |
+
+`just check-sdk-clients`, which adds the Go `fakestorage` facade against the binary of the same source, passed too.
+
+## Known gap: SDK runs under the fake-gcs-server profile
+
+`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk` failed two Go cases, `TestObjectMediaLifecycle` and `TestMigrationAppScenarioBucketList`: they expected the fake-gcs-server profile and met the native one. The same command with `legacy-emulator` fails the same two cases on the source before these changes (`7016b7ee`), so the renaming did not cause it. Since `0.18.0`, `scripts/server-env.sh` removes every `GCS_MIMIC_*` variable before a runner starts its server, and `scripts/sdk-go.sh` passes no `--compat-profile`, so the variable reaches the tests but never the server. The SDK suites therefore have not exercised the fake-gcs-server profile since `0.18.0`; the Rust integration tests that start the server with `--compat-profile fake-gcs-server` still do.
+
 ## Not run
 
-These run once on the release source and are not claimed here:
-
-- `scripts/smoke-containers.sh` and the image builds. Its bucket initialization restart still expects `reconciled:0`, because its entries do not write the labels its API call changes; that expectation is unverified until it runs.
-- The pinned SDK harnesses (`just check-sdk`), including `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server` runs and `scripts/compare-reference-emulator.sh`.
-- `just pre-push`, the cross-target builds and the Linux-only tests.
+- `scripts/compare-reference-emulator.sh`, which needs the pinned fake-gcs-server checkout in `GCSM_REFERENCE_REPO`.
+- The release workflow's builds of all eight native archives, which run in CI on a release tag; locally only Clippy type-checks the other targets.
+- Tests that run only on Linux hosts.
