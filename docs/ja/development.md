@@ -36,6 +36,8 @@ just pre-push
 1. Rustとシェルの検証。
 2. Go・Ruby・Node.js・Python・PHP・Java・.NET・Rust SDKの全テスト。
    Java・.NET・RustはHTTP専用のため、`GCSM_SDK_SCHEME=https`では`SKIPPED`と表示して飛ばします。
+   `GCSM_SDK_SERVER_SCHEME=auto`を足すと、サーバーを`--scheme`と`--api-base-url`なしの既定構成で起動します。
+   クライアントは`GCSM_SDK_SCHEME`のスキームのまま、1つのポートでHTTPとHTTPSの両方を受ける既定の動作を検証できます。
 3. AMD64・ARM64のコンテナ検証を並列実行。
 
 各環境は、自分のビルドが終わり次第、動作確認へ進みます。

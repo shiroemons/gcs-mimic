@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: **implemented in 0.19.0, `PARTIAL`.** DESIGN-102 in the feature ledger records which acceptance cases pass; the SDK, browser and container clients remain pending. The [verification record](../evidence/single-port-scheme.md) lists the commands. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065).
+Status: **implemented in 0.19.0, `IMPLEMENTED`.** Every acceptance case of DESIGN-102 in the feature ledger passes, including the SDK, browser and container clients. The [verification record](../evidence/single-port-scheme.md) lists the commands. This is the design that candidate 3 of the [public contract review](../public-contract-review.md) left pending for the minor release after `0.18.0`. It extends the [local TLS contract](local-tls.md) (DESIGN-065).
 
 ## Problem
 

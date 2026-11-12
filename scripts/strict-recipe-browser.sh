@@ -23,8 +23,11 @@ fi
 if [ "${1:-}" = visit ] && [ "$#" = 3 ]; then
   # Browser services try Google hosts even with these flags off, so name resolution outside
   # loopback is blocked here and the net log audit checks what was actually sent.
+  # HTTPS to the recipe's port trusts only the key of the certificate the host verified against
+  # gcs-mimic's development CA; any other certificate fails the navigation.
   args=(--headless --disable-gpu --no-sandbox --no-first-run --no-proxy-server
     --disable-background-networking --disable-component-update --disable-sync
+    "--ignore-certificate-errors-spki-list=$(cat "$harness/development-ca.spki")"
     '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
     "--log-net-log=$harness/netlog/$2.json" "--user-data-dir=$(mktemp -d)"
     --dump-dom --timeout=60000 --virtual-time-budget=30000)
@@ -33,7 +36,7 @@ fi
 
 if [ "$#" != 0 ]; then
   echo 'Usage: GCSM_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh' >&2
-  echo 'Needs Docker with Compose and jq; only pulling images and installing Chromium uses the network.' >&2
+  echo 'Needs Docker with Compose, jq and openssl; only pulling images and installing Chromium uses the network.' >&2
   exit 2
 fi
 
@@ -151,7 +154,20 @@ docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .auth_mode == "s
   || fail 'the recipe is not in strict mode with the test signer'
 port=${address##*:}
 api=http://localhost:$port
+# The recipe sets no scheme, so the same published port also serves HTTPS.
+https_api=https://localhost:$port
 frontend=http://localhost:$FRONTEND_PORT
+# Installing a CA into the browser's store needs packages the image lacks, so the host checks
+# that the served certificate chains to the exported development CA and names localhost, and
+# the browser then trusts that certificate's key alone. The server presents no CA certificate,
+# so a hash of the CA's own key would match nothing.
+docker compose -p "$project" exec -T gcs gcs-mimic tls ca >"$work/development-ca.pem"
+openssl s_client -connect "$address" -servername localhost -verify_hostname localhost \
+  -CAfile "$work/development-ca.pem" -verify_return_error </dev/null >"$work/served.txt" 2>"$work/s_client.log" \
+  || { cat "$work/s_client.log" >&2; fail 'the HTTPS certificate on the published port does not verify against the development CA for localhost'; }
+openssl x509 -pubkey -noout <"$work/served.txt" | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary | base64 >"$work/development-ca.spki"
+docker cp -q "$work/development-ca.spki" "$container:$harness/"
 checkout=$(git rev-parse HEAD)
 echo "image under test: $GCSM_IMAGE $(docker image inspect "$GCSM_IMAGE" --format '{{.Id}}'), checkout $checkout"
 echo 'PASS: recipe up, only 4443 published, strict mode, test signer enabled'
@@ -192,6 +208,8 @@ portless=$api${portless#http://localhost}
 other_host=$(sign --base-url "http://127.0.0.1:$port" --bucket app-private --object "$private_name" --method GET)
 [[ $other_host == "http://127.0.0.1:$port/"* ]] || fail 'the other-host URL is not signed for 127.0.0.1'
 other_host=$api${other_host#"http://127.0.0.1:$port"}
+download_https=$(sign --base-url "$https_api" --bucket app-private --object "$private_name" --method GET)
+[[ $download_https == "$https_api/"* ]] || fail 'the HTTPS download URL is not signed for the HTTPS origin'
 jq -n \
   --arg api "$api" --arg allowedOrigin "$frontend" \
   --arg privateName "$private_name" --arg privateBody "$private_body" \
@@ -240,7 +258,13 @@ navigate list-json "$api/storage/v1/b/app-private/o" Anonymous "$private_name"
 navigate tampered "$download_tampered" SignatureDoesNotMatch "$private_body"
 navigate expired "$download_expired" ExpiredToken "$private_body"
 navigate other-host "$other_host" SignatureDoesNotMatch "$private_body"
-echo 'PASS: scenario navigation'
+# V4 signs the Host and never the scheme, so either protocol fetches a URL signed for the other.
+navigate public-https "$https_api/app-public/$public_name" "$public_body"
+navigate download-https "$download_https" "$private_body"
+navigate download-http-signed-over-https "$https_api${download#"$api"}" "$private_body"
+navigate download-https-signed-over-http "$api${download_https#"$https_api"}" "$private_body"
+navigate unsigned-https "$https_api/app-private/$private_name" AuthenticationRequired "$private_body"
+echo 'PASS: scenario navigation over HTTP and HTTPS on the one published port'
 
 page stock-allowed "$frontend/?role=allowed&phase=stock"
 echo 'PASS: scenario page-stock'

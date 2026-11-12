@@ -36,6 +36,16 @@ if [[ $run_ruby == true ]]; then
   select_pinned_ruby sdk-tests/ruby
 fi
 scheme=${GCSM_SDK_SCHEME:-http}
+# GCSM_SDK_SCHEME is the scheme the clients use. The servers use it too unless
+# GCSM_SDK_SERVER_SCHEME=auto, which starts them as a default installation runs: without
+# --scheme, so each port serves both protocols, and without --api-base-url, so links follow
+# each request's own origin.
+server_scheme=${GCSM_SDK_SERVER_SCHEME:-$scheme}
+case "$server_scheme" in
+  "$scheme") scheme_args=(--scheme "$scheme") ;;
+  auto) scheme_args=() ;;
+  *) echo "GCSM_SDK_SERVER_SCHEME must be auto or $scheme (GCSM_SDK_SCHEME)" >&2; exit 1 ;;
+esac
 if [[ $with_clients == true && $scheme != http ]]; then
   echo 'Additional client harnesses currently require the HTTP profile' >&2
   exit 2
@@ -113,9 +123,10 @@ wait_for_ready() {
   local server_pid=$1 name=$2 address=$3 origin=$4 auth_mode=$5 actual attempt
   for ((attempt = 0; attempt < 100; attempt++)); do
     if ! kill -0 "$server_pid" 2>/dev/null; then echo "Server exited before readiness: $name" >&2; exit 1; fi
-    # A server whose ready event lacks the requested auth_mode must not pass as a strict server.
-    actual=$(jq -Rr --arg mode "$auth_mode" \
-      'fromjson? | select(.event == "ready" and ($mode == "" or .auth_mode == $mode)) | .listen // empty' \
+    # A server whose ready event lacks the requested auth_mode must not pass as a strict server,
+    # and one that runs another scheme must not pass for the requested profile.
+    actual=$(jq -Rr --arg mode "$auth_mode" --arg scheme "$server_scheme" \
+      'fromjson? | select(.event == "ready" and .scheme == $scheme and ($mode == "" or .auth_mode == $mode)) | .listen // empty' \
       "$work/$name")
     if [[ $actual == "$address" ]]; then
       if "$server" healthcheck --url "$origin/_internal/ready" ${health_args[@]+"${health_args[@]}"} >/dev/null 2>&1; then return 0; fi
@@ -141,9 +152,11 @@ start_server() {
   origin="$scheme://$address"
   grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
+  local base_args=(--api-base-url "$origin")
+  if [[ $server_scheme == auto ]]; then base_args=(); fi
   set_server_env
   "${server_env[@]}" \
-    "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
+    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} --listen "$address" --grpc-listen "$grpc_address" ${base_args[@]+"${base_args[@]}"} ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"
   printf -v "$endpoint_var" '%s' "$origin"
@@ -171,7 +184,7 @@ start_local_strict_server() {
   origin="$scheme://$address"
   set_server_env
   "${server_env[@]}" \
-    "$server" serve --scheme "$scheme" --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
+    "$server" serve ${scheme_args[@]+"${scheme_args[@]}"} --listen "$address" ${tls_args[@]+"${tls_args[@]}"} \
     --auth-mode strict --test-signer enabled --trusted-listen 127.0.0.1:0 "$@" \
     >"$work/local-strict-server.log" 2>&1 &
   local_strict_pid=$!

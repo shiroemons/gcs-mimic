@@ -283,23 +283,34 @@ for platform in "$@"; do
   echo "PASS: $platform read-only seed then ready, replay over API changes across stop/start and recreate, API-only objects kept until deleted"
 
   # The image's default_seed_dir must load a fake-gcs-server style /data mount without
-  # any seed variable.
-  container=$(docker run --detach --publish 127.0.0.1::4443 --env GCS_MIMIC_SCHEME=http \
+  # any seed variable. With no setting at all, the image's own HEALTHCHECK must pass against
+  # the default scheme, which serves HTTP and HTTPS on the one port.
+  container=$(docker run --detach --publish 127.0.0.1::4443 \
     --mount "type=bind,src=$PWD/fixtures,dst=/data,readonly" "$GCSM_IMAGE")
-  ready=false
+  health=
   for ((attempt = 0; attempt < 40; attempt++)); do
-    if docker exec "$container" gcs-mimic healthcheck; then ready=true; break; fi
+    health=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+    if [[ $health == healthy ]]; then break; fi
     sleep 1
   done
-  if [[ $ready != true ]]; then docker logs "$container"; exit 1; fi
+  if [[ $health != healthy ]]; then
+    docker logs "$container"
+    docker inspect --format '{{json .State.Health}}' "$container"
+    exit 1
+  fi
+  docker logs "$container" 2>&1 | jq -se 'any(.event == "ready" and .scheme == "auto")' >/dev/null || exit 1
   address=$(docker port "$container" 4443/tcp | head -n 1)
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
-  cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  docker run --rm --network none "$GCSM_IMAGE" tls ca >"$work/development-ca.pem"
+  for origin in "http://$address" "https://$address"; do
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+      --cacert "$work/development-ca.pem" \
+      "$origin/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+    cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  done
   docker stop --timeout 15 "$container" >/dev/null
   docker rm "$container" >/dev/null
   container=
-  echo "PASS: $platform implicit /data seed without seed variables"
+  echo "PASS: $platform implicit /data seed without seed variables; the image HEALTHCHECK passes with no setting, and one port serves the seed over HTTP and HTTPS"
 
   # One volume holds sibling data and sync directories so the existing cleanup owns
   # it. The mount point is absent from the image, so Docker does not copy ownership.

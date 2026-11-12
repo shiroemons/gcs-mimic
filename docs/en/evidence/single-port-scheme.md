@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Verified on 2026-11-11 on macOS (Apple Silicon) with the pinned Rust toolchain, at the source that adds `scheme=auto`. Signed URLs over both protocols, concurrent use of both protocols and the connection-slot case were added on 2026-11-12 on the same platform. The row stays `PARTIAL` until the client cases below pass.
+Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Verified on 2026-11-11 on macOS (Apple Silicon) with the pinned Rust toolchain, at the source that adds `scheme=auto`. Signed URLs over both protocols, concurrent use of both protocols and the connection-slot case were added on 2026-11-12 on the same platform, and the SDK, browser and container clients ran the same day against servers and an image built from that source, so the row is `IMPLEMENTED`.
 
 ## Commands and results
 
@@ -16,6 +16,10 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `cargo xtask lint` | PASS: no new production violation; test wall-clock calls within the baseline |
 | `bash scripts/check-cross.sh` | PASS for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, with no new production Clippy violation. The first CI run of the feature failed this check on Windows, where the Unix-socket handshake was unused; it now compiles only on Unix. |
 | `bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test it_process -- tls::` (2026-11-12) | PASS, including the three tests added for signed URLs, slots and concurrency |
+| `GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby` (2026-11-12) | PASS: Go storage v1.70.0 with Go 1.27.4, 90 top-level tests (202 tests and subtests) and the one HTTP skip the suite declares (`TestV2RSASignedTransfers`, whose signer always emits HTTPS); Ruby google-cloud-storage 1.62.2 on Ruby 4.0.9, every permissive and strict scenario |
+| `GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby` (2026-11-12) | PASS: 91 top-level Go tests (203 tests and subtests) with no skip, and every Ruby scenario over HTTPS with the exported development CA |
+| `GCSM_IMAGE=gcs-mimic:local bash scripts/strict-recipe-browser.sh` (2026-11-12, linux/arm64, Chromium 150.0.7871.181) | PASS; [transcript](strict-recipe-browser.txt) |
+| `bash scripts/smoke-containers.sh --image gcs-mimic:local linux/arm64` (2026-11-12) | PASS, including the container started with no setting |
 
 ## What the tests establish
 
@@ -42,8 +46,16 @@ Scope: DESIGN-102, following the [design](../slices/single-port-scheme.md). Veri
 | `silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out` | With `--max-connections 2 --header-read-timeout-ms 2000`, two connections that send nothing hold both slots: the next plain HTTP client gets no response, and the next HTTPS client no completed handshake, within one second, and each is served once a silent connection times out; the server's stderr holds exactly one `connection_timeout` warning per silent connection and nothing for a connection closed before its first byte |
 | `http_and_https_clients_share_one_port_concurrently` | Eight clients, alternating HTTP and HTTPS, upload ten objects each at the same time; each object is then read over the other protocol, also concurrently |
 
+## Clients
+
+| Lane | Behavior |
+| --- | --- |
+| `scripts/sdk-go.sh:server-auto:client-http` and `scripts/sdk-go.sh:server-auto:client-https` | `GCSM_SDK_SERVER_SCHEME=auto` starts the permissive, strict and local strict servers without `--scheme` or `--api-base-url`, and the runner accepts a server only when its ready event reports `scheme: "auto"`. The Go and Ruby suites then pass with plain HTTP clients and, separately, with HTTPS clients that trust the exported development CA, while every link they follow comes from their own request |
+| `scripts/strict-recipe-browser.sh:navigation:linux/arm64` | The strict local recipe sets no scheme. The host first verifies, with `openssl s_client -verify_return_error`, that the certificate on the published port chains to the exported development CA and names `localhost`; Chromium then trusts that certificate's key alone. Over HTTPS on the same port it shows the public object and a signed private download, shows a URL signed for the HTTP origin over HTTPS and one signed for the HTTPS origin over HTTP, and refuses an unsigned private read with `AuthenticationRequired`; the earlier HTTP navigations are unchanged, and every TCP connection in the net logs still goes to the published port or the page origin on loopback |
+| `scripts/smoke-containers.sh:implicit-seed:linux/arm64` | A container started with only a read-only `/data` mount and no setting reports `scheme: "auto"` in its ready event, reaches `healthy` through the image's own `HEALTHCHECK`, and serves the seeded object over HTTP and over HTTPS with the exported CA on its one published port |
+
 ## Not established
 
-- The pinned Go and Ruby SDK suites, a browser and the container image's `HEALTHCHECK` against a default server.
 - Signed URLs on ports 80 and 443, where a client of the other protocol names the port in Host; the tests use ephemeral ports.
-- Linux and Windows runs.
+- A browser that trusts the development CA from its own certificate store rather than one pinned key, and browsers other than Chromium.
+- Windows runs beyond cross-compilation, and linux/amd64 for the client lanes.

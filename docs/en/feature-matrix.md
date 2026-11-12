@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 81 | 40 | 0 | 0 |
-| project_requirement | 97 | 22 | 0 | 45 | 30 | 0 | 0 |
+| project_requirement | 97 | 22 | 0 | 44 | 31 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -873,7 +873,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-068 | Isolated reset/reseed admin operations | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-069 | Deterministic clock and maintenance stepping | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-100 | CORS fallback for buckets without rules for fake-gcs-server migration | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
-| DESIGN-102 | HTTP and HTTPS on one port as the default scheme | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-102 | HTTP and HTTPS on one port as the default scheme | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
 
 ### End-to-end onboarding
 

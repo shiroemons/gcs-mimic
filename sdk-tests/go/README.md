@@ -175,6 +175,15 @@ passes it to the Go clients and health probes:
 GCSM_SDK_SCHEME=https bash scripts/sdk-go.sh
 ```
 
+The runner starts its servers with the clients' scheme and a fixed
+`--api-base-url`. To run either scheme's clients against servers started as a
+default installation runs, which serve HTTP and HTTPS on one port and derive
+links from each request, also set `GCSM_SDK_SERVER_SCHEME=auto`:
+
+```sh
+GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby
+```
+
 To use supplied development certificates instead (the server certificate must
 include the `127.0.0.1` IP SAN), provide both paths and the CA:
 

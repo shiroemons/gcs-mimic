@@ -58729,7 +58729,7 @@
       "interface": "Emulator configuration and listener transport",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
@@ -58739,12 +58739,12 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "PROJECT_POLICY",
-      "notes": "Local emulator transport, not Cloud Storage behavior. scheme=auto, the default from 0.19.0 under every auth_mode and compat_profile, serves TLS or plain HTTP on the primary TCP listener as each connection's first byte selects: 0x16, a TLS handshake record, selects TLS and anything else plain HTTP, read with a peek that leaves the byte for the protocol. http, https and both keep their meanings; https refuses plain HTTP. tls_cert and tls_key choose the certificate and never make the port HTTPS-only; without them the bundled development certificate is used. A Unix socket serves plain HTTP under auto, and https, both or TLS settings beside it fail startup. The trusted listener, gRPC listener and both two-port mode are never inspected. The wait for the first byte ends at header_read_timeout_ms from accept and the TLS handshake limit also counts from accept, so detection extends neither; shutdown ends the wait, and a connection closed before its first byte returns without a diagnostic. Without an explicit api_base_url, links and resumable session URLs already followed each request's connection scheme and authority, so they follow the detected protocol; where no connection supplies a scheme, auto uses http (the fallback API base, the ready event's listeners[].scheme and the healthcheck without --url), while the ready event's scheme reports auto. fake-gcs-server --public-host without --scheme still translates to an https:// public base. Design and owner decisions: docs/en/slices/single-port-scheme.md; migration: docs/en/releases/0.19.0.md; evidence: docs/en/evidence/single-port-scheme.md.",
+      "notes": "Local emulator transport, not Cloud Storage behavior. scheme=auto, the default from 0.19.0 under every auth_mode and compat_profile, serves TLS or plain HTTP on the primary TCP listener as each connection's first byte selects: 0x16, a TLS handshake record, selects TLS and anything else plain HTTP, read with a peek that leaves the byte for the protocol. http, https and both keep their meanings; https refuses plain HTTP. tls_cert and tls_key choose the certificate and never make the port HTTPS-only; without them the bundled development certificate is used. A Unix socket serves plain HTTP under auto, and https, both or TLS settings beside it fail startup. The trusted listener, gRPC listener and both two-port mode are never inspected. The wait for the first byte ends at header_read_timeout_ms from accept and the TLS handshake limit also counts from accept, so detection extends neither; shutdown ends the wait, and a connection closed before its first byte returns without a diagnostic. Without an explicit api_base_url, links and resumable session URLs already followed each request's connection scheme and authority, so they follow the detected protocol; where no connection supplies a scheme, auto uses http (the fallback API base, the ready event's listeners[].scheme and the healthcheck without --url), while the ready event's scheme reports auto. fake-gcs-server --public-host without --scheme still translates to an https:// public base. V4 signatures cover the Host and never the scheme, so a URL signed for either protocol verifies over both; on port 80 or 443 a client of the other protocol names the port in Host, so there a URL signed for that port's own protocol verifies over the other only with signed_host_port=lenient. Design limits, not deviations: detection reads one byte, so an SSLv2-format hello is served as plain HTTP and fails, as rustls supports neither that format nor those versions; the bundled development key is public, so HTTPS with it authenticates nothing, as under scheme=https. Verified on macOS (Apple Silicon) and, through the container image, linux/arm64; Windows runs only the cross-compilation check. Design and owner decisions: docs/en/slices/single-port-scheme.md; migration: docs/en/releases/0.19.0.md; evidence: docs/en/evidence/single-port-scheme.md.",
       "dependencies": [
         "DESIGN-065"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-102-DEFAULT",
@@ -58841,9 +58841,14 @@
         },
         {
           "id": "DESIGN-102-CLIENTS",
-          "description": "The pinned Go and Ruby SDK suites pass against a default server without a scheme setting; a browser loads a public object over both protocols; the container image's HEALTHCHECK passes with defaults.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The pinned Go and Ruby SDK suites pass, with HTTP clients and with HTTPS clients trusting the exported development CA, against permissive, strict and local strict servers started without --scheme or --api-base-url, whose ready events report scheme auto; Chromium on linux/arm64 loads a public object and signed private downloads over both protocols on the strict local recipe's one published port, including a URL signed for each protocol fetched over the other, after the host verifies the served certificate against the development CA for localhost; the image's own HEALTHCHECK reports healthy for a container started with no setting, which then serves a seeded object over HTTP and HTTPS on its one port.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/sdk-go.sh:server-auto:client-http",
+            "scripts/sdk-go.sh:server-auto:client-https",
+            "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
+            "scripts/smoke-containers.sh:implicit-seed:linux/arm64"
+          ]
         }
       ],
       "test_ids": [
@@ -58866,7 +58871,11 @@
         "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate",
         "a_signed_url_verifies_over_both_protocols_on_one_port",
         "silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out",
-        "http_and_https_clients_share_one_port_concurrently"
+        "http_and_https_clients_share_one_port_concurrently",
+        "scripts/sdk-go.sh:server-auto:client-http",
+        "scripts/sdk-go.sh:server-auto:client-https",
+        "scripts/strict-recipe-browser.sh:navigation:linux/arm64",
+        "scripts/smoke-containers.sh:implicit-seed:linux/arm64"
       ],
       "verification": [
         {
@@ -58920,12 +58929,79 @@
             "silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times_out",
             "http_and_https_clients_share_one_port_concurrently"
           ]
+        },
+        {
+          "command": "GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "scripts/sdk-go.sh:server-auto:client-http"
+          ]
+        },
+        {
+          "command": "GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "scripts/sdk-go.sh:server-auto:client-https"
+          ]
+        },
+        {
+          "command": "GCSM_IMAGE=<image built from the checkout> bash scripts/strict-recipe-browser.sh (linux/arm64, Chromium 150.0.7871.181)",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/strict-recipe-browser.txt",
+          "test_ids": [
+            "scripts/strict-recipe-browser.sh:navigation:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh --image <image built from the checkout> linux/arm64",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "scripts/smoke-containers.sh:implicit-seed:linux/arm64"
+          ]
         }
       ],
-      "sdk_evidence": [],
-      "known_deviations": [
-        "Detection reads one byte, so a client that sends an SSLv2-format hello is served as plain HTTP and fails there; rustls supports neither that format nor those protocol versions. The bundled development key is public, so HTTPS with it authenticates nothing, as under scheme=https. On port 443 or 80 a client of the other protocol names the port in Host, so a URL signed for the protocol whose default port it is verifies over the other one only with signed_host_port=lenient; tests use ephemeral ports and do not bind those ports. Verified on macOS only."
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.4",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.313.0",
+          "transport": "HTTP and HTTPS JSON and XML against permissive, strict and local strict servers started without --scheme or --api-base-url, so links follow each request's origin; HTTPS trusts the exported development CA",
+          "command": "GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=http|https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "scripts/sdk-go.sh:server-auto:client-http",
+            "scripts/sdk-go.sh:server-auto:client-https"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.24",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.2",
+          "transport": "HTTP and HTTPS JSON against permissive and strict servers started without --scheme or --api-base-url; HTTPS trusts the exported development CA",
+          "command": "GCSM_SDK_SERVER_SCHEME=auto GCSM_SDK_SCHEME=http|https bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/single-port-scheme.md",
+          "test_ids": [
+            "scripts/sdk-go.sh:server-auto:client-http",
+            "scripts/sdk-go.sh:server-auto:client-https"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-11-12"
     },

@@ -152,7 +152,11 @@ exact pins. Each README lists the journeys that its SDK cannot express.
 `GCSM_SDK_SCHEME=https just check-sdk` verifies Go, Ruby, Node.js, Python
 and PHP with the exported local CA. The Java, .NET and Rust suites guard a plain
 loopback HTTP origin only, so the HTTPS run prints them as `SKIPPED` instead of
-running them. Signature endpoint/payload caveats are
+running them. `GCSM_SDK_SCHEME` also selects the servers' scheme and fixes
+their `--api-base-url`; add `GCSM_SDK_SERVER_SCHEME=auto` to start the servers
+as a default installation runs, without either option, so each port serves
+both protocols and links follow each request's origin while the clients keep
+the scheme `GCSM_SDK_SCHEME` names. Signature endpoint/payload caveats are
 recorded in [the signed-access evidence](evidence/signed-urls.md).
 
 No Git hook is installed and no commit or push is performed. Re-run the checks
