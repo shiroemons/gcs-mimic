@@ -164,6 +164,8 @@ pub(crate) enum Step {
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.
     AfterPublish,
+    /// While one upload of a group commit publishes under its own savepoint.
+    PublishUpload,
     /// Before the publication transaction commits.
     BeforeCommit,
     /// After the publication transaction committed.
@@ -230,6 +232,8 @@ pub(crate) enum Fault {
     Corrupt,
     /// Fails the step with the error SQLite reports when another writer holds the lock.
     Busy,
+    /// Panics at the step, as a bug in the code there would.
+    Panic,
     /// Copies the data directory to this path, as a process abort leaves it, and lets the
     /// step continue.
     Snapshot(PathBuf),
@@ -403,6 +407,7 @@ pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
         ))),
         Fault::Corrupt => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_CORRUPT))),
         Fault::Busy => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_BUSY))),
+        Fault::Panic => panic!("injected {step:?} panic"),
         Fault::Snapshot(target) => {
             // A snapshot that cannot be taken must fail the test, not pass as a fault.
             if let Err(error) = copy_tree(&fired.data_dir, &target) {

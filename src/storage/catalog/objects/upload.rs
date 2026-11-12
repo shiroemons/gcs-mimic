@@ -241,6 +241,11 @@ impl UploadCommit {
                 None,
             )?;
         }
+        // Every change of this upload is written by now, so a fault here shows whether its
+        // savepoint undoes them.
+        #[cfg(test)]
+        fault::hit(&fault::database_dir(transaction), Step::PublishUpload)
+            .map_err(object_unavailable)?;
         Ok(CommitOutcome::Published {
             record,
             retired,

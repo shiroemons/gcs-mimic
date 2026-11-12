@@ -46,7 +46,7 @@ fn expect_for(fault: &Fault) -> Expect {
         Fault::Block { .. } => Expect::Backend,
         Fault::Io(kind) => Expect::Message(io_message(*kind)),
         Fault::Corrupt => Expect::Message(CORRUPT.into()),
-        Fault::Busy | Fault::Snapshot(_) => Expect::Backend,
+        Fault::Busy | Fault::Panic | Fault::Snapshot(_) => Expect::Backend,
         #[cfg(unix)]
         Fault::PowerLoss(_) => Expect::Backend,
     }

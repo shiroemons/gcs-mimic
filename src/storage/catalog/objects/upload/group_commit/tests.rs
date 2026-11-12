@@ -117,6 +117,41 @@ async fn queued_uploads_publish_together_and_a_failed_precondition_fails_alone()
 }
 
 #[tokio::test]
+async fn a_panicking_upload_fails_alone_and_its_changes_roll_back() {
+    let data = TestDir::new();
+    let catalog = open(&data.0).await;
+    // The second upload of the batch panics after writing all of its rows.
+    fault::arm(&data.0, Step::PublishUpload, 1, Fault::Panic);
+    let tasks = queue_uploads(&catalog, &unconditional(&NAMES)).await;
+    let outcomes = outcomes(tasks).await;
+    assert_eq!(fault::pending(&data.0), 0);
+    let failed: Vec<_> = NAMES
+        .iter()
+        .zip(&outcomes)
+        .filter(|(_, outcome)| outcome.is_err())
+        .collect();
+    let [(failed, outcome)] = failed.as_slice() else {
+        panic!("exactly one upload must fail: {outcomes:?}");
+    };
+    assert!(
+        matches!(outcome, Err(ObjectError::Unavailable(_))),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        read(&catalog, failed).await,
+        Err(ObjectError::ObjectNotFound)
+    );
+    for (name, outcome) in NAMES.iter().zip(&outcomes) {
+        if let Ok(record) = outcome {
+            assert_eq!(&read(&catalog, name).await.unwrap(), record);
+        }
+    }
+    assert_eq!(blob_count(&data.0), NAMES.len() - 1);
+    put(&catalog, "after", b"ok").await;
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_failed_batch_commit_fails_every_queued_upload_and_keeps_none_of_their_blobs() {
     let data = TestDir::new();
     let catalog = open(&data.0).await;
