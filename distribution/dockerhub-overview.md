@@ -12,8 +12,8 @@ This repository mirrors the images published to
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  shiroemons/gcs-mimic:latest --scheme http
-curl --fail \
+  shiroemons/gcs-mimic:latest
+curl --fail --retry 5 --retry-all-errors \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --fail --data-binary 'hello' \
@@ -21,8 +21,9 @@ curl --fail --data-binary 'hello' \
 curl --fail 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 ```
 
-The last command prints `hello`. Without `--scheme http` the server
-uses HTTPS with a built-in public development certificate. The default profile
+The last command prints `hello`. The same port also serves HTTPS with a built-in
+public development certificate; add `--scheme https` after the image name to
+refuse plain HTTP. The default profile
 accepts unauthenticated requests, so publish the port on `127.0.0.1` only. Add
 `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container is
 removed.
