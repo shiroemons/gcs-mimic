@@ -195,8 +195,17 @@ fn live_cli_observes_rescans_waits_and_rejects_stale_revisions() {
     assert_eq!(error["error"]["code"], 409);
     let stale = server.cli("findings", &["--revision", &"0".repeat(48)], false);
     assert_eq!(stale["error"]["code"], 409);
-    let stale = server.cli("approve", &["--revision", &"0".repeat(32)], false);
+    let stale = server.cli("approve", &["--deletion-set", &"0".repeat(32)], false);
     assert_eq!(stale["error"]["code"], 409);
+    // --revision is not approval's option, so the command refuses it without a request.
+    let refused = common::server_command()
+        .args(["sync", "approve", "--endpoint", &server.endpoint])
+        .args(["--revision", &"0".repeat(32)])
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(refused.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--deletion-set"));
 }
 
 #[test]

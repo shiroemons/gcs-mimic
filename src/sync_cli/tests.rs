@@ -66,12 +66,24 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
 #[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
-    let options = parse_cmd(&["approve", "--revision", revision]).unwrap();
+    let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
     assert_eq!(options.path, "/_internal/sync/approve");
     assert_eq!(options.body, Some(json!({"deletion_set":revision})));
+    // --revision names the pages approval was read from, not the set it approves.
+    let refused = parse_cmd(&["approve", "--revision", revision])
+        .err()
+        .unwrap()
+        .into_inner()
+        .unwrap()
+        .downcast::<Diagnostics>()
+        .unwrap();
+    assert!(
+        refused.errors[0].fix.contains("--deletion-set"),
+        "{refused:?}"
+    );
     for args in [
         vec!["approve"],
-        vec!["approve", "--revision", "all"],
+        vec!["approve", "--deletion-set", "all"],
         vec!["rescan", "--revision", revision],
         vec!["status", "--cursor", "x"],
         vec!["stop"],

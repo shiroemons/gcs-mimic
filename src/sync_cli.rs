@@ -121,11 +121,17 @@ impl Options {
                 _ => return Err(invalid("--view must be deletions or findings")),
             };
         }
-        if command == "approve"
-            && let Some(value) = values.remove("--deletion-set")
-            && values.insert("--revision", value).is_some()
-        {
-            return Err(invalid("Supply only --deletion-set for approval"));
+        // Approval names the deletion set it approves; --revision belongs to the pages it was
+        // read from, so accepting it here too would give approval two spellings.
+        if command == "approve" {
+            if values.contains_key("--revision") {
+                return Err(invalid(
+                    "sync approve takes --deletion-set REVISION, not --revision",
+                ));
+            }
+            if let Some(value) = values.remove("--deletion-set") {
+                values.insert("--revision", value);
+            }
         }
         let endpoint = origin(
             values
