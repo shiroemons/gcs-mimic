@@ -60,7 +60,9 @@ fn start_server(
         stdout.read_line(&mut line).unwrap();
         let _ = send.send((stdout, line));
     });
-    let (stdout, line) = receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (stdout, line) = receive
+        .recv_timeout(common::input_fixtures::HANG_GUARD)
+        .unwrap();
     let ready: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(ready["event"], "ready");
     (server, stdout, ready)

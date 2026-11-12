@@ -10,7 +10,7 @@ use crate::{
     clock::SystemClock,
     object::UploadChunk,
     storage::admin::{BucketDefinition, GenerationCondition, Publication, PublishMode},
-    test_support::{TestDir, eventually_async},
+    test_support::{HANG_GUARD, TestDir, eventually_async},
 };
 use bytes::Bytes;
 use std::fs;
@@ -133,14 +133,14 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         controls.stop();
         result
     }));
-    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     for index in 0..12 {
         fs::remove_file(tree.0.join(format!("test-bucket/{index:03}"))).unwrap();
     }
     hook.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     let observed = tokio::time::timeout(Duration::from_millis(500), root.observation())
@@ -181,14 +181,14 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         waiting.try_recv(),
         Err(tokio::sync::oneshot::error::TryRecvError::Empty)
     ));
-    tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     assert_eq!(root.observation().await.unwrap().tracked_objects, 100);
     assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
     fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
     hook.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     let set = root.deletion_set().await.unwrap().unwrap();
@@ -226,7 +226,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
     let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
         run_live(&worker_catalog, &worker_root, &mut stopping).await
     }));
-    tokio::time::timeout(Duration::from_secs(60), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
@@ -250,7 +250,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
 
     // The native deletion event was queued while the explicit scan completed.
     hook.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
     assert!(root.deletion_set().await.unwrap().is_none());
@@ -522,7 +522,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
         publish_origin(&catalog, &other, b"other", Origin::Api).await;
         let started = tokio::time::Instant::now();
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert!(
@@ -572,7 +572,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
         let before = std::fs::metadata(tree.0.join("test-bucket/object")).unwrap();
         let started = tokio::time::Instant::now();
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert!(
@@ -605,7 +605,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
         assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
         publish_origin(&catalog, &bucket, b"later", Origin::Api).await;
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert_eq!(
@@ -679,7 +679,6 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
 
 #[tokio::test]
 async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buckets_progressing() {
-    use std::time::Duration;
     for moved in [false, true] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let other = BucketName::new("zz-other").unwrap();
@@ -700,7 +699,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
         publish_origin(&catalog, &bucket, b"same", Origin::Api).await;
         publish_origin(&catalog, &other, b"other", Origin::Api).await;
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         if moved {
@@ -709,11 +708,11 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
             std::fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
         }
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(3), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(3), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert_eq!(
@@ -742,7 +741,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
 #[cfg(unix)]
 #[tokio::test]
 async fn live_export_retries_file_and_parent_permissions_without_advancing_the_cursor() {
-    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    use std::os::unix::fs::PermissionsExt;
     for parent in [false, true] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
@@ -761,7 +760,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o0)).unwrap();
         publish_origin(&catalog, &bucket, b"after", Origin::Api).await;
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         std::fs::set_permissions(
@@ -784,7 +783,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
             0
         );
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert_eq!(
@@ -801,7 +800,6 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
 
 #[tokio::test]
 async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
-    use std::time::Duration;
     for phase in ["before-binding", "after-binding", "after-get-path"] {
         for recreate in [false, true] {
             let (_data, tree, catalog, bucket, root) = live_fixture().await;
@@ -828,7 +826,7 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
             let record = publish_origin(&catalog, &bucket, b"obsolete", Origin::Api).await;
             publish_origin(&catalog, &other, b"other", Origin::Api).await;
             hook.release.notify_one();
-            tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+            tokio::time::timeout(HANG_GUARD, hook.entered.notified())
                 .await
                 .unwrap();
             catalog
@@ -855,11 +853,11 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
             }
             hook.release.notify_one();
             // The next key belongs to another bucket in the same committed page.
-            tokio::time::timeout(Duration::from_secs(3), hook.entered.notified())
+            tokio::time::timeout(HANG_GUARD, hook.entered.notified())
                 .await
                 .unwrap();
             hook.release.notify_one();
-            tokio::time::timeout(Duration::from_secs(3), hook.entered.notified())
+            tokio::time::timeout(HANG_GUARD, hook.entered.notified())
                 .await
                 .unwrap();
             assert_eq!(
@@ -911,7 +909,7 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
             tx.commit().unwrap();
         }
         hook.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap();
         assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -1078,7 +1076,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
                 run_live(&worker_catalog, &worker_root, &mut stopping).await
             }));
         }
-        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
             .await
             .unwrap_or_else(|error| panic!("phase {phase}, remove={remove}: {error}"));
         if remove {
@@ -1225,7 +1223,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
                 )
             ),
             async {
-                tokio::time::timeout(Duration::from_secs(5), hook.entered.notified())
+                tokio::time::timeout(HANG_GUARD, hook.entered.notified())
                     .await
                     .unwrap();
                 match action {

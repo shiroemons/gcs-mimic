@@ -583,6 +583,11 @@ fn stream(address: SocketAddr) -> TcpStream {
 
 fn request(address: SocketAddr, request: &str) -> String {
     let mut stream = stream(address);
+    // A response that waits on a sync can stall for seconds behind other processes'
+    // syncs on a loaded disk; the timeout only guards against a hang.
+    stream
+        .set_read_timeout(Some(common::input_fixtures::HANG_GUARD))
+        .unwrap();
     stream.write_all(request.as_bytes()).unwrap();
     let response = common::read_http_response(
         &mut BufReader::new(stream),

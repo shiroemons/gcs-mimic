@@ -1,6 +1,8 @@
 use crate::common;
 
 use common::TestDir;
+#[cfg(unix)]
+use common::input_fixtures::HANG_GUARD;
 use gcs_mimic::storage::Catalog;
 use gcs_mimic::storage::admin::{BucketName, Origin};
 use serde_json::{Value, json};
@@ -1384,9 +1386,7 @@ async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
         process: common::process::Server::pending(child, stdout, String::new()),
         strict: false,
     };
-    let event = events
-        .recv_timeout(Duration::from_secs(5))
-        .expect("seed must start");
+    let event = events.recv_timeout(HANG_GUARD).expect("seed must start");
     assert_eq!(event["event"], "seeding");
     // "seeding" precedes the fixture scan; TERM before the first catalog write would test an
     // idle shutdown instead. The blocked write waits up to the 5-second busy timeout.
@@ -1399,7 +1399,7 @@ async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
             .success()
     );
     assert_eq!(
-        events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+        events.recv_timeout(HANG_GUARD).unwrap()["event"],
         "stopping"
     );
     // A pending SQLite mutation must keep ownership until it settles, even after TERM.
@@ -1454,13 +1454,10 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             strict: false,
         };
         assert_eq!(
-            events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+            events.recv_timeout(HANG_GUARD).unwrap()["event"],
             "data_dir_created"
         );
-        assert_eq!(
-            events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
-            "seeding"
-        );
+        assert_eq!(events.recv_timeout(HANG_GUARD).unwrap()["event"], "seeding");
         common::input_fixtures::eventually_async("seed reached body transfer", || {
             let transferring = fs::read_dir(data.join("staging"))
                 .into_iter()
@@ -1504,7 +1501,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             .await;
             assert_eq!(common::catalog::count(&connection, "objects"), 0);
             assert_eq!(
-                events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+                events.recv_timeout(HANG_GUARD).unwrap()["event"],
                 "seed_commit_started"
             );
         }
@@ -1516,7 +1513,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                 .success()
         );
         assert_eq!(
-            events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+            events.recv_timeout(HANG_GUARD).unwrap()["event"],
             "stopping"
         );
         if after_rename {
