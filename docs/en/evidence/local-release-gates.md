@@ -1,5 +1,19 @@
 # Local release gates on the integrated source
 
+## Local gates on the 0.19.1 source
+
+Recorded **2026-11-12** on macOS (Apple Silicon) for commit `16314feaf0690de6fdac78c026a4616be730f452`, tree `f5e0a4ed732bd99827dbc940f1eb05520b44fb1e` (package version 0.19.1). The commit that adds this record changes only this document and the [0.19.1 release notes](../releases/0.19.1.md).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 23m07s`; library tests `2063 passed`; `it_process` `105 passed`; the Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust SDK suites passed; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `just check-dependencies` | 0 | 129 `CURRENT` lines and no `UPDATE_AVAILABLE`; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE` |
+
+`just pre-push` ran once as a complete invocation from a clean working tree of that commit. Both dependency checks ran on commit `2a64cbba`, its parent, which differs only in `scripts/test-check.sh`, no release input.
+
+[Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43153179304) had failed on commit `45bf7b39`, the first commit of the 0.19.1 changes on `main`, and an earlier `just pre-push` on commit `2a64cbba` stopped in its first stage for the same reason: `scripts/test-check.sh` pins the cargo commands that `scripts/check.sh` runs, and `scripts/check-docs.sh` had gained the option-list tests without that list. Commit `16314fea` adds the command to the list; [Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43154795334) and [Documentation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43154794975) then succeeded on it.
+
 ## Published 0.19.0 source
 
 Recorded **2026-11-12** for tag `v0.19.0`, commit `a20f9d8a33521b6ab5c303fd5e08542c10e2ae2d`, tree `07473309437608eb588de32803a4227738a481e5`. Remote results were read back from GitHub after publication; every run below names that commit:
