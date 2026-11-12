@@ -1,5 +1,19 @@
 # Local release gates on the integrated source
 
+## Published 0.19.1 source
+
+Recorded **2026-11-12** for tag `v0.19.1`, commit `ff0b076cb53c5ec18e4147480f120d56862f30d5`, tree `a385853d95598e9f041f4af8a7d21945a7641d9f`. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 23m07s; library tests 2063 passed | On commit `16314fea`, recorded below |
+| Foundation checks | `success` on `16314fea`; the dry run's Foundation jobs `success` on the tagged commit | [Run 43154795334](https://github.com/shiroemons/gcs-mimic/actions/runs/43154795334) |
+| Documentation checks | `success` | [Run 43157373661](https://github.com/shiroemons/gcs-mimic/actions/runs/43157373661) |
+| Release binaries dry run | `success`; all eight native build and test targets passed | [Run 43159018199](https://github.com/shiroemons/gcs-mimic/actions/runs/43159018199) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43163863396](https://github.com/shiroemons/gcs-mimic/actions/runs/43163863396) |
+
+The tagged commit adds only this document's local gate record and the release notes to `16314fea`, so Foundation checks, which ignore documentation, ran on `16314fea`, and the dry run ran its own Foundation jobs on the tagged commit. The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check, which also passed locally just before the tag was created. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.19.1) has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`, whose `source_commit` is the tagged commit, and GitHub reports it as the latest release. The public multi-architecture image index is `sha256:6c725a2e2374efe85b6e0bb1b84b2d9c813939ceaa0c1be2385930782009c875`, with `sha256:892859bd80ddcb3696714a140ce1f25a82dde146e5c5f7775f198b1f2d5bc041` for `linux/amd64` and `sha256:0c1a6cd5cac52163328a42f7047f1e154a8983f74ae3e98264bf89921402f02a` for `linux/arm64`. GHCR `0.19.1`, `0.19` and `latest` and Docker Hub `0.19.1` and `latest` resolved to that index, and the GHCR image printed `gcs-mimic 0.19.1`.
+
 ## Local gates on the 0.19.1 source
 
 Recorded **2026-11-12** on macOS (Apple Silicon) for commit `16314feaf0690de6fdac78c026a4616be730f452`, tree `f5e0a4ed732bd99827dbc940f1eb05520b44fb1e` (package version 0.19.1). The commit that adds this record changes only this document and the [0.19.1 release notes](../releases/0.19.1.md).

@@ -2674,7 +2674,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Manual dispatch uploads verification artifacts only. vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and every release-matrix target before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. v0.1.0 and v0.1.1 are published with four Linux archives, v0.1.2 adds macOS and v0.1.3 adds Windows; the final pre-publication local gate (just pre-push) was not run for those tags. On 2026-11-11 dependency freshness, Markdown lint, the compatibility check and one complete just pre-push all exited 0 on 0.17.1 source accb532b, and again on 0.18.0 source 1e5a89a0, each recorded by a later commit that changes only documents and the ledger. On 2026-11-12 one complete just pre-push and the release-scoped freshness check exited 0 on 0.19.0 source b8aa76d4, which v0.19.0 commit a20f9d8a extends only with documents; release-local-gates therefore passes for the 0.19.0 source and must run again after any protected-input change (docs/en/evidence/local-release-gates.md). Release builds and portability suites run with RUST_TEST_THREADS=2 as an interim guard for time-dependent tests. The freshness check sends the workflow GITHUB_TOKEN to the GitHub API after the first v0.1.3 validate hit the unauthenticated rate limit. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is recorded in docs/en/evidence/dist-resource-measurement.md.",
+      "notes": "Manual dispatch uploads verification artifacts only. vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and every release-matrix target before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. v0.1.0 and v0.1.1 are published with four Linux archives, v0.1.2 adds macOS and v0.1.3 adds Windows; the final pre-publication local gate (just pre-push) was not run for those tags. On 2026-11-11 dependency freshness, Markdown lint, the compatibility check and one complete just pre-push all exited 0 on 0.17.1 source accb532b, and again on 0.18.0 source 1e5a89a0, each recorded by a later commit that changes only documents and the ledger. On 2026-11-12 one complete just pre-push and the release-scoped freshness check exited 0 on 0.19.0 source b8aa76d4, which v0.19.0 commit a20f9d8a extends only with documents, and the same day on 0.19.1 source 16314fea, which v0.19.1 commit ff0b076c extends only with documents; release-local-gates therefore passes for the 0.19.1 source and must run again after any protected-input change (docs/en/evidence/local-release-gates.md). Release builds and portability suites run with RUST_TEST_THREADS=2 as an interim guard for time-dependent tests. The freshness check sends the workflow GITHUB_TOKEN to the GitHub API after the first v0.1.3 validate hit the unauthenticated rate limit. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is recorded in docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DIST-001"
       ],
@@ -2808,6 +2808,33 @@
         },
         {
           "command": "gh run view 43130114091 and 43135431922 on v0.19.0 commit a20f9d8a33521b6ab5c303fd5e08542c10e2ae2d, tree 07473309437608eb588de32803a4227738a481e5: success; eight native build/test targets, tag validate/publish, container amd64/arm64/manifest and Docker Hub mirror passed; Release contains ten assets",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "release-tag-execution"
+          ]
+        },
+        {
+          "command": "just pre-push on 0.19.1 source 16314feaf0690de6fdac78c026a4616be730f452, tree f5e0a4ed732bd99827dbc940f1eb05520b44fb1e: exit 0, all stages passed in 23m07s in one invocation; library tests 2063 passed; tag v0.19.1 commit ff0b076cb53c5ec18e4147480f120d56862f30d5 adds only documents",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "cargo xtask dependencies check --scope release on 0.19.1 source 2a64cbbad9fe58569935fbf7dad94d892479be53 and again just before the v0.19.1 tag: exit 0, 41 CURRENT lines and no UPDATE_AVAILABLE; the full check reports 129 CURRENT lines and no update",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "gh run view 43159018199 and 43163863396 on v0.19.1 commit ff0b076cb53c5ec18e4147480f120d56862f30d5, tree a385853d95598e9f041f4af8a7d21945a7641d9f: success; eight native build/test targets, tag validate/publish, container amd64/arm64/manifest and Docker Hub mirror passed; Release contains ten assets",
           "result": "PASS",
           "verified_at": "2026-11-12",
           "artifact": "docs/en/evidence/local-release-gates.md",
@@ -3048,7 +3075,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Tag releases v0.1.0 through v0.1.3 have run and published; the rest of this entry records the 0.1.0 preparation state. Existing Foundation evidence only matches historical preparation baseline 71883c0, not the rebased tree, revised pins or a future tag; it does not verify eight archives, checksums, DLL imports or glibc symbols. Main rebase adds repo-lints protected inputs (Cargo.toml/src/tests/xtask), config-contract's reference comparison script and import-contract's source-storage JSON/verifier; dist-tag-publication must confirm the final behavior baseline and revalidation without treating these as approved pin differences. The 2026-10-24 freshness exit 1 and full pre-push exit 18 failed release-local-gates, and the passing post-rebase just check and separate stage passes did not satisfy it; the complete 2026-11-11 gates on 0.17.1 source accb532b passed it for that source, the complete 2026-11-11 gates on 0.18.0 source 1e5a89a0 passed it for that source, the 2026-11-12 pre-push and release-scoped freshness check on 0.19.0 source b8aa76d4 now pass it for that source only, and a later protected-input change needs them to run again before a tag. dist-tag-publication owns actual pin refresh/revalidation including distroless, pending pin-revision SHA/diff/freshness contracts, exact-tag source identity and final Release-body checks. Source-identity/resource/schedule finalize markers remain release-blocking. The current workflow checks a nonempty notes file, not markers/links; proposed dist-tag-publication follow-up is workflow enforcement of the marker guard and protected-input comparison. dist-post-publication records final tag gate results in the main-branch ledger. The SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh, which the 2026-11-11 pre-push self-checked and used."
+        "Tag releases v0.1.0 through v0.1.3 have run and published; the rest of this entry records the 0.1.0 preparation state. Existing Foundation evidence only matches historical preparation baseline 71883c0, not the rebased tree, revised pins or a future tag; it does not verify eight archives, checksums, DLL imports or glibc symbols. Main rebase adds repo-lints protected inputs (Cargo.toml/src/tests/xtask), config-contract's reference comparison script and import-contract's source-storage JSON/verifier; dist-tag-publication must confirm the final behavior baseline and revalidation without treating these as approved pin differences. The 2026-10-24 freshness exit 1 and full pre-push exit 18 failed release-local-gates, and the passing post-rebase just check and separate stage passes did not satisfy it; the complete 2026-11-11 gates on 0.17.1 source accb532b passed it for that source, the complete 2026-11-11 gates on 0.18.0 source 1e5a89a0 passed it for that source, the 2026-11-12 pre-push and release-scoped freshness check on 0.19.0 source b8aa76d4 passed it for that source, the same checks on 0.19.1 source 16314fea now pass it for that source only, and a later protected-input change needs them to run again before a tag. dist-tag-publication owns actual pin refresh/revalidation including distroless, pending pin-revision SHA/diff/freshness contracts, exact-tag source identity and final Release-body checks. Source-identity/resource/schedule finalize markers remain release-blocking. The current workflow checks a nonempty notes file, not markers/links; proposed dist-tag-publication follow-up is workflow enforcement of the marker guard and protected-input comparison. dist-post-publication records final tag gate results in the main-branch ledger. The SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh, which the 2026-11-11 pre-push self-checked and used."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-11"
@@ -57953,7 +57980,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push was not rerun on that rebased tree. See docs/en/evidence/dist-release-notes.md. On 2026-11-11 one complete just pre-push exited 0 on 0.17.1 source accb532b, and another on 0.18.0 source 1e5a89a0, and on 2026-11-12 another on 0.19.0 source b8aa76d4, each recorded by a later commit that changes only documents and the ledger: bash scripts/test-check.sh, the Rust checks, every SDK suite including Go, and the linux/arm64 and linux/amd64 container checks passed in order, so DESIGN-099-local-checks passes. Evidence: docs/en/evidence/local-release-gates.md. Resource measurement preparation also passed just check with 778 tests/38 groups on unchanged bb8dd5c Rust/build inputs; this separate pass does not replace full pre-push or remote CI. Evidence: docs/en/evidence/dist-resource-measurement.md.",
+      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push was not rerun on that rebased tree. See docs/en/evidence/dist-release-notes.md. On 2026-11-11 one complete just pre-push exited 0 on 0.17.1 source accb532b, and another on 0.18.0 source 1e5a89a0, and on 2026-11-12 others on 0.19.0 source b8aa76d4 and 0.19.1 source 16314fea, each recorded by a later commit that changes only documents and the ledger: bash scripts/test-check.sh, the Rust checks, every SDK suite including Go, and the linux/arm64 and linux/amd64 container checks passed in order, so DESIGN-099-local-checks passes. Evidence: docs/en/evidence/local-release-gates.md. Resource measurement preparation also passed just check with 778 tests/38 groups on unchanged bb8dd5c Rust/build inputs; this separate pass does not replace full pre-push or remote CI. Evidence: docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -58145,6 +58172,26 @@
         },
         {
           "command": "gh run view 43130102366: Foundation checks success on v0.19.0 commit a20f9d8a33521b6ab5c303fd5e08542c10e2ae2d, tree 07473309437608eb588de32803a4227738a481e5",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "remote-foundation-ci",
+            "release-ci-evidence"
+          ]
+        },
+        {
+          "command": "just pre-push on 0.19.1 source 16314feaf0690de6fdac78c026a4616be730f452, tree f5e0a4ed732bd99827dbc940f1eb05520b44fb1e (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 23m07s in one invocation; library tests 2063 passed",
+          "result": "PASS",
+          "verified_at": "2026-11-12",
+          "artifact": "docs/en/evidence/local-release-gates.md",
+          "test_ids": [
+            "shared-check-failure-propagation",
+            "local-pre-push-suite"
+          ]
+        },
+        {
+          "command": "gh run view 43154795334 and 43159018199: Foundation checks success on 16314feaf0690de6fdac78c026a4616be730f452, and the Release binaries dry run's Foundation jobs success on v0.19.1 commit ff0b076cb53c5ec18e4147480f120d56862f30d5, tree a385853d95598e9f041f4af8a7d21945a7641d9f, which adds only documents",
           "result": "PASS",
           "verified_at": "2026-11-12",
           "artifact": "docs/en/evidence/local-release-gates.md",
