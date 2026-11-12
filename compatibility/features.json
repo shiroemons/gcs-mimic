@@ -441,7 +441,7 @@
       {
         "id": "bucket-metadata-update",
         "title": "Bucket metadata PUT replacement with local omission preservation",
-        "scope": "Delivered order 7 originally on 2026-10-23 under the omission-reset policy, with historical results in docs/en/evidence/bucket-metadata-put.md. The current local PUT contract replaces supplied modeled settings and preserves omitted values; Rust/Go/Ruby and the native PUT guide verify it in docs/en/slices/bucket-metadata-put.md. Reference, container and Docker guide/restart checks were not rerun for omission preservation. Strict permission/revocation, atomic conditions and resource preservation remain supported. JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider omission/error/permission parity.",
+        "scope": "Delivered order 7 originally on 2026-10-23 under the omission-reset policy, with historical results in docs/en/evidence/bucket-metadata-put.md. The current local PUT contract replaces supplied modeled settings and preserves omitted values; Rust/Go/Ruby and the native PUT guide verify it in docs/en/slices/bucket-metadata-put.md. The reference comparison passed again on 2026-11-13 (docs/en/evidence/reference-comparison.md) and runs in CI; container and Docker guide/restart checks were not rerun for omission preservation. Strict permission/revocation, atomic conditions and resource preservation remain supported. JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider omission/error/permission parity.",
         "feature_ids": [
           "JSON-BUCKETS-013",
           "BEHAVIOR-COMMON-006",
@@ -7935,6 +7935,15 @@
           ]
         },
         {
+          "command": "GCSM_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/reference-comparison.md",
+          "test_ids": [
+            "bucket-patch-reference-comparison"
+          ]
+        },
+        {
           "command": "Getting-started native and Docker create/PATCH shell blocks plus Docker restart resource comparison",
           "result": "PASS",
           "verified_at": "2026-10-23",
@@ -9212,11 +9221,11 @@
         },
         {
           "id": "PUT-REFERENCE",
-          "description": "PUT-ASSERT now expects omission preservation and the shared unsupported response; the reference comparison has not been rerun since those changes.",
+          "description": "Both pinned reference backends and both local profiles receive the same PUT corpus. PUT-ASSERT checks the native replacement, the fake-gcs-server profile's omission preservation, ACL replacement, the profile-specific generation, null class and predefinedAcl handling, conditions and object preservation; it passed on 2026-11-13 and runs in CI.",
           "test_ids": [
             "bucket-put-reference-comparison"
           ],
-          "result": "PENDING"
+          "result": "PASS"
         },
         {
           "id": "PUT-GUIDE",
@@ -9493,6 +9502,15 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/bucket-metadata-put-comparison.txt",
+          "test_ids": [
+            "bucket-put-reference-comparison"
+          ]
+        },
+        {
+          "command": "GCSM_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/reference-comparison.md",
           "test_ids": [
             "bucket-put-reference-comparison"
           ]
@@ -59235,7 +59253,7 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Its own acceptance cases pass with the release gates, including all eight SDK suites under both profiles, but it depends on DESIGN-062 and DESIGN-072, which remain PARTIAL; scripts/compare-reference-emulator.sh and the release builds of all eight archives have not run."],
+      "known_deviations": ["Its own acceptance cases pass with the release gates, including all eight SDK suites under both profiles, but it depends on DESIGN-062 and DESIGN-072, which remain PARTIAL; the release builds of all eight archives have not run."],
       "implemented_in": null,
       "last_verified": "2026-11-13"
     },

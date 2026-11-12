@@ -59,8 +59,16 @@ Each change was checked before it was committed; these are the suites that cover
 
 On the final source, `GCSM_SDK_COMPAT_PROFILE=fake-gcs-server just check-sdk` and `just check-sdk` both pass all eight suites, `just check-sdk-clients` passes, and `cargo test --locked --workspace --no-fail-fast` passes 3427 tests with 0 failures and 1 ignored.
 
+## Final source on main
+
+On `d512e4ce`, the final commit of these changes:
+
+| Check | Result |
+| --- | --- |
+| `just pre-push` | Passed in 17m33s: 3423 Rust tests in 16 binaries, 0 failed, 1 ignored; all eight SDK suites; both container architectures |
+| Foundation checks workflow on the push to `main` | All 12 jobs passed, including `cargo test` on `x86_64-unknown-linux-musl`, `x86_64-pc-windows-msvc` and `aarch64-apple-darwin`, the Linux `rust` jobs on the pinned and current stable compilers, cross checks, containers, Testcontainers and the recorded differential |
+| `scripts/compare-reference-emulator.sh` | Failed at the mimic PATCH assertion, in the same way on `7016b7ee` before these changes. Its bucket assertions had not followed the contracts since late October; after they were matched, the comparison passed ([verification](reference-comparison.md)). Up to where both stopped, the status differences between the reference and the fake-gcs-server profile are the same before and after these changes |
+
 ## Not run
 
-- `scripts/compare-reference-emulator.sh`, which needs the pinned fake-gcs-server checkout in `GCSM_REFERENCE_REPO`.
 - The release workflow's builds of all eight native archives, which run in CI on a release tag; locally only Clippy type-checks the other targets.
-- Tests that run only on Linux hosts.

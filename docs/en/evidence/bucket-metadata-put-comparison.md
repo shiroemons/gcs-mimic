@@ -3,9 +3,10 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This is historical evidence for the omission-reset policy. The current
-[PUT contract](../slices/bucket-metadata-put.md) preserves omitted settings.
-PUT-ASSERT was updated for that policy and the shared unsupported response;
-the comparison has not been rerun, so PUT-REFERENCE is PENDING.
+[PUT contract](../slices/bucket-metadata-put.md) replaces the resource in the
+native profile and preserves omitted settings in the fake-gcs-server profile.
+The comparison against that contract passed on 2026-11-13; see the
+[current verification](reference-comparison.md).
 
 Checked and executed on **2026-10-23** against final application, tests, SDK and
 comparison source `c8d327a47446c0340796c87f06c6635059bc1db0`, from verification

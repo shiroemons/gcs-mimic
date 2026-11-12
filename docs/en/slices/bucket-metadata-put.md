@@ -262,8 +262,10 @@ native replacement (labels, versioning and default hold cleared, storage class k
 was extracted and executed once with `bash -eu` against the native debug binary in
 HTTP/permissive mode and exited 0.
 
-PUT-REFERENCE is PENDING: PUT-ASSERT was changed for omission preservation and
-the shared unsupported response, but the comparison has not been rerun.
+PUT-REFERENCE passed again on 2026-11-13, after PUT-ASSERT was matched to the
+native replacement, ACL replacement and the profile-specific query and null
+handling ([verification](../evidence/reference-comparison.md)). CI now runs the
+comparison.
 
 `RUST_TEST_THREADS=8 just check` passes after these documentation/ledger changes:
 1,058 Rust tests, zero failures or ignored tests, formatting, host/cross-target
