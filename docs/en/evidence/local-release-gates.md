@@ -2,16 +2,30 @@
 
 ## 0.19.0 source before the tag
 
-Recorded **2026-11-11** on macOS (Apple Silicon) for commit `95c4769c993c3529e5d272462dec86c96bb4d485`, tree `aa8ac0d7767f44681746540ce969499e1714f73d` (package version 0.19.0), from a clean working tree. The recording commit changes only this document and the [0.19.0 release notes](../releases/0.19.0.md), so it touches none of the protected paths listed under [Source relation](#source-relation). Each gate ran once as a complete invocation on that tree.
+Recorded **2026-11-12** on macOS (Apple Silicon) for commit `b8aa76d46fc4aebd26502a98511e4942c5cd5f92`, tree `7e64f557afdc4f2df8b5e8290b9d15ff93816e44` (package version 0.19.0). That commit adopts BuildKit v0.35.0 after the first tag publication stopped, as described under [First 0.19.0 tag](#first-0190-tag). The recording commit changes only this document and the [0.19.0 release notes](../releases/0.19.0.md), so it touches none of the protected paths listed under [Source relation](#source-relation).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 16m42s`; library tests `2059 passed`; `it_process` `102 passed`; every SDK case `PASS`; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64`, including the strict local recipe and the full application example without `GCS_MIMIC_SCHEME` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines, among them `docker moby/buildkit:v0.35.0: CURRENT` and `docker moby/buildkit:latest: CURRENT` |
+| `cargo xtask dependencies check` | 1 | 120 `CURRENT` lines; every `UPDATE_AVAILABLE` line names a development-only input that ships in no artifact, listed in the [2026-11-12 refresh](dependency-refresh.md#refresh-2026-11-12); fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE` |
+
+`just pre-push` ran once as a complete invocation from a clean working tree of that commit. The release-scoped check is the freshness gate the release workflow's `validate` job applies; the full check is what `just check-dependencies` runs, and under the [release-scope rule](../dependency-policy.md#ci-lanes) its development-only updates do not block publication. Both dependency checks ran on the working tree just before the commit, when the workflow pin and the snapshot's BuildKit entry already matched it; the snapshot's summary fields and the refresh evidence were then written from their output.
+
+### First 0.19.0 tag
+
+The first `v0.19.0` tag named commit `364a6d36e28646f3225c51ad8ff905d1efcce762`, which recorded these gates on commit `95c4769c993c3529e5d272462dec86c96bb4d485`, tree `aa8ac0d7767f44681746540ce969499e1714f73d`, from a clean working tree:
 
 | Command | Exit | Summary line from the output |
 | --- | --- | --- |
 | `just check-dependencies` | 0 | 129 `CURRENT` lines; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE` |
-| `just pre-push` | 0 | `all stages passed in 24m22s`; library tests `2059 passed`; `it_process` `102 passed`; every SDK case `PASS`; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64`, including the strict local recipe and the full application example without `GCS_MIMIC_SCHEME` |
+| `just pre-push` | 0 | `all stages passed in 24m22s`; library tests `2059 passed`; `it_process` `102 passed`; every SDK case `PASS`; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64` |
 
-The wrapper that recorded the exit status failed after `just pre-push` returned, because zsh reserves the name `status`; the exit above is inferred from the final progress line, which the recipe prints only after its last stage succeeds. An earlier `just pre-push` on commit `cb2667f9` was stopped before its cross-target stage, after the first CI run of the feature showed that `x86_64-pc-windows-msvc` Clippy rejected an unused Unix-only method; commit `95c4769c` fixed it and `bash scripts/check-cross.sh` then passed for the Windows, Linux glibc and Linux musl targets.
+The wrapper that recorded that exit status failed after `just pre-push` returned, because zsh reserves the name `status`; the exit above is inferred from the final progress line, which the recipe prints only after its last stage succeeds. An earlier `just pre-push` on commit `cb2667f9` was stopped before its cross-target stage, after the first CI run of the feature showed that `x86_64-pc-windows-msvc` Clippy rejected an unused Unix-only method; commit `95c4769c` fixed it and `bash scripts/check-cross.sh` then passed for the Windows, Linux glibc and Linux musl targets.
 
-The Release binaries dry run and the tag publication are recorded after they run.
+[Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43038868679) and the [Release binaries dry run](https://github.com/shiroemons/gcs-mimic/actions/runs/43038869036) succeeded on that commit once their musl jobs were rerun; the earlier attempts failed only because the runners could not resolve the Ubuntu archive hosts during an outage of Canonical's DNS. The [tag publication](https://github.com/shiroemons/gcs-mimic/actions/runs/43126574525) then stopped in `validate`, before any job that publishes: BuildKit v0.35.0 had been released after the dry run, and the release-scoped check reported the pinned v0.34.2 as outdated. No Release, image or archive was published from that tag.
+
+The Release binaries dry run and the tag publication of the final source are recorded after they run.
 
 ## Published 0.18.0 source
 
