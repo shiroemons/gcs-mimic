@@ -274,7 +274,7 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.19.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.19.1
     ports:
       - "127.0.0.1:4443:4443"
     volumes:
@@ -492,7 +492,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.19.0 release notes](docs/en/releases/0.19.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.19.1 release notes](docs/en/releases/0.19.1.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License

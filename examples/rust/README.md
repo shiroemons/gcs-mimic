@@ -10,7 +10,7 @@ The crate's `StorageControl` client speaks gRPC, so also start the gRPC listener
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 -p 127.0.0.1:4444:4444 \
   -e GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444 \
-  ghcr.io/shiroemons/gcs-mimic:0.19.0
+  ghcr.io/shiroemons/gcs-mimic:0.19.1
 ```
 
 ## Run
