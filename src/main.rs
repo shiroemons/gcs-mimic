@@ -1,6 +1,6 @@
 use gcs_mimic::{
     clock::{Clock, SystemClock},
-    config::{Config, HELP},
+    config::{Config, help},
     config_input::{Fix as UrlFix, MAX_CLI_ARGS, UrlStyle, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
@@ -283,7 +283,7 @@ fn url_command(
 
 fn serve(rest: &[String]) -> Result<(), CliError> {
     if gcs_mimic::config_input::requests_help(rest) {
-        println!("{HELP}");
+        println!("{}", help());
         return Ok(());
     }
     let mut report = Config::preflight_os(rest, std::env::vars_os());

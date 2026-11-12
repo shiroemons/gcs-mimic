@@ -16,7 +16,7 @@ Document abbreviations used in the tables:
 
 | Abbreviation | Document |
 | --- | --- |
-| H | `--help` text, the `HELP` constant in `src/main.rs` |
+| H | `--help` text, built by `help()` in `src/config/help.rs` (the `HELP` constant in `src/main.rs` on the reviewed source) |
 | L | `llms.txt` |
 | N | `docs/en/native-binary.md` |
 | C | `docs/en/container-usage.md` |
@@ -532,7 +532,7 @@ Renames and grammar. These can keep the old name as an alias through 1.x, or add
 
 Since `0.18.0`, a server started with every `GCSM_*` name set is tested, and so is each withdrawn `GCS_MIMIC_*` client name ([verification](evidence/environment-names.md)); that area is no longer unguarded.
 
-The option list is no longer unguarded either. The tests in `src/config/help.rs` require `--help` to list every `Setting` except `config` plus the CLI-only `--port`, `--port-http` and `--host`, the option table of `docs/en/native-binary.md` to name each of them and `config` once with its `GCS_MIMIC_*` variable, and the "Every server option" list of `llms.txt` to name every `Setting` once. `scripts/check-docs.sh` runs them, so a documentation-only change is checked too. The table had lacked 18 options and `llms.txt` lacked `--lifecycle-execution`; both now list them.
+The option list is no longer unguarded either. `--help` is built from one exhaustive `match` with a line for every `Setting`, so a new setting does not compile without one, and lists the settings in their declaration order after the common ones. The tests in `src/config/help.rs` require it to list every `Setting` except `config` plus the CLI-only `--port`, `--port-http` and `--host` once, the option table of `docs/en/native-binary.md` to name each of them and `config` once with its `GCS_MIMIC_*` variable, and the "Every server option" list of `llms.txt` to name every `Setting` once. `scripts/check-docs.sh` runs them, so a documentation-only change is checked too. The table had lacked 18 options and `llms.txt` lacked `--lifecycle-execution`; both now list them.
 
 ## Open at the freeze, not part of 0.18.0
 

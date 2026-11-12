@@ -33,7 +33,7 @@ pub(crate) use auth::Verification;
 pub(crate) use auth::{AuthProfile, TrustedCaller};
 pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
-pub use help::HELP;
+pub use help::help;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
     ApiBaseSource, ConnectionScheme, EndpointError, EndpointSnapshot, RequestEndpoints,
@@ -73,8 +73,8 @@ impl std::fmt::Display for InvalidChoice {
 impl std::error::Error for InvalidChoice {}
 
 macro_rules! string_enum {
-    // `listed` also gives tests every variant, so they can compare an enum with documents that
-    // must name each one.
+    // `listed` also lists every variant, for an enum whose every value a text such as the help
+    // must name.
     (no_default listed $(#[$meta:meta])* $vis:vis enum $name:ident {
         $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
     } $error:expr) => {
@@ -82,7 +82,6 @@ macro_rules! string_enum {
             $($(#[$variant_meta])* $variant => $value),+
         } $error }
 
-        #[cfg(test)]
         impl $name {
             /// Every variant, in declaration order.
             $vis const ALL: &'static [Self] = &[$(Self::$variant),+];
