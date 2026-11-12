@@ -1,9 +1,9 @@
 use super::*;
 
-fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Server {
+fn fixture_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Server {
     std::fs::create_dir(source.0.join("test-bucket")).unwrap();
     std::fs::write(source.0.join("test-bucket/value"), b"seed").unwrap();
-    let server = Server::start(
+    Server::start(
         data,
         &[
             "--admin-enabled",
@@ -13,7 +13,12 @@ fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Ser
             "--catalog-wait-timeout-ms",
             catalog_wait_ms,
         ],
-    );
+    )
+}
+
+/// A fixture server whose seeded value an API upload has replaced, for a reseed to replay over.
+fn seeded_server(data: &TestDir, source: &TestDir, catalog_wait_ms: &str) -> Server {
+    let server = fixture_server(data, source, catalog_wait_ms);
     // The catalog wait applies to every request, so on a loaded runner a short one also
     // times out this setup upload, which is not under test. Its 503 is retryable; a
     // retry may add a generation, and only the content is checked later. Restarting with
@@ -49,7 +54,9 @@ fn finish_upload_with(upload: &mut BufReader<TcpStream>, body: &[u8]) {
 #[test]
 fn a_reseed_may_take_longer_than_the_catalog_wait() {
     let (data, source) = (TestDir::new(), TestDir::new());
-    let server = seeded_server(&data, &source, "50");
+    // No setup upload: on a loaded machine one can outlast a 50 ms wait on every retry, and
+    // nothing here depends on an edit.
+    let server = fixture_server(&data, &source, "50");
     for index in 0..40 {
         std::fs::write(source.0.join(format!("test-bucket/extra-{index}")), b"seed").unwrap();
     }
