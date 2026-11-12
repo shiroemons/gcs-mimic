@@ -83,7 +83,9 @@ error body are not covered. `/_internal/delete_all` is fake-gcs-server's reset
 form, a migration aid outside the contract like the flags below. The
 `/_internal/sync` routes are the internal protocol between a server and
 `gcs-mimic sync` of the same version and are not covered; use the `gcs-mimic
-sync` command instead. Directory synchronization is not complete, so the options
+sync` command instead. Since 0.20.0 each side sends its version in the
+`x-gcs-mimic-version` header and refuses a peer of another release, naming both
+versions. Directory synchronization is not complete, so the options
 and the output of `gcs-mimic sync` are not covered either; only its exit status
 is.
 

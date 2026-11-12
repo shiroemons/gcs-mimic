@@ -29,6 +29,15 @@ fixed deletion page before approval. Supply `--cursor` exactly as returned and
 A changed revision or stale approval fails; the CLI never substitutes a fresh
 revision or automatically retries a mutation.
 
+The command and the server must come from the same release. Since 0.20.0 the
+command sends its version in `x-gcs-mimic-version` and the server answers every
+control route with its own. A server refuses a request that reports another
+version, or none, with 400 `versionMismatch` before authentication or any
+catalog wait. The command refuses an answer from another version, or one
+without a version, after printing it, and names the release to use. A server
+before 0.20.0 sends no version, so it has already handled the request when the
+command refuses its answer: inspect its status before retrying a mutation.
+
 Conflict listing starts without a revision. Later pages accept the returned
 32-character listing revision and opaque cursor; each item has its own target
 revision, which is distinct from the listing revision. `resolve` requires an

@@ -12,7 +12,10 @@ use crate::{
         root::{RootError, RootLease},
         writeback::Stop,
     },
-    sync::control::{Command, Registration},
+    sync::{
+        control::{Command, Registration},
+        handshake,
+    },
 };
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
@@ -78,13 +81,29 @@ struct Wait {
     timeout_ms: Option<u64>,
 }
 
+/// Every answer carries this release's version, refusals included, so that `gcs-mimic sync`
+/// can tell a server of another release from a failed request.
 pub(super) async fn respond(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
 ) -> Response<Full<Bytes>> {
-    control(request, ctx)
+    let mut response = control(request, ctx)
         .await
-        .unwrap_or_else(JsonError::into_response)
+        .unwrap_or_else(JsonError::into_response);
+    response
+        .headers_mut()
+        .insert(handshake::VERSION_HEADER, handshake::version());
+    response
+}
+
+impl From<handshake::Mismatch> for JsonError {
+    fn from(mismatch: handshake::Mismatch) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "versionMismatch",
+            mismatch.to_string(),
+        )
+    }
 }
 
 async fn control(
@@ -92,6 +111,9 @@ async fn control(
     ctx: RequestCtx<'_>,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let _activity = ControlActivity(ctx);
+    // Before authentication and any catalog wait: a client of another release may not even
+    // send its credentials the way this one expects, and the version is the cause to report.
+    handshake::check(request.headers(), handshake::Peer::Client)?;
     let (registration, root) = ctx
         .state
         .catalog

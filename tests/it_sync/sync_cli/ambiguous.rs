@@ -44,8 +44,13 @@ async fn live_cli_lost_resolution_response_does_not_retry_a_committed_restore() 
         }
         let mut body = vec![0; length.unwrap()];
         stream.read_exact(&mut body).unwrap();
-        let reply =
-            common::effects::request(&address, "POST", "/_internal/sync/resolve", "", &body);
+        let reply = common::effects::request(
+            &address,
+            "POST",
+            "/_internal/sync/resolve",
+            &common::sync_version_header(),
+            &body,
+        );
         reply.expect(202);
         let accepted: Value = serde_json::from_slice(&reply.body).unwrap();
         assert_eq!(accepted["completed"], true);

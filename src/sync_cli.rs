@@ -4,10 +4,11 @@ use gcs_mimic::{
     bounded_file,
     config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{DiagnosticSource, Diagnostics},
+    sync::handshake,
     tls,
 };
 use http_body_util::{BodyExt, Full};
-use hyper::{Request, StatusCode, Uri, body::Bytes, client::conn::http1};
+use hyper::{HeaderMap, Request, StatusCode, Uri, body::Bytes, client::conn::http1};
 use hyper_util::rt::TokioIo;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io, io::Write, net::IpAddr, path::Path, time::Duration};
@@ -71,27 +72,40 @@ pub(super) fn run(args: &[String]) -> Result<(), super::CliError> {
             })
             .transpose()?;
     }
-    let response = options.execute()?;
-    let bytes = serde_json::to_vec(&response.1).map_err(io::Error::other)?;
+    let reply = options.execute()?;
+    // The JSON document is printed whatever the outcome, as the command always has.
+    let bytes = serde_json::to_vec(&reply.body).map_err(io::Error::other)?;
     let mut output = io::stdout().lock();
     output
         .write_all(&bytes)
         .and_then(|()| output.write_all(b"\n"))?;
-    if !response.0.is_success() {
+    // A server of another release is the cause of whatever else went wrong, so it comes first.
+    if let Err(mismatch) = handshake::check(&reply.headers, handshake::Peer::Server) {
+        return Err(fail(mismatch).into());
+    }
+    if !reply.status.is_success() {
         return Err(fail(format!(
             "Synchronization control returned HTTP {}; inspect its JSON response and preserve pending work.",
-            response.0.as_u16()
+            reply.status.as_u16()
         )).into());
     }
     Ok(())
 }
 
-fn invalid(message: impl Into<String>) -> io::Error {
+/// A synchronization control's answer, with the headers that carry the server's version.
+struct Reply {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Value,
+}
+
+fn invalid(message: impl std::fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, fail(message))
 }
 
-fn fail(fix: impl Into<String>) -> Diagnostics {
-    Diagnostics::error(DiagnosticSource::Cli, "sync", fix)
+/// The command's single diagnostic: what went wrong is rendered once, here, for the user.
+fn fail(fix: impl std::fmt::Display) -> Diagnostics {
+    Diagnostics::error(DiagnosticSource::Cli, "sync", fix.to_string())
 }
 
 impl Options {
@@ -196,7 +210,7 @@ impl Options {
         })
     }
 
-    fn execute(&self) -> io::Result<(StatusCode, Value)> {
+    fn execute(&self) -> io::Result<Reply> {
         let client = match (self.endpoint.scheme_str(), &self.ca_cert) {
             (Some("https"), Some(path)) => Some(tls::client_config(Path::new(path))?),
             (Some("https"), None) => Some(tls::development_client_config()?),
@@ -256,10 +270,7 @@ impl Options {
         result
     }
 
-    async fn exchange(
-        &self,
-        stream: impl AsyncRead + AsyncWrite + Unpin,
-    ) -> io::Result<(StatusCode, Value)> {
+    async fn exchange(&self, stream: impl AsyncRead + AsyncWrite + Unpin) -> io::Result<Reply> {
         let (mut sender, connection) = http1::Builder::new()
             .max_headers(64)
             .max_buf_size(16 * 1024)
@@ -277,7 +288,8 @@ impl Options {
                     .as_str(),
             )
             .header("Connection", "close")
-            .header("Accept", "application/json");
+            .header("Accept", "application/json")
+            .header(handshake::VERSION_HEADER, handshake::version());
         if let Some(token) = &self.token {
             request = request.header("Authorization", token);
         }
@@ -296,8 +308,7 @@ impl Options {
                 .send_request(request)
                 .await
                 .map_err(io::Error::other)?;
-            let status = response.status();
-            let mut body = response.into_body();
+            let (head, mut body) = response.into_parts();
             let mut bytes = Vec::new();
             while let Some(frame) = body.frame().await {
                 if let Ok(data) = frame.map_err(io::Error::other)?.into_data() {
@@ -307,7 +318,11 @@ impl Options {
                     bytes.extend_from_slice(&data);
                 }
             }
-            Ok((status, response_json(status, &bytes)?))
+            Ok(Reply {
+                status: head.status,
+                body: response_json(head.status, &bytes)?,
+                headers: head.headers,
+            })
         };
         // Driving both futures locally avoids an unobserved connection task.
         let (_, response) = tokio::try_join!(

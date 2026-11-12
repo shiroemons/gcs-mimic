@@ -63,7 +63,13 @@ impl SyncServer {
         }
     }
     fn request(&self, method: &str, path: &str, body: &[u8]) -> common::effects::Reply {
-        common::effects::request(&self.address, method, path, "", body)
+        common::effects::request(
+            &self.address,
+            method,
+            path,
+            &common::sync_version_header(),
+            body,
+        )
     }
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);

@@ -35,9 +35,10 @@ impl Server {
         token: Option<&str>,
         body: &[u8],
     ) -> common::effects::Reply {
-        let headers = token
-            .map(|token| format!("Authorization: Bearer {token}\r\n"))
-            .unwrap_or_default();
+        let mut headers = common::sync_version_header();
+        if let Some(token) = token {
+            headers.push_str(&format!("Authorization: Bearer {token}\r\n"));
+        }
         common::effects::request(
             self.endpoint.strip_prefix("http://").unwrap(),
             method,
@@ -286,8 +287,9 @@ fn live_cli_rejects_old_token_environment_without_sending_a_request() {
     assert!(!text.contains("Token file"), "{text}");
 }
 
-#[test]
-fn native_cli_prints_unavailable_json_and_fails_without_retry() {
+/// Runs `gcs-mimic sync status` against a server that answers its one request with `status`,
+/// the extra header lines `headers` and the JSON `body`.
+fn status_against(status: &'static str, headers: String, body: &'static [u8]) -> Output {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let receiver = std::thread::spawn(move || {
@@ -306,8 +308,7 @@ fn native_cli_prints_unavailable_json_and_fails_without_retry() {
                 break;
             }
         }
-        let body = br#"{"error":{"code":503,"message":"busy"}}"#;
-        write!(stream.get_mut(), "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+        write!(stream.get_mut(), "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
         stream.get_mut().write_all(body).unwrap();
     });
     let output = common::server_command()
@@ -315,10 +316,43 @@ fn native_cli_prints_unavailable_json_and_fails_without_retry() {
         .output()
         .unwrap();
     receiver.join().unwrap();
+    output
+}
+
+#[test]
+fn native_cli_prints_unavailable_json_and_fails_without_retry() {
+    let output = status_against(
+        "503 Service Unavailable",
+        common::sync_version_header(),
+        br#"{"error":{"code":503,"message":"busy"}}"#,
+    );
     assert!(!output.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
         503
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("HTTP 503"));
+}
+
+/// A server of another release, or one from before the version check, answers in a protocol
+/// this command may misread, so even a success fails naming the release to use. The answer is
+/// still printed, as every answer is.
+#[test]
+fn native_cli_refuses_a_server_of_another_release() {
+    for (headers, expected) in [
+        ("x-gcs-mimic-version: 0.0.1\r\n".to_owned(), "0.0.1"),
+        (String::new(), "reported no version"),
+    ] {
+        let output = status_against("200 OK", headers, b"{}");
+        assert_eq!(output.status.code(), Some(1), "{expected}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            serde_json::json!({})
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected) && stderr.contains(gcs_mimic::VERSION),
+            "{stderr}"
+        );
+    }
 }

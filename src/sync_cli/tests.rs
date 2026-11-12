@@ -294,7 +294,7 @@ fn mock_response(response: Vec<u8>) -> (io::Result<(StatusCode, Value)>, String)
         String::from_utf8(bytes).unwrap()
     });
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
-    let result = options.execute();
+    let result = options.execute().map(|reply| (reply.status, reply.body));
     (result, peer.join().unwrap())
 }
 
@@ -303,6 +303,10 @@ fn wire_client_decodes_chunked_json_and_preserves_failure_status() {
     let (result, request) = mock_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\n{}\r\n0\r\n\r\n".to_vec());
     assert_eq!(result.unwrap(), (StatusCode::OK, json!({})));
     assert!(request.starts_with("GET /_internal/sync HTTP/1.1\r\n"));
+    assert!(
+        request.contains(&format!("x-gcs-mimic-version: {}\r\n", gcs_mimic::VERSION)),
+        "{request}"
+    );
     let (result, _) = mock_response(b"HTTP/1.1 409 Conflict\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"stale\"}".to_vec());
     assert_eq!(
         result.unwrap(),

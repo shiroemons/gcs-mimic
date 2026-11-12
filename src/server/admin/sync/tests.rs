@@ -159,6 +159,34 @@ async fn wait_authorization_deadline_and_cancellation_release_activity() {
     }
 }
 
+/// The version is checked before authentication and any catalog wait: under the wait hook, a
+/// request that reached authorization would block until released, so each must return alone.
+#[tokio::test]
+async fn a_client_of_another_release_is_refused_before_authorization_or_any_wait() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    let hook = Arc::new(AuthorizationWaitHook::default());
+    for version in [Some("0.0.1"), None] {
+        for (method, path, payload) in [
+            ("GET", "/_internal/sync", &b""[..]),
+            ("POST", "/_internal/sync/wait", b"{}"),
+            ("POST", "/_internal/sync/approve", b"{}"),
+        ] {
+            let refused = AUTHORIZATION_WAIT_HOOK.scope(
+                hook.clone(),
+                fixture.send(method, path, payload, None, version),
+            );
+            let error = tokio::time::timeout(Duration::from_secs(10), refused)
+                .await
+                .unwrap_or_else(|_| panic!("{path} with {version:?} reached authorization"))
+                .unwrap_err();
+            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{path} {version:?}");
+            assert_eq!(error.reason, "versionMismatch", "{path} {version:?}");
+            assert!(error.message.contains(crate::VERSION), "{}", error.message);
+        }
+    }
+    fixture.finish().await;
+}
+
 #[tokio::test]
 async fn wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors() {
     let fixture = Fixture::new(Tree::Empty).await;
@@ -326,6 +354,19 @@ impl Fixture {
         body: &[u8],
         token: Option<&str>,
     ) -> Result<Response<Full<Bytes>>, JsonError> {
+        self.send(method, path, body, token, Some(crate::VERSION))
+            .await
+    }
+
+    /// A control request that reports `version` as the client's release, or none at all.
+    async fn send(
+        &self,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        token: Option<&str>,
+        version: Option<&str>,
+    ) -> Result<Response<Full<Bytes>>, JsonError> {
         let endpoints = self
             .config
             .runtime_endpoints
@@ -334,6 +375,9 @@ impl Fixture {
             .without_request();
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let mut request = Request::builder().method(method).uri(path);
+        if let Some(version) = version {
+            request = request.header(handshake::VERSION_HEADER, version);
+        }
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
         }

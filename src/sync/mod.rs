@@ -3,6 +3,7 @@
 
 pub(crate) mod control;
 mod deletion;
+pub mod handshake;
 mod ingest;
 mod interrupt;
 pub mod mapping;

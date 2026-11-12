@@ -119,6 +119,12 @@ impl CleanEnv for Command {
     }
 }
 
+/// The header line that `gcs-mimic sync` sends with every control request and the server sends
+/// with every control answer: each side refuses a peer of another release.
+pub(crate) fn sync_version_header() -> String {
+    format!("x-gcs-mimic-version: {}\r\n", gcs_mimic::VERSION)
+}
+
 pub(crate) fn server_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
     command.clean_env();

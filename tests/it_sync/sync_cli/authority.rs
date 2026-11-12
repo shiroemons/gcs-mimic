@@ -29,7 +29,8 @@ fn the_trusted_listener_reaches_sync_controls_only_with_a_declared_storage_admin
             ("GET", "/_internal/sync/conflicts", b"", 200),
             ("POST", "/_internal/sync/rescan", b"{}", 202),
         ] {
-            common::effects::request(trusted, method, path, "", body).expect_with(
+            let version = common::sync_version_header();
+            common::effects::request(trusted, method, path, &version, body).expect_with(
                 if refused { 403 } else { allowed },
                 format_args!("{method} {path} {identities:?}"),
             );
