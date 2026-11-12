@@ -453,7 +453,7 @@ fn unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once() {
 #[test]
 fn unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, &["--compat-profile", "legacy-emulator"]);
+    let server = Server::start(&dir, &["--compat-profile", "fake-gcs-server"]);
     let bucket = create(&server, "legacy-default", None);
     assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
 }
@@ -556,7 +556,7 @@ fn invalid_default_retention_is_rejected_at_startup() {
             "--listen",
             "127.0.0.1:0",
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
             "--default-soft-delete-retention-seconds",
             "604800",
         ])

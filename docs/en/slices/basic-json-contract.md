@@ -19,7 +19,7 @@ project-plus-bucket unconditional predefined-role grants. The default
 `permissive` mode bypasses authorization and never proves permission parity.
 Strict local credentials do not reproduce Google identity issuance.
 
-The `legacy-emulator` profile remains a separately tested compatibility option
+The `fake-gcs-server` profile remains a separately tested compatibility option
 under the [bucket core contract](bucket-core-parity.md). Its naming, creation
 defaults, rendering and deletion responses are local differences, not Google
 EXACT behavior. No existing profile or history/hold capability is removed.

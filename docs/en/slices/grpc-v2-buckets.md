@@ -33,7 +33,7 @@ values fail INVALID_ARGUMENT. Create compares project against bucket.project.
 Rapid writes also compare appendable. Go direct_connectivity_diagnostic is
 accepted as diagnostics. Other semantic keys, including redirect tokens, return
 UNIMPLEMENTED. Routing cannot change catalog selection or authorization.
-Bucket IDs follow the configured native or legacy-emulator naming profile in
+Bucket IDs follow the configured native or fake-gcs-server naming profile in
 both bucket and object RPCs. Provider-exact invalid-name status and complete SDK
 routing combinations remain pending in SPEC-GRPC-ROUTING-NAMES.
 

@@ -469,7 +469,7 @@ fn json_bodies_are_pretty_printed_in_recorded_field_order() {
 #[test]
 fn legacy_profile_keeps_compact_bodies() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, &["--compat-profile", "legacy-emulator"]);
+    let server = Server::start(&dir, &["--compat-profile", "fake-gcs-server"]);
     setup(&server);
     for path in [OBJECT, "/storage/v1/b/parity", "/storage/v1/b/parity/o"] {
         let reply = server.request("GET", path, "", b"");

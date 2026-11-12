@@ -19,7 +19,7 @@ fn setting(server: &Server, state: &str) -> Value {
 
 #[test]
 fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let config = TestDir::new();
         let identities = identity_file(&config);
         let data = TestDir::new();

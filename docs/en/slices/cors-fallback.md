@@ -46,7 +46,7 @@ rules. The default follows the authentication mode:
 | `strict` | `none` | Cloud Storage has no fallback, so a production-like setup still catches a bucket that lacks `cors` rules |
 
 An explicit value wins in both modes, and buckets with stored rules always
-follow their rules exactly. It works in both `native` and `legacy-emulator`
+follow their rules exactly. It works in both `native` and `fake-gcs-server`
 profiles, and the ready event reports the effective `cors_fallback`. Like every
 native option it takes a value; a bare `--cors-fallback` fails with
 `--cors-fallback allow-all` as its example.

@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract checked on **2026-10-27** and revised on **2026-11-01**. Scope:
-JSON-BUCKETS-013, `PUT /storage/v1/b/{bucket}`, in native and legacy-emulator
+JSON-BUCKETS-013, `PUT /storage/v1/b/{bucket}`, in native and fake-gcs-server
 profiles.
 
 **Native profile (since 2026-11-01).** A recorded Cloud Storage session showed
@@ -23,7 +23,7 @@ Ruby Storage 1.62.1 update blocks; it has not been verified against real GCS
 (SPEC-BUCKET-PUT).
 
 The sections below were written for the omission-preserving behavior. Where they
-say that an omitted setting is preserved, that holds for the legacy-emulator
+say that an omitted setting is preserved, that holds for the fake-gcs-server
 profile and, in the native profile, only for the storage class, soft-delete
 policy and access settings.
 

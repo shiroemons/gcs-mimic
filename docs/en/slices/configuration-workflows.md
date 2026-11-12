@@ -80,7 +80,7 @@ The following existing defaults and validation remain unchanged:
 | `data_dir` | `data` | Nonempty; native catalog/blob destination, not a legacy root |
 | `seed_dir` | Unset | Nonempty when supplied; one-time seed input |
 | `seed_project` | `local-project` | Existing project validator |
-| `compat_profile` | `native` | `native` or `legacy-emulator`; independent of authentication |
+| `compat_profile` | `native` | `native` or `fake-gcs-server`; independent of authentication |
 | `auth_mode`, `identity_file` | `permissive`, unset | `strict` requires a nonempty registry path; permissive rejects a supplied registry unless `signed_urls=verify`, where it supplies only `id` and `public_keys` for [signature verification](../signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | `xml_virtual_host_domains` | Empty/disabled | At most 32 distinct validated DNS names; existing [virtual-host rules](xml-virtual-host.md) |
 | `max_connections` | `1024` | `1..1048576`; all listeners and pending TLS handshakes share this total; startup raises the soft `RLIMIT_NOFILE` to three per connection plus 64 and warns if it cannot; with `grpc_listen` the raise also aims at connections times streams times two, and falling short of that part stays silent |
@@ -111,7 +111,7 @@ The following existing defaults and validation remain unchanged:
 | `public_base_url` | Unset (`config-public-origin`) | `--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL`; absolute HTTP(S) origin with optional port and root path only; no userinfo/query/fragment. Remove root/trailing slashes, lowercase DNS, omit scheme-default ports (HTTP 80/HTTPS 443), preserve other ports and bracket IPv6. Normalization is idempotent. Supplies the three effects below. |
 | `listen_http` | Only for `scheme=both`: primary bind IP with port `8000` (`config-dual-listener`) | `--listen-http` / `GCS_MIMIC_LISTEN_HTTP`; IP socket address, port 0 allowed; reject when scheme is not `both`. Primary `listen` serves HTTPS, second listener HTTP. Bind failure on either prevents ready and releases both listeners. |
 | `log_level` | `info` (`config-log-level`) | `--log-level` / `GCS_MIMIC_LOG_LEVEL`; `debug`, `info`, `warn`, `error`, accepting `warning` as `warn`. Reject other levels. Filtering must affect emitted events; fatal validation diagnostics and stdout lifecycle events remain visible. |
-| `default_location` | Native `US` (implemented in `config-remaining-settings`, expanded by `sdk-regional-locations`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; case-insensitive official regional/predefined dual-region and `US`, `EU`, `ASIA` names. Empty string or JSON null uses `US`. Applies to omitted/null/empty API and initializer locations; nonempty resource location wins. Never rewrites existing buckets or simulates physical placement. Explicit use in `legacy-emulator` is rejected. See [location contract](sdk-regional-locations.md). |
+| `default_location` | Native `US` (implemented in `config-remaining-settings`, expanded by `sdk-regional-locations`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; case-insensitive official regional/predefined dual-region and `US`, `EU`, `ASIA` names. Empty string or JSON null uses `US`. Applies to omitted/null/empty API and initializer locations; nonempty resource location wins. Never rewrites existing buckets or simulates physical placement. Explicit use in `fake-gcs-server` is rejected. See [location contract](sdk-regional-locations.md). |
 
 The location subset is deliberately native-only: the current legacy profile
 rejects create-time locations other than case-insensitive `US-CENTRAL1`
@@ -247,7 +247,7 @@ records the dispositions of the earlier versions.
 | `FAKE_GCS_SCHEME` | `GCS_MIMIC_SCHEME=https`, `http` or `both`; both serves primary HTTPS and secondary HTTP | `config-dual-listener` |
 | `FAKE_GCS_PORT_HTTP` | `GCS_MIMIC_SCHEME=both` with `GCS_MIMIC_LISTEN_HTTP=0.0.0.0:8000`; use the supplied legacy HOST/PORT_HTTP values | `config-dual-listener` |
 | `FAKE_GCS_EXTERNAL_URL` | Use its supplied safe URL as `GCS_MIMIC_API_BASE_URL`, preserving the client-reachable prefix; redact credential-bearing URLs | Diagnostics |
-| `FAKE_GCS_PUBLIC_HOST` | Use `GCS_MIMIC_PUBLIC_BASE_URL=https://storage.example.invalid:4443` including the scheme; legacy Host matching also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. Native path-style accepts any Host. For legacy SDK XML reads, use the API endpoint's authority too: a different public authority makes API-host XML reads fall back to a hostname bucket | `config-public-origin` |
+| `FAKE_GCS_PUBLIC_HOST` | Use `GCS_MIMIC_PUBLIC_BASE_URL=https://storage.example.invalid:4443` including the scheme; legacy Host matching also needs `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server`. Native path-style accepts any Host. For legacy SDK XML reads, use the API endpoint's authority too: a different public authority makes API-host XML reads fall back to a hostname bucket | `config-public-origin` |
 | `FAKE_GCS_DATA` | `GCS_MIMIC_SEED_DIR=fixtures`; native seed is one-time and does not overwrite on restart | Diagnostics; Import owns richer seed fidelity |
 | `FAKE_GCS_FILESYSTEM_ROOT` | Native destination `GCS_MIMIC_DATA_DIR=data` has a different format; retain the source and use the separately delivered Import conversion, never mount the old root as native data | Diagnostics; Import |
 | `FAKE_GCS_BACKEND` | Unsupported selector; disk-backed native catalog remains default. Bounded memory mode needs a separate DESIGN-077 slice; no claim that `memory` works | Separate plan |
@@ -447,7 +447,7 @@ Native path-style XML keeps accepting arbitrary Host values; explicit DNS
 suffix routing and the existing absolute-authority conflict rule remain as in
 the [virtual-host contract](xml-virtual-host.md). Authentication/signature
 verification, IAM/PAP and XML CORS are still required after routing. Legacy
-matching is opt-in through `compat_profile=legacy-emulator` with an explicit
+matching is opt-in through `compat_profile=fake-gcs-server` with an explicit
 `public_base_url`; an unset public base preserves current routing. It must never
 become a general strict-mode host restriction or a proxy trust policy.
 
@@ -551,7 +551,7 @@ remain PARTIAL.
   null or empty location. Nonempty resource locations win; unknown names return
   400 with valid examples. Restarting with a changed default preserves existing
   buckets, including initializer-created buckets.
-- Reject every explicitly supplied default in `legacy-emulator`, even `US`,
+- Reject every explicitly supplied default in `fake-gcs-server`, even `US`,
   before catalog access. Keep case-insensitive `US-CENTRAL1` create input
   accepted without storing it; reject other explicit legacy locations.
 - Keep project create authorization and initializer administrative authority

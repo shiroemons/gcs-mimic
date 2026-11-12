@@ -77,11 +77,11 @@ records null defaults and local error details.
 
 | Bucket metadata call | gcs-mimic behavior |
 | --- | --- |
-| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | In the native profile PUT replaces the resource, as recorded from Cloud Storage: omitted labels, CORS, lifecycle, versioning, retention policy (a locked one stays) and defaultEventBasedHold are cleared; the storage class, soft delete policy and access settings are kept. Ruby update blocks send PUT, so they lose omitted settings; use direct setters (PATCH) instead. `--compat-profile legacy-emulator` keeps the earlier omission-preserving behavior. See the [PUT contract](slices/bucket-metadata-put.md). |
+| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | In the native profile PUT replaces the resource, as recorded from Cloud Storage: omitted labels, CORS, lifecycle, versioning, retention policy (a locked one stays) and defaultEventBasedHold are cleared; the storage class, soft delete policy and access settings are kept. Ruby update blocks send PUT, so they lose omitted settings; use direct setters (PATCH) instead. `--compat-profile fake-gcs-server` keeps the earlier omission-preserving behavior. See the [PUT contract](slices/bucket-metadata-put.md). |
 
 | Soft-delete call | gcs-mimic behavior |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 1–3155760000 retention seconds. Soft delete is off by default on every backend, as in fake-gcs-server: omission at creation stores no policy, and **an overwrite or delete frees its bytes at once**. To keep them, send `softDeletePolicy.retentionDurationSeconds`, or start the server with `--default-soft-delete-retention-seconds N` (or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`). This default and range are local: Cloud Storage defaults to seven days and accepts 0 or 7 to 90 days, so a test of its rejection below seven days cannot run here. Buckets that store a policy keep it, including the seven days that 0.11.0 and earlier gave new buckets; omission on PATCH/PUT preserves the current policy. `--compat-profile legacy-emulator` still applies no default. |
+| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 1–3155760000 retention seconds. Soft delete is off by default on every backend, as in fake-gcs-server: omission at creation stores no policy, and **an overwrite or delete frees its bytes at once**. To keep them, send `softDeletePolicy.retentionDurationSeconds`, or start the server with `--default-soft-delete-retention-seconds N` (or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`). This default and range are local: Cloud Storage defaults to seven days and accepts 0 or 7 to 90 days, so a test of its rejection below seven days cannot run here. Buckets that store a policy keep it, including the seven days that 0.11.0 and earlier gave new buckets; omission on PATCH/PUT preserves the current policy. `--compat-profile fake-gcs-server` still applies no default. |
 | Go `Query.SoftDeleted`, `Generation(g).SoftDeleted().Attrs`, `Restore` / Ruby `files(soft_deleted: true)`, `file(name, generation:, soft_deleted: true)`, `restore_file` | Deleted/overwritten generations retain bytes until hardDeleteTime; ordinary reads hide them. A bucket with no stored policy and one with an explicit zero both allow listing (200, empty unless retained generations remain); missing generations return 404 on get/restore. This differs from Google's absent-policy errors. Restore creates a new live generation and keeps the original retained generation. Holds and retention still protect deletion/replacement. |
 | Delete a bucket containing only soft-deleted generations | With a positive policy the bucket becomes soft-deleted with its retained generations and can be restored by generation (`buckets.restore`); its objects stay soft-deleted until restored separately. Without a policy it is removed permanently. Buckets created from a seed directory or buckets file get the server default, and a buckets file entry can set its own `softDeletePolicy`; see the [object](slices/sdk-soft-delete-restore.md) and [bucket](slices/bucket-soft-delete-restore.md) soft-delete contracts. |
 
@@ -394,7 +394,7 @@ This is a target, not a current compatibility claim. Filesystem import and
 quiesced memory capture now have separate contracts. Go integration uses a
 Rust subprocess facade with a supported exported subset; literal in-process
 embedding and the complete source Go API remain unsupported.
-The existing `legacy-emulator` profile covers a limited bucket contract; it does
+The existing `fake-gcs-server` profile covers a limited bucket contract; it does
 not implement the complete migration profile described here.
 
 gcs-mimic serves path-style and opt-in virtual-host XML GET/HEAD/PUT, strict
@@ -465,7 +465,7 @@ emulator evidence, not a Google rate-limit or full migration parity claim.
 
 The create-by-name, basic-resource GET and empty-bucket DELETE baseline is
 delivered on **2026-10-22** with source-supported versioning/default hold
-configuration and real object effects. Select `compat_profile=legacy-emulator`
+configuration and real object effects. Select `compat_profile=fake-gcs-server`
 for source-specific naming/defaults/input/deletion behavior; native and strict
 authorization retain their independent contracts. This is a named capability
 baseline, not complete migration or full Google-method compatibility.
@@ -531,7 +531,7 @@ executable contract; these examples are not the entire inventory.
 | Listener/TLS | HTTPS by default; HTTP and dual-listener modes, certificate settings | Existing scheme/ports/trust configuration continue to work |
 | Container readiness | Existing HTTP deployments need a probe matching their listener | `gcs-mimic healthcheck` and the image probe derive readiness from `GCS_MIMIC_*` and the selected JSON file; wildcard addresses use loopback and both prefers HTTP. HTTPS trusts the development CA; custom CAs use `--ca-cert`. CLI-only server overrides need matching environment/file settings or an explicit probe `--url`. |
 | Image listener and data defaults | Source supplies startup defaults through its entrypoint | The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic` as environment defaults, which override JSON file values (file < environment < CLI). Use, for example, `GCS_MIMIC_LISTEN: 0.0.0.0:8080` and `GCS_MIMIC_DATA_DIR: /custom-data` in Compose, and adjust the published port and volume mount accordingly. |
-| Bucket listing without project | Source allows `GET /storage/v1/b` without project | `legacy-emulator` defaults to `seed_project`, as creation does; native returns 400 with `?project=local-project`. Explicit project validation, filtering and authorization remain active. |
+| Bucket listing without project | Source allows `GET /storage/v1/b` without project | `fake-gcs-server` defaults to `seed_project`, as creation does; native returns 400 with `?project=local-project`. Explicit project validation, filtering and authorization remain active. |
 | Lifecycle configuration | The pinned source ignores lifecycle settings at bucket creation and does not execute lifecycle rules | JSON insert/get/list/PATCH/PUT validate and persist the scoped rules, including ordinary Go/Ruby lifecycle calls. gcs-mimic stores configuration but never executes actions; XML lifecycle and initialization-file lifecycle remain unsupported. See the [lifecycle contract](slices/sdk-lifecycle-config.md). |
 | Endpoints | Public/virtual-host and API routes, external upload URLs and mutable internal configuration | Preserve client-visible host/path/query behavior; map advertised addresses explicitly |
 | HTTP semantics | JSON/XML, uploads, ranges, conditions, metadata, ACLs, batching and error shapes | Run the same client scenarios and negative cases against both implementations |
@@ -675,7 +675,7 @@ the [contract](slices/bucket-initialization.md) specifies limits and supported f
 ## Profiles and conflicting behavior
 
 Keep Google-contract/strict behavior and legacy emulator compatibility distinct.
-The accepted option `--compat-profile legacy-emulator` implements the limited
+The accepted option `--compat-profile fake-gcs-server` implements the limited
 bucket baseline above. The broader `fake-gcs-server compatibility profile`
 remains a design target; freeze additional behavior with each affected slice.
 The existing `auth_mode=permissive` is not already a complete legacy profile.

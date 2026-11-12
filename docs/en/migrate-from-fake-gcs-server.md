@@ -27,7 +27,7 @@ Roughly in order of how many setups it affects.
 | Run `-backend memory` with a lot of data | RAM storage has a budget of object bytes, by default about half of the available memory, from 64 MiB to 1 GiB. Past it, writes fail with 503. | Raise `memory_max_bytes` ([RAM contract](slices/memory-backend.md)) or use the disk backend. |
 | Put `.metadata` sidecar files in a seed directory | They are seeded as ordinary objects, not read as metadata. | Set metadata through the API. |
 | Call `/_internal/reseed` or `PUT /_internal/config` | These routes are off by default. | Set `GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener. |
-| List buckets without `?project=` | Returns 400, as Cloud Storage does. SDKs send the project already. | Add `?project=local-project`, or set `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
+| List buckets without `?project=` | Returns 400, as Cloud Storage does. SDKs send the project already. | Add `?project=local-project`, or set `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server`. |
 | Use `-event.*` without a Pub/Sub emulator | Startup fails, so tests that wait for notifications do not hang. | Point `PUBSUB_EMULATOR_HOST` at a local emulator. |
 | Depend on `-public-host` matching the Host header | Accepted as `public_base_url`; subdomains select virtual-host buckets. | Use another host for JSON or set `--api-base-url`; review the [routing differences](fake-gcs-server-configuration.md). |
 | Send requests Cloud Storage would reject | gcs-mimic validates input as Cloud Storage does, so loose requests can now return 4xx. | Fix the request. |

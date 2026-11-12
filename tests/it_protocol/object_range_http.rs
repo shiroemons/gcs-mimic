@@ -22,7 +22,7 @@ impl Server {
     fn start_with_profile(dir: &TestDir, strict: bool, legacy: bool) -> Self {
         let mut command = http_command(&dir.0);
         if legacy {
-            command.args(["--compat-profile", "legacy-emulator"]);
+            command.args(["--compat-profile", "fake-gcs-server"]);
         }
         if strict {
             command.args([

@@ -97,7 +97,7 @@ exactly once as UTF-8, with `+` interpreted as space. Malformed escapes/UTF-8, d
 parameter names, empty required values and invalid scalar types return 400 `invalidParameter`.
 In the native profile a bucket method ignores a query name it does not consume, as recorded from
 Cloud Storage on 2026-11-01 (SPEC-JSON-UNKNOWN-QUERY); recognized but unsupported parameters such as
-`userProject` are still rejected (SPEC-SDK-UNSUPPORTED). The legacy-emulator profile returns 400
+`userProject` are still rejected (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
 `invalidParameter` for any unknown query name, and object methods return 400 `invalidParameter` for
 one in both profiles (SPEC-JSON-UNKNOWN-QUERY-OBJECTS), except the `response-content-disposition` and
 `response-content-type` overrides that object reads ignore. The local raw query cap is 16 KiB.

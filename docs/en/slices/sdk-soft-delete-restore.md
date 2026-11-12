@@ -44,7 +44,7 @@ for the separate diagnostic checks; no HTTP response is changed.
   An explicit policy in the request, zero included, is kept as sent. Existing
   buckets keep their stored policy, including the seven days that 0.11.0 and earlier
   gave new buckets. Buckets created by `import`, directory sync
-  or the legacy-emulator profile get no default; seed files and the buckets file
+  or the fake-gcs-server profile get no default; seed files and the buckets file
   use it. A bucket with no policy and a
   bucket with an explicit zero both allow softDeleted=true listing (200, empty
   unless retained generations remain); missing soft-deleted generations return

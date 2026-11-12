@@ -17,7 +17,7 @@ cases pass.
   configuration; omit lifecycle from subsequent responses.
 - LIFECYCLE-UPDATE-REPLACE: PUT replaces supplied lifecycle; an omitted
   lifecycle is cleared in the native profile (as recorded from Cloud Storage)
-  and preserved in the legacy-emulator profile, a local choice under
+  and preserved in the fake-gcs-server profile, a local choice under
   SPEC-BUCKET-PUT.
 - LIFECYCLE-VALIDATE-ACTION: accept Delete, SetStorageClass with a supported
   bucket storage class, and AbortIncompleteMultipartUpload; reject invalid
@@ -86,7 +86,7 @@ SetStorageClass requires it. Valid but unsupported classes, including REGIONAL
 and RAPID for actions and RAPID for matchesStorageClass, use the common
 unsupported response with the indexed field path. Invalid class names include
 a supported example in the error. Errors return 400 invalidArgument in native mode
-and 400 invalid in legacy-emulator mode, with valid examples. Recognized
+and 400 invalid in fake-gcs-server mode, with valid examples. Recognized
 unsupported conditions retain the common 400 badRequest response.
 
 Schema 24 adds JSON rules to the bucket row in a short transactional migration.
@@ -185,7 +185,7 @@ Verified for the evaluator extension on 2026-11-11:
   (503). That existing timing case passed alone without changes. The seven
   remaining integration binaries and `cargo test --doc` then passed.
 - `cargo test --test it_json bucket` passed 103 cases, including lifecycle, Autoclass,
-  location and metadata-update cases in the native and legacy-emulator profiles.
+  location and metadata-update cases in the native and fake-gcs-server profiles.
 - `cargo xtask lint` passed with zero new production violations or ratcheted
   findings; the existing reasoned suppression count stayed at one.
 - `cargo xtask dependencies check --scope release` reported the checked release
@@ -202,7 +202,7 @@ on nonempty lifecycle creation before implementation.
 Verified on 2026-10-27:
 
 - `cargo check --workspace --all-targets --locked --offline` passed.
-- Lifecycle wire cases pass in native and legacy-emulator profiles: round trips,
+- Lifecycle wire cases pass in native and fake-gcs-server profiles: round trips,
   PATCH replacement/clearing, PUT replacement/omission, metageneration conditions,
   invalid action/type/date/combination cases and 100/101-rule boundaries.
 - Catalog schema 23 migration and restart preservation pass. Calendar leap-year

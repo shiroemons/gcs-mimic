@@ -23,7 +23,7 @@ The image retains its existing wildcard listener and persistent directory as
 instead of CMD arguments, so environment overrides reach both server and probe.
 These image environment defaults take precedence over JSON file values.
 
-The omitted-project decision is settled here: `legacy-emulator` uses
+The omitted-project decision is settled here: `fake-gcs-server` uses
 `seed_project` for bucket listing as it does for creation; native still requires
 project and answers 400 `required` ("Required parameter: project"), as recorded
 from Cloud Storage. Explicit invalid projects remain
@@ -66,7 +66,7 @@ Verified on 2026-10-25 with Rust 1.99.1 and the committed lockfiles:
   environment-over-file precedence, wildcard mapping, explicit URL and diagnostics.
 - `just check-sdk` passed with Go storage v1.70.0 and Ruby 4.0.9 /
   google-cloud-storage 1.62.1. The added Go migration HTTP case passed separately
-  with `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator
+  with `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server
   GCS_MIMIC_GO_TEST_RUN=TestMigrationAppScenarioBucketList bash scripts/sdk-go.sh`.
   The generated Go buckets.list call serializes an empty project explicitly;
   the existing migration HTTP helper is used to exercise an absent query instead.

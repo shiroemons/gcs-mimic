@@ -26,7 +26,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 | `-backend memory`で大量のデータを扱う | RAM保存には上限があり、既定ではオブジェクト本体で使えるメモリの約半分（64 MiB〜1 GiB）です。超えると書き込みが503で失敗します。 | `memory_max_bytes`を増やす（[RAM保存の仕様（英語）](../en/slices/memory-backend.md)）か、ディスク保存を使います。 |
 | 初期ファイルのディレクトリに`.metadata`ファイルを置いている | メタデータとしては読まず、通常のオブジェクトとして取り込みます。 | メタデータはAPIで設定します。 |
 | `/_internal/reseed`や`PUT /_internal/config`を呼んでいる | 既定では無効です。 | 他から届かない待受で`GCS_MIMIC_ADMIN_ENABLED=true`を設定します。 |
-| `?project=`なしでバケットを一覧する | Cloud Storageと同じく400を返します。SDKは最初からプロジェクトを送ります。 | `?project=local-project`を付けるか、`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`を設定します。 |
+| `?project=`なしでバケットを一覧する | Cloud Storageと同じく400を返します。SDKは最初からプロジェクトを送ります。 | `?project=local-project`を付けるか、`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server`を設定します。 |
 | Pub/Subエミュレーターなしで`-event.*`を使う | 起動に失敗します。通知を待つテストが止まらないようにするためです。 | `PUBSUB_EMULATOR_HOST`でローカルのエミュレーターを指定します。 |
 | `-public-host`のHostヘッダー照合に依存している | 受け付けます。サブドメインは仮想ホストのバケットを選びます。 | JSONには別ホストか`--api-base-url`を使います。 |
 | Cloud Storageなら拒否されるリクエストを送っている | gcs-mimicはCloud Storageと同じように入力を検証するので、4xxになることがあります。 | リクエストを直します。 |

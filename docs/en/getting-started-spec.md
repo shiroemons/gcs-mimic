@@ -57,7 +57,7 @@ The current bucket journey must create a bucket through HTTP with
 `versioning.enabled=true` and `defaultEventBasedHold=true`, verify inherited hold
 and a rejected delete, release the hold, overwrite, list both retained generations,
 read the earlier bytes, then release/delete all generations and the empty bucket.
-Run the same setting/effect contract in native and `legacy-emulator` compatibility
+Run the same setting/effect contract in native and `fake-gcs-server` compatibility
 profiles through HTTP tests. The runnable guide's native journey is sufficient
 for onboarding; the compatibility corpus additionally covers source-only names.
 The implemented compatibility option is `--compat-profile`, environment

@@ -159,7 +159,7 @@ fn changing_or_disabling_the_creator_follows_restarts_without_authorizing_anythi
 #[test]
 fn legacy_profile_and_invalid_addresses_are_not_accepted_or_changed() {
     let dir = TestDir::new();
-    let mut server = Server::start_with_args(&dir, &["--compat-profile", "legacy-emulator"]);
+    let mut server = Server::start_with_args(&dir, &["--compat-profile", "fake-gcs-server"]);
     server.bucket();
     server.put("legacy", b"a").json_ok();
     let object = full(&server, "legacy");
@@ -184,7 +184,7 @@ fn legacy_profile_and_invalid_addresses_are_not_accepted_or_changed() {
     for args in [
         &[
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
             "--local-creator-email",
             "a@example.test",
         ][..],

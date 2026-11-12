@@ -675,7 +675,7 @@ fn direct_fixture_progress_renews_inactivity_without_disabling_the_deadline() {
 
 #[test]
 fn virtual_host_objects_named_like_management_routes_remain_readable_and_writable() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         for enabled in ["false", "true"] {
             let dir = TestDir::new();
             let server = Server::start(
@@ -820,7 +820,7 @@ fn local_admin_configuration_is_explicit_and_obeys_native_precedence() {
 
 #[test]
 fn legacy_healthcheck_and_startup_event_support_container_waits() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let dir = TestDir::new();
         let server = Server::start(&dir, &["--compat-profile", profile]);
         assert_eq!(server.ready["executable"], "gcs-mimic");
@@ -860,7 +860,7 @@ fn legacy_healthcheck_and_startup_event_support_container_waits() {
 
 #[test]
 fn public_host_updates_replace_implicit_routing_and_preserve_explicit_domains() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let dir = TestDir::new();
         let server = Server::start(
             &dir,
@@ -1079,7 +1079,7 @@ fn config_update_during_upload_retains_the_requests_original_endpoint_snapshot()
 
 #[test]
 fn strict_config_authorization_and_raw_signed_host_survive_public_host_updates() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let dir = TestDir::new();
         let identity_file = common::process::write_identities(
             &dir.0,

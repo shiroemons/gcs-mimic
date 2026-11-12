@@ -126,9 +126,9 @@ if [[ $reference_only == 0 ]]; then
   if [[ $help == *--compat-profile* ]]; then profile_args=(--compat-profile native); fi
   start_target mimic-native ${profile_args[@]+"${profile_args[@]}"}
   if [[ $help == *--compat-profile* ]]; then
-    start_target mimic-legacy-emulator --compat-profile legacy-emulator
+    start_target mimic-fake-gcs-server --compat-profile fake-gcs-server
   else
-    echo 'SKIPPED mimic-legacy-emulator: binary does not support --compat-profile'
+    echo 'SKIPPED mimic-fake-gcs-server: binary does not support --compat-profile'
   fi
 fi
 

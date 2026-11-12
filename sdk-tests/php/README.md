@@ -164,7 +164,7 @@ signer; signing never requests a token, and no bearer header is attached.
 - `Lifecycle::clearRules()` leaves an empty PHP array that the SDK sends as
   `"lifecycle": []`. The native profile accepts it and leaves the rules
   unchanged (a recorded Cloud Storage insert accepted the array); the
-  legacy-emulator profile rejects it with guidance to use `{"rule": []}`. The
+  fake-gcs-server profile rejects it with guidance to use `{"rule": []}`. The
   suite clears rules with the documented array form
   `['lifecycle' => ['rule' => []]]`; the question was recorded as
   `SPEC-LIFECYCLE-ARRAY` in `compatibility/gaps.json` and is resolved.

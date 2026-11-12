@@ -515,7 +515,7 @@ jq -e '.error.code == 412 and .error.errors[0].reason == "conditionNotMet"' \
 ```
 
 Use the response `ETag` header, including its quotes. Object metadata/media GET
-and bucket/policy GET support these validators; the legacy-emulator bucket JSON `etag`
+and bucket/policy GET support these validators; the fake-gcs-server bucket JSON `etag`
 field can differ from its record-derived HTTP header. A metadata update or
 overwrite changes the validator. If-Match uses strong comparison, If-None-Match
 uses weak comparison, and conditions precede Range. Generation/metageneration

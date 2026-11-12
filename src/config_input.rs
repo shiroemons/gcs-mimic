@@ -818,7 +818,7 @@ fn refused_advice(flag: RefusedFlag, values: &BTreeMap<ServerFlag, &str>) -> Str
         RefusedFlag::CorsHeaders => "cors-headers cannot preserve fake-gcs-server's global request-header allowlist. Remove it: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON preflight already allows every valid requested header. Use --cors-fallback allow-all (GCS_MIMIC_CORS_FALLBACK=allow-all) explicitly to allow every origin on XML buckets without rules".into(),
         RefusedFlag::Location => {
             let example = bucket_location(value).map_or_else(|_| "ASIA-NORTHEAST1", |(location, _)| location);
-            format!("location cannot preserve fake-gcs-server's server-wide response location. Use --default-location {example} (GCS_MIMIC_DEFAULT_LOCATION={example}) with GCS_MIMIC_COMPAT_PROFILE=native for new buckets without an explicit location; existing buckets and explicit locations win, and legacy-emulator global location defaults remain unsupported")
+            format!("location cannot preserve fake-gcs-server's server-wide response location. Use --default-location {example} (GCS_MIMIC_DEFAULT_LOCATION={example}) with GCS_MIMIC_COMPAT_PROFILE=native for new buckets without an explicit location; existing buckets and explicit locations win, and compat_profile=fake-gcs-server keeps no server-wide default location")
         }
     }
 }

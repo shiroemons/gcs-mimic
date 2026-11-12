@@ -776,7 +776,7 @@
           "Complete the local HTTPS and independent JSON/XML CORS slices, then verify their interaction in actual browsers over trusted local HTTPS with host/peer endpoints; signed URLs are not prerequisites for this gate.",
           "Reconcile each README comparison row against the same named scope for every product and linked evidence. A scoped checkmark means the named workflow works, never full Google method compatibility; leave pending broad cases, status and fidelity unchanged until their own evidence passes."
         ],
-        "deferred_scope": "Signed URLs and their browser transfer integration, Rails direct-upload journeys, public certificate/DNS provisioning and full-method/legacy-emulator parity are separate later gates. Local HTTPS, JSON CORS defaults and scoped bucket/XML-read CORS are required here. The milestone has no independent implementation-status field and does not require every P1/P2 row to be IMPLEMENTED."
+        "deferred_scope": "Signed URLs and their browser transfer integration, Rails direct-upload journeys, public certificate/DNS provisioning and full-method/fake-gcs-server parity are separate later gates. Local HTTPS, JSON CORS defaults and scoped bucket/XML-read CORS are required here. The milestone has no independent implementation-status field and does not require every P1/P2 row to be IMPLEMENTED."
       },
       {
         "id": "v4-signed-download",
@@ -4330,7 +4330,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -5123,7 +5123,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -6185,7 +6185,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 16 MiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The legacy-emulator profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
+      "notes": "Bounded 16 MiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The fake-gcs-server profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -6623,7 +6623,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -7155,7 +7155,7 @@
           ]
         },
         {
-          "command": "cargo test --locked --offline --test bucket_http bucket_list_omitted_project; just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator GCS_MIMIC_GO_TEST_RUN=TestMigrationAppScenarioBucketList bash scripts/sdk-go.sh",
+          "command": "cargo test --locked --offline --test bucket_http bucket_list_omitted_project; just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server GCS_MIMIC_GO_TEST_RUN=TestMigrationAppScenarioBucketList bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/migrate-defaults.md",
@@ -7475,7 +7475,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile defaults PATCH to projection full, applies predefinedAcl and predefinedDefaultObjectAcl, accepts undeclared query parameters, an array lifecycle (rules unchanged) and a different location, and clears every label when labels is a string instead of a map. Where the recording cannot distinguish alternatives (a nonempty array lifecycle, labels of other non-map types) the behavior is an extrapolation from the recorded case. The legacy-emulator profile keeps the earlier 400s.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile defaults PATCH to projection full, applies predefinedAcl and predefinedDefaultObjectAcl, accepts undeclared query parameters, an array lifecycle (rules unchanged) and a different location, and clears every label when labels is a string instead of a map. Where the recording cannot distinguish alternatives (a nonempty array lifecycle, labels of other non-map types) the behavior is an extrapolation from the recorded case. The fake-gcs-server profile keeps the earlier 400s.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -9098,7 +9098,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "In the legacy-emulator profile PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings; the native profile replaces the resource as recorded (see the 2026-11-01 update below). Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile replaces the resource on PUT: it clears the omitted labels, cors, lifecycle, versioning, retention policy (a locked one stays), keeps the storage class, soft delete policy and access settings, applies predefinedAcl and answers 400 when the body name differs from the path. It also clears the omitted defaultEventBasedHold, which is extrapolated from the other recorded fields: the recording has no defaultEventBasedHold. The legacy-emulator profile still preserves every omitted setting as a local choice (SPEC-BUCKET-PUT).",
+      "notes": "In the fake-gcs-server profile PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings; the native profile replaces the resource as recorded (see the 2026-11-01 update below). Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile replaces the resource on PUT: it clears the omitted labels, cors, lifecycle, versioning, retention policy (a locked one stays), keeps the storage class, soft delete policy and access settings, applies predefinedAcl and answers 400 when the body name differs from the path. It also clears the omitted defaultEventBasedHold, which is extrapolated from the other recorded fields: the recording has no defaultEventBasedHold. The fake-gcs-server profile still preserves every omitted setting as a local choice (SPEC-BUCKET-PUT).",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -9106,12 +9106,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"PUT-ETAG-HEADERS-IGNORED","description":"The .NET UpdateBucketAsync If-Match (gzip full-resource PUT) and a stale If-Match on PUT return 200 and apply the replacement, as observed on Cloud Storage on 2026-10-31; query metageneration conditions remain atomic. Accepted-but-ignored by observed provider behavior, not an evaluated precondition.","result":"PASS","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP; the native profile clears the omitted versioning and labels like a recorded Cloud Storage PUT (2026-10-31) and the omitted default hold by extrapolation from the other recorded fields (the recording has no defaultEventBasedHold) and keeps the storage class, soft delete policy and access settings, while the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). The Ruby script case bucket_put_ruby_update_block_replaces_and_setters_patch (sdk-tests/ruby/https.rb --bucket-put) asserts that the block sends a PUT that clears the omitted versioning and labels and that plain setters send PATCHes that keep what they do not name; the Go TestBucketMetadataReplace asserts the same replacement, and both passed on 2026-11-01 alongside the class, soft delete and access-setting retention (bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits).","result":"PASS","test_ids":["bucket_put_ruby_update_block_replaces_and_setters_patch","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","TestBucketMetadataReplace"]},
+        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP; the native profile clears the omitted versioning and labels like a recorded Cloud Storage PUT (2026-10-31) and the omitted default hold by extrapolation from the other recorded fields (the recording has no defaultEventBasedHold) and keeps the storage class, soft delete policy and access settings, while the fake-gcs-server profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). The Ruby script case bucket_put_ruby_update_block_replaces_and_setters_patch (sdk-tests/ruby/https.rb --bucket-put) asserts that the block sends a PUT that clears the omitted versioning and labels and that plain setters send PATCHes that keep what they do not name; the Go TestBucketMetadataReplace asserts the same replacement, and both passed on 2026-11-01 alongside the class, soft delete and access-setting retention (bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits).","result":"PASS","test_ids":["bucket_put_ruby_update_block_replaces_and_setters_patch","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","TestBucketMetadataReplace"]},
         {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes explicit retention and preserves omitted policy; explicit null clears unlocked policy and locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and preserves omitted configuration; explicit null/empty clears. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
           "id": "PUT-REPLACEMENT",
-          "description": "Replace a supplied labels map; null/empty labels clear. A native PUT also clears omitted labels, cors, lifecycle, versioning, retention policy (unless locked) as recorded on Cloud Storage, and defaultEventBasedHold by extrapolation from those fields (the recording has no defaultEventBasedHold); the legacy-emulator profile preserves omitted settings.",
+          "description": "Replace a supplied labels map; null/empty labels clear. A native PUT also clears omitted labels, cors, lifecycle, versioning, retention policy (unless locked) as recorded on Cloud Storage, and defaultEventBasedHold by extrapolation from those fields (the recording has no defaultEventBasedHold); the fake-gcs-server profile preserves omitted settings.",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs"
@@ -13793,7 +13793,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -14689,7 +14689,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -16091,7 +16091,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -16801,7 +16801,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -17478,7 +17478,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -25538,7 +25538,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -26179,7 +26179,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-BUCKET-SOFT-DELETE: local new buckets default to no soft delete policy; restore over a live bucket returns a local 409; soft-deleted reads authorize against project roles only and omit ACL fields; notification configurations are not retained; the legacy-emulator profile does not render generation."
+        "SPEC-BUCKET-SOFT-DELETE: local new buckets default to no soft delete policy; restore over a live bucket returns a local 409; soft-deleted reads authorize against project roles only and omit ACL fields; notification configurations are not retained; the fake-gcs-server profile does not render generation."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-31"
@@ -26811,7 +26811,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -29834,7 +29834,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -31144,7 +31144,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -31705,7 +31705,7 @@
           ]
         },
         {
-          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
@@ -62480,7 +62480,7 @@
           ]
         },
         {
-          "command": "gsutil 5.38 without credentials against gcs-mimic over TLS, in the native and legacy-emulator profiles: mb, cp up and down (cmp equal), ls, stat",
+          "command": "gsutil 5.38 without credentials against gcs-mimic over TLS, in the native and fake-gcs-server profiles: mb, cp up and down (cmp equal), ls, stat",
           "result": "PASS",
           "verified_at": "2026-11-09",
           "artifact": "docs/en/evidence/client-compat-0.16.0.md",

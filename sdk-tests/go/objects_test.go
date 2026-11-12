@@ -166,7 +166,7 @@ func TestObjectMediaLifecycle(t *testing.T) {
 			}
 			readObject(t, ctx, object, payload, attrs.Generation)
 			nonemptyStatus := http.StatusConflict
-			if os.Getenv("GCS_MIMIC_COMPAT_PROFILE") == "legacy-emulator" {
+			if os.Getenv("GCS_MIMIC_COMPAT_PROFILE") == "fake-gcs-server" {
 				nonemptyStatus = http.StatusPreconditionFailed
 			}
 			requireObjectStatus(t, bucket.Delete(ctx), nonemptyStatus)

@@ -222,7 +222,7 @@ stays bracketed. The DNS hostname joins the XML base-domain list, merging an
 existing entry within a total limit of 32; duplicates within the explicit list
 remain errors. IP origins warn and disable only public-derived virtual hosts.
 
-With `compat_profile=legacy-emulator`, this origin enables the measured public
+With `compat_profile=fake-gcs-server`, this origin enables the measured public
 Host matching and complete-hostname fallback. Native path-style accepts any
 Host. Keep API/public authorities equal for SDK XML reads in legacy mode.
 The [Host contract](slices/configuration-workflows.md#host-matching-measured-reference-and-normative-rules)

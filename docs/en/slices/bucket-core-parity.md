@@ -30,7 +30,7 @@ d466e797aa68c85d76d5125064782389afc944387d9156b2e49291f801c1d5b1
 
 ## Profiles and acceptance corpus
 
-`compat_profile=native` is the default. `legacy-emulator` is explicit, independent of `auth_mode`, and selected through `--compat-profile`, `GCS_MIMIC_COMPAT_PROFILE` or JSON `compat_profile`, with CLI > environment > file > default. Strict authentication and transactional authorization apply identically in both profiles. The source has no project ownership model: when the compatibility profile omits `project`, gcs-mimic assigns configured `seed_project` (default `local-project`) and checks create permission for that project. An explicit project retains native ownership/validation; no registry or production project resolution is implied.
+`compat_profile=native` is the default. `fake-gcs-server` is explicit, independent of `auth_mode`, and selected through `--compat-profile`, `GCS_MIMIC_COMPAT_PROFILE` or JSON `compat_profile`, with CLI > environment > file > default. Strict authentication and transactional authorization apply identically in both profiles. The source has no project ownership model: when the compatibility profile omits `project`, gcs-mimic assigns configured `seed_project` (default `local-project`) and checks create permission for that project. An explicit project retains native ownership/validation; no registry or production project resolution is implied.
 
 Each row names its executable test ID. Source references are the symbols above; Google columns describe the authoritative contract, while local choices stay explicit.
 
@@ -116,7 +116,7 @@ Action, SDK and container input as CURRENT at slice start. No dependency was add
 | `env -u RUSTUP_TOOLCHAIN cargo fmt --all --check` | PASS |
 | `env -u RUSTUP_TOOLCHAIN cargo clippy --locked --all-targets -- -D warnings` | PASS |
 | `GCS_MIMIC_GO_TEST_RUN=TestBucket bash scripts/sdk-go.sh` | PASS; bucket lifecycle, settings and permissive IAM tests, plus Go vet |
-| `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator GCS_MIMIC_GO_TEST_RUN=TestBucket bash scripts/sdk-go.sh` | PASS; same narrow SDK corpus and Go vet under the source profile |
+| `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server GCS_MIMIC_GO_TEST_RUN=TestBucket bash scripts/sdk-go.sh` | PASS; same narrow SDK corpus and Go vet under the source profile |
 | `npx --yes markdownlint-cli2 --config <MD013-disabled-config> docs/en/slices/bucket-core-parity.md docs/en/slices/json-bucket-crud.md docs/en/getting-started.md` | PASS; only MD013 disabled to preserve existing contract tables/long prose lines |
 
 The [integrated SDK evidence](../evidence/bucket-core-parity-sdk-go.txt) retains the final raw outputs

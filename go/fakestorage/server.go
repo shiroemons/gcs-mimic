@@ -209,7 +209,7 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 		publicHost = "storage.googleapis.com"
 	}
 	s.publicURL = scheme + "://" + publicHost
-	args := []string{"serve", "--compat-profile", "legacy-emulator",
+	args := []string{"serve", "--compat-profile", "fake-gcs-server",
 		"--auth-mode", "permissive", "--seed-project", "local-project", "--admin-enabled", "true"}
 	if options.NoListener {
 		args = append(args, "--unix-socket", s.socketPath, "--scheme", "http")

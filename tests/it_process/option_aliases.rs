@@ -59,7 +59,7 @@ fn stop_stderr(server: &mut Server) -> String {
 fn refused_flags_report_every_original_key_before_startup() {
     for (prefix, equals) in [("-", false), ("--", false), ("-", true), ("--", true)] {
         for auth in ["permissive", "strict"] {
-            for profile in ["native", "legacy-emulator"] {
+            for profile in ["native", "fake-gcs-server"] {
                 let root = TestDir::new();
                 let data = root.0.join("never-created");
                 let mut command = common::server_command();
@@ -213,7 +213,7 @@ fn public_host_accepts_dns_and_ip_origins_and_preserves_explicit_api_conflict_er
     let root = TestDir::new();
     fs::create_dir_all(root.0.join("fixture-bucket")).unwrap();
     fs::write(root.0.join("fixture-bucket/hello.txt"), b"fixture bytes").unwrap();
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         for host in ["storage.invalid:9000", "127.0.0.1:9000", "[::1]:9000"] {
             for flag in ["-public-host", "--public-host"] {
                 let mut command = common::server_command();

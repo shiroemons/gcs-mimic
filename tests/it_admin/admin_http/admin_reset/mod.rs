@@ -4,7 +4,7 @@ const CONFIRM: &[u8] = br#"{"confirm":"gcs-mimic"}"#;
 
 #[test]
 fn virtual_host_reset_lookalike_keeps_object_semantics_and_existing_instance_data() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let dir = TestDir::new();
         let server = Server::start(
             &dir,

@@ -46,7 +46,7 @@ nativeと同じく、環境変数はJSON設定より優先します。
 保存先は`-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data`で変えます。
 JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書きできません。
 
-移行時のバケット一覧では、`legacy-emulator`はprojectを省略すると
+移行時のバケット一覧では、`fake-gcs-server`はprojectを省略すると
 `seed_project`を使います。nativeは400を返し、`?project=local-project`の例を示します。
 明示したprojectの検証・絞り込み・認可は維持します。
 対象はDESIGN-067、DESIGN-058、JSON-BUCKETS-006です。
@@ -123,7 +123,7 @@ fake-gcs-server 1.56.1との挙動の違いを、[移行手順](fake-gcs-server-
 | 再起動をまたぐresumableセッション | このリポジトリでは比較していない | strictと同じ | セッションと受け取ったバイトはデータボリュームに残り、再起動後も続けられ、7日で期限切れになる。memory backendでは失われる |
 | 返すURL | `-external-url`ですべてのクライアントに同じアドレスを返す | strictと同じ | 各リクエストのHostと接続のスキームに従うので、コンテナとホストがそれぞれ自分のアドレスを受け取る。`GCS_MIMIC_API_BASE_URL`で1つに固定できる |
 | 条件付きリクエスト | アップロードの世代条件だけ。読み取りの`If-Match`と`If-None-Match`は無視する | strictと同じ | オブジェクトとバケットの変更で世代とmetagenerationの条件を書き込みと一体で確認する。読み取りではETagの条件を確認する |
-| `project`を省略したバケット一覧 | 使える | strictと同じ | 400 `required`。`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`では`seed_project`を使う |
+| `project`を省略したバケット一覧 | 使える | strictと同じ | 400 `required`。`GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server`では`seed_project`を使う |
 | 信頼済みリスナー | なし | 使えない。すべてのリクエストを許可するので、指定すると起動が止まる | `GCS_MIMIC_TRUSTED_LISTEN`。認証情報のないリクエストを`trusted-app@gcs-mimic.invalid`か`GCS_MIMIC_TRUSTED_PRINCIPAL`として扱う。[下の節](#信頼済みリスナーで非公開バケットを守る)を参照 |
 
 速度や実測したメモリ使用量は比較していません。

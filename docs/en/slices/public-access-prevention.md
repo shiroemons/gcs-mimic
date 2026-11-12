@@ -23,7 +23,7 @@ require `storage.buckets.update`, adding `storage.buckets.setIamPolicy` for PAP
 changes. The local comparison uses the resulting configured value: resending
 the stored value or omitting PAP requires only update. PUT keeps omitted PAP (the
 native profile keeps omitted access settings, as recorded from Cloud Storage; the
-legacy-emulator profile preserves every omitted setting, SPEC-BUCKET-PUT). Unchanged-value provider
+fake-gcs-server profile preserves every omitted setting, SPEC-BUCKET-PUT). Unchanged-value provider
 permission parity has not been measured; this interpretation is recorded in
 SPEC-PAP-EDGES. Insert retains its project `storage.buckets.create` check.
 
@@ -80,7 +80,7 @@ uniform-access transitions remain outside this slice.
 
 PATCH and PUT preserve omitted PAP. Only an explicit value changes configured
 PAP. The native profile keeps omitted PAP on PUT as recorded from Cloud Storage
-(2026-10-31), while the legacy-emulator profile preserves it as a local choice.
+(2026-10-31), while the fake-gcs-server profile preserves it as a local choice.
 Every successful metadata mutation advances
 metageneration once. Match/NotMatch conditions and both required mutation
 permissions for actual PAP changes are checked in the same transaction. Failed

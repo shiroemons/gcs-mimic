@@ -162,7 +162,7 @@ fn a_resumable_upload_initiated_with_an_api_key_completes() {
 #[test]
 fn api_key_is_accepted_under_the_legacy_emulator_profile() {
     let dir = TestDir::new();
-    let server = Server::start_with_args(&dir, &["--compat-profile", "legacy-emulator"]);
+    let server = Server::start_with_args(&dir, &["--compat-profile", "fake-gcs-server"]);
     server.bucket();
     server.put("object", b"object-bytes").json_ok();
     for path in [

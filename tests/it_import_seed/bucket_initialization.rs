@@ -235,7 +235,7 @@ fn default_location_invalid_or_alias_settings_fail_before_catalog_creation() {
             "--default-location",
             "US",
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
         ],
     ] {
         let dir = TestDir::new();
@@ -795,7 +795,7 @@ fn strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_m
         selected(&dir.0)
             .args(["--auth-mode", "strict", "--identity-file"])
             .arg(&identity)
-            .args(["--compat-profile", "legacy-emulator"]),
+            .args(["--compat-profile", "fake-gcs-server"]),
     );
     counts(&server, 2, 0, 0);
     assert_eq!(

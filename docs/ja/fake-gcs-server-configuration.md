@@ -260,7 +260,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文が使えるメモリの約半分（64 MiB〜1 GiB）・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
 | イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
-| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`3155760000`を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と範囲はどちらもローカル独自の仕様です。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
+| 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定はすべての保存方式で`0`で、ポリシーを保存しません。オブジェクトの削除や上書きで本文をすぐに解放します（fake-gcs-serverと同じ）。`0`または`1`～`3155760000`を指定でき、`604800`がCloud Storageの既定の7日です。Cloud Storageが受け付けるのは0または7～90日だけなので、既定と範囲はどちらもローカル独自の仕様です。既存のバケットは保存済みのポリシーを保ちます（0.11.0までが付けた7日も同じです）。`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。fake-gcs-serverプロファイルは既定を適用せず、正の値を拒否します |
 | 接続・セッション・初期ファイル・同期の上限 | `GCS_MIMIC_MAX_CONNECTIONS`、`GCS_MIMIC_MAX_GRPC_STREAMS`、`GCS_MIMIC_MAX_OBJECT_BYTES`、`GCS_MIMIC_MAX_RESUMABLE_SESSIONS`、`GCS_MIMIC_MAX_REWRITE_SESSIONS`、`GCS_MIMIC_MAX_SEED_ENTRIES`、`GCS_MIMIC_MAX_SEED_DEPTH`、`GCS_MIMIC_MAX_BUCKETS_PER_BATCH`、`GCS_MIMIC_MAX_SYNC_ENTRIES`、`GCS_MIMIC_MAX_SYNC_DEPTH` | 移行元に同等の設定はありません。既定（接続1024、ストリーム100、5 TiB、ほかは無制限。`0`が無制限です）は通常の移行では変更不要です。共有環境や公開するサーバーでは`max_object_bytes`を下げてください。[すべての設定（英語）](../en/native-binary.md#native-binary-and-configuration) |
 | 接続とリクエストのタイムアウト | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS`、`GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS`、`GCS_MIMIC_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS`、`GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS`、`GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 既定は30000、無効、180000、120000、無効、120000ミリ秒です。Cloud Storageはこれらの秒数を公開していないので、[ローカルの判断（英語）](../en/sources.md#timeouts-and-limits-behind-the-local-defaults)です。それぞれ`0`で無効になります。0.20.0まで最初の3つの別名だった`GCS_MIMIC_CONNECTION_TIMEOUT_MS`は、起動を止めてその3つを示します |
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
@@ -309,7 +309,7 @@ ready通知の`public_base_url`は正規化した文字列、未指定時はnull
 `127.0.0.1`のような正規のIPv4表記を指定してください。
 
 nativeのpath-styleは任意のHostを受け付けます。
-`--compat-profile legacy-emulator`と公開originを併用すると、上流に合わせたHost照合を有効にします。
+`--compat-profile fake-gcs-server`と公開originを併用すると、上流に合わせたHost照合を有効にします。
 公開authorityに一致すればパスからバケットを選び、一致しなければHost全体をバケットとして扱います。
 Go SDKなどXMLで取得するクライアントではAPI接続先と公開authorityを揃えてください。
 JSON・probeの予約パスは引き続き使え、明示した別のXML基底ドメインは既存のXML優先を保ちます。
@@ -337,7 +337,7 @@ APIと初期化ファイルでlocationを省略した場合や空文字・null�
 configurable dual-regionの配置設定とRPOは未対応です。
 固定した名前の一覧・確認日・制限は[契約](../en/slices/sdk-regional-locations.md)を参照してください。
 設定を変えて再起動しても既存バケットは書き換えません。物理的な配置は再現しません。
-`legacy-emulator`では明示した既定値を拒否します。
+`fake-gcs-server`では明示した既定値を拒否します。
 legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
 その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
 ほかの明示locationは拒否します。

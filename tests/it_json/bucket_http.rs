@@ -79,7 +79,7 @@ fn raw(address: &str, request: &str) -> Reply {
     .into_text()
 }
 
-const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
+const PROFILES: [&str; 2] = ["native", "fake-gcs-server"];
 
 /// PUT defaults to `projection=full`, so compare it with noAcl reads after removing ACL fields.
 fn without_acl(mut value: Value) -> Value {
@@ -419,7 +419,7 @@ fn bucket_list_omitted_project_obeys_profile_and_seed_project() {
             .expect(200);
         server.insert("other-bucket", "other-project").expect(200);
         let listed = server.request("GET", "/storage/v1/b", "");
-        if profile == "legacy-emulator" {
+        if profile == "fake-gcs-server" {
             listed.expect(200);
             assert_eq!(listed.json()["items"].as_array().unwrap().len(), 1);
             assert_eq!(listed.json()["items"][0]["name"], "migration-bucket");
@@ -1039,7 +1039,7 @@ fn bucket_metadata_location(method: &str) {
             relocated.json_envelope(400, "badRequest");
             assert_eq!(server.request("GET", path, "").json(), before);
         }
-        if profile == "legacy-emulator" {
+        if profile == "fake-gcs-server" {
             server
                 .request(method, path, r#"{"location":"US","labels":{"lost":"no"}}"#)
                 .json_envelope(400, "badRequest");
@@ -2117,7 +2117,7 @@ fn bucket_put_legacy_rendering_and_restart() {
 
 fn bucket_metadata_legacy_restart(method: &str) {
     let dir = TestDir::new();
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     let original = server.insert("ab", "project").json();
     let path = "/storage/v1/b/ab";
     let reply = server.request(method, path, r#"{"labels":{"team":"storage"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
@@ -2133,7 +2133,7 @@ fn bucket_metadata_legacy_restart(method: &str) {
     assert_eq!(value["locationType"], "region");
     assert_eq!(value["projectNumber"], "0");
     server.stop();
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     assert_eq!(server.request("GET", path, "").json(), value);
     assert_eq!(
         server
@@ -2156,12 +2156,12 @@ fn bucket_metadata_legacy_restart(method: &str) {
 #[test]
 fn bucket_profile_paging_preserves_names_and_resource_defaults() {
     let dir = TestDir::new();
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     let names = ["127.0.0.1", "a..b", "ab", "cd", "goog-bucket"];
     for name in names {
         server.insert(name, "project").expect(200);
     }
-    for profile in ["legacy-emulator", "native"] {
+    for profile in ["fake-gcs-server", "native"] {
         if profile == "native" {
             server.stop();
             server = profile_server(&dir, profile);
@@ -2173,7 +2173,7 @@ fn bucket_profile_paging_preserves_names_and_resource_defaults() {
             let value = page.json();
             assert_eq!(value["items"].as_array().unwrap().len(), 1);
             assert_eq!(value["items"][0]["name"], *name);
-            if profile == "legacy-emulator" {
+            if profile == "fake-gcs-server" {
                 assert_eq!(
                     value["items"][0],
                     server
@@ -2194,7 +2194,7 @@ fn bucket_profile_paging_preserves_names_and_resource_defaults() {
 #[test]
 fn bucket_profile_name_bound_keeps_created_buckets_reachable() {
     let dir = TestDir::new();
-    let server = profile_server(&dir, "legacy-emulator");
+    let server = profile_server(&dir, "fake-gcs-server");
     let name = "a".repeat(666);
     server.insert(&name, "project").expect(200);
     server
@@ -2234,7 +2234,7 @@ fn bucket_profile_names_support_object_and_xml_routes() {
         "a..b".into(),
         "a".repeat(64),
     ];
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     for name in &names {
         server.insert(name, "project").expect(200);
         let upload = format!("/upload/storage/v1/b/{name}/o?uploadType=media&name=item");
@@ -2309,7 +2309,7 @@ fn bucket_profile_names_support_object_and_xml_routes() {
             .expect(404);
     }
     native.stop();
-    let server = profile_server(&dir, "legacy-emulator");
+    let server = profile_server(&dir, "fake-gcs-server");
     for name in &names {
         let object = format!("/storage/v1/b/{name}/o/item");
         assert_eq!(
@@ -2492,7 +2492,7 @@ fn bucket_core_profile_lookup_names_and_json_framing() {
 fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them() {
     let dir = TestDir::new();
     let names = ["ab", "goog-carryover", "127.0.0.1", "a..b"];
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     for name in names {
         server.insert(name, "project").expect(200);
     }
@@ -2516,7 +2516,7 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
         names.len()
     );
     server.stop();
-    let server = profile_server(&dir, "legacy-emulator");
+    let server = profile_server(&dir, "fake-gcs-server");
     for name in names {
         server
             .request("GET", &format!("/storage/v1/b/{name}"), "")
@@ -2533,7 +2533,7 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
 #[test]
 fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
     let dir = TestDir::new();
-    let mut server = profile_server(&dir, "legacy-emulator");
+    let mut server = profile_server(&dir, "fake-gcs-server");
     for (index, location) in [
         json!("US-CENTRAL1"),
         json!("us-central1"),
@@ -2617,7 +2617,7 @@ fn bucket_core_create_get_defaults() {
                 "region"
             }
         );
-        if profile == "legacy-emulator" {
+        if profile == "fake-gcs-server" {
             assert_eq!(resource["etag"], "RVRhZw==");
         } else {
             assert_eq!(resource["etag"], "CAE=");
@@ -2715,7 +2715,7 @@ fn bucket_core_invalid_requests_preserve_state() {
         let original = server.request("POST", "/storage/v1/b?project=project", r#"{"name":"unchanged-bucket","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
         let duplicate = server.request("POST", "/storage/v1/b?project=other", r#"{"name":"unchanged-bucket","versioning":{"enabled":false},"defaultEventBasedHold":false}"#);
         duplicate.json_envelope(409, "conflict");
-        if profile == "legacy-emulator" {
+        if profile == "fake-gcs-server" {
             assert!(
                 duplicate.json()["error"]["message"]
                     .as_str()
@@ -2742,7 +2742,7 @@ fn bucket_core_invalid_requests_preserve_state() {
         ] {
             let reply = server.request("POST", "/storage/v1/b?project=project", body);
             reply.expect_with(400, format_args!("{profile} {body}: {}", reply.body));
-            if profile == "legacy-emulator" {
+            if profile == "fake-gcs-server" {
                 assert_eq!(reply.json()["error"]["errors"][0]["reason"], "invalid");
             }
             server
@@ -3890,7 +3890,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     // The legacy profile still rejects a parameter the method does not define, which the native
     // profile ignores.
     let legacy_dir = TestDir::new();
-    let legacy = profile_server(&legacy_dir, "legacy-emulator");
+    let legacy = profile_server(&legacy_dir, "fake-gcs-server");
     let reply = legacy.request("GET", "/storage/v1/b?project=x&unknown=1", "");
     reply.expect(400);
 }
@@ -4190,7 +4190,7 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
         reply.expect(200);
     }
     for profile in PROFILES {
-        if profile == "legacy-emulator" {
+        if profile == "fake-gcs-server" {
             server.stop();
             server = profile_server(&dir, profile);
         }

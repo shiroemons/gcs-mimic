@@ -156,7 +156,7 @@ fn storage_layout_requires_object_list_permission_in_strict_mode() {
 #[test]
 fn storage_layout_follows_the_legacy_profile_location() {
     let dir = TestDir::new();
-    let server = Server::start_with_args(&dir, &["--compat-profile", "legacy-emulator"]);
+    let server = Server::start_with_args(&dir, &["--compat-profile", "fake-gcs-server"]);
     server
         .request(
             "POST",

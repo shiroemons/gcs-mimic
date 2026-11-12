@@ -42,7 +42,7 @@ For bucket create/get/delete, the completion target is the pinned reference
 capability set, with additional gcs-mimic capabilities above it.
 The executed [bucket baseline](evidence/bucket-core-parity.md) includes
 source-supported versioning and defaultEventBasedHold settings and their object
-effects. Select `--compat-profile legacy-emulator` for source naming, omitted
+effects. Select `--compat-profile fake-gcs-server` for source naming, omitted
 project, resource defaults and deletion responses. Native behavior and strict
 authorization retain their separate contracts. The three named workflows pass;
 their broader Google method rows remain `PARTIAL`, with documented differences.
@@ -56,7 +56,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
 | Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
-| Bucket labels/default `storageClass` PUT (`buckets.update`) | ✅ Native PUT replaces the resource (clears omitted labels/versioning/CORS/lifecycle/retention/default hold; keeps class, soft delete and access settings); legacy-emulator preserves omitted settings (SPEC-BUCKET-PUT) | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
+| Bucket labels/default `storageClass` PUT (`buckets.update`) | ✅ Native PUT replaces the resource (clears omitted labels/versioning/CORS/lifecycle/retention/default hold; keeps class, soft delete and access settings); fake-gcs-server preserves omitted settings (SPEC-BUCKET-PUT) | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
 | JSON resumable initiation, chunks, status and finalization | ✅ Also scoped cancellation, seven-day expiry and restart recovery | ✅ Sessions and chunk uploads | ✅ Initiation, chunks, status and finalization |
@@ -97,7 +97,7 @@ retention, lifecycle and other advanced fields are outside these rows.
 | Row | Requirements for ✅ within this field set |
 | --- | --- |
 | Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected. These null/empty rules are declared local choices pending SPEC-BUCKET-PATCH, not service-verified. |
-| Bucket PUT | Replace the resource: the native profile clears omitted labels, versioning, CORS, lifecycle, retention policy (as recorded from Cloud Storage) and default event-based hold (extrapolated from those recorded fields) and keeps the omitted storage class, soft delete policy and access settings; the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). A supplied labels map replaces all keys, null/empty labels clear it, null/empty class is rejected. |
+| Bucket PUT | Replace the resource: the native profile clears omitted labels, versioning, CORS, lifecycle, retention policy (as recorded from Cloud Storage) and default event-based hold (extrapolated from those recorded fields) and keeps the omitted storage class, soft delete policy and access settings; the fake-gcs-server profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). A supplied labels map replaces all keys, null/empty labels clear it, null/empty class is rejected. |
 | Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
 | Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |
 
@@ -120,7 +120,7 @@ clearing interprets the general PATCH deletion rule; scalar null/default,
 unknown/output-only input and no-effect revision behavior remain unverified
 against Google. The broader method rows remain `PARTIAL`. Bucket PUT follows the
 recorded Cloud Storage replacement in the native profile and the
-omission-preserving local contract in the legacy-emulator profile
+omission-preserving local contract in the fake-gcs-server profile
 ([contract](slices/bucket-metadata-put.md),
 [historical integration evidence](evidence/bucket-metadata-put.md)).
 Legacy omission preservation, null settings and
@@ -308,4 +308,4 @@ read; new configuration should use native names. The migration contract in
 `fake-gcs-server-migration.md` includes flags, TLS, endpoints, Go
 embedding, Storage v1 gRPC, helper/event behavior and both source backends.
 Lossless import and the remaining configuration roles are still planned. The existing
-`legacy-emulator` profile covers a limited bucket contract. Existing comparison marks describe current behavior.
+`fake-gcs-server` profile covers a limited bucket contract. Existing comparison marks describe current behavior.

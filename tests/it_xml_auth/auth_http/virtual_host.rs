@@ -287,7 +287,7 @@ use crate::common::errors::xml_error_with_content_type as error;
 fn public_origin_native_and_unset_legacy_keep_path_style_host_acceptance() {
     for options in [
         vec!["--public-base-url", "http://storage.example.invalid"],
-        vec!["--compat-profile", "legacy-emulator"],
+        vec!["--compat-profile", "fake-gcs-server"],
         vec![],
     ] {
         let (_config, _data, server) = configured_fixture(&options);
@@ -339,7 +339,7 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
     ] {
         let (_config, _data, server) = configured_fixture(&[
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
             "--public-base-url",
             origin,
             "--xml-virtual-host-domains",
@@ -565,7 +565,7 @@ fn public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts() {
     ] {
         let (_config, _data, server) = configured_fixture(&[
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
             "--public-base-url",
             base,
             "--xml-virtual-host-domains",
@@ -643,7 +643,7 @@ fn public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts() {
 fn public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation() {
     let (_config, _data, server) = configured_fixture(&[
         "--compat-profile",
-        "legacy-emulator",
+        "fake-gcs-server",
         "--public-base-url",
         "http://storage.example.invalid",
     ]);
@@ -686,7 +686,7 @@ fn public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validati
 fn public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket() {
     let (_config, _data, server) = configured_fixture(&[
         "--compat-profile",
-        "legacy-emulator",
+        "fake-gcs-server",
         "--public-base-url",
         "http://storage.example.invalid",
     ]);
@@ -796,7 +796,7 @@ fn public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver() 
     ] {
         let (config, _data, server) = configured_fixture(&[
             "--compat-profile",
-            "legacy-emulator",
+            "fake-gcs-server",
             "--public-base-url",
             base,
             "--api-base-url",
@@ -880,7 +880,7 @@ fn public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver() 
 fn public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors() {
     let (_config, _data, server) = configured_fixture(&[
         "--compat-profile",
-        "legacy-emulator",
+        "fake-gcs-server",
         "--public-base-url",
         "http://storage.example.invalid",
         "--xml-virtual-host-domains",

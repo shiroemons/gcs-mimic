@@ -11,7 +11,7 @@ MD013 is disabled so tables preserve complete test names and source digests.
 
 Implement `If-Match` and `If-None-Match` on JSON API v1 `objects.get` metadata,
 whole media and single-range media reads, including the `/download/storage/v1`
-alias, `buckets.get` and `buckets.getIamPolicy`. Both native and legacy-emulator profiles use HTTP
+alias, `buckets.get` and `buckets.getIamPolicy`. Both native and fake-gcs-server profiles use HTTP
 entity-tag syntax. Strict local authentication and existing permissions remain
 enforced. No dependency, schema, storage transaction or XML route changed.
 

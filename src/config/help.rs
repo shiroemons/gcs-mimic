@@ -328,7 +328,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::CompatProfile => (
             "PROFILE",
-            "native (native|legacy-emulator; independent of authentication)",
+            "native (native|fake-gcs-server; independent of authentication)",
         ),
         Setting::CorsFallback => (
             "MODE",
@@ -514,7 +514,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "97a606e591c50de839b1fdff50f51d883e1598befca1881588f7ae1ae97048c0"
+            "105d3f371e6784b837fc3d90bce30ae0751dff0df4141005207e623e87c82557"
         );
     }
 }

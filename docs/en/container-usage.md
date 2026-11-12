@@ -127,7 +127,7 @@ notes. "Same as strict" marks behavior that the profile does not change.
 | Resumable sessions across restarts | Not compared in this repository | Same as strict | Sessions and their acknowledged bytes persist in the data volume, resume after a restart and expire after seven days; the memory backend loses them |
 | Returned URLs | `-external-url` fixes one address for every client | Same as strict | Links follow each request's Host and connection scheme, so containers and the host each get their own address; `GCS_MIMIC_API_BASE_URL` fixes one |
 | Conditional requests | Generation conditions on uploads only; `If-Match` and `If-None-Match` are ignored on reads | Same as strict | Generation and metageneration conditions on object and bucket mutations, enforced with the write; ETag validators on reads |
-| Bucket list without `project` | Allowed | Same as strict | 400 `required`; `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator` uses `seed_project` |
+| Bucket list without `project` | Allowed | Same as strict | 400 `required`; `GCS_MIMIC_COMPAT_PROFILE=fake-gcs-server` uses `seed_project` |
 | Trusted listener | None | Not available: startup fails, since every request is already allowed | `GCS_MIMIC_TRUSTED_LISTEN`: requests without credentials act as `trusted-app@gcs-mimic.invalid` or `GCS_MIMIC_TRUSTED_PRINCIPAL`; see [below](#keep-private-buckets-private-with-a-trusted-listener) |
 
 No row compares speed or measured memory use.

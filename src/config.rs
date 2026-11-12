@@ -142,9 +142,13 @@ string_enum! {
     pub enum CompatProfile {
         #[default]
         Native => "native",
-        LegacyEmulator => "legacy-emulator",
+        /// fake-gcs-server's behavior where it differs from Cloud Storage, for migrations.
+        LegacyEmulator => "fake-gcs-server",
     }
-    "compat_profile must be native or legacy-emulator"
+    "compat_profile must be native or fake-gcs-server";
+    withdrawn {
+        "legacy-emulator" => "compat_profile=legacy-emulator was renamed; set compat_profile=fake-gcs-server",
+    }
 }
 
 string_enum! {
@@ -1206,7 +1210,7 @@ impl ConfigurationReport {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
-                "local_creator_email requires compat_profile=native; the legacy emulator profile never records a creator. Use --compat-profile native or remove the setting.",
+                "local_creator_email requires compat_profile=native; the fake-gcs-server profile never records a creator. Use --compat-profile native or remove the setting.",
             ));
             self.invalid.insert("local_creator_email".into());
         }
@@ -1237,7 +1241,7 @@ impl ConfigurationReport {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
-                "default_soft_delete_retention_seconds requires compat_profile=native; the legacy emulator profile never applies a default soft delete policy. Use --compat-profile native or remove the setting.",
+                "default_soft_delete_retention_seconds requires compat_profile=native; the fake-gcs-server profile never applies a default soft delete policy. Use --compat-profile native or remove the setting.",
             ));
             self.invalid
                 .insert("default_soft_delete_retention_seconds".into());
@@ -2308,7 +2312,7 @@ mod tests {
                 );
             }
         }
-        for profile in ["native", "legacy-emulator"] {
+        for profile in ["native", "fake-gcs-server"] {
             let args =
                 ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
             assert_eq!(
@@ -2600,7 +2604,7 @@ mod tests {
                 .to_string()
                 .contains("applies only to auth_mode=permissive")
         );
-        let legacy = ["--compat-profile", "legacy-emulator"].map(str::to_owned);
+        let legacy = ["--compat-profile", "fake-gcs-server"].map(str::to_owned);
         assert!(Config::load(&legacy, &empty).is_ok());
         let mut conflict = legacy.to_vec();
         conflict.extend(["--local-creator-email".into(), "a@example.test".into()]);
@@ -2640,7 +2644,7 @@ mod tests {
             let args = ["--default-location", value].map(str::to_owned);
             assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
             let mut args = args.to_vec();
-            args.extend(["--compat-profile".into(), "legacy-emulator".into()]);
+            args.extend(["--compat-profile".into(), "fake-gcs-server".into()]);
             assert!(
                 Config::load(&args, &empty)
                     .unwrap_err()
@@ -2663,11 +2667,11 @@ mod tests {
             "--config".into(),
             file.to_str().unwrap().into(),
             "--compat-profile".into(),
-            "legacy-emulator".into(),
+            "fake-gcs-server".into(),
         ];
         assert!(Config::load(&args, &empty).is_err());
         assert!(
-            Config::load(&["--compat-profile".into(), "legacy-emulator".into()], &env).is_err()
+            Config::load(&["--compat-profile".into(), "fake-gcs-server".into()], &env).is_err()
         );
     }
 
@@ -3474,13 +3478,13 @@ mod tests {
         assert_eq!(Config::default().compat_profile, CompatProfile::Native);
         let dir = TestDir::new();
         let path = dir.0.join("config.json");
-        std::fs::write(&path, r#"{"compat_profile":"legacy-emulator"}"#).unwrap();
+        std::fs::write(&path, r#"{"compat_profile":"fake-gcs-server"}"#).unwrap();
         let args = vec!["--config".into(), path.to_str().unwrap().into()];
         let env = BTreeMap::from([("GCS_MIMIC_COMPAT_PROFILE".into(), "native".into())]);
         let args = assert_precedence(
             &args,
             &env,
-            &["--compat-profile", "legacy-emulator"],
+            &["--compat-profile", "fake-gcs-server"],
             [
                 CompatProfile::Native,
                 CompatProfile::LegacyEmulator,
@@ -3492,8 +3496,14 @@ mod tests {
         );
         assert_rejected(
             "compat_profile",
-            &["", "NATIVE", "legacy_emulator", "permissive", "unknown"],
+            &["", "NATIVE", "fake_gcs_server", "permissive", "unknown"],
+            "compat_profile must be native or fake-gcs-server",
+        );
+        // The value before 0.20.0 stops startup from every source and names the new one.
+        assert_rejected(
             "compat_profile",
+            &["legacy-emulator"],
+            "compat_profile=legacy-emulator was renamed; set compat_profile=fake-gcs-server",
         );
         for body in [
             r#"{"compat_profile":false}"#,

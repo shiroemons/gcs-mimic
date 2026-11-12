@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract checked on **2026-10-23**. Scope: JSON-BUCKETS-008,
-`PATCH /storage/v1/b/{bucket}`, in native and legacy-emulator profiles.
+`PATCH /storage/v1/b/{bucket}`, in native and fake-gcs-server profiles.
 The supported subset is labels, default storage class, versioning and default
 event-based hold. Broader bucket settings and PUT are separate work.
 

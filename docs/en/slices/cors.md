@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 The selected scope is JSON browser bucket/object operations and the existing
-path-style XML object GET/HEAD surface, in native and legacy-emulator profiles.
+path-style XML object GET/HEAD surface, in native and fake-gcs-server profiles.
 CORS changes browser response visibility; the shared authorization and object
 mutation rules still apply. Signed URLs, XML writes, XML bucket `?cors`, browser
 login/cookie identity and Rails direct uploads remain separate deliveries.

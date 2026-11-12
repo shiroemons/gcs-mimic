@@ -143,7 +143,7 @@ These are properties of `@google-cloud/storage` 8.4.0 observed by this suite:
   API query parameter. The native profile ignores undeclared query parameters
   like Cloud Storage (a recorded bucket insert accepted one; see
   `SPEC-JSON-UNKNOWN-QUERY` in `compatibility/gaps.json`, resolved); the
-  legacy-emulator profile rejects it as unknown. The suite replaces rules with
+  fake-gcs-server profile rejects it as unknown. The suite replaces rules with
   `setMetadata` and uses the default append mode.
 - The signer client's `credentials` option prints a deprecation warning from
   `google-auth-library`; the replacement `JWT` client would probe the metadata

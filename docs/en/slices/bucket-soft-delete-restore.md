@@ -57,7 +57,7 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
   continues from the cap as `previous + 1`, so generations stay unique and
   increasing for about 2e17 further buckets, after which creation fails with
   "generation exhausted". Without the cap a time past 2262 would saturate at
-  `i64::MAX` and fail every later bucket. The legacy-emulator profile keeps its
+  `i64::MAX` and fail every later bucket. The fake-gcs-server profile keeps its
   previous resource shape.
 - BUCKET-SOFT-DELETE: JSON, XML and gRPC bucket deletion share one catalog
   transaction. When `softDeletePolicy.retentionDurationSeconds` is positive, the
@@ -120,7 +120,7 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
 
 - A live bucket with the same name makes restore return 409 conflict; the
   official page states that restoration is blocked but does not name the status.
-- The legacy-emulator profile does not render `generation`, matching the reference
+- The fake-gcs-server profile does not render `generation`, matching the reference
   emulator's bucket shape.
 - Soft-deleted bucket state changes only catalog rows: no blob is copied, linked
   or renamed, and there is no new file publish, rename or fsync step. Atomicity

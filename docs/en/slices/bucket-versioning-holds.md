@@ -65,7 +65,7 @@ New media, multipart and resumable-finalization objects inherit the current
 bucket `defaultEventBasedHold`, unless object metadata explicitly supplies
 `eventBasedHold`. Both boolean values are writable on insert, PATCH and PUT.
 PATCH omission preserves the hold. PUT omission returns the hold to never set in the native profile (as recorded
-from Cloud Storage) and preserves it in the legacy-emulator profile, a local
+from Cloud Storage) and preserves it in the fake-gcs-server profile, a local
 conservative rule pending independent evidence; explicit false releases it.
 A value of the wrong type or null names nothing and changes no state. Held live
 objects reject overwrite and delete; a held noncurrent generation rejects explicit

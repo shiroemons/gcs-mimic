@@ -245,7 +245,7 @@ Order 7 originally closed under the omission-reset policy with the
 reference, container and native/Docker guide checks with restart equality.
 The [current PUT contract](slices/bucket-metadata-put.md) replaces omitted
 settings in the native profile, as recorded from Cloud Storage, and preserves
-them in the legacy-emulator profile as a local SDK compatibility choice; it
+them in the fake-gcs-server profile as a local SDK compatibility choice; it
 records Rust and native PUT guide checks, and the Go and Ruby PUT replacement
 suites passed on 2026-11-01. Reference, container and Docker checks were
 not rerun for that policy. The Go harness currently pins API client v0.312.0

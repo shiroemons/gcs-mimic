@@ -212,7 +212,7 @@ fn jwt_public_principals_pap_and_preflight_remain_independent_of_authentication(
 
 #[test]
 fn jwt_key_rotation_takes_effect_at_restart_and_keeps_native_and_legacy_profiles() {
-    for profile in ["native", "legacy-emulator"] {
+    for profile in ["native", "fake-gcs-server"] {
         let config = TestDir::new();
         let data = TestDir::new();
         let mut value = registry();

@@ -15,7 +15,7 @@ get・listで保持秒数と`effectiveTime`を返し、期間を延ばしたと�
 サーバー設定`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`（`--default-soft-delete-retention-seconds`、
 JSONでは`default_soft_delete_retention_seconds`）で新規バケットの既定を変えられ、0より大きい値では`effectiveTime`が`timeCreated`と同じになります。
 リクエストで明示したポリシーは0を含めてそのまま保存します。
-既存のバケットは保存済みの設定を保つので、0.11.0までが付けた7日はアップグレード後も残ります。`import`・同期ディレクトリ・legacy-emulatorで作るバケットには既定を付けません。
+既存のバケットは保存済みの設定を保つので、0.11.0までが付けた7日はアップグレード後も残ります。`import`・同期ディレクトリ・fake-gcs-serverで作るバケットには既定を付けません。
 初期ファイルとバケット設定ファイルで作るバケットにはサーバーの既定を付け、バケット設定ファイルの項目ではポリシーも指定できます。
 
 Cloud Storageの既定は7日で、受け付けるのは0または7～90日です。**既定と範囲の両方がローカル独自の仕様**で、
