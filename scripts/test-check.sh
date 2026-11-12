@@ -72,6 +72,7 @@ build --locked --offline
 test --workspace --locked --offline --no-run --message-format=json-render-diagnostics
 test --workspace --locked --offline --doc
 xtask compatibility check
+test --locked --lib -- config::help::tests
 TEXT
 printf '%s\n' "integration $work/pkg $work/pkg" "unit $work/pkg $work/pkg" >"$work/expected-ran"
 
