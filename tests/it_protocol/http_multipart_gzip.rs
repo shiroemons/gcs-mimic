@@ -336,13 +336,15 @@ fn multipart_gzip_strict_permissions_precede_publication() {
 fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() {
     for timeout in [false, true] {
         let dir = TestDir::new();
+        // The deadline also bounds the staged-file check and the final upload. At 250 ms a
+        // busy parallel run once spent the final upload's budget waiting for the catalog.
         let server = Server::start(
             &dir,
             &[
                 "--max-connections",
                 "2",
                 "--object-request-timeout-ms",
-                if timeout { "250" } else { "5000" },
+                if timeout { "2000" } else { "5000" },
             ],
         );
         bucket(&server, "");
