@@ -43,7 +43,8 @@ Send `POST /_internal/reset` with the JSON body:
 
 The confirmation is mandatory. Wrong methods return 405 with `Allow: POST`;
 query parameters, unknown fields, duplicate confirmation fields and invalid or
-missing confirmation return 400. The existing 64 KiB JSON cap applies. Disabled
+missing confirmation return 400. A JSON body of up to 64 KiB is always accepted;
+the server reads up to 16 MiB today, which is not promised. Disabled
 management returns 404. Authentication and manager selection precede body parsing.
 
 The source-compatible `POST /_internal/delete_all` alias accepts only an empty

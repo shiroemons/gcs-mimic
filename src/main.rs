@@ -57,7 +57,7 @@ base, overridden by --base-url. No environment, data directory or network is rea
 is changed.";
 
 const URL_SIGN_HELP: &str =
-    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT|DELETE
+    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT|DELETE|POST
        --expires DURATION [--signer ID --private-key PATH] [--header NAME:VALUE]...
        [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
 
@@ -68,6 +68,7 @@ The base may come from --base-url URL or an explicit --config PATH containing pu
 Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
 Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
+POST signs only a resumable upload start, so it needs --header x-goog-resumable:start.
 Headers may repeat; Host is derived from the final URL and cannot be overridden.
 Query names and values are literal, encoded before signing; duplicate names are rejected.
 Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no path prefix.

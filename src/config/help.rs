@@ -11,7 +11,7 @@ Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the fi
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
        gcs-mimic test-signer credentials (prints the published built-in test signer's service account JSON)
-       gcs-mimic --help | -h | -help | --version
+       gcs-mimic --help | -help | --h | -h | --version | -version
 
 Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --scheme MODE                auto (auto|http|https|both; auto serves HTTP and HTTPS on the primary port; both uses HTTPS there and HTTP on --port-http)
@@ -19,17 +19,17 @@ Common options (one or two hyphens; --name VALUE or --name=VALUE; CLI > GCS_MIMI
   --port-http N                8000 (native HTTP port; requires scheme=both; CLI only)
   --host IP                    127.0.0.1, 0.0.0.0 in the image (keeps the listen port; CLI only)
   --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
-  --seed-dir PATH              none (read-only fixtures; replayed on every startup; image: /data)
+  --seed-dir PATH              none (read-only fixtures; replayed on every startup; wins over --default-seed-dir)
   --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
 
 Other serve options:
-  --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
+  --default-location LOCATION  US (native buckets created without a location; any region, dual-region or US|EU|ASIA, case-insensitive; explicit locations win)
   --default-soft-delete-retention-seconds N  0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..3155760000 retains it; 604800 is the Cloud Storage default)
   --lifecycle-execution MODE   enabled|disabled (default: disabled with sync-dir, enabled otherwise; enabled also deletes synchronized host files)
   --listen IP:PORT             127.0.0.1:4443
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
-  --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, browser requests get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
+  --trusted-listen IP:PORT     none (strict only: extra plain HTTP listener for the application's own servers; requests without credentials act as --trusted-principal, requests with Origin or a Sec-Fetch-Site other than none get 403, Host names other than IP literals, localhost names and single labels get 421; never publish it)
   --trusted-principal ID       built-in trusted-app@gcs-mimic.invalid with roles/storage.admin in the buckets document's projects and seed_project (registered identity, or the enabled test signer, that requests without credentials on --trusted-listen act as; requires it)
   --trusted-allowed-hosts LIST none (comma-separated dotted DNS names --trusted-listen also accepts as Host, such as a service alias; at most 32; requires --trusted-listen)
   --unix-socket PATH           none (plain HTTP Unix socket; private 0700 parent, scheme=auto or http, no TCP/gRPC/TLS)
@@ -37,7 +37,7 @@ Other serve options:
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (0 disables; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
-  --memory-max-bytes N          half of available memory, 64 MiB to 1 GiB (RAM blob bytes plus chunk overhead; 1..1099511627776)
+  --memory-max-bytes N          half of the memory left after 32 MiB, 64 MiB to 1 GiB; 1 GiB where memory cannot be read, as on every system but Linux (RAM blob bytes plus chunk overhead; 1..1099511627776)
   --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1099511627776; separate from RSS)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -45,7 +45,7 @@ Other serve options:
   --max-seed-depth N           0 (0..1024; directory levels below a seed bucket; 0 is unlimited)
   --seed-content-type MODE     extension (extension|octet-stream; pinned MIME table)
   --sync-dir PATH              none (existing working tree; initial export after ready)
-  --sync-delete-guard BOOL     true (deletion ingestion pending)
+  --sync-delete-guard BOOL     true (at least 100 deletions that are over half of the tree wait for gcs-mimic sync approve)
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
   --max-sync-entries N         0 (files and directories in sync_dir, also the watches Linux may use; scans take longer, not more memory; 0 is unlimited)
   --max-sync-depth N           0 (0..1024; directory levels below sync_dir, counting the bucket; 0 is unlimited)
@@ -88,7 +88,7 @@ Other serve options:
   --event-pubsub-topic ID       none (global notification topic name)
   --event-bucket NAME           all buckets (global notification filter)
   --event-object-prefix PREFIX all object names (global notification filter)
-  --event-list LIST            finalize (comma-separated finalize,delete,metadataUpdate,archive; none disables the global rule)
+  --event-list LIST            finalize (comma-separated finalize,delete,metadataUpdate,archive, or none to turn the global rule off; any other value than finalize needs the topic settings)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
 fake-gcs-server flags preserve working requests or fail before startup:
@@ -112,8 +112,9 @@ development CA by default; --ca-cert PATH replaces that trust with a supplied CA
 HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health, /_internal/ready
 or the compatible readiness path /_internal/healthcheck.
 Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses ready,
-maps wildcard listeners to loopback and probes over HTTP unless scheme=https. Server CLI
-overrides require an explicit --url or matching environment/configuration settings.
+maps wildcard listeners to loopback and probes over HTTP unless scheme=https. When that
+probe fails, it retries with the options of a gcs-mimic server running as PID 1, as in the
+container image; elsewhere, server CLI options need an explicit --url.
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 #[cfg(test)]
@@ -223,7 +224,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "8a156d8d0e37ab5a4a352fd73c5124197d76a280f35702404b67df2ae18b74d7"
+            "57fbac3bd66ee4bcf153f8b94f73cbf882e70a016ef07617a7fe42cf8686dd91"
         );
     }
 }

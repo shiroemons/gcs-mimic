@@ -16,6 +16,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 const RESPONSE_LIMIT: usize = 256 * 1024;
 const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait --endpoint http(s)://HOST:PORT [OPTIONS]
        gcs-mimic sync status --endpoint URL --view deletions|findings --revision REVISION [--cursor CURSOR] [--limit N]
+       gcs-mimic sync deletions|findings --endpoint URL --revision REVISION [--cursor CURSOR] [--limit N] (the same pages)
        gcs-mimic sync approve --endpoint URL --deletion-set REVISION [OPTIONS]
        gcs-mimic sync conflicts --endpoint URL [--revision REVISION] [--cursor CURSOR] [--limit N]
        gcs-mimic sync resolve --endpoint URL --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
@@ -168,7 +169,7 @@ impl Options {
             "approve" => (
                 "/_internal/sync/approve".to_owned(),
                 Some(
-                    json!({"deletion_set":revision.ok_or_else(|| invalid("Approval requires --revision from an inspected deletion set"))?}),
+                    json!({"deletion_set":revision.ok_or_else(|| invalid("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
                 ),
             ),
             "deletions" | "findings" | "conflicts" => {

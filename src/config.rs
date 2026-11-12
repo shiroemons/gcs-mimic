@@ -4135,5 +4135,20 @@ mod tests {
         }
         let env = BTreeMap::from([("GCS_MIMIC_LOCAL_CREATOR_EMAIL".to_owned(), String::new())]);
         assert_eq!(Config::load(&[], &env).unwrap().local_creator_email, "");
+        // Only beside the listener it belongs to, which needs strict mode.
+        let env = BTreeMap::from(
+            [
+                ("GCS_MIMIC_AUTH_MODE", "strict"),
+                ("GCS_MIMIC_TRUSTED_LISTEN", "127.0.0.1:0"),
+                ("GCS_MIMIC_TRUSTED_ALLOWED_HOSTS", ""),
+            ]
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+        );
+        assert!(
+            Config::load(&[], &env)
+                .unwrap()
+                .trusted_allowed_hosts
+                .is_empty()
+        );
     }
 }
