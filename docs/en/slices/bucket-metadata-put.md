@@ -58,14 +58,16 @@ each omitted JSON field. Both the method page and Discovery mark acl[] required:
 Discovery uses `annotations.required: [storage.buckets.update]`. The method
 also says an empty list is ignored. Accepting omitted acl without changing
 permissions is an explicit local choice for SDK full-resource round trips,
-rather than a behavior established by those sources. Empty acl is ignored;
-every other acl value is rejected.
-Projection defaults to full for PUT; both projections expose the same modeled
-subset without ACL/owner/ipFilter fields, so neither storage.buckets.getIamPolicy
-nor storage.buckets.getIpFilter is required. Ignored acl:[] does not require
+rather than a behavior established by those sources. Since 2026-10-29 a supplied
+`acl` or `defaultObjectAcl` replaces the stored entries in the same transaction as
+the other metadata, and an empty list clears them, as the [JSON ACL contract](json-acl.md)
+describes; earlier versions of this contract ignored `acl:[]` and rejected every
+other value.
+Projection defaults to full for PUT. Its ACL members and the permissions they
+need follow the [JSON ACL contract](json-acl.md), where a changed array requires
 storage.buckets.setIamPolicy. SPEC-017 retains full-projection permission
 questions; SPEC-BUCKET-PUT explicitly retains whether getIpFilter is required
-for the modeled response and whether ignored acl:[] requires setIamPolicy.
+for the modeled response.
 SPEC-BUCKET-PUT records omitted-field preservation,
 null scalars, acl wording, no-effect revisions and error precedence as open
 provider questions. SPEC-017 authentication wire questions also apply.
@@ -80,7 +82,7 @@ No provider bucket is contacted or authorized by this contract.
 | `bucket_put_ruby_update_block_replaces_and_setters_patch` | Ruby update block changes only PAP on a bucket with versioning and labels, then plain setters set versioning and labels (output of `sdk-tests/ruby/https.rb --bucket-put`, native profile) | The block sends a PUT: PAP changes and the omitted versioning and labels are cleared. The setters send PATCHes: they keep PAP and anything they do not name |
 | `bucket_put_omitted_settings_survive_partial_iam_updates` | Empty PUT and PAP-only PUT on a bucket with all modeled settings, in both profiles; restart | Labels, class, versioning, holds, CORS, UBLA, lifecycle, retention and soft-delete policy survive; only explicit PAP changes |
 | `bucket_put_label_boundaries_and_classes` | 64/65 keys; Unicode and 63/64 characters; classes | Shared insert/PATCH label and class validation; PUT labels replace the whole map; null label values invalid |
-| `bucket_put_unsupported_and_output_inputs_preserve_state` | Unsupported fields, omitted acl versus acl:[], defaultObjectAcl, output-only/unknown fields, versioning:{"enabled":true,"future":1}, lifecycle | Unsupported 400 badRequest without mutation; omitted acl accepted as local policy; acl:[] ignored; lifecycle empty rules clear; unknown versioning children ignored while enabled applies |
+| `bucket_put_unsupported_and_output_inputs_preserve_state` | Unsupported fields, omitted acl versus acl:[], defaultObjectAcl, output-only/unknown fields, versioning:{"enabled":true,"future":1}, lifecycle | Unsupported 400 badRequest without mutation; omitted acl accepted as local policy; acl:[] clears the ACL and the IAM bindings it maps to; lifecycle empty rules clear; unknown versioning children ignored while enabled applies |
 | `bucket_put_conditions_and_query_contract` | Match/not-match/both; signed int64; malformed/duplicate; projection/ACL/billing queries; stale condition with invalid label/unsupported field; malformed query with denied access and invalid body | Atomic valid failures 412; HTTP invalid label/unsupported field precedes stale conditions with 400; query syntax precedes permission, which precedes body parsing; malformed/invalid projection 400; unsupported queries 400 badRequest; no 304 |
 | `bucket_put_conditioned_race_has_one_winner` | Concurrent matching replacements | Exactly one 200, others 412 and one revision increment |
 | `bucket_put_strict_permissions_and_policy_preservation` | Admin/viewer/other project/anonymous/invalid token; bucket policy | Require update with existing 401/403/404 ordering; policy bindings and etag unchanged |
@@ -89,8 +91,8 @@ No provider bucket is contacted or authorized by this contract.
 | `bucket_put_settings_control_future_object_effects` | Enable, omit and explicitly disable versioning and default hold | Omission preserves future effects; explicit disabling preserves history and existing holds |
 | `bucket_put_legacy_rendering_and_restart` | Profile rendering, restart and native carry-over | Fixed legacy location/project/framing retained; actual mutable revisions/settings exposed after PUT |
 | `bucket_put_full_resource_round_trip_preserves_unchanged_fields` | GET body returned with label edit in each profile | Accept rendered unchanged location; preserve other fields except revision, updated and etag |
-| `bucket_put_location_comparison_is_case_insensitive` | Same location in mixed case; relocation; legacy location:"US" | Accept unchanged rendered location ignoring ASCII case; relocation and legacy location:"US" return 400 badRequest without mutation |
-| `bucket_put_null_settings_follow_profile_defaults` | Null scalar/boolean settings | Native null booleans 400; legacy null booleans false; null/empty storageClass 400 in both |
+| `bucket_put_location_comparison_is_case_insensitive` | Same location in mixed case; relocation; fake-gcs-server profile location:"US" | Accept unchanged rendered location ignoring ASCII case; relocation and fake-gcs-server profile location:"US" return 400 badRequest without mutation |
+| `bucket_put_null_settings_follow_profile_defaults` | Null scalar/boolean settings | Native null booleans 400; fake-gcs-server profile null booleans false; null/empty storageClass 400 in both |
 | `bucket_put_missing_bucket_validates_body_before_lookup` | Missing bucket and invalid/valid body, including 65 valid labels with or without an ifMetagenerationMatch condition | Permissive invalid body 400 before lookup/conditions; valid body 404; strict permission check precedes parsing |
 | `bucket_put_rejects_get_only_generation_query_parameter` | generation and softDeleted=false queries on PUT versus GET | PUT 400 invalidParameter; GET retains generation 400 badRequest and softDeleted=false 200; state unchanged |
 
@@ -124,7 +126,7 @@ class 400. The implementation shares validation tables with insert/PATCH.
 
 Omitted versioning and defaultEventBasedHold preserve current settings.
 Explicit versioning:{} still disables versioning, as does omitted enabled inside
-a supplied versioning object. Legacy null versioning, enabled or
+a supplied versioning object. In the fake-gcs-server profile, null versioning, enabled or
 defaultEventBasedHold also become false; native rejects these nulls with 400.
 These null choices follow existing insert/PATCH local policy, rather than
 being derived from the PUT sources.
@@ -138,20 +140,21 @@ etag independent of bucket metadata revisions is a local choice: the resource's
 updated description includes metadata or IAM policy changes, but does not
 establish independent revisions. Location may match
 the rendered location ignoring ASCII case; changed location is 400 badRequest. Native
-compares stored placement in the transaction. Legacy accepts its rendered
-US-CENTRAL1 only, never using it to rewrite stored placement. Legacy location:"US"
+compares stored placement in the transaction. The fake-gcs-server profile accepts its rendered
+US-CENTRAL1 only, never using it to rewrite stored placement. Its location:"US"
 returns 400 badRequest even when US is stored.
 
 Unsupported fields follow the shared PATCH list, which includes insert-only,
 immutable or reserved fields absent from update's writable list. Their 400 badRequest
 rejection is a fail-closed local choice, not a provider error claim:
-acl, autoclass, billing,
-customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
-ipFilter, logging, objectRetention and rpo.
-Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. The native
+billing, customPlacementConfig, encryption, hierarchicalNamespace, ipFilter,
+logging, rpo (the native profile accepts a restated default) and website
+(`UNSUPPORTED_FIELDS` in `src/json/buckets.rs`). `acl` and `defaultObjectAcl`
+replace the stored entries, and `autoclass` and `objectRetention` follow their
+own contracts. The native
 profile emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
 did for one observed location (asia-northeast1, 2026-10-31; other locations
-were not observed); the legacy profile omits it. Cloud Storage was observed to
+were not observed); the fake-gcs-server profile omits it. Cloud Storage was observed to
 accept `satisfiesPZI` and `satisfiesPZS`, true and false, in insert, PATCH and
 PUT bodies, ignore them, keep reporting `satisfiesPZI: true` and never emit
 `satisfiesPZS`
