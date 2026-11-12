@@ -4,8 +4,8 @@
 
 [日本語](../ja/sdk-setup.md)
 
-- From the host, connect to `http://localhost:4443` (with
-  `GCS_MIMIC_SCHEME=http`).
+- From the host, connect to `http://localhost:4443`. The default scheme serves
+  HTTP; up to 0.18.0, set `GCS_MIMIC_SCHEME=http` first.
 - From another Compose service, connect to `http://SERVICE:4443`, where
   `SERVICE` is the emulator's service name (`gcs` in the README). Links that the
   emulator returns follow the address each client connected to, so

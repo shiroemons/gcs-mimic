@@ -118,7 +118,7 @@ Most configurations need no change: clients that use HTTPS against the default, 
 | Set `scheme=http` only because of the old default | It can be removed; keeping it refuses HTTPS, as before. |
 | Set `scheme=http` together with `unix_socket` | The scheme can be removed. |
 
-Published recipes and the README drop `GCS_MIMIC_SCHEME: http` in the release that ships this change.
+The strict local recipe and the full application example dropped `GCS_MIMIC_SCHEME: http` in 0.19.0. The README, the guides, `llms.txt`, the per-SDK examples and the Docker Hub overview followed once the 0.19.0 image was published.
 
 ## Limits and open points
 

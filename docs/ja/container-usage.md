@@ -1,6 +1,6 @@
 # Dockerで使う
 
-最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、イメージ名の後ろに`--scheme http`を付けるとHTTPになります。ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.18.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.18.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.18.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
+最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。`docker run`ひとつでHTTPが起動し、同じポートで組み込みの開発用証明書を使うHTTPSも受け付けます。HTTPを受け付けないようにするには、イメージ名の後ろに`--scheme https`を付けます。ハイフンは1つでも2つでも、`--name=value`の形でも指定できます。すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.19.0 --help`で確認できます。イメージ`ghcr.io/shiroemons/gcs-mimic:0.19.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.19.0`として公開しており、以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
 ```sh
 docker build -t gcs-mimic:local .
@@ -18,7 +18,7 @@ docker build -t gcs-mimic:local .
 docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
-  ghcr.io/shiroemons/gcs-mimic:0.18.0 --scheme http
+  ghcr.io/shiroemons/gcs-mimic:0.19.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -91,9 +91,9 @@ macOSがlistenキューを`kern.ipc.somaxconn`（既定は128）で打ち切る�
 
 | 目的 | 構成 | 設定 |
 | --- | --- | --- |
-| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | `GCS_MIMIC_SCHEME=http` |
-| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーからCloud Storageへの呼び出しは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_SCHEME=http`、`GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
-| strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SCHEME=http`と`GCS_MIMIC_SIGNED_URLS=verify` |
+| fake-gcs-serverと同じく動かす。すべてのリクエストを許可し、署名は確認せず、ブラウザーはどのバケットも読める | 既定のpermissiveプロファイル | なし |
+| 本番に近いアクセス。非公開バケットは非公開のまま、公開バケットは`allUsers`で読め、ブラウザーは署名URLを使い、アプリのサーバーからCloud Storageへの呼び出しは変えない | 信頼済みリスナー付きのstrictモード。[strict localレシピ](../../examples/strict-local/README.md)（英語） | `GCS_MIMIC_AUTH_MODE=strict`、`GCS_MIMIC_TRUSTED_LISTEN=0.0.0.0:4444`（公開しない）と、バケットごとのポリシーとCORSルールを書いた`GCS_MIMIC_BUCKETS`。アプリがURLに署名するか、Railsのように`test-signer credentials`の鍵を使うなら`GCS_MIMIC_TEST_SIGNER=enabled`も追加 |
+| strictモードをまだ使えない間だけ。署名URLは確認し、それ以外は制限しない | 署名を検証するpermissive | `GCS_MIMIC_SIGNED_URLS=verify` |
 
 まずは既定の構成で始めてください。
 本番に近い形で確認するには、strict localレシピのとおりに信頼済みリスナー付きのstrictモードを使います。
@@ -144,7 +144,7 @@ data/
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.18.0 --scheme http
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.19.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -279,8 +279,8 @@ mkdir -p data sync
 docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:4443:4443 \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
-  -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.18.0
+  -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
+  ghcr.io/shiroemons/gcs-mimic:0.19.0
 ```
 
 検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
@@ -304,7 +304,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 `GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.14.0以降が必要です。
 0.13.0までは、`GCS_MIMIC_CORS_FALLBACK`の既定はどちらのモードでも`none`です。
 0.11.0までのリリースは返すリンクのアドレスを1つに固定するので、`GCS_MIMIC_API_BASE_URL`も指定してください。
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.18.0 --help`ですべての設定を確認できます。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.19.0 --help`ですべての設定を確認できます。
 
 ## バケットごとに設定する
 

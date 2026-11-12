@@ -6,7 +6,7 @@
 
 [English](../en/sdk-setup.md)
 
-- ホストからは`http://localhost:4443`に接続します（`GCS_MIMIC_SCHEME=http`のとき）。
+- ホストからは`http://localhost:4443`に接続します。既定のスキームでHTTPを受け付けます。0.18.0までは先に`GCS_MIMIC_SCHEME=http`を指定してください。
 - 別のComposeサービスからは`http://サービス名:4443`に接続します。サービス名はエミュレーターのもので、READMEの例では`gcs`です。エミュレーターが返すリンクは各クライアントの接続先に合わせるので、`GCS_MIMIC_API_BASE_URL`は不要です。
 - プロジェクトIDは任意のローカル名でかまいません。クライアントは匿名で接続し、Googleやメタデータサーバーには接続しません。
 

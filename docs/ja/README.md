@@ -27,27 +27,23 @@
 # エミュレーターを起動する
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:latest
 
-# 応答を確かめる。組み込みの開発用証明書を使うので-kを付ける
-curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
+# 応答を確かめる
+curl --retry 5 --retry-all-errors 'http://localhost:4443/storage/v1/b?project=demo-project'
 ```
 
 空のバケット一覧が返ります。
 
+- 同じポートで、組み込みの開発用証明書を使うHTTPSも受け付けます: `curl -k 'https://localhost:4443/storage/v1/b?project=demo-project'`。`-k`を使わず証明書を信頼するには、[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
 - Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:latest`
 - `latest`は最新のリリースを指し、破壊的変更を含む新しいマイナーバージョンに進むことがあります。CIでは[リリース一覧](https://github.com/shiroemons/gcs-mimic/releases)から正確なバージョンを選んで固定してください。
-- `-k`を使わず証明書を信頼するには、[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
-### HTTPで使う
+### オブジェクトを保存して読む
 
-SDKは証明書を信頼しなくても使えるHTTPで接続します。以降の例もHTTPです。`--scheme http`を付けて起動し直します。
+SDKは証明書を信頼しなくても使えるHTTPで接続します。以降の例もHTTPです。
 
 ```sh
-docker rm -f gcs-mimic
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:latest --scheme http
-
 # バケットを作る
 curl --retry 5 --retry-all-errors \
   -H 'Content-Type: application/json' \
@@ -70,7 +66,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 | オプション | 内容 | Composeの`environment:`では |
 | --- | --- | --- |
-| `--scheme http` | `https`（0.18.0までの既定）、`http`、`both`。0.19.0からの既定`auto`は1つのポートでHTTPとHTTPSを受け付けます | `GCS_MIMIC_SCHEME: http` |
+| `--scheme https` | 既定の`auto`は1つのポートでHTTPとHTTPSを受け付けます。`https`はHTTPを、`http`はHTTPSを受け付けず、`both`は別のポートでHTTPを受け付けます。0.18.0までの既定は`https`でした | `GCS_MIMIC_SCHEME: https` |
 | `--port 9000` | 待ち受けるポート。同じポートを`-p 127.0.0.1:9000:9000`で公開します | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | `--scheme both`のときのHTTPポート。このポートも公開します | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
 | `--backend memory` | すべてRAMに保持します。オブジェクト本体は既定で、使えるメモリの約半分（64 MiB〜1 GiB）までです | `GCS_MIMIC_BACKEND: memory` |
@@ -243,11 +239,9 @@ gcs_emulator:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.19.0
     ports:
       - "127.0.0.1:4443:4443"
-    environment:
-      GCS_MIMIC_SCHEME: http
     volumes:
       - ./data:/data:ro # optional: files to preload
       - gcs-data:/var/lib/gcs-mimic
@@ -279,7 +273,6 @@ resumableアップロードのURLなど、エミュレーターが返すリン�
 
 ```yaml
     environment:
-      GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS: |
         {"version": 1, "buckets": [
           {"name": "public-assets",
@@ -421,7 +414,7 @@ gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいる�
 - [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
 - [ボトルネックの探し方](performance-investigation.md)と[性能調査の結果・採否（英語）](../en/evidence/read-optimization-summary.md)
-- [0.18.0のリリースノート（英語）](../en/releases/0.18.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.19.0のリリースノート（英語）](../en/releases/0.19.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)
 - [llms.txt（英語）](../../llms.txt): コーディングエージェントがgcs-mimicをプロジェクトに組み込むときの短いガイド

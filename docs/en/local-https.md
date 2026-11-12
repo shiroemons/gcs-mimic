@@ -31,8 +31,9 @@ kill -TERM "$tls_pid"
 wait "$tls_pid"
 ```
 
-`--scheme https` is the default; omitting both TLS paths uses the built-in pair.
-To use HTTP, explicitly select `--scheme http` and omit the TLS paths. Custom
+The default `--scheme auto` serves HTTPS and plain HTTP on the same port;
+`--scheme https` refuses plain HTTP. Either way, omitting both TLS paths uses the
+built-in pair. To serve only HTTP, select `--scheme http` and omit the TLS paths. Custom
 TLS needs both `--tls-cert` and `--tls-key`; a single path fails. The supplied
 PEM chain (leaf first) and private key are loaded and checked before recovery,
 seeding, binding or readiness. Each is capped at 1 MiB. TLS 1.2/1.3 and HTTP/1.1

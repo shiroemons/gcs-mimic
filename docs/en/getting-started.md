@@ -40,8 +40,8 @@ Transcoding outside JSON media GET and XML GET/HEAD, object IAM, `objects.testIa
 and conditional policies remain unavailable; bucket `testIamPermissions`, ACLs, XML listing
 and uniform bucket-level access are partial (see the [feature matrix](feature-matrix.md)).
 JSON defaults and bucket-configured XML-read
-CORS are available; see the browser journey below. HTTPS is the default listener mode;
-HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
+CORS are available; see the browser journey below. The default listener mode `auto`
+serves HTTP and HTTPS on one port; HTTP examples still select HTTP explicitly. TLS 1.2/1.3 uses built-in or supplied PEM files and
 explicit client CA trust, as shown in the [local HTTPS guide](local-https.md).
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens

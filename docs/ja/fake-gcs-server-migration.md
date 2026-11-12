@@ -10,7 +10,7 @@
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
-公開イメージの例は0.18.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
+公開イメージの例は0.19.0です。0.8.0以降は、RAM保存、ローカルPub/Sub、HTTP batch、XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
 機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
 
 ## GitHubで確認した利用例と移行時の違い
@@ -63,7 +63,7 @@ nativeの`api_base_url`は再開可能URLも固定するため、すべてのク
 
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
 | --- | --- | --- |
-| `-scheme http` | `GCS_MIMIC_SCHEME: http` | 省略時はHTTPSなので、既存のHTTPクライアントが接続できません。イメージのhealthcheckもこの値に従います。 |
+| `-scheme http` | 指定なし | 既定の`auto`は同じポートでHTTPとHTTPSを受け付けるので、既存のHTTPクライアントが接続でき、イメージのhealthcheckも上書きなしでHTTPを確かめます。0.18.0までの既定はHTTPSだけで、`GCS_MIMIC_SCHEME: http`が必要でした。 |
 | `-host 0.0.0.0 -port 4443` | 指定なし | イメージは最初から`0.0.0.0:4443`で待ち受けます。ループバックだけで待ち受けると他のコンテナから接続できないため、この既定が必要です。 |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | 指定なし | resumableのLocationなど、サーバーが返すリンクは各リクエストのHostに従います。コンテナのSDKは`gcs:4443`を、ホストは公開ポートを受け取ります。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
 | `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。`-backend memory`は上限付きのRAM保存に読み替えますが、この手順では使いません。 |
@@ -124,11 +124,10 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.19.0
     ports:
       - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     environment:
-      GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - migration-data:/var/lib/gcs-mimic
@@ -345,7 +344,7 @@ strict localレシピはそのために組み込みのテスト署名者を有�
 | SDKの開始は成功するが次の接続が失敗する | 固定したLocationに届かない、またはプロキシがHostを書き換えている | 固定をやめるか、全クライアントから届くアドレスを指定してサービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使う。サーバーが署名なしセッションURIをブラウザーへ渡すときは、path/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | [撤回したリリース](release-policy.md#撤回したリリース)（0.2.1以前）は初期ファイルを一度だけ読み込んでいた | 空のデータボリュームで現行版に上げる。起動のたびにseedを反映する。撤回したリリースのデータはサポートしない。 |
-| HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`を指定し、`GCS_MIMIC_LISTEN`はイメージの既定`0.0.0.0:4443`のままにして、probeにも継承させる。 |
+| HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME`を指定せず既定の`auto`でHTTPを受け付けるか、`http`を指定する。`GCS_MIMIC_LISTEN`はイメージの既定`0.0.0.0:4443`のままにして、probeにも継承させる。0.18.0までの既定はHTTPSだけでした。 |
 | 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
 | ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCSM_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。コンテナからの接続先`http://gcs:4443`は変えない。 |
 | 取り消しの`curl --fail`が499で失敗する | JSON resumableの取り消し成功は499 | 上の例のように`%{http_code}`で検査し、取り消しに限って499を成功とする。 |

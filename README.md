@@ -26,12 +26,15 @@ A local Google Cloud Storage emulator for development and CI, written in Rust.
 # Start the emulator
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:latest
 
-# Check that it answers; -k because it uses a built-in development certificate
-curl -k --retry 5 --retry-all-errors 'https://localhost:4443/storage/v1/b?project=demo-project'
+# Check that it answers
+curl --retry 5 --retry-all-errors 'http://localhost:4443/storage/v1/b?project=demo-project'
 ```
 
 It answers with an empty bucket list.
 
+- The same port also serves HTTPS with a built-in development certificate:
+  `curl -k 'https://localhost:4443/storage/v1/b?project=demo-project'`. To trust
+  the certificate instead of using `-k`, see [local HTTPS](docs/en/local-https.md).
 - The port is published on `127.0.0.1` only, because the emulator accepts
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
@@ -40,19 +43,13 @@ It answers with an empty bucket list.
 - `latest` is the newest release and can move to a new minor version with
   breaking changes. In CI, pin an exact version from
   [the releases](https://github.com/shiroemons/gcs-mimic/releases).
-- To trust the certificate instead of using `-k`, see
-  [local HTTPS](docs/en/local-https.md).
 
-### Use HTTP
+### Store and read an object
 
 SDK clients connect over plain HTTP without trusting a certificate, and the
-examples below use it. Start the emulator again with `--scheme http`:
+examples below use it too:
 
 ```sh
-docker rm -f gcs-mimic
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:latest --scheme http
-
 # Create a bucket
 curl --retry 5 --retry-all-errors \
   -H 'Content-Type: application/json' \
@@ -75,7 +72,7 @@ Add options after the image name, with one or two hyphens. `--name=value` also w
 
 | Option | What it does | In a Compose `environment:` |
 | --- | --- | --- |
-| `--scheme http` | `https` (default up to 0.18.0), `http` or `both`. From 0.19.0 the default `auto` serves HTTP and HTTPS on one port | `GCS_MIMIC_SCHEME: http` |
+| `--scheme https` | The default `auto` serves HTTP and HTTPS on one port. `https` refuses plain HTTP, `http` refuses HTTPS, and `both` serves HTTP on a second port. Up to 0.18.0 the default was `https` | `GCS_MIMIC_SCHEME: https` |
 | `--port 9000` | Port to listen on. Publish the same port with `-p 127.0.0.1:9000:9000` | `GCS_MIMIC_LISTEN: 0.0.0.0:9000` |
 | `--port-http 8000` | HTTP port with `--scheme both`. Publish it too | `GCS_MIMIC_LISTEN_HTTP: 0.0.0.0:8000` |
 | `--backend memory` | Keep everything in RAM. Objects can use about half of the available memory by default, from 64 MiB to 1 GiB | `GCS_MIMIC_BACKEND: memory` |
@@ -85,7 +82,7 @@ Mount a directory with `-v "$PWD/data:/data:ro"` to preload it: top-level
 directories become buckets and files become objects. Run
 `docker run --rm ghcr.io/shiroemons/gcs-mimic:latest --help` for every option.
 
-In 0.18.0, fake-gcs-server flags either preserve working requests or stop startup
+Since 0.18.0, fake-gcs-server flags either preserve working requests or stop startup
 with a native alternative. Accepted translations emit a `native_args` JSON array
 at info level, plus a shell line when its values need no JSON unescaping.
 `--filesystem-root`, `--external-url`, `--cors-headers` and
@@ -277,11 +274,9 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.19.0
     ports:
       - "127.0.0.1:4443:4443"
-    environment:
-      GCS_MIMIC_SCHEME: http
     volumes:
       - ./data:/data:ro # optional: files to preload
       - gcs-data:/var/lib/gcs-mimic
@@ -316,7 +311,6 @@ the `gcs` service above:
 
 ```yaml
     environment:
-      GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS: |
         {"version": 1, "buckets": [
           {"name": "public-assets",
@@ -498,7 +492,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.18.0 release notes](docs/en/releases/0.18.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.19.0 release notes](docs/en/releases/0.19.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License

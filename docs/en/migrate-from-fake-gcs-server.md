@@ -6,7 +6,7 @@ gcs-mimic takes its everyday ergonomics from
 [fake-gcs-server](https://github.com/fsouza/fake-gcs-server), so most container
 setups move with a few changed lines. This page starts with what you give up,
 because that decides whether moving is worth it. It is written for gcs-mimic
-0.18.0 and fake-gcs-server 1.56.1.
+0.19.0 and fake-gcs-server 1.56.1.
 
 gcs-mimic is not a drop-in replacement for every setup.
 
@@ -48,9 +48,9 @@ Moving is probably not worth it yet if one of these is true:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.18.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.19.0
 -  command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
-+  command: ["--scheme", "http", "--api-base-url", "http://gcs:4443"]
++  command: ["--api-base-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
 -    - gcs-storage:/storage
@@ -58,7 +58,8 @@ Moving is probably not worth it yet if one of these is true:
 ```
 
 Most `command:` flags and the `./data:/data` mount keep working. Since 0.18.0,
-a flag that changes meaning stops startup with native-setting advice.
+a flag that changes meaning stops startup with native-setting advice. `-scheme http`
+can be dropped: the default serves HTTP and HTTPS on the same port.
 Application code that talks to the emulator over HTTP does not change,
 including `STORAGE_EMULATOR_HOST`.
 

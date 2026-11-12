@@ -5,7 +5,7 @@
 gcs-mimicは普段の使い勝手を[fake-gcs-server](https://github.com/fsouza/fake-gcs-server)から受け継いでいるので、
 多くのコンテナ構成は数行の変更で移行できます。
 移行する価値があるかどうかを決めるのは「できなくなること」なので、このページはそこから始めます。
-対象はgcs-mimic 0.18.0とfake-gcs-server 1.56.1です。
+対象はgcs-mimic 0.19.0とfake-gcs-server 1.56.1です。
 
 gcs-mimicは、すべての構成でそのまま置き換えられるものではありません。
 
@@ -45,9 +45,9 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.18.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.19.0
 -  command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
-+  command: ["--scheme", "http", "--api-base-url", "http://gcs:4443"]
++  command: ["--api-base-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
 -    - gcs-storage:/storage
@@ -56,6 +56,7 @@ gcs-mimicは、すべての構成でそのまま置き換えられるもので�
 
 `command:`のフラグと`./data:/data`のマウントは、多くがそのまま動きます。
 0.18.0以降は、意味が変わるフラグで起動を止め、nativeの書き方を案内します。
+`-scheme http`は外せます。既定で同じポートがHTTPとHTTPSを受け付けます。
 HTTPでエミュレーターに接続するアプリのコードは、`STORAGE_EMULATOR_HOST`も含めて変わりません。
 
 ソフトデリートはfake-gcs-serverと同じく既定で無効です。オブジェクトを削除・上書きすると、本文はすぐに消えます。

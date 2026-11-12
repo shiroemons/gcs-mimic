@@ -4,7 +4,7 @@
 
 This is the full reference. To decide whether to move and to make the swap, start with [Move from fake-gcs-server](migrate-from-fake-gcs-server.md).
 
-Published container examples below use **0.18.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
+Published container examples below use **0.19.0**. Since 0.8.0 the release includes separately scoped migration adapters and protocols; 0.7.0 and earlier lack them. The [integration acceptance map](evidence/migration-integration.md) distinguishes native wire proof, prepared client harnesses and unexecuted final SDK/container/browser gates. Full replacement remains an unmet product gate.
 
 ## Replace a fake-gcs-server Compose service
 
@@ -41,7 +41,7 @@ inexact flags stop startup with a native alternative. Since 0.15.0,
 
 | Before | After in this walkthrough | Why |
 | --- | --- | --- |
-| `-scheme http` | `GCS_MIMIC_SCHEME: http` | Up to 0.18.0 the default is HTTPS-only, so existing HTTP clients fail. From 0.19.0 the default `auto` also serves HTTP on the same port and the setting is optional. The image healthcheck follows this setting without an override. |
+| `-scheme http` | Nothing | The default `auto` serves HTTP and HTTPS on the same port, so existing HTTP clients connect, and the image healthcheck probes HTTP without an override. Up to 0.18.0 the default was HTTPS-only and needed `GCS_MIMIC_SCHEME: http`. |
 | `-host 0.0.0.0 -port 4443` | Nothing | The image already listens on `0.0.0.0:4443`, which peers need; a loopback-only listener is unreachable from other containers. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | Nothing | Links that the server returns, including resumable Location, follow the Host of each request, so container SDKs get `gcs:4443` and the host gets its published port. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | `filesystem` selects native `disk`; `filesystem-root` is refused. Keep the source volume separate and import a stopped snapshot into a new destination. Native `--backend memory` is also available. |
@@ -132,11 +132,10 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.18.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.19.0
     ports:
       - "127.0.0.1:${GCSM_PORT:-4443}:4443"
     environment:
-      GCS_MIMIC_SCHEME: http
       GCS_MIMIC_BUCKETS_FILE: /buckets.json
     volumes:
       - migration-data:/var/lib/gcs-mimic
@@ -380,7 +379,7 @@ the built-in test signer for this, and its README shows the entry that uses it.
 | SDK initiation succeeds but its next request cannot connect | Location contains an address fixed by `GCS_MIMIC_API_BASE_URL`, or a proxy rewrote Host | Remove the fixed address so links follow each request, or set one every client can reach, and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when a server hands an unsigned session URI to a browser. |
 | A newly added empty directory creates no bucket | A [withdrawn release](release-policy.md#withdrawn-releases) (0.2.1 or earlier) imported seed files once | Upgrade to the current release with an empty data volume; it replays seed on every startup. Data from withdrawn releases is unsupported. |
-| HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. |
+| HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Leave `GCS_MIMIC_SCHEME` unset, so the default `auto` serves HTTP, or set it to `http`, and leave the image's `GCS_MIMIC_LISTEN` default of `0.0.0.0:4443`; let the image's probe inherit them. Up to 0.18.0 the default served only HTTPS. |
 | Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCSM_PORT=24443` and a different Compose project; update browser URLs. Peers keep using `http://gcs:4443`. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
