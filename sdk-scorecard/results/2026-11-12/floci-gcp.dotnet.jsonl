@@ -1,0 +1,71 @@
+{"sdk":"dotnet","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.update_labels","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"InvalidOperationException: expected HTTP 412, got success"}
+{"sdk":"dotnet","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.retention_policy","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.retention_lock","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"InvalidOperationException: autoclass not enabled"}
+{"sdk":"dotnet","id":"bucket.acl","area":"bucket","pass":false,"detail":"InvalidOperationException: ACL missing"}
+{"sdk":"dotnet","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"InvalidOperationException: ACL missing"}
+{"sdk":"dotnet","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"project.hmac_keys","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"project.service_account","area":"bucket","pass":true}
+{"sdk":"dotnet","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.checksum_rejected","area":"object","pass":false,"detail":"InvalidOperationException: wrong CRC32C accepted"}
+{"sdk":"dotnet","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.range_reads","area":"object","pass":false,"detail":"IOException: Incorrect hash: expected 'KAwGng==' (base64), was 'uV+l7w==' (base64)"}
+{"sdk":"dotnet","id":"object.update_metadata","area":"object","pass":false,"detail":"InvalidOperationException: a=,c=3"}
+{"sdk":"dotnet","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.generation_match_precondition","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.metageneration_match_precondition","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.copy_with_metadata","area":"object","pass":false,"detail":"InvalidOperationException: copy metadata"}
+{"sdk":"dotnet","id":"object.rewrite_storage_class","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.compose","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.move","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.acl","area":"object","pass":false,"detail":"InvalidOperationException: ACL missing"}
+{"sdk":"dotnet","id":"object.holds","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.retention","area":"object","pass":false,"detail":"InvalidOperationException: retention not stored"}
+{"sdk":"dotnet","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.gzip_transcoding","area":"object","pass":false,"unsupported":true,"detail":"Google.Cloud.Storage.V1 5.0.0 has no public API for downloading a gzip-encoded object without decompression (downloads always decompress; StorageClientBuilder.GZipEnabled is internal)"}
+{"sdk":"dotnet","id":"object.customer_supplied_key","area":"object","pass":true}
+{"sdk":"dotnet","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"dotnet","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"dotnet","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"dotnet","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"dotnet","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"InvalidOperationException: status 405: "}
+{"sdk":"dotnet","id":"sdk.download_hash_validation","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.download_chunked","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.update_object_implicit_preconditions","area":"sdk","pass":false,"detail":"InvalidOperationException: expected HTTP 412, got success"}
+{"sdk":"dotnet","id":"sdk.update_bucket_etag_ignored","area":"sdk","pass":false,"detail":"GoogleApiException: The service storage has thrown an exception. HttpStatusCode is MethodNotAllowed. No error message was specified."}
+{"sdk":"dotnet","id":"sdk.iam_policy_etag","area":"sdk","pass":false,"detail":"GoogleApiException: The service storage has thrown an exception. HttpStatusCode is Conflict. There were concurrent policy changes. Please retry the whole read-modify-write with exponential backoff. The request's ETag 'ACAB' did not match the current policy's ETag '5G/ziJbn0+s='."}
+{"sdk":"dotnet","id":"sdk.resumable_resume_from_uri","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.object_uploader_session","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.upload_progress","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.download_gzip_default","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.list_auto_paging","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.conditional_replace_and_read","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.delete_bucket_with_objects","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.list_fields_partial","area":"sdk","pass":false,"detail":"InvalidOperationException: fields not applied"}
+{"sdk":"dotnet","id":"sdk.signed_url_resumable_upload","area":"sdk","pass":false,"detail":"InvalidOperationException: upload ended Failed: The service  has thrown an exception. HttpStatusCode is BadRequest. No error message was specified. [POST /sc-dn-0060b3aee48f/signed-resumable.bin start  -> 400]"}
+{"sdk":"dotnet","id":"sdk.signed_request_template_headers","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.signed_query_generation","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.service_rewrite_token_loop","area":"sdk","pass":true}
+{"sdk":"dotnet","id":"sdk.csek_rotation","area":"sdk","pass":false,"detail":"GoogleApiException: The service storage has thrown an exception. HttpStatusCode is Forbidden. Missing or invalid customer-supplied encryption key"}
+{"sdk":"dotnet","id":"sdk.bucket_soft_delete_restore","area":"sdk","pass":false,"detail":"InvalidOperationException: bucket generation missing"}
+{"sdk":"dotnet","id":"sdk.upload_predefined_acl","area":"sdk","pass":false,"detail":"InvalidOperationException: predefined ACL missing"}

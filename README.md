@@ -445,8 +445,8 @@ Each official SDK runs the same workflows against all four emulators
 | Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) | 29/47 (4 n/a) |
 | Score (/100) | 100 | 39.8 | 37.7 | 77.6 |
 
-Recorded on 2026-11-09 with the 0.16.0 source
-([results](sdk-scorecard/results/2026-11-09/summary.md)). A passing case
+Recorded on 2026-11-12 with the 0.19.1 source
+([results](sdk-scorecard/results/2026-11-12/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
 

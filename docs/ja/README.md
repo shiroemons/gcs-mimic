@@ -385,7 +385,7 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | Rust | 47/47（4 n/a） | 0/47（4 n/a） | 0/47（4 n/a） | 29/47（4 n/a） |
 | スコア（/100） | 100 | 39.8 | 37.7 | 77.6 |
 
-2026-11-09に、0.16.0のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-09/summary.md)）。
+2026-11-12に、0.19.1のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-12/summary.md)）。
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
 n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
 

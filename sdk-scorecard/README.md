@@ -207,8 +207,15 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-11-09 comparison](results/2026-11-09/summary.md) is the latest and
-adds floci-gcp 0.12.0. It executes 1,812 cases (453 per product, 448 of them
+The [2026-11-12 comparison](results/2026-11-12/summary.md) is the latest. It
+executes the same 1,812 cases on the 0.19.1 source at `590d9276`, with no
+uncommitted change, and with the Ruby Storage SDK 1.62.2, the Rust SDK 1.22.0, .NET SDK
+11.0.100 and Go 1.27.4. Every product scores the same as on 2026-11-09:
+gcs-mimic **100**, floci-gcp **77.6**, fake-gcs-server **39.8** and
+gcp-storage-emulator **37.7**.
+
+The [2026-11-09 comparison](results/2026-11-09/summary.md) adds floci-gcp
+0.12.0. It executes 1,812 cases (453 per product, 448 of them
 scored) on the 0.16.0 source at `b0338de7`. gcs-mimic scores **100**, floci-gcp
 **77.6**, fake-gcs-server **39.8** and gcp-storage-emulator **37.7**. Its
 metadata records `source_dirty: true` because the only uncommitted change was
