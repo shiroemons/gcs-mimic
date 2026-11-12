@@ -232,11 +232,28 @@ impl StagedFile {
         self.file.flush().await?;
         #[cfg(test)]
         fault::hit(&self.data_dir, Step::BodySync).map_err(object_unavailable)?;
-        self.file.sync_all().await.map_err(object_unavailable)?;
+        self.sync_ordered().await?;
         #[cfg(test)]
         fault::file_synced(&self.data_dir, &self.file.metadata().await?);
         self.unsynced = 0;
         Ok(())
+    }
+
+    /// Orders the body before the publication that references it, as
+    /// [`crate::fsutil::sync_ordered`] explains. The clone keeps the descriptor open on the
+    /// blocking thread even if this future is dropped while the sync runs.
+    #[cfg(target_vendor = "apple")]
+    async fn sync_ordered(&self) -> Result<(), ObjectError> {
+        let file = self.file.try_clone().await?.into_std().await;
+        crate::task::run_blocking("blob-sync", move || crate::fsutil::sync_ordered(&file))
+            .await?
+            .map_err(object_unavailable)
+    }
+
+    /// Elsewhere a file sync already makes the body durable.
+    #[cfg(not(target_vendor = "apple"))]
+    async fn sync_ordered(&self) -> Result<(), ObjectError> {
+        self.file.sync_all().await.map_err(object_unavailable)
     }
 
     /// Cuts the body back to its first `len` bytes; they are durable only after

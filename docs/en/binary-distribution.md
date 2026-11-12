@@ -48,6 +48,11 @@ downloads can trigger OS trust prompts.
 ## Persistence and shutdown
 
 Unix keeps file flushes, directory fsync and SQLite WAL with FULL synchronization.
+On macOS a blob and its directory entry are synced with `F_BARRIERFSYNC`, which
+orders them before the catalog commit that references them. A full `F_FULLFSYNC`
+device flush cost about 4 ms per sync on an Apple-silicon SSD, and SQLite's
+commit fsync there stops at the device cache, so a power loss can drop the
+latest acknowledged commits but cannot keep a commit whose blob was lost.
 Windows keeps file flushes, same-volume write-through blob publication, SQLite
 WAL/FULL, exclusive directory ownership, and startup journal/orphan recovery.
 Windows does not emulate a successful Unix directory fsync: directory creation

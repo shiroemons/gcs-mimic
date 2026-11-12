@@ -217,7 +217,43 @@ pub(crate) enum ReplaceOutcome {
 
 #[cfg(unix)]
 pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    sync_ordered(&File::open(path)?)
+}
+
+/// Makes what was written to `file` reach storage before anything written after it.
+///
+/// Each caller orders a blob or a directory entry before the catalog commit that references
+/// it. On Apple platforms `sync_all` is `F_FULLFSYNC`, a device cache flush of several
+/// milliseconds that the drive runs one at a time, while SQLite's commit fsync there stops at
+/// the device cache. `F_BARRIERFSYNC` keeps the blob ahead of that commit for a fraction of
+/// the cost: a power loss can still drop the latest commits, as before, but cannot keep a
+/// commit whose blob was lost. A filesystem without barriers gets the full flush instead.
+/// Elsewhere fsync already reaches the device.
+#[cfg(target_vendor = "apple")]
+#[expect(
+    unsafe_code,
+    reason = "std has no F_BARRIERFSYNC, so it is only reachable through fcntl"
+)]
+pub(crate) fn sync_ordered(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    loop {
+        // SAFETY: the descriptor stays open for the whole call, which takes no pointers.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => {}
+            Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL) => return file.sync_all(),
+            _ => return Err(error),
+        }
+    }
+}
+
+/// See the Apple version: fsync here already makes the bytes durable.
+#[cfg(all(unix, not(target_vendor = "apple")))]
+pub(crate) fn sync_ordered(file: &File) -> io::Result<()> {
+    file.sync_all()
 }
 
 #[derive(Debug)]
@@ -1099,6 +1135,19 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn ordered_syncs_accept_written_files_and_directories() {
+        use std::io::Write as _;
+        let directory = crate::test_support::TestDir::new();
+        let path = directory.0.join("blob");
+        let mut file = File::create(&path).unwrap();
+        file.write_all(b"bytes").unwrap();
+        sync_ordered(&file).unwrap();
+        sync_dir(&directory.0).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"bytes");
+    }
 
     #[cfg(unix)]
     #[test]
