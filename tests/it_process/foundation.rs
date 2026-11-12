@@ -1608,7 +1608,7 @@ fn config_precedence_validation_and_size_limit() {
         ("max-connections", "1048577"),
         ("worker-threads", "1025"),
         ("max-blocking-threads", "0"),
-        ("connection-timeout-ms", "18446744073709551616"),
+        ("header-read-timeout-ms", "18446744073709551616"),
         ("shutdown-timeout-ms", "-1"),
         ("listen", "localhost:4443"),
         ("auth-mode", "strict"),

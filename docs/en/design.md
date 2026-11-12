@@ -138,10 +138,9 @@ has no upper bound.
 | `object_request_timeout_ms` | 0 (disabled) | A whole object upload or media request from dispatch; never renews on chunks. Accepting 5 TiB objects rules out a fixed bound on a transfer. |
 | `catalog_wait_timeout_ms` | 120000 | Each upload advisory or post-EOF catalog wait, the wait for a busy session, and the wait of a reset, reseed, publication or management call for its turn. It bounds waiting only: a reseed may then take as long as its tree needs. |
 
-`connection_timeout_ms` remains an alias with no default. Named, it sets the header, body
-inactivity and request limits to one value, and any of those three named explicitly wins,
-whichever source named it. `request_timeout_ms` is longer than the catalog wait, so a waiting
-request reports that wait's own failure.
+`connection_timeout_ms`, the alias that set the header, body inactivity and request limits to
+one value until 0.20.0, stops startup and names those three settings. `request_timeout_ms` is
+longer than the catalog wait, so a waiting request reports that wait's own failure.
 
 An idle connection holds its `max_connections` slot until a client waits for one. Then the
 connection that turned idle first closes, and only that one: closing an idle connection races

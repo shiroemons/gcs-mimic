@@ -97,7 +97,7 @@ The following existing defaults and validation remain unchanged:
 | `header_read_timeout_ms` | `30000` | 0 disables, no upper limit; a request head, the gRPC handshake and the HTTP/2 ping wait |
 | `body_inactivity_timeout_ms` | `0` | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |
 | `request_timeout_ms` | `180000` | 0 disables, no upper limit; a handler's time before its response starts, excluding waits for request body bytes |
-| `connection_timeout_ms` | Unset | 0 disables, no upper limit; alias that sets the three above, each of which wins when named explicitly, from any source |
+| `connection_timeout_ms` | Withdrawn in 0.20.0 | Stops startup from every source and names the three settings above, which it used to set to one value |
 | `shutdown_timeout_ms` | `5000` | 0 waits for unfinished requests without a limit |
 | `object_request_timeout_ms` | `0` | 0 disables, no upper limit |
 | `catalog_wait_timeout_ms` | `120000` | 0 waits without a limit; also the wait for a busy session and the wait of a reset, reseed, publication or management call for its turn |

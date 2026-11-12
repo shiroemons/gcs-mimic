@@ -309,10 +309,6 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "N",
             "180000 (0 disables; handler time before a response starts, excluding request body waits)",
         ),
-        Setting::ConnectionTimeoutMs => (
-            "N",
-            "none (alias; sets the three settings above, and each of them named explicitly wins)",
-        ),
         Setting::KeepAliveTimeoutMs => (
             "N",
             "120000 (0 disables; idle time between HTTP/1.1 requests and on gRPC connections)",
@@ -518,7 +514,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "6c7d18bd1dc3068a82c307ab26dcf16faaa8f2e3a6fd7cbf90cabfe57b596c4e"
+            "97a606e591c50de839b1fdff50f51d883e1598befca1881588f7ae1ae97048c0"
         );
     }
 }

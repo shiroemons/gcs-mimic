@@ -752,8 +752,7 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), Sett
         | Setting::MaxSyncDepth
         | Setting::WorkerThreads
         | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, value),
-        Setting::ConnectionTimeoutMs
-        | Setting::HeaderReadTimeoutMs
+        Setting::HeaderReadTimeoutMs
         | Setting::BodyInactivityTimeoutMs
         | Setting::RequestTimeoutMs
         | Setting::KeepAliveTimeoutMs
@@ -1045,11 +1044,6 @@ fn apply_timeout_setting(
 ) -> Result<(), SettingFix> {
     let limit = setting.time_limit(value)?;
     match setting {
-        Setting::ConnectionTimeoutMs => {
-            config.header_read_timeout = limit;
-            config.body_inactivity_timeout = limit;
-            config.request_timeout = limit;
-        }
         Setting::HeaderReadTimeoutMs => config.header_read_timeout = limit,
         Setting::BodyInactivityTimeoutMs => config.body_inactivity_timeout = limit,
         Setting::RequestTimeoutMs => config.request_timeout = limit,
@@ -1090,12 +1084,7 @@ impl ConfigurationReport {
     }
 
     fn apply_settings(&mut self, settings: &Settings) {
-        // `connection_timeout_ms` is a coarse alias for three finer settings, so it goes first:
-        // any of those named explicitly overrides it, whichever source named either one.
-        let alias_key = Setting::ConnectionTimeoutMs.as_str();
-        let alias = settings.get_key_value(alias_key);
-        let rest = settings.iter().filter(|(key, _)| key.as_str() != alias_key);
-        for (key, input) in alias.into_iter().chain(rest) {
+        for (key, input) in settings {
             if let Some(invalid) = input.invalid {
                 self.invalid.insert(key.clone());
                 if invalid == InputError::Encoding {
@@ -3772,86 +3761,42 @@ mod tests {
         }
     }
 
-    /// The three settings `connection_timeout_ms` stands for, in that order.
-    fn split_timeouts(config: &Config) -> [u64; 3] {
-        [
-            config.header_read_timeout,
-            config.body_inactivity_timeout,
-            config.request_timeout,
-        ]
-        .map(TimeLimit::as_millis)
-    }
-
+    /// The removed alias stops startup from every source and names the three settings that
+    /// replace it as that source spells them.
     #[test]
-    fn connection_timeout_alias_fills_every_setting_it_replaces() {
+    fn connection_timeout_ms_was_removed_in_favor_of_three_settings() {
         let dir = TestDir::new();
         let file = dir.0.join("config.json");
-        std::fs::write(&file, r#"{"connection_timeout_ms":100}"#).unwrap();
-        let args = vec!["--config".into(), file.to_str().unwrap().into()];
-        let env = BTreeMap::from([("GCS_MIMIC_CONNECTION_TIMEOUT_MS".into(), "200".into())]);
-        assert_precedence(
-            &args,
-            &env,
-            &["--connection-timeout-ms", "300"],
-            [[30_000, 0, 180_000], [100; 3], [200; 3], [300; 3]],
-            load_http,
-            |config| split_timeouts(&config),
-        );
-        assert_rejected(
-            "connection_timeout_ms",
-            &["-1", "18446744073709551616", "unlimited"],
-            "must be an integer",
-        );
-        for bound in [0, u64::MAX] {
-            let flag = ["--connection-timeout-ms".to_owned(), bound.to_string()];
-            let config = load_http(&flag, &BTreeMap::new()).unwrap();
-            assert_eq!(split_timeouts(&config), [bound; 3]);
-        }
-    }
-
-    /// `body_inactivity_timeout_ms` sorts before the alias and the others after it, so each one
-    /// is checked: no name order may let the alias overwrite an explicit value.
-    #[test]
-    fn an_explicit_timeout_beats_the_alias_from_any_source() {
-        let dir = TestDir::new();
-        let file = dir.0.join("config.json");
-        for (index, setting) in [
-            "body_inactivity_timeout_ms",
-            "header_read_timeout_ms",
-            "request_timeout_ms",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let mut expected = [7; 3];
-            let order = [1, 0, 2][index];
-            expected[order] = 9;
-            let flag = format!("--{}", setting.replace('_', "-"));
-            let env_key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
-            let alias_cli = ["--connection-timeout-ms".to_owned(), "7".to_owned()];
-            let alias_env =
-                BTreeMap::from([("GCS_MIMIC_CONNECTION_TIMEOUT_MS".into(), "7".to_owned())]);
-
-            // Same source.
-            let args = [alias_cli[0].clone(), "7".into(), flag.clone(), "9".into()];
-            let loaded = load_http(&args, &BTreeMap::new()).unwrap();
-            assert_eq!(split_timeouts(&loaded), expected, "{setting} on the CLI");
-            std::fs::write(
-                &file,
-                format!(r#"{{"connection_timeout_ms":7,"{setting}":9}}"#),
-            )
-            .unwrap();
-            let config_args = ["--config".to_owned(), file.to_str().unwrap().into()];
-            let loaded = load_http(&config_args, &BTreeMap::new()).unwrap();
-            assert_eq!(split_timeouts(&loaded), expected, "{setting} in the file");
-
-            // The alias from a source that otherwise takes precedence.
-            let env = BTreeMap::from([(env_key, "9".to_owned())]);
-            let loaded = load_http(&alias_cli, &env).unwrap();
-            assert_eq!(split_timeouts(&loaded), expected, "{setting} over the CLI");
-            std::fs::write(&file, format!(r#"{{"{setting}":9}}"#)).unwrap();
-            let loaded = load_http(&config_args, &alias_env).unwrap();
-            assert_eq!(split_timeouts(&loaded), expected, "{setting} over the env");
+        std::fs::write(&file, r#"{"connection_timeout_ms":5000}"#).unwrap();
+        for (key, replacement, args, env) in [
+            (
+                "--connection-timeout-ms",
+                "--header-read-timeout-ms, --body-inactivity-timeout-ms and --request-timeout-ms",
+                ["--connection-timeout-ms", "5000"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                BTreeMap::new(),
+            ),
+            (
+                "GCS_MIMIC_CONNECTION_TIMEOUT_MS",
+                "GCS_MIMIC_HEADER_READ_TIMEOUT_MS, GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS and GCS_MIMIC_REQUEST_TIMEOUT_MS",
+                Vec::new(),
+                BTreeMap::from([("GCS_MIMIC_CONNECTION_TIMEOUT_MS".into(), "5000".into())]),
+            ),
+            (
+                "connection_timeout_ms",
+                "header_read_timeout_ms, body_inactivity_timeout_ms and request_timeout_ms",
+                vec!["--config".into(), file.to_str().unwrap().into()],
+                BTreeMap::new(),
+            ),
+        ] {
+            let errors = load_http(&args, &env).unwrap_err().errors;
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert_eq!(errors[0].key, key);
+            assert_eq!(
+                errors[0].fix,
+                format!("connection_timeout_ms was removed; set {replacement} instead.")
+            );
         }
     }
 

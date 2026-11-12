@@ -487,19 +487,20 @@ fn obj_http_disabled_and_largest_timeouts_never_cut_any_phase() {
 }
 
 #[test]
-fn obj_http_ready_event_reports_the_alias_and_explicit_overrides() {
+fn obj_http_ready_event_reports_each_request_phase_timeout() {
     let dir = TestDir::new();
     let server = start_with(
         &dir,
         &[
-            "--connection-timeout-ms",
+            "--header-read-timeout-ms",
             "7000",
+            "--body-inactivity-timeout-ms",
+            "8000",
             "--request-timeout-ms",
             "9000",
         ],
     );
     assert_eq!(server.ready["header_read_timeout_ms"], 7000);
-    assert_eq!(server.ready["body_inactivity_timeout_ms"], 7000);
+    assert_eq!(server.ready["body_inactivity_timeout_ms"], 8000);
     assert_eq!(server.ready["request_timeout_ms"], 9000);
-    assert!(server.ready.get("connection_timeout_ms").is_none());
 }

@@ -52595,7 +52595,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (5 TiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Timeout settings accept 0 to disable them with no upper bound; connection_timeout_ms is an alias that sets header_read_timeout_ms, body_inactivity_timeout_ms and request_timeout_ms, and each of those named explicitly wins whichever source named it. docs/en/slices/configuration-workflows.md preserves this implemented scope; future aggregated migration diagnostics are acceptance cases on UX-003, not completed behavior here.",
+      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (5 TiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Timeout settings accept 0 to disable them with no upper bound; connection_timeout_ms, the alias for header_read_timeout_ms, body_inactivity_timeout_ms and request_timeout_ms until 0.20.0, stops startup and names those three. docs/en/slices/configuration-workflows.md preserves this implemented scope; future aggregated migration diagnostics are acceptance cases on UX-003, not completed behavior here.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -52635,13 +52635,12 @@
           ]
         },
         {
-          "id": "DESIGN-064-TIMEOUT-ALIAS",
-          "description": "connection_timeout_ms sets header_read_timeout_ms, body_inactivity_timeout_ms and request_timeout_ms, each of which wins when named explicitly, from any source; the ready event reports the three settings.",
+          "id": "DESIGN-064-TIMEOUT-WITHDRAWN",
+          "description": "connection_timeout_ms, the alias for header_read_timeout_ms, body_inactivity_timeout_ms and request_timeout_ms until 0.20.0, stops startup from the command line, the environment and the JSON file with one diagnostic that names the three settings as that source spells them; the ready event reports each of the three as set.",
           "result": "PASS",
           "test_ids": [
-            "config::tests::connection_timeout_alias_fills_every_setting_it_replaces",
-            "config::tests::an_explicit_timeout_beats_the_alias_from_any_source",
-            "obj_http_ready_event_reports_the_alias_and_explicit_overrides"
+            "config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings",
+            "obj_http_ready_event_reports_each_request_phase_timeout"
           ]
         },
         {
@@ -52675,9 +52674,8 @@
         "config::tests::capacity_settings_accept_their_raised_bounds_only",
         "config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config",
         "config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range",
-        "config::tests::connection_timeout_alias_fills_every_setting_it_replaces",
-        "config::tests::an_explicit_timeout_beats_the_alias_from_any_source",
-        "obj_http_ready_event_reports_the_alias_and_explicit_overrides",
+        "config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings",
+        "obj_http_ready_event_reports_each_request_phase_timeout",
         "fake_gcs_server_variables_do_not_affect_the_server",
         "non_setting_variables_and_missing_subcommand_report_native_migration",
         "non_environment_names_keep_unknown_setting_advice",
@@ -52702,7 +52700,8 @@
             "TestOldBinaryEnvironmentIsRejected"
           ]
         },
-        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- phase_deadlines","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["config::tests::capacity_settings_accept_their_raised_bounds_only","config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config","config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range","config::tests::connection_timeout_alias_fills_every_setting_it_replaces","config::tests::an_explicit_timeout_beats_the_alias_from_any_source","obj_http_ready_event_reports_the_alias_and_explicit_overrides"]},
+        {"command":"cargo test --locked --lib -- config:: ; cargo test --locked --test it_protocol -- phase_deadlines","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["config::tests::capacity_settings_accept_their_raised_bounds_only","config::tests::session_limits_default_to_unlimited_and_zero_stays_outside_the_config","config::tests::seed_limits_default_to_unlimited_and_reject_values_out_of_range"]},
+        {"command":"cargo test --locked --lib config:: (93 passed); cargo test --locked --test it_protocol phase_deadlines (10 passed)","result":"PASS","verified_at":"2026-11-12","artifact":"docs/en/slices/json-object-media.md","test_ids":["config::tests::connection_timeout_ms_was_removed_in_favor_of_three_settings","obj_http_ready_event_reports_each_request_phase_timeout"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",

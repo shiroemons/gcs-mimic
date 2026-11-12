@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 # shortcut: per-file counts cannot detect a replacement at the same count; use line fingerprints if needed.
 git grep -n -oE 'GCS_MIMIC_[A-Z0-9_]+' | awk -F: '
   BEGIN {
-    count = split("FOO_BAR UPPER_SNAKE_CASE NO_SUCH_SETTING UNKNOWN_SETTING ENDPOINT GRPC_ENDPOINT SYNC_TOKEN BINARY PORT IMAGE TLS_DIR BUCKETS_FILE_MODE", names, " ")
+    count = split("FOO_BAR UPPER_SNAKE_CASE NO_SUCH_SETTING UNKNOWN_SETTING ENDPOINT GRPC_ENDPOINT SYNC_TOKEN BINARY PORT IMAGE TLS_DIR BUCKETS_FILE_MODE CONNECTION_TIMEOUT_MS", names, " ")
     for (i = 1; i <= count; i++) allowed["GCS_MIMIC_" names[i]] = 1
   }
   FILENAME == ARGV[1] { allowed[$0] = 1; next }

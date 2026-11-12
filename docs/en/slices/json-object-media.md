@@ -349,8 +349,8 @@ counting time spent waiting for request body bytes. `body_inactivity_timeout_ms`
 disabled) bounds silence while a request body on any route or a response body is in flight;
 each progressed chunk renews it, so active transfers can last longer. Its expiry answers JSON
 408 `uploadBrokenConnection` or XML 400 `RequestTimeout`.
-`connection_timeout_ms` has no default: named, it sets those three to one value, and any of them
-named explicitly wins, whichever source named it.
+`connection_timeout_ms`, which set those three to one value until 0.20.0, stops startup and
+names them.
 Catalog waits suspend these deadlines, and each wait ends on every path out of it; catalog
 admission waits for one of 32 slots.
 `catalog_wait_timeout_ms` defaults to **120000 ms**, shorter than the request deadline so a

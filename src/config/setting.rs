@@ -62,7 +62,6 @@ super::string_enum! {
         HeaderReadTimeoutMs => "header_read_timeout_ms",
         BodyInactivityTimeoutMs => "body_inactivity_timeout_ms",
         RequestTimeoutMs => "request_timeout_ms",
-        ConnectionTimeoutMs => "connection_timeout_ms",
         KeepAliveTimeoutMs => "keep_alive_timeout_ms",
         ObjectRequestTimeoutMs => "object_request_timeout_ms",
         CatalogWaitTimeoutMs => "catalog_wait_timeout_ms",
@@ -90,7 +89,6 @@ impl Setting {
         match self {
             // Zero disables a limit, and `TimeLimit` keeps every other value safe to use.
             Self::TlsHandshakeTimeoutMs
-            | Self::ConnectionTimeoutMs
             | Self::HeaderReadTimeoutMs
             | Self::BodyInactivityTimeoutMs
             | Self::RequestTimeoutMs

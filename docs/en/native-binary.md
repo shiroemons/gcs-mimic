@@ -158,7 +158,6 @@ argument is an option.
 | `--header-read-timeout-ms` | `GCS_MIMIC_HEADER_READ_TIMEOUT_MS` | 30000 (30 seconds) | 0 disables, no upper limit; request head arrival, gRPC handshake and HTTP/2 ping acknowledgement |
 | `--body-inactivity-timeout-ms` | `GCS_MIMIC_BODY_INACTIVITY_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; silence while a request body on any route, a response body or a gRPC stream is in flight |
 | `--request-timeout-ms` | `GCS_MIMIC_REQUEST_TIMEOUT_MS` | 180000 (3 minutes) | 0 disables, no upper limit; handler time before a response starts, excluding time spent waiting for request body bytes |
-| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | none | Alias: sets the three settings above to one value; each of them named explicitly wins, from any source |
 | `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 0 disables, no upper limit; idle time between HTTP/1.1 requests on one connection and on gRPC connections |
 | `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 0 (disabled) | 0 disables, no upper limit; absolute upload/media deadline |
 | `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 120000 (2 minutes) | 0 waits without a limit; upload advisory/commit wait, the wait for a busy upload session, and the wait of a reset, reseed, publication or management call for its turn. Tuning setting: the name and range are kept, what a value does is not promised |

@@ -27,25 +27,36 @@ pub(super) enum Rejection {
 pub(super) enum WithdrawnSetting {
     /// It also governs the inline `buckets` document, which its name hid.
     BucketsFileMode,
+    /// The single timeout before 0.12.0 split it, kept as an alias that set all three. It
+    /// never covered connection lifetime or `keep_alive_timeout_ms`, which its name suggested.
+    ConnectionTimeoutMs,
 }
 
 /// What took a withdrawn setting's place.
 enum Replacement {
     Renamed(Setting),
+    /// Several settings now each cover part of what it did.
+    Split(&'static [Setting]),
 }
 
 impl WithdrawnSetting {
-    const ALL: [Self; 1] = [Self::BucketsFileMode];
+    const ALL: [Self; 2] = [Self::BucketsFileMode, Self::ConnectionTimeoutMs];
 
     const fn name(self) -> &'static str {
         match self {
             Self::BucketsFileMode => "buckets_file_mode",
+            Self::ConnectionTimeoutMs => "connection_timeout_ms",
         }
     }
 
     const fn replacement(self) -> Replacement {
         match self {
             Self::BucketsFileMode => Replacement::Renamed(Setting::BucketsMode),
+            Self::ConnectionTimeoutMs => Replacement::Split(&[
+                Setting::HeaderReadTimeoutMs,
+                Setting::BodyInactivityTimeoutMs,
+                Setting::RequestTimeoutMs,
+            ]),
         }
     }
 
@@ -88,6 +99,20 @@ impl fmt::Display for Rejection {
                     setting.as_str(),
                     setting.spelled(*source)
                 ),
+                Replacement::Split(settings) => {
+                    write!(f, "{} was removed; set ", withdrawn.name())?;
+                    for (index, setting) in settings.iter().enumerate() {
+                        let separator = if index == 0 {
+                            ""
+                        } else if index + 1 == settings.len() {
+                            " and "
+                        } else {
+                            ", "
+                        };
+                        write!(f, "{separator}{}", setting.spelled(*source))?;
+                    }
+                    f.write_str(" instead.")
+                }
             },
             Self::StartupOnly => f.write_str(
                 "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once.",
