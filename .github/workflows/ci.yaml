@@ -217,6 +217,31 @@ jobs:
       - run: cargo fetch --locked
       - run: cargo xtask differential validate
       - run: cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note
+  # Sends the same bucket requests to the pinned fake-gcs-server and both profiles and asserts the
+  # bucket contracts. Run only by hand, its assertions went stale for three weeks unnoticed.
+  reference-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdk-tests/go/go.mod
+          cache-dependency-path: sdk-tests/go/go.sum
+      - name: Install pinned Rust
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The script verifies the downloaded archive against its pinned SHA-256 before building it.
+      - run: bash scripts/compare-reference-emulator.sh
+        env:
+          GCSM_REFERENCE_REPO: https://github.com/fsouza/fake-gcs-server
   # The release image build takes about 6 minutes, so the Testcontainers
   # clients run beside the SDK suites instead of after them.
   testcontainers:
