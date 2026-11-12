@@ -51,7 +51,7 @@ publish that port, set `STORAGE_EMULATOR_HOST_GRPC=localhost:4444` and use
 
 ## Ruby
 
-`google-cloud-storage` 1.62.1 ([tests](../../sdk-tests/ruby/README.md)):
+`google-cloud-storage` 1.62.2 ([tests](../../sdk-tests/ruby/README.md)):
 
 ```ruby
 require "google/cloud/storage"
@@ -126,7 +126,7 @@ $storage = new StorageClient([
 
 The scorecard also runs Java `google-cloud-storage` 2.78.0 (Java 17 or newer),
 .NET `Google.Cloud.Storage.V1` 5.0.0 (.NET SDK 11.0.100, `net11.0`), and Rust
-`google-cloud-storage` 1.21.0 with Apache Arrow's `object_store` 0.14.2. Their
+`google-cloud-storage` 1.22.0 with Apache Arrow's `object_store` 0.14.2. Their
 client settings are in the [Java](../../sdk-tests/java/README.md),
 [.NET](../../sdk-tests/dotnet/README.md) and [Rust](../../sdk-tests/rust/README.md)
 test READMEs.

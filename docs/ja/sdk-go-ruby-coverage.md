@@ -12,7 +12,7 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | Go | 1.27.3 |
 | `cloud.google.com/go/storage` | v1.70.0 |
 | Ruby / Bundler | 4.0.9 / 4.0.24 |
-| `google-cloud-storage`（Ruby） | 1.62.1 |
+| `google-cloud-storage`（Ruby） | 1.62.2 |
 
 ## 方法
 

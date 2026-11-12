@@ -46,7 +46,7 @@ gRPCでは、エミュレーターを`GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444`で起�
 
 ## Ruby
 
-`google-cloud-storage` 1.62.1（[テスト（英語）](../../sdk-tests/ruby/README.md)）:
+`google-cloud-storage` 1.62.2（[テスト（英語）](../../sdk-tests/ruby/README.md)）:
 
 ```ruby
 require "google/cloud/storage"

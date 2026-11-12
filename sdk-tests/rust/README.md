@@ -1,6 +1,6 @@
 # Two independent Rust client contracts
 
-This standalone package checks Google's official `google-cloud-storage` 1.21.0
+This standalone package checks Google's official `google-cloud-storage` 1.22.0
 and Apache Arrow's `object_store` 0.14.2 separately. Neither is added to the
 emulator's workspace or production dependency graph. `Cargo.lock` is committed.
 

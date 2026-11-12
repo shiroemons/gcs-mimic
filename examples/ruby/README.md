@@ -1,6 +1,6 @@
 # Ruby example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.62.1. Needs Ruby 4.0.9 and Bundler 4.0.23.
+Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.62.2. Needs Ruby 4.0.9 and Bundler 4.0.23.
 
 ## Start gcs-mimic
 

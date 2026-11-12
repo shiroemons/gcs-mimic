@@ -2,4 +2,4 @@ source "https://rubygems.org"
 
 ruby file: ".ruby-version"
 
-gem "google-cloud-storage", "= 1.62.1"
+gem "google-cloud-storage", "= 1.62.2"

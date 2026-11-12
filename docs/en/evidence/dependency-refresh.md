@@ -894,3 +894,27 @@ Under the [release-scope rule](../dependency-policy.md#ci-lanes) they do not blo
 - `cargo xtask dependencies check --scope release` at `2026-11-12T00:28:24Z` exited 0 with 41 `CURRENT` lines, among them `docker moby/buildkit:v0.35.0: CURRENT` and `docker moby/buildkit:latest: CURRENT`, both at `sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb`.
 - `cargo xtask dependencies check` at `2026-11-12T00:26:46Z` exited 1 with 120 `CURRENT` lines; every `UPDATE_AVAILABLE` line names one of the development-only inputs above, and fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`.
 - On macOS (Apple Silicon), a `docker-container` Buildx builder started from the adopted pinned image reported `BuildKit version: v0.35.0`. With it, the release `Dockerfile` at the v0.19.0 source built for linux/arm64 with `--load`, and `bash scripts/smoke-containers.sh --image <image> linux/arm64` printed seven `PASS` lines, the strict local recipe and the full application example included. The same build exported as OCI with `--provenance=mode=max` and the pinned SBOM generator passed the checks `scripts/container-release.sh` applies to a pushed platform index: one linux/arm64 manifest plus its attestation manifest, an `SPDX-2.3` SBOM, and SLSA v1 provenance whose `buildType` is the BuildKit attestation definitions document. linux/amd64 was not built with v0.35.0 locally; the GHCR workflow builds it natively.
+
+### Development-only updates adopted
+
+The development-only updates listed above are adopted later the same day. While they were being verified, RubyGems published Ruby `google-cloud-storage` 1.62.2 at `2026-11-12T01:44:25Z`, and the next full check reported it in both Ruby manifests, so it is adopted too.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.312.0 | v0.313.0 (published 2026-11-11, revision `bfc6507921ffcc3a1b3971105b621e441ecf9fa0`, Go 1.26.0, 52,749,023-byte module zip) | `go`, `sdk-scorecard/go`, `sdk-tests/go` |
+| google-cloud-storage (Rust) | 1.21.0 | 1.22.0 (538,861 bytes, Rust 1.91.0) | `sdk-tests/rust`, `sdk-scorecard/rust`, `examples/rust` |
+| google-cloud-auth | 1.18.0 | 1.19.0 (193,915 bytes) | the same three Rust manifests |
+| google-cloud-wkt | 1.10.0 | 1.11.0 (113,973 bytes) | `sdk-scorecard/rust`; resolved transitively in the other two |
+| node:24-trixie-slim selector | `node:24.22.2-trixie-slim` | `node:24.22.3-trixie-slim` `sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0` | `scripts/strict-recipe-browser.sh` |
+| google-cloud-storage (Ruby) | 1.62.1 | 1.62.2 (`sha256:4605fe7946575a0df5ce9809324b966a49c153cf305ce6e592e432219ff0bfa2`) | `sdk-tests/ruby`, `sdk-tests/ruby/active_storage`, `sdk-scorecard/ruby`, `examples/ruby` |
+
+API v0.313.0 lists regenerated Discovery clients only, its BSD-3-Clause LICENSE is byte-identical to v0.312.0, and `go mod tidy` changes no other requirement. The Rust crates come from the 2026-11-11 google-cloud-rust release: Storage accepts `Into<Bytes>` in appendable writes, adds parallel-upload request types, rejects an excess persisted size and fails bidi reads on an unexpected server OK; auth and wkt carry fixes. Cargo also moves google-cloud-gax-internal to 0.7.22 and google-cloud-lro to 1.12.0 in each lockfile. Storage 1.22.0 still has no public API for bucket notifications, HMAC keys, the project service account or V2 signed URLs, and its client builder options match 1.21.0, so it still builds its own reqwest client; the scorecard reasons keep their wording with the new version. Node 24.22.3 is the 2026-11-11 security release (HTTP/2 and TLS fixes); its image names the same `20261104T212339Z` Debian snapshot, so the pinned Chromium install is unchanged. Ruby 1.62.2 differs from 1.62.1 only in `version.rb`, the changelog and one comment in `bucket.rb`, with the same gemspec dependencies; a conservative `bundle lock --update google-cloud-storage --conservative` changes no other gem in the four lockfiles.
+
+#### Validation performed for the development-only updates
+
+- `just check-sdk` exited 0 with the new Go and Rust inputs: the Go suite, `official-rust-http` and `arrow-object-store` passed, as did the Ruby, Node.js, Python, PHP, Java and .NET suites.
+- After the Ruby update, `bash scripts/sdk-go.sh --with-ruby`, run through `scripts/with-test-tmpdir.sh`, exited 0 and printed `Ruby 4.0.9; google-cloud-storage 1.62.2`.
+- `just check-active-storage-strict` exited 0 with `10 PASS, 0 FAIL`. `just check-active-storage` exited 1 with the documented default-authentication result, `1 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL`, and its storage.yml recipe printed `11 PASS, 0 FAIL` and a passing production case.
+- `GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.19.0 bash scripts/strict-recipe-browser.sh` printed `PASS: strict local recipe browser check completed` with Node 24.22.3.
+- `cargo clippy --locked --all-targets -- -D warnings` passed in `sdk-scorecard/rust` and `examples/rust`; `go vet ./...` and `go build ./...` passed in `sdk-scorecard/go` and `examples/go`, and `go test ./...` passed in `sdk-scorecard/go`. The scorecard itself was not run.
+- `cargo xtask dependencies check` at `2026-11-12T02:18:23Z` exited 0 with 129 `CURRENT` lines; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`, and Composer `latest` differed only on linux/riscv64. The release-scoped check exited 0 with 41 `CURRENT` lines.

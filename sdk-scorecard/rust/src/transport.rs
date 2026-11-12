@@ -125,7 +125,7 @@ async fn sdk_reaches_origin(config: &Config) -> Result<(), BoxError> {
     let mut detail = format!("SDK transport: {}", chain(&error));
     if cfg!(target_vendor = "apple") {
         detail.push_str(
-            " (google-cloud-storage 1.21.0 verifies TLS with rustls-platform-verifier, which uses the macOS trust store and ignores SSL_CERT_FILE)",
+            " (google-cloud-storage 1.22.0 verifies TLS with rustls-platform-verifier, which uses the macOS trust store and ignores SSL_CERT_FILE)",
         );
     }
     Err(io::Error::other(detail).into())

@@ -89,7 +89,7 @@ GEM
       base64 (~> 0.2)
       faraday (>= 1.0, < 3.a)
     google-cloud-errors (1.7.0)
-    google-cloud-storage (1.62.1)
+    google-cloud-storage (1.62.2)
       addressable (~> 2.8)
       digest-crc (~> 0.4)
       google-apis-core (>= 0.18, < 2)
@@ -237,7 +237,7 @@ PLATFORMS
 DEPENDENCIES
   activestorage (= 8.1.4.1)
   google-apis-iamcredentials_v1 (= 0.28.0)
-  google-cloud-storage (= 1.62.1)
+  google-cloud-storage (= 1.62.2)
   railties (= 8.1.4.1)
   sqlite3 (= 2.10.2)
 
@@ -272,7 +272,7 @@ CHECKSUMS
   google-cloud-core (1.9.0) sha256=ab55409f51488e8deefb6edcc1ce4771dfb5da2fe7b3bc075709a030c2b682a4
   google-cloud-env (2.4.1) sha256=987cc58afc50ce2903128ab4dcd442159be4457246b8137e41d49d5c3fc590dd
   google-cloud-errors (1.7.0) sha256=6e682f42d89aae08689f36f28495de629d756da076bafff0003bac7f8042ebb3
-  google-cloud-storage (1.62.1) sha256=10dbf2ebda3af1b4b841335364cb889827c6cb17bf6c9f8bc5313b6bef7a4d3c
+  google-cloud-storage (1.62.2) sha256=4605fe7946575a0df5ce9809324b966a49c153cf305ce6e592e432219ff0bfa2
   google-logging-utils (0.2.1) sha256=73945c3ac6800eba802c26b1744765d5057cc4d89182c7255ee1347b0ca96dc7
   googleauth (1.17.6) sha256=d4fd30f99aeb28ae46ef521cf8ac50927a453b8c6600f8940437ac11ad90bdfc
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5

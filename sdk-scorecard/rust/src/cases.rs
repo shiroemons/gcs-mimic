@@ -70,17 +70,17 @@ pub(crate) const CASES: &[(&str, Case)] = &[
     (
         "bucket.notifications",
         Case::Unsupported(
-            "google-cloud-storage 1.21.0 has no public API for bucket notification configurations",
+            "google-cloud-storage 1.22.0 has no public API for bucket notification configurations",
         ),
     ),
     (
         "project.hmac_keys",
-        Case::Unsupported("google-cloud-storage 1.21.0 has no public API for HMAC keys"),
+        Case::Unsupported("google-cloud-storage 1.22.0 has no public API for HMAC keys"),
     ),
     (
         "project.service_account",
         Case::Unsupported(
-            "google-cloud-storage 1.21.0 has no public API for the project service account",
+            "google-cloud-storage 1.22.0 has no public API for the project service account",
         ),
     ),
     ("object.write_read_small", run!(object::write_read_small)),
@@ -138,7 +138,7 @@ pub(crate) const CASES: &[(&str, Case)] = &[
     ("signed.v4_put", run!(signed::v4_put)),
     (
         "signed.v2_get",
-        Case::Unsupported("google-cloud-storage 1.21.0 has no public API for V2 signed URLs"),
+        Case::Unsupported("google-cloud-storage 1.22.0 has no public API for V2 signed URLs"),
     ),
     ("signed.post_policy_v4", run!(signed::post_policy_v4)),
 ];

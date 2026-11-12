@@ -66,7 +66,7 @@ impl Config {
 /// Removes ambient routing and credential settings and makes the SDK trust only the
 /// scorecard CA.
 ///
-/// google-cloud-storage 1.21.0 builds its own reqwest client and accepts no custom
+/// google-cloud-storage 1.22.0 builds its own reqwest client and accepts no custom
 /// client or root store, so the CA reaches it only through `SSL_CERT_FILE`, which
 /// rustls-native-certs reads on non-Apple Unix. Apple targets verify through the
 /// Security framework and ignore this variable.

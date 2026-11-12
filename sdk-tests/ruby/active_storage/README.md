@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This independent suite pins Ruby 4.0.9, Bundler 4.0.24, Active Storage/railties
-8.1.4.1, sqlite3 2.10.2 and google-cloud-storage 1.62.1. The Rails meta-gem, image
+8.1.4.1, sqlite3 2.10.2 and google-cloud-storage 1.62.2. The Rails meta-gem, image
 processors and external database services are unnecessary. Install the pinned
 Ruby/Bundler, then install this suite's separate graph:
 

@@ -9,8 +9,8 @@ publish = false
 [workspace]
 
 [dependencies]
-google-cloud-storage = "=1.21.0"
-google-cloud-auth = "=1.18.0"
+google-cloud-storage = "=1.22.0"
+google-cloud-auth = "=1.19.0"
 google-cloud-gax = "=1.15.0"
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
 

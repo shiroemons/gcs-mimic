@@ -112,7 +112,7 @@ if ARGV.empty? || ARGV == ["--bucket-put"]
   begin
     observed[:requests].clear
     put_bucket.update { |item| item.public_access_prevention = "enforced" }
-    # google-cloud-storage 1.62.1 sends the block's changes as a PUT (Buckets.update), which
+    # google-cloud-storage 1.62.2 sends the block's changes as a PUT (Buckets.update), which
     # replaces the whole resource on Cloud Storage: settings the block omits are cleared.
     raise "update block did not send a PUT: #{observed[:requests]}" unless
       observed[:requests] == [[:put, "/storage/v1/b/#{put_bucket.name}"]]

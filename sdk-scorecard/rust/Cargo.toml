@@ -10,13 +10,13 @@ publish = false
 
 [dependencies]
 bytes = "=1.12.1"
-google-cloud-storage = "=1.21.0"
-google-cloud-auth = "=1.18.0"
+google-cloud-storage = "=1.22.0"
+google-cloud-auth = "=1.19.0"
 # The following crates are already in google-cloud-storage's graph; naming them exposes
 # the SDK's own request types (field masks, timestamps, IAM bindings, status codes).
 google-cloud-gax = "=1.15.0"
 google-cloud-iam-v1 = "=1.13.0"
-google-cloud-wkt = "=1.10.0"
+google-cloud-wkt = "=1.11.0"
 # Only for sending signed URLs and POST policy forms unchanged; the SDK has no sender.
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "multipart"] }
 serde_json = "=1.0.154"

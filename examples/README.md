@@ -17,13 +17,13 @@ Only the Rust example needs the gRPC listener on port 4444; the others use HTTP 
 | Example | Client and version | Note |
 | --- | --- | --- |
 | [go](go/) | `cloud.google.com/go/storage` v1.70.0 | Connects through `STORAGE_EMULATOR_HOST`. |
-| [ruby](ruby/) | `google-cloud-storage` 1.62.1 | Uses an anonymous client with a local project. |
+| [ruby](ruby/) | `google-cloud-storage` 1.62.2 | Uses an anonymous client with a local project. |
 | [node](node/) | `@google-cloud/storage` 8.4.0 | Uses `apiEndpoint`, not `STORAGE_EMULATOR_HOST`. |
 | [python](python/) | `google-cloud-storage` 3.17.1 | Runs with uv, which installs Python. |
 | [php](php/) | `google/cloud-storage` 2.6.1 | Runs with local PHP and Composer, or only Docker. |
 | [java](java/) | `google-cloud-storage` 2.76.0 | Uses `HttpStorageOptions` with `NoCredentials`. |
 | [dotnet](dotnet/) | `Google.Cloud.Storage.V1` 5.0.0 | Uses `UnauthenticatedAccess` with a custom `BaseUri`. |
-| [rust](rust/) | `google-cloud-storage` 1.21.0 | Objects over HTTP on 4443, buckets over gRPC on 4444. |
+| [rust](rust/) | `google-cloud-storage` 1.22.0 | Objects over HTTP on 4443, buckets over gRPC on 4444. |
 | [gcloud](gcloud/) | `gcloud storage` (Google Cloud SDK 591.0.0) | Also covers resumable, parallel composite and sliced transfers. |
 
 Each directory's README lists its requirements. Run an example with `./run.sh` (`./gcloud-example.sh` for gcloud); set `GCSM_ENDPOINT` to use an address other than `http://localhost:4443`.

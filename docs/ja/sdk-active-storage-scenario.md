@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 対象はDESIGN-084、状態はPARTIALです。専用のGemfileでActive Storageとrailties
-8.1.4.1、sqlite3 2.10.2、google-cloud-storage 1.62.1を固定しています。
+8.1.4.1、sqlite3 2.10.2、google-cloud-storage 1.62.2を固定しています。
 Rails全体や外部DB、画像変換ツールは追加していません。
 製品のV2署名対応は[別スライス](sdk-active-storage-v2-signing.md)に記録しています。
 

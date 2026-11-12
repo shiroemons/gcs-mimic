@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Probes the official `google-cloud-storage` 1.21.0 crate against an emulator.
+Probes the official `google-cloud-storage` 1.22.0 crate against an emulator.
 It emits one JSONL line per case: the 51 shared bucket, object and signed
 cases, in the same IDs and order as the Python probe. It has no SDK-specific
 (`sdk` area) cases. `SCORECARD_GRPC_ENDPOINT` is required because the SDK's
@@ -47,10 +47,10 @@ excluded from the Rust denominator.
 
 | Case | Reason |
 | --- | --- |
-| `bucket.notifications` | 1.21.0 has no public API for bucket notification configurations. |
-| `project.hmac_keys` | 1.21.0 has no public API for HMAC keys. |
-| `project.service_account` | 1.21.0 has no public API for the project service account. |
-| `signed.v2_get` | 1.21.0 has no public API for V2 signed URLs. |
+| `bucket.notifications` | 1.22.0 has no public API for bucket notification configurations. |
+| `project.hmac_keys` | 1.22.0 has no public API for HMAC keys. |
+| `project.service_account` | 1.22.0 has no public API for the project service account. |
+| `signed.v2_get` | 1.22.0 has no public API for V2 signed URLs. |
 
 ## ACL reads need a read mask
 
