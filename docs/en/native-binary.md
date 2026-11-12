@@ -107,7 +107,9 @@ Empty/unknown levels fail before catalog access.
 
 Since 0.15.0, the server accepts every option with one or two hyphens, with
 its value after a space or `=`, and without the word `serve` when the first
-argument is an option.
+argument is an option. Words in an option name are joined by hyphens; since
+0.20.0 an underscore spelling such as `--max_connections` stops startup and
+names the hyphenated option.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |

@@ -14,7 +14,11 @@ base without `--scheme`, as fake-gcs-server builds it.
 
 Every server option takes one or two hyphens and a value after a space or `=`.
 A command line whose first argument is an option runs `serve`. These spelling
-rules have applied since 0.15.0. `FAKE_GCS_*` variables are not read.
+rules have applied since 0.15.0. Words in a native option name are joined by
+hyphens: an underscore spelling such as `--max_connections` worked by accident
+of name normalization until 0.20.0, and now stops startup with one `cli`
+diagnostic, keyed as supplied, that names the hyphenated option. `FAKE_GCS_*`
+variables are not read.
 
 | Flag | Kind | Native form or action |
 | --- | --- | --- |

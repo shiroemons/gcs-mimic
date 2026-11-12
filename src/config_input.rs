@@ -165,6 +165,9 @@ pub(crate) enum InputKind {
 pub(crate) enum InputError {
     Syntax,
     Encoding,
+    /// A server option written with underscores, such as `--max_connections`. Only hyphens are
+    /// documented, so accepting both would make two spellings part of every option's contract.
+    Spelling,
 }
 
 /// Which command the CLI arguments belong to: only `serve` accepts native server settings.
@@ -265,6 +268,13 @@ impl Inputs {
             } else {
                 "--scheme http"
             };
+            let syntax_error = expects_pair && !valid_syntax;
+            let spelling_fix = (native_name && name.contains('_')).then(|| {
+                format!(
+                    "Server options are spelled with hyphens; use {}.",
+                    Spelled::new(&normalized, DiagnosticSource::Cli)
+                )
+            });
             let input = Input {
                 source: DiagnosticSource::Cli,
                 key: key.into(),
@@ -276,7 +286,11 @@ impl Inputs {
                     Some(ServerFlag::Refused(flag)) => InputKind::Refused(flag),
                     None => InputKind::Native,
                 },
-                invalid: (expects_pair && !valid_syntax).then_some(InputError::Syntax),
+                invalid: if syntax_error {
+                    Some(InputError::Syntax)
+                } else {
+                    spelling_fix.as_ref().map(|_| InputError::Spelling)
+                },
             };
             let saved_key = if key.len() <= MAX_KEY_BYTES {
                 Some(key.to_owned())
@@ -286,14 +300,17 @@ impl Inputs {
             if !self.push(input) {
                 break;
             }
-            if expects_pair
-                && !valid_syntax
-                && let Some(key) = saved_key
-            {
-                self.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, key,
-                    format!("Options require --name VALUE pairs; for example {example}. Use --help for supported options.")));
-                if !native_name && !native_flag {
-                    self.entries.pop();
+            if let Some(key) = saved_key {
+                if syntax_error {
+                    self.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, key,
+                        format!("Options require --name VALUE pairs; for example {example}. Use --help for supported options.")));
+                    if !native_name && !native_flag {
+                        self.entries.pop();
+                    }
+                } else if let Some(fix) = spelling_fix {
+                    self.diagnostics
+                        .errors
+                        .push(Diagnostic::new(DiagnosticSource::Cli, key, fix));
                 }
             }
             index += if separate { 2 } else { 1 };
@@ -1200,6 +1217,47 @@ mod tests {
         );
         let report = crate::config::Config::preflight(&strings(&["--scheme"]), &BTreeMap::new());
         has(&report.diagnostics, "--scheme", "--name VALUE pairs");
+    }
+
+    /// Underscores worked only because the parser normalizes hyphens to underscores; the
+    /// documented spelling is the hyphenated one. The value still belongs to the option, so a
+    /// single diagnostic names it, keyed by the option as supplied.
+    #[test]
+    fn server_options_spelled_with_underscores_name_the_hyphenated_option() {
+        for args in [
+            vec!["--max_connections".to_owned(), "10".into()],
+            vec!["-max_connections".to_owned(), "10".into()],
+            vec!["--max_connections=10".to_owned()],
+            vec!["--max-connections".to_owned(), "10".into()],
+        ] {
+            let key = args
+                .iter()
+                .find(|arg| arg.starts_with('-'))
+                .map(|arg| arg.split('=').next().unwrap_or_default().to_owned())
+                .unwrap();
+            let report = crate::config::Config::preflight(&args, &BTreeMap::new());
+            if !key.contains('_') {
+                assert!(
+                    !report.diagnostics.is_err(),
+                    "{args:?}: {}",
+                    report.diagnostics
+                );
+                assert_eq!(report.config.max_connections, 10);
+                continue;
+            }
+            let errors = &report.diagnostics.errors;
+            assert_eq!(errors.len(), 1, "{args:?}: {errors:?}");
+            assert_eq!(errors[0].source, DiagnosticSource::Cli);
+            assert_eq!(errors[0].key, key);
+            assert_eq!(
+                errors[0].fix,
+                "Server options are spelled with hyphens; use --max-connections."
+            );
+        }
+        // Helper commands keep their own grammar and never read server settings.
+        let mut inputs = Inputs::default();
+        inputs.cli(&["--base_url".to_owned(), "x".into()], CliCommand::Helper);
+        assert!(inputs.diagnostics.errors.is_empty());
     }
 
     #[test]

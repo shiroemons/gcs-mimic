@@ -2102,6 +2102,42 @@ fn assert_unknown_setting_advice(output: Output, key: &str, source: &str) {
     assert!(!text.contains("was renamed"));
 }
 
+/// An underscore spelling stops before a catalog is opened, so a command line that relied on
+/// it fails visibly instead of starting with a setting that the documents never promised.
+#[test]
+fn an_underscore_option_spelling_stops_before_startup() {
+    let root = TestDir::new();
+    for (args, key) in [
+        (
+            ["serve", "--max_connections", "10"].as_slice(),
+            "--max_connections",
+        ),
+        (&["-max_connections=10"], "-max_connections"),
+    ] {
+        let output = common::server_command()
+            .current_dir(&root.0)
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+        let text = String::from_utf8(output.stderr).unwrap();
+        let event: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        let diagnostics = event["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1, "{text}");
+        assert_eq!(diagnostics[0]["source"], "cli");
+        assert_eq!(diagnostics[0]["key"], key);
+        assert!(
+            diagnostics[0]["fix"]
+                .as_str()
+                .unwrap()
+                .contains("--max-connections"),
+            "{text}"
+        );
+        assert!(!root.0.join("data").exists(), "{args:?}");
+    }
+}
+
 #[test]
 fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
     let root = TestDir::new();
