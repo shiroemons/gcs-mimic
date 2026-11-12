@@ -600,10 +600,12 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
     };
     // Only a failed probe consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a temporary
     // file, which crashes the probe on a read-only root, so ordinary setups never read it.
-    let server_args = container_server_args();
-    if server_args.is_empty() {
+    let Some(server_args) = std::fs::read("/proc/1/cmdline")
+        .ok()
+        .and_then(|cmdline| container_server_args(&cmdline))
+    else {
         return Err(failed(&url, error));
-    }
+    };
     let fallback = probe_url(&server_args, &repair)?;
     if fallback == url {
         return Err(failed(&url, error));
@@ -632,27 +634,24 @@ fn probe_url(
     Ok(url)
 }
 
-/// The server options of a gcs-mimic process running as PID 1, as in the container image.
-/// A Compose `command` such as `--scheme http` reaches only that process, so
+/// The server options in `cmdline`, the NUL-separated `/proc/1/cmdline` of a container's PID 1,
+/// when that process is gcs-mimic running the server with at least one option, as in the
+/// container image. A Compose `command` such as `--scheme http` reaches only that process, so
 /// the healthcheck falls back to them when the environment's defaults do not answer.
-fn container_server_args() -> Vec<String> {
-    let Ok(bytes) = std::fs::read("/proc/1/cmdline") else {
-        return Vec::new();
-    };
-    let bytes = bytes.strip_suffix(b"\0").unwrap_or(&bytes);
-    let Ok(mut args) = bytes
+fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
+    let cmdline = cmdline.strip_suffix(b"\0").unwrap_or(cmdline);
+    let args = cmdline
         .split(|byte| *byte == 0)
         .map(|arg| String::from_utf8(arg.to_vec()))
         .collect::<Result<Vec<_>, _>>()
-    else {
-        return Vec::new();
-    };
-    if args.is_empty() || Path::new(&args.remove(0)).file_name() != Some("gcs-mimic".as_ref()) {
-        return Vec::new();
+        .ok()?;
+    let (program, args) = args.split_first()?;
+    if Path::new(program).file_name() != Some("gcs-mimic".as_ref()) {
+        return None;
     }
-    gcs_mimic::config_input::server_arguments(&args)
+    gcs_mimic::config_input::server_arguments(args)
+        .filter(|options| !options.is_empty())
         .map(<[String]>::to_vec)
-        .unwrap_or_default()
 }
 
 fn probe(args: &[String], url: &str) -> io::Result<()> {
@@ -815,6 +814,34 @@ async fn probe_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn healthcheck_falls_back_only_to_a_gcs_mimic_server_with_options() {
+        let options = |args: &[&str]| Some(args.iter().map(|arg| (*arg).to_owned()).collect());
+        for (cmdline, expected) in [
+            (
+                b"/usr/local/bin/gcs-mimic\0--scheme\0http\0".as_slice(),
+                options(&["--scheme", "http"]),
+            ),
+            (
+                b"gcs-mimic\0serve\0--listen\x000.0.0.0:9000\0",
+                options(&["--listen", "0.0.0.0:9000"]),
+            ),
+            // The image's own command carries no option, so the first probe already covered it.
+            (b"/usr/local/bin/gcs-mimic\0serve\0", None),
+            (b"/usr/local/bin/gcs-mimic\0healthcheck\0", None),
+            (b"/bin/sh\0-c\0gcs-mimic --scheme http\0", None),
+            (b"/usr/local/bin/gcs-mimic\0--scheme\0\xff\0", None),
+            (b"", None),
+        ] {
+            assert_eq!(
+                container_server_args(cmdline),
+                expected,
+                "{}",
+                String::from_utf8_lossy(cmdline)
+            );
+        }
+    }
 
     #[test]
     fn signing_durations_preserve_the_cli_grammar() {

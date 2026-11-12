@@ -39,6 +39,15 @@ details and human-readable diagnostic wording are not stable interfaces.
 `memory_catalog_max_bytes` are tuning settings: their names and value ranges are
 covered, but what a value does to the process is not.
 
+Four defaults follow the authentication settings, and that derivation is covered:
+`cors_fallback` is `allow-all` in permissive mode and `none` in strict mode;
+`signed_urls` is `ignore` and `verify`; `test_signer` is enabled with permissive
+`signed_urls=verify` or when the strict identities declare it, and disabled
+otherwise; and `signed_host_port` is `lenient` where the test signer is enabled
+and `exact` otherwise. The ready event reports each effective value. A new
+setting that turns something on or off takes `enabled` or `disabled`;
+`admin_enabled` and `sync_delete_guard` keep `true` and `false`.
+
 Machine-readable output is covered by name, not by wording: the field names of
 the ready event, the member names of a diagnostics line, the listed event names,
 exit codes, and the response fields of the user-facing emulator routes. Messages,
@@ -52,7 +61,12 @@ exit codes, and the response fields of the user-facing emulator routes. Messages
 - **Ready values.** A ready field that reports a setting uses that setting's
   documented values, and `transport` is `tcp` or `unix`; these values are covered.
   `message` is not.
-- **Diagnostics.** The values of `source` are covered. A `key` from the command
+- **Diagnostics.** A diagnostics line has the members `event`, `level` and
+  `diagnostics`, and each of its entries has `source`, `key` and `fix`, plus
+  `native_args` where it reports native options. The values of `source` are
+  covered: `cli`, `environment`, `config`, `tls`, `identity`, `filesystem`,
+  `catalog`, `initializer`, `seed`, `sync`, `import`, `listener` and `runtime`.
+  A `key` from the command
   line, the environment or the configuration file is the name as supplied; other
   keys locate the problem and are not covered.
 - **Exit status.** 0 on success and 1 on any failure, for every command.
@@ -171,6 +185,12 @@ Published release tags and artifacts are immutable: do not move a release tag,
 replace a binary, or overwrite an exact container version tag. Publish corrections
 or security rebuilds under a new version, even if only dependencies or the base
 image changed. Record artifact checksums and image digests with each release.
+
+The `latest` container tag is the highest stable version across major versions,
+so a new major release moves it. From `1.0.0` on, a major alias such as `1`
+follows one major line instead and advances with each stable release of that
+major under the same rule as `X.Y`. No `0` alias is published, because a `0.x`
+minor release may break.
 
 The first general developer release retains the
 [roadmap's P1 plus essential P2 public/private and URL target](roadmap.md#first-useful-release).

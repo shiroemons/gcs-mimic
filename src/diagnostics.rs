@@ -308,18 +308,45 @@ mod tests {
         assert_eq!(lines[2]["diagnostics"][3]["source"], "config");
         assert_eq!(lines[3]["diagnostics"].as_array().unwrap().len(), 1);
         assert!(first.is_err() && second.is_err());
-        for (source, expected) in [
-            (DiagnosticSource::Tls, "tls"),
-            (DiagnosticSource::Identity, "identity"),
-            (DiagnosticSource::Filesystem, "filesystem"),
-            (DiagnosticSource::Catalog, "catalog"),
-            (DiagnosticSource::Initializer, "initializer"),
-            (DiagnosticSource::Seed, "seed"),
-            (DiagnosticSource::Sync, "sync"),
-            (DiagnosticSource::Listener, "listener"),
-            (DiagnosticSource::Runtime, "runtime"),
+    }
+
+    /// The `source` values are public contract. The match has no wildcard arm, so a new variant
+    /// does not compile until its published name is decided here.
+    #[test]
+    fn every_source_keeps_its_published_name() {
+        fn published(source: DiagnosticSource) -> &'static str {
+            match source {
+                DiagnosticSource::Cli => "cli",
+                DiagnosticSource::Environment => "environment",
+                DiagnosticSource::Config => "config",
+                DiagnosticSource::Tls => "tls",
+                DiagnosticSource::Identity => "identity",
+                DiagnosticSource::Filesystem => "filesystem",
+                DiagnosticSource::Catalog => "catalog",
+                DiagnosticSource::Initializer => "initializer",
+                DiagnosticSource::Seed => "seed",
+                DiagnosticSource::Sync => "sync",
+                DiagnosticSource::Import => "import",
+                DiagnosticSource::Listener => "listener",
+                DiagnosticSource::Runtime => "runtime",
+            }
+        }
+        for source in [
+            DiagnosticSource::Cli,
+            DiagnosticSource::Environment,
+            DiagnosticSource::Config,
+            DiagnosticSource::Tls,
+            DiagnosticSource::Identity,
+            DiagnosticSource::Filesystem,
+            DiagnosticSource::Catalog,
+            DiagnosticSource::Initializer,
+            DiagnosticSource::Seed,
+            DiagnosticSource::Sync,
+            DiagnosticSource::Import,
+            DiagnosticSource::Listener,
+            DiagnosticSource::Runtime,
         ] {
-            assert_eq!(serde_json::to_value(source).unwrap(), expected);
+            assert_eq!(serde_json::to_value(source).unwrap(), published(source));
         }
     }
 }

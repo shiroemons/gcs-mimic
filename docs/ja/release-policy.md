@@ -35,6 +35,12 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
 内部関数や診断文の細かな表現は、安定インターフェースに含めません。
 `worker_threads`、`max_blocking_threads`、`catalog_wait_timeout_ms`、`memory_catalog_max_bytes`は調整用の設定です。名前と値の範囲は対象ですが、値がプロセスに与える効果は対象外です。
 
+4つの既定値は認証の設定に従い、その決まり方も対象です。
+`cors_fallback`はpermissiveで`allow-all`、strictで`none`です。`signed_urls`はそれぞれ`ignore`と`verify`です。
+`test_signer`は、permissiveで`signed_urls=verify`のとき、またはstrictのidentitiesが宣言するときに有効で、それ以外は無効です。
+`signed_host_port`はテスト署名者が有効なら`lenient`、それ以外は`exact`です。readyはそれぞれの実際の値を伝えます。
+何かを有効・無効にする新しい設定は`enabled`か`disabled`を取ります。`admin_enabled`と`sync_delete_guard`は`true`と`false`のままです。
+
 機械が読む出力は、文言ではなく名前を互換性の対象とします。
 対象は起動完了イベント（ready）の項目名、診断行のメンバー名、下に挙げるイベント名、終了コード、利用者向けエミュレーター専用ルートの応答項目です。
 メッセージ、`fix`の文、そのほか人が読む文字列はどのリリースでも変わることがあります。
@@ -42,7 +48,8 @@ CLI、環境変数、設定形式・既定値、対応API、実行環境、永�
 - **イベント。** 対象のイベント名は`ready`、`stopped`、`diagnostics`、`data_dir_created`と、`gcs-mimic import`の`import_page`、`import_summary`、`import_complete`です。
   stderrに出るそのほかのイベントは実装の動きを伝えるもので、名前も項目もどのリリースでも変わることがあります。importの`summary`と`page`の中の項目も同じです。
 - **readyの値。** 設定を伝えるreadyの項目は、その設定の文書化した値を使います。`transport`は`tcp`か`unix`です。これらの値は対象です。`message`は対象外です。
-- **診断。** `source`の値は対象です。コマンドライン、環境変数、設定ファイルに由来する`key`は、渡された名前そのままです。そのほかの`key`は問題の場所を示すもので、対象外です。
+- **診断。** 診断行のメンバーは`event`、`level`、`diagnostics`で、各要素は`source`、`key`、`fix`と、ネイティブのオプションを伝えるときの`native_args`です。
+  `source`の値は対象です。値は`cli`、`environment`、`config`、`tls`、`identity`、`filesystem`、`catalog`、`initializer`、`seed`、`sync`、`import`、`listener`、`runtime`です。コマンドライン、環境変数、設定ファイルに由来する`key`は、渡された名前そのままです。そのほかの`key`は問題の場所を示すもので、対象外です。
 - **終了ステータス。** どのコマンドも、成功は0、失敗は1です。
 
 利用者向けのエミュレーター専用ルートは`/_internal/health`、`/_internal/healthcheck`、`/_internal/ready`、`/_internal/config`、`/_internal/objects`、`/_internal/reset`、`/_internal/reseed`、`/_internal/lifecycle/run`です。
@@ -130,6 +137,10 @@ Gitタグは`vX.Y.Z`または`vX.Y.Z-rc.N`で、バイナリ、アーカイブ�
 公開したタグ、バイナリ、固定バージョンのイメージは置き換えません。
 依存やベースイメージだけの修正・再ビルドでも、新しい版として公開します。
 各公開版にchecksumとイメージdigestを記録します。
+
+コンテナの`latest`タグは、majorをまたいだ最も新しい安定版です。新しいmajorを公開すると動きます。
+`1.0.0`からは、`1`のようなmajorの別名が1つのmajorの系列を追い、`X.Y`と同じ規則でその系列の安定版ごとに進みます。
+`0.x`のminorは互換性を壊すことがあるので、`0`の別名は公開しません。
 
 初回`0.x`の範囲は[ロードマップ](roadmap.md#公開と100)に示します。
 公開には、対象環境のCI、配布物のビルドに使う依存の最新性、検証済みの利用手順、ライセンス同梱、

@@ -228,54 +228,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         let mut line = String::new();
         stdout.read_line(&mut line).unwrap();
         let ready: serde_json::Value = serde_json::from_str(&line).expect("ready after recovery");
-        assert_eq!(
-            ready
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect::<std::collections::BTreeSet<_>>(),
-            std::collections::BTreeSet::from([
-                "event",
-                "executable",
-                "version",
-                "healthcheck_path",
-                "admin_enabled",
-                "lifecycle_execution",
-                "message",
-                "listen",
-                "listeners",
-                "transport",
-                "data_dir",
-                "data_dir_state",
-                "max_connections",
-                "max_object_bytes",
-                "backend",
-                "memory_max_bytes",
-                "memory_catalog_max_bytes",
-                "worker_threads",
-                "max_blocking_threads",
-                "header_read_timeout_ms",
-                "body_inactivity_timeout_ms",
-                "request_timeout_ms",
-                "keep_alive_timeout_ms",
-                "object_request_timeout_ms",
-                "catalog_wait_timeout_ms",
-                "shutdown_timeout_ms",
-                "auth_mode",
-                "test_signer",
-                "signed_urls",
-                "seed",
-                "buckets_file",
-                "scheme",
-                "tls_handshake_timeout_ms",
-                "public_base_url",
-                "public_virtual_host_enabled",
-                "cors_fallback",
-                "signed_host_port",
-                "api_base_url",
-            ])
-        );
+        common::process::assert_ready_fields(&ready, &["data_dir", "data_dir_state"]);
         assert_eq!(ready["event"], "ready");
         assert_eq!(ready["executable"], "gcs-mimic");
         assert_eq!(ready["version"], env!("CARGO_PKG_VERSION"));
@@ -480,9 +433,7 @@ fn ready_event_omits_data_directory_and_creation_diagnostic_for_memory() {
     let data = directory.0.join("unused");
     let (ready, diagnostics) =
         ready_with_diagnostics(common::process::http_command(&data).args(["--backend", "memory"]));
-    for field in ["data_dir", "data_dir_state", "protocol", "gcs_api"] {
-        assert!(ready.get(field).is_none(), "{ready}");
-    }
+    common::process::assert_ready_fields(&ready, &[]);
     assert_eq!(ready["backend"], "memory");
     assert!(
         !diagnostics
@@ -490,6 +441,43 @@ fn ready_event_omits_data_directory_and_creation_diagnostic_for_memory() {
             .any(|event| event["event"] == "data_dir_created")
     );
     assert!(!data.exists());
+}
+
+#[test]
+fn ready_event_adds_the_trusted_listener_fields_in_strict_mode() {
+    let directory = TestDir::new();
+    let (ready, _) = ready_with_diagnostics(common::process::http_command(&directory.0).args([
+        "--auth-mode",
+        "strict",
+        "--trusted-listen",
+        "127.0.0.1:0",
+    ]));
+    common::process::assert_ready_fields(
+        &ready,
+        &[
+            "data_dir",
+            "data_dir_state",
+            "identities",
+            "trusted_listen",
+            "trusted_principal",
+        ],
+    );
+}
+
+#[test]
+fn ready_event_names_the_lenient_signers_while_the_test_signer_is_enabled() {
+    let directory = TestDir::new();
+    let (ready, _) = ready_with_diagnostics(
+        common::process::http_command(&directory.0.join("unused")).args([
+            "--backend",
+            "memory",
+            "--signed-urls",
+            "verify",
+        ]),
+    );
+    common::process::assert_ready_fields(&ready, &["signed_host_port_signers"]);
+    assert_eq!(ready["test_signer"], "enabled");
+    assert_eq!(ready["signed_host_port_signers"], "test-signer");
 }
 
 #[cfg(unix)]

@@ -1,4 +1,5 @@
 use crate::common::process::declare_server;
+mod admin_contract;
 mod admin_fixture_metadata;
 mod admin_reseed;
 mod admin_reset;

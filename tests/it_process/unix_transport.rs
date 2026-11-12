@@ -21,6 +21,7 @@ struct Server {
 impl Server {
     fn start(directory: &Path) -> Self {
         let server = Self::launch(directory, &["--api-base-url", "https://advertised.invalid"]);
+        common::process::assert_ready_fields(&server.ready, &["unix_socket"]);
         assert_eq!(server.ready["api_base_url"], "https://advertised.invalid");
         server
     }

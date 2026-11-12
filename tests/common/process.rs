@@ -110,6 +110,60 @@ pub(crate) fn serve(listen: &str, data: &Path) -> Command {
     command
 }
 
+/// The ready-event fields that every start reports. Field names are public contract, so each
+/// setup's complete set is pinned: these plus the optional fields that setup adds.
+const READY_FIELDS: [&str; 36] = [
+    "event",
+    "executable",
+    "version",
+    "healthcheck_path",
+    "admin_enabled",
+    "lifecycle_execution",
+    "message",
+    "listen",
+    "listeners",
+    "transport",
+    "max_connections",
+    "max_object_bytes",
+    "backend",
+    "memory_max_bytes",
+    "memory_catalog_max_bytes",
+    "worker_threads",
+    "max_blocking_threads",
+    "header_read_timeout_ms",
+    "body_inactivity_timeout_ms",
+    "request_timeout_ms",
+    "keep_alive_timeout_ms",
+    "object_request_timeout_ms",
+    "catalog_wait_timeout_ms",
+    "shutdown_timeout_ms",
+    "auth_mode",
+    "test_signer",
+    "signed_urls",
+    "seed",
+    "buckets_file",
+    "scheme",
+    "tls_handshake_timeout_ms",
+    "public_base_url",
+    "public_virtual_host_enabled",
+    "cors_fallback",
+    "signed_host_port",
+    "api_base_url",
+];
+
+/// Asserts that `ready` has exactly the fields every start reports plus `optional`.
+#[track_caller]
+pub(crate) fn assert_ready_fields(ready: &Value, optional: &[&str]) {
+    let actual: std::collections::BTreeSet<&str> = ready
+        .as_object()
+        .unwrap_or_else(|| panic!("ready event is not an object: {ready}"))
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let expected = READY_FIELDS.iter().chain(optional).copied().collect();
+    assert_eq!(actual, expected, "{ready}");
+}
+
 pub(crate) fn write_identities(dir: &Path, identities: &Value) -> std::path::PathBuf {
     let path = dir.join("identities.json");
     std::fs::write(&path, identities.to_string()).unwrap();

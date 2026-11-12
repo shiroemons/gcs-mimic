@@ -481,6 +481,9 @@ fn cli_never_starts_serve_and_requires_explicit_read_only_mode() {
         String::from_utf8_lossy(&result.stderr)
     );
     let text = String::from_utf8(result.stdout).unwrap();
+    // `import_summary` is a contract event name: a dry run ends with it, after its pages.
+    let last: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(last["event"], "import_summary");
     assert!(text.contains("\"bodies_verified\":true"));
     assert!(!text.contains("\"event\":\"ready\""));
     assert!(!options.destination.exists());
