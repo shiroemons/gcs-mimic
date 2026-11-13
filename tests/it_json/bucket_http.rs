@@ -970,7 +970,6 @@ fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
         (json!("EU"), "EU", "multi-region"),
         (json!("ASIA"), "ASIA", "multi-region"),
         (Value::Null, "ASIA-NORTHEAST1", "region"),
-        (json!(""), "ASIA-NORTHEAST1", "region"),
     ]
     .into_iter()
     .enumerate()
@@ -1008,16 +1007,19 @@ fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
                     && item["locationType"] == kind)
         );
     }
-    let bad = server.request(
-        "POST",
-        "/storage/v1/b?project=locations",
-        r#"{"name":"invalid-location","location":"MARS-CENTRAL1"}"#,
-    );
-    bad.json_envelope(400, "invalid");
-    assert_eq!(
-        bad.json()["error"]["message"],
-        "The specified location constraint is not valid."
-    );
+    // An empty location is not an omitted one: Cloud Storage rejected it (recorded 2026-11).
+    for location in ["MARS-CENTRAL1", ""] {
+        let bad = server.request(
+            "POST",
+            "/storage/v1/b?project=locations",
+            &json!({"name":"invalid-location","location":location}).to_string(),
+        );
+        bad.json_envelope(400, "invalid");
+        assert_eq!(
+            bad.json()["error"]["message"],
+            "The specified location constraint is not valid."
+        );
+    }
     let placement = server.request("POST", "/storage/v1/b?project=locations", r#"{"name":"invalid-placement","location":"US","customPlacementConfig":{"dataLocations":["US-EAST1","US-WEST1"]}}"#);
     assert_eq!(
         placement.json()["error"]["errors"][0]["reason"],
