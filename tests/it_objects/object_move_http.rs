@@ -94,15 +94,25 @@ fn move_checks_all_conditions_before_mutation() {
         ("ifSourceMetagenerationMatch", "2".to_owned()),
         ("ifSourceMetagenerationNotMatch", "1".to_owned()),
         ("ifGenerationMatch", "0".to_owned()),
+        ("ifMetagenerationMatch", "2".to_owned()),
+    ] {
+        mv(&server, "source", "target", &format!("?{key}={value}"))
+            .json_reason(412, "conditionNotMet");
+        assert_eq!(server.get("source").json_ok(), source);
+        assert_eq!(server.get("target").json_ok(), target);
+    }
+    // A destination not-match naming the current destination is an empty 304, as recorded
+    // for copy; source not-match conditions stay failed preconditions.
+    for (key, value) in [
         (
             "ifGenerationNotMatch",
             target["generation"].as_str().unwrap().to_owned(),
         ),
-        ("ifMetagenerationMatch", "2".to_owned()),
         ("ifMetagenerationNotMatch", "1".to_owned()),
     ] {
-        mv(&server, "source", "target", &format!("?{key}={value}"))
-            .json_reason(412, "conditionNotMet");
+        let reply = mv(&server, "source", "target", &format!("?{key}={value}"));
+        reply.expect(304);
+        assert!(reply.body.is_empty(), "{key}");
         assert_eq!(server.get("source").json_ok(), source);
         assert_eq!(server.get("target").json_ok(), target);
     }

@@ -372,9 +372,7 @@ pub(crate) fn require_matching_bucket_name(bytes: &[u8], bucket: &str) -> Result
         return Ok(());
     };
     match body.get("name").and_then(Value::as_str) {
-        Some(name) if name != bucket => Err(JsonError::invalid_parameter(format!(
-            "Value '{name}' in content does not agree with value '{bucket}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
-        ))),
+        Some(name) if name != bucket => Err(JsonError::content_disagrees(name, bucket)),
         _ => Ok(()),
     }
 }

@@ -703,9 +703,9 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
                 &format!("{path}?{condition}"),
                 body.clone(),
             );
-            // Observed on Cloud Storage: a bucket PATCH whose ifMetagenerationNotMatch names
-            // the current value is an empty 304.
-            if condition.starts_with("ifMetagenerationNotMatch") && !path.ends_with("/object") {
+            // Observed on Cloud Storage: a bucket or object PATCH whose
+            // ifMetagenerationNotMatch names the current value is an empty 304.
+            if condition.starts_with("ifMetagenerationNotMatch") {
                 reply.expect(304);
                 assert!(reply.body.is_empty());
             } else {

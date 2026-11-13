@@ -381,6 +381,10 @@ impl ObjectMetadataUpdate {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        self.validate_for(EmptyContent::Unset)
+    }
+
+    fn validate_for(&self, empty: EmptyContent) -> Result<(), ObjectError> {
         self.check_encoded_size()?;
         if self.metadata_mode == MapMode::Replace
             && self
@@ -403,7 +407,9 @@ impl ObjectMetadataUpdate {
             ("contentLanguage", &self.content_language),
             ("cacheControl", &self.cache_control),
         ] {
-            if let Some(Some(value)) = value {
+            if let Some(Some(value)) = value
+                && !empty.is_stored(value)
+            {
                 validate_fixed_metadata(field, value)?;
             }
         }
@@ -440,18 +446,20 @@ impl ObjectMetadataUpdate {
         if self.replace {
             record.clear_holds();
         }
-        self.apply(record)?;
+        self.apply_with(record, EmptyContent::Stored)?;
         Self::inheriting(record).check_encoded_size()
     }
 
     /// The update that gives a new object the editable metadata of `source`, except its holds.
+    /// An empty content field a metadata update stored is left unset on the new generation.
     pub(crate) fn inheriting(source: &ObjectRecord) -> Self {
+        let set = |value: &Option<String>| value.clone().filter(|value| !value.is_empty());
         Self {
             content_type: Some(Some(source.content_type.clone())),
-            content_encoding: Some(source.content_encoding.clone()),
-            content_disposition: Some(source.content_disposition.clone()),
-            content_language: Some(source.content_language.clone()),
-            cache_control: Some(source.cache_control.clone()),
+            content_encoding: Some(set(&source.content_encoding)),
+            content_disposition: Some(set(&source.content_disposition)),
+            content_language: Some(set(&source.content_language)),
+            cache_control: Some(set(&source.cache_control)),
             metadata: Some(Some(
                 source
                     .metadata
@@ -464,7 +472,11 @@ impl ObjectMetadataUpdate {
     }
 
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
-        self.validate()?;
+        self.apply_with(record, EmptyContent::Unset)
+    }
+
+    fn apply_with(self, record: &mut ObjectRecord, empty: EmptyContent) -> Result<(), ObjectError> {
+        self.validate_for(empty)?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
         // (both recorded as 200); only a time can change it, and never backwards.
         if let Some(Some(value)) = self.custom_time {
@@ -517,7 +529,7 @@ impl ObjectMetadataUpdate {
             (&mut record.cache_control, self.cache_control),
         ] {
             if let Some(value) = value {
-                *field = value.filter(|value| !value.is_empty());
+                *field = value.filter(|value| empty.is_stored(value) || !value.is_empty());
             }
         }
         if self.metadata_mode == MapMode::Replace && self.metadata.is_some() {
@@ -552,11 +564,30 @@ impl ObjectMetadataUpdate {
             ("contentLanguage", record.content_language.as_deref()),
             ("cacheControl", record.cache_control.as_deref()),
         ] {
-            if let Some(value) = value {
+            if let Some(value) = value
+                && !empty.is_stored(value)
+            {
                 validate_fixed_metadata(field, value)?;
             }
         }
         Ok(())
+    }
+}
+
+/// How a metadata write treats an empty content field (`contentEncoding`,
+/// `contentDisposition`, `contentLanguage` or `cacheControl`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmptyContent {
+    /// A new generation leaves the field unset; an empty `contentLanguage` is refused.
+    Unset,
+    /// A metadata update of an existing generation stores the empty string: Cloud Storage
+    /// returned `""` for each of these after a JSON PATCH set them so (recorded 2026-11).
+    Stored,
+}
+
+impl EmptyContent {
+    fn is_stored(self, value: &str) -> bool {
+        self == Self::Stored && value.is_empty()
     }
 }
 
@@ -698,6 +729,11 @@ pub(crate) enum ObjectError {
     /// was recreated, administrative access through upload replay, or a refused sync control.
     Forbidden,
     NotModified,
+    /// A write's `ifGenerationNotMatch` or `ifMetagenerationNotMatch` named the current value of
+    /// the object it would change, delete or replace; nothing was written. Cloud Storage answers
+    /// 304 over JSON (recorded 2026-11 for patch, update, delete, media upload and copy), while
+    /// gRPC still reports a failed precondition.
+    WriteNotModified,
     ChecksumMismatch,
     /// The streamed body disagreed with a declared hash; the same failure as
     /// [`Self::ChecksumMismatch`], with both digests for the JSON message.
@@ -748,7 +784,7 @@ impl fmt::Display for ObjectError {
             ),
             Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
-            Self::NotModified => formatter.write_str("not modified"),
+            Self::NotModified | Self::WriteNotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch | Self::HashMismatch(_) => {
                 formatter.write_str("checksum mismatch")
             }

@@ -44,18 +44,13 @@ pub(super) fn from_proto(
                     .insert(key.into(), object.metadata.get(key).cloned());
             }
             "content_type" => update.content_type = Some(Some(object.content_type.clone())),
-            "content_encoding" => {
-                update.content_encoding = Some(Some(object.content_encoding.clone()))
-            }
+            // A proto3 string cannot tell empty from unset: an empty masked field clears it.
+            "content_encoding" => update.content_encoding = Some(set(&object.content_encoding)),
             "content_disposition" => {
-                update.content_disposition = Some(Some(object.content_disposition.clone()))
+                update.content_disposition = Some(set(&object.content_disposition))
             }
-            "content_language" => {
-                update.content_language = Some(
-                    (!object.content_language.is_empty()).then(|| object.content_language.clone()),
-                )
-            }
-            "cache_control" => update.cache_control = Some(Some(object.cache_control.clone())),
+            "content_language" => update.content_language = Some(set(&object.content_language)),
+            "cache_control" => update.cache_control = Some(set(&object.cache_control)),
             "custom_time" => {
                 update.custom_time = Some(object.custom_time.map(|time| time.to_string()))
             }
@@ -154,21 +149,13 @@ pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
 
 pub(super) fn inherited(source: &ObjectRecord) -> ObjectMetadataUpdate {
     ObjectMetadataUpdate {
-        content_type: Some(Some(source.content_type.clone())),
-        content_encoding: Some(source.content_encoding.clone()),
-        content_disposition: Some(source.content_disposition.clone()),
-        content_language: Some(source.content_language.clone()),
-        cache_control: Some(source.cache_control.clone()),
-        metadata: Some(Some(
-            source
-                .metadata
-                .iter()
-                .map(|(key, value)| (key.clone(), Some(value.clone())))
-                .collect(),
-        )),
         storage_class: Some(source.storage_class),
-        ..Default::default()
+        ..ObjectMetadataUpdate::inheriting(source)
     }
+}
+
+fn set(value: &str) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_owned())
 }
 
 #[cfg(test)]

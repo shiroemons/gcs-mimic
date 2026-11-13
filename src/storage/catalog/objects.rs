@@ -218,7 +218,7 @@ impl Catalog {
                 &name,
                 generation,
                 conditions,
-                RequestKind::Write,
+                RequestKind::Mutation,
                 &access,
             )?;
             validate(&record)?;
@@ -469,7 +469,7 @@ pub(super) fn delete_in_transaction(
         name,
         *generation,
         conditions,
-        RequestKind::Write,
+        RequestKind::Mutation,
         access,
     )?;
     let publication = BucketPublication::load(transaction, bucket)?;
@@ -654,7 +654,7 @@ pub(super) fn check_publication(
     check_conditions(
         previous.map(|stored| &stored.record),
         conditions,
-        RequestKind::Write,
+        RequestKind::Mutation,
     )?;
     if previous.is_some()
         && let Some(refusal) = delete_permission.overwrite_refusal()
@@ -735,10 +735,13 @@ pub(super) fn check_conditions(
             .if_metageneration_not_match
             .is_some_and(|value| metageneration.is_none() || Some(value) == metageneration)
     {
-        return Err(if request == RequestKind::Read {
-            ObjectError::NotModified
-        } else {
-            ObjectError::PreconditionFailed
+        return Err(match (request, record) {
+            (RequestKind::Read, _) => ObjectError::NotModified,
+            // A not-match on an absent object holds no current value to name.
+            (RequestKind::Mutation, Some(_)) => ObjectError::WriteNotModified,
+            (RequestKind::Mutation, None) | (RequestKind::Write, _) => {
+                ObjectError::PreconditionFailed
+            }
         });
     }
     Ok(())

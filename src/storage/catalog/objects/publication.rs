@@ -263,10 +263,15 @@ pub(in crate::storage::catalog) enum Retired {
     Journaled,
 }
 
-/// Which failure an unmet not-match precondition reports: reads answer 304.
+/// Which failure an unmet not-match precondition reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::storage::catalog) enum RequestKind {
+    /// Reads answer not modified.
     Read,
+    /// The object the request changes, deletes or replaces: a not-match naming its current
+    /// value reports [`ObjectError::WriteNotModified`](crate::object::ObjectError).
+    Mutation,
+    /// Any other object a write names, such as a copy or move source: a failed precondition.
     Write,
 }
 

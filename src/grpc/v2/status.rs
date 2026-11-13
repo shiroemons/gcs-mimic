@@ -80,6 +80,10 @@ impl From<crate::auth::policy_input::PolicyInputError> for Status {
 
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
+        // Only the JSON API answers a write's matching not-match condition with 304.
+        if error.kind == crate::json::ErrorKind::WriteNotModified {
+            return Status::failed_precondition(crate::json::PRECONDITION_NOT_HELD);
+        }
         if error.kind == crate::json::ErrorKind::NotModified {
             error.message = NOT_MODIFIED.into();
         }
@@ -323,6 +327,10 @@ mod tests {
         assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
         let unmodified = Status::from(crate::object::ObjectError::NotModified);
         assert_eq!(unmodified.message(), NOT_MODIFIED);
+        // Only the JSON API turns a write's matching not-match condition into 304.
+        let unchanged = Status::from(crate::object::ObjectError::WriteNotModified);
+        assert_eq!(unchanged.code(), Code::FailedPrecondition);
+        assert_eq!(unchanged.message(), crate::json::PRECONDITION_NOT_HELD);
         // A 412 that is not a failed condition keeps its own message.
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
         assert_eq!(pap.code(), Code::FailedPrecondition);

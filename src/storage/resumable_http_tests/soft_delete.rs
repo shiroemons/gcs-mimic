@@ -417,12 +417,21 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         "ifGenerationMatch=0".into(),
         format!("ifGenerationMatch={generation}"),
         "ifGenerationNotMatch=0&ifMetagenerationMatch=2".into(),
-        "ifMetagenerationNotMatch=1".into(),
     ] {
         h.request("POST", &format!("{restore}&{condition}"), ADMIN, b"")
             .await
             .error(412, "conditionNotMet");
     }
+    // A not-match naming the live object it would replace answers an empty 304.
+    let unchanged = h
+        .request(
+            "POST",
+            &format!("{restore}&ifMetagenerationNotMatch=1"),
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!((unchanged.status, unchanged.body.len()), (304, 0));
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("CREATE TRIGGER reject_restored_insert BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'publication rejected'); END;").unwrap();
     h.request("POST", &restore, ADMIN, b"")

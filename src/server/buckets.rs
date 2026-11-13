@@ -402,17 +402,14 @@ async fn write(
     let match_failed = conditions
         .if_metageneration_match
         .is_some_and(|value| value != record.metageneration);
-    // Observed on Cloud Storage: a PATCH answers 304 (no body) when ifMetagenerationNotMatch
-    // names the current value, after ifMetagenerationMatch held, whether or not the body
-    // carries a writable setting (a PUT was not observed with it). That this check runs
-    // before the catalog's own validation (for example a locked policy being shortened) is
-    // an inference.
-    if matches!(mode, WriteMode::Patch)
-        && conditions
-            .if_metageneration_match
-            .is_none_or(|value| value == record.metageneration)
-        && conditions.if_metageneration_not_match == Some(record.metageneration)
-    {
+    // Observed on Cloud Storage: a PATCH or PUT answers 304 (no body) when
+    // ifMetagenerationNotMatch names the current value, whether or not the body carries a
+    // writable setting, and even when ifMetagenerationMatch fails too (recorded 2026-11). An
+    // object mutation reports the failed match instead. That this check runs before the
+    // catalog's own validation (for example a locked policy being shortened) is an inference.
+    // Nothing is written on this path, so reading the metageneration outside the catalog's
+    // transaction cannot let a mutation slip past its condition.
+    if conditions.if_metageneration_not_match == Some(record.metageneration) {
         return Err(JsonError::not_modified());
     }
     let record = match mode {

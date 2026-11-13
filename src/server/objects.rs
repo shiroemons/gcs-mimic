@@ -450,6 +450,7 @@ async fn update(
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
+    let target = update.select_target(target)?;
     retention_access::authorize_update(
         ctx.state,
         access,

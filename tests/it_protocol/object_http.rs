@@ -441,17 +441,23 @@ fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
                 failed.json_error(412, "conditionNotMet");
             }
         }
-        server
-            .upload(&format!("name=conditions&{key}={failing}"), "", b"bad")
-            .json_error(412, "conditionNotMet");
-        server
-            .request(
-                "DELETE",
-                &format!("/storage/v1/b/test-bucket/o/conditions?{key}={failing}"),
-                "",
-                b"",
-            )
-            .json_error(412, "conditionNotMet");
+        // Cloud Storage answers a mutation whose not-match names the current value with an
+        // empty 304, like a read (recorded 2026-11).
+        let upload = server.upload(&format!("name=conditions&{key}={failing}"), "", b"bad");
+        let delete = server.request(
+            "DELETE",
+            &format!("/storage/v1/b/test-bucket/o/conditions?{key}={failing}"),
+            "",
+            b"",
+        );
+        for failed in [upload, delete] {
+            if status == 304 {
+                failed.expect(304);
+                assert!(failed.body.is_empty(), "{key}");
+            } else {
+                failed.json_error(412, "conditionNotMet");
+            }
+        }
         assert_eq!(server.get("conditions").json(), original);
         server
             .get(&format!("absent?{key}={failing}"))

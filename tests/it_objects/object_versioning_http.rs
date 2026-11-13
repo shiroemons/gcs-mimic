@@ -81,9 +81,7 @@ fn versioned_delete_and_permanent_generation_delete() {
     let live = second["generation"].as_str().unwrap();
     for condition in [
         format!("ifGenerationMatch={live}"),
-        format!("ifGenerationNotMatch={old}"),
         "ifMetagenerationMatch=1".into(),
-        "ifMetagenerationNotMatch=2".into(),
     ] {
         server
             .request(
@@ -93,6 +91,20 @@ fn versioned_delete_and_permanent_generation_delete() {
                 b"",
             )
             .json_reason(412, "conditionNotMet");
+    }
+    // A not-match naming the selected generation's own value is an empty 304.
+    for condition in [
+        format!("ifGenerationNotMatch={old}"),
+        "ifMetagenerationNotMatch=2".into(),
+    ] {
+        let reply = server.request(
+            "DELETE",
+            &format!("/storage/v1/b/test-bucket/o/file?generation={old}&{condition}"),
+            "",
+            b"",
+        );
+        reply.expect(304);
+        assert!(reply.body.is_empty(), "{condition}");
     }
     assert_eq!(server.get("file").json_ok(), second);
     assert_eq!(

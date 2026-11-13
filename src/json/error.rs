@@ -135,6 +135,7 @@ pub(crate) enum ErrorKind {
     FieldMaskSyntax,
     PreconditionFailed,
     NotModified,
+    WriteNotModified,
     Other,
 }
 
@@ -380,6 +381,12 @@ impl JsonError {
             .with_kind(ErrorKind::NotModified)
     }
 
+    /// The JSON API's 304 for a write whose not-match condition named the current value. Its
+    /// own kind lets the gRPC adapter keep reporting the failed precondition it always has.
+    fn write_not_modified() -> Self {
+        Self::not_modified().with_kind(ErrorKind::WriteNotModified)
+    }
+
     pub(crate) fn legacy_parse_error(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "parseError", message)
             .with_kind(ErrorKind::LegacyParseError)
@@ -411,6 +418,14 @@ impl JsonError {
 
     pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
+    }
+
+    /// A body `name` or `bucket` that disagrees with the resource the path names, worded as
+    /// Cloud Storage words it for bucket and object PATCH and PUT.
+    pub(crate) fn content_disagrees(content: &str, parameter: &str) -> Self {
+        Self::invalid_parameter(format!(
+            "Value '{content}' in content does not agree with value '{parameter}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+        ))
     }
 
     pub(crate) fn required(message: impl Into<String>) -> Self {
@@ -900,6 +915,7 @@ impl From<ObjectError> for JsonError {
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
             ObjectError::NotModified => Self::not_modified(),
+            ObjectError::WriteNotModified => Self::write_not_modified(),
             ObjectError::ObjectNotFound => Self::missing_object(),
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,
