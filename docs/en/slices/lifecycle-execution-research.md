@@ -146,6 +146,11 @@ Decision needed: stored Delete rules start acting right after an upgrade. The re
 - Resolve "lifecycle PENDING" in `SPEC-RETENTION-POLICY`, `SPEC-OBJECT-RETENTION` and `SPEC-SOFT-DELETE`. Releasing an event-based hold still does not restart retention, an existing gap Delete inherits.
 - Add `SPEC-LIFECYCLE-EXECUTION` for local choices on the unresolved questions.
 
+The first bullet was superseded on 2026-11-13: `002` to `009` achieved only
+`LOCAL_SIMULATION` because the local sweep decides when each action takes
+effect, so they now target `LOCAL_SIMULATION`; `001` reached `EXACT` as planned
+([choosing the target](../compatibility-policy.md#choosing-the-target)).
+
 ## Overlap and order
 
 - Cloud KMS overlaps most: schema number, `object_columns!` and `row.get(N)` indexes in `read_object`, `publication.rs`, `src/json/objects.rs`, `src/grpc/v2/convert.rs`.

@@ -35,8 +35,12 @@ until the next slice.
 | DESIGN-082, official Go SDK | PARTIAL | PROJECT | Strict suite added; resumable, signing and broader workloads remain |
 | JSON-BUCKETS-001/002/005/006, JSON-OBJECTS-004/005/007/008/010/015 | PARTIAL | LOCAL_SIMULATION | Strict project-role cases added; IAM/ACL and other method scope remain |
 
-DESIGN-004 targets EXACT, and IMPLEMENTED requires achieved fidelity equal to the
-target with no deviations. Its open SPEC-017 deviations therefore keep it PARTIAL.
+IMPLEMENTED requires achieved fidelity equal to the target with no deviations,
+so DESIGN-004's open SPEC-017 deviations keep it PARTIAL. On 2026-11-13
+DESIGN-002 and DESIGN-004 were retargeted to LOCAL_SIMULATION, because local
+identities stand in for Google identity, and the six JSON object rows above
+moved to EXACT achieved fidelity, because strict identity is tracked by
+DESIGN-002 ([choosing the target](../compatibility-policy.md#choosing-the-target)).
 DESIGN-008's EXACT claim covers only the dated snapshot: the transcription was
 reviewed against the source page, and no automated comparison with a pinned source
 artifact exists. Implemented rows record commit

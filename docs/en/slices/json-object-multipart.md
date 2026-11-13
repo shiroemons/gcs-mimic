@@ -6,7 +6,9 @@ Contract checked: **2026-10-22**. Scope: BEHAVIOR-OBJECT-009 and multipart
 acceptance additions to JSON-OBJECTS-007, BEHAVIOR-OBJECT-001,
 BEHAVIOR-OBJECT-005 and BEHAVIOR-COMMON-011. This contract decomposes the
 supported subset; `compatibility/features.json` remains the status authority.
-`objects.insert` remains PARTIAL because resumable uploads are separate P3 work.
+`objects.insert` remains PARTIAL because resumable uploads are separate P3 work;
+since 2026-11-13 its achieved fidelity is EXACT for the tested subset (see
+[choosing the target](../compatibility-policy.md#choosing-the-target)).
 
 Upload errors omit `x-content-type-options`, matching the 2026-11-01 Cloud Storage
 recording. JSON envelopes labelled `text/html` escape `<`, `>` and `&` as JSON

@@ -1,6 +1,6 @@
 # Lifecycle multipart abort execution
 
-The feature ledger owns status for `BEHAVIOR-LIFECYCLE-004` and the multipart-abort acceptance cases of `BEHAVIOR-LIFECYCLE-001` and `BEHAVIOR-LIFECYCLE-008`. Stored `AbortIncompleteMultipartUpload` rules now execute for XML multipart uploads in the shared lifecycle pass. The achieved scope remains `LOCAL_SIMULATION` and `PARTIAL` against the `EXACT` target: provider propagation, execution timing and the age-zero midnight interpretation have not been checked against Google Cloud.
+The feature ledger owns status for `BEHAVIOR-LIFECYCLE-004` and the multipart-abort acceptance cases of `BEHAVIOR-LIFECYCLE-001` and `BEHAVIOR-LIFECYCLE-008`. Stored `AbortIncompleteMultipartUpload` rules now execute for XML multipart uploads in the shared lifecycle pass. `BEHAVIOR-LIFECYCLE-004` and `008` target and achieve `LOCAL_SIMULATION` and remain `PARTIAL`: provider propagation, execution timing and the age-zero midnight interpretation have not been checked against Google Cloud.
 
 ## Contract and sources
 

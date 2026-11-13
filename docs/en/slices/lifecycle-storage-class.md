@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: `BEHAVIOR-LIFECYCLE-003` and the storage-class portions of `BEHAVIOR-LIFECYCLE-001`, `BEHAVIOR-LIFECYCLE-002` and `BEHAVIOR-LIFECYCLE-008`. The feature ledger owns status. Supported transitions execute through the shared lifecycle sweep; the affected rows remain `PARTIAL` with achieved fidelity `LOCAL_SIMULATION` and target `EXACT`.
+Scope: `BEHAVIOR-LIFECYCLE-003` and the storage-class portions of `BEHAVIOR-LIFECYCLE-001`, `BEHAVIOR-LIFECYCLE-002` and `BEHAVIOR-LIFECYCLE-008`. The feature ledger owns status. Supported transitions execute through the shared lifecycle sweep; the affected execution rows remain `PARTIAL` and target `LOCAL_SIMULATION`, which they achieve; `BEHAVIOR-LIFECYCLE-001` validates configuration with `EXACT` fidelity.
 
 ## Contract
 

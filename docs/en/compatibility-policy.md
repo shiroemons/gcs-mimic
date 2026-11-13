@@ -28,6 +28,31 @@ Historical evidence, past release notes and recorded verification commands retai
 
 `target_fidelity` is a plan. `actual_fidelity` must be established by tests. An implemented local simulation must remain visibly simulated; do not label it exact just because its local tests pass.
 
+### Choosing the target
+
+A row targets `LOCAL_SIMULATION` when the behavior it tracks is produced by
+Google infrastructure that the emulator replaces with a deterministic local
+model. No test can then establish `EXACT`, so an `EXACT` target would keep the
+row `PARTIAL` however complete its local cases are. A row whose behavior is a
+request and response contract targets `EXACT`, even when it shares state with a
+simulated mechanism or runs under local identities: the simulation is tracked by
+its own row, not inherited by every API row that touches it. Such a row has
+`EXACT` achieved fidelity for its tested subset while unfinished cases keep it
+`PARTIAL`.
+
+Applied on 2026-11-13:
+
+| Rows | Target | Achieved | Reason |
+| --- | --- | --- | --- |
+| BEHAVIOR-LIFECYCLE-002 to 009 | `LOCAL_SIMULATION` | `LOCAL_SIMULATION` | A local sweep applies lifecycle actions at locally chosen times. Cloud Storage runs them asynchronously without a timing guarantee and propagates configuration for up to 24 hours. Condition truth and transitions are tested, but when they take effect is the local model. BEHAVIOR-LIFECYCLE-010 already tracks the scheduler itself. |
+| EXT-BEH-032 | `LOCAL_SIMULATION` | `LOCAL_SIMULATION` | A local outbox publishes events to an explicitly configured Pub/Sub emulator in place of Cloud Storage's notification service. |
+| DESIGN-002, DESIGN-004 | `LOCAL_SIMULATION` | `LOCAL_SIMULATION` | Callers are registered local identities; Google OAuth tokens and the Google IAM directory are not consulted. |
+| BEHAVIOR-LIFECYCLE-001 | `EXACT` | `EXACT` | Lifecycle configuration validation is a request contract. |
+| EXT-XML-004, 011, 013, 019, 020, 023 | `EXACT` | `EXACT` | XML multipart operations are request and response contracts; the seven-day session expiry is a recorded local bound, not a simulation. |
+| JSON-OBJECTS-004, 005, 007, 008, 010, 015 | `EXACT` | `EXACT` | Object methods are request and response contracts; strict local identities belong to DESIGN-002. |
+
+All of these rows stay `PARTIAL` until their known deviations are resolved.
+
 ## Definition of done
 
 ### Capability delivery and broad feature rows

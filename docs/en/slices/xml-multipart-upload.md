@@ -151,8 +151,10 @@ opened ordinary immutable reader remains independent.
 - Listed maxima must be positive uint32 values and are capped at 1000. Names and echoed listing filters that XML 1.0 cannot represent are rejected explicitly. Exact provider error wording/order, multipart object ETag encoding, owner fields, lifecycle AbortIncompleteMultipartUpload execution, billing, archival transitions, cross-platform power-loss semantics and broader optional headers remain outside this scope.
 
 These limits and the existing local storage/CSEK/auth boundaries keep the broad
-feature rows PARTIAL. They must not be labeled EXACT merely because the local
-acceptance tests pass.
+feature rows PARTIAL. Their achieved fidelity is EXACT only for the tested
+request and response contract; the limits above are recorded local bounds, not
+a simulation (see
+[choosing the target](../compatibility-policy.md#choosing-the-target)).
 
 ## Verification
 

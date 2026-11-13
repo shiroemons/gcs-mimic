@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 80 | 69 | 49 | 3 | 0 | 0 |
+| api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
+| behavior | 80 | 70 | 48 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 75 |
 
 ## api_operation
@@ -168,18 +168,18 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
-| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
+| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | EXACT | 5 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | EXACT | 7 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
-| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | EXACT | 7 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | EXACT | 4 |
 | JSON-OBJECTS-009 | objects.move | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | EXACT | 5 |
 | JSON-OBJECTS-011 | objects.restore | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
+| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | EXACT | 4 |
 | JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
@@ -395,26 +395,26 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-001 | バケット一覧 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-002 | バケット削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-003 | オブジェクト一覧 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-004 | マルチパートセッション一覧 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-004 | マルチパートセッション一覧 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-005 | バケットACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-006 | バケット存在確認 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-007 | 複数オブジェクト削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-008 | バケット作成 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-011 | マルチパート中止 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-011 | マルチパート中止 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 8 |
-| EXT-XML-013 | アップロード済みパート一覧 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-013 | アップロード済みパート一覧 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
 | EXT-XML-018 | 再開可能アップロード開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-019 | XMLマルチパート開始 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
-| EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-019 | XMLマルチパート開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
+| EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-024 | オブジェクトコピー | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | オブジェクトACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -505,8 +505,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
+| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | DESIGN-005 | サービスアカウント署名者の対応付け | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuthトークン発行との境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
 | DESIGN-008 | Storage定義済みロールの権限展開 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
@@ -619,7 +619,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-019 | Resource Managerタグとtag bindingの境界 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-032 | Pub/Subイベントと永続送信キュー | PARTIAL | P7 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-BEH-032 | Pub/Subイベントと永続送信キュー | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | EXT-BEH-033 | Google Pub/Subサービス | PARTIAL | P7 | EXTERNAL | LOCAL_SIMULATION | 0 |
 | EXT-BEH-034 | Firebase Storage API・Security Rules | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
 | EXT-BEH-035 | Cloud Storage FUSEクライアント互換 | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -678,15 +678,15 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 2 |
-| BEHAVIOR-LIFECYCLE-002 | ライフサイクルDelete | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-003 | ライフサイクルSetStorageClass | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-004 | 未完了multipartの自動中止 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-005 | 経過日数・作成日条件 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-006 | customTime条件 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-007 | 非現行世代条件 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-008 | 名前・ストレージクラス条件 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-009 | サイズ条件 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | PARTIAL | P4 | EXACT | EXACT | 2 |
+| BEHAVIOR-LIFECYCLE-002 | ライフサイクルDelete | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-003 | ライフサイクルSetStorageClass | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-004 | 未完了multipartの自動中止 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-005 | 経過日数・作成日条件 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-006 | customTime条件 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-007 | 非現行世代条件 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-008 | 名前・ストレージクラス条件 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-009 | サイズ条件 | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-010 | 再現可能なライフサイクル評価 | IMPLEMENTED | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 
 ### Limits and quotas

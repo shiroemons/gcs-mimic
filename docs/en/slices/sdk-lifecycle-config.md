@@ -172,8 +172,9 @@ The full `evaluate` interface retains the complete selection contract.
 The acceptance ledger separates passing catalog boundaries, later execution
 work, deliberately unsupported semantics, dependencies on other features and
 authorized provider-evidence gaps. All seven affected lifecycle rows remain
-PARTIAL with LOCAL_SIMULATION achieved fidelity; splitting cases does not
-promote fidelity. Pre-epoch object creation, the final catalog timestamp and
+PARTIAL. Configuration validation (BEHAVIOR-LIFECYCLE-001) has EXACT fidelity;
+the execution rows target and achieve LOCAL_SIMULATION, and splitting cases does
+not change that. Pre-epoch object creation, the final catalog timestamp and
 full transition precedence retain pure-evaluator evidence only.
 
 ## Verification

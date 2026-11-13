@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 80 | 69 | 49 | 3 | 0 | 0 |
+| api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
+| behavior | 80 | 70 | 48 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 75 |
 
 ## api_operation
@@ -168,18 +168,18 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
-| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
+| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | EXACT | 5 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | EXACT | 7 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
-| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | EXACT | 7 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | EXACT | 4 |
 | JSON-OBJECTS-009 | objects.move | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | EXACT | 5 |
 | JSON-OBJECTS-011 | objects.restore | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
+| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | EXACT | 4 |
 | JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
@@ -395,26 +395,26 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-001 | GET Service / list buckets | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-002 | DELETE Bucket | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-003 | GET Bucket / list objects | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-004 | GET Bucket / list multipart uploads | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-004 | GET Bucket / list multipart uploads | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-005 | GET Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-006 | HEAD Bucket | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-007 | POST Bucket / multi-object delete | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-008 | PUT Bucket / create | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | DELETE Object | PARTIAL | P2 | EXACT | EXACT | 0 |
-| EXT-XML-011 | Abort multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-011 | Abort multipart upload | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 8 |
-| EXT-XML-013 | GET Object / list parts | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-013 | GET Object / list parts | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
 | EXT-XML-018 | Initiate resumable upload | PARTIAL | P3 | EXACT | EXACT | 0 |
-| EXT-XML-019 | Initiate XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
-| EXT-XML-020 | Complete XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-019 | Initiate XML multipart upload | PARTIAL | P3 | EXACT | EXACT | 0 |
+| EXT-XML-020 | Complete XML multipart upload | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | Upload XML multipart part | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-023 | Upload XML multipart part | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-024 | Copy Object | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | Compose Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | PUT Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -505,8 +505,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | Explicit strict authentication profile | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-004 | Anonymous versus authenticated callers | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| DESIGN-002 | Explicit strict authentication profile | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
+| DESIGN-004 | Anonymous versus authenticated callers | PARTIAL | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | DESIGN-005 | Service-account signing identity mapping | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuth token issuance boundary | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
 | DESIGN-008 | Predefined storage roles permission expansion | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
@@ -619,7 +619,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-019 | Resource Manager tags and tag-binding boundary | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-032 | Pub/Sub event payload and outbox | PARTIAL | P7 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-BEH-032 | Pub/Sub event payload and outbox | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | EXT-BEH-033 | Google Pub/Sub delivery service | PARTIAL | P7 | EXTERNAL | LOCAL_SIMULATION | 0 |
 | EXT-BEH-034 | Firebase Storage API and Security Rules | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
 | EXT-BEH-035 | Cloud Storage FUSE client compatibility | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -678,15 +678,15 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 2 |
-| BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-004 | AbortIncompleteMultipartUpload action | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-006 | Custom-time conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-007 | Noncurrent-version conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-008 | Name and storage-class conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-LIFECYCLE-009 | Object-size lifecycle conditions | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-001 | Lifecycle configuration validation | PARTIAL | P4 | EXACT | EXACT | 2 |
+| BEHAVIOR-LIFECYCLE-002 | Delete lifecycle action | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-003 | SetStorageClass lifecycle action | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-004 | AbortIncompleteMultipartUpload action | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-005 | Age and creation-date conditions | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-006 | Custom-time conditions | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-007 | Noncurrent-version conditions | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-008 | Name and storage-class conditions | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-LIFECYCLE-009 | Object-size lifecycle conditions | PARTIAL | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-LIFECYCLE-010 | Deterministic scheduled evaluation | IMPLEMENTED | P4 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 
 ### Limits and quotas

@@ -27,6 +27,15 @@ native と fake-gcs-server の両プロファイルで同じ方針を使う。
 Google 実機での未確認だけを理由に `EXACT` の行を `PARTIAL` に留めない。
 実機の疑問は gap 台帳の `SOURCE_QUESTION` として扱う。
 
+## 目標忠実度の選び方
+
+Google の基盤が生む挙動をローカルの決定的なモデルで置き換えている行は、
+目標を `LOCAL_SIMULATION` にする。テストで `EXACT` を示せないので、目標が `EXACT` のままだと
+ローカルのケースがすべて通っても `PARTIAL` から動けないため。
+リクエストとレスポンスの契約を扱う行は、模擬の仕組みと状態を共有していても、
+ローカル ID で動いていても、目標を `EXACT` にする。模擬はそれ専用の行で管理する。
+2026-11-13 に適用した行と理由は[英語の正本](../en/compatibility-policy.md#choosing-the-target)を参照する。
+
 失敗した検証記録は消さない。修正後に PASS した再実行を後ろに追加し、
 失敗記録の `superseded_by` にその `command`・`verified_at`・理由を書く。
 置き換えた失敗は `IMPLEMENTED` を妨げない。詳細は英語の正本を参照する。

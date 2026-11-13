@@ -14099,7 +14099,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
@@ -14709,7 +14709,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
@@ -15814,7 +15814,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -17196,7 +17196,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -17903,7 +17903,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -19177,7 +19177,7 @@
       "priority": "HIGH",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -33640,7 +33640,7 @@
       "priority": "MEDIUM",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
         "https://docs.cloud.google.com/storage/docs/json_api",
@@ -34104,7 +34104,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -34297,7 +34297,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -34632,7 +34632,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -34703,7 +34703,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -34892,7 +34892,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -35044,7 +35044,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -35214,7 +35214,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -35435,7 +35435,7 @@
       "phase": "P4",
       "priority": "MEDIUM",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/lifecycle",
@@ -36941,7 +36941,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
       ],
@@ -37165,7 +37165,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
       ],
@@ -37784,7 +37784,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
       ],
@@ -38428,7 +38428,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/post-object-multipart"
       ],
@@ -38461,7 +38461,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/post-object-complete"
       ],
@@ -39176,7 +39176,7 @@
       "priority": "NORMAL",
       "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/put-object-multipart"
       ],
@@ -43146,7 +43146,7 @@
       "phase": "P7",
       "priority": "NORMAL",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/pubsub-notifications"
@@ -45387,7 +45387,7 @@
       "phase": "P2",
       "priority": "HIGH",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
@@ -45882,7 +45882,7 @@
       "phase": "P2",
       "priority": "HIGH",
       "status": "PARTIAL",
-      "target_fidelity": "EXACT",
+      "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
