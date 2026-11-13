@@ -299,11 +299,9 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
         now,
         HeaderMap::new(),
     );
-    error(
-        &send(&server, "GET", &override_url, ""),
-        400,
-        "InvalidArgument",
-    );
+    // An ignored response-* parameter is still part of the signature: signed, it reads the
+    // object; appended after signing, it fails verification.
+    send(&server, "GET", &override_url, "").success();
     let valid = sign(
         &server,
         &Method::GET,
@@ -311,6 +309,16 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
         "viewer@example.invalid",
         now,
         HeaderMap::new(),
+    );
+    error(
+        &send(
+            &server,
+            "GET",
+            &format!("{valid}&response-cache-control=no-cache"),
+            "",
+        ),
+        403,
+        "SignatureDoesNotMatch",
     );
     error(
         &send(&server, "GET", &valid, ADMIN),

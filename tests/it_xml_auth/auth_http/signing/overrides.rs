@@ -184,19 +184,26 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
 }
 
 #[test]
-fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
+fn xml_response_overrides_reject_injection_duplicates_and_ignore_unknown_names() {
     let (_config, _data, server) = fixture();
     let before = server.get(ADMIN, METADATA).success().json();
     for parameter in ["response-content-type", "response-content-disposition"] {
+        let empty = server.get(ADMIN, &format!("{OBJECT}?{parameter}="));
+        error(&empty, 400, "InvalidArgument");
+        let body = String::from_utf8_lossy(&empty.body);
+        assert!(
+            body.contains(&format!(
+                "<Details>Empty query parameters not supported; {parameter}</Details>"
+            )),
+            "{body}"
+        );
         for value in [
             "",
             "%20",
             "%09",
-            "%20text%2Fplain",
-            "text%2Fplain%20",
-            "%09text%2Fplain",
-            "text%2Fplain%09",
+            "%20%09",
             "text%2Fplain%0D%0AX-Injected%3Ayes",
+            "%20text%2Fplain%0D",
             "%0A",
             "%0D",
             "%00",
@@ -226,24 +233,35 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
                 }
             }
         }
-        let path = format!("{OBJECT}?{parameter}=attachment%3B%20filename%3D%22%C3%A9.csv%22");
-        for method in ["GET", "HEAD"] {
-            let unsigned = format!("http://{}{path}", server.address);
-            let signed = sign(
-                &server,
-                &method.parse().unwrap(),
-                &path,
-                "viewer@example.invalid",
-                SystemTime::now(),
-                HeaderMap::new(),
-            );
-            for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
-                let response = send(&server, method, url, auth);
-                response.expect(400);
-                if method == "HEAD" {
-                    assert!(response.body.is_empty());
-                } else {
-                    error(&response, 400, "InvalidArgument");
+        // Cloud Storage trimmed a padded content type and passed a non-ASCII disposition
+        // through as UTF-8 (recorded); both override parameters share that handling.
+        let header = parameter.trim_start_matches("response-");
+        for (value, expected) in [
+            ("%20text%2Fplain", "text/plain"),
+            ("text%2Fplain%20", "text/plain"),
+            ("%09text%2Fplain", "text/plain"),
+            ("%20text%2Fhtml%20", "text/html"),
+            ("text%2Fplain%09", "text/plain"),
+            (
+                "attachment%3B%20filename%3D%22%C3%A9.csv%22",
+                "attachment; filename=\"é.csv\"",
+            ),
+        ] {
+            let path = format!("{OBJECT}?{parameter}={value}");
+            for method in ["GET", "HEAD"] {
+                let unsigned = format!("http://{}{path}", server.address);
+                let signed = sign(
+                    &server,
+                    &method.parse().unwrap(),
+                    &path,
+                    "viewer@example.invalid",
+                    SystemTime::now(),
+                    HeaderMap::new(),
+                );
+                for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
+                    let response = send(&server, method, url, auth);
+                    response.success();
+                    assert_eq!(response.headers[header], expected, "{method} {path}");
                 }
             }
         }
@@ -271,16 +289,21 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
             "InvalidAuthentication",
         );
     }
+    // Cloud Storage ignored the S3-only response-cache-control and response-expires and an
+    // unknown response-* name, leaving the response headers as without them (recorded).
+    let plain = server.get(ADMIN, OBJECT);
+    plain.success();
     for parameter in [
         "response-cache-control",
         "response-content-language",
         "response-content-encoding",
         "response-expires",
         "response-unknown",
+        "unknown",
     ] {
-        let path = format!("{OBJECT}?{parameter}=value");
-        error(&server.get(ADMIN, &path), 400, "InvalidArgument");
-        let url = sign(
+        let path = format!("{OBJECT}?{parameter}=no-store");
+        let unsigned = format!("http://{}{path}", server.address);
+        let signed = sign(
             &server,
             &Method::GET,
             &path,
@@ -288,13 +311,28 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
             SystemTime::now(),
             HeaderMap::new(),
         );
-        error(&send(&server, "GET", &url, ""), 400, "InvalidArgument");
+        for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
+            let response = send(&server, "GET", url, auth);
+            response.success();
+            assert_eq!(response.body, plain.body, "{path}");
+            for header in [
+                "cache-control",
+                "content-type",
+                "content-language",
+                "content-encoding",
+            ] {
+                assert_eq!(
+                    response.headers.get(header),
+                    plain.headers.get(header),
+                    "{path} {header}"
+                );
+            }
+            assert_ne!(
+                response.headers.get("expires").map(String::as_str),
+                Some("no-store")
+            );
+        }
     }
-    // A parameter that names no response override or sub-resource is ignored, as Cloud Storage
-    // answered a GET with an unknown query parameter (recorded).
-    server
-        .get(ADMIN, &format!("{OBJECT}?unknown=value"))
-        .expect(200);
     assert_eq!(server.get(ADMIN, METADATA).success().json(), before);
 }
 

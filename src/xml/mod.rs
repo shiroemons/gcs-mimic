@@ -737,33 +737,22 @@ pub(crate) fn route(
             ("response-content-disposition", "content-disposition"),
         ] {
             if let Some(value) = query.remove(parameter) {
-                if value.is_empty()
-                    || value.trim() != value
-                    || value
-                        .bytes()
-                        .any(|byte| byte.is_ascii_control() && byte != b'\t')
-                {
-                    return Err(Error::invalid("Invalid response header override."));
-                }
-                let value = HeaderValue::from_str(&value)
-                    .ok()
-                    .filter(|value| value.to_str().is_ok())
-                    .ok_or_else(|| Error::unsupported(parameter))?;
-                response_overrides.insert(header, value);
+                response_overrides.insert(header, response_override(parameter, &value)?);
             }
         }
         // Authentication validates credential fields from the original URI before using this operation.
         // Cloud Storage answered a GET with an unknown query parameter as if it were absent
-        // (recorded). A parameter that selects a different resource, such as `acl`, would give
-        // a false success if ignored, so those stay rejected. HEAD and PUT share the GET and
-        // PUT parsing; HEAD ignoring unknown parameters is assumed, not recorded.
+        // (recorded), including the S3-only `response-cache-control` and `response-expires`
+        // and an unknown `response-*` name, which leave the response headers unchanged. A
+        // parameter that selects a different resource, such as `acl`, would give a false
+        // success if ignored, so those stay rejected. HEAD and PUT share the GET and PUT
+        // parsing; HEAD ignoring unknown parameters is assumed, not recorded.
         let ignores_unknown = matches!(*method, Method::GET | Method::HEAD);
         if let Some(key) = query.keys().find(|key| {
             !signing_parameter(key)
                 && (!ignores_unknown
                     || SUBRESOURCES.contains(&key.as_str())
-                    || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str())
-                    || key.starts_with("response-"))
+                    || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str()))
         }) {
             return Err(Error::unsupported(key));
         }
@@ -772,6 +761,29 @@ pub(crate) fn route(
             response_overrides,
         })
     })())
+}
+
+/// The header value a `response-content-type` or `response-content-disposition` override sets.
+///
+/// Cloud Storage rejected an empty value with `Empty query parameters not supported`, trimmed
+/// the surrounding whitespace of a padded content type and passed a non-ASCII disposition
+/// through as its UTF-8 bytes (recorded). A value holding a control character other than tab
+/// stays rejected: it could split or end the header line.
+fn response_override(parameter: &str, value: &str) -> Result<HeaderValue, Error> {
+    if value.is_empty() {
+        return Err(Error::invalid_argument(format!(
+            "Empty query parameters not supported; {parameter}"
+        )));
+    }
+    let value = value.trim_matches([' ', '\t']);
+    if value.is_empty()
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() && byte != b'\t')
+    {
+        return Err(Error::invalid("Invalid response header override."));
+    }
+    HeaderValue::from_str(value).map_err(|_| Error::unsupported(parameter))
 }
 
 /// Query parameters that address a sub-resource of an object (its ACL, torrent, tags and so on)
