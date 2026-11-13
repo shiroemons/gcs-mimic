@@ -39161,6 +39161,720 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "bkt-edges-fields",
+      "steps": [
+        {
+          "fingerprint": "f6da4efaa20395e0",
+          "name": "whitespace",
+          "request": "GET /storage/v1/b/<bucket>?fields=%20",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "51d277dd9998bbc6",
+          "name": "space-around-names",
+          "request": "GET /storage/v1/b/<bucket>?fields=name%20%2C%20location",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "location": "US-CENTRAL1",
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5d3164cfa77ee50d",
+          "name": "space-inside-name",
+          "request": "GET /storage/v1/b/<bucket>?fields=na%20me",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "fields",
+                      "locationType": "parameter",
+                      "message": "Invalid field selection na me",
+                      "reason": "invalidParameter"
+                    }
+                  ],
+                  "message": "Invalid field selection na me"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "fff19f9ae6824f5a",
+          "name": "doubled-comma",
+          "request": "GET /storage/v1/b/<bucket>?fields=name%2C%2Clocation",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "location": "US-CENTRAL1",
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0ab8c840f157bee6",
+          "name": "empty-parentheses",
+          "request": "GET /storage/v1/b/<bucket>?fields=labels%28%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d79738abff8eeb7c",
+          "name": "trailing-slash",
+          "request": "GET /storage/v1/b/<bucket>?fields=labels%2F",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "fields",
+                      "locationType": "parameter",
+                      "message": "Invalid field selection labels/",
+                      "reason": "invalidParameter"
+                    }
+                  ],
+                  "message": "Invalid field selection labels/"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "1a72b14fa17641ba",
+          "name": "wildcard-with-child",
+          "request": "GET /storage/v1/b/<bucket>?fields=%2A%2Fname",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "fields",
+                      "locationType": "parameter",
+                      "message": "Leading and nested wildcards are unsupported in field selection: */name",
+                      "reason": "invalidParameter"
+                    }
+                  ],
+                  "message": "Leading and nested wildcards are unsupported in field selection: */name"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "24ae6120df0705e4",
+          "name": "collection-selector-on-resource",
+          "request": "GET /storage/v1/b/<bucket>?fields=items%2Fname",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "fields",
+                      "locationType": "parameter",
+                      "message": "Invalid field selection items",
+                      "reason": "invalidParameter"
+                    }
+                  ],
+                  "message": "Invalid field selection items"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "3b7a6db78b0f2df9",
+          "name": "list-whitespace",
+          "request": "GET /storage/v1/b?fields=%20&prefix=<bucket>&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8dc613e1ba3f50a1",
+          "name": "list-space-around-names",
+          "request": "GET /storage/v1/b?fields=kind%20%2C%20items%28name%29&prefix=<bucket>&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "<bucket>"
+                  }
+                ],
+                "kind": "storage#buckets"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b0f80ea8aa2e8a46",
+          "name": "iam-whitespace",
+          "request": "GET /storage/v1/b/<bucket>/iam?fields=%20",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "none",
+      "error": null,
+      "id": "bkt-edges-hmac-keys",
+      "steps": [
+        {
+          "fingerprint": "b9a4488a5586d59f",
+          "name": "list",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#hmacKeysMetadata"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "dfde45c0733bb60e",
+          "name": "list-max-results-zero",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys?maxResults=0",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#hmacKeysMetadata"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a445121f9d6d2f7a",
+          "name": "list-max-results-negative",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys?maxResults=-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "maxResults",
+                      "locationType": "parameter",
+                      "message": "Invalid unsigned integer value: '-1'.",
+                      "reason": "invalidParameter"
+                    }
+                  ],
+                  "message": "Invalid unsigned integer value: '-1'."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "026f52f99959be69",
+          "name": "list-user-project",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#hmacKeysMetadata"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6407f491df7f7350",
+          "name": "get-missing-user-project",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "5115438174ee3e6d",
+          "name": "delete-missing-user-project",
+          "request": "DELETE /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "5e2465641fdbf6e3",
+          "name": "update-missing-without-state",
+          "request": "PUT /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Must specify resource.state.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Must specify resource.state."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "9edd2c884e2153d7",
+          "name": "update-missing-to-deleted",
+          "request": "PUT /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot set state to 'DELETED'.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot set state to 'DELETED'."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "bkt-edges-notification-ids",
+      "steps": [
+        {
+          "fingerprint": "b439600b94eb40f2",
+          "name": "get-non-numeric",
+          "request": "GET /storage/v1/b/<bucket>/notificationConfigs/abc",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "1d550f96a88d029f",
+          "name": "get-zero-padded",
+          "request": "GET /storage/v1/b/<bucket>/notificationConfigs/01",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "9de9ed35c9767a71",
+          "name": "delete-non-numeric",
+          "request": "DELETE /storage/v1/b/<bucket>/notificationConfigs/abc",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "828c44d767f06c27",
+          "name": "list-user-project",
+          "request": "GET /storage/v1/b/<bucket>/notificationConfigs?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#notifications"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f9a687254cb88d50",
+          "name": "get-missing-user-project",
+          "request": "GET /storage/v1/b/<bucket>/notificationConfigs/999999?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "77c845b804e4e0f1",
+          "name": "delete-missing-user-project",
+          "request": "DELETE /storage/v1/b/<bucket>/notificationConfigs/999999?userProject=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -39172,7 +39886,7 @@
     "2026-11-09",
     "2026-11-13"
   ],
-  "requests": 1394,
+  "requests": 1434,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

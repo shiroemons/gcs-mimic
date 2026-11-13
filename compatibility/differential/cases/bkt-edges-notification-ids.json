@@ -1,0 +1,13 @@
+{
+  "id": "bkt-edges-notification-ids",
+  "description": "Notification configuration IDs that bkt-notifications does not record, and requester billing, on a bucket without configurations: a non-numeric and a zero-padded ID on get and delete, and userProject on list, get and delete. No topic or configuration is created. Checks SPEC-NOTIFICATION-WIRE.",
+  "bucket": "own",
+  "steps": [
+    {"name": "get-non-numeric", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/abc"},
+    {"name": "get-zero-padded", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/01"},
+    {"name": "delete-non-numeric", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/abc"},
+    {"name": "list-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs", "query": {"userProject": "{project}"}, "expect_status": 200, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
+    {"name": "get-missing-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
+    {"name": "delete-missing-user-project", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}}
+  ]
+}

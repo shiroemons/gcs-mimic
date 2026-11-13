@@ -1,0 +1,17 @@
+{
+  "id": "bkt-edges-fields",
+  "description": "Partial-response selectors on bucket resources, which obj-fields-selectors recorded only for objects: whitespace, spaces around and inside names, a doubled comma, empty parentheses, a trailing slash, a wildcard with a child, a collection selector on a single bucket, and the same whitespace on the bucket list and the IAM policy. Checks SPEC-FIELDS-EDGES.",
+  "steps": [
+    {"name": "whitespace", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": " "}},
+    {"name": "space-around-names", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "name , location"}},
+    {"name": "space-inside-name", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "na me"}},
+    {"name": "doubled-comma", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "name,,location"}},
+    {"name": "empty-parentheses", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "labels()"}},
+    {"name": "trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "labels/"}},
+    {"name": "wildcard-with-child", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "*/name"}},
+    {"name": "collection-selector-on-resource", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "items/name"}},
+    {"name": "list-whitespace", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{project}", "prefix": "{bucket}", "fields": " "}},
+    {"name": "list-space-around-names", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{project}", "prefix": "{bucket}", "fields": "kind , items(name)"}},
+    {"name": "iam-whitespace", "method": "GET", "path": "/storage/v1/b/{bucket}/iam", "query": {"fields": " "}}
+  ]
+}
