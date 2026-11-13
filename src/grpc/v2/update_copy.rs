@@ -1334,10 +1334,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grpc_iam_config_updates_preserve_other_setting() {
+    async fn grpc_iam_config_parent_update_replaces_both_settings() {
         let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
-        assert_eq!(empty.uniform_bucket_level_access_enabled, None);
-        assert_eq!(empty.public_access_prevention_enforced, None);
+        assert_eq!(empty.uniform_bucket_level_access_enabled, Some(false));
+        assert_eq!(empty.public_access_prevention_enforced, Some(false));
         assert!(empty.touched);
         assert_eq!(
             bucket_patch(
@@ -1386,28 +1386,60 @@ mod tests {
             .unwrap()
             .into_inner();
         let i = b.iam_config.unwrap();
-        assert_eq!(i.public_access_prevention, "enforced");
+        assert_eq!(i.public_access_prevention, "inherited");
         assert!(i.uniform_bucket_level_access.unwrap().enabled);
-        let request = pb::UpdateBucketRequest {
-            bucket: Some(pb::Bucket {
-                name: resource.into(),
-                iam_config: Some(pb::bucket::IamConfig {
-                    public_access_prevention: "inherited".into(),
+        let update = |mask: &'static str, iam_config: pb::bucket::IamConfig| {
+            s.update_bucket(
+                Request::new(pb::UpdateBucketRequest {
+                    bucket: Some(pb::Bucket {
+                        name: resource.into(),
+                        iam_config: Some(iam_config),
+                        ..Default::default()
+                    }),
+                    update_mask: fixtures::mask(&[mask]),
                     ..Default::default()
                 }),
-                ..Default::default()
-            }),
-            update_mask: fixtures::mask(&["iam_config"]),
-            ..Default::default()
+                None,
+            )
         };
-        let b = s
-            .update_bucket(Request::new(request), None)
+        // A leaf path leaves the other setting alone.
+        let b = update(
+            "iam_config.public_access_prevention",
+            pb::bucket::IamConfig {
+                public_access_prevention: "enforced".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        let i = b.iam_config.unwrap();
+        assert_eq!(i.public_access_prevention, "enforced");
+        assert!(i.uniform_bucket_level_access.unwrap().enabled);
+        // An empty message under the parent path resets both and still advances the
+        // metageneration, as Cloud Storage did for public access prevention (recorded).
+        let before = b.metageneration;
+        let b = update("iam_config", pb::bucket::IamConfig::default())
             .await
             .unwrap()
             .into_inner();
+        assert_eq!(b.metageneration, before + 1);
         let i = b.iam_config.unwrap();
         assert_eq!(i.public_access_prevention, "inherited");
-        assert!(i.uniform_bucket_level_access.unwrap().enabled);
+        assert!(!i.uniform_bucket_level_access.unwrap_or_default().enabled);
+        let after = s
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    name: resource.into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(after.metageneration, b.metageneration);
+        assert_eq!(after.iam_config, Some(i));
         s.state.catalog.close().await.unwrap();
     }
 

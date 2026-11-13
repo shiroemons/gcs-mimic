@@ -216,26 +216,25 @@ fn apply_iam(
     config: Option<&pb::bucket::IamConfig>,
     path: &str,
 ) -> Result<(), Status> {
-    if path == "iam_config" {
-        if let Some(config) = config {
-            if let Some(uniform) = &config.uniform_bucket_level_access {
-                update.uniform_bucket_level_access_enabled = Some(uniform.enabled);
-            }
-            if !config.public_access_prevention.is_empty() {
-                update.public_access_prevention_enforced = Some(
-                    bucket::public_access_prevention(&config.public_access_prevention)
-                        .map_err(input_error)?,
-                );
-            }
-        }
-    } else if path == "iam_config.public_access_prevention" {
+    // The parent path replaces the whole message, so a setting it leaves out takes its default,
+    // as each leaf path does: Cloud Storage answered an `iam_config` mask with an empty
+    // `iam_config` by resetting public access prevention to `inherited` (recorded). Disabling
+    // an absent uniform bucket-level access follows the same field-mask rule; the recording
+    // started with it disabled, so that half is assumed.
+    let (prevention, uniform) = match path {
+        "iam_config" => (true, true),
+        "iam_config.public_access_prevention" => (true, false),
+        _ => (false, true),
+    };
+    if prevention {
         let value = config
             .map(|config| config.public_access_prevention.as_str())
             .filter(|value| !value.is_empty())
             .unwrap_or("inherited");
         update.public_access_prevention_enforced =
             Some(bucket::public_access_prevention(value).map_err(input_error)?);
-    } else {
+    }
+    if uniform {
         update.uniform_bucket_level_access_enabled = Some(
             config
                 .and_then(|config| config.uniform_bucket_level_access.as_ref())
