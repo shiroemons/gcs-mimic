@@ -1066,7 +1066,10 @@ mod tests {
         );
         assert!(update.cors.unwrap().is_empty());
         assert_eq!(update.public_access_prevention_enforced, Some(false));
-        assert_eq!(update.uniform_bucket_level_access_enabled, Some(false));
+        assert_eq!(
+            update.uniform_bucket_level_access_enabled,
+            Some(false.into())
+        );
         let create = super::super::buckets::create_fields(&bucket, "").unwrap();
         for omitted in [
             "autoclass",
@@ -1346,7 +1349,7 @@ mod tests {
             )
             .unwrap()
             .uniform_bucket_level_access_enabled,
-            Some(false)
+            Some(false.into())
         );
         let (s, _dir) = setup().await;
         let resource = "projects/_/buckets/update-copy-bucket";

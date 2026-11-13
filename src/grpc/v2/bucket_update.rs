@@ -219,7 +219,7 @@ fn apply_iam(
     if path == "iam_config" {
         if let Some(config) = config {
             if let Some(uniform) = &config.uniform_bucket_level_access {
-                update.uniform_bucket_level_access_enabled = Some(uniform.enabled);
+                update.uniform_bucket_level_access_enabled = Some(uniform.enabled.into());
             }
             if !config.public_access_prevention.is_empty() {
                 update.public_access_prevention_enforced = Some(
@@ -239,7 +239,8 @@ fn apply_iam(
         update.uniform_bucket_level_access_enabled = Some(
             config
                 .and_then(|config| config.uniform_bucket_level_access.as_ref())
-                .is_some_and(|uniform| uniform.enabled),
+                .is_some_and(|uniform| uniform.enabled)
+                .into(),
         );
     }
     Ok(())

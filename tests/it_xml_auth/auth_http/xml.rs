@@ -1107,11 +1107,22 @@ fn uniform_access_settings_fail_closed() {
 fn uniform_access_metadata_and_predefined_acl_rejections() {
     let (_config, _data, server) = fixture();
     let path = "/storage/v1/b/iam-bucket";
-    let conflicting = server.request("PATCH", path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":true}}}"#).success().json();
-    assert_eq!(
-        conflicting["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"],
-        false
-    );
+    // Conflicting aliases: the one that changes the stored setting wins. On a disabled bucket
+    // that enables access, as Cloud Storage did (recorded 2026-11); on an enabled bucket the
+    // same body disables it, as Ruby's setter sends when it resends the alias from GET.
+    let conflict = br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":true}}}"#;
+    for expected in [true, false] {
+        let conflicting = server
+            .request("PATCH", path, ADMIN, conflict)
+            .success()
+            .json();
+        let config = &conflicting["iamConfiguration"];
+        assert_eq!(config["uniformBucketLevelAccess"]["enabled"], expected);
+        assert_eq!(
+            config["bucketPolicyOnly"],
+            config["uniformBucketLevelAccess"]
+        );
+    }
     for value in [
         Value::Null,
         json!({}),

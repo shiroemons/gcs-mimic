@@ -238,7 +238,8 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
             .objects;
         if restriction != "invalid" {
             let update = crate::bucket::BucketMetadataUpdate {
-                uniform_bucket_level_access_enabled: (restriction == "uniform").then_some(true),
+                uniform_bucket_level_access_enabled: (restriction == "uniform")
+                    .then_some(true.into()),
                 public_access_prevention_enforced: (restriction == "public-prevention")
                     .then_some(true),
                 ..Default::default()

@@ -232,12 +232,13 @@ pub(super) enum BucketWrite {
 
 fn apply_uniform_access(
     record: &mut BucketRecord,
-    requested: Option<bool>,
+    requested: Option<crate::bucket::UniformAccessRequest>,
     now: SystemTime,
 ) -> Result<(), CatalogError> {
-    let Some(enabled) = requested else {
+    let Some(request) = requested else {
         return Ok(());
     };
+    let enabled = request.enabled(record.uniform_bucket_level_access_locked_time);
     match (enabled, record.uniform_bucket_level_access_locked_time) {
         (true, None) => {
             record.uniform_bucket_level_access_locked_time =

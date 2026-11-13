@@ -669,7 +669,7 @@ async fn grpc_derived_write_views_respect_acl_permissions_and_uniform_access() {
         .patch_bucket(
             "grpc-io",
             crate::bucket::BucketMetadataUpdate {
-                uniform_bucket_level_access_enabled: Some(true),
+                uniform_bucket_level_access_enabled: Some(true.into()),
                 ..Default::default()
             },
             Default::default(),

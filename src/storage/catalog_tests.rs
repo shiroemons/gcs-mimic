@@ -430,8 +430,8 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
             .unwrap(),
         Some(original.clone())
     );
-    let update = |enabled| BucketMetadataUpdate {
-        uniform_bucket_level_access_enabled: Some(enabled),
+    let update = |enabled: bool| BucketMetadataUpdate {
+        uniform_bucket_level_access_enabled: Some(enabled.into()),
         ..Default::default()
     };
     let conditions = BucketConditions {
