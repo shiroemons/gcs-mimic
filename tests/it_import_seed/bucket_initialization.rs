@@ -1829,7 +1829,7 @@ fn invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutatio
     input(
         &dir.0,
         json!([
-            {"name":"bad-high","softDeletePolicy":{"retentionDurationSeconds":"3155760001"}},
+            {"name":"bad-high","softDeletePolicy":{"retentionDurationSeconds":"7776001"}},
             {"name":"bad-shape","softDeletePolicy":5},
             {"name":"bad-field","softDeletePolicy":{"effectiveTime":"2026-01-01T00:00:00Z"}}
         ]),

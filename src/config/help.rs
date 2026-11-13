@@ -151,7 +151,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::DefaultSoftDeleteRetentionSeconds => (
             "N",
-            "0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..3155760000 retains it; 604800 is the Cloud Storage default)",
+            "0 (new buckets without a softDeletePolicy; 0 keeps no deleted data, 1..7776000 retains it; 604800 is the Cloud Storage default)",
         ),
         Setting::LifecycleExecution => (
             "MODE",

@@ -91,7 +91,8 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     let effective = configured["softDeletePolicy"]["effectiveTime"].clone();
     for invalid in [
         json!(-1),
-        json!(3_155_760_001_u64),
+        json!(7_776_001_u64),
+        json!("7776001"),
         json!("3155760001"),
         json!("9223372036854775808"),
         json!(1.5),
@@ -130,10 +131,10 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         );
     }
     h.clock.advance(Duration::from_secs(1));
-    let increased = policy(&h, 3_155_760_000).await;
+    let increased = policy(&h, 7_776_000).await;
     assert_eq!(
         increased["softDeletePolicy"]["retentionDurationSeconds"],
-        "3155760000"
+        "7776000"
     );
     assert_ne!(increased["softDeletePolicy"]["effectiveTime"], effective);
     let decreased = policy(&h, 604800).await;
@@ -142,7 +143,7 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         increased["softDeletePolicy"]["effectiveTime"]
     );
     // Any retention below the Cloud Storage minimum of seven days is a deliberate local choice.
-    for seconds in [1, 5, 604_799, 7_776_001] {
+    for seconds in [1, 5, 604_799] {
         let short = policy(&h, seconds).await;
         assert_eq!(
             short["softDeletePolicy"]["retentionDurationSeconds"],

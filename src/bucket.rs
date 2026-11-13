@@ -415,8 +415,12 @@ pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass,
     })
 }
 
+/// Cloud Storage's rejection of a soft delete retention outside its range (recorded 2026-11). The
+/// lower bound it names is not enforced locally; see [`SoftDeleteRetention`].
 pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
-    "Soft delete policy must have a retention duration of 0 (disabled) or 1 to 3155760000 seconds.";
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+/// The longest soft delete retention, 90 days in seconds, which Cloud Storage accepts inclusively.
+pub(crate) const MAX_SOFT_DELETE_RETENTION_SECONDS: u64 = 7_776_000;
 pub(crate) const RETENTION_RANGE_MESSAGE: &str =
     "Retention policy must have a retention period greater than 0 and less than 100 years.";
 
@@ -424,9 +428,8 @@ pub(crate) const RETENTION_RANGE_MESSAGE: &str =
 /// API stores and returns it, and it means deletions are permanent.
 ///
 /// Cloud Storage accepts only 0 or 7 to 90 days. The emulator deliberately accepts any shorter
-/// duration too, so local tests can watch deleted data expire without waiting a week. The ceiling
-/// keeps a hard delete time inside the catalog's 64-bit microsecond timestamps for any clock
-/// reading the wire format can represent.
+/// duration too, so local tests can watch deleted data expire without waiting a week. The 90-day
+/// ceiling matches Cloud Storage, which rejected 7776001 seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SoftDeleteRetention(u64);
 
@@ -447,7 +450,7 @@ impl TryFrom<i64> for SoftDeleteRetention {
     fn try_from(seconds: i64) -> Result<Self, CatalogError> {
         u64::try_from(seconds)
             .ok()
-            .filter(|seconds| *seconds <= crate::object::retention::MAX_RETENTION.as_secs())
+            .filter(|seconds| *seconds <= MAX_SOFT_DELETE_RETENTION_SECONDS)
             .map(Self)
             .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
     }

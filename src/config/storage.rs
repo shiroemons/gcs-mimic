@@ -130,7 +130,7 @@ mod tests {
                 load(&["--backend", backend], &[(ENV, "604800")]).unwrap(),
                 NonZeroU64::new(604_800)
             );
-            for seconds in [0, 1, 5, 1_209_600, 3_155_760_000_u64] {
+            for seconds in [0, 1, 5, 1_209_600, 7_776_000_u64] {
                 assert_eq!(
                     load(&["--backend", backend, FLAG, &seconds.to_string()], &[]).unwrap(),
                     NonZeroU64::new(seconds)
@@ -138,7 +138,14 @@ mod tests {
             }
         }
         assert_eq!(load(&[], &[]).unwrap(), None);
-        for rejected in ["3155760001", "18446744073709551616", "-1", "1.5", "week"] {
+        for rejected in [
+            "7776001",
+            "3155760001",
+            "18446744073709551616",
+            "-1",
+            "1.5",
+            "week",
+        ] {
             assert!(load(&[FLAG, rejected], &[]).is_err(), "{rejected}");
         }
     }

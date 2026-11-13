@@ -1570,6 +1570,7 @@ fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
                 json!([]),
                 json!(false),
                 json!({"retentionDurationSeconds":"-1"}),
+                json!({"retentionDurationSeconds":"7776001"}),
                 json!({"retentionDurationSeconds":"3155760001"}),
                 json!({"retentionDurationSeconds":"9223372036854775808"}),
                 json!({"retentionDurationSeconds":"1.5"}),

@@ -343,7 +343,7 @@ mod tests {
             assert_eq!(error.code(), tonic::Code::InvalidArgument);
             assert!(!error.message().contains("retentionPeriod"));
         }
-        for seconds in [-1, 3_155_760_001, i64::MAX] {
+        for seconds in [-1, 7_776_001, 3_155_760_000, i64::MAX] {
             let config = pb::Bucket {
                 soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
                     retention_duration: Some(prost_types::Duration { seconds, nanos: 0 }),
@@ -358,7 +358,7 @@ mod tests {
                 tonic::Code::InvalidArgument
             );
         }
-        for seconds in [0, 1, 5, 604_799, 7_776_001, 3_155_760_000] {
+        for seconds in [0, 1, 5, 604_799, 7_776_000] {
             let config = pb::Bucket {
                 soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
                     retention_duration: Some(prost_types::Duration { seconds, nanos: 0 }),
