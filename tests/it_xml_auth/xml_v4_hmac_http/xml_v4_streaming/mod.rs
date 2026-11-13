@@ -653,7 +653,7 @@ fn invalid_streaming_seed_and_non_object_routes_fail_before_continue_without_pub
         "/test-bucket/new-bucket",
     ] {
         let good = headers(&key, path, 3, Some("aws-chunked"));
-        let mut bad = good.headers.clone();
+        let mut bad = good.headers;
         let signature = bad.find("Signature=").unwrap() + "Signature=".len();
         bad.replace_range(signature..signature + 64, &"0".repeat(64));
         error(&server.raw(&format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 200\r\nExpect: 100-continue\r\n{bad}\r\n"), "PUT"), if path.contains("uploadId") {400} else {403}, if path.contains("uploadId") {"InvalidAuthentication"} else {"SignatureDoesNotMatch"});

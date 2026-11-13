@@ -638,7 +638,7 @@ fn v2_rsa_policy_uses_base64_signature_and_its_own_bucket_coverage_and_expiratio
                 "InvalidArgument",
             );
         }
-        let mut invalid = bound.clone();
+        let mut invalid = bound;
         invalid
             .iter_mut()
             .find(|(name, _)| name == "signature")

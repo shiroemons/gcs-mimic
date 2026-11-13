@@ -3747,7 +3747,7 @@ mod tests {
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
             let args = vec!["--config".into(), file.to_str().unwrap().into()];
             std::fs::write(&file, format!(r#"{{"{setting}":100}}"#)).unwrap();
-            let env = BTreeMap::from([(key.clone(), "200".into())]);
+            let env = BTreeMap::from([(key, "200".into())]);
             assert_precedence(
                 &args,
                 &env,

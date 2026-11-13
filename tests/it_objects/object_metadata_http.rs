@@ -83,7 +83,7 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
         let body = json!({"bucket":"test-bucket", "name":"dir/file", "generation":null,
             "metadata":{"fixture":method}});
         let before = server.request("GET", path, b"").json_ok();
-        let updated = send("", body.clone()).json_ok();
+        let updated = send("", body).json_ok();
         assert_eq!(updated["metadata"], json!({"fixture":method}));
         assert_eq!(
             updated["metageneration"]
