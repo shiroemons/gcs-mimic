@@ -464,7 +464,7 @@ mod tests {
                 "invalidParameter",
             ),
             (
-                "/storage/v1/b/bucket/notificationConfigs?userProject=p",
+                "/storage/v1/b/bucket/notificationConfigs?quotaUser=p",
                 400,
                 "badRequest",
             ),
@@ -480,6 +480,14 @@ mod tests {
                 (status, reason),
                 "{path}"
             );
+        }
+        // Cloud Storage served the billing project on these routes for a bucket without
+        // Requester Pays as if it were absent (case bkt-edges-notification-ids).
+        for path in [
+            "/storage/v1/b/bucket/notificationConfigs?userProject=p",
+            "/storage/v1/b/bucket/notificationConfigs/1?userProject=p",
+        ] {
+            assert!(routed(Method::GET, path).unwrap().is_ok(), "{path}");
         }
     }
 

@@ -1834,7 +1834,7 @@ fn bucket_metadata_conditions(method: &str) {
                 .json_envelope(400, "invalidParameter");
         }
         // The native profile applies predefined ACLs, so only an unknown value is rejected.
-        let mut rejected = vec!["userProject=project"];
+        let mut rejected = vec!["quotaUser=project"];
         if profile == "native" {
             server
                 .request(
@@ -3777,9 +3777,15 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     let empty = server.request("GET", "/storage/v1/b?project=x&fields=", "");
     empty.expect(200);
     assert_eq!(empty.json(), serde_json::json!({}));
+    // The Requester Pays billing project is ignored (case bkt-edges-hmac-keys).
+    let billed = server.request("GET", "/storage/v1/b?project=x&userProject=x", "");
+    billed.expect(200);
+    assert_eq!(
+        billed.json(),
+        server.request("GET", "/storage/v1/b?project=x", "").json()
+    );
     for query in [
         "returnPartialSuccess=true",
-        "userProject=x",
         "oauth_token=x",
         "quotaUser=x",
         "userIp=x",

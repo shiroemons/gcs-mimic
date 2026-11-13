@@ -569,7 +569,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     for query in [
         "destinationPredefinedAcl=publicRead",
         "destinationKmsKeyName=key",
-        "userProject=local",
+        "quotaUser=local",
         "dropContextGroups=custom",
     ] {
         copy(&server, "source", "target", &format!("?{query}"), b"").json_reason(400, "badRequest");

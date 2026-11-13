@@ -357,7 +357,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
     for query in [
         "destinationPredefinedAcl=publicRead",
         "kmsKeyName=key",
-        "userProject=billed",
+        "quotaUser=billed",
         "dropContextGroups=custom",
     ] {
         server

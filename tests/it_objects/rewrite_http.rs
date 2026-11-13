@@ -473,7 +473,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     for query in [
         "destinationKmsKeyName=key",
         "destinationPredefinedAcl=private",
-        "userProject=project",
+        "quotaUser=project",
         "dropContextGroups=custom",
     ] {
         server

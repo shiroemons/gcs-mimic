@@ -221,7 +221,7 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
         ),
         (
             "POST",
-            "acl?userProject=p",
+            "acl?quotaUser=p",
             json!({"entity": "allUsers", "role": "READER"}),
             400,
             "badRequest",

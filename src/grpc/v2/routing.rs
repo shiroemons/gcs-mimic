@@ -6,11 +6,10 @@ pub(super) fn check(
     metadata: &MetadataMap,
     resources: Option<&[(&str, &str)]>,
 ) -> Result<(), Status> {
-    if metadata.contains_key("x-goog-user-project") {
-        return Err(status::unsupported(
-            "x-goog-user-project billing metadata; omit UserProject",
-        ));
-    }
+    // `x-goog-user-project` names the Requester Pays billing project. A gcs-mimic bucket cannot
+    // enable Requester Pays, and Cloud Storage served the JSON parameter on a bucket and a
+    // project without it as if it were absent (cases bkt-edges-hmac-keys and
+    // bkt-edges-notification-ids), so the metadata is ignored here too.
     for metadata in metadata.get_all("x-goog-request-params").iter() {
         let value = metadata.to_str().map_err(|_| {
             Status::invalid_argument(

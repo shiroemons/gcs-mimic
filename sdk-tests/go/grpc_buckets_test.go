@@ -82,11 +82,13 @@ func TestGRPCBuckets(t *testing.T) {
 	if _, err := bucket.UserProject("").Attrs(ctx); err != nil {
 		t.Fatalf("default empty UserProject: %v", err)
 	}
-	if _, err := bucket.UserProject("billing-project").Attrs(ctx); status.Code(err) != codes.Unimplemented || len(status.Convert(err).Details()) != 1 {
-		t.Fatalf("unsupported billing metadata: %v", err)
+	// The Requester Pays billing project is ignored on both transports.
+	if _, err := bucket.UserProject("billing-project").Attrs(ctx); err != nil {
+		t.Fatalf("billing metadata: %v", err)
 	}
-	_, billingErr := jsonClient.Bucket(bucket.BucketName()).UserProject("billing-project").Attrs(ctx)
-	requireStrictError(t, billingErr, 400, "badRequest")
+	if _, err := jsonClient.Bucket(bucket.BucketName()).UserProject("billing-project").Attrs(ctx); err != nil {
+		t.Fatalf("billing parameter: %v", err)
+	}
 	if _, err := bucket.If(storage.BucketConditions{MetagenerationMatch: attrs.MetaGeneration + 1}).Attrs(ctx); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("stale Get condition: %v", err)
 	}

@@ -577,10 +577,18 @@ mod tests {
                 "{query}"
             );
         }
-        assert_eq!(
+        // The Requester Pays billing project is ignored, as on every JSON method.
+        assert!(
             route(
                 Method::GET,
                 "/storage/v1/projects/p/serviceAccount?userProject=p"
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            route(
+                Method::GET,
+                "/storage/v1/projects/p/serviceAccount?quotaUser=p"
             )
             .unwrap_err()
             .reason,

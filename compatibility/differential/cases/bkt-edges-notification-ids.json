@@ -6,8 +6,8 @@
     {"name": "get-non-numeric", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/abc"},
     {"name": "get-zero-padded", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/01"},
     {"name": "delete-non-numeric", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/abc"},
-    {"name": "list-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs", "query": {"userProject": "{project}"}, "expect_status": 200, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
-    {"name": "get-missing-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
-    {"name": "delete-missing-user-project", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}}
+    {"name": "list-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs", "query": {"userProject": "{project}"}, "expect_status": 200},
+    {"name": "get-missing-user-project", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404},
+    {"name": "delete-missing-user-project", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "query": {"userProject": "{project}"}, "expect_status": 404}
   ]
 }

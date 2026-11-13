@@ -723,6 +723,47 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
     }
 }
 
+/// Cloud Storage served the JSON billing project for a bucket without Requester Pays as if it
+/// were absent (cases bkt-edges-hmac-keys and bkt-edges-notification-ids), and a gcs-mimic
+/// bucket cannot enable Requester Pays, so XML operations ignore the query parameter and the
+/// header alike (inferred for XML).
+#[test]
+fn xml_requests_ignore_the_requester_billing_project() {
+    let (_config, _data, server) = fixture();
+    let billing_header = format!("{ADMIN}x-goog-user-project: billing\r\n");
+    let plain = server.get(ADMIN, OBJECT);
+    plain.success();
+    for (headers, path) in [
+        (billing_header.clone(), OBJECT.to_owned()),
+        (ADMIN.to_owned(), format!("{OBJECT}?userProject=billing")),
+    ] {
+        let billed = server.get(&headers, &path);
+        billed.success();
+        assert_eq!(billed.body, plain.body, "{headers} {path}");
+    }
+    server
+        .request(
+            "PUT",
+            &format!("{OBJECT}?userProject=billing"),
+            &billing_header,
+            b"replaced",
+        )
+        .success();
+    assert_eq!(server.get(ADMIN, OBJECT).body, b"replaced");
+    server
+        .get(&billing_header, "/iam-bucket?userProject=billing")
+        .success();
+    server
+        .request(
+            "DELETE",
+            &format!("{OBJECT}?userProject=billing"),
+            &billing_header,
+            b"",
+        )
+        .success();
+    xml_error(&server.get(ADMIN, OBJECT), 404, "NoSuchKey");
+}
+
 #[test]
 fn xml_unsupported_operations_fail_before_reading_a_body() {
     let (_config, _data, server) = fixture();
@@ -736,7 +777,6 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         ("OPTIONS", OBJECT),
         ("GET", "/iam-bucket/object?acl"),
         ("GET", "/iam-bucket/object?uploads"),
-        ("GET", "/iam-bucket/object?userProject=billing"),
     ] {
         let request = format!(
             "{method} {path} HTTP/1.1\r\nHost: local\r\n{ADMIN}Content-Length: 999999\r\n\r\n"
@@ -898,7 +938,6 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     }
     for header in [
         "x-goog-encryption-kms-key-name: key",
-        "x-goog-user-project: p",
         "If-Range: *",
         "x-goog-if-generation-not-match: 1",
     ] {

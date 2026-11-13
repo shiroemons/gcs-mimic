@@ -463,11 +463,20 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         };
         assert_eq!(value["error"]["errors"][0]["reason"], expected, "{query}");
     }
+    // An empty selection selects nothing, as a whitespace one did on a list (case
+    // bkt-edges-fields), and the Requester Pays billing project is ignored.
     for query in [
-        "filter=context-filter",
         "fields=",
         "userProject=local",
         "delimiter=%2F&userProject=local",
+    ] {
+        let (status, value) =
+            server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
+        assert_eq!(status, 200, "{query}: {value}");
+    }
+    for query in [
+        "filter=context-filter",
+        "delimiter=%2F&quotaUser=local",
         "alt=media",
         "oauth_token=x",
         "callback=x",

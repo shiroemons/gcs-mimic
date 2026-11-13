@@ -142,20 +142,20 @@ try {
 
     $runner->run('php-unsupported-fails-fast', function () use ($h, $bucket) {
         // The SDK's default retry policy, independent of the no-retry transfer client.
-        // Requester Pays billing (userProject) is recognized but not modeled locally.
-        $defaultRetries = $h->client($h->token, null)->bucket($bucket->name(), 'local-billing-project');
+        // Copying a soft-deleted object's ACLs on restore is recognized but not modeled locally.
+        $defaultRetries = $h->client($h->token, null)->bucket($bucket->name());
         $started = hrtime(true);
         try {
-            iterator_to_array($defaultRetries->objects(['delimiter' => '/']));
+            $defaultRetries->restore('missing', '1', ['copySourceAcl' => true]);
         } catch (BadRequestException $e) {
             $elapsed = (hrtime(true) - $started) / 1e9;
-            check($elapsed < 3, "userProject waited for retries: $elapsed");
+            check($elapsed < 3, "copySourceAcl waited for retries: $elapsed");
             $body = json_decode($e->getMessage(), true);
             check(($body['error']['errors'][0]['reason'] ?? null) === 'badRequest', 'differs from 400 badRequest: ' . detail($e));
             check(str_contains($e->getMessage(), 'gcs-mimic'), 'lacks actionable diagnostics: ' . detail($e));
-            return 'userProject: 400 badRequest without retries';
+            return 'copySourceAcl: 400 badRequest without retries';
         }
-        throw new RuntimeException('userProject unexpectedly succeeded');
+        throw new RuntimeException('copySourceAcl unexpectedly succeeded');
     });
 
     $runner->run('php-bucket-notifications', function () use ($bucket) {

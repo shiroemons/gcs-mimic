@@ -505,13 +505,17 @@ fn api_key_parameter_is_accepted_and_ignored_on_bucket_routes() {
             let keyed = request(method.clone(), &format!("{path}&key={value}"));
             assert_eq!(keyed.unwrap(), plain, "{method} {value}");
         }
+        // The Requester Pays billing project is ignored the same way (case bkt-edges-hmac-keys).
+        for value in ["", "billing-project"] {
+            let billed = request(method.clone(), &format!("{path}&userProject={value}"));
+            assert_eq!(billed.unwrap(), plain, "{method} userProject={value}");
+        }
         // An accepted key does not admit the parameters that stay unsupported.
         for parameter in [
             "oauth_token",
             "quotaUser",
             "userIp",
             "uploadType",
-            "userProject",
             "callback",
         ] {
             let error =
@@ -534,7 +538,6 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         "quotaUser",
         "userIp",
         "uploadType",
-        "userProject",
         "callback",
     ];
     for (method, path) in [

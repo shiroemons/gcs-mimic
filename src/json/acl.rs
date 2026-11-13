@@ -529,7 +529,7 @@ mod tests {
                 "/storage/v1/b/bucket/o/x/acl?generation=%2B1",
                 "invalidParameter",
             ),
-            ("/storage/v1/b/bucket/acl?userProject=p", "badRequest"),
+            ("/storage/v1/b/bucket/acl?quotaUser=p", "badRequest"),
             (
                 "/storage/v1/b/bucket/acl?fields=unknown",
                 "invalidParameter",
@@ -538,6 +538,12 @@ mod tests {
             let error = route(Method::GET, path).unwrap().unwrap_err();
             assert_eq!(error.reason, reason, "{path}");
         }
+        // The Requester Pays billing project is ignored, as on every JSON method.
+        assert!(
+            route(Method::GET, "/storage/v1/b/bucket/acl?userProject=p")
+                .unwrap()
+                .is_ok()
+        );
         assert!(
             route(
                 Method::GET,

@@ -1,6 +1,6 @@
 //! XML multipart protocol adapter; storage owns session transitions and durable bytes.
 
-use super::{Error, ReadRequest, XmlCode, element, put, signing_parameter};
+use super::{Error, ReadRequest, XmlCode, accepted_parameter, element, put};
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };
@@ -125,7 +125,7 @@ fn numeric(
 }
 
 fn remaining(query: &BTreeMap<String, String>) -> Result<(), Error> {
-    if let Some(name) = query.keys().find(|key| !signing_parameter(key)) {
+    if let Some(name) = query.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(name));
     }
     Ok(())

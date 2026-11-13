@@ -409,12 +409,22 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     server
         .request(
             "DELETE",
-            "/storage/v1/b/test-bucket/o/existing?userProject=billing",
+            "/storage/v1/b/test-bucket/o/existing?quotaUser=billing",
             "",
             b"",
         )
         .json_error(400, "badRequest");
     assert_eq!(server.get("existing?alt=media").body, b"old");
+    // The Requester Pays billing project is ignored, so the delete takes effect.
+    server
+        .request(
+            "DELETE",
+            "/storage/v1/b/test-bucket/o/existing?userProject=billing",
+            "",
+            b"",
+        )
+        .expect(204);
+    server.get("existing").expect(404);
 }
 
 #[test]

@@ -286,37 +286,39 @@ fn hmac_key_listing_filters_pages_and_limits() {
         .json_reason(405, "methodNotAllowed");
 }
 
-/// Requester billing is outside the emulator's scope, so every HMAC key route rejects
-/// `userProject` before changing anything, although Cloud Storage serves the same requests
-/// for a project without Requester Pays (case bkt-edges-hmac-keys, SPEC-SDK-UNSUPPORTED).
+/// Cloud Storage served `userProject` on the HMAC key routes for a project without Requester
+/// Pays as if it were absent (case bkt-edges-hmac-keys), and a gcs-mimic project cannot enable
+/// Requester Pays, so every route ignores it.
 #[test]
-fn hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors() {
+fn hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
-    let access_id = create(&server, "sa%40example.invalid")["metadata"]["accessId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let key = key_path(&access_id);
-    let before = server.request("GET", &key, ADMIN, b"").json_ok();
-    let inactive = json!({"state": "INACTIVE"}).to_string();
-    for (method, target, body) in [
-        (
+    let created = server
+        .request(
             "POST",
-            format!("{KEYS}?serviceAccountEmail=sa%40example.invalid&userProject=local"),
-            "",
-        ),
-        ("GET", format!("{KEYS}?userProject=local"), ""),
-        ("GET", format!("{key}?userProject=local"), ""),
-        ("PUT", format!("{key}?userProject=local"), inactive.as_str()),
-        ("DELETE", format!("{key}?userProject=local"), ""),
-    ] {
-        server
-            .request(method, &target, ADMIN, body.as_bytes())
-            .json_reason(400, "badRequest");
-    }
-    assert_eq!(server.request("GET", &key, ADMIN, b"").json_ok(), before);
-    assert_eq!(listed(&server, ""), [access_id]);
+            &format!("{KEYS}?serviceAccountEmail=sa%40example.invalid&userProject=local"),
+            ADMIN,
+            b"",
+        )
+        .json_ok();
+    let access_id = created["metadata"]["accessId"].as_str().unwrap().to_owned();
+    let key = key_path(&access_id);
+    let billed = format!("{key}?userProject=local");
+    assert_eq!(
+        server.request("GET", &billed, ADMIN, b"").json_ok(),
+        server.request("GET", &key, ADMIN, b"").json_ok()
+    );
+    assert_eq!(listed(&server, "userProject=local"), [access_id]);
+    let inactive = json!({"state": "INACTIVE"}).to_string();
+    let updated = server
+        .request("PUT", &billed, ADMIN, inactive.as_bytes())
+        .json_ok();
+    assert_eq!(updated["state"], "INACTIVE");
+    server.request("DELETE", &billed, ADMIN, b"").expect(204);
+    assert_eq!(
+        server.request("GET", &key, ADMIN, b"").json_ok()["state"],
+        "DELETED"
+    );
 
     // Cloud Storage's wording for maxResults=-1; other non-uint32 values reuse it.
     for value in ["-1", "abc", "4294967296"] {
@@ -387,14 +389,20 @@ fn service_account_is_deterministic_per_project() {
         named["email_address"],
         "service-0@gs-project-accounts.iam.gserviceaccount.com"
     );
-    server
-        .request(
-            "GET",
-            "/storage/v1/projects/p/serviceAccount?userProject=p",
-            "",
-            b"",
-        )
-        .json_reason(400, "badRequest");
+    // The Requester Pays billing project is ignored, as on every JSON method.
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/projects/p/serviceAccount?userProject=p",
+                "",
+                b"",
+            )
+            .json_ok(),
+        server
+            .request("GET", "/storage/v1/projects/p/serviceAccount", "", b"")
+            .json_ok()
+    );
 }
 
 /// A strict server whose principals separate HMAC key administration from storage

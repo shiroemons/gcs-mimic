@@ -122,14 +122,14 @@ test('node-regional-location', async () => {
 test('node-unsupported-fails-fast', async () => {
   // The SDK's default retry policy must not turn an unsupported query into a slow failure.
   const retrying = createStorage(origin, {token, retries: true});
-  // Requester Pays billing (userProject) is recognized but not modeled locally. It is passed per
-  // call: 9.0.0 no longer sends a userProject given to bucket() on getFiles.
-  const billed = {delimiter: '/', userProject: 'local-billing-project'};
+  // Copying a soft-deleted object's ACLs on restore is recognized but not modeled locally.
+  // File#restore sends its options as query parameters, so copySourceAcl reaches the server.
+  const restore = () =>
+    retrying.bucket(bucket.name).file('missing').restore({generation: 1, copySourceAcl: true});
   const started = performance.now();
-  await rejectsWith(400, () => retrying.bucket(bucket.name).getFiles(billed), 'badRequest');
+  await rejectsWith(400, restore, 'badRequest');
   assert(performance.now() - started < 3000, 'unsupported call waited for retries');
-  await assert.rejects(() => retrying.bucket(bucket.name).getFiles(billed),
-    /gcs-mimic/, 'unsupported call lacks actionable diagnostics');
+  await assert.rejects(restore, /gcs-mimic/, 'unsupported call lacks actionable diagnostics');
 });
 
 test('node-bucket-notifications', async () => {

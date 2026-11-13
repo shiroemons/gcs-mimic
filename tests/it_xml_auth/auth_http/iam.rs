@@ -121,9 +121,14 @@ fn test_permissions_validates_route_queries_and_response_fields() {
             "permissions":["storage.objects.get", "storage.objects.create"]
         })
     );
-    server
-        .get("", &format!("{path}?{query}&userProject=project-a"))
-        .auth_error(400, "badRequest");
+    // The Requester Pays billing project is ignored, as on every JSON method.
+    assert_eq!(
+        server
+            .get("", &format!("{path}?{query}&userProject=project-a"))
+            .success()
+            .json(),
+        server.get("", &format!("{path}?{query}")).success().json()
+    );
     server
         .get("", &format!("{path}?{query}&unknown=true"))
         .auth_error(400, "invalidParameter");
@@ -920,13 +925,26 @@ fn iam_rejects_queries_paths_and_bodies() {
             .json();
         assert_eq!(policy["version"], 1, "{version}");
     }
-    for method in ["GET", "PUT"] {
-        for query in ["userProject=project-a", "userProject=", "fields="] {
+    // The billing project is ignored, and an empty selection selects nothing as a whitespace one
+    // did on the IAM policy (case bkt-edges-fields).
+    let policy = server.get(ADMIN, IAM).success().json();
+    for query in ["userProject=project-a", "userProject="] {
+        assert_eq!(
             server
-                .request(method, &format!("{IAM}?{query}"), ADMIN, b"")
-                .auth_error(400, "badRequest");
-        }
+                .get(ADMIN, &format!("{IAM}?{query}"))
+                .success()
+                .json(),
+            policy,
+            "{query}"
+        );
     }
+    assert_eq!(
+        server
+            .get(ADMIN, &format!("{IAM}?fields="))
+            .success()
+            .json(),
+        json!({})
+    );
     server
         .request(
             "PUT",

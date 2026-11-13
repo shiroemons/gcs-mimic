@@ -2,7 +2,7 @@
 //! signed URL, and the session URI it returns. Sessions, transfers and completion are the
 //! shared resumable engine; this adapter only parses XML requests and renders XML responses.
 
-use super::{Error, ObjectPath, XmlCode, put, signing_parameter};
+use super::{Error, ObjectPath, XmlCode, accepted_parameter, put};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
@@ -118,7 +118,7 @@ pub(crate) async fn start(
     // Signing parameters authenticate the request; any other query selects another operation.
     let query =
         auth::signature::xml_query(request.uri().query().unwrap_or_default(), request.headers())?;
-    if let Some(key) = query.keys().find(|key| !signing_parameter(key)) {
+    if let Some(key) = query.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(key));
     }
     let access = ctx

@@ -718,7 +718,7 @@ pub(crate) fn route(
         crate::object::name::validate(&name)
             .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
         if *method == Method::PUT
-            && let Some(key) = query.keys().find(|key| !signing_parameter(key))
+            && let Some(key) = query.keys().find(|key| !accepted_parameter(key))
         {
             return Err(Error::unsupported(key));
         }
@@ -726,7 +726,7 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, MinValue::One))
             .transpose()?;
-        if *method == Method::DELETE && query.keys().any(|key| !signing_parameter(key)) {
+        if *method == Method::DELETE && query.keys().any(|key| !accepted_parameter(key)) {
             return Err(Error::unsupported(
                 "DELETE options; use DELETE /BUCKET/OBJECT with only an optional generation",
             ));
@@ -749,7 +749,7 @@ pub(crate) fn route(
         // parsing; HEAD ignoring unknown parameters is assumed, not recorded.
         let ignores_unknown = matches!(*method, Method::GET | Method::HEAD);
         if let Some(key) = query.keys().find(|key| {
-            !signing_parameter(key)
+            !accepted_parameter(key)
                 && (!ignores_unknown
                     || SUBRESOURCES.contains(&key.as_str())
                     || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str()))
@@ -800,18 +800,23 @@ const SUBRESOURCES: &[&str] = &[
     "uploads",
 ];
 
-/// Query parameters with defined meaning (billing project, preconditions, soft-delete
-/// selection) that this adapter does not implement on an object read. Ignoring them would answer
-/// as if the billing project, condition or selection were absent, so they are rejected like
-/// the `x-goog-user-project` header.
+/// Query parameters with defined meaning (preconditions, soft-delete selection) that this
+/// adapter does not implement on an object read. Ignoring them would answer as if the condition
+/// or selection were absent, so they are rejected.
 const RECOGNIZED_UNSUPPORTED_QUERY: &[&str] = &[
     "ifGenerationMatch",
     "ifGenerationNotMatch",
     "ifMetagenerationMatch",
     "ifMetagenerationNotMatch",
     "softDeleted",
-    "userProject",
 ];
+
+/// The Requester Pays billing project, as a query parameter and as a header. A gcs-mimic bucket
+/// cannot enable Requester Pays, and Cloud Storage served the JSON parameter on a bucket and a
+/// project without it as if it were absent (cases bkt-edges-hmac-keys and
+/// bkt-edges-notification-ids), so every XML operation accepts and ignores both forms too.
+const BILLING_QUERY: &str = "userProject";
+const BILLING_HEADER: &str = "x-goog-user-project";
 
 /// Query names owned by the signature layer, which operation parsing must not read as options.
 /// V4 names match in any ASCII case, as the verifier does. V2 names stay exact, matching the
@@ -819,6 +824,12 @@ const RECOGNIZED_UNSUPPORTED_QUERY: &[&str] = &[
 fn signing_parameter(key: &str) -> bool {
     key.parse::<crate::auth::signature::V4Parameter>().is_ok()
         || crate::auth::signature::V2_PARAMETERS.contains(&key)
+}
+
+/// Query names an operation accepts without reading them as options: the signature layer's own
+/// names and the ignored billing project.
+fn accepted_parameter(key: &str) -> bool {
+    signing_parameter(key) || key == BILLING_QUERY
 }
 
 /// The smallest generation or metageneration a field accepts. Generation 0 in a generation
@@ -842,12 +853,11 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
 }
 
 /// `x-goog-` headers with defined meaning that this adapter does not implement. An object read
-/// that ignored them would answer as if the condition, billing or key were absent.
+/// that ignored them would answer as if the condition or key were absent.
 const RECOGNIZED_UNSUPPORTED_GOOG_HEADERS: &[&str] = &[
     "x-goog-encryption-kms-key-name",
     "x-goog-if-generation-not-match",
     "x-goog-if-metageneration-not-match",
-    "x-goog-user-project",
 ];
 
 /// Reads allow unknown x-goog headers and evaluate HTTP validators after authorization.
@@ -880,6 +890,7 @@ fn custom_time(value: &str) -> Result<String, Error> {
 // These headers have the same meaning on XML reads, PUT and resumable initiation.
 fn is_common_object_header(name: &str) -> bool {
     crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+        || name == BILLING_HEADER
         || matches!(
             name,
             "x-goog-if-generation-match"

@@ -1,6 +1,6 @@
 //! Bounded XML bucket listing over the shared authorized catalog cursor.
 
-use super::{Error, MinValue, ReadRequest, element, number, signing_parameter};
+use super::{Error, MinValue, ReadRequest, accepted_parameter, element, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
@@ -102,7 +102,7 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
         query.cursor = marker_cursor(&marker, generation, &query);
         (marker, generation, None, None)
     };
-    if let Some(key) = values.keys().find(|key| !signing_parameter(key)) {
+    if let Some(key) = values.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(key));
     }
     Ok(Params {

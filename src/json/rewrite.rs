@@ -108,8 +108,9 @@ pub(crate) fn route(
         }
         let mut parameters = parse_query(uri.query().unwrap_or_default())?;
         let token = parameters.remove("rewriteToken");
-        // A rewrite token binds these parameters; an ignored API key must not be one of them.
-        query::ignore_api_key(&mut parameters);
+        // A rewrite token binds these parameters; an ignored API key or billing project must not
+        // be one of them.
+        query::ignore_accepted_parameters(&mut parameters);
         let mut remaining = parameters.clone();
         Fields::take(&mut remaining, "RewriteResponse")?;
         query::common(&mut remaining)?;

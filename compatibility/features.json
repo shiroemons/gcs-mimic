@@ -3520,7 +3520,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one stored or projectPrivate entry (204), returns 404 for an unknown entity and advances bucket metageneration; requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one stored or projectPrivate entry (204), returns 404 for an unknown entity and advances bucket metageneration; requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3591,7 +3591,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -3632,7 +3632,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one BucketAccessControl (stored or projectPrivate) and 404 for an unknown entity; requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one BucketAccessControl (stored or projectPrivate) and 404 for an unknown entity; requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3703,7 +3703,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -3744,7 +3744,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/WRITER/READER), upserts the entity, advances bucket metageneration and returns the entry; Ruby add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/WRITER/READER), upserts the entity, advances bucket metageneration and returns the entry; Ruby add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3815,7 +3815,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -3852,7 +3852,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#bucketAccessControls with stored entries or the projectPrivate default and supports fields; Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#bucketAccessControls with stored entries or the projectPrivate default and supports fields; Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3923,7 +3923,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -3960,7 +3960,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes the role of the path entity, keeps an existing role when role is omitted, adds a new entity only with a role (400 required otherwise) and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes the role of the path entity, keeps an existing role when role is omitted, adds a new entity only with a role (400 required otherwise) and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4031,7 +4031,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -4072,7 +4072,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role, rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go ACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role, rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go ACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4143,7 +4143,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -5719,7 +5719,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject is ignored. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -5747,7 +5747,7 @@
         },
         {
           "id": "QUERY-BODY-METHOD",
-          "description": "Validate path, version, unknown/duplicate/common queries, empty GET body and allowed methods; reject userProject explicitly.",
+          "description": "Validate path, version, unknown/duplicate/common queries, empty GET body and allowed methods; ignore userProject.",
           "result": "PASS",
           "test_ids": [
             "iam::iam_rejects_queries_paths_and_bodies"
@@ -6224,7 +6224,7 @@
         },
         {
           "id": "STORAGE-LAYOUT-PARAMETERS",
-          "description": "prefix leaves the response unchanged; alt=json, prettyPrint and fields (BucketStorageLayout schema) apply; projection, unknown parameters and invalid fields return 400 invalidParameter; userProject and alt=media return the shared 400 badRequest.",
+          "description": "prefix leaves the response unchanged; alt=json, prettyPrint and fields (BucketStorageLayout schema) apply; projection, unknown parameters and invalid fields return 400 invalidParameter; alt=media returns the shared 400 badRequest and userProject is ignored.",
           "result": "PASS",
           "test_ids": [
             "storage_layout_parameters_select_fields_and_scope_the_permission_check"
@@ -7792,7 +7792,7 @@
         },
         {
           "id": "PATCH-QUERIES",
-          "description": "full/noAcl expose the same modeled subset, invalid projection is 400 and userProject is 400 badRequest. The native profile applies predefinedAcl and predefinedDefaultObjectAcl on PATCH, ignores them on GET and ignores the GET-only generation on PATCH, as recorded; the legacy profile keeps these queries separate with 400 badRequest for PATCH-only ACL queries on PATCH and 400 invalidParameter otherwise.",
+          "description": "full/noAcl expose the same modeled subset, invalid projection is 400 and userProject is ignored. The native profile applies predefinedAcl and predefinedDefaultObjectAcl on PATCH, ignores them on GET and ignores the GET-only generation on PATCH, as recorded; the legacy profile keeps these queries separate with 400 badRequest for PATCH-only ACL queries on PATCH and 400 invalidParameter otherwise.",
           "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
@@ -8467,7 +8467,7 @@
         }
       ],
       "known_deviations": [
-        "Recognized unsupported writable fields and the userProject billing query return 400 badRequest, and the legacy profile also rejects predefined ACL queries. Bucket PUT is a separate replacement subset; see JSON-BUCKETS-013.",
+        "Recognized unsupported writable fields return 400 badRequest, the userProject billing query is ignored, and the legacy profile also rejects predefined ACL queries. Bucket PUT is a separate replacement subset; see JSON-BUCKETS-013.",
         "SPEC-BUCKET-PATCH: whole-map null follows general deletion guidance; native null settings, storageClass null/empty rejection, unknown/output-only handling, empty-update revision increment and missing-bucket error order are local choices, not service-observed parity.",
         "Legacy PATCH preserves omitted settings and exposes actual mutable metadata/revisions after mutation, unlike reference omission resets and fixed resources; supports durable versioning beyond reference filesystem capabilities. Same-profile GET round trips pass; native-to-legacy metageneration-1 carry-over can hide class/labels.",
         "Class is default metadata only; no object rewrite/placement/transition, billing, full Google identity, power-loss or new resource/performance guarantee.",
@@ -8570,7 +8570,7 @@
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
-      "notes": "POST b/{bucket}/restore?generation=G (projection optional, empty body) restores an unexpired soft-deleted version in one catalog transaction with its generation, metadata, IAM bindings (new revision), bucket/default object ACL entries and a new incarnation; retained objects return to the bucket but stay soft-deleted, as documented and observed on Cloud Storage. Missing generation 400 required, unknown or expired version 404, live bucket with the same name 409 conflict. Strict mode requires storage.buckets.restore on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md. userProject keeps the shared unsupported response.",
+      "notes": "POST b/{bucket}/restore?generation=G (projection optional, empty body) restores an unexpired soft-deleted version in one catalog transaction with its generation, metadata, IAM bindings (new revision), bucket/default object ACL entries and a new incarnation; retained objects return to the bucket but stay soft-deleted, as documented and observed on Cloud Storage. Missing generation 400 required, unknown or expired version 404, live bucket with the same name 409 conflict. Strict mode requires storage.buckets.restore on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md. userProject is accepted and ignored.",
       "dependencies": [
         "BEHAVIOR-BUCKET-017"
       ],
@@ -8605,7 +8605,7 @@
         },
         {
           "id": "BUCKET-RESTORE-PENDING",
-          "description": "gRPC restore, managed folders, userProject, HNS restore tokens, provider conflict status and error reasons (SPEC-BUCKET-SOFT-DELETE).",
+          "description": "gRPC restore, managed folders, HNS restore tokens, provider conflict status and error reasons (SPEC-BUCKET-SOFT-DELETE).",
           "result": "PENDING",
           "test_ids": []
         }
@@ -8762,7 +8762,7 @@
         },
         {
           "id": "BOUNDS-AND-QUERY",
-          "description": "Enforce 1500 occurrences including duplicates and the 16 MiB body limit, keep stored policies within 1,600 occurrences and 1 MiB whichever API writes them, without growth from repeated ACL edits; validate methods/paths/query and reject userProject explicitly.",
+          "description": "Enforce 1500 occurrences including duplicates and the 16 MiB body limit, keep stored policies within 1,600 occurrences and 1 MiB whichever API writes them, without growth from repeated ACL edits; validate methods/paths/query and ignore userProject.",
           "result": "PASS",
           "test_ids": [
             "stored_policies_are_refused_as_client_errors_past_their_bounds",
@@ -9477,7 +9477,7 @@
         },
         {
           "id": "PUT-QUERIES",
-          "description": "full/noAcl expose the same subset; invalid projection returns 400 invalidParameter and userProject 400 badRequest. The native profile ignores the GET-only generation and softDeleted on PUT and applies predefined ACL queries, as recorded; the legacy profile returns 400 invalidParameter for the GET-only queries and 400 badRequest for predefined ACL queries.",
+          "description": "full/noAcl expose the same subset; invalid projection returns 400 invalidParameter and userProject is ignored. The native profile ignores the GET-only generation and softDeleted on PUT and applies predefined ACL queries, as recorded; the legacy profile returns 400 invalidParameter for the GET-only queries and 400 badRequest for predefined ACL queries.",
           "test_ids": [
             "bucket_put_conditions_and_query_contract",
             "bucket_put_get_only_generation_query_parameter_follows_profile"
@@ -10102,7 +10102,7 @@
         }
       ],
       "known_deviations": [
-        "Recognized unsupported fields and the userProject billing query return the shared non-retryable 400 badRequest, and the legacy profile also rejects predefined ACL queries.",
+        "Recognized unsupported fields return the shared non-retryable 400 badRequest, the userProject billing query is ignored, and the legacy profile also rejects predefined ACL queries.",
         "SPEC-BUCKET-PUT: the legacy profile preserves omitted labels/class/settings as a local SDK compatibility choice, and a native PUT replaces the resource, keeping only the class, soft delete policy and access settings it omits, as recorded; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Omission preservation, explicit null/empty rules, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
         "Native-to-legacy metageneration-1 resources can hide labels/class; same-profile full-resource round trips preserve modeled fields. Actual mutable metadata/revisions are exposed after PUT.",
         "Class is default metadata only; no existing object rewrite, placement, billing, full Google identity, power-loss or new performance/resource claim.",
@@ -10167,7 +10167,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one default entry (204), returns 404 for an unknown entity, advances bucket metageneration and leaves existing objects unchanged. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one default entry (204), returns 404 for an unknown entity, advances bucket metageneration and leaves existing objects unchanged. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10244,7 +10244,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -10285,7 +10285,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl without id/selfLink/bucket (stored or projectPrivate) and 404 for an unknown entity. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl without id/selfLink/bucket (stored or projectPrivate) and 404 for an unknown entity. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10362,7 +10362,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -10403,7 +10403,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER; WRITER fails 400), upserts the entity and advances bucket metageneration; later object generations copy the stored default. Ruby default_acl.add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER; WRITER fails 400), upserts the entity and advances bucket metageneration; later object generations copy the stored default. Ruby default_acl.add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10480,7 +10480,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -10517,7 +10517,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls with stored or projectPrivate entries; bucket ifMetagenerationMatch mismatch returns 412 and ifMetagenerationNotMatch equality returns 304. Go DefaultObjectACL().List and Ruby default_acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: ifMetagenerationMatch, ifMetagenerationNotMatch, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls with stored or projectPrivate entries; bucket ifMetagenerationMatch mismatch returns 412 and ifMetagenerationNotMatch equality returns 304. Go DefaultObjectACL().List and Ruby default_acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket. Query parameters: ifMetagenerationMatch, ifMetagenerationNotMatch, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10594,7 +10594,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, condition responses, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, condition responses, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -10639,7 +10639,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes a default entry role, keeps an existing role when role is omitted, adds a new entity only with a role and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes a default entry role, keeps an existing role when role is omitted, adds a new entity only with a role and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10716,7 +10716,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -10757,7 +10757,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go DefaultObjectACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go DefaultObjectACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject is accepted and ignored. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10834,7 +10834,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -11605,7 +11605,7 @@
         },
         {
           "id": "NOTIF-QUERY-METHODS",
-          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject is ignored; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
           "result": "PASS",
           "test_ids": [
             "json::notifications::tests::routes_methods_paths_and_queries",
@@ -11632,7 +11632,7 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). A delete advances the bucket updated time together with the documented metageneration increment, an effect the provider recording does not cover (SPEC-NOTIFICATION-WIRE). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays.",
+          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). A delete advances the bucket updated time together with the documented metageneration increment, an effect the provider recording does not cover (SPEC-NOTIFICATION-WIRE). userProject is ignored, as Cloud Storage served it for a bucket without Requester Pays.",
           "result": "PASS",
           "test_ids": [
             "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
@@ -11766,14 +11766,6 @@
           ]
         },
         {
-          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "json::notifications::tests::routes_methods_paths_and_queries",
-            "differential-bkt-edges-notification-ids"
-          ]
-        },
-        {
           "text": "Configurations are kept without Google topic or service-agent permission checks; event delivery is the local outbox of EXT-BEH-032/033.",
           "gap": "LOCAL-PUBSUB-DELIVERY",
           "test_ids": [
@@ -11856,7 +11848,7 @@
         },
         {
           "id": "NOTIF-QUERY-METHODS",
-          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject is ignored; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
           "result": "PASS",
           "test_ids": [
             "json::notifications::tests::routes_methods_paths_and_queries",
@@ -11881,7 +11873,7 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). The etag equals the configuration ID, a format the sources do not specify (SPEC-NOTIFICATION-WIRE). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays.",
+          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). The etag equals the configuration ID, a format the sources do not specify (SPEC-NOTIFICATION-WIRE). userProject is ignored, as Cloud Storage served it for a bucket without Requester Pays.",
           "result": "PASS",
           "test_ids": [
             "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
@@ -11996,14 +11988,6 @@
           "gap": "SPEC-NOTIFICATION-WIRE",
           "test_ids": [
             "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
-          ]
-        },
-        {
-          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "json::notifications::tests::routes_methods_paths_and_queries",
-            "differential-bkt-edges-notification-ids"
           ]
         },
         {
@@ -12123,7 +12107,7 @@
         },
         {
           "id": "NOTIF-QUERY-METHODS",
-          "description": "Collection route allows GET/POST (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters and conditional headers are rejected; missing bucket returns 404.",
+          "description": "Collection route allows GET/POST (others 405 with Allow); fields is schema-validated; userProject is ignored; unknown/duplicate parameters and conditional headers are rejected; missing bucket returns 404.",
           "result": "PASS",
           "test_ids": [
             "json::notifications::tests::routes_methods_paths_and_queries",
@@ -12157,7 +12141,7 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Obtain opted-in cloud responses for invalid-field and limit error reasons/messages, duplicate event types, custom-attribute bounds, unknown-field handling and userProject.",
+          "description": "Obtain opted-in cloud responses for invalid-field and limit error reasons/messages, duplicate event types, custom-attribute bounds and unknown-field handling.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -12257,7 +12241,7 @@
         }
       ],
       "known_deviations": [
-        "LOCAL-PUBSUB-DELIVERY: local event delivery does not check Google topic existence or publisher/service-agent permissions. Error reasons/messages, duplicate event-type rejection, attribute bounds, ignored unknown fields, userProject (400 badRequest, unsupported) and bucket updated-time changes remain local choices without cloud wire evidence."
+        "LOCAL-PUBSUB-DELIVERY: local event delivery does not check Google topic existence or publisher/service-agent permissions. Error reasons/messages, duplicate event-type rejection, attribute bounds, ignored unknown fields and bucket updated-time changes remain local choices without cloud wire evidence; userProject is ignored, as recorded on get, list and delete."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12319,7 +12303,7 @@
         },
         {
           "id": "NOTIF-QUERY-METHODS",
-          "description": "Collection route allows GET/POST (others 405 with Allow); fields is validated against the Notifications schema; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "description": "Collection route allows GET/POST (others 405 with Allow); fields is validated against the Notifications schema; userProject is ignored; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
           "result": "PASS",
           "test_ids": [
             "json::notifications::tests::routes_methods_paths_and_queries",
@@ -12346,7 +12330,7 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "An empty listing is the kind alone without items, as Cloud Storage answered (case bkt-notifications). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
+          "description": "An empty listing is the kind alone without items, as Cloud Storage answered (case bkt-notifications). userProject is ignored, as Cloud Storage served it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
           "result": "PASS",
           "test_ids": [
             "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
@@ -12473,14 +12457,6 @@
       ],
       "scoped_differences": [
         {
-          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "json::notifications::tests::routes_methods_paths_and_queries",
-            "differential-bkt-edges-notification-ids"
-          ]
-        },
-        {
           "text": "Configurations are kept without Google topic or service-agent permission checks; event delivery is the local outbox of EXT-BEH-032/033.",
           "gap": "LOCAL-PUBSUB-DELIVERY",
           "test_ids": [
@@ -12524,7 +12500,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one entry of the live or selected generation (204), returns 404 for an unknown entity, object or generation and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one entry of the live or selected generation (204), returns 404 for an unknown entity, object or generation and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12595,7 +12571,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12644,7 +12620,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl of the live or selected generation and 404 for an unknown entity, object or generation. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl of the live or selected generation and 404 for an unknown entity, object or generation. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, entity, object. Query parameters: generation, userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a bucket, default object or object ACL entry for a project-team entity of another project answers 400 `Project \"N\" was not found.`, while any other missing entity answers 404 `The specified key does not exist.` (recorded wording); the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12715,7 +12691,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12764,7 +12740,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER), upserts the entity on the live or selected generation and advances object metageneration; Ruby file.acl.add_reader passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER), upserts the entity on the live or selected generation and advances object metageneration; Ruby file.acl.add_reader passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, object. Query parameters: generation, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12835,7 +12811,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12880,7 +12856,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls for the live or selected generation (inherited, stored or projectPrivate entries); Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls for the live or selected generation (inherited, stored or projectPrivate entries); Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, object. Query parameters: generation, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12975,7 +12951,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13",
@@ -13020,7 +12996,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes an entry role on the live or selected generation, keeps an existing role when role is omitted, adds a new entity only with a role and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes an entry role on the live or selected generation, keeps an existing role when role is omitted, adds a new entity only with a role and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13091,7 +13067,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -13140,7 +13116,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity on the live or selected generation, advancing object metageneration; Go ObjectHandle.ACL().Set passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity on the live or selected generation, advancing object metageneration; Go ObjectHandle.ACL().Set passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject is accepted and ignored. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13211,7 +13187,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -14147,7 +14123,7 @@
         },
         {
           "id": "JSON-OBJECTS-004-UNDECLARED-QUERY",
-          "description": "objects.delete ignores query parameters it does not declare, such as projection and the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, in both profiles, as Cloud Storage did (differential case obj-delete-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as userProject and malformed declared ones are still rejected.",
+          "description": "objects.delete ignores query parameters it does not declare, such as projection and the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, in both profiles, as Cloud Storage did (differential case obj-delete-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as quotaUser and malformed declared ones are still rejected, and userProject is ignored.",
           "result": "PASS",
           "test_ids": [
             "obj_query_002_duplicates_invalid_scalars_and_method_parameters",
@@ -14189,7 +14165,7 @@
         },
         {
           "id": "JSON-OBJECTS-004-PENDING",
-          "description": "Implement broader bucket policies, object IAM/ACLs, retention/temporary holds/soft delete, remaining provider versioning/hold interactions, userProject and production token replay; local versioning/event holds and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and combined/missing-selected-resource/authorization precedence; SPEC-012 local native DELETE 204 success-code selection and exact error/header parity; SPEC-VERSION-DELETE-CONDITIONS remains open.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, retention/temporary holds/soft delete, remaining provider versioning/hold interactions, Requester Pays and production token replay; local versioning/event holds and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and combined/missing-selected-resource/authorization precedence; SPEC-012 local native DELETE 204 success-code selection and exact error/header parity; SPEC-VERSION-DELETE-CONDITIONS remains open.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -15714,7 +15690,7 @@
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. JSON media reads ignore If-Range, as the 2026-11-01 recording showed Cloud Storage doing, while metadata GETs reject a standalone If-Range with a local 400; userProject remains unsupported; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
+        "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. JSON media reads ignore If-Range, as the 2026-11-01 recording showed Cloud Storage doing, while metadata GETs reject a standalone If-Range with a local 400; userProject is ignored; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
@@ -17247,7 +17223,7 @@
         },
         {
           "id": "OBJECT-LIST-UNDECLARED-QUERY",
-          "description": "objects.list ignores query parameters it does not declare, such as the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, in both profiles, as Cloud Storage did (differential case obj-list-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as userProject are still rejected.",
+          "description": "objects.list ignores query parameters it does not declare, such as the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, in both profiles, as Cloud Storage did (differential case obj-list-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as quotaUser are still rejected, and userProject is ignored.",
           "result": "PASS",
           "test_ids": [
             "error_items_name_the_rejected_parameter_or_header",
@@ -17686,7 +17662,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-plus-bucket predefined roles; broader bucket policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter and other recognized unsupported semantics return 400 badRequest as unsupported settings, userProject is ignored, and fields edges follow the recorded selector answers; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and carry only the listing position, so a token reused with another prefix, delimiter or versions flag continues after its name as Cloud Storage did (case obj-list-edges, recorded 2026-11-13); maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
@@ -18997,7 +18973,7 @@
         }
       ],
       "known_deviations": [
-        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, requester billing, contexts/retention and advanced metadata are explicitly rejected, not silently accepted. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
+        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, contexts/retention and advanced metadata are explicitly rejected, not silently accepted; the userProject billing query is ignored. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
       ],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-11-13",
@@ -20099,12 +20075,12 @@
         },
         {
           "id": "HMAC-CREATE-PENDING",
-          "description": "Local contract for choices the sources leave open: the per-account key limit answers 400 badRequest, any syntactically valid serviceAccountEmail is accepted without a directory lookup, and userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses for these remain SPEC-HMAC-WIRE source questions; restrictAuthTypes is an organization policy, not a JSON API field.",
+          "description": "Local contract for choices the sources leave open: the per-account key limit answers 400 badRequest, and any syntactically valid serviceAccountEmail is accepted without a directory lookup; userProject is ignored, as Cloud Storage served it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses for these remain SPEC-HMAC-WIRE source questions; restrictAuthTypes is an organization policy, not a JSON API field.",
           "result": "PASS",
           "test_ids": [
             "hmac_key_listing_filters_pages_and_limits",
             "hmac_key_lifecycle_state_rules_etags_and_restart",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
             "differential-bkt-edges-hmac-keys"
           ]
         }
@@ -20122,7 +20098,7 @@
         "ruby-project-hmac-keys-strict-denied",
         "TestHMACKeysAndServiceAccount",
         "ruby-project-hmac-keys",
-        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
         "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
@@ -20168,8 +20144,16 @@
             "hmac_key_listing_filters_pages_and_limits",
             "concurrent_creation_never_exceeds_the_per_account_limit",
             "previous_schema_migrates_and_keys_survive_reopen",
-            "strict_profile_authorizes_project_resources",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes"
           ]
         },
         {
@@ -20237,14 +20221,6 @@
           "gap": "SPEC-HMAC-WIRE",
           "test_ids": [
             "hmac_key_listing_filters_pages_and_limits"
-          ]
-        },
-        {
-          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
-            "differential-bkt-edges-hmac-keys"
           ]
         }
       ],
@@ -20324,12 +20300,12 @@
         },
         {
           "id": "HMAC-DELETE-PENDING",
-          "description": "Local contract for choices the sources leave open: deleting an ACTIVE or an already DELETED key answers 400 badRequest without change, each deletion retains the newest 128 DELETED keys per project, and userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses and retention remain SPEC-HMAC-WIRE and SPEC-HMAC-RETENTION questions.",
+          "description": "Local contract for choices the sources leave open: deleting an ACTIVE or an already DELETED key answers 400 badRequest without change, and each deletion retains the newest 128 DELETED keys per project; userProject is ignored, as Cloud Storage served it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses and retention remain SPEC-HMAC-WIRE and SPEC-HMAC-RETENTION questions.",
           "result": "PASS",
           "test_ids": [
             "hmac_key_lifecycle_state_rules_etags_and_restart",
             "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
             "differential-bkt-edges-hmac-keys"
           ]
         }
@@ -20342,7 +20318,7 @@
         "TestHMACKeysAndServiceAccount",
         "ruby-project-hmac-keys",
         "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
-        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
         "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
@@ -20378,8 +20354,16 @@
             "routes_hmac_key_and_service_account_methods",
             "hmac_key_listing_filters_pages_and_limits",
             "strict_profile_authorizes_project_resources",
-            "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+            "deleted_key_retention_is_bounded_per_project_without_changing_live_quota"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes"
           ]
         },
         {
@@ -20445,14 +20429,6 @@
           "gap": "SPEC-HMAC-RETENTION",
           "test_ids": [
             "deleted_key_retention_is_bounded_per_project_without_changing_live_quota"
-          ]
-        },
-        {
-          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
-            "differential-bkt-edges-hmac-keys"
           ]
         }
       ],
@@ -20531,11 +20507,11 @@
         },
         {
           "id": "HMAC-GET-PENDING",
-          "description": "An unknown or foreign key answers Cloud Storage's recorded 404 notFound 'Access ID not found in project.' (case bkt-project-resources). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "description": "An unknown or foreign key answers Cloud Storage's recorded 404 notFound 'Access ID not found in project.' (case bkt-project-resources). userProject is ignored, as Cloud Storage served it for a project without Requester Pays (case bkt-edges-hmac-keys).",
           "result": "PASS",
           "test_ids": [
             "hmac_key_lifecycle_state_rules_etags_and_restart",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
             "differential-bkt-project-resources",
             "differential-bkt-edges-hmac-keys"
           ]
@@ -20548,7 +20524,7 @@
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
         "ruby-project-hmac-keys",
-        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
         "differential-bkt-project-resources",
         "differential-bkt-edges-hmac-keys"
       ],
@@ -20584,8 +20560,16 @@
             "hmac_key_lifecycle_state_rules_etags_and_restart",
             "routes_hmac_key_and_service_account_methods",
             "rejects_invalid_methods_and_queries",
-            "strict_profile_authorizes_project_resources",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes"
           ]
         },
         {
@@ -20636,16 +20620,6 @@
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "ruby-project-hmac-keys"
-          ]
-        }
-      ],
-      "scoped_differences": [
-        {
-          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
-            "differential-bkt-edges-hmac-keys"
           ]
         }
       ],
@@ -20726,11 +20700,11 @@
         },
         {
           "id": "HMAC-LIST-PENDING",
-          "description": "An empty listing omits items and a maxResults that is not a uint32 answers Cloud Storage's 400 invalidParameter 'Invalid unsigned integer value' (case bkt-edges-hmac-keys). Without maxResults a page holds up to 1000 keys in access-ID order, choices the sources leave open (SPEC-HMAC-WIRE). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays.",
+          "description": "An empty listing omits items and a maxResults that is not a uint32 answers Cloud Storage's 400 invalidParameter 'Invalid unsigned integer value' (case bkt-edges-hmac-keys). Without maxResults a page holds up to 1000 keys in access-ID order, choices the sources leave open (SPEC-HMAC-WIRE). userProject is ignored, as Cloud Storage served it for a project without Requester Pays.",
           "result": "PASS",
           "test_ids": [
             "hmac_key_listing_filters_pages_and_limits",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
             "differential-bkt-edges-hmac-keys"
           ]
         }
@@ -20744,7 +20718,7 @@
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
         "ruby-project-hmac-keys",
-        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
         "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
@@ -20783,8 +20757,16 @@
             "page_tokens_are_bound_to_the_listing_filters",
             "routes_hmac_key_and_service_account_methods",
             "rejects_invalid_methods_and_queries",
-            "strict_profile_authorizes_project_resources",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes"
           ]
         },
         {
@@ -20843,14 +20825,6 @@
           "gap": "SPEC-HMAC-WIRE",
           "test_ids": [
             "hmac_key_listing_filters_pages_and_limits"
-          ]
-        },
-        {
-          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
-            "differential-bkt-edges-hmac-keys"
           ]
         }
       ],
@@ -20949,12 +20923,12 @@
         },
         {
           "id": "HMAC-UPDATE-PENDING",
-          "description": "A missing state and DELETED answer Cloud Storage's 400 invalid 'Must specify resource.state.' and 'Cannot set state to 'DELETED'.' before the key is looked up (case bkt-edges-hmac-keys). Updating a DELETED key answers 400 badRequest and the etag is an opaque per-key revision, choices the sources leave open (SPEC-HMAC-WIRE). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays.",
+          "description": "A missing state and DELETED answer Cloud Storage's 400 invalid 'Must specify resource.state.' and 'Cannot set state to 'DELETED'.' before the key is looked up (case bkt-edges-hmac-keys). Updating a DELETED key answers 400 badRequest and the etag is an opaque per-key revision, choices the sources leave open (SPEC-HMAC-WIRE). userProject is ignored, as Cloud Storage served it for a project without Requester Pays.",
           "result": "PASS",
           "test_ids": [
             "hmac_key_lifecycle_state_rules_etags_and_restart",
             "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
             "differential-bkt-edges-hmac-keys"
           ]
         }
@@ -20967,7 +20941,7 @@
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
         "ruby-project-hmac-keys",
-        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes",
         "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
@@ -21004,8 +20978,16 @@
             "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
             "routes_hmac_key_and_service_account_methods",
             "concurrent_creation_never_exceeds_the_per_account_limit",
-            "strict_profile_authorizes_project_resources",
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_requests_ignore_requester_billing_and_reject_unsigned_page_sizes"
           ]
         },
         {
@@ -21064,14 +21046,6 @@
           "gap": "SPEC-HMAC-WIRE",
           "test_ids": [
             "hmac_key_lifecycle_state_rules_etags_and_restart"
-          ]
-        },
-        {
-          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
-          "gap": "SPEC-SDK-UNSUPPORTED",
-          "test_ids": [
-            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
-            "differential-bkt-edges-hmac-keys"
           ]
         }
       ],
@@ -21221,7 +21195,7 @@
         }
       ],
       "known_deviations": [
-        "Local projects have no Google project number: named projects map to 0, so they share service-0@gs-project-accounts.iam.gserviceaccount.com. resourcemanager.projects.get is approximated by any local role grant in the project. userProject is rejected as unsupported."
+        "Local projects have no Google project number: named projects map to 0, so they share service-0@gs-project-accounts.iam.gserviceaccount.com. resourcemanager.projects.get is approximated by any local role grant in the project. userProject is ignored."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -21559,7 +21533,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_bucket_get",
-          "description": "Existing/missing buckets, both metageneration conditions, supported masks, unsupported mask ErrorInfo and shared strict authorization including anonymous allUsers grants. Explicit x-goog-user-project is rejected with ErrorInfo while default Go and empty UserProject omit the header and succeed.",
+          "description": "Existing/missing buckets, both metageneration conditions, supported masks, unsupported mask ErrorInfo and shared strict authorization including anonymous allUsers grants. x-goog-user-project is ignored, so an explicit, default or empty UserProject succeeds alike.",
           "result": "PASS",
           "test_ids": [
             "grpc_buckets_crud_conditions_and_masks",
@@ -25899,7 +25873,7 @@
         "Bucket maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
         "The empty-token rule is local; full projection omits ACL/owner.",
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter and other recognized unsupported semantics return 400 badRequest as unsupported settings, userProject is ignored, and fields edges follow the recorded selector answers; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and carry only the listing position, so a token reused with another prefix, delimiter or versions flag continues after its name as Cloud Storage did (case obj-list-edges, recorded 2026-11-13); maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
@@ -31132,7 +31106,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter and other recognized unsupported semantics return 400 badRequest as unsupported settings, userProject is ignored, and fields edges follow the recorded selector answers; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and carry only the listing position, so a token reused with another prefix, delimiter or versions flag continues after its name as Cloud Storage did (case obj-list-edges, recorded 2026-11-13); maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
@@ -36402,10 +36376,10 @@
       "acceptance_cases": [
         {
           "id": "grpc_bucket_routing",
-          "description": "All Storage v2 RPCs reject explicit billing metadata and validate percent-decoded routing keys against request resources, including first stream messages and rewrite continuations. Bucket IDs follow the configured native or legacy profile. Conflicting or malformed metadata is rejected; Go DirectPath diagnostics are accepted. Provider-exact invalid-name statuses remain in SPEC-GRPC-ROUTING-NAMES.",
+          "description": "All Storage v2 RPCs ignore the x-goog-user-project billing metadata, as the JSON API ignores userProject, and validate percent-decoded routing keys against request resources, including first stream messages and rewrite continuations. Bucket IDs follow the configured native or legacy profile. Conflicting or malformed metadata is rejected; Go DirectPath diagnostics are accepted. Provider-exact invalid-name statuses remain in SPEC-GRPC-ROUTING-NAMES.",
           "result": "PASS",
           "test_ids": [
-            "grpc_object_routing_rejects_billing_and_conflicting_buckets",
+            "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
             "grpc_names_follow_the_configured_bucket_profile",
             "routing_validates_all_values_and_resumed_upload_buckets",
             "grpc_buckets_pagination_and_routing",
@@ -36422,7 +36396,7 @@
         }
       ],
       "test_ids": [
-        "grpc_object_routing_rejects_billing_and_conflicting_buckets",
+        "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
         "grpc_names_follow_the_configured_bucket_profile",
         "routing_validates_all_values_and_resumed_upload_buckets",
         "grpc_buckets_pagination_and_routing",
@@ -36436,7 +36410,18 @@
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
-          "test_ids": ["grpc_object_routing_rejects_billing_and_conflicting_buckets", "grpc_names_follow_the_configured_bucket_profile", "routing_validates_all_values_and_resumed_upload_buckets"]
+          "test_ids": ["grpc_names_follow_the_configured_bucket_profile", "routing_validates_all_values_and_resumed_upload_buckets"]
+        },
+        {
+          "command": "cargo test --locked --offline --workspace --no-fail-fast",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
+            "grpc_names_follow_the_configured_bucket_profile",
+            "routing_validates_all_values_and_resumed_upload_buckets"
+          ]
         },
         {
           "command": "RUST_TEST_THREADS=8 just check",
@@ -36863,7 +36848,7 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"SERVICE-PROJECT-XML","description":"Explicit project isolation, lexical names, XML namespace/type, persisted creation dates, empty projects and unchanged results after restart.","result":"PASS","test_ids":["xml_service_lists_only_selected_project_in_order_with_persisted_creation_dates"]},
-        {"id":"SERVICE-BOUNDS-AND-AUTH","description":"Required and duplicate project headers, unsupported/duplicate queries, requester billing, method override and bodies fail; strict anonymous/object-viewer/roleless callers are denied, and V4 signatures bind the project header. Catalog paging reaches the official 1000-result limit even with 1001 buckets.","result":"PASS","test_ids":["xml_service_bounds_and_validates_project_headers_query_and_body","xml_service_strict_authorization_and_signed_project_binding","xml_service_returns_the_official_first_thousand_bucket_limit"]},
+        {"id":"SERVICE-BOUNDS-AND-AUTH","description":"Required and duplicate project headers, unsupported/duplicate queries, method override and bodies fail, while the requester billing header is ignored; strict anonymous/object-viewer/roleless callers are denied, and V4 signatures bind the project header. Catalog paging reaches the official 1000-result limit even with 1001 buckets.","result":"PASS","test_ids":["xml_service_bounds_and_validates_project_headers_query_and_body","xml_service_strict_authorization_and_signed_project_binding","xml_service_returns_the_official_first_thousand_bucket_limit"]},
         {"id":"SERVICE-REMAINING-CONTRACT","description":"Implement and verify interoperable-account default project selection, requester billing, HMAC/header authentication and other declared authentication inputs, provider error/header parity, and relevant SDK/platform integration without removing valid Google input cases.","result":"PENDING","test_ids":[]}
       ],
       "test_ids": ["xml_service_lists_only_selected_project_in_order_with_persisted_creation_dates","xml_service_bounds_and_validates_project_headers_query_and_body","xml_service_strict_authorization_and_signed_project_binding","xml_service_returns_the_official_first_thousand_bucket_limit"],
@@ -37038,7 +37023,7 @@
         {"command":"cargo test --locked --test xml_bucket_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-bucket-operations.md","test_ids":["xml_head_bucket_uses_iam_ubla_and_public_access_prevention"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Bucket ACL legacy-role grants and IAM synchronization are implemented in DESIGN-017; owner/membership and broader policy interactions remain pending. V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); native V2 method and virtual-object cores are accepted under DESIGN-040. Requester billing and V2 virtual bucket queries remain unsupported; complete method-specific authentication, exact provider errors/headers and SDK/platform integration remain unverified."],
+      "known_deviations": ["Bucket ACL legacy-role grants and IAM synchronization are implemented in DESIGN-017; owner/membership and broader policy interactions remain pending. V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); native V2 method and virtual-object cores are accepted under DESIGN-040. V2 virtual bucket queries remain unsupported, and the requester billing header and query are ignored; complete method-specific authentication, exact provider errors/headers and SDK/platform integration remain unverified."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -37103,7 +37088,7 @@
         {"command":"cargo test --locked --lib xml::document::tests","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-bucket-operations.md","test_ids":["xml::document::tests::document_expands_only_standard_entities_once","xml::document::tests::document_bounds_depth_elements_and_namespace_attributes"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Custom placement, encryption, predefined ACLs and requester billing are rejected rather than ignored. No interoperable-account default project exists. Legacy profile creation accepts defaults but rejects explicit location/class. Full owner/ACL effects, remaining signing/authentication, provider-exact wire behavior and SDK/platform integration remain pending. Multipart completion shares the bounded lexical reader with its separate 2 MiB/10000-part state machine; its remaining contract is tracked by EXT-XML-020."],
+      "known_deviations": ["Custom placement, encryption and predefined ACLs are rejected rather than ignored; the requester billing header and query are ignored. No interoperable-account default project exists. Legacy profile creation accepts defaults but rejects explicit location/class. Full owner/ACL effects, remaining signing/authentication, provider-exact wire behavior and SDK/platform integration remain pending. Multipart completion shares the bounded lexical reader with its separate 2 MiB/10000-part state machine; its remaining contract is tracked by EXT-XML-020."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -37166,7 +37151,7 @@
         {"command":"cargo test --locked --test xml_bucket_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-bucket-operations.md","test_ids":["xml_delete_object_enforces_generation_metageneration_versioning_and_signed_binding","xml_delete_object_preserves_soft_deleted_bytes_and_enforces_holds_and_pap"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Selected-generation object ACL READER/OWNER grants do not grant object deletion (DESIGN-017). V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); native V2 method and virtual-object cores are accepted under DESIGN-040. V2 generation selection, requester billing and unsupported optional semantics remain explicit failures. Complete method-specific authentication, provider-exact errors/headers, full policy interactions and SDK/platform/fault integration remain unverified."],
+      "known_deviations": ["Selected-generation object ACL READER/OWNER grants do not grant object deletion (DESIGN-017). V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); native V2 method and virtual-object cores are accepted under DESIGN-040. V2 generation selection and unsupported optional semantics remain explicit failures; the requester billing header and query are ignored. Complete method-specific authentication, provider-exact errors/headers, full policy interactions and SDK/platform/fault integration remain unverified."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -37233,7 +37218,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): object GET ignores unknown query parameters and x-goog-* headers (a recognized but unsupported query such as userProject is still rejected), a multi-range request answers 400, a checksum mismatch reports the side that differs (a CRC32C mismatch names the declared and computed values in Details), and the Range and gzip rejections of a public object are private (cache-control private, max-age=0). SPEC-XML-INPUTS keeps the local choices that the recording does not cover.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): object GET ignores unknown query parameters and x-goog-* headers (a recognized but unsupported query such as softDeleted is still rejected, and userProject is ignored), a multi-range request answers 400, a checksum mismatch reports the side that differs (a CRC32C mismatch names the declared and computed values in Details), and the Range and gzip rejections of a public object are private (cache-control private, max-age=0). SPEC-XML-INPUTS keeps the local choices that the recording does not cover.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -37936,7 +37921,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): HEAD ignores unknown query parameters and x-goog-* headers like GET; recognized but unsupported queries such as userProject are still rejected.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): HEAD ignores unknown query parameters and x-goog-* headers like GET; recognized but unsupported queries such as softDeleted are still rejected, and userProject is ignored.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -38401,7 +38386,7 @@
         },
         {
           "id": "EXT-XML-018-UNSUPPORTED",
-          "description": "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, object lock headers, x-goog-user-project, Content-MD5 and x-goog-hash at initiation, and virtual-host Location form.",
+          "description": "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, object lock headers, Content-MD5 and x-goog-hash at initiation, and virtual-host Location form.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -38426,7 +38411,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, x-goog-object-lock-*, x-goog-user-project, Content-MD5 and x-goog-hash are rejected as unsupported at initiation instead of being applied.",
+        "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, x-goog-object-lock-*, Content-MD5 and x-goog-hash are rejected as unsupported at initiation instead of being applied; x-goog-user-project is ignored.",
         "The session URI is always path-style on the advertised API endpoint, also for a virtual-host initiation, where without an explicit base that endpoint is the configured domain with the same port and the scheme of the connection; Google's virtual-host Location form is unverified.",
         "The response sets Cache-Control: no-store and omits X-GUploader-UploadID."
       ],
@@ -38689,7 +38674,7 @@
         },
         {
           "id": "EXT-XML-022-UNSUPPORTED",
-          "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, requester billing, retention/hold, resumable, copy, signing/payload, a malformed custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 400 XML InvalidArgument.",
+          "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, retention/hold, resumable, copy, signing/payload, a malformed custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 400 XML InvalidArgument.",
           "result": "PASS",
           "test_ids": [
             "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"
@@ -39172,7 +39157,7 @@
         }
       ],
       "known_deviations": [
-        "Full official PUT remains PARTIAL: encryption, requester billing, storage-class overrides, retention/explicit holds and other advanced variants are explicitly rejected, not implemented.",
+        "Full official PUT remains PARTIAL: encryption, storage-class overrides, retention/explicit holds and other advanced variants are explicitly rejected, not implemented; the requester billing header and query are ignored.",
         "SPEC-XML-PUT-EDGES: CRC32C malformed values use local 400 InvalidDigest rather than the separately documented InvalidCrc, and all checksum mismatches use BadDigest; duplicate/conflicting declarations, non-ASCII/custom metadata accounting, framing/trailers, exact headers and mixed-error precedence need provider evidence.",
         "Existing SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017 local addressing, unknown-input, ETag and authentication/permission precedence rules apply unchanged; retry tokens require generation match without response replay.",
         "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and actual signed-browser execution remain unverified.",

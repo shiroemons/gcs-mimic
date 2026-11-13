@@ -193,10 +193,12 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     begin
       # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.
       api.request_options.retries = 3
-      # Requester Pays billing (userProject) is recognized but not modeled locally.
-      billed = storage.bucket(bucket.name, skip_lookup: true, user_project: "local-billing-project")
+      # Customer-managed encryption (kmsKeyName) is recognized but not modeled locally. Restoring
+      # with copy_source_acl, the Go probe, cannot be used here: Bucket#restore_file maps the
+      # boolean through File::Acl.predefined_rule_for and so never sends it.
+      kms_key = "projects/local-project/locations/us/keyRings/ring/cryptoKeys/key"
       {
-        "userProject" => -> { billed.files(delimiter: "/") }
+        "kmsKeyName" => -> { bucket.create_file StringIO.new("x"), "unsupported-kms", kms_key: kms_key }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin

@@ -87,8 +87,14 @@ fn common(
     object: Option<&pb::CommonObjectRequestParams>,
 ) -> Result<(), Status> {
     const MESSAGE: &str =
-        "legacy common request parameters; omit billing, quota, field selection and encryption";
-    validate::common(params, MESSAGE)?;
+        "legacy common request parameters; omit quota, field selection and encryption";
+    // The Requester Pays billing project is ignored, like the `x-goog-user-project` metadata;
+    // every other field stays rejected.
+    let params = params.map(|params| pb::CommonRequestParams {
+        user_project: String::new(),
+        ..params.clone()
+    });
+    validate::common(params.as_ref(), MESSAGE)?;
     validate::common(object, MESSAGE)
 }
 
@@ -241,11 +247,9 @@ impl Storage {
                     "legacy routing metadata; put bucket and object in the request and omit x-goog-request-params",
                 ));
             }
-            if metadata.contains_key("x-goog-user-project") {
-                return Err(unsupported(
-                    "legacy billing metadata; omit x-goog-user-project",
-                ));
-            }
+            // `x-goog-user-project` and `CommonRequestParams.user_project` name the Requester
+            // Pays billing project, which a gcs-mimic bucket cannot enable, so both are ignored
+            // as in the JSON API.
             // gRPC has no trusted listener, so a call without credentials is always anonymous.
             self.state
                 .auth

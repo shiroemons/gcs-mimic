@@ -1887,16 +1887,15 @@ mod tests {
             .get_bucket(Request::new(get("public-bucket")), caller)
             .await
             .unwrap();
+        // The Requester Pays billing project is ignored, as in the JSON API.
         for value in ["", "billing-project"] {
             let mut request = Request::new(get("public-bucket"));
             request
                 .metadata_mut()
                 .insert("x-goog-user-project", value.parse().unwrap());
-            let error = pb::storage_server::Storage::get_bucket(&storage, request)
+            pb::storage_server::Storage::get_bucket(&storage, request)
                 .await
-                .unwrap_err();
-            assert_eq!(error.code(), Code::Unimplemented);
-            assert!(!error.details().is_empty());
+                .unwrap();
         }
         storage
             .delete_bucket(
@@ -1924,7 +1923,7 @@ mod tests {
             Code::Unavailable
         );
         assert_eq!(
-            Status::from(json::JsonError::unsupported("userProject")).code(),
+            Status::from(json::JsonError::unsupported("quotaUser")).code(),
             Code::Unimplemented
         );
         storage.state.catalog.close().await.unwrap();

@@ -66,9 +66,6 @@ pub(crate) fn test_permissions_query(
         );
     }
     let mut query = query::parse_query(&rest.join("&"))?;
-    if query.get("userProject").is_some_and(String::is_empty) {
-        query.remove("userProject");
-    }
     let fields = Fields::take(&mut query, "TestIamPermissionsResponse")?;
     query::common(&mut query)?;
     query::finish(&query)?;

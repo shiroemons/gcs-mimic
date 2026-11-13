@@ -6,9 +6,9 @@
     {"name": "list", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys"},
     {"name": "list-max-results-zero", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys", "query": {"maxResults": "0"}},
     {"name": "list-max-results-negative", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys", "query": {"maxResults": "-1"}},
-    {"name": "list-user-project", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys", "query": {"userProject": "{project}"}, "expect_status": 200, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
-    {"name": "get-missing-user-project", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
-    {"name": "delete-missing-user-project", "method": "DELETE", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "query": {"userProject": "{project}"}, "expect_status": 404, "local_choice": {"reason": "Requester billing is outside gcs-mimic's scope, so it rejects userProject with 400 badRequest; see SPEC-SDK-UNSUPPORTED.", "mimic_status": 400}},
+    {"name": "list-user-project", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys", "query": {"userProject": "{project}"}, "expect_status": 200},
+    {"name": "get-missing-user-project", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "query": {"userProject": "{project}"}, "expect_status": 404},
+    {"name": "delete-missing-user-project", "method": "DELETE", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "query": {"userProject": "{project}"}, "expect_status": 404},
     {"name": "update-missing-without-state", "method": "PUT", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "body": {}},
     {"name": "update-missing-to-deleted", "method": "PUT", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "body": {"state": "DELETED"}}
   ]

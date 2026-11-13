@@ -1,6 +1,6 @@
 //! XML bucket operations reuse the shared project and bucket authorization decisions.
 
-use super::{Error, ErrorBody, ObjectPath, XmlCode, element, signing_parameter};
+use super::{Error, ErrorBody, ObjectPath, XmlCode, accepted_parameter, element};
 use crate::{
     auth, json,
     object::ObjectConditions,
@@ -170,7 +170,7 @@ fn validate_query(uri: &Uri, bucket: &str) -> Result<(), Error> {
             "V2 virtual-host bucket requests; use V4 signing",
         ));
     }
-    if let Some(key) = query.keys().find(|key| !signing_parameter(key)) {
+    if let Some(key) = query.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(key));
     }
     Ok(())

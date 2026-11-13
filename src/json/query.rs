@@ -591,32 +591,36 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonErr
 }
 
 /// Parameters every JSON method may carry and gcs-mimic does not implement. Accepting one would
-/// report success for Requester Pays billing, a query token, quota attribution or JSONP that
-/// never happened.
-const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] = &[
-    "userProject",
-    "oauth_token",
-    "quotaUser",
-    "userIp",
-    "callback",
-];
+/// report success for a query token, quota attribution or JSONP that never happened.
+const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] =
+    &["oauth_token", "quotaUser", "userIp", "callback"];
 
-/// Discards the `key` standard parameter. Google uses an API key for quota attribution, never as
-/// a credential, and anonymous gsutil sends one on every request, so its value is not checked
-/// and can change neither the caller nor the result.
-pub(super) fn ignore_api_key(query: &mut BTreeMap<String, String>) {
-    query.remove("key");
+/// Standard parameters whose value can change neither the caller nor the result here, so they
+/// are discarded unchecked:
+///
+/// - `key`: Google uses an API key for quota attribution, never as a credential, and anonymous
+///   gsutil sends one on every request.
+/// - `userProject`: it names the project billed for a Requester Pays bucket. A gcs-mimic bucket
+///   cannot enable Requester Pays, and Cloud Storage served the parameter on a bucket and a
+///   project without it as if it were absent (cases bkt-edges-hmac-keys and
+///   bkt-edges-notification-ids).
+const IGNORED_STANDARD_PARAMETERS: &[&str] = &["key", "userProject"];
+
+pub(super) fn ignore_accepted_parameters(query: &mut BTreeMap<String, String>) {
+    for name in IGNORED_STANDARD_PARAMETERS {
+        query.remove(*name);
+    }
 }
 
-/// Applies the standard parameters a route shares with every other JSON method: discards `key`,
-/// then rejects `route_specific` followed by the standard parameters gcs-mimic does not
-/// implement. `rejection` words the error for the route's API surface.
+/// Applies the standard parameters a route shares with every other JSON method: discards the
+/// ignored ones, then rejects `route_specific` followed by the standard parameters gcs-mimic
+/// does not implement. `rejection` words the error for the route's API surface.
 pub(super) fn standard_parameters(
     query: &mut BTreeMap<String, String>,
     route_specific: &[&str],
     rejection: fn(&str) -> JsonError,
 ) -> Result<(), JsonError> {
-    ignore_api_key(query);
+    ignore_accepted_parameters(query);
     route_specific
         .iter()
         .chain(UNSUPPORTED_STANDARD_PARAMETERS)

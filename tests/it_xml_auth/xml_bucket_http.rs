@@ -170,11 +170,6 @@ fn xml_service_bounds_and_validates_project_headers_query_and_body() {
         ("/", PROJECT, "x"),
         (
             "/",
-            "x-goog-project-id: project-a\r\nx-goog-user-project: billed\r\n",
-            "",
-        ),
-        (
-            "/",
             "x-goog-project-id: project-a\r\nx-http-method-override: GET\r\n",
             "",
         ),
@@ -183,6 +178,14 @@ fn xml_service_bounds_and_validates_project_headers_query_and_body() {
         reply.expect_with(400, format_args!("{path} {headers}: {}", reply.body));
         assert!(reply.body.contains("<Error>"), "{}", reply.body);
     }
+    // The Requester Pays billing header is ignored, as the JSON billing parameter is.
+    let billed = server.request(
+        "GET",
+        "/",
+        "x-goog-project-id: project-a\r\nx-goog-user-project: billed\r\n",
+        "",
+    );
+    billed.expect_with(200, format_args!("{}", billed.body));
 }
 
 #[test]

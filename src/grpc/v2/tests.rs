@@ -104,7 +104,7 @@ async fn routed_call<M: prost::Message>(
 }
 
 #[tokio::test]
-async fn grpc_object_routing_rejects_billing_and_conflicting_buckets() {
+async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
     let dir = TestDir::new();
     let state = Arc::new(State::for_test(
         Catalog::open(&dir.0).await.unwrap(),
@@ -133,6 +133,7 @@ async fn grpc_object_routing_rejects_billing_and_conflicting_buckets() {
         finish_write: true,
         ..Default::default()
     };
+    // The Requester Pays billing project is ignored, so each call reaches the missing bucket.
     for header in [
         ("x-goog-user-project", ""),
         ("x-goog-user-project", "billing-project"),
@@ -154,7 +155,7 @@ async fn grpc_object_routing_rejects_billing_and_conflicting_buckets() {
             )
             .await,
         ] {
-            assert_eq!(status.code(), tonic::Code::Unimplemented, "{status}");
+            assert_eq!(status.code(), tonic::Code::NotFound, "{status}");
         }
     }
     for value in ["bucket=projects%2F_%2Fbuckets%2Fother-bucket", "bucket=bad"] {

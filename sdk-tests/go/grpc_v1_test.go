@@ -292,9 +292,13 @@ func TestGRPCV1LegacySafety(t *testing.T) {
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("patch precondition=%v", err)
 	}
-	_, err = client.GetObject(ctx, &pb.GetObjectRequest{Bucket: bucket.BucketName(), Object: "existing", CommonRequestParams: &pb.CommonRequestParams{UserProject: "billing"}})
-	if status.Code(err) != codes.Unimplemented || len(status.Convert(err).Details()) == 0 {
+	// The Requester Pays billing project is ignored, as in the JSON API; quota attribution is not.
+	if _, err = client.GetObject(ctx, &pb.GetObjectRequest{Bucket: bucket.BucketName(), Object: "existing", CommonRequestParams: &pb.CommonRequestParams{UserProject: "billing"}}); err != nil {
 		t.Fatalf("billing=%v", err)
+	}
+	_, err = client.GetObject(ctx, &pb.GetObjectRequest{Bucket: bucket.BucketName(), Object: "existing", CommonRequestParams: &pb.CommonRequestParams{QuotaUser: "quota"}})
+	if status.Code(err) != codes.Unimplemented || len(status.Convert(err).Details()) == 0 {
+		t.Fatalf("quota=%v", err)
 	}
 }
 

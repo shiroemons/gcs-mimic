@@ -429,7 +429,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
         "oauth_token",
         "quotaUser",
         "userIp",
-        "userProject",
         "callback",
         "restoreToken",
     ] {
@@ -503,14 +502,17 @@ fn api_key_parameter_is_accepted_and_ignored_on_object_routes() {
             let keyed = request(method.clone(), &format!("{path}&key={value}"));
             assert_eq!(keyed.unwrap(), plain, "{method} {path} {value}");
         }
+        // The Requester Pays billing project is ignored the same way (case bkt-edges-hmac-keys).
+        for value in ["", "billing-project"] {
+            let billed = request(method.clone(), &format!("{path}&userProject={value}"));
+            assert_eq!(
+                billed.unwrap(),
+                plain,
+                "{method} {path} userProject={value}"
+            );
+        }
         // An accepted key does not admit the parameters that stay unsupported.
-        for parameter in [
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "userProject",
-            "callback",
-        ] {
+        for parameter in ["oauth_token", "quotaUser", "userIp", "callback"] {
             let error =
                 request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
             assert_eq!(
@@ -603,10 +605,12 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
         )
         .is_ok()
     );
-    // objects.delete ignores parameters it does not declare, as Cloud Storage did; recognized
-    // but unsupported standard parameters and malformed declared ones are still rejected.
+    // objects.delete ignores parameters it does not declare, as Cloud Storage did, and the
+    // billing project like every method; recognized but unsupported standard parameters and
+    // malformed declared ones are still rejected.
     let plain_delete = request(Method::DELETE, "/storage/v1/b/abc/o/file").unwrap();
     for query in [
+        "userProject=p",
         "projection=noAcl",
         "softDeleted=false",
         "name=file",
@@ -619,7 +623,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
             "{query}"
         );
     }
-    for query in ["userProject=p", "generation=x", "ifGenerationMatch=x"] {
+    for query in ["quotaUser=p", "generation=x", "ifGenerationMatch=x"] {
         assert!(
             request(Method::DELETE, &format!("/storage/v1/b/abc/o/file?{query}")).is_err(),
             "{query}"
