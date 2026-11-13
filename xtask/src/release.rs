@@ -228,7 +228,7 @@ fn native_notice_names(target: &str) -> Vec<&'static str> {
 }
 
 fn check_native_toolchain(target: &str, rustc: &str) -> Result<()> {
-    if target.ends_with("-musl") && !rustc.starts_with("rustc 1.99.1 (") {
+    if target.ends_with("-musl") && !rustc.starts_with("rustc 1.100.0 (") {
         return Err("review the bundled musl version and notices for this Rust toolchain".into());
     }
     Ok(())
@@ -600,10 +600,10 @@ mod tests {
     #[test]
     fn native_notice_requirements_follow_the_target_runtime() {
         assert!(
-            check_native_toolchain("aarch64-unknown-linux-musl", "rustc 1.99.1 (hash)").is_ok()
+            check_native_toolchain("aarch64-unknown-linux-musl", "rustc 1.100.0 (hash)").is_ok()
         );
         assert!(
-            check_native_toolchain("aarch64-unknown-linux-musl", "rustc 1.100.0 (hash)").is_err()
+            check_native_toolchain("aarch64-unknown-linux-musl", "rustc 1.101.0 (hash)").is_err()
         );
         assert!(check_native_toolchain("aarch64-apple-darwin", "rustc 1.100.0 (hash)").is_ok());
         assert!(native_notice_names("aarch64-apple-darwin").is_empty());

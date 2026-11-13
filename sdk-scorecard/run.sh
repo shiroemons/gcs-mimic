@@ -46,7 +46,7 @@ php_image=composer:2.11.2@sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb
 # The Rust SDK trusts only the operating system's roots. On macOS that is the Keychain, which
 # ignores SSL_CERT_FILE, so the probe cannot trust the scorecard CA there; it runs in this
 # Linux image on every host instead. The pin matches the Dockerfile's build image.
-rust_image=rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7
+rust_image=rust:1.100.0-slim-trixie@sha256:e9d95b74296f7126a83ae3d041aeaba1ff4c478f13abc5cc034fcf7c131c3d4a
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/sdk-scorecard.XXXXXX")
 server_pid=''

@@ -1582,11 +1582,11 @@ unset GCSM_IMAGE GCSM_PORT GCS_MIMIC_API_BASE_URL
 ## Verification and troubleshooting
 
 ```text
-cargo +1.99.1 test --workspace --locked
-cargo +1.99.1 fmt --all --check
-cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
-cargo +1.99.1 xtask lint
-cargo +1.99.1 xtask compatibility check
+cargo +1.100.0 test --workspace --locked
+cargo +1.100.0 fmt --all --check
+cargo +1.100.0 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.100.0 xtask lint
+cargo +1.100.0 xtask compatibility check
 bash scripts/smoke-containers.sh
 ```
 

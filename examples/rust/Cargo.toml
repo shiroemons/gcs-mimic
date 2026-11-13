@@ -2,7 +2,7 @@
 name = "gcs-mimic-rust-example"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 publish = false
 
 # A standalone example: it must not join the gcs-mimic workspace or share its lockfile.

@@ -7,10 +7,10 @@ native journeys build their own binary and run from the repository root.
 
 ## Native binary and configuration
 
-Build with Rust 1.99.1 and the committed lockfile:
+Build with Rust 1.100.0 and the committed lockfile:
 
 ```sh
-cargo +1.99.1 build --release --locked --bin gcs-mimic
+cargo +1.100.0 build --release --locked --bin gcs-mimic
 native_dir=$(mktemp -d)
 ./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
   > "$native_dir/server.log" 2>&1 &

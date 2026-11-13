@@ -98,7 +98,7 @@ images and apt packages can change even under fixed runner labels. The current
 workflow therefore supports traceable locked builds, not byte-identical rebuilds.
 Refresh native runtime notices whenever compiler or system runtime inputs change.
 Missing notice inputs stop packaging.
-The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must review
+The musl notice input is reviewed for Rust 1.100.0; a compiler upgrade must review
 and advance that version guard along with the bundled runtime's notices.
 
 Release assets include one archive per release-matrix target and `SHA256SUMS`.

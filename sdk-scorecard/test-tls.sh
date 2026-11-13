@@ -10,7 +10,7 @@ export SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem"
 php_image=composer:2.11.2@sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb9a4beb4dcd8625684
 # Keep this pin identical to sdk-scorecard/run.sh. The Rust SDK cannot trust the test CA on
 # macOS (it uses the Keychain and ignores SSL_CERT_FILE), so its check runs in this Linux image.
-rust_image=rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7
+rust_image=rust:1.100.0-slim-trixie@sha256:e9d95b74296f7126a83ae3d041aeaba1ff4c478f13abc5cc034fcf7c131c3d4a
 rust_volume="scorecard-rust-tls-target-$$"
 server_pid=''
 cleanup() {

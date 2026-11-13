@@ -1,6 +1,6 @@
 # Rust example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.22.0. Requires Rust 1.99.1 (selected by the repository's `rust-toolchain.toml`).
+Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.22.0. Requires Rust 1.100.0 (selected by the repository's `rust-toolchain.toml`).
 
 ## Start gcs-mimic
 

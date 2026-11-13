@@ -918,3 +918,39 @@ API v0.313.0 lists regenerated Discovery clients only, its BSD-3-Clause LICENSE 
 - `GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.19.0 bash scripts/strict-recipe-browser.sh` printed `PASS: strict local recipe browser check completed` with Node 24.22.3.
 - `cargo clippy --locked --all-targets -- -D warnings` passed in `sdk-scorecard/rust` and `examples/rust`; `go vet ./...` and `go build ./...` passed in `sdk-scorecard/go` and `examples/go`, and `go test ./...` passed in `sdk-scorecard/go`. The scorecard itself was not run.
 - `cargo xtask dependencies check` at `2026-11-12T02:18:23Z` exited 0 with 129 `CURRENT` lines; fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`, and Composer `latest` differed only on linux/riscv64. The release-scoped check exited 0 with 41 `CURRENT` lines.
+
+## Rust 1.100.0
+
+Rust 1.100.0 was released on 2026-11-12 ([announcement](https://blog.rust-lang.org/2026/11/12/Rust-1.100.0/)). The official stable channel manifest, dated 2026-11-12, names `1.100.0 (0ef1bc386 2026-11-09)`. No new edition was released, so the crates stay on edition 2024.
+
+| Input | Previous | Adopted |
+| --- | --- | --- |
+| Toolchain (`rust-toolchain.toml`) | 1.99.1 | 1.100.0, with rustfmt and clippy |
+| `rust-version` of the application, `sdk-tests/rust`, `sdk-scorecard/rust` and `examples/rust` | 1.99.1 | 1.100.0 |
+| Build image `rust:<version>-slim-trixie` (`Dockerfile`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh`) | 1.99.1, index `sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7` | 1.100.0, index `sha256:e9d95b74296f7126a83ae3d041aeaba1ff4c478f13abc5cc034fcf7c131c3d4a`; linux/amd64 `sha256:4b68057dc8c103af4fa66b5cd29f21b18afec79fadfcd8fb91e295e939f0690c`, linux/arm64 `sha256:11acfd0f07018a7c60d33b5e95618275feb39e465c4fbc9a73b438b1ee1e43ce` |
+| musl guard in `xtask/src/release.rs` | `rustc 1.99.1` | `rustc 1.100.0` |
+
+### Inputs reviewed
+
+- Both platform images of the new tag are also those of `slim-trixie`, report `rustc 1.100.0 (0ef1bc386 2026-11-09)` and `cargo 1.100.0 (3acc79c0c 2026-11-05)`, and record the Debian snapshot `20261104T212339Z`, so the musl and socat pins stay the same.
+- `src/ci/docker/scripts/musl.sh` sets `MUSL=musl-1.2.5` at both the `1.99.1` and the `1.100.0` tags of rust-lang/rust. The bundled musl source archive and notices therefore stay the same, and only the toolchain guard advances.
+- Clippy 1.100.0 found four clones in test code whose originals were not used again (`redundant_clone`, which the project already denies); they are removed. Production code needed no change, and the production lint gate reports no new or ratcheted finding.
+- `sdk-tests/rust/run.sh` and `examples/rust/run.sh` built with whatever `RUSTUP_TOOLCHAIN` the caller set, unlike the other builds, which drop it so that `rust-toolchain.toml` decides. A global override of 1.99.1 made the Rust SDK suite fail against the new `rust-version`; both runners now drop the variable.
+
+### Validation performed
+
+| Command or check | Result |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets` | PASS after the clone removals |
+| `cargo xtask lint` | PASS: 0 new production violations, 0 ratcheted findings |
+| `just pre-push`, Rust and shell checks | PASS in 11m58s: 3423 Rust tests in 16 binaries, 0 failed, 1 ignored; formatting, Clippy and the production lint gate on the host and on `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`; documentation and script checks |
+| `just check-sdk` | PASS: Go, Ruby, Node.js, Python, PHP, Java, .NET (net10.0 and net11.0) and Rust; the Rust suite built with 1.100.0 and `official-rust-http` and `arrow-object-store` passed. Skipped by their own conditions: Go V2 RSA signing and two Node.js cases need HTTPS, and one Node.js case runs in the strict profile only |
+| `just check-containers` | PASS: `linux/amd64` and `linux/arm64` images built from the new build image, and each passed all seven smoke checks |
+| `cargo clippy --locked --all-targets -- -D warnings` in `sdk-tests/rust`, `sdk-scorecard/rust` and `examples/rust` | PASS |
+| `cargo test --locked -p xtask` | PASS: 236 tests |
+| `cargo xtask dependencies check` at `2026-11-13T00:24:39Z` | Exit 1 with 121 `CURRENT` lines. `rust` and both Rust image tags are `CURRENT`; `slim-trixie` differs from the pinned index only on linux/riscv64 |
+| `cargo xtask dependencies check --scope release` at `2026-11-13T00:25:58Z` | Exit 1 with 39 `CURRENT` lines |
+
+Both checks still report updates that this refresh does not adopt: the release inputs prost and prost-types 0.14.5 → 0.14.6, and the development-only google.golang.org/api v0.313.0 → v0.314.0 in three Go modules and @google-cloud/storage 8.4.0 → 9.0.0, a major release, in three npm manifests. No exception is recorded.
+
+`just pre-push` first stopped in the Rust SDK suite, because the global toolchain override described above selected 1.99.1; after the runner fix, `just check-sdk` and `just check-containers` were rerun separately rather than as one `just pre-push`. The `examples/rust` program was not run against a server, and the release builds of the eight native archives run only on a release tag.

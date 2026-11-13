@@ -9,7 +9,7 @@ and the [recorded investigations and decisions](evidence/read-optimization-summa
 They cover workload preparation, CPU profiles, syscall tracing, waiting and
 measurement limits; they are not a routine feature benchmark gate.
 
-Requires rustup and curl for the explicit online freshness check. A host Python is not required: the Python SDK suite runs on the pinned Python that uv provides. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
+Requires rustup and curl for the explicit online freshness check. A host Python is not required: the Python SDK suite runs on the pinned Python that uv provides. Rust 1.100.0 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
 ## Development commands and push checks
 
@@ -618,21 +618,21 @@ tag-driven binary Release. `just check` runs its offline publication-policy
 tests; it does not authenticate to or write to a registry.
 
 ```sh
-rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
-cargo +1.99.1 fetch --locked
-cargo +1.99.1 xtask dependencies check
-cargo +1.99.1 xtask compatibility validate
-cargo +1.99.1 xtask compatibility render
-cargo +1.99.1 xtask compatibility check
-cargo +1.99.1 test --workspace --locked --offline
-cargo +1.99.1 fmt --all --check
-cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
-cargo +1.99.1 xtask lint
+rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+cargo +1.100.0 fetch --locked
+cargo +1.100.0 xtask dependencies check
+cargo +1.100.0 xtask compatibility validate
+cargo +1.100.0 xtask compatibility render
+cargo +1.100.0 xtask compatibility check
+cargo +1.100.0 test --workspace --locked --offline
+cargo +1.100.0 fmt --all --check
+cargo +1.100.0 clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo +1.100.0 xtask lint
 bash scripts/smoke-containers.sh
 bash scripts/sdk-go.sh
 ```
 
-The xtask alias uses locked offline resolution. Fetch all locked packages first. Explicit `+1.99.1` overrides a conflicting `RUSTUP_TOOLCHAIN` environment variable.
+The xtask alias uses locked offline resolution. Fetch all locked packages first. Explicit `+1.100.0` overrides a conflicting `RUSTUP_TOOLCHAIN` environment variable.
 
 Latest verified direct releases: Tokio 1.54.1, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and rusqlite 0.42.0. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs, including the test-only peer curl image, use actual multiarch digests. The snapshot checks both Dockerfile and smoke-script pins.
 

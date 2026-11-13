@@ -95,7 +95,7 @@ differing shared case IDs across SDKs. The SDKs with unsupported cases are
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
 | Java SDK | `com.google.cloud:google-cloud-storage` 2.78.0 and `google-auth-library-oauth2-http` 1.57.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
 | .NET SDK | `Google.Cloud.Storage.V1` 5.0.0 (`dotnet/Probe.csproj`, hashes in `dotnet/packages.lock.json`); exact .NET SDK in `dotnet/global.json` |
-| Rust SDK | `google-cloud-storage` 1.22.0 with `google-cloud-auth` 1.19.0 (`rust/Cargo.toml`, `rust/Cargo.lock`); built and run in the official `rust:1.99.1-slim-trixie` image, digest pinned in `run.sh`; socat for its loopback forwarder is installed by `install-socat.sh` from a fixed snapshot.debian.org archive (version and snapshot recorded in the dependency snapshot) |
+| Rust SDK | `google-cloud-storage` 1.22.0 with `google-cloud-auth` 1.19.0 (`rust/Cargo.toml`, `rust/Cargo.lock`); built and run in the official `rust:1.100.0-slim-trixie` image, digest pinned in `run.sh`; socat for its loopback forwarder is installed by `install-socat.sh` from a fixed snapshot.debian.org archive (version and snapshot recorded in the dependency snapshot) |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
