@@ -411,8 +411,9 @@ async fn session_framing(
     ctx: ObjectCtx<'_>,
 ) -> Result<(Option<Range>, Option<u64>), JsonError> {
     let framing = chunk_framing(headers, ctx.config.max_object_bytes);
-    // The recording proves a terminal JSON session failure only for malformed syntax.
-    if target.name.is_none() && framing.is_err() && resumable::range_has_syntax_error(headers) {
+    // The recordings prove a terminal JSON session failure for malformed syntax and for a
+    // chunk that overruns its declared total.
+    if target.name.is_none() && framing.is_err() && resumable::range_fails_session(headers) {
         let lease = ctx
             .await_session_writer(
                 ctx.state
