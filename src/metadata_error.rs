@@ -114,19 +114,13 @@ impl MetadataError {
             }
             Self::LifecycleEmptyCondition => "Lifecycle rules must have a condition.".into(),
             Self::LifecycleAbortCondition => "Lifecycle age_days, matches_prefix, and matches_suffix conditions are the only ones allowed for a ABORT_INCOMPLETE_MULTIPART_UPLOAD rule.".into(),
-            Self::AutoclassTerminal => format!(
-                "Invalid autoclass.{}; use NEARLINE or ARCHIVE",
-                name("terminalStorageClass")
-            ),
+            // Cloud Storage's own texts for the two Autoclass refusals (recorded 2026-11-13).
+            Self::AutoclassTerminal => "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE".into(),
             Self::AutoclassDisabled => format!(
                 "autoclass.{} requires autoclass.enabled=true",
                 name("terminalStorageClass")
             ),
-            Self::AutoclassStorageClass => format!(
-                "An Autoclass bucket's {} must be STANDARD; omit {} or use STANDARD",
-                name("storageClass"),
-                name("storageClass")
-            ),
+            Self::AutoclassStorageClass => "Cannot set default storage class on bucket with Autoclass enabled to storage class other than STANDARD.".into(),
             Self::AutoclassLifecycle => format!(
                 "Autoclass cannot be combined with lifecycle SetStorageClass actions or {} conditions; remove those rules",
                 name("matchesStorageClass")

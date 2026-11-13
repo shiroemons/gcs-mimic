@@ -259,7 +259,7 @@ mod tests {
                 );
                 assert_eq!(
                     crate::json::JsonError::from(error).message,
-                    "Invalid autoclass.terminalStorageClass; use NEARLINE or ARCHIVE"
+                    "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE"
                 );
             } else {
                 assert!(matches!(error, CatalogError::InvalidMetadata(_)), "{bad}");
