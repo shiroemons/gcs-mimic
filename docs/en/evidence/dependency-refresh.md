@@ -954,3 +954,25 @@ Rust 1.100.0 was released on 2026-11-12 ([announcement](https://blog.rust-lang.o
 Both checks still report updates that this refresh does not adopt: the release inputs prost and prost-types 0.14.5 → 0.14.6, and the development-only google.golang.org/api v0.313.0 → v0.314.0 in three Go modules and @google-cloud/storage 8.4.0 → 9.0.0, a major release, in three npm manifests. No exception is recorded.
 
 `just pre-push` first stopped in the Rust SDK suite, because the global toolchain override described above selected 1.99.1; after the runner fix, `just check-sdk` and `just check-containers` were rerun separately rather than as one `just pre-push`. The `examples/rust` program was not run against a server, and the release builds of the eight native archives run only on a release tag.
+
+## prost 0.14.6
+
+The release-scoped check after the Rust update still reported prost and prost-types 0.14.6, released on 2026-11-12, and a tag publication runs that check. [v0.14.6](https://github.com/tokio-rs/prost/releases/tag/v0.14.6) contains one change: decoding rejects a map field with a wire type other than length-delimited. gcs-mimic decodes Storage v2 and v1 requests with prost, so the fix applies to client input.
+
+| Input | Previous | Adopted |
+| --- | --- | --- |
+| prost | 0.14.5 | 0.14.6 (`3ef0b569d1d907ab3a28596aee62cf1f61dacb0529a4bedcd8e7460e2d5228b4`, 34,593 bytes) |
+| prost-types | 0.14.5 | 0.14.6 (`f29a7c4c7a84cef41a53d338a2d10d4f1b043ea5c3dde26db22ee2c9c1b1c75b`, 50,256 bytes) |
+| prost-derive (transitive) | 0.14.5 | 0.14.6 (`1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d`) |
+
+All three keep the Apache-2.0 license and declare Rust 1.85. `cargo update` changed no other package.
+
+| Command or check | Result |
+| --- | --- |
+| `cargo clippy --locked --workspace --all-targets` | PASS |
+| `bash scripts/test-grpc-codegen.sh` | PASS: the generated code still matches, and changed protos and stale output are rejected |
+| `cargo test --locked --lib grpc` | PASS: 171 tests |
+| `cargo xtask dependencies check --scope release` at `2026-11-13T01:10:47Z` | Exit 0 with 41 `CURRENT` lines |
+| `cargo xtask dependencies check` at `2026-11-13T01:11:14Z` | Exit 1 with 123 `CURRENT` lines; only google.golang.org/api v0.314.0 in three Go modules and @google-cloud/storage 9.0.0 in three npm manifests remain, both development-only |
+
+The complete gates for the release source are recorded with the 0.20.0 release.
