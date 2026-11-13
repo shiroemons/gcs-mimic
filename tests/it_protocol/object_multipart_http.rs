@@ -301,7 +301,14 @@ fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
                     .json_ok()
             };
             stream.write_all(&body[body.len() - 1..]).unwrap();
-            Reply::framed(stream).json_reason(412, "conditionNotMet");
+            let reply = Reply::framed(stream);
+            if key.contains("NotMatch") {
+                // A not-match naming the new current value is an empty 304.
+                reply.expect(304);
+                assert!(reply.body.is_empty(), "{upload} {key}");
+            } else {
+                reply.json_reason(412, "conditionNotMet");
+            }
             assert_eq!(server.get("existing").json_ok(), current);
             assert_eq!(
                 server.get("existing?alt=media").body,
@@ -1230,10 +1237,17 @@ fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_gen
     ] {
         let mut stream = socket(&server.address);
         write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=existing&{query} HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n\r\n").unwrap();
-        Reply::framed(stream).json_reason(412, "conditionNotMet");
-        server
-            .upload(&query, &wire(br#"{"name":"existing"}"#, None, b"new", None))
-            .json_reason(412, "conditionNotMet");
+        let early = Reply::framed(stream);
+        let late = server.upload(&query, &wire(br#"{"name":"existing"}"#, None, b"new", None));
+        for reply in [early, late] {
+            if query.contains("NotMatch") {
+                // A not-match naming the current object is an empty 304.
+                reply.expect(304);
+                assert!(reply.body.is_empty(), "{query}");
+            } else {
+                reply.json_reason(412, "conditionNotMet");
+            }
+        }
     }
     let mut stream = socket(&server.address);
     stream.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n\r\n").unwrap();
