@@ -1834,7 +1834,7 @@ fn bucket_metadata_conditions(method: &str) {
                 .json_envelope(400, "invalidParameter");
         }
         // The native profile applies predefined ACLs, so only an unknown value is rejected.
-        let mut rejected = vec!["userProject=project", "fields="];
+        let mut rejected = vec!["userProject=project"];
         if profile == "native" {
             server
                 .request(
@@ -3772,8 +3772,12 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         let reply = server.request("GET", &format!("/storage/v1/b?{query}"), "");
         reply.expect_with(400, format_args!("{query}: {}", reply.body));
     }
+    // An empty selection selects nothing, as a whitespace one did on the bucket list (case
+    // bkt-edges-fields); the empty string itself is inferred from the object recording.
+    let empty = server.request("GET", "/storage/v1/b?project=x&fields=", "");
+    empty.expect(200);
+    assert_eq!(empty.json(), serde_json::json!({}));
     for query in [
-        "fields=",
         "returnPartialSuccess=true",
         "userProject=x",
         "oauth_token=x",

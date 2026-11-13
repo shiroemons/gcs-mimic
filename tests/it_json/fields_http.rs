@@ -252,7 +252,7 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
             .json_reason(400, "invalidParameter");
     }
     // An empty object selection selects nothing (recorded), and so does whitespace alone; a
-    // space inside a name is still unsupported.
+    // space inside a name is an invalid selection (case bkt-edges-fields).
     assert_eq!(
         server
             .request(
@@ -272,7 +272,7 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
                 ADMIN,
                 b"",
             )
-            .json_reason(400, "badRequest");
+            .json_reason(400, "invalidParameter");
     }
     for path in [
         "/storage/v1/b/test-bucket?fields=name",
@@ -523,7 +523,7 @@ fn fields_object_whitespace_and_empty_parentheses_follow_cloud_storage() {
             "",
             b"",
         )
-        .json_reason(400, "badRequest");
+        .json_reason(400, "invalidParameter");
     server.stop();
 }
 
@@ -557,5 +557,30 @@ fn fields_resumable_final_response_survives_restart_and_replay() {
             .json_ok(),
         json!({"name":"resume","size":"4"})
     );
+
+    // Completion parses the stored selection again, so a selection with whitespace or an
+    // empty segment, which the initiation accepts, also shapes the final response.
+    for (selector, expected) in [
+        ("name%20,%20size", json!({"name":"spaced","size":"4"})),
+        ("name,,size", json!({"name":"spaced","size":"4"})),
+        ("", json!({})),
+    ] {
+        let initiation = server.request(
+            "POST",
+            &format!(
+                "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=spaced&fields={selector}"
+            ),
+            "",
+            b"",
+        );
+        initiation.expect(200);
+        let location = initiation.headers["location"].clone();
+        let path = &location[location.find("/upload/").unwrap()..];
+        assert_eq!(
+            server.request("PUT", path, "", b"data").json_ok(),
+            expected,
+            "{selector}"
+        );
+    }
     server.stop();
 }
