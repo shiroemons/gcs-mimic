@@ -13,6 +13,31 @@ fn check_read_offset(record: &crate::object::ObjectRecord, offset: i64) -> Resul
     Ok(())
 }
 
+/// Cloud Storage rejected a ReadObject whose read mask named only `metadata.checksums.md5_hash`
+/// (recorded): a mask that selects fields must select the object bytes too. An absent or empty
+/// mask and `*` select every field. Selecting the whole `checksummed_data` message is assumed to
+/// count, since it contains `content`; only the rejection itself is recorded.
+fn require_content_in_read_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Status> {
+    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
+        return Ok(());
+    };
+    if mask.paths.iter().any(|path| {
+        matches!(
+            path.as_str(),
+            "*" | "checksummed_data" | "checksummed_data.content"
+        )
+    }) {
+        return Ok(());
+    }
+    Err(crate::grpc::v2::status::invalid_with_reason(
+        format!(
+            "The 'read_mask' field must include checksummed_data.content, but was '{}'.",
+            mask.paths.join(",")
+        ),
+        "GRPC_READ_MASK_MISSING_CHECKSUMMED_DATA",
+    ))
+}
+
 pub(super) fn read_range(size: u64, offset: i64, limit: i64) -> Result<(u64, u64), Status> {
     if limit < 0 {
         return Err(Status::invalid_argument(
@@ -65,6 +90,7 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        require_content_in_read_mask(r.read_mask.as_ref())?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, mut reader, finality) = self

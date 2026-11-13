@@ -864,7 +864,11 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
             Request::new(pb::ReadObjectRequest {
                 bucket: "projects/_/buckets/grpc-io".into(),
                 object: "masked".into(),
-                read_mask: fixtures::mask(&["metadata.name", "metadata.acl"]),
+                read_mask: fixtures::mask(&[
+                    "metadata.name",
+                    "metadata.acl",
+                    "checksummed_data.content",
+                ]),
                 ..Default::default()
             }),
             admin,
@@ -876,6 +880,56 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
     assert_eq!(metadata.name, "masked");
     assert_eq!(metadata.acl, full.acl);
     assert!(metadata.owner.is_none());
+    let read_with = |paths: &'static [&'static str]| {
+        storage.read_object(
+            Request::new(pb::ReadObjectRequest {
+                bucket: "projects/_/buckets/grpc-io".into(),
+                object: "masked".into(),
+                read_mask: fixtures::mask(paths),
+                ..Default::default()
+            }),
+            admin,
+        )
+    };
+    for paths in [&["checksummed_data", "metadata.name"][..], &["*"], &[]] {
+        let mut read = read_with(paths).await.unwrap().into_inner();
+        let first = read.next().await.unwrap().unwrap();
+        assert!(first.checksummed_data.is_some(), "{paths:?}");
+    }
+    // Cloud Storage rejects a mask without the object bytes (recorded).
+    for (paths, shown) in [
+        (
+            &["metadata.checksums.md5_hash"][..],
+            "metadata.checksums.md5_hash",
+        ),
+        (
+            &["metadata", "checksummed_data.crc32c"],
+            "metadata,checksummed_data.crc32c",
+        ),
+    ] {
+        let Err(error) = read_with(paths).await else {
+            panic!("{paths:?} was accepted");
+        };
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            error.message(),
+            format!(
+                "The 'read_mask' field must include checksummed_data.content, but was '{shown}'."
+            )
+        );
+        let details = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        let info = crate::grpc::generated::google::rpc::ErrorInfo::decode(
+            details.details[0].value.as_slice(),
+        )
+        .unwrap();
+        assert_eq!(
+            (info.reason.as_str(), info.domain.as_str()),
+            (
+                "GRPC_READ_MASK_MISSING_CHECKSUMMED_DATA",
+                "storage.googleapis.com"
+            )
+        );
+    }
     assert_code(
         get(fixtures::mask(&["owner.entity"]), admin).await,
         tonic::Code::Unimplemented,
