@@ -14,6 +14,7 @@ Each object is written through one transport and observed or mutated through the
 - Generation preconditions: a generation observed through XML satisfies `ifGenerationMatch` on JSON, Storage v2 and v1 reads; a non-matching generation fails with JSON 412, XML 412 `PreconditionFailed`, and FAILED_PRECONDITION on both gRPC services. An XML overwrite conditioned on the Storage v2-observed generation creates a new generation (metageneration 1, new bytes and hashes) on every transport; stale overwrites through XML, JSON and Storage v2 then fail with 412, 412 and FAILED_PRECONDITION and change nothing.
 - Delete: Storage v2 deletes the JSON-written object, JSON deletes the XML-written object and XML deletes the Storage v2-written object, each conditioned on a generation that another transport observed. A stale generation fails first with the deleting transport's error (FAILED_PRECONDITION or 412) and leaves the object visible. After deletion the live name and the selected generation return JSON 404, XML 404 `NoSuchKey`, and NOT_FOUND on both gRPC services.
 - Versioning: in a versioned bucket, an XML write is overwritten by a Storage v2 write conditioned on the XML generation, and the live object is deleted through JSON. The live name is NOT_FOUND/404 everywhere while both noncurrent generations remain readable with their own bytes and metadata through JSON, XML, Storage v2 and v1, and appear in `versions=true` listings on JSON, Storage v2 and v1 but not in live listings. Deleting one noncurrent generation through XML `DELETE ?generation=` removes only that generation everywhere.
+- Derived objects and legacy writes: a JSON rewrite, a Storage v2 rewrite (the SDK Copier), an XML copy (`x-goog-copy-source`), a JSON compose, a Storage v2 compose and a legacy v1 `ComposeObject` each produce an object, and a legacy v1 `InsertObject` writes one and a v1 `PatchObject` changes another. JSON, XML, Storage v2 and v1 observe the same generation, metageneration, size, CRC32C, MD5 (absent for composites), content type and metadata, and JSON, XML and Storage v2 return the expected bytes in the requested compose order. A JSON move and a Storage v2 move publish the destination for every transport and leave the source NOT_FOUND/404 everywhere; JSON, Storage v2 and v1 listings agree afterwards. An object without a stored content type is served by XML as `application/octet-stream`, because an XML GET always sends a Content-Type header.
 - Strict authorization: the admin writes one object through each transport. `local-viewer` (objectViewer) gets the same metadata, bytes and listings through JSON, XML, Storage v2 and v1. `local-creator` (objectCreator, no `storage.objects.get`) is denied metadata, media and listing with JSON 403, XML 403 `AccessDenied` and PERMISSION_DENIED on both gRPC services. Anonymous callers receive JSON 401, XML 401 `AuthenticationRequired` and UNAUTHENTICATED on both gRPC services. Viewer and anonymous overwrites are denied on every transport, and the admin-written generation stays unchanged everywhere afterwards.
 
 ## Anonymous denials
@@ -22,9 +23,11 @@ The strict test first exposed that Storage v2 object RPCs reported anonymous den
 
 ## Scope limits
 
-XML bucket listing and legacy v1 media are outside their supported subsets, so those projections are excluded. Derived-object operations (rewrite, compose and move) and legacy v1 writes are verified per transport by their own rows, not by this cross-transport matrix.
+XML bucket listing and legacy v1 media are outside their supported subsets, so those projections are excluded.
 
 ## Verification
+
+On 2026-11-13, `GCSM_GO_TEST_RUN=TestCrossProtocol bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` passed `TestCrossProtocolDerivedObjects`, `TestCrossProtocolObjects`, `TestCrossProtocolObjectVersions` and `TestCrossProtocolObjectsStrict`. The JSON view helper now leaves an absent `md5Hash` absent, so the existing three tests ran again with it.
 
 On 2026-10-28:
 

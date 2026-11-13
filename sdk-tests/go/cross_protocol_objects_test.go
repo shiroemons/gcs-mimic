@@ -281,7 +281,10 @@ func (e *crossEnv) viewJSON(name string, generation int64) (crossView, error) {
 		e.t.Fatalf("JSON crc32c has %d bytes", len(crc))
 	}
 	view.CRC32C = binary.BigEndian.Uint32(crc)
-	view.MD5 = decodeBase64(e.t, "JSON md5Hash", resource["md5Hash"].(string))
+	// Composite objects carry no MD5, so an absent md5Hash stays absent.
+	if digest, ok := resource["md5Hash"].(string); ok {
+		view.MD5 = decodeBase64(e.t, "JSON md5Hash", digest)
+	}
 	view.ContentType, _ = resource["contentType"].(string)
 	if values, ok := resource["metadata"].(map[string]any); ok {
 		for key, value := range values {

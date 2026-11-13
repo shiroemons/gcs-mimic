@@ -63117,9 +63117,11 @@
         },
         {
           "id": "derived_objects_and_legacy_writes",
-          "description": "Rewrite, compose and move results and legacy v1 writes are verified per transport by their own rows, not by this cross-transport matrix.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Objects produced by JSON and Storage v2 rewrite, XML copy, JSON, Storage v2 and legacy v1 compose, JSON and Storage v2 move, and a legacy v1 insert and patch show the same bytes, generation, metageneration, size, checksums, content type and metadata through JSON, XML, Storage v2 and legacy v1; move sources are absent everywhere and listings agree.",
+          "result": "PASS",
+          "test_ids": [
+            "TestCrossProtocolDerivedObjects"
+          ]
         }
       ],
       "test_ids": [
@@ -63128,6 +63130,7 @@
         "TestCrossProtocolObjects",
         "TestCrossProtocolObjectVersions",
         "TestCrossProtocolObjectsStrict",
+        "TestCrossProtocolDerivedObjects",
         "arrow-object-store-local"
       ],
       "verification": [
@@ -63152,6 +63155,18 @@
             "TestCrossProtocolObjectVersions",
             "TestCrossProtocolObjectsStrict"
           ]
+        },
+        {
+          "command": "GCSM_GO_TEST_RUN=TestCrossProtocol bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/cross-protocol-objects.md",
+          "test_ids": [
+            "TestCrossProtocolObjects",
+            "TestCrossProtocolObjectVersions",
+            "TestCrossProtocolObjectsStrict",
+            "TestCrossProtocolDerivedObjects"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -63165,15 +63180,16 @@
             "TestGRPCBucketsStrict",
             "TestCrossProtocolObjects",
             "TestCrossProtocolObjectVersions",
-            "TestCrossProtocolObjectsStrict"
+            "TestCrossProtocolObjectsStrict",
+            "TestCrossProtocolDerivedObjects"
           ]
         }
       ],
       "known_deviations": [
-        "XML bucket listing and legacy v1 media are outside their supported subsets and are excluded. Rewrite, compose, move and legacy v1 writes are not yet covered by the cross-transport matrix."
+        "XML bucket listing and legacy v1 media are outside their supported subsets and are excluded."
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "AUDIT-009",
