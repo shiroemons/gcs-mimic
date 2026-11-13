@@ -524,7 +524,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     pub(crate) async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
         let headers = self.header_block().await?;
         let value = part_content_type(&headers)?;
-        let encoding = PartEncoding::of(&headers)?;
+        let encoding = PartEncoding::try_from(&headers)?;
         match part {
             PartKind::Metadata => {
                 encoding.require_binary()?;
@@ -543,7 +543,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// Read one bounded part header block; form-data callers need Content-Disposition.
     pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
         let headers = self.header_block().await?;
-        PartEncoding::of(&headers)?.require_binary()?;
+        PartEncoding::try_from(&headers)?.require_binary()?;
         Ok(headers)
     }
 
@@ -668,7 +668,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             return Ok(expected);
         }
         let headers = self.header_block().await?;
-        PartEncoding::of(&headers)?.require_binary()?;
+        PartEncoding::try_from(&headers)?.require_binary()?;
         let value = part_content_type(&headers)?;
         if json_part_type(value.as_deref()).is_err() {
             // Cloud Storage's wording (recorded 2026-11-13 for a text/plain third part).

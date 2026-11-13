@@ -16,9 +16,11 @@ pub(super) enum PartEncoding {
     Base64(Base64Part),
 }
 
-impl PartEncoding {
-    /// The encoding a part's headers declare: `binary`, `base64` or none.
-    pub(super) fn of(headers: &HeaderMap) -> Result<Self, JsonError> {
+/// The encoding a part's headers declare: `binary`, `base64` or none.
+impl TryFrom<&HeaderMap> for PartEncoding {
+    type Error = JsonError;
+
+    fn try_from(headers: &HeaderMap) -> Result<Self, JsonError> {
         let Some(value) = headers.get("content-transfer-encoding") else {
             return Ok(Self::Binary);
         };
@@ -31,7 +33,9 @@ impl PartEncoding {
             Err(invalid())
         }
     }
+}
 
+impl PartEncoding {
     /// Requires a part other than the media part to be sent as it is.
     pub(super) fn require_binary(self) -> Result<(), JsonError> {
         match self {
@@ -132,19 +136,24 @@ mod tests {
     fn declared_encodings_are_binary_or_base64() {
         let mut headers = HeaderMap::new();
         assert!(matches!(
-            PartEncoding::of(&headers),
+            PartEncoding::try_from(&headers),
             Ok(PartEncoding::Binary)
         ));
         headers.insert("content-transfer-encoding", "BASE64".parse().unwrap());
-        let encoding = PartEncoding::of(&headers).unwrap();
+        let encoding = PartEncoding::try_from(&headers).unwrap();
         assert!(matches!(encoding, PartEncoding::Base64(_)));
         assert!(encoding.require_binary().is_err());
         headers.insert("content-transfer-encoding", " binary ".parse().unwrap());
-        assert!(PartEncoding::of(&headers).unwrap().require_binary().is_ok());
+        assert!(
+            PartEncoding::try_from(&headers)
+                .unwrap()
+                .require_binary()
+                .is_ok()
+        );
         headers.insert(
             "content-transfer-encoding",
             "quoted-printable".parse().unwrap(),
         );
-        assert!(PartEncoding::of(&headers).is_err());
+        assert!(PartEncoding::try_from(&headers).is_err());
     }
 }

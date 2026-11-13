@@ -85,8 +85,9 @@ pub(crate) use objects::revision_etag;
 #[cfg(test)]
 pub(crate) use objects::route_object;
 pub(crate) use objects::{
-    EtagConditions, Transcoding, base64, decode_hash, object_double_compressed, object_etag,
-    object_media_negotiable, object_media_transcoding, validate_read_condition_headers,
+    EtagConditions, Gunzip, Transcoding, base64, decode_hash, object_double_compressed,
+    object_etag, object_media_negotiable, object_media_transcoding,
+    validate_read_condition_headers,
 };
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,

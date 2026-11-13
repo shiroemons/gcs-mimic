@@ -1023,10 +1023,16 @@ pub(crate) fn object_double_compressed(object: &ObjectRecord) -> bool {
 pub(crate) enum Transcoding {
     /// The stored bytes, compressed or not.
     Stored,
-    /// Gunzipped for a client that does not accept gzip.
-    Gunzipped,
-    /// A doubly compressed object gunzipped for a client that accepts gzip.
-    GunzippedDespiteAccept,
+    Gunzipped(Gunzip),
+}
+
+/// Why a media read gunzips the stored bytes; each reason sends its own headers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Gunzip {
+    /// The client does not accept gzip.
+    NotAccepted,
+    /// A doubly compressed object, which a client that accepts gzip receives gunzipped too.
+    DespiteAccept,
 }
 
 /// Select gzip expansion while honoring explicit quality overrides and no-transform.
@@ -1039,8 +1045,8 @@ pub(crate) fn object_media_transcoding(
     }
     Ok(
         match (accepts_gzip(headers)?, object_double_compressed(object)) {
-            (false, _) => Transcoding::Gunzipped,
-            (true, true) => Transcoding::GunzippedDespiteAccept,
+            (false, _) => Transcoding::Gunzipped(Gunzip::NotAccepted),
+            (true, true) => Transcoding::Gunzipped(Gunzip::DespiteAccept),
             (true, false) => Transcoding::Stored,
         },
     )

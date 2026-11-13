@@ -150,17 +150,15 @@ async fn read(
             headers.remove("content-length");
         }
     }
-    let transcoding = json::object_media_transcoding(request.headers(), &record)?;
-    match transcoding {
-        json::Transcoding::Stored => {}
-        json::Transcoding::Gunzipped | json::Transcoding::GunzippedDespiteAccept => {
-            let representation = Gunzip {
-                headers,
-                overrides: response_overrides,
-                transcoding,
-            };
-            return gunzipped(ctx, &record, reader, representation, request.method()).await;
-        }
+    if let json::Transcoding::Gunzipped(reason) =
+        json::object_media_transcoding(request.headers(), &record)?
+    {
+        let representation = Gunzipped {
+            headers,
+            overrides: response_overrides,
+            reason,
+        };
+        return gunzipped(ctx, &record, reader, representation, request.method()).await;
     }
     headers.extend(response_overrides);
     let requested = request
@@ -223,13 +221,13 @@ async fn gunzipped(
     ctx: ObjectCtx<'_>,
     record: &ObjectRecord,
     mut reader: ObjectReader,
-    representation: Gunzip,
+    representation: Gunzipped,
     method: &Method,
 ) -> Result<Response<ResponseBody>, xml::Error> {
-    let Gunzip {
+    let Gunzipped {
         mut headers,
         overrides,
-        transcoding,
+        reason,
     } = representation;
     let head = method == Method::HEAD;
     if !head
@@ -249,14 +247,10 @@ async fn gunzipped(
         }
         return Ok(response);
     }
-    match transcoding {
-        json::Transcoding::Stored | json::Transcoding::Gunzipped => {
-            gzip::insert_transcoded_headers(&mut headers);
-        }
+    match reason {
+        json::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
         // Only the JSON API was recorded for this form; the XML read assumes the same headers.
-        json::Transcoding::GunzippedDespiteAccept => {
-            gzip::insert_gunzipped_despite_accept_headers(&mut headers);
-        }
+        json::Gunzip::DespiteAccept => gzip::insert_gunzipped_despite_accept_headers(&mut headers),
     }
     headers.extend(overrides);
     Ok(gzip::response(ctx, record, reader, headers, method))
@@ -264,10 +258,10 @@ async fn gunzipped(
 
 /// The headers a gunzipped XML read starts from, the response-header overrides that apply only
 /// to a successful representation, and why the object is gunzipped.
-struct Gunzip {
+struct Gunzipped {
     headers: HeaderMap,
     overrides: HeaderMap,
-    transcoding: json::Transcoding,
+    reason: json::Gunzip,
 }
 
 /// The XML API varies a stored-gzip object on `Accept-Encoding`, except a doubly compressed
