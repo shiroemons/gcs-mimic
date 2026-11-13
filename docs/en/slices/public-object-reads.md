@@ -100,7 +100,8 @@ configure server routing or trust forwarded headers.
 | `Date`, `User-Agent`, `x-goog-api-client`, tracing headers | Informational; do not alter authorization or selected state |
 | `x-goog-gcs-idempotency-token` | A single nonempty read retry token is accepted without response replay; empty or repeated values return 400 |
 | `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`, `If-Range` | Recognized but outside this slice; 501, never unconditional success |
-| CSEK/CMEK `x-goog-encryption-*`, `x-goog-user-project`, `userProject` | Recognized encryption/billing semantics are unsupported; 501 even for an empty value |
+| CSEK/CMEK `x-goog-encryption-*` | Recognized encryption semantics are unsupported; 400 InvalidArgument even for an empty value |
+| `x-goog-user-project`, `userProject` | Ignored; a local bucket cannot enable Requester Pays (SPEC-SDK-UNSUPPORTED) |
 | `x-goog-allowed-resources` | Resource restrictions are unsupported; 501 rather than an unchecked restriction |
 | `response-*` query overrides | Unsupported; 501 rather than ignored response metadata |
 | XML subresources, including `acl`, `encryption`, `retention`, multipart/list selectors | 501 `NotImplemented`; no request-body consumption |
@@ -123,8 +124,8 @@ missing object is resolved before testing its generation/match conditions.
 
 | API row | Official or recognized inputs not implemented in this slice |
 | --- | --- |
-| EXT-XML-012 GET Object | HTTP ETag/date validators and If-Range; CSEK and encryption-key headers; requester-pays `x-goog-user-project`/`userProject`; signed URLs and signing headers/query; response metadata overrides; virtual-host endpoints; noncurrent versions; decompressive transcoding; resource restrictions such as `x-goog-allowed-resources` |
-| EXT-XML-017 HEAD Object | HTTP ETag/date validators; CSEK-associated metadata/encryption semantics; requester-pays `x-goog-user-project`/`userProject`; signed URLs and signing headers/query; response overrides; virtual-host endpoints; noncurrent versions; resource restrictions such as `x-goog-allowed-resources` |
+| EXT-XML-012 GET Object | HTTP ETag/date validators and If-Range; CSEK and encryption-key headers; signed URLs and signing headers/query; response metadata overrides; virtual-host endpoints; noncurrent versions; decompressive transcoding; resource restrictions such as `x-goog-allowed-resources` |
+| EXT-XML-017 HEAD Object | HTTP ETag/date validators; CSEK-associated metadata/encryption semantics; signed URLs and signing headers/query; response overrides; virtual-host endpoints; noncurrent versions; resource restrictions such as `x-goog-allowed-resources` |
 
 The GET/HEAD method pages directly list generation, match/date conditions, Range
 and billing/encryption qualifications. The common references supply the broader

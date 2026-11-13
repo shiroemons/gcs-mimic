@@ -102,8 +102,9 @@ roots, trailing content and invalid declarations. The creation adapter separatel
 validates the root, scalar fields and duplicates. It does not confuse syntactic
 XML validity with supported bucket settings.
 
-Custom placement, encryption configuration, predefined ACLs, requester billing
-and other unsupported settings fail explicitly. The fake-gcs-server profile
+Custom placement, encryption configuration, predefined ACLs and other
+unsupported settings fail explicitly; the requester billing header and query are
+ignored. The fake-gcs-server profile
 supports default creation but rejects location/class configuration rather than
 silently ignoring it. These limits do not narrow the parent operation's scope.
 
@@ -155,7 +156,7 @@ gate is not recorded as passing; integration owns its completion.
 | Wire test | Acceptance |
 | --- | --- |
 | `xml_service_lists_only_selected_project_in_order_with_persisted_creation_dates` | Project isolation, order, XML fields/type/namespace, empty project, persisted creation dates after restart |
-| `xml_service_bounds_and_validates_project_headers_query_and_body` | Required/empty/malformed/duplicate project, unknown/duplicate query, requester billing, method override, body rejection |
+| `xml_service_bounds_and_validates_project_headers_query_and_body` | Required/empty/malformed/duplicate project, unknown/duplicate query, method override and body rejection; the requester billing header is ignored |
 | `xml_service_strict_authorization_and_signed_project_binding` | Admin success, anonymous/object-viewer/roleless denials, V4 project-header binding |
 | `xml_head_bucket_checks_access_and_sends_no_body_on_success_or_error` | Path/trailing slash/virtual host, one decode, missing bucket, permission denials, raw signed path, bodyless success/errors, reserved internal route |
 | `xml_service_returns_the_official_first_thousand_bucket_limit` | 1000/1001 boundary, lexical first 1000, bounded multi-page traversal |

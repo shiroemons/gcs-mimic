@@ -8,7 +8,7 @@ Scope: DESIGN-082 and DESIGN-083. This changes rejection behavior, not support f
 
 | Case | Required behavior |
 | --- | --- |
-| unsupported-fails-fast-json | Recognized unsupported fields/options, including objectRetention, softDeleted=true and userProject, return 400 badRequest before mutation. No-op/default normalization is unchanged. |
+| unsupported-fails-fast-json | Recognized unsupported fields/options, including objectRetention, softDeleted=true and copySourceAcl, return 400 badRequest before mutation. No-op/default normalization is unchanged. `userProject` is ignored, not rejected (see below). |
 | unimplemented-google-route-not-404 | The pinned method/path combinations below return the same 400 badRequest. No resource lookup or mutation occurs. Retention policies and locking now have their own [contract](sdk-retention-policy.md); notification configurations have theirs in [bucket-notifications.md](bucket-notifications.md). |
 | real-not-found-unchanged | Implemented operations on absent buckets/objects still return 404 notFound. |
 | unknown-path-unchanged | Unknown paths remain 404; this is not a catch-all for the Google namespace. |
@@ -81,6 +81,8 @@ These 45 method/path combinations are rejected. Variables occupy one nonempty ra
 ## Verification
 
 On 2026-11-02 `buckets.getStorageLayout` and `includeFoldersAsPrefixes=true` with `delimiter=/` became supported ([storage layout slice](bucket-storage-layout.md)), because gcloud storage sends both on every copy and bucket listing. The storage layout route left the table above. The Go, Python, Node.js, PHP and Ruby fail-fast probes that listed objects with `includeFoldersAsPrefixes` now list them with Requester Pays `userProject`, still a recognized unsupported parameter, and keep their 400 badRequest, no-retry and diagnostic assertions. `scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php` passed with every suite, permissive and strict.
+
+On 2026-11-13 `userProject` stopped being rejected. An opted-in recording showed Cloud Storage serving it on a bucket and a project without Requester Pays as if it were absent (cases `bkt-edges-hmac-keys` and `bkt-edges-notification-ids`), and a gcs-mimic bucket cannot enable Requester Pays, so ignoring it reproduces Cloud Storage. Every JSON method, the XML query parameter and `x-goog-user-project` header, and the Storage v2 and legacy v1 billing metadata and field now accept and ignore it. The Go, Node.js, PHP and Python probes restore a missing object with `copySourceAcl`, which stays unsupported; Ruby uploads with `kmsKeyName` instead, because `Bucket#restore_file` maps `copy_source_acl` through `File::Acl.predefined_rule_for` and never sends a boolean. `just check-sdk` passed with every suite, permissive and strict.
 
 Acceptance was recorded before implementation. On the unchanged server, Go retention creation, softDeleted and includeFoldersAsPrefixes each exhausted a ten-second context after retrying 501; the nine other new calls returned ambiguous 404s. Ruby's new high-level unsupported call raised UnimplementedError after default retry handling. No negative case was removed or skipped.
 

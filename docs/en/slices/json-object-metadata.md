@@ -95,8 +95,9 @@ explicit `projection=full` still includes authorized ACL and owner fields.
 PUT bodies containing `acl` also default to `noAcl`, and an object PUT in the fake-gcs-server profile uses the same default; neither behavior has live-recording confirmation.
 A full ACL replacement does not preserve the owner entry position.
 Permission transfer in permissive mode has no test coverage.
-`userProject`, `predefinedAcl`, `overrideUnlockedRetention`, partial fields,
-encryption/conditional headers and method override remain explicit 501 rejections.
+`predefinedAcl`, `overrideUnlockedRetention`, partial fields,
+encryption/conditional headers and method override remain explicit 400 badRequest
+rejections; `userProject` is ignored.
 Recognized writable fields `acl`, holds, retention, contexts, customTime and encryption
 settings are rejected even when null. Custom time is not stored; its monotonicity is
 outside this slice. Unknown input fields also fail 501 pending legacy JSON evidence.

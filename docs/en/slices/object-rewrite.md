@@ -68,7 +68,7 @@ validators extend the frozen profile. Other methods return 405 with `Allow: POST
 | `destinationKmsKeyName` | Recognized but unavailable: 501; no fake encryption metadata success. |
 | `destinationPredefinedAcl` | Recognize all six documented enum values; valid values fail 501 because ACLs are unavailable, invalid enum fails 400. No copied source ACL or new public grant. |
 | `projection` | Default `noAcl`; accept `noAcl`/`full` under the frozen local profile, reject other values. Full owner/ACL fields and their extra permission parity remain pending. |
-| `userProject` | Recognized requester-pays billing input fails 501. |
+| `userProject` | Ignored, and kept out of the rewrite token binding; a local bucket cannot enable Requester Pays. |
 | `fields` | Validate against the rewrite response schema; nested `resource(...)` uses Object fields. Filter the final response only, without changing byte counts, publication or stored completion. Invalid selectors fail before side effects. Errors remain unfiltered. A continuation cannot replace an initially supplied selector with another value. |
 | `dropContextGroups` | Recognized but unavailable: 501, including `custom`; no accepted-and-ignored context deletion. |
 | Common queries | `alt=json`, compact output and `prettyPrint=false` extend existing parsing. Other common queries use existing 400/501 distinctions. No query bearer tokens, quota behavior or JSONP. |

@@ -130,7 +130,7 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
 ## PENDING
 
 gRPC soft-deleted bucket reads and restore, retaining notification
-configurations, managed folders, `userProject`, HNS restore tokens, soft-deleted
+configurations, managed folders, HNS restore tokens, soft-deleted
 listing across projects, XML API access to soft-deleted buckets, exact provider
 error reasons and precedence, and real-cloud differential evidence.
 

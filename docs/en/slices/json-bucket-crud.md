@@ -97,7 +97,7 @@ exactly once as UTF-8, with `+` interpreted as space. Malformed escapes/UTF-8, d
 parameter names, empty required values and invalid scalar types return 400 `invalidParameter`.
 In the native profile a bucket method ignores a query name it does not consume, as recorded from
 Cloud Storage on 2026-11-01 (SPEC-JSON-UNKNOWN-QUERY); recognized but unsupported parameters such as
-`userProject` are still rejected (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
+`quotaUser` are still rejected, and `userProject` is ignored (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
 `invalidParameter` for any unknown query name on a bucket method. objects.delete and objects.list
 ignore an undeclared name in both profiles, as Cloud Storage and fake-gcs-server did on 2026-11-13;
 `@google-cloud/storage` 9.0.0 sends one on both. The other object methods return 400
@@ -121,7 +121,7 @@ Every method-specific Discovery query parameter is listed here (`bucket` is a pa
 | insert, get, list | `projection` | Default `noAcl`; `full` returns the modeled subset without ACL/owner; other values 400 |
 | insert | `predefinedAcl`, `predefinedDefaultObjectAcl` | Rejected 501 |
 | insert | `enableObjectRetention` | Rejected 501, including false |
-| insert, get, list, delete | `userProject` | Rejected 501: billing is not implemented |
+| insert, get, list, delete | `userProject` | Ignored: a local bucket cannot enable Requester Pays |
 | get, delete | `ifMetagenerationMatch`, `ifMetagenerationNotMatch` | Supported signed int64 without a leading plus sign; both may be present; conditions must both hold |
 | get | `generation` | Rejected 501: no soft-deleted bucket versions |
 | get, list | `softDeleted` | False supported (live buckets); true rejected 501; invalid boolean 400 |

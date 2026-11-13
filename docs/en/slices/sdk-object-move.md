@@ -25,7 +25,7 @@ The Storage v1 Discovery revision 20261020 and SHA-256 eeb0831df501d131c9497534b
 
 ## Verification
 
-Implementation: `aae3703`. Both feature rows stay PARTIAL/EXACT for the tested subset, with the listed exclusions PENDING. The JSON adapter rejects `projection=full` and `userProject` through the existing fail-fast response rather than claiming ACL or billing support. Strict mode requires source get/delete and destination create, with delete for replacement; the alternative move-only permission is pending. Versioning retains a replaced destination through the existing publication helper. Source removal, publication, generation allocation and both journal entries commit together; no filesystem publication or source-blob deletion is needed. Normal reclamation handles replaced destination blobs after commit.
+Implementation: `aae3703`. Both feature rows stay PARTIAL/EXACT for the tested subset, with the listed exclusions PENDING. The JSON adapter rejects `projection=full` through the existing fail-fast response rather than claiming ACL support, and ignores `userProject` like every JSON method. Strict mode requires source get/delete and destination create, with delete for replacement; the alternative move-only permission is pending. Versioning retains a replaced destination through the existing publication helper. Source removal, publication, generation allocation and both journal entries commit together; no filesystem publication or source-blob deletion is needed. Normal reclamation handles replaced destination blobs after commit.
 
 Verified on 2026-10-27 with Rust 1.99.1; no dependencies or lockfiles changed. `cargo xtask dependencies check` passed with every input CURRENT. The fresh official Discovery download has the revision and digest above.
 

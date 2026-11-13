@@ -37,10 +37,7 @@ Bucket IDs follow the configured native or fake-gcs-server naming profile in
 both bucket and object RPCs. Provider-exact invalid-name status and complete SDK
 routing combinations remain pending in SPEC-GRPC-ROUTING-NAMES.
 
-Explicit x-goog-user-project presence is rejected on every Storage v2 RPC before
-consuming streaming input, including an empty value.
-
-The presence of `x-goog-user-project`, including an empty value, returns UNIMPLEMENTED with ErrorInfo, matching JSON's rejection of an explicitly supplied userProject. The default Go client does not send this header; `Bucket.UserProject("")` also omits it and remains accepted. No requester billing semantics are silently accepted. Shared `status::from_json` converts adapter failures consistently, including backend HTTP 503 to UNAVAILABLE and unsupported emulator semantics to ErrorInfo-bearing UNIMPLEMENTED even when JSON represents those limitations as HTTP 400.
+`x-goog-user-project` is ignored on every Storage v2 RPC, including an empty value, as the JSON API ignores userProject since 2026-11-13 (SPEC-SDK-UNSUPPORTED): a local bucket cannot enable Requester Pays, so the billing project cannot change a result. The default Go client does not send this header, and `Bucket.UserProject` with or without a project is accepted alike. Shared `status::from_json` converts adapter failures consistently, including backend HTTP 503 to UNAVAILABLE and unsupported emulator semantics to ErrorInfo-bearing UNIMPLEMENTED even when JSON represents those limitations as HTTP 400.
 
 The [pinned Storage v2 proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto) was retrieved and its SHA-256 matched `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf` on 2026-10-27. In particular, CreateBucket.parent is empty or projects/_; the owner belongs in bucket.project. The foundation's project ID rather than numeric project resolution limitation remains. Storage v1 and object cross-transport semantics are outside this slice.
 

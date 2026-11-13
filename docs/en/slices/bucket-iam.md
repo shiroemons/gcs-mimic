@@ -44,8 +44,8 @@ All sources were checked on 2026-10-22. Storage pages displayed
 
 GET `/storage/v1/b/{bucket}/iam` accepts `optionsRequestedPolicyVersion`
 omitted or 1, 3. PUT at the same path replaces the Policy supplied directly
-as JSON. Both follow existing common-query rules: `userProject`, even empty,
-returns 501 because requester billing is unsupported. Unknown query keys and
+as JSON. Both follow existing common-query rules: `userProject` is ignored,
+because a local bucket cannot enable Requester Pays. Unknown query keys and
 duplicates return 400. GET requires an empty body; PUT uses the 16 MiB
 bounded JSON reader. Unknown JSON fields are ignored; recognized unsupported
 semantics are rejected. `kind` and `resourceId` are ignored in requests.

@@ -10,14 +10,14 @@ Features: `JSON-BUCKETS-004` (`buckets.getStorageLayout`) and the `includeFolder
 | --- | --- |
 | layout-resource | `GET /storage/v1/b/BUCKET/storageLayout` returns `kind: storage#storageLayout`, `bucket`, `location` and `locationType`, equal to the bucket resource's location fields for the same profile. |
 | layout-no-namespace-or-placement | `hierarchicalNamespace` and `customPlacementConfig` are absent: hierarchical namespace is unsupported and native insert stores no custom placement. Clients read an absent `hierarchicalNamespace` as disabled. |
-| layout-parameters | `prefix` is accepted and does not change the response; `alt=json`, `prettyPrint` and `fields` (validated against `BucketStorageLayout`) apply; `projection`, unknown parameters and invalid fields return 400 `invalidParameter`; `userProject` and `alt=media` keep the shared 400 badRequest rejection. |
+| layout-parameters | `prefix` is accepted and does not change the response; `alt=json`, `prettyPrint` and `fields` (validated against `BucketStorageLayout`) apply; `projection`, unknown parameters and invalid fields return 400 `invalidParameter`; `alt=media` keeps the shared 400 badRequest rejection and `userProject` is ignored (SPEC-SDK-UNSUPPORTED). |
 | layout-errors | A missing bucket returns 404 `notFound`; an invalid bucket name 400 `invalidParameter`; a request body 400 `invalidArgument`; `POST`, `PUT`, `PATCH` and `DELETE` 405 with `Allow: GET`. |
 | layout-permission | Strict mode requires `storage.objects.list` on the bucket (the reference names no `storage.buckets.*` permission): `roles/storage.objectViewer` succeeds, `roles/storage.objectCreator` and an ungranted principal get 403, an anonymous caller 401, and a missing bucket answers as `buckets.get` does for the same caller. |
 | layout-legacy-profile | The fake-gcs-server profile reports its fixed `US-CENTRAL1`/`region`, matching its bucket resource. |
 | folders-as-prefixes-slash | `includeFoldersAsPrefixes=true` with `delimiter=/` returns the same items, prefixes and page tokens as the listing without it, alone and combined with `prefix` and `includeTrailingDelimiter`. |
 | folders-as-prefixes-delimiter | `includeFoldersAsPrefixes=true` without a delimiter, with an empty one or with any delimiter other than `/` returns 400 `invalidParameter`. Omitted/false is unchanged. |
 | folders-as-prefixes-grpc | gRPC v2 `ListObjects` applies the same rule through the same check: equal responses with delimiter `/`, `INVALID_ARGUMENT` otherwise. A nonempty `filter` stays `UNIMPLEMENTED`. |
-| sdk-probes-kept | The SDK fail-fast probes that used `includeFoldersAsPrefixes` now send Requester Pays `userProject`, which stays a recognized unsupported parameter (`EXT-BEH-045` is NOT_STARTED); each still proves 400 badRequest without retries and a gcs-mimic diagnostic. |
+| sdk-probes-kept | The SDK fail-fast probes that used `includeFoldersAsPrefixes` moved to Requester Pays `userProject`, and on 2026-11-13, when `userProject` became ignored, to `copySourceAcl` on restore (`kmsKeyName` on upload for Ruby); each still proves 400 badRequest without retries and a gcs-mimic diagnostic. |
 
 ## Sources and local choices
 

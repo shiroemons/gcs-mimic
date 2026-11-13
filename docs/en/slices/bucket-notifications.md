@@ -55,7 +55,7 @@ Checked 2026-10-29:
 | NOTIF-METAGENERATION | A successful insert or delete increments the bucket metageneration and sets its `updated` time in the same transaction, and appends a bucket-update change-journal entry. Rejected inserts and deletes of absent IDs change nothing. |
 | NOTIF-PERSISTENCE | Configurations survive restart. Catalog schema version 28 adds `bucket_notifications` and `bucket_notification_ids`, both referencing `buckets(name)` with `ON DELETE CASCADE`; older catalogs migrate with no configurations. Startup rejects rows whose ID exceeds the bucket allocator, and reads reject stored rows that fail validation. |
 | NOTIF-BUCKET-DELETE | Deleting a bucket deletes its configurations and ID allocator in the bucket-delete transaction; a recreated bucket with the same name starts empty with ID 1. |
-| NOTIF-QUERY | `fields` is validated against the `Notification`/`Notifications` schemas and applied. `prettyPrint=false` and `alt=json` are accepted; `userProject` and other unsupported common parameters return 400 `badRequest`; unknown or duplicate parameters return 400 `invalidParameter`. `If-Match`/`If-None-Match` return 400 `badRequest`. Non-insert methods require an empty body. |
+| NOTIF-QUERY | `fields` is validated against the `Notification`/`Notifications` schemas and applied. `prettyPrint=false` and `alt=json` are accepted; `userProject` is ignored; other unsupported common parameters return 400 `badRequest`; unknown or duplicate parameters return 400 `invalidParameter`. `If-Match`/`If-None-Match` return 400 `badRequest`. Non-insert methods require an empty body. |
 | NOTIF-METHODS | The collection allows GET and POST; an item allows GET and DELETE. Other methods return 405 with `Allow`. Paths with an empty or slash-containing notification segment are not notification routes. |
 | NOTIF-STRICT | Strict profile: insert and delete require `storage.buckets.update`, get and list require `storage.buckets.get`, evaluated against project roles and bucket IAM and rechecked in the catalog transaction. Missing credentials return 401 `required`, invalid credentials 401 `authError`, insufficient grants 403 `forbidden`. |
 
@@ -73,11 +73,8 @@ Checked 2026-10-29:
   unverified.
 - Custom-attribute key/value bounds come from Pub/Sub message-attribute limits;
   whether Cloud Storage enforces them at insert time is unverified.
-- `userProject` (requester pays) is rejected with 400 badRequest, consistent
-  with other routes. Cloud Storage served it like an absent parameter for a
-  bucket without Requester Pays (2026-11-13); the recording marks the rejection
-  as a `local_choice`, and the get, list and delete rows record it as a scoped
-  difference under SPEC-SDK-UNSUPPORTED.
+- `userProject` (requester pays) is ignored, consistent with other routes, as
+  Cloud Storage did for a bucket without Requester Pays (recorded 2026-11-13).
 - Advancing `updated` together with the documented metageneration increment
   follows the local bucket-update convention; the provider's `updated` behavior
   is unrecorded (SPEC-NOTIFICATION-WIRE), and so is the etag format.

@@ -180,8 +180,8 @@ ignoring name even when different from the path are also local choices.
 Output-only id, kind, selfLink, projectNumber, generation, metageneration,
 etag, timeCreated, updated, locationType, owner, softDeleteTime and hardDeleteTime
 are ignored, as are name and unknown body/versioning children. None is persisted as
-new supported behavior. Query predefinedAcl, predefinedDefaultObjectAcl and
-userProject return 400 badRequest; invalid projection and GET-only generation/softDeleted
+new supported behavior. Query predefinedAcl and predefinedDefaultObjectAcl
+return 400 badRequest and userProject is ignored; invalid projection and GET-only generation/softDeleted
 return 400 invalidParameter, including softDeleted=false.
 The existing bounded query parser and 16 MiB JSON body cap apply.
 

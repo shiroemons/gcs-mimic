@@ -149,7 +149,7 @@ encode embedded name slashes as `%2F`.
 | insert | `contentEncoding` | Sets the stored `contentEncoding`, as the metadata property does; invalid values 400 before the body, a conflicting multipart or resumable metadata value 400 |
 | insert | `kmsKeyName` | Recognized and rejected 501, including empty values |
 | insert | `predefinedAcl` | Applied at publication; see `docs/en/evidence/upload-predefined-acl.md` |
-| insert/get/delete | `userProject` | Rejected 501; no billing model |
+| insert/get/delete | `userProject` | Ignored; a local bucket cannot enable Requester Pays |
 | get | `softDeleted` | Default/false selects live; true rejected 501; invalid boolean 400 |
 | get | `restoreToken` | Rejected 501; no HNS/soft-deleted identity |
 

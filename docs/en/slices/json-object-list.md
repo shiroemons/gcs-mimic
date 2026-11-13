@@ -31,7 +31,7 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `includeFoldersAsPrefixes` | Omitted/false supported. True with `delimiter=/` returns the listing without it, because local buckets hold no folders or managed folders ([storage layout slice](bucket-storage-layout.md)); true with any other or no delimiter returns 400 `invalidParameter`. |
 | `matchGlob` | Omitted/empty means no glob filter. The pinned Go SDK always sends the empty value. Every nonempty pattern returns 501, including patterns that happen to match all objects. |
 | `filter` | Omitted/empty means no context filter; nonempty values return 501. |
-| `fields`, `userProject` | Explicit 501 even for empty values; field selection and Requester Pays billing are unavailable. `userProject` follows existing bucket behavior. |
+| `fields`, `userProject` | `fields` selects as on every resource (an empty value selects nothing); `userProject` is ignored, as on every JSON method. |
 | `alt`, `prettyPrint` | Omitted/`alt=json` supported; `prettyPrint` selects pretty (default, true) or compact (false) bodies; unknown alt returns 400 `invalidAltValue`; `alt=media` returns 501. |
 | `oauth_token`, `quotaUser`, `userIp`, `callback` | Recognized and rejected with 501, matching the existing local API policy. |
 | `key` | Accepted and ignored without checking the value: an API key attributes quota and is not a credential. |

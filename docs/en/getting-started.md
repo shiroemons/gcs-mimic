@@ -182,8 +182,8 @@ failed conditions leave state unchanged. Strict mode requires
 retained versions survive. Native null settings are rejected; legacy null
 settings reset to false. See the [contract](slices/bucket-metadata-patch.md)
 for profile, input and provider-parity limits. CORS, lifecycle rules, retention,
-`acl` and `predefinedAcl` are applied; `billing`, `userProject` and other
-unsupported settings return 400. PATCH answers with `projection=full` by default,
+`acl` and `predefinedAcl` are applied; `billing` and other unsupported settings
+return 400, and the `userProject` query is ignored. PATCH answers with `projection=full` by default,
 including `acl`, `defaultObjectAcl` and `owner` unless uniform bucket-level access
 is enabled, so the block compares it with a `projection=full` GET.
 
@@ -232,8 +232,8 @@ conditions leave the resource unchanged. Strict mode requires
 `storage.buckets.update`. A supplied labels map replaces all keys, and per-key
 null is invalid. Null/empty class is invalid in both profiles; native null
 boolean settings are invalid, while legacy null settings become false.
-Unsupported settings such as `billing` and the `userProject` query return 400
-badRequest; `predefinedAcl` applies. PUT answers with `noAcl` unless it carries a
+Unsupported settings such as `billing` return 400 badRequest, the `userProject`
+query is ignored, and `predefinedAcl` applies. PUT answers with `noAcl` unless it carries a
 predefined ACL or `projection=full`. A body `name` that differs from the path
 returns 400. See the [contract](slices/bucket-metadata-put.md)
 for accepted full-resource round trips and remaining provider questions.

@@ -103,7 +103,7 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 | --- | --- | --- |
 | Bucket PATCH preserves versioning and labels | `createBucket`, `setMetadata` | both |
 | Default bucket creation and regional location | `createBucket(name)`, `createBucket(name, {location})` | both |
-| Unsupported query fails fast with default retries | `getFiles({userProject})`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
+| Unsupported query fails fast with default retries | `file.restore({generation, copySourceAcl: true})`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
 | Notifications | `createNotification`, `notification().getMetadata`, `getNotifications`, `delete` | both |
 | JSON ACL and default object ACL | `acl.add/get/delete`, `acl.default.*`, inherited object ACL | both |
 | Autoclass | `createBucket({autoclass})`, COLDLINE upload stored as STANDARD | both |
@@ -141,7 +141,8 @@ this suite, unless an item names one line:
   gcs-mimic does too since 0.20.1; 0.20.0 answers 400.
 - **9.0.0 drops a bucket-level `userProject` on `getFiles`.** A `userProject`
   given to `storage.bucket()` is no longer sent on the listing; observed against
-  Cloud Storage too. The fail-fast journey passes it per call.
+  Cloud Storage too. gcs-mimic ignores `userProject` either way, so no journey
+  depends on it.
 - **9.0.0 returns the HTTP response as the third `getFiles` value**, with the
   listing body under `data`; 8.x returned the body itself.
 

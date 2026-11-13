@@ -134,4 +134,4 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
   `acl` in insert/copy/rewrite bodies remains unsupported.
 - Resumable-upload completion and rewrite responses do not render ACL fields;
   restore and move do not offer `copySourceAcl` and use the default object ACL.
-- `userProject` keeps the shared unsupported response.
+- `userProject` is ignored, as on every JSON method (SPEC-SDK-UNSUPPORTED).
