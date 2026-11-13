@@ -167,14 +167,15 @@ fn versioned_listing_pages_and_query_boundaries() {
         let Some(next) = page["nextPageToken"].as_str() else {
             break;
         };
-        server
-            .request(
-                "GET",
-                &format!("/storage/v1/b/test-bucket/o?versions=false&pageToken={next}"),
-                "",
-                b"",
-            )
-            .json_reason(400, "invalid");
+        // A token is a position, accepted under another versions flag (recorded 2026-11).
+        let live = server.list(&format!("versions=false&pageToken={next}"));
+        assert!(
+            live["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|item| { item["name"].as_str() > page["items"][0]["name"].as_str() })
+        );
         token = next.into();
     }
     assert_eq!(actual, expected);
@@ -182,14 +183,15 @@ fn versioned_listing_pages_and_query_boundaries() {
         .as_str()
         .unwrap()
         .to_owned();
-    server
-        .request(
-            "GET",
-            &format!("/storage/v1/b/test-bucket/o?versions=true&pageToken={default_token}"),
-            "",
-            b"",
-        )
-        .json_reason(400, "invalid");
+    // A live listing's token continues a versioned listing after every generation of its name.
+    let versioned = server.list(&format!("versions=true&pageToken={default_token}"));
+    let continued: Vec<_> = versioned["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|item| (item["name"].clone(), item["generation"].clone()))
+        .collect();
+    assert_eq!(continued, expected[3..]);
     let mut token = String::new();
     let mut items = Vec::new();
     let mut prefixes = Vec::new();

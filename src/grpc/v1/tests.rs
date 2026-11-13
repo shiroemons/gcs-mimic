@@ -272,14 +272,13 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
             let mut changed = request.clone();
             changed.prefix.push('x');
             changed.page_token = actual.next_page_token.clone();
-            let error = assert_code(
-                storage.list_objects(Request::new(changed)).await,
-                tonic::Code::InvalidArgument,
-            );
-            assert_eq!(
-                error.message(),
-                "Invalid object listing or page token; use the token with its original query"
-            );
+            // A token is a position, so another prefix continues after it, as on Cloud Storage.
+            let changed = storage
+                .list_objects(Request::new(changed))
+                .await
+                .unwrap()
+                .into_inner();
+            assert!(changed.items.is_empty() && changed.prefixes.is_empty());
             request.page_token = actual.next_page_token;
         }
     }

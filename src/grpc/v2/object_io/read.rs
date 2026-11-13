@@ -218,7 +218,7 @@ impl Storage {
             })
             .map_err(super::super::status::list_query_status)?;
         if !r.page_token.is_empty() {
-            query.cursor = Some(json::decode_object_page_token(&r.page_token, &query, json::Projection::NoAcl).map_err(|_| Status::invalid_argument("Invalid page_token; reuse the token with the original prefix, delimiter and other listing fields"))?);
+            query.cursor = Some(json::decode_object_page_token(&r.page_token, &query).map_err(|_| Status::invalid_argument("Invalid page_token; use a next_page_token from an earlier listing response"))?);
         }
         let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
@@ -230,7 +230,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map(|cursor| json::encode_object_page_token(&query, json::Projection::NoAcl, cursor))
+            .map(json::encode_object_page_token)
             .unwrap_or_default();
         let mut objects = page
             .items

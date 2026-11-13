@@ -466,19 +466,11 @@ async fn grpc_listing_uses_proto_errors_and_preserves_page_tokens() {
     for name in ["a&=1", "b&=2"] {
         write(&storage, vec![message(name, b"x")]).await.unwrap();
     }
-    let query = crate::storage::ObjectListQuery {
-        bucket: "grpc-io".into(),
-        ..Default::default()
-    };
-    let token = json::encode_object_page_token(
-        &query,
-        json::Projection::NoAcl,
-        &crate::storage::ObjectListCursor {
-            name: "a&=1".into(),
-            is_prefix: false,
-            generation: None,
-        },
-    );
+    let token = json::encode_object_page_token(&crate::storage::ObjectListCursor {
+        name: "a&=1".into(),
+        is_prefix: false,
+        generation: None,
+    });
     let page = storage
         .list_objects(
             Request::new(pb::ListObjectsRequest {

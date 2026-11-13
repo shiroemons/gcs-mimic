@@ -161,8 +161,22 @@ fn match_glob_filters_items_prefixes_and_page_tokens() {
     assert_eq!(server.list("matchGlob="), server.list(""));
     let page = server.list("matchGlob=*.txt&maxResults=1");
     let token = page["nextPageToken"].as_str().unwrap();
+    // A token is a position: another glob continues after its name, as Cloud Storage does for
+    // another prefix, delimiter or versions flag (recorded 2026-11).
+    let first = page["items"][0]["name"].as_str().unwrap().to_owned();
     let changed = format!("/storage/v1/b/test-bucket/o?matchGlob=**&pageToken={token}");
-    assert_eq!(server.request("GET", &changed, "").0, 400);
+    let (status, continued) = server.request("GET", &changed, "");
+    assert_eq!(status, 200, "{continued}");
+    assert!(
+        names(&continued).iter().all(|name| *name > first),
+        "{continued}"
+    );
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o?pageToken=bogus", "")
+            .0,
+        400
+    );
     for pattern in [
         "[",
         "[]",
@@ -200,6 +214,29 @@ fn match_glob_filters_items_prefixes_and_page_tokens() {
             .0,
         200
     );
+}
+
+/// The recorded obj-list-edges case (2026-11): one token reused with another prefix, a
+/// delimiter or the versions flag continues after the name it names.
+#[test]
+fn a_page_token_continues_after_its_name_under_other_listing_parameters() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    server.bucket();
+    for name in ["d/a--x", "d/b--y", "d/céz"] {
+        server.put(name);
+    }
+    let page = server.list("prefix=d/&maxResults=1");
+    assert_eq!(names(&page), ["d/a--x"]);
+    let token = page["nextPageToken"].as_str().unwrap();
+    let other_prefix = server.list(&format!("prefix=d/b&pageToken={token}"));
+    assert_eq!(names(&other_prefix), ["d/b--y"]);
+    let delimited = server.list(&format!("prefix=d/&delimiter=-&pageToken={token}"));
+    assert_eq!(names(&delimited), ["d/céz"]);
+    assert_eq!(prefixes_of(&delimited), ["d/b-"]);
+    let versions = server.list(&format!("prefix=d/&versions=true&pageToken={token}"));
+    assert_eq!(names(&versions), ["d/b--y", "d/céz"]);
+    server.stop();
 }
 
 #[test]
@@ -534,15 +571,15 @@ fn object_list_tokens_bind_query_and_reject_corruption() {
             } else {
                 format!("delimiter=%2F&includeTrailingDelimiter=true&{extra}&pageToken={token}")
             };
+        // Cloud Storage accepted a token under other listing parameters (recorded 2026-11).
         assert_eq!(
             server
                 .request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "")
                 .0,
-            400,
+            200,
             "{extra}"
         );
     }
-    assert_eq!(server.request("GET", &format!("/storage/v1/b/other-bucket/o?delimiter=%2F&includeTrailingDelimiter=true&pageToken={token}"), "").0, 400);
     let mut corrupted = token.as_bytes().to_vec();
     corrupted[10] = if corrupted[10] == b'0' { b'1' } else { b'0' };
     assert_eq!(

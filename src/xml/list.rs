@@ -84,11 +84,7 @@ fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error
             let token = token
                 .strip_prefix("xml2.")
                 .ok_or_else(|| Error::invalid("Invalid XML continuation-token"))?;
-            query.cursor = Some(json::decode_object_page_token(
-                token,
-                &query,
-                json::Projection::NoAcl,
-            )?);
+            query.cursor = Some(json::decode_object_page_token(token, &query)?);
         } else if let Some(marker) = &start_after {
             query.cursor = marker_cursor(marker, None, &query);
         }
@@ -332,10 +328,7 @@ fn render_header_v2(body: &mut String, params: &Params, page: &ObjectListPage) {
         element(
             body,
             "NextContinuationToken",
-            &format!(
-                "xml2.{}",
-                json::encode_object_page_token(&params.query, json::Projection::NoAcl, cursor)
-            ),
+            &format!("xml2.{}", json::encode_object_page_token(cursor)),
         );
     }
 }

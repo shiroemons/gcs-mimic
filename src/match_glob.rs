@@ -2,7 +2,6 @@
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Glob {
-    pattern: String,
     states: Vec<State>,
     start: usize,
 }
@@ -36,16 +35,11 @@ impl Glob {
         let chars: Vec<_> = pattern.chars().collect();
         let tokens = sequence(&chars, &mut 0, Scope::Pattern)?;
         let mut glob = Self {
-            pattern: pattern.into(),
             states: vec![State::Accept],
             start: 0,
         };
         glob.start = glob.compile(tokens, 0);
         Ok(glob)
-    }
-
-    pub(crate) fn pattern(&self) -> &str {
-        &self.pattern
     }
 
     fn push(&mut self, state: State) -> usize {
