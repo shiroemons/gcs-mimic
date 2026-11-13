@@ -49,6 +49,25 @@ parent status, fidelity, pending cases and historical evidence. New requirements
 extend a capability separately; regressions in an existing scope still require
 repair. Do not narrow an existing feature row merely to remove its deviations.
 
+`known_deviations` lists missing or unverified work and blocks `IMPLEMENTED`.
+`scoped_differences` lists intentional local contracts that are already
+enforced: an explicit rejection of an out-of-scope feature, a documented local
+bound, or a local choice where official sources are silent. Each entry names the
+`compatibility/gaps.json` entry that records it, and that entry must list the
+row in `affected_features`. Each entry also links passing tests that pin the
+local behavior. Moving an item from `known_deviations` to `scoped_differences`
+is a scope decision recorded in the gap ledger, not a deletion: an item without
+an enforcing test, or one whose code still lacks the behavior, stays a known
+deviation. When a moved item's gap entry says to keep the row `PARTIAL`, update
+that `required_resolution` in the same change.
+
+Missing opted-in real-service evidence alone does not keep an `EXACT` row
+`PARTIAL`. `EXACT` means the observable contract is reproduced for the
+explicitly tested local scope; open provider questions belong in the gap ledger
+as `SOURCE_QUESTION` entries and in the row as scoped differences. A row still
+stays `PARTIAL` while its local behavior is untested, unimplemented or known to
+differ from documented Google behavior.
+
 Report completed scopes with evidence against a fixed selected delivery scope,
 separately from method/behavior/project counts. Do not infer a delivery percentage
 from planning metadata or treat overlapping feature references as independent
@@ -121,7 +140,9 @@ Each acceptance case has a row-local unique `id`, `description`, `result` (`PEND
 
 A test ID made of identifier characters names a test function, optionally qualified as `module::path::name` or as a Go `TestName/Subtest`, and `cargo xtask compatibility` fails when the code holds no such name. Any other ID, such as `guide-native-object-media`, labels a script or manual lane that its verification's `command` describes. Renaming or merging a test therefore updates the ledger in the same change, and a replacement gets a new verification record rather than a rewritten past one.
 
-`IMPLEMENTED` requires nonempty cases/tests/verification, every case and check passing, `acceptance_status: COMPLETE`, achieved fidelity equal to target, all tests linked, implemented dependencies, no deviations, and a valid `last_verified`. Artifacts must be nonempty files inside the repository, including after symlink resolution. `PARTIAL` requires explicit missing cases. Simulations cannot claim `EXACT`.
+A failed verification stays in the record. After a fix, add the passing rerun as a new record after it and give the failed record `superseded_by` with that rerun's `command`, `verified_at` and a nonempty `reason`. The rerun must pass, be dated no earlier than the failure, appear later in the list, match exactly one record and cover every failed test ID. A superseded failure no longer blocks `IMPLEMENTED`; an unsuperseded one does.
+
+`IMPLEMENTED` requires nonempty cases/tests/verification, every case passing, every check passing or superseded, `acceptance_status: COMPLETE`, achieved fidelity equal to target, all tests linked, implemented dependencies, no known deviations, valid scoped differences, and a valid `last_verified`. A row's own `known_deviations` never restates an incomplete dependency: the validator already blocks `IMPLEMENTED` until every dependency is `IMPLEMENTED`. Artifacts must be nonempty files inside the repository, including after symlink resolution. `PARTIAL` requires explicit missing cases. Simulations cannot claim `EXACT`.
 
 This repository-specific validator is not a general JSON Schema engine or proof that submitted logs are truthful. Reviewers verify outputs, coverage and SDK scope. It never runs commands from evidence records. Each JSON input is capped at 8 MiB. Validate/check are read-only and offline; render writes only the two tables. Edit the ledger explicitly. `implemented_in` may stay null until a real commit exists.
 

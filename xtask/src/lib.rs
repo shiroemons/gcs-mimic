@@ -124,7 +124,86 @@ fn artifact(root: &Path, name: &str) -> Result<()> {
     )
 }
 
-fn evidence(root: &Path, row: &Value) -> Result<()> {
+/// Reports whether the failed record at `index` names a later passing record that replaced it.
+/// The failure stays in the history instead of being rewritten, but a fixed failure must not
+/// block IMPLEMENTED forever; the link has to cover every failed test so a narrower rerun
+/// cannot excuse an unfixed one.
+fn superseded(checks: &[Value], index: usize) -> Result<bool> {
+    let check = &checks[index];
+    let Some(link) = check.get("superseded_by").filter(|link| !link.is_null()) else {
+        return Ok(false);
+    };
+    ensure(
+        check["result"] == "FAIL",
+        "only a failed verification can be superseded",
+    )?;
+    string(link, "reason")?;
+    let command = string(link, "command")?;
+    let verified_at = string(link, "verified_at")?;
+    ensure(date(verified_at), "invalid superseding verification date")?;
+    ensure(
+        verified_at >= string(check, "verified_at")?,
+        "superseding verification predates the failure",
+    )?;
+    let mut matches = checks[index + 1..]
+        .iter()
+        .filter(|later| later["command"] == command && later["verified_at"] == verified_at);
+    let replacement = matches
+        .next()
+        .ok_or("superseding verification must follow the failure")?;
+    ensure(
+        matches.next().is_none(),
+        "superseding verification is ambiguous",
+    )?;
+    ensure(
+        replacement["result"] == "PASS",
+        "superseding verification must pass",
+    )?;
+    ensure(
+        strings(check, "test_ids")?.is_subset(&strings(replacement, "test_ids")?),
+        "superseding verification must cover the failed test IDs",
+    )?;
+    Ok(true)
+}
+
+/// Validates intentional local differences. Unlike `known_deviations`, they do not block
+/// IMPLEMENTED, so each one must name the gap-ledger entry that records it and passing tests
+/// that pin the local behavior; otherwise moving an item here would hide missing work.
+fn scoped_differences(
+    row: &Value,
+    id: &str,
+    proven: &BTreeSet<&str>,
+    gaps: &BTreeMap<&str, &Value>,
+) -> Result<()> {
+    let Some(items) = row
+        .get("scoped_differences")
+        .filter(|items| !items.is_null())
+    else {
+        return Ok(());
+    };
+    let items = items
+        .as_array()
+        .ok_or("scoped_differences: expected array")?;
+    for item in items {
+        string(item, "text")?;
+        let gap_id = string(item, "gap")?;
+        let gap = gaps
+            .get(gap_id)
+            .ok_or_else(|| format!("scoped difference names unknown gap {gap_id}"))?;
+        ensure(
+            strings(gap, "affected_features")?.contains(id),
+            &format!("gap {gap_id} does not list this feature"),
+        )?;
+        let ids = strings(item, "test_ids")?;
+        ensure(
+            !ids.is_empty() && ids.is_subset(proven),
+            "scoped difference lacks passing tests",
+        )?;
+    }
+    Ok(())
+}
+
+fn evidence(root: &Path, row: &Value, gaps: &BTreeMap<&str, &Value>) -> Result<()> {
     let cases = array(row, "acceptance_cases")?;
     let tests = strings(row, "test_ids")?;
     let checks = array(row, "verification")?;
@@ -152,7 +231,7 @@ fn evidence(root: &Path, row: &Value) -> Result<()> {
         )?;
     }
     let mut proven = BTreeSet::new();
-    for check in checks {
+    for (index, check) in checks.iter().enumerate() {
         string(check, "command")?;
         ensure(
             ["PASS", "FAIL"].contains(&string(check, "result")?),
@@ -171,9 +250,10 @@ fn evidence(root: &Path, row: &Value) -> Result<()> {
         if check["result"] == "PASS" {
             proven.extend(ids);
         }
+        let replaced = superseded(checks, index)?;
         if complete {
             ensure(
-                check["result"] == "PASS",
+                check["result"] == "PASS" || replaced,
                 "IMPLEMENTED has failed verification",
             )?;
         }
@@ -215,7 +295,22 @@ fn evidence(root: &Path, row: &Value) -> Result<()> {
             "IMPLEMENTED has unlinked test IDs",
         )?;
     }
-    Ok(())
+    let id = string(row, "id")?;
+    scoped_differences(row, id, &proven, gaps)
+}
+
+/// Indexes the gap ledger only when a row records a scoped difference, so ledgers without
+/// them (and test fixtures without a gap ledger) validate as before.
+fn gap_index(root: &Path, rows: &[Value]) -> Result<Option<Value>> {
+    let referenced = rows.iter().any(|row| {
+        row["scoped_differences"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+    });
+    if !referenced {
+        return Ok(None);
+    }
+    read_json(&root.join("compatibility/gaps.json")).map(Some)
 }
 
 pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
@@ -223,6 +318,17 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
     ensure(date(string(ledger, "as_of")?), "invalid as_of date")?;
     let rows = array(ledger, "features")?;
     ensure(!rows.is_empty(), "empty feature ledger")?;
+    let gap_ledger = gap_index(root, rows)?;
+    let mut gaps = BTreeMap::new();
+    if let Some(gap_ledger) = &gap_ledger {
+        for gap in array(gap_ledger, "gaps")? {
+            let gap_id = string(gap, "id")?;
+            ensure(
+                gaps.insert(gap_id, gap).is_none(),
+                &format!("duplicate gap ID {gap_id}"),
+            )?;
+        }
+    }
     let mut by_id = BTreeMap::new();
     let mut kinds: BTreeMap<&str, usize> = KINDS.into_iter().map(|k| (k, 0)).collect();
     let mut categories = BTreeMap::new();
@@ -304,7 +410,7 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
                     "PARTIAL needs explicit missing cases",
                 )?;
             }
-            evidence(root, row)
+            evidence(root, row, &gaps)
         };
         check().map_err(|e| format!("{id}: {e}"))?;
         *kinds.get_mut(string(row, "kind")?).unwrap() += 1;

@@ -141,6 +141,10 @@
           "source_evidence": { "type": "string", "minLength": 1 },
           "sdk_evidence": { "type": "array" },
           "known_deviations": { "type": "array" },
+          "scoped_differences": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/scoped_difference" }
+          },
           "category": { "type": "string", "minLength": 1 }
         },
         "allOf": [
@@ -302,6 +306,24 @@
         "result": { "enum": ["PASS", "FAIL"] },
         "verified_at": { "type": "string", "format": "date" },
         "artifact": { "type": "string", "minLength": 1 },
+        "test_ids": { "$ref": "#/$defs/test_ids" },
+        "superseded_by": {
+          "type": "object",
+          "required": ["command", "verified_at", "reason"],
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "verified_at": { "type": "string", "format": "date" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "scoped_difference": {
+      "type": "object",
+      "required": ["text", "gap", "test_ids"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "gap": { "type": "string", "minLength": 1 },
         "test_ids": { "$ref": "#/$defs/test_ids" }
       }
     }

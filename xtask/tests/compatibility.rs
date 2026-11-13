@@ -210,6 +210,144 @@ fn completed_claims_require_linked_passing_evidence() {
     }
 }
 
+/// A completed row whose first verification failed and names the later passing rerun.
+fn superseded_failure() -> Value {
+    let mut d = completed();
+    let passing = d["features"][0]["verification"][0].clone();
+    let mut failed = passing.clone();
+    failed["result"] = json!("FAIL");
+    failed["verified_at"] = json!("2026-10-20");
+    failed["superseded_by"] = json!({
+        "command": "cargo test --locked --offline",
+        "verified_at": "2026-10-21",
+        "reason": "The fixed build passes the same tests"
+    });
+    d["features"][0]["verification"] = json!([failed, passing]);
+    d
+}
+
+#[test]
+fn superseded_failures_stay_recorded_without_blocking_completion() {
+    validate(&root(), &superseded_failure()).unwrap();
+    let mut d = superseded_failure();
+    d["features"][0]["verification"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("superseded_by");
+    assert!(
+        validate(&root(), &d)
+            .unwrap_err()
+            .contains("failed verification")
+    );
+    for (pointer, value, expected) in [
+        (
+            "/features/0/verification/0/superseded_by/reason",
+            json!(""),
+            "reason",
+        ),
+        (
+            "/features/0/verification/0/superseded_by/verified_at",
+            json!("2026-10-19"),
+            "predates",
+        ),
+        (
+            "/features/0/verification/0/superseded_by/command",
+            json!("just check"),
+            "must follow",
+        ),
+        (
+            "/features/0/verification/1/result",
+            json!("FAIL"),
+            "must pass",
+        ),
+        (
+            "/features/0/verification/0/test_ids",
+            json!(["contract", "other"]),
+            "cover the failed",
+        ),
+        (
+            "/features/0/verification/0/result",
+            json!("PASS"),
+            "only a failed",
+        ),
+    ] {
+        let mut d = superseded_failure();
+        if pointer.ends_with("test_ids") {
+            d["features"][0]["test_ids"] = json!(["contract", "other"]);
+        }
+        *d.pointer_mut(pointer).unwrap() = value;
+        let error = validate(&root(), &d).unwrap_err();
+        assert!(error.contains(expected), "{pointer}: {error}");
+    }
+    let mut d = superseded_failure();
+    d["features"][0]["verification"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    assert!(validate(&root(), &d).unwrap_err().contains("must follow"));
+    let mut d = superseded_failure();
+    let duplicate = d["features"][0]["verification"][1].clone();
+    d["features"][0]["verification"]
+        .as_array_mut()
+        .unwrap()
+        .push(duplicate);
+    assert!(validate(&root(), &d).unwrap_err().contains("ambiguous"));
+}
+
+/// A repository root with an evidence file and a gap ledger that lists TEST-001.
+fn gap_root() -> Temp {
+    let tmp = Temp::new();
+    fs::write(tmp.0.join("README.md"), "Evidence fixture").unwrap();
+    fs::create_dir(tmp.0.join("compatibility")).unwrap();
+    let gaps = json!({"gaps": [
+        {"id": "SPEC-LOCAL", "affected_features": ["TEST-001"]},
+        {"id": "SPEC-OTHER", "affected_features": ["TEST-002"]}
+    ]});
+    fs::write(tmp.0.join("compatibility/gaps.json"), gaps.to_string()).unwrap();
+    tmp
+}
+
+fn scoped(gap: &str, tests: Value) -> Value {
+    let mut d = completed();
+    d["features"][0]["scoped_differences"] = json!([{
+        "text": "Local error wording is pinned by the contract test", "gap": gap, "test_ids": tests
+    }]);
+    d
+}
+
+#[test]
+fn scoped_differences_require_a_recorded_gap_and_passing_tests() {
+    let tmp = gap_root();
+    validate(&tmp.0, &scoped("SPEC-LOCAL", json!(["contract"]))).unwrap();
+    for (d, expected) in [
+        (scoped("SPEC-ABSENT", json!(["contract"])), "unknown gap"),
+        (scoped("SPEC-OTHER", json!(["contract"])), "does not list"),
+        (scoped("SPEC-LOCAL", json!([])), "lacks passing tests"),
+        (
+            scoped("SPEC-LOCAL", json!(["invented"])),
+            "lacks passing tests",
+        ),
+        (scoped("", json!(["contract"])), "gap"),
+    ] {
+        let error = validate(&tmp.0, &d).unwrap_err();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+    let mut d = scoped("SPEC-LOCAL", json!(["contract"]));
+    d["features"][0]["verification"][0]["result"] = json!("FAIL");
+    d["features"][0]["status"] = json!("PARTIAL");
+    d["features"][0]["known_deviations"] = json!(["The contract test fails"]);
+    d["features"][0]["acceptance_cases"][0]["result"] = json!("PENDING");
+    assert!(
+        validate(&tmp.0, &d)
+            .unwrap_err()
+            .contains("lacks passing tests")
+    );
+    // Rows without scoped differences never read the gap ledger.
+    let bare = Temp::new();
+    fs::write(bare.0.join("README.md"), "Evidence fixture").unwrap();
+    validate(&bare.0, &completed()).unwrap();
+}
+
 #[test]
 fn partial_and_simulated_work_remain_explicit() {
     let mut d = completed();
@@ -313,6 +451,7 @@ fn fixture() -> Temp {
     }
     for file in [
         "compatibility/features.json",
+        "compatibility/gaps.json",
         "compatibility/parameter-coverage.json",
         "compatibility/schema-field-coverage.json",
         "docs/ja/feature-titles.json",
