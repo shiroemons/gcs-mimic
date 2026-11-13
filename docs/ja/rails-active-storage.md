@@ -39,7 +39,7 @@ Rails 8.1.4.1は`x-goog-content-length-range`も送るため、これも許可�
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.19.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.20.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -175,7 +175,7 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.19.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.20.0
     ports:
       # The host port equals the container port, so one URL works on both sides.
       - "127.0.0.1:${GCSM_PORT:-4443}:${GCSM_PORT:-4443}"
@@ -216,7 +216,7 @@ config.active_storage.resolve_model_to_route = :rails_storage_proxy
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.19.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.20.0
     ports:
       - 4443:4443
 steps:
