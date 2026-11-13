@@ -510,14 +510,13 @@ fn api_key_parameter_is_accepted_and_ignored_on_bucket_routes() {
             let billed = request(method.clone(), &format!("{path}&userProject={value}"));
             assert_eq!(billed.unwrap(), plain, "{method} userProject={value}");
         }
+        // Quota attribution is ignored as well (case bkt-unsupported-parameters).
+        for parameter in ["quotaUser=probe", "userIp=192.0.2.1"] {
+            let attributed = request(method.clone(), &format!("{path}&{parameter}"));
+            assert_eq!(attributed.unwrap(), plain, "{method} {parameter}");
+        }
         // An accepted key does not admit the parameters that stay unsupported.
-        for parameter in [
-            "oauth_token",
-            "quotaUser",
-            "userIp",
-            "uploadType",
-            "callback",
-        ] {
+        for parameter in ["oauth_token", "uploadType", "callback"] {
             let error =
                 request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
             assert_eq!(
@@ -532,14 +531,7 @@ fn api_key_parameter_is_accepted_and_ignored_on_bucket_routes() {
 
 #[test]
 fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
-    let common = [
-        "fields",
-        "oauth_token",
-        "quotaUser",
-        "userIp",
-        "uploadType",
-        "callback",
-    ];
+    let common = ["fields", "oauth_token", "uploadType", "callback"];
     for (method, path) in [
         (Method::GET, "/storage/v1/b?project=p"),
         (Method::POST, "/storage/v1/b?project=p"),

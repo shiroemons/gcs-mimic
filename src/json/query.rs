@@ -591,9 +591,8 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonErr
 }
 
 /// Parameters every JSON method may carry and gcs-mimic does not implement. Accepting one would
-/// report success for a query token, quota attribution or JSONP that never happened.
-const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] =
-    &["oauth_token", "quotaUser", "userIp", "callback"];
+/// report success for a query token or a JSONP response that never happened.
+const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] = &["oauth_token", "callback"];
 
 /// Standard parameters whose value can change neither the caller nor the result here, so they
 /// are discarded unchecked:
@@ -604,7 +603,10 @@ const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] =
 ///   cannot enable Requester Pays, and Cloud Storage served the parameter on a bucket and a
 ///   project without it as if it were absent (cases bkt-edges-hmac-keys and
 ///   bkt-edges-notification-ids).
-const IGNORED_STANDARD_PARAMETERS: &[&str] = &["key", "userProject"];
+/// - `quotaUser` and `userIp`: they attribute quota, which gcs-mimic does not meter. Cloud
+///   Storage answered buckets.get with either one as it does without (case
+///   bkt-unsupported-parameters).
+const IGNORED_STANDARD_PARAMETERS: &[&str] = &["key", "userProject", "quotaUser", "userIp"];
 
 pub(super) fn ignore_accepted_parameters(query: &mut BTreeMap<String, String>) {
     for name in IGNORED_STANDARD_PARAMETERS {

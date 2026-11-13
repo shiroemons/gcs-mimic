@@ -39875,6 +39875,2457 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "none",
+      "error": null,
+      "id": "batch-unsupported-envelopes",
+      "steps": [
+        {
+          "fingerprint": "2e9c3145b3d27b47",
+          "name": "get-batch-endpoint",
+          "request": "GET /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "<!DOCTYPE html>\n<html lang=en>\n  <meta charset=utf-8>\n  <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n  <title>Error 502 (Server Error)!!1</title>\n  <style>\n    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}\n  </style>\n  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>\n  <p><b>502.</b> <ins>That’s an error.</ins>\n  <p>The server encountered a temporary error and could not complete your request.<p>Please try again in 30 seconds.  <ins>That’s all we know.</ins>\n"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "referrer-policy": "no-referrer",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 502
+          }
+        },
+        {
+          "fingerprint": "fc4a31e29115ef68",
+          "name": "post-body-without-parts",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Batch request did not contain any valid child requests."
+            },
+            "headers": {
+              "accept-ranges": "none",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "expires": "<time:http>",
+              "vary": "Accept-Encoding",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-harness-body-framing": "chunked",
+              "x-xss-protection": "1; mode=block"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "8f661f49438f8eb4",
+          "name": "post-json-body",
+          "request": "POST /batch/storage/v1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "<!DOCTYPE html>\n<html lang=en>\n  <meta charset=utf-8>\n  <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n  <title>Error 502 (Server Error)!!1</title>\n  <style>\n    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}\n  </style>\n  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>\n  <p><b>502.</b> <ins>That’s an error.</ins>\n  <p>The server encountered a temporary error and could not complete your request.<p>Please try again in 30 seconds.  <ins>That’s all we know.</ins>\n"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "referrer-policy": "no-referrer",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 502
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "bkt-unsupported-parameters",
+      "steps": [
+        {
+          "fingerprint": "c71074cf15485c41",
+          "name": "get-quota-user",
+          "request": "GET /storage/v1/b/<bucket>?fields=name&quotaUser=probe",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c686f5ab19139511",
+          "name": "get-user-ip",
+          "request": "GET /storage/v1/b/<bucket>?fields=name&userIp=192.0.2.1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "656f741bf6c2ec45",
+          "name": "get-callback",
+          "request": "GET /storage/v1/b/<bucket>?callback=probe&fields=name",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "// API callback\nprobe({\n  \"name\": \"<bucket>\"\n}\n\n);"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "text/javascript; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "95abc8b9887a5936",
+          "name": "get-alt-media",
+          "request": "GET /storage/v1/b/<bucket>?alt=media",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Unsupported Output Format"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "6365d51e11a78959",
+          "name": "list-alt-media",
+          "request": "GET /storage/v1/b/<bucket>/o?alt=media&prefix=bkt-unsupported-parameters-1-none",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Unsupported Output Format"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "bkt-unsupported-settings",
+      "steps": [
+        {
+          "fingerprint": "a16e0776929f75ba",
+          "name": "patch-website",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=website",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "website": {
+                  "mainPageSuffix": "index.html"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "658568f7a085ba42",
+          "name": "patch-missing-kms-key",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=encryption",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 403,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Permission denied on Cloud KMS key. Please ensure that your Cloud Storage service account has been authorized to use this key.",
+                      "reason": "forbidden"
+                    }
+                  ],
+                  "message": "Permission denied on Cloud KMS key. Please ensure that your Cloud Storage service account has been authorized to use this key."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 403
+          }
+        },
+        {
+          "fingerprint": "20007b87007f2b4d",
+          "name": "patch-rpo-turbo",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=rpo",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "RPO: ASYNC_TURBO cannot be enabled on REGION bucket '<bucket>'.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "RPO: ASYNC_TURBO cannot be enabled on REGION bucket '<bucket>'."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "c3a5873a90168c7f",
+          "name": "patch-rpo-default",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=rpo",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "RPO: DEFAULT cannot be enabled on REGION bucket '<bucket>'.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "RPO: DEFAULT cannot be enabled on REGION bucket '<bucket>'."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "9cdb58aa5dbb28ab",
+          "name": "patch-hierarchical-namespace",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=hierarchicalNamespace",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "02e0a4c6da2ea868",
+          "name": "patch-custom-placement",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=customPlacementConfig",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d8fb0688389c1ba9",
+          "name": "patch-ip-filter-disabled",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=ipFilter",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "ipFilter": {
+                  "mode": "Disabled"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "08cf85d1611abf77",
+          "name": "patch-class-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a0becdb9ce66069f",
+          "name": "patch-lifecycle-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "lifecycle": {
+                  "rule": [
+                    {
+                      "action": {
+                        "storageClass": "REGIONAL",
+                        "type": "SetStorageClass"
+                      },
+                      "condition": {
+                        "age": 3650
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "31acf314a0164cd7",
+          "name": "upload-class-regional",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-unsupported-settings-1-regional",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8dcc6970c4fef35e",
+          "name": "cleanup-object",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-unsupported-settings-1-regional",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "3a379bc3e54f72cf",
+          "name": "cleanup-settings",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "grpc-unsupported-options",
+      "steps": [
+        {
+          "fingerprint": "3c53308163c763b4",
+          "name": "write-a",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "contentType": "text/plain",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-unsupported-options-1-a",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "dfdc9cadfde8b461",
+          "name": "write-b",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-b/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-b/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-b/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-b/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "contentType": "text/plain",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-unsupported-options-1-b",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "4053e534b176a162",
+          "name": "get-bucket-nested-mask",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e379940dfec86a90",
+          "name": "get-bucket-mixed-wildcard-mask",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "message": "Field masks may either contain only a single '*' field or specify specific fields, but not both. Got: '*,name'."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "f292d1fbbdf17afd",
+          "name": "list-buckets-partial-success",
+          "request": "GRPC google.storage.v2.Storage/ListBuckets",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "buckets": [
+                  {
+                    "name": "projects/_/buckets/<bucket>"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "4a80614ea5f570dc",
+          "name": "update-bucket-predefined-acl",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  }
+                ],
+                "bucketId": "<bucket>",
+                "createTime": "<time:f3>",
+                "defaultObjectAcl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "iamConfig": {
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {}
+                },
+                "labels": {
+                  "gcs-mimic-differential": "1",
+                  "probe": "acl"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "2",
+                "name": "projects/_/buckets/<bucket>",
+                "owner": {
+                  "entity": "project-owners-<project-number>"
+                },
+                "project": "projects/<project-number>",
+                "softDeletePolicy": {
+                  "retentionDuration": "0s"
+                },
+                "storageClass": "STANDARD",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "37c70b30a0ae93e2",
+          "name": "update-object-wildcard-mask",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "contentType": "text/x-probe",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "2",
+                "name": "grpc-unsupported-options-1-a",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "f4975e799342443b",
+          "name": "update-object-predefined-acl",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-a/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "contentLanguage": "en",
+                "contentType": "text/x-probe",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "3",
+                "name": "grpc-unsupported-options-1-a",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "d45fa082f64e1bbe",
+          "name": "compose-plain",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706
+                },
+                "componentCount": 2,
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-unsupported-options-1-cmp",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "ca14519c98e43408",
+          "name": "compose-predefined-acl",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-unsupported-options-1-cmp-acl/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706
+                },
+                "componentCount": 2,
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-unsupported-options-1-cmp-acl",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "c4fd07a9088beaa7",
+          "name": "compose-wrong-checksum",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The CRC32C you specified did not match what we computed."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The CRC32C you specified did not match what we computed."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "88b6153f0a209838",
+          "name": "compose-custom-time",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706
+                },
+                "componentCount": 2,
+                "createTime": "<time:f3>",
+                "customTime": "<time:f0>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-unsupported-options-1-cmp-time",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "bbd0279d11e38a36",
+          "name": "rewrite-plain",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "contentLanguage": "en",
+                  "contentType": "text/x-probe",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-unsupported-options-1-rw",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "d7804b0b15a0c408",
+          "name": "rewrite-predefined-acl",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw-acl/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "contentLanguage": "en",
+                  "contentType": "text/x-probe",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-unsupported-options-1-rw-acl",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "d64c0e6c8373596d",
+          "name": "rewrite-wrong-checksum",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The CRC32C you specified did not match what we computed."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The CRC32C you specified did not match what we computed."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "cfa8bc3525dd4f24",
+          "name": "rewrite-custom-time",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw-time/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw-time/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw-time/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-unsupported-options-1-rw-time/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customTime": "<time:f0>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-unsupported-options-1-rw-time",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "87bca040f12b6e0f",
+          "name": "move-flat-namespace",
+          "request": "GRPC google.storage.v2.Storage/MoveObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "contentLanguage": "en",
+                "contentType": "text/x-probe",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-unsupported-options-1-moved",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "2344165817635586",
+          "name": "compose-delete-sources",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706
+                },
+                "componentCount": 2,
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-unsupported-options-1-cmp-del",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "811402444e80d3fa",
+          "name": "get-deleted-source",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 5,
+                "message": "No such object: <bucket>/grpc-unsupported-options-1-a"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 5
+          }
+        },
+        {
+          "fingerprint": "821be4d191880e75",
+          "name": "get-iam-policy-version-2",
+          "request": "GRPC google.storage.v2.Storage/GetIamPolicy",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bindings": [
+                  {
+                    "members": [
+                      "projectOwner:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketOwner"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "version": 1
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "ad9621fb8d8b2527",
+          "name": "get-iam-policy-managed-folder",
+          "request": "GRPC google.storage.v2.Storage/GetIamPolicy",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 9,
+                "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 9
+          }
+        },
+        {
+          "fingerprint": "e0be8c739781d464",
+          "name": "test-iam-permissions-object",
+          "request": "GRPC google.storage.v2.Storage/TestIamPermissions",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "permissions": [
+                  "storage.objects.get"
+                ]
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-unsupported-derived",
+      "steps": [
+        {
+          "fingerprint": "dbbc5b7be9a2f010",
+          "name": "upload-a",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-unsupported-derived-1-a&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "jyVmbQ==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-unsupported-derived-1-a/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "RjVq/lX6POqcvnOtRCytRw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-unsupported-derived-1-a",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a",
+                "size": "3",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "386719f2bee87415",
+          "name": "upload-b",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-unsupported-derived-1-b&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "nbZf9g==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-unsupported-derived-1-b/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "fOhjbAdvX0IxZnb3ylzPvg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-unsupported-derived-1-b?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-unsupported-derived-1-b",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-unsupported-derived-1-b",
+                "size": "2",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f1c69da28a3cbed2",
+          "name": "copy-temporary-hold",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/copyTo/b/<bucket>/o/obj-unsupported-derived-1-copy-hold?fields=name%2CtemporaryHold",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-copy-hold",
+                "temporaryHold": true
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d01e051ebd0b0ff6",
+          "name": "copy-custom-time",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/copyTo/b/<bucket>/o/obj-unsupported-derived-1-copy-time?fields=name%2CcustomTime",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "customTime": "<time:f0>",
+                "name": "obj-unsupported-derived-1-copy-time"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4f117ed24bce0daf",
+          "name": "copy-predefined-acl",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/copyTo/b/<bucket>/o/obj-unsupported-derived-1-copy-acl?destinationPredefinedAcl=private&fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-copy-acl"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "86ffdd5729e3ae50",
+          "name": "copy-retention-without-bucket-setting",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/copyTo/b/<bucket>/o/obj-unsupported-derived-1-copy-retention?fields=name%2Cretention",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Bucket does not have object retention enabled.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Bucket does not have object retention enabled."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "c272836f3d709bd2",
+          "name": "rewrite-temporary-hold",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/rewriteTo/b/<bucket>/o/obj-unsupported-derived-1-rw-hold?fields=done%2Cresource%28name%2CtemporaryHold%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "name": "obj-unsupported-derived-1-rw-hold",
+                  "temporaryHold": true
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c8f3c8e55a64b170",
+          "name": "rewrite-custom-time",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/rewriteTo/b/<bucket>/o/obj-unsupported-derived-1-rw-time?fields=done%2Cresource%28name%2CcustomTime%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "customTime": "<time:f0>",
+                  "name": "obj-unsupported-derived-1-rw-time"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c1500611d9d84675",
+          "name": "rewrite-predefined-acl",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a/rewriteTo/b/<bucket>/o/obj-unsupported-derived-1-rw-acl?destinationPredefinedAcl=private&fields=done%2Cresource%28name%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "name": "obj-unsupported-derived-1-rw-acl"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8c357b1be20e73ff",
+          "name": "compose-temporary-hold",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-hold/compose?fields=name%2CtemporaryHold",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-cmp-hold",
+                "temporaryHold": true
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e9c43bdd031afc9d",
+          "name": "compose-custom-time",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-time/compose?fields=name%2CcustomTime",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "customTime": "<time:f0>",
+                "name": "obj-unsupported-derived-1-cmp-time"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "207e08b27e4d58b2",
+          "name": "compose-predefined-acl",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-acl/compose?destinationPredefinedAcl=private&fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-cmp-acl"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4db9afa8d96eb5e0",
+          "name": "move-flat-namespace",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-b/moveTo/o/obj-unsupported-derived-1-moved?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-moved",
+                "size": "2"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "089173320e69521b",
+          "name": "move-projection-full",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-moved/moveTo/o/obj-unsupported-derived-1-b?fields=name%2Csize&projection=full",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-b",
+                "size": "2"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "81279b955520ba65",
+          "name": "release-copy-hold",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-copy-hold?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-copy-hold"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "eee29dad101c3fa7",
+          "name": "release-rewrite-hold",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-rw-hold?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-rw-hold"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a5d1a64062dacb74",
+          "name": "release-compose-hold",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-hold?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-derived-1-cmp-hold"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a0bbe3460d614cde",
+          "name": "cleanup-a",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-a",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "95d695090f99b189",
+          "name": "cleanup-b",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-b",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "548952d3442ea8aa",
+          "name": "cleanup-moved",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-moved",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-unsupported-derived-1-moved",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-unsupported-derived-1-moved"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "6af8b76f94f3343c",
+          "name": "cleanup-copy-hold",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-copy-hold",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "0d969899c231f3d8",
+          "name": "cleanup-copy-time",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-copy-time",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "c7a7f9412a429d39",
+          "name": "cleanup-copy-acl",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-copy-acl",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "d07dbe22924972d3",
+          "name": "cleanup-copy-retention",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-copy-retention",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-unsupported-derived-1-copy-retention",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-unsupported-derived-1-copy-retention"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "c22ecadd24c67262",
+          "name": "cleanup-rewrite-hold",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-rw-hold",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "e72876d224ca4dea",
+          "name": "cleanup-rewrite-time",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-rw-time",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "e4d41e2edd68f73b",
+          "name": "cleanup-rewrite-acl",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-rw-acl",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "847cf66cc4fcba67",
+          "name": "cleanup-compose-hold",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-hold",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ef6203f0badd8403",
+          "name": "cleanup-compose-time",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-time",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "1a669708b022a880",
+          "name": "cleanup-compose-acl",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-derived-1-cmp-acl",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-unsupported-inputs",
+      "steps": [
+        {
+          "fingerprint": "7d5157ffab73d644",
+          "name": "upload-source",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-unsupported-inputs-1-src&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-unsupported-inputs-1-src/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-unsupported-inputs-1-src",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9342672a7422827d",
+          "name": "insert-wrong-kind",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Ckind&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#object",
+                "name": "obj-unsupported-inputs-1-kind"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "089ca5f50c647b23",
+          "name": "insert-empty-metadata-key",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Cmetadata&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "v"
+                },
+                "name": "obj-unsupported-inputs-1-emptykey"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ce09f375bd3f4844",
+          "name": "upload-sha1-hash-header",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&name=obj-unsupported-inputs-1-sha1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-unsupported-inputs-1-sha1",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ec70b37616037ab6",
+          "name": "patch-wrong-kind",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src?fields=name%2Ckind",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "kind": "storage#object",
+                "name": "obj-unsupported-inputs-1-src"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "392cefefa20deae6",
+          "name": "patch-empty-metadata-key",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src?fields=name%2Cmetadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "v"
+                },
+                "name": "obj-unsupported-inputs-1-src"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5a90070cc68e82c3",
+          "name": "patch-predefined-acl",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src?fields=name%2Cmetageneration&predefinedAcl=private",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metageneration": "4",
+                "name": "obj-unsupported-inputs-1-src"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5fc70644a79e2365",
+          "name": "cleanup-source",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "9740ffb8a3d33833",
+          "name": "cleanup-kind",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-kind",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "7ad2430e69dc61ad",
+          "name": "cleanup-emptykey",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-emptykey",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "f70e4e8875a6cfee",
+          "name": "cleanup-sha1",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-sha1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -39886,7 +42337,7 @@
     "2026-11-09",
     "2026-11-13"
   ],
-  "requests": 1434,
+  "requests": 1546,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

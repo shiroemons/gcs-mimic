@@ -541,11 +541,13 @@ impl Storage {
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
         let bucket = iam_bucket(&r.resource, self.compat_profile)?;
+        // Policies here carry no conditions, so every version renders the same bindings. Cloud
+        // Storage served version 2 as well (case grpc-unsupported-options).
         if r.options
-            .is_some_and(|o| !matches!(o.requested_policy_version, 0 | 1 | 3))
+            .is_some_and(|o| !matches!(o.requested_policy_version, 0..=3))
         {
             return Err(Status::invalid_argument(
-                "requested_policy_version must be 0, 1 or 3",
+                "requested_policy_version must be between 0 and 3",
             ));
         }
         let access = self.access(caller, bucket, auth::BUCKETS_GET_IAM).await?;
@@ -883,7 +885,9 @@ impl Storage {
                 self.max_object_bytes,
             )
             .await?;
-        Ok(Response::new(self.written_object(&record, caller).await?))
+        // Cloud Storage answers ComposeObject without acl or owner, unlike WriteObject and
+        // RewriteObject (case grpc-unsupported-options).
+        Ok(Response::new(convert::object(&record)?))
     }
     pub(super) async fn move_object(
         &self,
@@ -920,7 +924,9 @@ impl Storage {
                 },
             )
             .await?;
-        Ok(Response::new(self.written_object(&record, caller).await?))
+        // As for ComposeObject, Cloud Storage answers without acl or owner (case
+        // grpc-unsupported-options).
+        Ok(Response::new(convert::object(&record)?))
     }
     pub(super) async fn restore_object(
         &self,
@@ -2523,18 +2529,19 @@ mod tests {
             .unwrap()
     }
 
-    async fn stored_object(
-        s: &Storage,
-        name: &str,
-    ) -> Result<crate::object::ObjectRecord, crate::object::ObjectError> {
-        s.state
+    /// The live object, or `None` once it is absent. Any other failure is a broken fixture.
+    async fn stored_object(s: &Storage, name: &str) -> Option<crate::object::ObjectRecord> {
+        let target = live("update-copy-bucket", name);
+        match s
+            .state
             .catalog
-            .get_object(
-                live("update-copy-bucket", name),
-                Default::default(),
-                PERMISSIVE,
-            )
+            .get_object(target, Default::default(), PERMISSIVE)
             .await
+        {
+            Ok(record) => Some(record),
+            Err(crate::object::ObjectError::ObjectNotFound) => None,
+            Err(error) => panic!("{name}: {error:?}"),
+        }
     }
 
     #[tokio::test]
@@ -2651,10 +2658,7 @@ mod tests {
                 "ComposeObject metadata",
             );
         }
-        assert!(matches!(
-            stored_object(&s, "composed").await,
-            Err(crate::object::ObjectError::ObjectNotFound)
-        ));
+        assert!(stored_object(&s, "composed").await.is_none());
 
         let rewrite = pb::RewriteObjectRequest {
             source_bucket: RESOURCE.into(),
@@ -2717,10 +2721,7 @@ mod tests {
                 "RewriteObject temporary_hold/custom_time",
             );
         }
-        assert!(matches!(
-            stored_object(&s, "rewritten").await,
-            Err(crate::object::ObjectError::ObjectNotFound)
-        ));
+        assert!(stored_object(&s, "rewritten").await.is_none());
 
         let restore = pb::RestoreObjectRequest {
             bucket: RESOURCE.into(),
@@ -2730,9 +2731,150 @@ mod tests {
             ..Default::default()
         };
         assert_unsupported(
-            s.restore_object(Request::new(restore), None).await,
+            s.restore_object(Request::new(restore.clone()), None).await,
             "RestoreObject ACL/token",
         );
+
+        // Customer-supplied keys reach every derived write through the same request parameters.
+        let customer_key = Some(pb::CommonObjectRequestParams {
+            encryption_algorithm: "AES256".into(),
+            ..Default::default()
+        });
+        let option = "customer-supplied encryption";
+        let request = pb::ComposeObjectRequest {
+            common_object_request_params: customer_key.clone(),
+            ..compose
+        };
+        assert_unsupported(s.compose_object(Request::new(request), None).await, option);
+        let request = pb::RewriteObjectRequest {
+            common_object_request_params: customer_key.clone(),
+            ..rewrite
+        };
+        assert_unsupported(s.rewrite_object(Request::new(request), None).await, option);
+        let request = pb::RestoreObjectRequest {
+            common_object_request_params: customer_key,
+            restore_token: String::new(),
+            ..restore
+        };
+        assert_unsupported(s.restore_object(Request::new(request), None).await, option);
+        for name in ["composed", "rewritten"] {
+            assert!(stored_object(&s, name).await.is_none(), "{name}");
+        }
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_retention_lock_requires_a_policy_and_the_current_metageneration() {
+        let (s, _dir) = setup().await;
+        let lock = |metageneration| pb::LockBucketRetentionPolicyRequest {
+            bucket: RESOURCE.into(),
+            if_metageneration_match: metageneration,
+        };
+        let unlocked = stored_bucket(&s).await;
+        // A bucket without a policy has nothing to lock, whatever the metageneration says.
+        let status = assert_code(
+            s.lock_bucket_retention_policy(Request::new(lock(unlocked.metageneration)), None)
+                .await,
+            Code::InvalidArgument,
+        );
+        assert!(status.message().contains("retention"), "{status}");
+        assert_eq!(stored_bucket(&s).await, unlocked);
+
+        let request = pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: RESOURCE.into(),
+                retention_policy: Some(pb::bucket::RetentionPolicy {
+                    retention_duration: Some(prost_types::Duration {
+                        seconds: 3600,
+                        nanos: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            update_mask: fixtures::mask(&["retention_policy"]),
+            ..Default::default()
+        };
+        let configured = s
+            .update_bucket(Request::new(request), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_code(
+            s.lock_bucket_retention_policy(Request::new(lock(configured.metageneration - 1)), None)
+                .await,
+            Code::FailedPrecondition,
+        );
+        assert!(
+            stored_bucket(&s)
+                .await
+                .retention_policy
+                .is_some_and(|policy| !policy.is_locked)
+        );
+
+        let locked = s
+            .lock_bucket_retention_policy(Request::new(lock(configured.metageneration)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(locked.retention_policy.as_ref().unwrap().is_locked);
+        assert_eq!(locked.metageneration, configured.metageneration + 1);
+        // A lock cannot be taken twice, even at the current metageneration.
+        let status = assert_code(
+            s.lock_bucket_retention_policy(Request::new(lock(locked.metageneration)), None)
+                .await,
+            Code::InvalidArgument,
+        );
+        assert!(status.message().contains("already locked"), "{status}");
+        assert_eq!(
+            stored_bucket(&s).await.metageneration,
+            locked.metageneration
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_compose_deletes_its_sources_only_when_asked() {
+        let (s, _dir) = setup().await;
+        for name in ["first", "second"] {
+            upload(&s, name, 2).await;
+        }
+        let compose = |destination: &str, delete_source_objects| pb::ComposeObjectRequest {
+            destination: Some(pb::Object {
+                bucket: RESOURCE.into(),
+                name: destination.into(),
+                ..Default::default()
+            }),
+            source_objects: ["first", "second"]
+                .map(|name| pb::compose_object_request::SourceObject {
+                    name: name.into(),
+                    ..Default::default()
+                })
+                .into(),
+            delete_source_objects,
+            ..Default::default()
+        };
+        for keep in [None, Some(false)] {
+            let kept = s
+                .compose_object(Request::new(compose("kept", keep)), None)
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!((kept.size, kept.component_count), (4, 2));
+            for name in ["first", "second"] {
+                assert!(stored_object(&s, name).await.is_some(), "{name}");
+            }
+        }
+        let moved = s
+            .compose_object(Request::new(compose("moved", Some(true))), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!((moved.size, moved.component_count), (4, 2));
+        for name in ["first", "second"] {
+            assert!(stored_object(&s, name).await.is_none(), "{name}");
+        }
+        assert!(stored_object(&s, "moved").await.is_some());
         s.state.catalog.close().await.unwrap();
     }
 
@@ -2750,8 +2892,17 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
+        // Without conditions every version renders the same policy, as Cloud Storage's did.
+        for version in [0, 1, 2] {
+            let policy = s
+                .get_iam_policy(Request::new(get(RESOURCE, version)), None)
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(policy, before, "version {version}");
+        }
         assert_code(
-            s.get_iam_policy(Request::new(get(RESOURCE, 2)), None).await,
+            s.get_iam_policy(Request::new(get(RESOURCE, 4)), None).await,
             Code::InvalidArgument,
         );
         let replacement = iam::Policy {

@@ -14123,7 +14123,7 @@
         },
         {
           "id": "JSON-OBJECTS-004-UNDECLARED-QUERY",
-          "description": "objects.delete ignores query parameters it does not declare, such as projection and the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, in both profiles, as Cloud Storage did (differential case obj-delete-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as quotaUser and malformed declared ones are still rejected, and userProject is ignored.",
+          "description": "objects.delete ignores query parameters it does not declare, such as projection and the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, in both profiles, as Cloud Storage did (differential case obj-delete-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as callback and malformed declared ones are still rejected, and userProject, quotaUser and userIp are ignored.",
           "result": "PASS",
           "test_ids": [
             "obj_query_002_duplicates_invalid_scalars_and_method_parameters",
@@ -17223,7 +17223,7 @@
         },
         {
           "id": "OBJECT-LIST-UNDECLARED-QUERY",
-          "description": "objects.list ignores query parameters it does not declare, such as the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, in both profiles, as Cloud Storage did (differential case obj-list-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as quotaUser are still rejected, and userProject is ignored.",
+          "description": "objects.list ignores query parameters it does not declare, such as the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, in both profiles, as Cloud Storage did (differential case obj-list-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as callback are still rejected, and userProject, quotaUser and userIp are ignored.",
           "result": "PASS",
           "test_ids": [
             "error_items_name_the_rejected_parameter_or_header",
@@ -21533,10 +21533,10 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "Nested and mixed-wildcard read_mask paths return UNIMPLEMENTED with ErrorInfo naming the path.",
+          "description": "Nested read_mask paths return UNIMPLEMENTED with ErrorInfo naming the path; a wildcard beside a name returns INVALID_ARGUMENT with Cloud Storage's message (case grpc-unsupported-options, recorded 2026-11-13).",
           "result": "PASS",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21575,7 +21575,7 @@
         }
       ],
       "test_ids": [
-        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
+        "grpc_bucket_options_reject_only_what_is_unsupported",
         "grpc_buckets_crud_conditions_and_masks",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_expose_json_lifecycle_etag_and_object_retention",
@@ -21591,7 +21591,7 @@
           "verified_at": "2026-11-14",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21679,7 +21679,7 @@
           "description": "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED with ErrorInfo and create no bucket.",
           "result": "PASS",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21717,7 +21717,7 @@
         }
       ],
       "test_ids": [
-        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
+        "grpc_bucket_options_reject_only_what_is_unsupported",
         "grpc_buckets_create_subset_and_defaults",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_create_accepts_name_matching_bucket_id",
@@ -21732,7 +21732,7 @@
           "verified_at": "2026-11-14",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21816,10 +21816,10 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "return_partial_success returns UNIMPLEMENTED with ErrorInfo.",
+          "description": "return_partial_success is accepted: every local bucket is reachable, so the listing is complete with or without it, as Cloud Storage answered (case grpc-unsupported-options, recorded 2026-11-13).",
           "result": "PASS",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21835,13 +21835,13 @@
         },
         {
           "id": "grpc_bucket_list_remaining",
-          "description": "return_partial_success and nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported.",
+          "description": "Nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
-        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
+        "grpc_bucket_options_reject_only_what_is_unsupported",
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
@@ -21854,7 +21854,7 @@
           "verified_at": "2026-11-14",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
-            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+            "grpc_bucket_options_reject_only_what_is_unsupported"
           ]
         },
         {
@@ -21891,7 +21891,7 @@
         }
       ],
       "known_deviations": [
-        "return_partial_success and nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported."
+        "Nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -22025,7 +22025,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "Managed folder and object resources return UNIMPLEMENTED with ErrorInfo; a requested_policy_version other than 0, 1 or 3 returns INVALID_ARGUMENT.",
+          "description": "Managed folder and object resources return UNIMPLEMENTED with ErrorInfo; requested_policy_version 0 through 3 render the same unconditional policy, as Cloud Storage served version 2 (case grpc-unsupported-options, recorded 2026-11-13), and other values return INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": [
             "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"

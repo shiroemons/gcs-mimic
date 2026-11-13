@@ -1834,7 +1834,7 @@ fn bucket_metadata_conditions(method: &str) {
                 .json_envelope(400, "invalidParameter");
         }
         // The native profile applies predefined ACLs, so only an unknown value is rejected.
-        let mut rejected = vec!["quotaUser=project"];
+        let mut rejected = vec!["callback=project"];
         if profile == "native" {
             server
                 .request(
@@ -3784,11 +3784,15 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         billed.json(),
         server.request("GET", "/storage/v1/b?project=x", "").json()
     );
+    // Quota attribution is ignored as well (case bkt-unsupported-parameters).
+    for query in ["quotaUser=probe", "userIp=192.0.2.1"] {
+        let attributed = server.request("GET", &format!("/storage/v1/b?project=x&{query}"), "");
+        attributed.expect(200);
+        assert_eq!(attributed.json(), billed.json(), "{query}");
+    }
     for query in [
         "returnPartialSuccess=true",
         "oauth_token=x",
-        "quotaUser=x",
-        "userIp=x",
         "uploadType=media",
         "callback=x",
         "alt=media",

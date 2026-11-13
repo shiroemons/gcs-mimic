@@ -217,7 +217,7 @@ fn notification_requests_reject_invalid_input_without_mutation() {
         ),
         (
             "GET",
-            format!("{CONFIGS}?quotaUser=p"),
+            format!("{CONFIGS}?callback=p"),
             b"",
             400,
             "badRequest",

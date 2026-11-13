@@ -761,11 +761,9 @@ pub(crate) fn multipart_metadata(
     {
         return Err(JsonError::invalid_argument("bucket must be a string"));
     }
-    if let Some(kind) = unchanged.remove("kind")
-        && kind != "storage#object"
-    {
-        return Err(JsonError::unsupported_object("kind"));
-    }
+    // Cloud Storage stored an insert whose `kind` named another resource as `storage#object`
+    // (case obj-unsupported-inputs), so the value is output-only and ignored.
+    unchanged.remove("kind");
     // Insert accepts a creation class; metadata updates keep comparing it as output-only.
     if let Some(class) = unchanged
         .remove("storageClass")

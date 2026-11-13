@@ -33,7 +33,8 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `filter` | Omitted/empty means no context filter; nonempty values return 501. |
 | `fields`, `userProject` | `fields` selects as on every resource (an empty value selects nothing); `userProject` is ignored, as on every JSON method. |
 | `alt`, `prettyPrint` | Omitted/`alt=json` supported; `prettyPrint` selects pretty (default, true) or compact (false) bodies; unknown alt returns 400 `invalidAltValue`; `alt=media` returns 501. |
-| `oauth_token`, `quotaUser`, `userIp`, `callback` | Recognized and rejected with 501, matching the existing local API policy. |
+| `oauth_token`, `callback` | Recognized and rejected with 400 `badRequest`, matching the existing local API policy. |
+| `quotaUser`, `userIp` | Accepted and ignored, as on every JSON method (case `bkt-unsupported-parameters`). |
 | `key` | Accepted and ignored without checking the value: an API key attributes quota and is not a credential. |
 
 Unknown or misplaced parameters, duplicate keys, malformed escapes/UTF-8, invalid

@@ -110,7 +110,7 @@ fn unsupported_google_routes_and_inputs() {
     server
         .request(
             "GET",
-            "/storage/v1/b/test-bucket/o?delimiter=%2F&quotaUser=quota-user",
+            "/storage/v1/b/test-bucket/o?delimiter=%2F&callback=quota-user",
             "",
             b"",
         )

@@ -1,0 +1,17 @@
+{
+  "id": "obj-unsupported-inputs",
+  "description": "Object inputs that gcs-mimic rejects as unsupported: a resource kind that is not storage#object and an empty custom metadata key on multipart insert and on PATCH, an X-Goog-Hash algorithm other than crc32c and md5 on a media upload, and predefinedAcl on PATCH. Checks SPEC-SDK-UNSUPPORTED.",
+  "steps": [
+    {"name": "upload-source", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-src"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "insert-wrong-kind", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart", "fields": "name,kind"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-kind\",\"kind\":\"storage#bucket\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nx\r\n--gcsmimicdiff--"},
+    {"name": "insert-empty-metadata-key", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart", "fields": "name,metadata"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-emptykey\",\"metadata\":{{\"\":\"v\"}}}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nx\r\n--gcsmimicdiff--", "local_choice": {"reason": "Not implemented yet; gcs-mimic rejects the option (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
+    {"name": "upload-sha1-hash-header", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-sha1", "fields": "name,size"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "sha1=qvTGHdzF6KLavt4PO0gs2a6pQ00="}, "body_text": "hello"},
+    {"name": "patch-wrong-kind", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"fields": "name,kind"}, "body": {"kind": "storage#bucket"}},
+    {"name": "patch-empty-metadata-key", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"fields": "name,metadata"}, "body": {"metadata": {"": "v"}}, "local_choice": {"reason": "Not implemented yet; gcs-mimic rejects the option (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
+    {"name": "patch-predefined-acl", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"predefinedAcl": "private", "fields": "name,metageneration"}, "body": {}, "local_choice": {"reason": "Not implemented yet; gcs-mimic rejects the option (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
+    {"name": "cleanup-source", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-src", "compare": false, "always": true},
+    {"name": "cleanup-kind", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-kind", "compare": false, "always": true},
+    {"name": "cleanup-emptykey", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-emptykey", "compare": false, "always": true},
+    {"name": "cleanup-sha1", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-sha1", "compare": false, "always": true}
+  ]
+}

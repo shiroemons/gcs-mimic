@@ -1,0 +1,11 @@
+{
+  "id": "bkt-unsupported-parameters",
+  "description": "Standard query parameters that gcs-mimic rejects as unsupported, on read-only requests: quotaUser, userIp and callback on buckets.get, and alt=media on buckets.get and objects.list. Checks SPEC-SDK-UNSUPPORTED.",
+  "steps": [
+    {"name": "get-quota-user", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"quotaUser": "probe", "fields": "name"}},
+    {"name": "get-user-ip", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"userIp": "192.0.2.1", "fields": "name"}},
+    {"name": "get-callback", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"callback": "probe", "fields": "name"}, "local_choice": {"reason": "JSONP responses are not implemented; gcs-mimic rejects callback (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
+    {"name": "get-alt-media", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"alt": "media"}, "local_choice": {"reason": "Cloud Storage answers with the text Unsupported Output Format; gcs-mimic keeps its JSON error envelope.", "mimic_status": 400}},
+    {"name": "list-alt-media", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"alt": "media", "prefix": "{object}-none"}, "local_choice": {"reason": "Cloud Storage answers with the text Unsupported Output Format; gcs-mimic keeps its JSON error envelope.", "mimic_status": 400}}
+  ]
+}

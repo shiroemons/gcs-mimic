@@ -76,9 +76,11 @@ fn validate_bucket_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Sta
         if mask.paths.len() == 1 {
             return Ok(());
         }
-        return Err(super::status::unsupported(
-            "mixed wildcard bucket read_mask",
-        ));
+        // Cloud Storage's wording, recorded by case grpc-unsupported-options.
+        return Err(Status::invalid_argument(format!(
+            "Field masks may either contain only a single '*' field or specify specific fields, but not both. Got: '{}'.",
+            mask.paths.join(",")
+        )));
     }
     for path in &mask.paths {
         macro_rules! validate { ($($field:ident),* $(,)?) => { match path.as_str() {
@@ -471,12 +473,9 @@ impl Storage {
         if let Some(caller) = caller {
             caller.authorize(crate::auth::BUCKETS_LIST, Some(project))?;
         }
-        if request.return_partial_success {
-            return Err(unsupported_for(
-                "ListBuckets return_partial_success",
-                caller,
-            ));
-        }
+        // `return_partial_success` only changes how unreachable locations are reported. Every
+        // local bucket is reachable, so the listing is complete with or without it, as Cloud
+        // Storage's was (case grpc-unsupported-options).
         let invalid_list = || {
             Status::invalid_argument(
                 "Use a nonnegative page_size and a prefix of at most 222 bytes, for example page_size=100",
@@ -787,7 +786,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grpc_bucket_rpcs_reject_unsupported_options_without_side_effects() {
+    async fn grpc_bucket_options_reject_only_what_is_unsupported() {
         let (_dir, storage) = storage(false).await;
         for (acl, default_acl) in [("publicRead", ""), ("", "bucketOwnerRead")] {
             let request = pb::CreateBucketRequest {
@@ -810,31 +809,47 @@ mod tests {
             .create_bucket(Request::new(create("mask-bucket")), None)
             .await
             .unwrap();
-        for (paths, option) in [
-            (
-                &["versioning.enabled"][..],
-                "bucket read_mask versioning.enabled",
-            ),
-            (&["*", "name"], "mixed wildcard bucket read_mask"),
-        ] {
-            let request = pb::GetBucketRequest {
-                read_mask: fixtures::mask(paths),
-                ..get("mask-bucket")
-            };
-            assert_unsupported(
-                storage.get_bucket(Request::new(request), None).await,
-                option,
-            );
-        }
-        let request = pb::ListBucketsRequest {
+        let masked = |paths: &[&str]| pb::GetBucketRequest {
+            read_mask: fixtures::mask(paths),
+            ..get("mask-bucket")
+        };
+        // Cloud Storage serves nested paths; gcs-mimic selects whole fields only.
+        assert_unsupported(
+            storage
+                .get_bucket(Request::new(masked(&["versioning.enabled"])), None)
+                .await,
+            "bucket read_mask versioning.enabled",
+        );
+        // A wildcard beside a name is malformed, in Cloud Storage's recorded wording.
+        let status = assert_code(
+            storage
+                .get_bucket(Request::new(masked(&["*", "name"])), None)
+                .await,
+            Code::InvalidArgument,
+        );
+        assert_eq!(
+            status.message(),
+            "Field masks may either contain only a single '*' field or specify specific fields, but not both. Got: '*,name'."
+        );
+        // Every local bucket is reachable, so asking for partial success changes nothing.
+        let list = |return_partial_success| pb::ListBucketsRequest {
             parent: "projects/p".into(),
-            return_partial_success: true,
+            return_partial_success,
             ..Default::default()
         };
-        assert_unsupported(
-            storage.list_buckets(Request::new(request), None).await,
-            "ListBuckets return_partial_success",
-        );
+        let complete = storage
+            .list_buckets(Request::new(list(false)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let partial = storage
+            .list_buckets(Request::new(list(true)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(partial, complete);
+        assert!(partial.unreachable.is_empty());
+        assert_eq!(partial.buckets.len(), 1);
         storage.state.catalog.close().await.unwrap();
     }
 
@@ -1977,7 +1992,7 @@ mod tests {
             Code::Unavailable
         );
         assert_eq!(
-            Status::from(json::JsonError::unsupported("quotaUser")).code(),
+            Status::from(json::JsonError::unsupported("callback")).code(),
             Code::Unimplemented
         );
         storage.state.catalog.close().await.unwrap();

@@ -77,7 +77,7 @@ fn storage_layout_parameters_select_fields_and_scope_the_permission_check() {
     layout(&server, "test-bucket", "?fields=storageClass", "").json_reason(400, "invalidParameter");
     layout(&server, "test-bucket", "?projection=full", "").json_reason(400, "invalidParameter");
     layout(&server, "test-bucket", "?alt=media", "").json_reason(400, "badRequest");
-    layout(&server, "test-bucket", "?quotaUser=quota", "").json_reason(400, "badRequest");
+    layout(&server, "test-bucket", "?callback=quota", "").json_reason(400, "badRequest");
     // The Requester Pays billing project is ignored, as on every JSON method.
     assert_eq!(
         layout(&server, "test-bucket", "?userProject=billing", "").json_ok(),

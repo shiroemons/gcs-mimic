@@ -527,7 +527,7 @@ const ALL_OBJECT_FIELDS: [&str; 33] = [
 ];
 
 #[tokio::test]
-async fn grpc_derived_writes_return_owner_and_acl() {
+async fn grpc_derived_writes_return_the_recorded_owner_and_acl_views() {
     let (_dir, storage) = setup(true).await;
     let admin = fixtures::caller(&storage, "admin").await;
     let bucket = "projects/_/buckets/grpc-io";
@@ -624,9 +624,16 @@ async fn grpc_derived_writes_return_owner_and_acl() {
         .await
         .unwrap()
         .into_inner();
-    for object in [composed, rewritten, moved, restored] {
+    // Cloud Storage answered RewriteObject with the owner and ACL and ComposeObject and
+    // MoveObject without them (case grpc-unsupported-options). RestoreObject is unrecorded and
+    // keeps the write view.
+    for object in [rewritten, restored] {
         assert_eq!(object.owner, source.owner, "{} owner", object.name);
         assert!(!object.acl.is_empty(), "{} ACL", object.name);
+    }
+    for object in [composed, moved] {
+        assert!(object.owner.is_none(), "{} owner", object.name);
+        assert!(object.acl.is_empty(), "{} ACL", object.name);
     }
     storage.state.catalog.close().await.unwrap();
 }

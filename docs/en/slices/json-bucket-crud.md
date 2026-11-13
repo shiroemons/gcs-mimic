@@ -97,7 +97,7 @@ exactly once as UTF-8, with `+` interpreted as space. Malformed escapes/UTF-8, d
 parameter names, empty required values and invalid scalar types return 400 `invalidParameter`.
 In the native profile a bucket method ignores a query name it does not consume, as recorded from
 Cloud Storage on 2026-11-01 (SPEC-JSON-UNKNOWN-QUERY); recognized but unsupported parameters such as
-`quotaUser` are still rejected, and `userProject` is ignored (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
+`callback` are still rejected, and `userProject`, `quotaUser` and `userIp` are ignored (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
 `invalidParameter` for any unknown query name on a bucket method. objects.delete and objects.list
 ignore an undeclared name in both profiles, as Cloud Storage and fake-gcs-server did on 2026-11-13;
 `@google-cloud/storage` 9.0.0 sends one on both. The other object methods return 400
@@ -128,22 +128,22 @@ Every method-specific Discovery query parameter is listed here (`bucket` is a pa
 | list | `maxResults` | Supported uint32; zero selects the projection default; default/max 1000 for noAcl, 200 for full; larger values clamped |
 | list | `prefix` | Supported literal UTF-8 prefix; empty means all; local cap 222 bytes |
 | list | `pageToken` | Supported opaque cursor, validated and bound to project/prefix; empty means the first page as sent by the pinned Go SDK |
-| list | `returnPartialSuccess` | False supported; true rejected 501: no regional failure model |
+| list | `returnPartialSuccess` | False supported; true rejected 400 `badRequest`: no regional failure model. The JSON value is unrecorded; Storage v2 ListBuckets accepts it, as Cloud Storage did (case `grpc-unsupported-options`) |
 
 Common Discovery query parameters apply to all four methods:
 
 | Parameter | Slice decision |
 | --- | --- |
-| `alt` | `json` supported/default; `media` rejected 501; other values 400 `invalidAltValue` |
-| `fields` | Rejected 501: no field selection |
+| `alt` | `json` supported/default; `media` rejected 400 `badRequest`; other values 400 `invalidAltValue` |
+| `fields` | Supported per the [fields contract](json-response-fields.md) |
 | `key` | Accepted and ignored without checking the value: an API key attributes quota and is not a credential |
-| `oauth_token` | Rejected 501: no authentication behavior promised |
+| `oauth_token` | Rejected 400 `badRequest`: no authentication behavior promised |
 | `prettyPrint` | Default and true render 2-space pretty JSON; false renders compact JSON; invalid boolean 400 |
-| `quotaUser` | Rejected 501: quota simulation absent |
-| `userIp` | Rejected 501: deprecated quota semantics are not implemented |
-| `uploadType` | Rejected 501: bucket methods do not upload media |
+| `quotaUser`, `userIp` | Accepted and ignored: they attribute quota, which gcs-mimic does not meter, and Cloud Storage answered buckets.get with either one as without it (case `bkt-unsupported-parameters`, recorded 2026-11-13) |
+| `uploadType` | Rejected 400 `badRequest`: bucket methods do not upload media |
 
-The common-parameter documentation also describes `callback`; it is rejected 501 (no JSONP).
+The common-parameter documentation also describes `callback`; it is rejected with 400 `badRequest`
+because JSONP responses are not implemented, although Cloud Storage answers it with a JSONP body.
 Nothing is ignored merely because it is inconvenient to implement.
 Responses are pretty-printed with two-space indentation in the recorded Cloud Storage field order,
 as Discovery documents; `prettyPrint=false`, which official SDKs send, selects compact JSON. The fake-gcs-server profile stays compact.

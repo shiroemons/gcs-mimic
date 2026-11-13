@@ -104,8 +104,9 @@ enum BodyKind {
 /// Output-only fields a PATCH or PUT may carry with any value: Cloud Storage answered a PUT
 /// whose `size` and `md5Hash` disagreed with the object with 200 and ignored them (recorded
 /// 2026-11). That `id`, `selfLink` and `timeCreated` are ignored the same way is an inference
-/// from a PATCH carrying them that failed only on its `generation`.
-const IGNORED_ON_MUTATION: [&str; 5] = ["id", "selfLink", "timeCreated", "size", "md5Hash"];
+/// from a PATCH carrying them that failed only on its `generation`. A PATCH whose `kind` named
+/// another resource was answered with 200 and `storage#object` (case obj-unsupported-inputs).
+const IGNORED_ON_MUTATION: [&str; 6] = ["id", "selfLink", "timeCreated", "size", "md5Hash", "kind"];
 
 /// Parse metadata mutations separately from upload bodies and server-managed fields.
 pub(crate) fn parse_object_metadata(

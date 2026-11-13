@@ -529,7 +529,7 @@ mod tests {
                 "/storage/v1/b/bucket/o/x/acl?generation=%2B1",
                 "invalidParameter",
             ),
-            ("/storage/v1/b/bucket/acl?quotaUser=p", "badRequest"),
+            ("/storage/v1/b/bucket/acl?callback=p", "badRequest"),
             (
                 "/storage/v1/b/bucket/acl?fields=unknown",
                 "invalidParameter",

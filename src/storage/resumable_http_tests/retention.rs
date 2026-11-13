@@ -108,6 +108,18 @@ async fn retention_configuration_lock_permissions_and_restart() {
         .await;
     assert_eq!(locked.status, 200, "{}", locked.json());
     assert_eq!(locked.json()["retentionPolicy"]["isLocked"], true);
+    // A lock cannot be taken twice, even at the metageneration the first lock produced. The
+    // reason is a local choice: the comparison harness refuses every lock request, so Cloud
+    // Storage's answer is unrecorded (SPEC-RETENTION-POLICY).
+    let relocked = locked.json()["metageneration"].as_str().unwrap().to_owned();
+    h.request(
+        "POST",
+        &format!("/storage/v1/b/bucket/lockRetentionPolicy?ifMetagenerationMatch={relocked}"),
+        ADMIN,
+        b"",
+    )
+    .await
+    .error(400, "invalid");
     // An empty policy member restates nothing (recorded 2026-10-31); the locked policy stays.
     let unchanged = call(
         &h,

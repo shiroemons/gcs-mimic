@@ -476,12 +476,10 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
     }
     for query in [
         "filter=context-filter",
-        "delimiter=%2F&quotaUser=local",
+        "delimiter=%2F&callback=local",
         "alt=media",
         "oauth_token=x",
         "callback=x",
-        "quotaUser=x",
-        "userIp=x",
     ] {
         let (status, value) =
             server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");

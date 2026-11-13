@@ -207,7 +207,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
             // Recorded on Cloud Storage: a disagreeing name or bucket is a parameter conflict.
             "name" | "bucket" => changed.metadata_error(400, "invalidParameter"),
             // Output-only fields a mutation ignores.
-            "size" | "md5Hash" | "timeCreated" | "id" | "selfLink" => {
+            "size" | "md5Hash" | "timeCreated" | "id" | "selfLink" | "kind" => {
                 changed.expect_with(200, format_args!("{key}"));
                 assert_eq!(changed.json_ok()[key], value[key], "{key}");
             }
@@ -613,7 +613,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         server
             .update(method, "", json!({"acl":null}))
             .metadata_error(400, "invalid");
-        for query in ["predefinedAcl=private", "quotaUser=test"] {
+        for query in ["predefinedAcl=private", "callback=test"] {
             server
                 .update(method, &format!("?{query}"), json!({}))
                 .metadata_error(400, "badRequest");

@@ -1,0 +1,10 @@
+{
+  "id": "batch-unsupported-envelopes",
+  "description": "Batch endpoint requests that gcs-mimic answers with 400 badRequest: a GET, a multipart/mixed body that holds no part, and a JSON body. No batched request runs. Checks SPEC-SDK-UNSUPPORTED.",
+  "bucket": false,
+  "steps": [
+    {"name": "get-batch-endpoint", "method": "GET", "path": "/batch/storage/v1", "local_choice": {"reason": "Cloud Storage answers this malformed batch request with a 502 HTML page; gcs-mimic keeps a JSON 400.", "mimic_status": 400}},
+    {"name": "post-body-without-parts", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "multipart/mixed; boundary=gcsmimicdiff"}, "body_text": "not a batch body", "local_choice": {"reason": "Cloud Storage answers with a text 400; gcs-mimic keeps its JSON error envelope.", "mimic_status": 400}},
+    {"name": "post-json-body", "method": "POST", "path": "/batch/storage/v1", "headers": {"Content-Type": "application/json"}, "body_text": "{{}}", "local_choice": {"reason": "Cloud Storage answers this malformed batch request with a 502 HTML page; gcs-mimic keeps a JSON 400.", "mimic_status": 400}}
+  ]
+}

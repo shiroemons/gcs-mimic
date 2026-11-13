@@ -464,7 +464,7 @@ mod tests {
                 "invalidParameter",
             ),
             (
-                "/storage/v1/b/bucket/notificationConfigs?quotaUser=p",
+                "/storage/v1/b/bucket/notificationConfigs?callback=p",
                 400,
                 "badRequest",
             ),

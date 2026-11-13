@@ -163,7 +163,7 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
                 .json_ok();
         }
     }
-    for query in ["?quotaUser=project", "?projection=full"] {
+    for query in ["?callback=project", "?projection=full"] {
         mv(&server, "source", "target", query).json_reason(400, "badRequest");
     }
     server

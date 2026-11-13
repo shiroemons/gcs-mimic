@@ -425,13 +425,7 @@ fn obj_query_001_required_upload_and_unsupported_types() {
     }
     // An empty `fields` selects nothing, as Cloud Storage did.
     assert!(request(Method::GET, "/storage/v1/b/abc/o/file?fields=").is_ok());
-    for key in [
-        "oauth_token",
-        "quotaUser",
-        "userIp",
-        "callback",
-        "restoreToken",
-    ] {
+    for key in ["oauth_token", "callback", "restoreToken"] {
         for value in ["", "false", "value"] {
             assert_eq!(
                 request(
@@ -512,7 +506,7 @@ fn api_key_parameter_is_accepted_and_ignored_on_object_routes() {
             );
         }
         // An accepted key does not admit the parameters that stay unsupported.
-        for parameter in ["oauth_token", "quotaUser", "userIp", "callback"] {
+        for parameter in ["oauth_token", "callback"] {
             let error =
                 request(method.clone(), &format!("{path}&key=value&{parameter}=")).unwrap_err();
             assert_eq!(
@@ -623,7 +617,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
             "{query}"
         );
     }
-    for query in ["quotaUser=p", "generation=x", "ifGenerationMatch=x"] {
+    for query in ["callback=p", "generation=x", "ifGenerationMatch=x"] {
         assert!(
             request(Method::DELETE, &format!("/storage/v1/b/abc/o/file?{query}")).is_err(),
             "{query}"

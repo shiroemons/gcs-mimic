@@ -409,7 +409,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     server
         .request(
             "DELETE",
-            "/storage/v1/b/test-bucket/o/existing?quotaUser=billing",
+            "/storage/v1/b/test-bucket/o/existing?callback=billing",
             "",
             b"",
         )
