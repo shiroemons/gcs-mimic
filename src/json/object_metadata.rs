@@ -1,6 +1,6 @@
 use super::JsonError;
 use crate::config::ApiBaseSource;
-use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord};
+use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -10,6 +10,35 @@ pub(crate) struct ObjectMetadataRequest {
 }
 
 impl ObjectMetadataRequest {
+    /// Checks the body's `bucket` and `name` against the path and lets its `generation` select
+    /// the generation when the query names none: Cloud Storage answered a PATCH whose body
+    /// named a generation that did not exist with 404 (recorded 2026-11). A query generation
+    /// stays the selector, and the body must then repeat it unchanged.
+    pub(crate) fn select_target(&self, target: ObjectTarget) -> Result<ObjectTarget, JsonError> {
+        for (key, path) in [("bucket", &target.bucket), ("name", &target.name)] {
+            if let Some(content) = self.unchanged.get(key).and_then(Value::as_str)
+                && content != path
+            {
+                return Err(JsonError::content_disagrees(content, path));
+            }
+        }
+        if target.generation.is_some() {
+            return Ok(target);
+        }
+        let generation = self
+            .unchanged
+            .get("generation")
+            .and_then(|value| match value {
+                Value::String(text) => text.parse::<i64>().ok(),
+                Value::Number(number) => number.as_i64(),
+                _ => None,
+            });
+        Ok(ObjectTarget {
+            generation,
+            ..target
+        })
+    }
+
     pub(crate) fn validate_unchanged(
         unchanged: &Map<String, Value>,
         record: &ObjectRecord,
@@ -62,33 +91,41 @@ pub(crate) enum WriteMode {
     Replace,
 }
 
-/// Whether a metadata body may carry an `acl` field. Only object metadata mutations change
-/// the ACL; uploads and derived writes reject it.
+/// Which write a metadata body describes. Only a mutation of an existing generation (PATCH or
+/// PUT) may carry `acl`, keeps empty content fields and ignores output-only fields Cloud
+/// Storage ignores there; uploads and derived writes reject `acl` and an empty
+/// `contentLanguage`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum AclField {
-    Accepted,
-    Rejected,
+enum BodyKind {
+    Mutation,
+    Creation,
 }
+
+/// Output-only fields a PATCH or PUT may carry with any value: Cloud Storage answered a PUT
+/// whose `size` and `md5Hash` disagreed with the object with 200 and ignored them (recorded
+/// 2026-11). That `id`, `selfLink` and `timeCreated` are ignored the same way is an inference
+/// from a PATCH carrying them that failed only on its `generation`.
+const IGNORED_ON_MUTATION: [&str; 5] = ["id", "selfLink", "timeCreated", "size", "md5Hash"];
 
 /// Parse metadata mutations separately from upload bodies and server-managed fields.
 pub(crate) fn parse_object_metadata(
     bytes: &[u8],
     mode: WriteMode,
 ) -> Result<ObjectMetadataRequest, JsonError> {
-    parse_metadata(bytes, mode, AclField::Rejected)
+    parse_metadata(bytes, mode, BodyKind::Creation)
 }
 
 pub(crate) fn parse_object_metadata_mutation(
     bytes: &[u8],
     mode: WriteMode,
 ) -> Result<ObjectMetadataRequest, JsonError> {
-    parse_metadata(bytes, mode, AclField::Accepted)
+    parse_metadata(bytes, mode, BodyKind::Mutation)
 }
 
 fn parse_metadata(
     bytes: &[u8],
     mode: WriteMode,
-    acl: AclField,
+    kind: BodyKind,
 ) -> Result<ObjectMetadataRequest, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
@@ -96,19 +133,26 @@ fn parse_metadata(
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))?;
     for field in ["acl", "predefinedAcl", "contexts", "kmsKeyName"] {
-        if field == "acl" && acl == AclField::Accepted {
+        if field == "acl" && kind == BodyKind::Mutation {
             continue;
         }
         if body.contains_key(field) {
             return Err(JsonError::unsupported_object(field));
         }
     }
-    let unchanged = unchanged_fields(body)?;
+    let mut unchanged = unchanged_fields(body)?;
     let metadata = custom_metadata(body)?;
-    if body.get("contentLanguage").and_then(Value::as_str) == Some("") {
-        return Err(JsonError::invalid_argument(
-            "contentLanguage must not be empty; use null to clear it",
-        ));
+    match kind {
+        BodyKind::Mutation => {
+            unchanged.retain(|key, _| !IGNORED_ON_MUTATION.contains(&key.as_str()))
+        }
+        BodyKind::Creation => {
+            if body.get("contentLanguage").and_then(Value::as_str) == Some("") {
+                return Err(JsonError::invalid_argument(
+                    "contentLanguage must not be empty; use null to clear it",
+                ));
+            }
+        }
     }
     let update = ObjectMetadataUpdate {
         acl: body
@@ -117,15 +161,15 @@ fn parse_metadata(
             .transpose()?,
         predefined_acl: None,
         replace: mode == WriteMode::Replace,
-        content_type: string(body, "contentType")?,
-        content_encoding: string(body, "contentEncoding")?,
-        content_disposition: string(body, "contentDisposition")?,
-        content_language: string(body, "contentLanguage")?,
-        cache_control: string(body, "cacheControl")?,
+        content_type: string(body, kind, "contentType")?,
+        content_encoding: string(body, kind, "contentEncoding")?,
+        content_disposition: string(body, kind, "contentDisposition")?,
+        content_language: string(body, kind, "contentLanguage")?,
+        cache_control: string(body, kind, "cacheControl")?,
         metadata,
         metadata_mode: crate::object::MapMode::Merge,
         temporary_hold: hold(body, "temporaryHold"),
-        custom_time: string(body, "customTime")?,
+        custom_time: string(body, kind, "customTime")?,
         event_based_hold: hold(body, "eventBasedHold"),
         retention: body
             .get("retention")
@@ -300,7 +344,11 @@ impl From<&Value> for CustomMetadataValue {
     }
 }
 
-fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>, JsonError> {
+fn string(
+    body: &Map<String, Value>,
+    kind: BodyKind,
+    key: &str,
+) -> Result<Option<Option<String>>, JsonError> {
     body.get(key)
         .map(|value| {
             if value.is_null() {
@@ -309,7 +357,10 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>
             let value = value.as_str().ok_or_else(|| {
                 JsonError::invalid_argument(format!("{key} must be a string or null"))
             })?;
-            validate_fixed_metadata(key, value)?;
+            // Cloud Storage stores the empty strings a PATCH sets (recorded 2026-11).
+            if !(kind == BodyKind::Mutation && value.is_empty()) {
+                validate_fixed_metadata(key, value)?;
+            }
             Ok(Some(value.to_owned()))
         })
         .transpose()

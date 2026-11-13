@@ -413,6 +413,14 @@ impl JsonError {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
     }
 
+    /// A body `name` or `bucket` that disagrees with the resource the path names, worded as
+    /// Cloud Storage words it for bucket and object PATCH and PUT.
+    pub(crate) fn content_disagrees(content: &str, parameter: &str) -> Self {
+        Self::invalid_parameter(format!(
+            "Value '{content}' in content does not agree with value '{parameter}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+        ))
+    }
+
     pub(crate) fn required(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "required", message).with_kind(ErrorKind::Required)
     }

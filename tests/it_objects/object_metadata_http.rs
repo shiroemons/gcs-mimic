@@ -122,12 +122,18 @@ fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
                 updated
             );
         }
-        for generation in [json!(0), json!("0"), json!(true), json!([])] {
+        // A body generation selects the generation, like the query parameter.
+        for (generation, status, reason) in [
+            (json!(0), 404, "notFound"),
+            (json!("0"), 404, "notFound"),
+            (json!(true), 400, "badRequest"),
+            (json!([]), 400, "badRequest"),
+        ] {
             send(
                 "",
                 json!({"generation":generation, "metadata":{"fixture":"rejected"}}),
             )
-            .metadata_error(400, "badRequest");
+            .metadata_error(status, reason);
             assert_eq!(
                 server
                     .request("GET", &format!("{path}?projection=full"), b"")
@@ -196,9 +202,17 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         server
             .update("PATCH", "", json!({key:value[key]}))
             .expect_with(200, format_args!("{key}"));
-        server
-            .update("PATCH", "", json!({key:"changed"}))
-            .metadata_error(400, "badRequest");
+        let changed = server.update("PATCH", "", json!({key:"changed"}));
+        match key {
+            // Recorded on Cloud Storage: a disagreeing name or bucket is a parameter conflict.
+            "name" | "bucket" => changed.metadata_error(400, "invalidParameter"),
+            // Output-only fields a mutation ignores.
+            "size" | "md5Hash" | "timeCreated" | "id" | "selfLink" => {
+                changed.expect_with(200, format_args!("{key}"));
+                assert_eq!(changed.json_ok()[key], value[key], "{key}");
+            }
+            _ => changed.metadata_error(400, "badRequest"),
+        }
     }
     let second = server
         .update("PATCH", "", json!({"metadata":{"drop":null,"add":"three"}}))
@@ -302,8 +316,8 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         .expect(200);
     for method in ["PATCH", "PUT"] {
         server
-            .update(method, "", json!({"contentLanguage":""}))
-            .metadata_error(400, "invalidArgument");
+            .update(method, "", json!({"contentLanguage":"x\u{1}"}))
+            .metadata_error(400, "invalid");
         server
             .request(
                 method,
@@ -578,11 +592,10 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "customerEncryption",
             "name",
             "bucket",
+            // size, md5Hash and timeCreated are ignored on a mutation; see
+            // metadata_bodies_select_generations_and_keep_empty_strings.
             "metageneration",
-            "size",
-            "md5Hash",
             "crc32c",
-            "timeCreated",
             "updated",
             "etag",
         ] {
@@ -756,6 +769,114 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     ] {
         assert!(replaced.get(key).is_none(), "{key}");
     }
+    server.stop();
+}
+
+/// Recorded on Cloud Storage (2026-11): a body generation selects the generation, output-only
+/// size and md5Hash are ignored, empty content strings are stored, and a body name or bucket
+/// that disagrees with the path is refused with the parameter-agreement message.
+#[test]
+fn metadata_bodies_select_generations_and_keep_empty_strings() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let original = server.setup();
+    let generation = original["generation"].as_str().unwrap();
+    for method in ["PATCH", "PUT"] {
+        let before = server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json_ok();
+        let missing = server.update(method, "", json!({"generation":"1","contentType":"a/b"}));
+        missing.metadata_error(404, "notFound");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&missing.body).unwrap()["error"]["message"],
+            "No such object: test-bucket/dir/file"
+        );
+        for (key, value, path) in [
+            ("name", "dir/other", "dir/file"),
+            ("bucket", "other-bucket", "test-bucket"),
+        ] {
+            let reply = server.update(method, "", json!({key: value, "contentType":"a/b"}));
+            reply.metadata_error(400, "invalidParameter");
+            assert_eq!(
+                serde_json::from_slice::<Value>(&reply.body).unwrap()["error"]["message"],
+                format!(
+                    "Value '{value}' in content does not agree with value '{path}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+                )
+            );
+        }
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+                .json_ok(),
+            before
+        );
+        let ignored = server
+            .update(
+                method,
+                "",
+                json!({
+                    "generation": generation,
+                    "size": "999",
+                    "md5Hash": "AAAAAAAAAAAAAAAAAAAAAA==",
+                    "id": "x",
+                    "selfLink": "x",
+                    "timeCreated": "2000-01-01T00:00:00Z",
+                    "contentType": "a/b",
+                }),
+            )
+            .json_ok();
+        for key in [
+            "generation",
+            "size",
+            "md5Hash",
+            "id",
+            "selfLink",
+            "timeCreated",
+        ] {
+            assert_eq!(ignored[key], original[key], "{method} {key}");
+        }
+        let empty = server
+            .update(
+                method,
+                "",
+                json!({
+                    "contentLanguage": "",
+                    "contentDisposition": "",
+                    "contentEncoding": "",
+                    "cacheControl": "",
+                }),
+            )
+            .json_ok();
+        let stored = server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json_ok();
+        for key in [
+            "contentLanguage",
+            "contentDisposition",
+            "contentEncoding",
+            "cacheControl",
+        ] {
+            assert_eq!(empty[key], "", "{method} {key}");
+            assert_eq!(stored[key], "", "{method} {key}");
+        }
+        // A copy leaves the emptied fields unset rather than refusing them.
+        let copied = server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/dir%2Ffile/copyTo/b/test-bucket/o/copy",
+                b"",
+            )
+            .json_ok();
+        assert!(copied.get("contentLanguage").is_none(), "{method}");
+    }
+    // A query generation stays the selector; the body must repeat it.
+    server
+        .update(
+            "PATCH",
+            &format!("?generation={generation}"),
+            json!({"generation":"1"}),
+        )
+        .metadata_error(400, "badRequest");
     server.stop();
 }
 
