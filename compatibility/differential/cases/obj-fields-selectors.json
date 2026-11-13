@@ -1,0 +1,22 @@
+{
+  "id": "obj-fields-selectors",
+  "description": "Partial-response selectors not recorded by obj-get-fields: whitespace, a bare wildcard, a wildcard under a map, a doubled comma, a trailing slash, a collection selector on a single resource, fields together with alt=media, and list selectors in slash and parenthesis forms with wildcards. Checks SPEC-FIELDS-EDGES.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "set-metadata", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"k": "v", "j": "w"}}, "compare": false, "expect_status": 200},
+    {"name": "whitespace", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": " "}},
+    {"name": "space-around-names", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name , size"}},
+    {"name": "bare-wildcard", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "*"}},
+    {"name": "map-wildcard", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata/*"}},
+    {"name": "doubled-comma", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,,size"}},
+    {"name": "trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata/"}},
+    {"name": "empty-parentheses", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata()"}},
+    {"name": "collection-selector-on-resource", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "items/name"}},
+    {"name": "fields-with-media", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media", "fields": "name"}},
+    {"name": "list-slash-form", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "fields": "items/name,kind"}},
+    {"name": "list-parenthesis-wildcard", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "fields": "items(metadata(*))"}},
+    {"name": "list-items-wildcard", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "fields": "items(*)"}, "compare": {"ignore_body_paths": ["items.0.etag", "items.0.generation", "items.0.id", "items.0.mediaLink", "items.0.selfLink", "items.0.timeCreated", "items.0.updated", "items.0.timeStorageClassUpdated", "items.0.timeFinalized"]}},
+    {"name": "list-unknown-child", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "fields": "items(nope)"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

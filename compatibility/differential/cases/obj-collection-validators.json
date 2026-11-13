@@ -1,0 +1,13 @@
+{
+  "id": "obj-collection-validators",
+  "description": "Validator headers on collection responses: the object, bucket and object ACL listings with and without If-None-Match, compared on their ETag and cache headers only. Checks SPEC-JSON-ETAG-COLLECTIONS.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "object-list", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}"}, "compare": {"only_headers": ["etag", "cache-control", "last-modified"], "body": "ignore"}},
+    {"name": "object-list-if-none-match-star", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}"}, "headers": {"If-None-Match": "*"}, "compare": {"only_headers": ["etag", "cache-control"], "body": "ignore"}},
+    {"name": "object-list-if-match-bogus", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}"}, "headers": {"If-Match": "\"bogus\""}, "compare": {"only_headers": ["etag", "cache-control"], "body": "ignore"}},
+    {"name": "bucket-list", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{project}", "prefix": "{bucket}"}, "compare": {"only_headers": ["etag", "cache-control", "last-modified"], "body": "ignore"}},
+    {"name": "object-acl-list", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "compare": {"only_headers": ["etag", "cache-control"], "body": "ignore"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

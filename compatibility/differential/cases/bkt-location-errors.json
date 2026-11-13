@@ -1,0 +1,14 @@
+{
+  "id": "bkt-location-errors",
+  "description": "Bucket creation with malformed location spellings: surrounding whitespace, an underscore, an empty string and a zone instead of a region. Each must be rejected; a final delete removes the bucket if a spelling is accepted. Checks SPEC-REGIONAL-LOCATIONS.",
+  "steps": [
+    {"name": "leading-space", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location"}, "body": {"name": "{new_bucket}", "location": " us-central1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
+    {"name": "cleanup-1", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true},
+    {"name": "underscore", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location"}, "body": {"name": "{new_bucket}", "location": "us_central1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
+    {"name": "cleanup-2", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true},
+    {"name": "empty", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location"}, "body": {"name": "{new_bucket}", "location": "", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
+    {"name": "cleanup-3", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true},
+    {"name": "zone", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location"}, "body": {"name": "{new_bucket}", "location": "us-central1-a", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
+    {"name": "cleanup-4", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true}
+  ]
+}

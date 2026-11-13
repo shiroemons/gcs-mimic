@@ -1,0 +1,16 @@
+{
+  "id": "obj-metadata-output-only",
+  "description": "Object PATCH and PUT carrying output-only or identity fields: generation, size, md5Hash, id, selfLink, timeCreated, a different name or bucket, and empty strings for scalar content fields. Checks SPEC-015.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "patch-output-only", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,size,md5Hash,timeCreated,metageneration"}, "body": {"generation": "1", "size": "999", "md5Hash": "AAAAAAAAAAAAAAAAAAAAAA==", "id": "x", "selfLink": "x", "timeCreated": "2000-01-01T00:00:00Z"}},
+    {"name": "patch-other-name", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,bucket"}, "body": {"name": "{object}-other"}},
+    {"name": "patch-other-bucket", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,bucket"}, "body": {"bucket": "{missing_bucket}"}},
+    {"name": "patch-empty-strings", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "contentLanguage,contentDisposition,contentEncoding,cacheControl"}, "body": {"contentLanguage": "", "contentDisposition": "", "contentEncoding": "", "cacheControl": ""}},
+    {"name": "put-other-name", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name"}, "body": {"name": "{object}-other", "contentType": "text/plain"}},
+    {"name": "put-output-only", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,size,md5Hash"}, "body": {"size": "999", "md5Hash": "AAAAAAAAAAAAAAAAAAAAAA==", "contentType": "text/plain"}},
+    {"name": "get-other-name", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-other", "query": {"fields": "name"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-other", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-other", "compare": false, "always": true}
+  ]
+}

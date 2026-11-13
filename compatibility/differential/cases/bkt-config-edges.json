@@ -1,0 +1,26 @@
+{
+  "id": "bkt-config-edges",
+  "description": "Bucket configuration edges on a bucket of its own: soft delete at and above the 90-day maximum, an empty policy object and a non-numeric duration; retention periods of zero, negative and above the maximum (never locked); lifecycle with an empty object, an empty condition, an unknown action type and an age-zero multipart abort; and conflicting uniform-access aliases. Everything is cleared at the end. Checks SPEC-SOFT-DELETE, SPEC-RETENTION-POLICY, SPEC-LIFECYCLE-CONFIG and SPEC-UBLA-EDGES.",
+  "bucket": "own",
+  "steps": [
+    {"name": "soft-delete-90-days", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy"}, "body": {"softDeletePolicy": {"retentionDurationSeconds": "7776000"}}, "compare": {"ignore_body_paths": ["softDeletePolicy.effectiveTime"]}},
+    {"name": "soft-delete-above-90-days", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy"}, "body": {"softDeletePolicy": {"retentionDurationSeconds": "7776001"}}, "compare": {"ignore_body_paths": ["softDeletePolicy.effectiveTime"]}},
+    {"name": "soft-delete-empty-object", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy"}, "body": {"softDeletePolicy": {}}, "compare": {"ignore_body_paths": ["softDeletePolicy.effectiveTime"]}},
+    {"name": "soft-delete-not-a-number", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy"}, "body": {"softDeletePolicy": {"retentionDurationSeconds": "abc"}}},
+    {"name": "soft-delete-off", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy"}, "body": {"softDeletePolicy": {"retentionDurationSeconds": "0"}}, "compare": false, "always": true},
+    {"name": "retention-zero", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "retentionPolicy"}, "body": {"retentionPolicy": {"retentionPeriod": "0"}}, "compare": {"ignore_body_paths": ["retentionPolicy.effectiveTime"]}},
+    {"name": "retention-negative", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "retentionPolicy"}, "body": {"retentionPolicy": {"retentionPeriod": "-1"}}},
+    {"name": "retention-above-maximum", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "retentionPolicy"}, "body": {"retentionPolicy": {"retentionPeriod": "3155760001"}}},
+    {"name": "retention-clear", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "retentionPolicy"}, "body": {"retentionPolicy": null}, "compare": false, "always": true},
+    {"name": "lifecycle-empty-object", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {}}},
+    {"name": "lifecycle-empty-condition", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {}}]}}},
+    {"name": "lifecycle-unknown-action", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {"rule": [{"action": {"type": "Archive"}, "condition": {"age": 1}}]}}},
+    {"name": "lifecycle-unknown-condition-field", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 1, "gcsmimicUnknown": 1}}]}}},
+    {"name": "lifecycle-abort-age-zero", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {"rule": [{"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 0}}]}}},
+    {"name": "lifecycle-abort-with-other-condition", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": {"rule": [{"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": {"age": 1, "isLive": true}}]}}},
+    {"name": "lifecycle-clear", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "lifecycle"}, "body": {"lifecycle": null}, "compare": false, "always": true},
+    {"name": "ubla-aliases-conflict", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "iamConfiguration"}, "body": {"iamConfiguration": {"publicAccessPrevention": "enforced", "bucketPolicyOnly": {"enabled": true}, "uniformBucketLevelAccess": {"enabled": false}}}, "compare": {"ignore_body_paths": ["iamConfiguration.uniformBucketLevelAccess.lockedTime", "iamConfiguration.bucketPolicyOnly.lockedTime"]}},
+    {"name": "ubla-disable", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "iamConfiguration"}, "body": {"iamConfiguration": {"publicAccessPrevention": "enforced", "uniformBucketLevelAccess": {"enabled": false}}}, "compare": false, "always": true},
+    {"name": "get-final", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "softDeletePolicy/retentionDurationSeconds,retentionPolicy,lifecycle"}}
+  ]
+}

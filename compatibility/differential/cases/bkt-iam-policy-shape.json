@@ -1,0 +1,19 @@
+{
+  "id": "bkt-iam-policy-shape",
+  "description": "Bucket IAM policy normalization on a bucket of its own: a member repeated inside one binding, a role repeated across two bindings and members out of order, then the etag forms a set accepts, and testIamPermissions with an empty, malformed, repeated or non-storage permission and on a missing bucket. Every policy keeps the project owner and editor administrators; no public member is used. Checks SPEC-IAM-WIRE and SPEC-TEST-PERMISSIONS.",
+  "bucket": "own",
+  "steps": [
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}/iam", "capture": {"etag0": "body:etag"}, "compare": false, "expect_status": 200},
+    {"name": "set-duplicates", "method": "PUT", "path": "/storage/v1/b/{bucket}/iam", "body": {"etag": "{etag0}", "bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:{project}", "projectEditor:{project}", "projectOwner:{project}"]}, {"role": "roles/storage.objectViewer", "members": ["projectViewer:{project}"]}, {"role": "roles/storage.objectViewer", "members": ["projectEditor:{project}", "projectViewer:{project}"]}]}, "capture": {"etag1": "body:etag"}, "compare": {"ignore_body_paths": ["etag"]}},
+    {"name": "get-after-duplicates", "method": "GET", "path": "/storage/v1/b/{bucket}/iam", "compare": {"ignore_body_paths": ["etag"]}},
+    {"name": "set-garbage-etag", "method": "PUT", "path": "/storage/v1/b/{bucket}/iam", "body": {"etag": "!!!", "bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:{project}", "projectEditor:{project}"]}]}},
+    {"name": "set-unpadded-etag", "method": "PUT", "path": "/storage/v1/b/{bucket}/iam", "body": {"etag": "CAE", "bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:{project}", "projectEditor:{project}"]}]}},
+    {"name": "set-trailing-bits-etag", "method": "PUT", "path": "/storage/v1/b/{bucket}/iam", "body": {"etag": "CAF=", "bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:{project}", "projectEditor:{project}"]}]}},
+    {"name": "set-without-etag", "method": "PUT", "path": "/storage/v1/b/{bucket}/iam", "body": {"bindings": [{"role": "roles/storage.legacyBucketOwner", "members": ["projectOwner:{project}", "projectEditor:{project}"]}, {"role": "roles/storage.legacyBucketReader", "members": ["projectViewer:{project}"]}]}, "compare": {"ignore_body_paths": ["etag"]}},
+    {"name": "test-empty-permission", "method": "GET", "path": "/storage/v1/b/{bucket}/iam/testPermissions", "query": {"permissions": ""}},
+    {"name": "test-malformed-permission", "method": "GET", "path": "/storage/v1/b/{bucket}/iam/testPermissions", "query": {"permissions": "storage"}},
+    {"name": "test-non-storage-permission", "method": "GET", "path": "/storage/v1/b/{bucket}/iam/testPermissions", "query": {"permissions": "compute.instances.list"}},
+    {"name": "test-missing-bucket", "method": "GET", "path": "/storage/v1/b/{missing_bucket}/iam/testPermissions", "query": {"permissions": "storage.buckets.get"}},
+    {"name": "test-missing-bucket-malformed", "method": "GET", "path": "/storage/v1/b/{missing_bucket}/iam/testPermissions", "query": {"permissions": "storage"}}
+  ]
+}

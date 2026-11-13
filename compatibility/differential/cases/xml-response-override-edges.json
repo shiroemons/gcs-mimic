@@ -1,0 +1,15 @@
+{
+  "id": "xml-response-override-edges",
+  "description": "Authenticated XML GET and HEAD response overrides not recorded elsewhere: an empty and a padded response-content-type, a non-ASCII response-content-disposition, the S3-only response-cache-control and response-expires, an unknown response-* parameter, and an override on HEAD. Checks SPEC-XML-RESPONSE-OVERRIDES.",
+  "steps": [
+    {"name": "put", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "empty-content-type", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-content-type": ""}},
+    {"name": "padded-content-type", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-content-type": " text/html "}},
+    {"name": "non-ascii-disposition", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-content-disposition": "attachment; filename=\"é.txt\""}},
+    {"name": "s3-cache-control", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-cache-control": "no-store"}},
+    {"name": "s3-expires", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-expires": "Thu, 01 Jan 2099 00:00:00 GMT"}},
+    {"name": "unknown-response-parameter", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-gcsmimic": "x"}},
+    {"name": "head-with-override", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "query": {"response-content-type": "text/html"}},
+    {"name": "cleanup", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/{object}", "compare": false, "always": true}
+  ]
+}

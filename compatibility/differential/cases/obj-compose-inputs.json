@@ -1,0 +1,32 @@
+{
+  "id": "obj-compose-inputs",
+  "description": "Compose inputs not recorded by obj-compose: the same source twice, the destination as one of its own sources, a destination without contentType, a null contentType, unknown and output-only destination fields, and a destination crc32c that matches or does not. Checks SPEC-COMPOSE-EDGES.",
+  "steps": [
+    {"name": "upload-a", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-a"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hel", "compare": false, "expect_status": 200},
+    {"name": "upload-b", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-b"}, "headers": {"Content-Type": "text/plain"}, "body_text": "lo", "compare": false, "expect_status": 200},
+    {"name": "upload-c", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-c"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "duplicate-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-dup/compose", "query": {"fields": "name,size,componentCount,contentType"}, "body": {"sourceObjects": [{"name": "{object}-a"}, {"name": "{object}-a"}]}},
+    {"name": "download-duplicate", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-dup", "query": {"alt": "media"}},
+    {"name": "self-as-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-a/compose", "query": {"fields": "name,size,componentCount"}, "body": {"sourceObjects": [{"name": "{object}-a"}, {"name": "{object}-b"}]}},
+    {"name": "download-self", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-a", "query": {"alt": "media"}},
+    {"name": "no-destination-type", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-notype/compose", "query": {"fields": "name,contentType"}, "body": {"sourceObjects": [{"name": "{object}-b"}], "destination": {"metadata": {"k": "v"}}}},
+    {"name": "null-destination-type", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-nulltype/compose", "query": {"fields": "name,contentType"}, "body": {"sourceObjects": [{"name": "{object}-b"}], "destination": {"contentType": null}}},
+    {"name": "unknown-destination-field", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-unknown/compose", "query": {"fields": "name"}, "body": {"sourceObjects": [{"name": "{object}-b"}], "destination": {"gcsmimicUnknown": "x"}}},
+    {"name": "output-only-destination-fields", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-outonly/compose", "query": {"fields": "name,generation,size,storageClass"}, "body": {"sourceObjects": [{"name": "{object}-b"}], "destination": {"generation": "1", "size": "999", "storageClass": "NEARLINE"}}},
+    {"name": "destination-crc-match", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-crcok/compose", "query": {"fields": "name,crc32c"}, "body": {"sourceObjects": [{"name": "{object}-c"}], "destination": {"crc32c": "mnG7TA=="}}},
+    {"name": "destination-crc-mismatch", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-crcbad/compose", "query": {"fields": "name,crc32c"}, "body": {"sourceObjects": [{"name": "{object}-c"}], "destination": {"crc32c": "AAAAAA=="}}},
+    {"name": "destination-name-differs", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-path/compose", "query": {"fields": "name"}, "body": {"sourceObjects": [{"name": "{object}-b"}], "destination": {"name": "{object}-body"}}},
+    {"name": "cleanup-a", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-a", "compare": false, "always": true},
+    {"name": "cleanup-b", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-b", "compare": false, "always": true},
+    {"name": "cleanup-c", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-c", "compare": false, "always": true},
+    {"name": "cleanup-dup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-dup", "compare": false, "always": true},
+    {"name": "cleanup-notype", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-notype", "compare": false, "always": true},
+    {"name": "cleanup-nulltype", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-nulltype", "compare": false, "always": true},
+    {"name": "cleanup-unknown", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-unknown", "compare": false, "always": true},
+    {"name": "cleanup-outonly", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-outonly", "compare": false, "always": true},
+    {"name": "cleanup-crcok", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-crcok", "compare": false, "always": true},
+    {"name": "cleanup-crcbad", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-crcbad", "compare": false, "always": true},
+    {"name": "cleanup-path", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-path", "compare": false, "always": true},
+    {"name": "cleanup-body", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-body", "compare": false, "always": true}
+  ]
+}

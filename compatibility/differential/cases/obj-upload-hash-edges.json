@@ -1,0 +1,20 @@
+{
+  "id": "obj-upload-hash-edges",
+  "description": "X-Goog-Hash forms not recorded by obj-upload-checksums: two conflicting crc32c values, the same value twice, an upper-case algorithm name, a crc32c of the wrong length, a header on a multipart upload, and Content-MD5 together with a conflicting X-Goog-Hash md5. Checks SPEC-010 and SPEC-016.",
+  "steps": [
+    {"name": "conflicting-crc32c", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-1"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=mnG7TA==,crc32c=AAAAAA=="}, "body_text": "hello"},
+    {"name": "repeated-crc32c", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-2"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=mnG7TA==,crc32c=mnG7TA=="}, "body_text": "hello"},
+    {"name": "upper-case-algorithm", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-3"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "CRC32C=AAAAAA=="}, "body_text": "hello"},
+    {"name": "crc32c-wrong-length", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-4"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=AAAAAAAA"}, "body_text": "hello"},
+    {"name": "md5-and-content-md5-conflict", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-5"}, "headers": {"Content-Type": "text/plain", "Content-MD5": "XUFAKrxLKna5cZ2REBfFkg==", "X-Goog-Hash": "md5=AAAAAAAAAAAAAAAAAAAAAA=="}, "body_text": "hello"},
+    {"name": "multipart-header-wrong-crc", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff", "X-Goog-Hash": "crc32c=AAAAAA=="}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-6\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--"},
+    {"name": "multipart-header-and-metadata-disagree", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff", "X-Goog-Hash": "crc32c=mnG7TA=="}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-7\",\"crc32c\":\"AAAAAA==\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--"},
+    {"name": "cleanup-1", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-1", "compare": false, "always": true},
+    {"name": "cleanup-2", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-2", "compare": false, "always": true},
+    {"name": "cleanup-3", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-3", "compare": false, "always": true},
+    {"name": "cleanup-4", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-4", "compare": false, "always": true},
+    {"name": "cleanup-5", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-5", "compare": false, "always": true},
+    {"name": "cleanup-6", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-6", "compare": false, "always": true},
+    {"name": "cleanup-7", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-7", "compare": false, "always": true}
+  ]
+}

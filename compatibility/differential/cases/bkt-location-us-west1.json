@@ -1,0 +1,8 @@
+{
+  "id": "bkt-location-us-west1",
+  "description": "Bucket creation in us-west1, a free-tier region not observed before, recording location, locationType and satisfiesPZI. The empty bucket is deleted at once. Checks the satisfiesPZI question of SPEC-RESPONSE-WIRE-REMAINING.",
+  "steps": [
+    {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "fields": "location,locationType,satisfiesPZI,satisfiesPZS"}, "body": {"name": "{new_bucket}", "location": "us-west1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}},
+    {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true}
+  ]
+}

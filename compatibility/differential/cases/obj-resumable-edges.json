@@ -1,0 +1,18 @@
+{
+  "id": "obj-resumable-edges",
+  "description": "Resumable sessions not recorded by obj-resumable: initiation through the Discovery /resumable/upload alias, a chunk that overruns the declared total, a status query on a cancelled session with an unknown total, an empty finalizing PUT with a total and a chunk after completion that claims a different total. Checks SPEC-RSM-DISCOVERY-PATH and SPEC-RSM-EDGES.",
+  "steps": [
+    {"name": "start-discovery-alias", "method": "POST", "path": "/resumable/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}-alias"}, "headers": {"Content-Type": "application/json"}, "body": {"contentType": "text/plain"}, "compare": {"body": "ignore", "ignore_headers": ["location", "x-guploader-uploadid"]}},
+    {"name": "start", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}"}, "headers": {"Content-Type": "application/json"}, "body": {"contentType": "text/plain"}, "capture": {"up": "header:location?upload_id"}, "compare": false, "expect_status": 200},
+    {"name": "overrun-total", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up}"}, "headers": {"Content-Range": "bytes 0-9/5"}, "body_text": "0123456789"},
+    {"name": "status-after-overrun", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up}"}, "headers": {"Content-Range": "bytes */*"}, "body_text": ""},
+    {"name": "empty-finalize-with-total", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up}"}, "headers": {"Content-Range": "bytes */0"}, "body_text": ""},
+    {"name": "chunk-after-completion-other-total", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up}"}, "headers": {"Content-Range": "bytes 0-4/5"}, "body_text": "hello"},
+    {"name": "get-result", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,size"}},
+    {"name": "start-cancel", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}-cancel"}, "headers": {"Content-Type": "application/json"}, "body": {"contentType": "text/plain"}, "capture": {"upc": "header:location?upload_id"}, "compare": false, "expect_status": 200},
+    {"name": "cancel", "method": "DELETE", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{upc}"}, "headers": {"Content-Length": "0"}},
+    {"name": "status-unknown-total-after-cancel", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{upc}"}, "headers": {"Content-Range": "bytes */*"}, "body_text": ""},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-alias", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-alias", "compare": false, "always": true}
+  ]
+}

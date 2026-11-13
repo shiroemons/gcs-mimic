@@ -1,0 +1,14 @@
+{
+  "id": "bkt-put-not-match",
+  "description": "Bucket PUT and PATCH with ifMetagenerationNotMatch naming the current metageneration, a failing ifMetagenerationMatch on PUT, and both conditions on one request. PATCH is recorded as 304 elsewhere; this records PUT. Every PUT keeps public access prevention enforced. Checks SPEC-RESPONSE-WIRE-REMAINING and SPEC-008.",
+  "bucket": "own",
+  "steps": [
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration"}, "capture": {"mg": "body:metageneration"}, "compare": false, "expect_status": 200},
+    {"name": "put-not-match-current", "method": "PUT", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationNotMatch": "{mg}", "fields": "name,metageneration"}, "body": {"name": "{bucket}", "iamConfiguration": {"publicAccessPrevention": "enforced"}, "softDeletePolicy": {"retentionDurationSeconds": "0"}}},
+    {"name": "put-match-stale", "method": "PUT", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "999", "fields": "name,metageneration"}, "body": {"name": "{bucket}", "iamConfiguration": {"publicAccessPrevention": "enforced"}, "softDeletePolicy": {"retentionDurationSeconds": "0"}}},
+    {"name": "put-both-conditions", "method": "PUT", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "999", "ifMetagenerationNotMatch": "{mg}", "fields": "name,metageneration"}, "body": {"name": "{bucket}", "iamConfiguration": {"publicAccessPrevention": "enforced"}, "softDeletePolicy": {"retentionDurationSeconds": "0"}}},
+    {"name": "patch-both-conditions", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "999", "ifMetagenerationNotMatch": "{mg}", "fields": "name,metageneration"}, "body": {"labels": {"k": "v"}}},
+    {"name": "get-not-match-current", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationNotMatch": "{mg}", "fields": "name"}},
+    {"name": "get-final", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,labels"}}
+  ]
+}

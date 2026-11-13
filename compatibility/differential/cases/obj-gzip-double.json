@@ -1,0 +1,12 @@
+{
+  "id": "obj-gzip-double",
+  "description": "An object stored with Content-Type application/gzip and contentEncoding gzip, the doubly compressed form the transcoding guide warns about, downloaded with and without Accept-Encoding gzip and with a range. The body is a valid gzip stream of the text 'hello hello hello'. Checks the double-compression question of SPEC-015.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "contentEncoding": "gzip"}, "headers": {"Content-Type": "application/gzip"}, "body_base64": "H4sIAAAAAAACA8tIzcnJV8hAkACAiPnlEQAAAA==", "expect_status": 200},
+    {"name": "download-no-accept-encoding", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}},
+    {"name": "download-accept-gzip", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Accept-Encoding": "gzip"}},
+    {"name": "range-no-accept-encoding", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-3"}},
+    {"name": "xml-get-no-accept-encoding", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}"},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

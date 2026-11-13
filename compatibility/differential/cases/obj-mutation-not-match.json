@@ -1,0 +1,24 @@
+{
+  "id": "obj-mutation-not-match",
+  "description": "Not-match conditions naming the current value on object mutations (patch, update, delete, upload, copy, compose and rewrite destinations), combined failing conditions and a condition on a missing object. Answers whether a mutation not-match is 304 or 412 and which failure is reported first. Checks SPEC-008.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gen": "body:generation", "mg": "body:metageneration"}, "compare": false, "expect_status": 200},
+    {"name": "patch-metageneration-not-match-current", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationNotMatch": "{mg}", "fields": "name"}, "body": {"metadata": {"k": "v"}}},
+    {"name": "patch-generation-not-match-current", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationNotMatch": "{gen}", "fields": "name"}, "body": {"metadata": {"k": "v"}}},
+    {"name": "update-metageneration-not-match-current", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationNotMatch": "{mg}", "fields": "name"}, "body": {"contentType": "text/plain"}},
+    {"name": "delete-generation-not-match-current", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationNotMatch": "{gen}"}},
+    {"name": "delete-metageneration-not-match-current", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationNotMatch": "{mg}"}},
+    {"name": "upload-generation-not-match-current", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "ifGenerationNotMatch": "{gen}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "again"},
+    {"name": "get-after-not-match", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,size,generation,metageneration,metadata"}, "capture": {"gen2": "body:generation"}, "compare": {"ignore_body_paths": ["generation"]}},
+    {"name": "copy-destination-not-match-current", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}", "query": {"ifGenerationNotMatch": "{gen2}", "fields": "name"}},
+    {"name": "compose-destination-not-match-current", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/compose", "query": {"ifGenerationNotMatch": "{gen2}", "fields": "name"}, "body": {"sourceObjects": [{"name": "{object}"}]}},
+    {"name": "rewrite-source-not-match-current", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-rw", "query": {"ifSourceGenerationNotMatch": "{gen2}", "fields": "done"}},
+    {"name": "patch-both-conditions-fail", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "1", "ifMetagenerationNotMatch": "{mg}", "fields": "name"}, "body": {"metadata": {"k": "w"}}},
+    {"name": "patch-generation-match-fails-metageneration-match-holds", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "1", "ifMetagenerationMatch": "{mg}", "fields": "name"}, "body": {"metadata": {"k": "w"}}},
+    {"name": "patch-missing-object-with-condition", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-missing", "query": {"ifGenerationMatch": "1"}, "body": {"metadata": {"k": "v"}}},
+    {"name": "delete-missing-object-not-match", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-missing", "query": {"ifGenerationNotMatch": "1"}},
+    {"name": "patch-invalid-json-and-failing-condition", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "1"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{"},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-rw", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-rw", "compare": false, "always": true}
+  ]
+}

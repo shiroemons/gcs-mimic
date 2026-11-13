@@ -1,0 +1,14 @@
+{
+  "id": "grpc-composite-checksum-mask",
+  "description": "gRPC read masks that name only checksums.md5_hash on a composed object, which holds no MD5: GetObject, the ReadObject metadata, and ListObjects. Checks SPEC-GRPC-CHECKSUM-SUBPATH.",
+  "steps": [
+    {"name": "upload-a", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-a"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hel", "compare": false, "expect_status": 200},
+    {"name": "compose", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/compose", "query": {"fields": "name,componentCount,md5Hash"}, "body": {"sourceObjects": [{"name": "{object}-a"}, {"name": "{object}-a"}]}, "expect_status": 200},
+    {"name": "get-md5-only", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["checksums.md5_hash"]}}},
+    {"name": "get-name-and-md5", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["name", "checksums.md5_hash"]}}},
+    {"name": "read-metadata-md5-only", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ReadObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["metadata.checksums.md5_hash"]}}},
+    {"name": "list-md5-only", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}", "readMask": {"paths": ["checksums.md5_hash"]}}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-a", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-a", "compare": false, "always": true}
+  ]
+}

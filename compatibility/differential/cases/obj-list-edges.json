@@ -1,0 +1,25 @@
+{
+  "id": "obj-list-edges",
+  "description": "Listing edges not recorded by obj-list: a page token reused with a different prefix, delimiter or versions flag, a multi-character and a multibyte delimiter, the shape of an empty delimited listing, matchGlob syntax errors and a glob combined with a delimiter. Checks SPEC-LIST-PAGING, SPEC-LIST-RESOURCE-SHAPE and SPEC-LIST-GLOB-EDGES.",
+  "steps": [
+    {"name": "upload-a", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}/a--x"}, "headers": {"Content-Type": "text/plain"}, "body_text": "a", "compare": false, "expect_status": 200},
+    {"name": "upload-b", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}/b--y"}, "headers": {"Content-Type": "text/plain"}, "body_text": "b", "compare": false, "expect_status": 200},
+    {"name": "upload-c", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}/céz"}, "headers": {"Content-Type": "text/plain"}, "body_text": "c", "compare": false, "expect_status": 200},
+    {"name": "page-1", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/", "maxResults": "1", "fields": "items/name,nextPageToken"}, "capture": {"tok": "body:nextPageToken"}, "compare": {"ignore_body_paths": ["nextPageToken"]}},
+    {"name": "token-other-prefix", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/b", "pageToken": "{tok}", "fields": "items/name,nextPageToken"}, "compare": {"ignore_body_paths": ["nextPageToken"]}},
+    {"name": "token-with-delimiter", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/", "delimiter": "-", "pageToken": "{tok}", "fields": "items/name,prefixes,nextPageToken"}, "compare": {"ignore_body_paths": ["nextPageToken"]}},
+    {"name": "token-with-versions", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/", "versions": "true", "pageToken": "{tok}", "fields": "items/name,nextPageToken"}, "compare": {"ignore_body_paths": ["nextPageToken"]}},
+    {"name": "multi-character-delimiter", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/", "delimiter": "--"}},
+    {"name": "multibyte-delimiter", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/", "delimiter": "é"}},
+    {"name": "empty-delimited", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/zzz", "delimiter": "/"}},
+    {"name": "empty-delimited-trailing", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}/zzz", "delimiter": "/", "includeTrailingDelimiter": "true"}},
+    {"name": "glob-open-bracket", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"matchGlob": "{object}/[a"}},
+    {"name": "glob-open-brace", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"matchGlob": "{object}/{{a,b"}},
+    {"name": "glob-trailing-backslash", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"matchGlob": "{object}/a\\"}},
+    {"name": "glob-triple-star", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"matchGlob": "{object}/***"}},
+    {"name": "glob-with-delimiter", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"matchGlob": "{object}/**", "delimiter": "-"}},
+    {"name": "cleanup-a", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%2Fa--x", "compare": false, "always": true},
+    {"name": "cleanup-b", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%2Fb--y", "compare": false, "always": true},
+    {"name": "cleanup-c", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%2Fc%C3%A9z", "compare": false, "always": true}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "obj-range-head",
+  "description": "Range handling not recorded by obj-download-range: HEAD on the JSON media route with satisfiable and unsatisfiable ranges, a zero-length suffix, a range on the download endpoint, and a HEAD range on an empty object. Checks SPEC-RANGE-FALLBACK. The two HEAD 416 steps skip the body framing: Cloud Storage labels those bodiless replies chunked, which says nothing about a body that is never sent.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "0123456789", "compare": false, "expect_status": 200},
+    {"name": "upload-empty", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-empty"}, "headers": {"Content-Type": "text/plain"}, "body_text": "", "compare": false, "expect_status": 200},
+    {"name": "head-full", "method": "HEAD", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}},
+    {"name": "head-satisfiable", "method": "HEAD", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=2-4"}},
+    {"name": "head-unsatisfiable", "method": "HEAD", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=20-30"}, "compare": {"ignore_headers": ["x-harness-body-framing"]}},
+    {"name": "get-zero-suffix", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=-0"}},
+    {"name": "get-suffix-longer-than-object", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=-100"}},
+    {"name": "download-endpoint-range", "method": "GET", "path": "/download/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=8-"}},
+    {"name": "head-empty-range", "method": "HEAD", "path": "/storage/v1/b/{bucket}/o/{object}-empty", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-0"}, "compare": {"ignore_headers": ["x-harness-body-framing"]}},
+    {"name": "get-empty-suffix", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-empty", "query": {"alt": "media"}, "headers": {"Range": "bytes=-5"}},
+    {"name": "xml-head-empty-range", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}-empty", "headers": {"Range": "bytes=0-0"}},
+    {"name": "xml-get-empty-range", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-empty", "headers": {"Range": "bytes=0-0"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-empty", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-empty", "compare": false, "always": true}
+  ]
+}

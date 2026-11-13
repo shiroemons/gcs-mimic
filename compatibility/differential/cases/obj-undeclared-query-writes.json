@@ -1,0 +1,23 @@
+{
+  "id": "obj-undeclared-query-writes",
+  "description": "An undeclared query parameter on object insert (media and multipart), get, media download, patch, update, copy, rewrite, compose and object ACL listing. Checks SPEC-JSON-UNKNOWN-QUERY-OBJECTS.",
+  "steps": [
+    {"name": "insert-media", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "gcsmimicUnknown": "1"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello"},
+    {"name": "insert-plain", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "insert-multipart", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart", "gcsmimicUnknown": "1"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-mp\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--"},
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"gcsmimicUnknown": "1", "fields": "name,size"}},
+    {"name": "download", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media", "gcsmimicUnknown": "1"}},
+    {"name": "patch", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"gcsmimicUnknown": "1", "fields": "name,metadata"}, "body": {"metadata": {"k": "v"}}},
+    {"name": "update", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"gcsmimicUnknown": "1", "fields": "name,contentType"}, "body": {"contentType": "text/plain"}},
+    {"name": "copy", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-copy", "query": {"gcsmimicUnknown": "1", "fields": "name,size"}},
+    {"name": "rewrite", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-rw", "query": {"gcsmimicUnknown": "1", "fields": "done,resource/name"}},
+    {"name": "compose", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-cmp/compose", "query": {"gcsmimicUnknown": "1", "fields": "name,componentCount"}, "body": {"sourceObjects": [{"name": "{object}"}], "destination": {"contentType": "text/plain"}}},
+    {"name": "acl-list", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}/acl", "query": {"gcsmimicUnknown": "1"}, "compare": {"body": "ignore"}},
+    {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"gcsmimicUnknown": "1"}},
+    {"name": "cleanup-main", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-mp", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-mp", "compare": false, "always": true},
+    {"name": "cleanup-copy", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-copy", "compare": false, "always": true},
+    {"name": "cleanup-rw", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-rw", "compare": false, "always": true},
+    {"name": "cleanup-cmp", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-cmp", "compare": false, "always": true}
+  ]
+}

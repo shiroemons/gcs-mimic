@@ -1,0 +1,11 @@
+{
+  "id": "grpc-empty-iam-update",
+  "description": "gRPC UpdateBucket with update_mask iam_config and an empty iam_config on a bucket of its own: whether the metageneration moves and what public access prevention reads afterwards. Public access prevention is enforced again at the end. Checks SPEC-GRPC-EMPTY-IAM-UPDATE.",
+  "bucket": "own",
+  "steps": [
+    {"name": "get-before", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "readMask": {"paths": ["metageneration", "iam_config"]}}, "expect_status": 0},
+    {"name": "update-empty-iam-config", "protocol": "grpc", "rpc": "google.storage.v2.Storage/UpdateBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"bucket": {"name": "projects/_/buckets/{bucket}", "iamConfig": {}}, "updateMask": {"paths": ["iam_config"]}}, "compare": {"ignore_body_paths": ["updateTime", "etag", "createTime", "bucketId", "project", "location", "locationType", "rpo", "storageClass", "softDeletePolicy", "versioning", "autoclass", "hierarchicalNamespace", "satisfiesPzs", "lifecycle", "objectRetention", "ipFilter", "owner", "acl", "defaultObjectAcl", "labels", "billing", "website", "encryption", "logging", "retentionPolicy", "customPlacementConfig", "cors"]}},
+    {"name": "get-after", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "readMask": {"paths": ["metageneration", "iam_config"]}}, "expect_status": 0},
+    {"name": "restore-pap", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "iamConfiguration"}, "body": {"iamConfiguration": {"publicAccessPrevention": "enforced"}}, "compare": false, "always": true}
+  ]
+}

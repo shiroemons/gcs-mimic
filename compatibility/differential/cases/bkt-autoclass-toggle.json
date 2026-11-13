@@ -1,0 +1,13 @@
+{
+  "id": "bkt-autoclass-toggle",
+  "description": "Autoclass on an empty bucket of its own: enabling it in the same PATCH as a label change, changing the terminal storage class, an invalid terminal class, and disabling it, reading metageneration and the autoclass block after each. The bucket holds no object, so no Autoclass management fee or transition applies. Checks the bulk-update metageneration question of the Autoclass rows.",
+  "bucket": "own",
+  "steps": [
+    {"name": "enable-with-label", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,labels,autoclass/enabled,autoclass/terminalStorageClass,storageClass"}, "body": {"autoclass": {"enabled": true}, "labels": {"k": "v"}}},
+    {"name": "terminal-archive", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,autoclass/enabled,autoclass/terminalStorageClass"}, "body": {"autoclass": {"enabled": true, "terminalStorageClass": "ARCHIVE"}}},
+    {"name": "terminal-invalid", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,autoclass/terminalStorageClass"}, "body": {"autoclass": {"enabled": true, "terminalStorageClass": "COLDLINE"}}},
+    {"name": "storage-class-while-enabled", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,storageClass"}, "body": {"storageClass": "NEARLINE"}},
+    {"name": "disable", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,autoclass/enabled,storageClass"}, "body": {"autoclass": {"enabled": false}}, "always": true},
+    {"name": "get-final", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "metageneration,autoclass/enabled,storageClass,labels"}}
+  ]
+}
