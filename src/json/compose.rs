@@ -29,14 +29,12 @@ pub(crate) fn route(
         let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
         crate::json::Fields::take(&mut query, "Object")?;
         query.remove("destinationPredefinedAcl");
+        // objects.compose declares no `ifGenerationNotMatch` or `ifMetagenerationNotMatch`, so
+        // they fall to the undeclared-parameter rule below: Cloud Storage composed over the
+        // current generation with `ifGenerationNotMatch` naming it (case obj-mutation-not-match).
         super::query::standard_parameters(
             &mut query,
-            &[
-                "kmsKeyName",
-                "dropContextGroups",
-                "ifGenerationNotMatch",
-                "ifMetagenerationNotMatch",
-            ],
+            &["kmsKeyName", "dropContextGroups"],
             JsonError::unsupported_object,
         )?;
         // The routing layer applies the value; prettyPrint=false selects compact bodies.

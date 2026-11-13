@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
-    query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
+    query::{Decoding, decode, parse_query, projection, standard_parameters},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, Uri};
@@ -77,7 +77,9 @@ pub(super) fn route(
         };
         let source_conditions = conditions("Source")?;
         let conditions = conditions("")?;
-        finish(&query)?;
+        // Cloud Storage copied an object whose request carried an undeclared `gcsmimicUnknown=1`
+        // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
+        // knows, so what remains in `query` is ignored.
         Ok(ObjectRequest::Copy(ObjectCopyParams {
             source_bucket,
             source_name,

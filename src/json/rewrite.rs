@@ -172,7 +172,13 @@ pub(crate) fn route(
                 parameters.insert(key.into(), number.to_string());
             }
         }
-        query::finish(&remaining)?;
+        // Cloud Storage rewrote an object whose request carried an undeclared `gcsmimicUnknown=1`
+        // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
+        // knows. What remains is ignored and kept out of the token binding, so a continuation
+        // may add or drop such a parameter.
+        for key in remaining.keys() {
+            parameters.remove(key);
+        }
         Ok(RewriteRequest {
             names,
             token,

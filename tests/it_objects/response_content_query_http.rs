@@ -43,11 +43,13 @@ fn json_object_reads_accept_and_ignore_response_content_overrides() {
 }
 
 #[test]
-fn other_undeclared_parameters_and_other_methods_stay_rejected() {
+fn other_overrides_and_other_methods_are_ignored_like_any_undeclared_name() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
     server.put("report", b"report-bytes").json_ok();
+    // Object methods ignore every name they do not declare, these included (cases
+    // obj-undeclared-query-writes, obj-list-undeclared-query and obj-delete-undeclared-query).
     for (method, path, body) in [
         ("GET", format!("{OBJECT}?response-content-language=en"), ""),
         (
@@ -56,12 +58,9 @@ fn other_undeclared_parameters_and_other_methods_stay_rejected() {
             "{}",
         ),
     ] {
-        server
-            .request(method, &path, "", body.as_bytes())
-            .json_reason(400, "invalidParameter");
+        let reply = server.request(method, &path, "", body.as_bytes()).json_ok();
+        assert_eq!(reply["name"], "report", "{method} {path}");
     }
-    // objects.list and objects.delete ignore every name they do not declare, these included
-    // (cases obj-list-undeclared-query and obj-delete-undeclared-query).
     server
         .request(
             "GET",
