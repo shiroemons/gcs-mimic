@@ -238,6 +238,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The script builds gcs-mimic offline, so the locked packages must be fetched first.
+      - run: cargo fetch --locked
       # The script verifies the downloaded archive against its pinned SHA-256 before building it.
       - run: bash scripts/compare-reference-emulator.sh
         env:
