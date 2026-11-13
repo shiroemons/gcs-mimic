@@ -193,6 +193,9 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
     if !matches!(operation, ObjectRequest::Get { .. }) {
         let etags = match operation {
             ObjectRequest::Update(_) => json::EtagConditions::MatchOnly,
+            // A listing has no entity tag: Cloud Storage listed the objects with
+            // `If-None-Match: *` and with a bogus `If-Match` (case obj-collection-validators).
+            ObjectRequest::List(_) => json::EtagConditions::Ignored,
             _ => json::EtagConditions::Unsupported,
         };
         json::validate_read_condition_headers(headers, etags)?;
