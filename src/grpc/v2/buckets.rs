@@ -559,7 +559,9 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
+    use crate::grpc::test_support::{
+        self as fixtures, assert_code, assert_unsupported, caller, registry,
+    };
     use crate::storage::test_fixtures::PERMISSIVE;
     use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
     use std::sync::Arc;
@@ -780,6 +782,58 @@ mod tests {
                 .get_bucket(Request::new(get("test-bucket")), None)
                 .await,
             Code::NotFound,
+        );
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_bucket_rpcs_reject_unsupported_options_without_side_effects() {
+        let (_dir, storage) = storage(false).await;
+        for (acl, default_acl) in [("publicRead", ""), ("", "bucketOwnerRead")] {
+            let request = pb::CreateBucketRequest {
+                predefined_acl: acl.into(),
+                predefined_default_object_acl: default_acl.into(),
+                ..create("acl-bucket")
+            };
+            assert_unsupported(
+                storage.create_bucket(Request::new(request), None).await,
+                "CreateBucket predefined ACLs",
+            );
+        }
+        assert_code(
+            storage
+                .get_bucket(Request::new(get("acl-bucket")), None)
+                .await,
+            Code::NotFound,
+        );
+        storage
+            .create_bucket(Request::new(create("mask-bucket")), None)
+            .await
+            .unwrap();
+        for (paths, option) in [
+            (
+                &["versioning.enabled"][..],
+                "bucket read_mask versioning.enabled",
+            ),
+            (&["*", "name"], "mixed wildcard bucket read_mask"),
+        ] {
+            let request = pb::GetBucketRequest {
+                read_mask: fixtures::mask(paths),
+                ..get("mask-bucket")
+            };
+            assert_unsupported(
+                storage.get_bucket(Request::new(request), None).await,
+                option,
+            );
+        }
+        let request = pb::ListBucketsRequest {
+            parent: "projects/p".into(),
+            return_partial_success: true,
+            ..Default::default()
+        };
+        assert_unsupported(
+            storage.list_buckets(Request::new(request), None).await,
+            "ListBuckets return_partial_success",
         );
         storage.state.catalog.close().await.unwrap();
     }

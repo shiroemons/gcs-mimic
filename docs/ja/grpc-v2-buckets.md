@@ -18,3 +18,5 @@ CreateBucketの保持・soft delete・PAP・CORS・Autoclassは共有の型付�
 Storage v1、オブジェクトの転送方式間検証、project IDから番号への解決、バケット自体のsoft delete・restore、未完了のXML multipart・Rapidとの組み合わせ、未対応フィールドの完全な互換性は残っています。AUDIT-008はPARTIALを維持します。性能測定・コンテナ・実クラウド検証は対象外です。
 
 2026-10-28に、型検査、gRPCユニット8件、Goの担当・foundationテスト、最終の`RUST_TEST_THREADS=8 just check`と`just check-sdk`が成功しました。HTTPプロファイルのため、既存のGo V2署名HTTPS専用ケースはSKIPです。台帳の6行は確認済みの範囲と未対応を分けてPARTIALとし、英日対応表を再生成しました。
+
+2026-11-14に、テストのなかった拒否を`grpc_bucket_rpcs_reject_unsupported_options_without_side_effects`で固定しました。CreateBucketの`predefined_acl`・`predefined_default_object_acl`（バケットは作られない）、GetBucketの入れ子・ワイルドカード混在の`read_mask`、ListBucketsの`return_partial_success`は、いずれもオプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-002・003・004には成功ケース`grpc_unsupported_option_rejections`として記録し、ほかの未完了ケースは変えていません。

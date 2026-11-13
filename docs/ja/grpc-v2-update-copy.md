@@ -44,3 +44,5 @@ Go Storage 1.70.0の既定の高水準APIを使い、permissiveとstrictを検�
 IAM設定の保持については、修正前にRustとGoの両方で失敗を再現しました。最終ソースで担当Rustテスト5件とjust check-sdkが成功し、Goの更新・strict・foundationも確認しています。共通のstatus::from_jsonを使い、410はFAILED_PRECONDITION、501はErrorInfo付きUNIMPLEMENTEDです。未対応呼び出しの確認にはRapidの書き込みを使います。CancelResumableWriteは[オブジェクト入出力](grpc-v2-object-io.md)の契約で実装しています。HTTP実行のため、既存のGo V2署名テスト1件だけスキップしました。
 
 bucket・object I/Oを統合した最終ソースでjust checkも成功しました。ライブラリ528件、全統合テスト、native・Windows・Linuxのclippy、台帳591行と生成表の整合性を確認済みです。IAM設定の保持の問題は解消し、ほかの親maskは単一項目の解除・置換として正しいため変更しません。
+
+2026-11-14に、テストのなかった未対応オプションの拒否を3つのテストで固定しました。どのオプションも、状態を変える前に、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。UpdateBucket・UpdateObjectのpredefined ACLはメタデータとmetagenerationを変えません。ComposeObject・RewriteObjectの暗号・ACL・checksum・`storage_class`・`temporary_hold`・`custom_time`と、RestoreObjectの`restore_token`は、宛先オブジェクトを作りません。SetIamPolicyの`bindings`と`etag`以外のmaskと、managed folder・objectのIAMリソースはポリシーを変えません。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-006・007・009・010・012・017・021には成功ケース`grpc_unsupported_option_rejections`として記録し、`grpc_full_contract`は残りのフィールド・エラーの組み合わせ・実機との一致のためPENDINGのままです。

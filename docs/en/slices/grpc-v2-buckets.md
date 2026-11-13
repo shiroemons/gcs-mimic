@@ -62,3 +62,5 @@ On 2026-10-28:
 - `cargo xtask compatibility render`: PASS, both generated matrices use the six updated ledger rows.
 
 No container build, guide walkthrough, benchmark or real-cloud run was performed for this RPC-only change. Provider-exact error details/precedence, numeric project resolution, omitted fields and object cross-protocol acceptance remain unverified; all affected ledger rows remain PARTIAL.
+
+On 2026-11-14 `grpc_bucket_rpcs_reject_unsupported_options_without_side_effects` pinned the bucket rejections that had no test: CreateBucket `predefined_acl` and `predefined_default_object_acl` (no bucket is created), GetBucket nested and mixed-wildcard `read_mask` paths, and ListBuckets `return_partial_success`. Each returns UNIMPLEMENTED with ErrorInfo naming the option. `cargo test --locked --offline --lib grpc::` passed 168 tests. RPC-STORAGE-002, 003 and 004 record this as the passing case `grpc_unsupported_option_rejections`; their other pending cases are unchanged.

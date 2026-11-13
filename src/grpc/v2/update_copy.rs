@@ -958,7 +958,9 @@ mod tests {
     use super::super::bucket_update::from_proto as bucket_patch;
     use super::super::object_update::from_proto as object_patch;
     use super::*;
-    use crate::grpc::test_support::{self as fixtures, assert_code, caller, registry};
+    use crate::grpc::test_support::{
+        self as fixtures, assert_code, assert_unsupported, caller, registry,
+    };
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::{auth::Auth, object::UploadChunk, storage::Catalog, test_support::TestDir};
     use std::{cell::RefCell, collections::VecDeque, sync::Arc};
@@ -2507,6 +2509,297 @@ mod tests {
             .into_inner();
         assert_eq!(composed.size, 32);
         assert_eq!(composed.component_count, 32);
+        s.state.catalog.close().await.unwrap();
+    }
+
+    const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
+
+    async fn stored_bucket(s: &Storage) -> BucketRecord {
+        s.state
+            .catalog
+            .get_bucket("update-copy-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn stored_object(
+        s: &Storage,
+        name: &str,
+    ) -> Result<crate::object::ObjectRecord, crate::object::ObjectError> {
+        s.state
+            .catalog
+            .get_object(
+                live("update-copy-bucket", name),
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn grpc_updates_reject_predefined_acls_without_changing_metadata() {
+        let (s, _dir) = setup().await;
+        let before = stored_bucket(&s).await;
+        for (acl, default_acl) in [("publicRead", ""), ("", "bucketOwnerRead")] {
+            let request = pb::UpdateBucketRequest {
+                predefined_acl: acl.into(),
+                predefined_default_object_acl: default_acl.into(),
+                ..lifecycle_label_update(BucketConditions::default())
+            };
+            assert_unsupported(
+                s.update_bucket(Request::new(request), None).await,
+                "predefined bucket ACLs",
+            );
+        }
+        let after = stored_bucket(&s).await;
+        assert_eq!(after.metageneration, before.metageneration);
+        assert_eq!(after.labels, before.labels);
+
+        let source = upload(&s, "source", 4).await;
+        let update = pb::UpdateObjectRequest {
+            object: Some(pb::Object {
+                bucket: RESOURCE.into(),
+                name: "source".into(),
+                content_type: "application/json".into(),
+                ..Default::default()
+            }),
+            predefined_acl: "publicRead".into(),
+            update_mask: fixtures::mask(&["content_type"]),
+            ..Default::default()
+        };
+        assert_unsupported(
+            s.update_object(Request::new(update), None).await,
+            "UpdateObject predefined_acl",
+        );
+        let unchanged = stored_object(&s, "source").await.unwrap();
+        assert_eq!(unchanged.metageneration, source.metageneration);
+        assert_eq!(unchanged.content_type, source.content_type);
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_derived_writes_reject_unsupported_options_without_creating_objects() {
+        let (s, _dir) = setup().await;
+        let source = upload(&s, "source", 4).await;
+        let crc32c = pb::ObjectChecksums {
+            crc32c: Some(1),
+            ..Default::default()
+        };
+        let md5 = pb::ObjectChecksums {
+            md5_hash: vec![0; 16],
+            ..Default::default()
+        };
+        let custom_time = Some(prost_types::Timestamp::default());
+        let kms_key = "projects/p/locations/l/keyRings/r/cryptoKeys/k";
+        let composed = pb::Object {
+            bucket: RESOURCE.into(),
+            name: "composed".into(),
+            ..Default::default()
+        };
+        let compose = pb::ComposeObjectRequest {
+            destination: Some(composed.clone()),
+            source_objects: vec![pb::compose_object_request::SourceObject {
+                name: "source".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for request in [
+            pb::ComposeObjectRequest {
+                destination_predefined_acl: "private".into(),
+                ..compose.clone()
+            },
+            pb::ComposeObjectRequest {
+                kms_key: kms_key.into(),
+                ..compose.clone()
+            },
+            pb::ComposeObjectRequest {
+                object_checksums: Some(crc32c.clone()),
+                ..compose.clone()
+            },
+            pb::ComposeObjectRequest {
+                object_checksums: Some(md5.clone()),
+                ..compose.clone()
+            },
+        ] {
+            assert_unsupported(
+                s.compose_object(Request::new(request), None).await,
+                "ComposeObject encryption/ACL/checksums",
+            );
+        }
+        for destination in [
+            pb::Object {
+                storage_class: "NEARLINE".into(),
+                ..composed.clone()
+            },
+            pb::Object {
+                temporary_hold: true,
+                ..composed.clone()
+            },
+            pb::Object {
+                custom_time,
+                ..composed
+            },
+        ] {
+            let request = pb::ComposeObjectRequest {
+                destination: Some(destination),
+                ..compose.clone()
+            };
+            assert_unsupported(
+                s.compose_object(Request::new(request), None).await,
+                "ComposeObject metadata",
+            );
+        }
+        assert!(matches!(
+            stored_object(&s, "composed").await,
+            Err(crate::object::ObjectError::ObjectNotFound)
+        ));
+
+        let rewrite = pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: RESOURCE.into(),
+            destination_name: "rewritten".into(),
+            ..Default::default()
+        };
+        for request in [
+            pb::RewriteObjectRequest {
+                destination_kms_key: kms_key.into(),
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                destination_predefined_acl: "private".into(),
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                copy_source_encryption_algorithm: "AES256".into(),
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                copy_source_encryption_key_bytes: vec![0; 32],
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                copy_source_encryption_key_sha256_bytes: vec![0; 32],
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                object_checksums: Some(crc32c.clone()),
+                ..rewrite.clone()
+            },
+            pb::RewriteObjectRequest {
+                object_checksums: Some(md5.clone()),
+                ..rewrite.clone()
+            },
+        ] {
+            assert_unsupported(
+                s.rewrite_object(Request::new(request), None).await,
+                "RewriteObject encryption/ACL/checksums",
+            );
+        }
+        for destination in [
+            pb::Object {
+                temporary_hold: true,
+                ..Default::default()
+            },
+            pb::Object {
+                custom_time,
+                ..Default::default()
+            },
+        ] {
+            let request = pb::RewriteObjectRequest {
+                destination: Some(destination),
+                ..rewrite.clone()
+            };
+            assert_unsupported(
+                s.rewrite_object(Request::new(request), None).await,
+                "RewriteObject temporary_hold/custom_time",
+            );
+        }
+        assert!(matches!(
+            stored_object(&s, "rewritten").await,
+            Err(crate::object::ObjectError::ObjectNotFound)
+        ));
+
+        let restore = pb::RestoreObjectRequest {
+            bucket: RESOURCE.into(),
+            object: "source".into(),
+            generation: source.generation,
+            restore_token: "token".into(),
+            ..Default::default()
+        };
+        assert_unsupported(
+            s.restore_object(Request::new(restore), None).await,
+            "RestoreObject ACL/token",
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy() {
+        let (s, _dir) = setup().await;
+        let get = |resource: &str, version| iam::GetIamPolicyRequest {
+            resource: resource.into(),
+            options: Some(iam::GetPolicyOptions {
+                requested_policy_version: version,
+            }),
+        };
+        let before = s
+            .get_iam_policy(Request::new(get(RESOURCE, 3)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_code(
+            s.get_iam_policy(Request::new(get(RESOURCE, 2)), None).await,
+            Code::InvalidArgument,
+        );
+        let replacement = iam::Policy {
+            bindings: vec![iam::Binding {
+                role: "roles/storage.objectViewer".into(),
+                members: vec!["allUsers".into()],
+                condition: None,
+            }],
+            ..Default::default()
+        };
+        let set = |resource: &str, paths: &[&str]| iam::SetIamPolicyRequest {
+            resource: resource.into(),
+            policy: Some(replacement.clone()),
+            update_mask: fixtures::mask(paths),
+        };
+        for paths in [&["bindings"][..], &["etag"], &["bindings", "version"]] {
+            assert_unsupported(
+                s.set_iam_policy(Request::new(set(RESOURCE, paths)), None)
+                    .await,
+                "SetIamPolicy update_mask",
+            );
+        }
+        for child in [
+            "projects/_/buckets/update-copy-bucket/managedFolders/folder",
+            "projects/_/buckets/update-copy-bucket/objects/object",
+        ] {
+            assert_unsupported(
+                s.get_iam_policy(Request::new(get(child, 3)), None).await,
+                "managed folder and object IAM policies",
+            );
+            assert_unsupported(
+                s.set_iam_policy(Request::new(set(child, &[])), None).await,
+                "managed folder and object IAM policies",
+            );
+        }
+        let unchanged = s
+            .get_iam_policy(Request::new(get(RESOURCE, 3)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(unchanged, before);
+        let replaced = s
+            .set_iam_policy(Request::new(set(RESOURCE, &["bindings", "etag"])), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(replaced.bindings, replacement.bindings);
+        assert_ne!(replaced.etag, before.etag);
         s.state.catalog.close().await.unwrap();
     }
 

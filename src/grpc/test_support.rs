@@ -87,6 +87,15 @@ pub(super) fn assert_code<T>(result: Result<T, Status>, code: Code) -> Status {
     }
 }
 
+/// An unsupported option fails fast with ErrorInfo naming it, so an SDK neither
+/// retries nor mistakes the rejection for a missing resource.
+#[track_caller]
+pub(super) fn assert_unsupported<T>(result: Result<T, Status>, option: &str) {
+    let status = assert_code(result, Code::Unimplemented);
+    assert!(status.message().contains(option), "{option}: {status}");
+    assert!(!status.details().is_empty(), "{option}");
+}
+
 pub(super) fn mask(paths: &[&str]) -> Option<prost_types::FieldMask> {
     Some(prost_types::FieldMask {
         paths: paths.iter().map(|path| (*path).into()).collect(),

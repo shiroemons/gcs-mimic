@@ -21532,6 +21532,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "Nested and mixed-wildcard read_mask paths return UNIMPLEMENTED with ErrorInfo naming the path.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
+        {
           "id": "grpc_bucket_get",
           "description": "Existing/missing buckets, both metageneration conditions, supported masks, unsupported mask ErrorInfo and shared strict authorization including anonymous allUsers grants. x-goog-user-project is ignored, so an explicit, default or empty UserProject succeeds alike.",
           "result": "PASS",
@@ -21567,6 +21575,7 @@
         }
       ],
       "test_ids": [
+        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
         "grpc_buckets_crud_conditions_and_masks",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_expose_json_lifecycle_etag_and_object_retention",
@@ -21576,6 +21585,15 @@
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc::v2::",
           "result": "PASS",
@@ -21657,6 +21675,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED with ErrorInfo and create no bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
+        {
           "id": "grpc_bucket_create",
           "description": "Default Go Create, projects/_ and project ID resource parsing, location/labels/versioning and retention metadata, equivalent disabled settings, duplicates and explicit unsupported values.",
           "result": "PASS",
@@ -21691,6 +21717,7 @@
         }
       ],
       "test_ids": [
+        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
         "grpc_buckets_create_subset_and_defaults",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_create_accepts_name_matching_bucket_id",
@@ -21699,6 +21726,15 @@
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
           "result": "PASS",
@@ -21779,6 +21815,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "return_partial_success returns UNIMPLEMENTED with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
+        {
           "id": "grpc_bucket_list",
           "description": "Default Go iteration, project/prefix filtering, page size/token, invalid and cross-scope token rejection, strict authorization.",
           "result": "PASS",
@@ -21797,12 +21841,22 @@
         }
       ],
       "test_ids": [
+        "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects",
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_bucket_rpcs_reject_unsupported_options_without_side_effects"
+          ]
+        },
         {
           "command": "RUST_TEST_THREADS=8 just check",
           "result": "PASS",
@@ -21970,6 +22024,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "Managed folder and object resources return UNIMPLEMENTED with ErrorInfo; a requested_policy_version other than 0, 1 or 3 returns INVALID_ARGUMENT.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "JSON-shared GetIamPolicy subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
           "result": "PASS",
@@ -21990,6 +22052,7 @@
         }
       ],
       "test_ids": [
+        "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -21998,6 +22061,15 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -22075,6 +22147,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "An update_mask other than bindings plus etag, and managed folder or object resources, return UNIMPLEMENTED with ErrorInfo and leave the policy unchanged; bindings plus etag replaces it.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "SetIamPolicy constructs a shared typed PolicyInput directly from proto fields; role/member/count validation and opaque ETags remain shared with JSON, with atomic conditions, supported field masks and strict authorization. Unsupported roles/member kinds recommend supported policy inputs in both the message and ErrorInfo remedy; project-member identifiers share the JSON query validator.",
           "result": "PASS",
@@ -22097,6 +22177,7 @@
         }
       ],
       "test_ids": [
+        "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy",
         "unsupported_iam_inputs_offer_supported_policy_members",
         "convenience_members_and_json_queries_share_project_identifier_rules",
         "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -22107,6 +22188,15 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib policy -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-update-copy.md", "test_ids": ["unsupported_iam_inputs_offer_supported_policy_members", "convenience_members_and_json_queries_share_project_identifier_rules"]},
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
@@ -22290,6 +22380,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED with ErrorInfo without changing labels or metageneration.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_updates_reject_predefined_acls_without_changing_metadata"
+          ]
+        },
+        {
           "id": "PROVIDER-GAP-PROBES",
           "description": "UpdateBucket with update_mask iam_config and an empty iam_config advances the metageneration and resets public access prevention to inherited, as Cloud Storage did (case grpc-empty-iam-update, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
           "result": "PASS",
@@ -22340,6 +22438,7 @@
         }
       ],
       "test_ids": [
+        "grpc_updates_reject_predefined_acls_without_changing_metadata",
         "grpc-empty-iam-update",
         "grpc-iam-config-partial-update",
         "invalid_storage_classes_keep_client_values_verbatim",
@@ -22355,6 +22454,15 @@
         "grpc_buckets_acl_strict_authorization"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_updates_reject_predefined_acls_without_changing_metadata"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -22465,6 +22573,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "destination_predefined_acl, kms_key, object_checksums, storage_class, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "Shared ComposeObject subset: atomic preconditions, strict authorization and default Go high-level calls. The response uses the common write owner/ACL view; this derived-method behavior is inferred locally and remains provider-unobserved in SPEC-GRPC-DERIVED-OWNER-VIEW.",
           "result": "PASS",
@@ -22485,6 +22601,7 @@
         }
       ],
       "test_ids": [
+        "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -22493,6 +22610,15 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -22658,6 +22784,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "restore_token returns UNIMPLEMENTED with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "Shared RestoreObject subset: atomic preconditions, strict authorization and default Go high-level calls. The response uses the common write owner/ACL view; this derived-method behavior is inferred locally and remains provider-unobserved in SPEC-GRPC-DERIVED-OWNER-VIEW.",
           "result": "PASS",
@@ -22678,6 +22812,7 @@
         }
       ],
       "test_ids": [
+        "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -22686,6 +22821,15 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -23159,6 +23303,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "predefined_acl returns UNIMPLEMENTED with ErrorInfo without changing content_type or metageneration.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_updates_reject_predefined_acls_without_changing_metadata"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "UpdateObject constructs typed shared updates directly from proto fields, with atomic preconditions, supported field masks, strict authorization and default Go high-level calls. Typed metadata diagnostics render proto fields without rewriting values; masks combining metadata and metadata.KEY fail with actionable INVALID_ARGUMENT in either order.",
           "result": "PASS",
@@ -23198,6 +23350,7 @@
         }
       ],
       "test_ids": [
+        "grpc_updates_reject_predefined_acls_without_changing_metadata",
         "overlapping_metadata_masks_are_actionable_in_both_orders",
         "object_validation_uses_proto_field_names_and_keeps_error_details",
         "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -23211,6 +23364,15 @@
         "grpc_update_object_retention_strict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_updates_reject_predefined_acls_without_changing_metadata"
+          ]
+        },
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-update-copy.md", "test_ids": ["overlapping_metadata_masks_are_actionable_in_both_orders", "object_validation_uses_proto_field_names_and_keeps_error_details"]},
         {
           "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
@@ -23682,6 +23844,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "grpc_unsupported_option_rejections",
+          "description": "destination_kms_key, destination_predefined_acl, the copy_source encryption fields, object_checksums, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
           "id": "grpc_update_copy_contract",
           "description": "Shared RewriteObject subset: atomic preconditions, strict authorization and default Go high-level calls. The response uses the common write owner/ACL view; this derived-method behavior is inferred locally and remains provider-unobserved in SPEC-GRPC-DERIVED-OWNER-VIEW.",
           "result": "PASS",
@@ -23702,6 +23872,7 @@
         }
       ],
       "test_ids": [
+        "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -23710,6 +23881,15 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-14",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
