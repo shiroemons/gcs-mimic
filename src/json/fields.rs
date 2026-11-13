@@ -50,12 +50,12 @@ impl Fields {
         if value.is_empty() && schema == "Object" {
             return Ok(Self::default());
         }
-        let empty_segments = if schema == "Object" {
-            EmptySegments::Skip
+        let grammar = if schema == "Object" {
+            Grammar::Lenient
         } else {
-            EmptySegments::Reject
+            Grammar::Strict
         };
-        let fields = Self::parse_with(value, empty_segments)?;
+        let fields = Self::parse_with(value, grammar)?;
         fields
             .validate(
                 SCHEMAS
@@ -73,28 +73,34 @@ impl Fields {
     }
 
     pub(crate) fn parse_syntax(value: &str) -> Result<Self, JsonError> {
-        Self::parse_with(value, EmptySegments::Reject)
+        Self::parse_with(value, Grammar::Strict)
     }
 
-    fn parse_with(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
-        Self::syntax(value, empty_segments).map_err(|mut error| {
-            // The FieldMask wording already quotes the whole expression.
-            if error.kind != super::ErrorKind::FieldMaskSyntax {
+    fn parse_with(value: &str, grammar: Grammar) -> Result<Self, JsonError> {
+        Self::syntax(value, grammar).map_err(|mut error| {
+            // The FieldMask wording already quotes the whole expression, and Cloud Storage
+            // follows the selection wording with the expression without a colon ("Invalid field
+            // selection metadata/", case obj-fields-selectors).
+            if error.message == INVALID_SELECTION {
+                error.message = format!("{INVALID_SELECTION} {value}");
+            } else if error.kind != super::ErrorKind::FieldMaskSyntax {
                 error.message = format!("{}: {value}", error.message);
             }
             error
         })
     }
 
-    fn syntax(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
+    fn syntax(value: &str, grammar: Grammar) -> Result<Self, JsonError> {
         if value.len() > MAX_LENGTH {
             return Err(invalid("fields exceeds 16 KiB"));
         }
-        if value.is_empty() || value.chars().any(char::is_whitespace) {
+        if value.is_empty()
+            || (grammar == Grammar::Strict && value.chars().any(char::is_whitespace))
+        {
             return Err(unsupported("empty or whitespace-containing fields"));
         }
         let mut parser = Parser {
-            empty_segments,
+            grammar,
             source: value,
             rest: value,
         };
@@ -172,6 +178,8 @@ impl Fields {
     }
 }
 
+const INVALID_SELECTION: &str = "Invalid field selection";
+
 fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::invalid_parameter(message).at_parameter("fields")
 }
@@ -182,29 +190,40 @@ fn unsupported(name: &str) -> JsonError {
     ))
 }
 
-/// Whether an empty segment such as the middle of `name,,size` is ignored (as Cloud Storage did
-/// for object resources) or rejected.
+/// How forgiving the selector grammar is. Cloud Storage, for object resources (case
+/// obj-fields-selectors), ignored an empty segment such as the middle of `name,,size` or the
+/// inside of `metadata()`, and whitespace around a name, so `fields=%20` selected nothing and
+/// `name , size` selected both fields. Other resources were not recorded and stay strict.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum EmptySegments {
-    Skip,
-    Reject,
+enum Grammar {
+    Lenient,
+    Strict,
 }
 
 struct Parser<'a> {
-    empty_segments: EmptySegments,
+    grammar: Grammar,
     /// The whole expression, which Cloud Storage quotes when a parenthesis is unmatched.
     source: &'a str,
     rest: &'a str,
 }
 
 impl Parser<'_> {
+    fn skip_whitespace(&mut self) {
+        if self.grammar == Grammar::Lenient {
+            self.rest = self.rest.trim_start();
+        }
+    }
+
     fn list(&mut self, depth: usize) -> Result<Fields, JsonError> {
         let mut fields = Fields::default();
         loop {
-            // Cloud Storage ignores an empty segment such as the middle of `name,,size`.
-            let empty = self.rest.starts_with(',') || (depth == 0 && self.rest.is_empty());
-            if !(empty && self.empty_segments == EmptySegments::Skip) {
+            self.skip_whitespace();
+            let empty = self.rest.starts_with(',')
+                || (depth == 0 && self.rest.is_empty())
+                || (depth > 0 && self.rest.starts_with(')'));
+            if !(empty && self.grammar == Grammar::Lenient) {
                 fields.merge(self.path(depth)?);
+                self.skip_whitespace();
             }
             let Some(rest) = self.rest.strip_prefix(',') else {
                 break;
@@ -225,9 +244,14 @@ impl Parser<'_> {
         let (name, rest) = self
             .rest
             .split_at_checked(end)
-            .ok_or_else(|| invalid("Invalid field selection"))?;
+            .ok_or_else(|| invalid(INVALID_SELECTION))?;
+        // Only the lenient grammar lets whitespace through `syntax`, and only around a name.
+        let name = name.trim();
+        if name.contains(char::is_whitespace) {
+            return Err(unsupported("whitespace inside a field name"));
+        }
         if name.is_empty() || (name.contains('*') && name != "*") {
-            return Err(invalid("Invalid field selection"));
+            return Err(invalid(INVALID_SELECTION));
         }
         self.rest = rest;
         let child = if let Some(rest) = self.rest.strip_prefix('/') {
@@ -309,7 +333,6 @@ mod tests {
             "metadata/",
             "/name",
             "metadata//key",
-            "metadata()",
             "metadata(key",
             "name)",
             "(name)",
@@ -354,6 +377,13 @@ mod tests {
                     .starts_with("gcs-mimic does not support JSON API selector")
             );
         }
+        // Whitespace inside a name stays unsupported where whitespace around one is ignored.
+        let error = Fields::parse("na me", "Object").unwrap_err();
+        assert_eq!((error.status.as_u16(), error.reason), (400, "badRequest"));
+        assert_eq!(
+            Fields::parse("metadata/", "Object").unwrap_err().message,
+            "Invalid field selection metadata/"
+        );
     }
 
     #[test]
@@ -367,6 +397,16 @@ mod tests {
             .unwrap()
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o","size":"5"}));
+        for (selector, expected) in [
+            (" ", json!({})),
+            ("name , size", json!({"name":"o","size":"5"})),
+            (" metadata( a ) ", json!({"metadata":{"a":"1"}})),
+            ("metadata()", json!({})),
+        ] {
+            let mut value = original.clone();
+            Fields::parse(selector, "Object").unwrap().apply(&mut value);
+            assert_eq!(value, expected, "{selector:?}");
+        }
         // A selection that matches nothing inside metadata drops the key instead of `{}`.
         let mut value = original;
         Fields::parse("name,metadata/zzz", "Object")
@@ -509,7 +549,7 @@ mod tests {
             };
             assert!(
                 Parser {
-                    empty_segments: EmptySegments::Reject,
+                    grammar: Grammar::Strict,
                     source: &value,
                     rest: &value,
                 }
@@ -519,7 +559,7 @@ mod tests {
             let deeper = format!("a/{value}");
             assert!(
                 Parser {
-                    empty_segments: EmptySegments::Reject,
+                    grammar: Grammar::Strict,
                     source: &deeper,
                     rest: &deeper,
                 }

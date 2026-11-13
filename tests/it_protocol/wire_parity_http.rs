@@ -881,18 +881,22 @@ fn error_items_name_the_rejected_parameter_or_header() {
             "/storage/v1/b/parity/o?includeFoldersAsPrefixes=invalid",
             "includeFoldersAsPrefixes",
         ),
-        ("/storage/v1/b/parity/o/value?versions=true", "versions"),
     ] {
         let reply = server.request("GET", path, "", b"");
         reply.status(400);
         assert_eq!(item(&reply)["location"], name, "{path}");
         assert_eq!(item(&reply)["locationType"], "parameter", "{path}");
     }
-    // objects.list ignores an undeclared name, as Cloud Storage did; methods whose treatment is
-    // unrecorded still reject one without naming a location.
+    // objects.list and objects.get ignore an undeclared name, as Cloud Storage did (cases
+    // obj-list-undeclared-query and obj-undeclared-query-writes), so `versions`, a list
+    // parameter, leaves an absent object's read at 404; methods whose treatment is unrecorded
+    // still reject one without naming a location.
     server
         .request("GET", "/storage/v1/b/parity/o?unknown=value", "", b"")
         .status(200);
+    server
+        .request("GET", "/storage/v1/b/parity/o/value?versions=true", "", b"")
+        .status(404);
     let unknown = server.request("GET", "/storage/v1/b/parity/iam?unknown=value", "", b"");
     unknown.status(400);
     assert!(item(&unknown).get("location").is_none());

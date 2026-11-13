@@ -330,7 +330,6 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         "kmsKeyName=key",
         "userProject=billed",
         "dropContextGroups=custom",
-        "ifGenerationNotMatch=1",
     ] {
         server
             .request(
@@ -367,6 +366,33 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         )
         .json_reason(400, "invalidParameter");
     assert_eq!(server.get("destination").json_ok(), destination);
+}
+
+/// objects.compose declares neither not-match condition, so Cloud Storage composed over the
+/// current generation although `ifGenerationNotMatch` named it (case obj-mutation-not-match).
+#[test]
+fn compose_ignores_the_not_match_conditions_it_does_not_declare() {
+    let (_dir, server) = setup(false);
+    server.put("a", b"a").json_ok();
+    server.put("destination", b"old").json_ok();
+    // Each condition names the live destination's own value, so enforcing it would fail.
+    for (condition, field) in [
+        ("ifGenerationNotMatch", "generation"),
+        ("ifMetagenerationNotMatch", "metageneration"),
+    ] {
+        let current = server.get("destination").json_ok();
+        let value = current[field].as_str().unwrap();
+        let composed = server
+            .request(
+                "POST",
+                &format!("/storage/v1/b/test-bucket/o/destination/compose?{condition}={value}"),
+                AUTH,
+                sources(&["a"]).to_string().as_bytes(),
+            )
+            .json_ok();
+        assert_ne!(composed["generation"], current["generation"], "{condition}");
+        assert_eq!(media(&server, "destination").body, b"a", "{condition}");
+    }
 }
 
 #[test]

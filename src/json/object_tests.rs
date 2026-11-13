@@ -378,11 +378,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
             "invalidParameter",
         ),
         (
-            "uploadType=media&name=file&generation=1",
-            StatusCode::BAD_REQUEST,
-            "invalidParameter",
-        ),
-        (
             "uploadType=media&name=file&name=other",
             StatusCode::BAD_REQUEST,
             "invalidParameter",
@@ -392,6 +387,23 @@ fn obj_query_001_required_upload_and_unsupported_types() {
             request(Method::POST, &format!("/upload/storage/v1/b/abc/o?{query}")).unwrap_err();
         assert_eq!((error.status, error.reason), (status, reason), "{query}");
     }
+    // objects.insert ignores a parameter it does not declare (case obj-undeclared-query-writes).
+    let plain_insert = request(
+        Method::POST,
+        "/upload/storage/v1/b/abc/o?uploadType=media&name=file",
+    )
+    .unwrap();
+    for query in ["generation=1", "gcsmimicUnknown=1"] {
+        assert_eq!(
+            request(
+                Method::POST,
+                &format!("/upload/storage/v1/b/abc/o?uploadType=media&name=file&{query}")
+            )
+            .unwrap(),
+            plain_insert,
+            "{query}"
+        );
+    }
     // An empty `fields` selects nothing, as Cloud Storage did.
     assert!(request(Method::GET, "/storage/v1/b/abc/o/file?fields=").is_ok());
     for key in [
@@ -400,9 +412,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
         "userIp",
         "userProject",
         "callback",
-        "contentEncoding",
-        "kmsKeyName",
-        "predefinedAcl",
         "restoreToken",
     ] {
         for value in ["", "false", "value"] {
@@ -417,6 +426,20 @@ fn obj_query_001_required_upload_and_unsupported_types() {
                 "{key}"
             );
         }
+    }
+    // Insert and update options that objects.get does not declare are ignored there like any
+    // other undeclared name (case obj-undeclared-query-writes).
+    let plain_get = request(Method::GET, "/storage/v1/b/abc/o/file").unwrap();
+    for key in ["contentEncoding", "kmsKeyName", "predefinedAcl"] {
+        assert_eq!(
+            request(
+                Method::GET,
+                &format!("/storage/v1/b/abc/o/file?{key}=value")
+            )
+            .unwrap(),
+            plain_get,
+            "{key}"
+        );
     }
 }
 
@@ -533,8 +556,6 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
         "projection=full&projection=noAcl",
         "softDeleted=yes",
         "prettyPrint=yes",
-        "unknown=1",
-        "name=file",
         "generation=%FF",
         "generation=%zz",
     ] {
@@ -547,12 +568,15 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
         );
     }
     request(Method::GET, "/storage/v1/b/abc/o/file?prettyPrint=true").unwrap();
-    assert_eq!(
-        request(Method::GET, "/storage/v1/b/abc/o/file?uploadType=media")
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+    // objects.get ignores a parameter it does not declare (case obj-undeclared-query-writes).
+    let plain_get = request(Method::GET, "/storage/v1/b/abc/o/file").unwrap();
+    for query in ["unknown=1", "name=file", "uploadType=media"] {
+        assert_eq!(
+            request(Method::GET, &format!("/storage/v1/b/abc/o/file?{query}")).unwrap(),
+            plain_get,
+            "{query}"
+        );
+    }
     assert!(
         request(
             Method::GET,

@@ -161,7 +161,15 @@ fn parse_route(
             }
         }
     };
-    finish(&query)?;
+    // Cloud Storage listed an object's ACL with an undeclared `gcsmimicUnknown=1` (case
+    // obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it knows. The
+    // other ACL methods keep rejecting one until their treatment is recorded.
+    if !matches!(
+        (&target, &operation),
+        (AclTarget::Object { .. }, AclOperation::List)
+    ) {
+        finish(&query)?;
+    }
     Ok(AclRequest {
         target,
         operation,

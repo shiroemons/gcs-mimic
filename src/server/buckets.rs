@@ -256,6 +256,9 @@ fn validate_request(
         // a stale tag still applies; setIamPolicy evaluates If-Match.
         BucketRequest::Patch { .. } | BucketRequest::Update { .. } => json::EtagConditions::Ignored,
         BucketRequest::SetIam { .. } => json::EtagConditions::MatchOnly,
+        // A listing has no entity tag. Cloud Storage ignored both headers on the object
+        // listing (case obj-collection-validators); bucket listings are treated the same way.
+        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => json::EtagConditions::Ignored,
         _ => json::EtagConditions::Unsupported,
     };
     json::validate_read_condition_headers(request.headers(), etags)?;

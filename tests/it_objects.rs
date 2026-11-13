@@ -3,6 +3,7 @@ mod common;
 mod it_objects {
     mod api_key_http;
     mod basic_contract_http;
+    mod collection_validators_http;
     mod custom_metadata_values_http;
     mod object_compose_http;
     mod object_copy_http;
@@ -19,4 +20,5 @@ mod it_objects {
     mod rewrite_http;
     mod sdk_object_wire_http;
     mod sdk_ruby_defaults_http;
+    mod undeclared_query_http;
 }

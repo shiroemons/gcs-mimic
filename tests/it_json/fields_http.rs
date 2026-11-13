@@ -251,7 +251,8 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
             )
             .json_reason(400, "invalidParameter");
     }
-    // An empty object selection selects nothing (recorded), unlike a selector with spaces.
+    // An empty object selection selects nothing (recorded), and so does whitespace alone; a
+    // space inside a name is still unsupported.
     assert_eq!(
         server
             .request(
@@ -263,7 +264,7 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
             .json_ok(),
         json!({})
     );
-    for selector in ["%20name", "name,%20size"] {
+    for selector in ["na%20me", "name,si%20ze"] {
         server
             .request(
                 "GET",
@@ -446,19 +447,21 @@ fn fields_invalid_selectors_leave_all_routes_unchanged() {
 }
 
 #[test]
+/// The ledger names this test; despite its name, `fields` on a media download is now ignored.
 fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();
     server.put("file", b"data").json_ok();
-    server
-        .request(
-            "GET",
-            "/storage/v1/b/test-bucket/o/file?alt=media&fields=name",
-            "",
-            b"",
-        )
-        .json_reason(400, "badRequest");
+    // Cloud Storage returned the object bytes and ignored `fields` (case obj-fields-selectors).
+    let selected = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/file?alt=media&fields=name",
+        "",
+        b"",
+    );
+    selected.expect(200);
+    assert_eq!(selected.body, b"data");
     let media = server.request("GET", "/storage/v1/b/test-bucket/o/file?alt=media", "", b"");
     assert_eq!(media.body, b"data");
     let xml = server.request("GET", "/test-bucket/file", "", b"");
@@ -475,6 +478,52 @@ fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() 
     let deleted = server.request("DELETE", "/storage/v1/b/test-bucket?fields=", "", b"");
     deleted.expect(204);
     assert!(deleted.body.is_empty());
+    server.stop();
+}
+
+/// Selector edges Cloud Storage recorded on an object read (case obj-fields-selectors).
+#[test]
+fn fields_object_whitespace_and_empty_parentheses_follow_cloud_storage() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    server.put("file", b"hello").json_ok();
+    server
+        .update("PATCH", "file", &json!({"metadata":{"k":"v"}}))
+        .json_ok();
+    for (fields, expected) in [
+        ("%20", json!({})),
+        ("name%20%2C%20size", json!({"name":"file","size":"5"})),
+        ("metadata%28%29", json!({})),
+    ] {
+        let reply = server.request(
+            "GET",
+            &format!("/storage/v1/b/test-bucket/o/file?fields={fields}"),
+            "",
+            b"",
+        );
+        assert_eq!(reply.json_ok(), expected, "{fields}");
+    }
+    let trailing = server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o/file?fields=metadata%2F",
+            "",
+            b"",
+        )
+        .json_reason_value(400, "invalidParameter");
+    assert_eq!(
+        trailing["error"]["message"],
+        "Invalid field selection metadata/"
+    );
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o/file?fields=na%20me",
+            "",
+            b"",
+        )
+        .json_reason(400, "badRequest");
     server.stop();
 }
 

@@ -1,7 +1,7 @@
 use super::{
     JsonError, Projection, WriteMode,
     buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
-    query::{Decoding, boolean, decode, finish, parse_query, projection},
+    query::{Decoding, boolean, decode, parse_query, projection},
 };
 use crate::{
     config::CompatProfile,
@@ -218,6 +218,15 @@ pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
 
 /// Parse an object request's query. `name` is `None` exactly for uploads: the router accepts
 /// only POST on the upload endpoint, which names the object in the query or metadata.
+///
+/// Object insert, get, patch, update and delete ignore a query parameter they do not declare.
+/// Cloud Storage served each of them with an arbitrary `gcsmimicUnknown=1` (case
+/// obj-undeclared-query-writes), deleted an object with the `responseType` and `validateStatus`
+/// options @google-cloud/storage 9.0.0 File#delete sends (case obj-delete-undeclared-query),
+/// and answered reads carrying the XML-only `response-content-*` overrides with the stored
+/// headers (recorded 2026-11-09). fake-gcs-server reads only the parameters it knows, so both
+/// profiles ignore them. Declared parameters gcs-mimic does not implement are still rejected by
+/// `take_common_parameters`.
 fn parse_object_query(
     method: &Method,
     bucket: String,
@@ -287,10 +296,10 @@ fn take_common_parameters(
     method: &Method,
     query: &mut BTreeMap<String, String>,
 ) -> Result<Option<String>, JsonError> {
-    if method == Method::DELETE {
+    // A media download has no JSON body to select from: Cloud Storage returned the object bytes
+    // for `alt=media&fields=name` (case obj-fields-selectors).
+    if method == Method::DELETE || query.get("alt").is_some_and(|alt| alt == "media") {
         query.remove("fields");
-    } else if query.contains_key("fields") && query.get("alt").is_some_and(|v| v == "media") {
-        return Err(JsonError::unsupported_object("fields with alt=media"));
     } else {
         super::Fields::take(query, "Object")?;
     }
@@ -375,7 +384,7 @@ fn parse_upload_query(
         return Err(missing_name());
     }
     let projection = projection(&mut query)?;
-    finish(&query)?;
+    // Undeclared parameters left in `query` are ignored; see `parse_object_query`.
     let params = ObjectInsertParams {
         conditions,
         projection,
@@ -415,10 +424,6 @@ fn parse_upload_query(
     }))
 }
 
-/// XML API response overrides that clients also send on JSON object reads. Cloud Storage answered
-/// those reads with 200 and the stored headers (recorded 2026-11-09), so they are ignored here.
-const IGNORED_READ_PARAMETERS: &[&str] = &["response-content-disposition", "response-content-type"];
-
 /// The object a non-upload request names, with the options already parsed from its query.
 struct QueryTarget {
     bucket: String,
@@ -448,7 +453,6 @@ fn parse_named_object_query(
         } else {
             UnlockedOverride::NotRequested
         };
-        finish(&query)?;
         return Ok(ObjectRequest::Update(ObjectUpdateParams {
             target,
             conditions,
@@ -462,9 +466,6 @@ fn parse_named_object_query(
         }));
     }
     if matches!(*method, Method::GET | Method::HEAD) {
-        for name in IGNORED_READ_PARAMETERS {
-            query.remove(*name);
-        }
         let soft_deleted = boolean(&mut query, "softDeleted")?;
         if soft_deleted && (target.generation.is_none() || media) {
             return Err(JsonError::invalid_argument(
@@ -472,7 +473,6 @@ fn parse_named_object_query(
             ));
         }
         let projection = projection(&mut query)?;
-        finish(&query)?;
         return Ok(ObjectRequest::Get {
             target,
             conditions,
@@ -486,11 +486,6 @@ fn parse_named_object_query(
     // Cloud Storage accepted the parameter on objects.delete and ignored it: a retained object
     // stayed protected (observed 2026-10-31). Only PATCH and PUT honour the override.
     boolean(&mut query, "overrideUnlockedRetention")?;
-    // objects.delete ignores a query parameter it does not declare: Cloud Storage deleted the
-    // object with `projection=noAcl`, and with the `responseType` and `validateStatus` options
-    // that @google-cloud/storage 9.0.0 File#delete sends (case obj-delete-undeclared-query,
-    // recorded 2026-11-13), and fake-gcs-server reads only `generation`. Unsupported standard
-    // parameters were already rejected by take_common_parameters.
     Ok(ObjectRequest::Delete { target, conditions })
 }
 

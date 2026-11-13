@@ -375,10 +375,12 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         format!("{BUCKET}/o"),
         "/storage/v1/b?project=local-project".into(),
     ] {
+        // A listing has no entity tag; Cloud Storage ignored both headers on the object
+        // listing (case obj-collection-validators), and bucket listings follow it.
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             server
                 .request("GET", &path, header, b"")
-                .html_or_json_error(400, "badRequest");
+                .expect_with(200, format_args!("{path} {header}"));
         }
     }
     for (method, path, body) in [
