@@ -43,6 +43,14 @@ fn missing_colon(text: &str) -> Option<(String, String, usize)> {
     let mut index = skip_space(0);
     if chars.get(index) == Some(&'{') {
         index = skip_space(index + 1);
+        // An object that ends right after its brace has no key yet (recorded for `{`).
+        if index == chars.len() {
+            return Some((
+                "Unexpected end of string. Expected an object key or }.".to_owned(),
+                String::new(),
+                0,
+            ));
+        }
     }
     let key_start = index;
     if chars.get(index) == Some(&'"') {
@@ -1279,6 +1287,10 @@ mod tests {
         assert_eq!(
             parse("{oops").message,
             "Parse Error: Unexpected end of string. Expected : between key:value pair.\noops\n    ^"
+        );
+        assert_eq!(
+            parse("{ ").message,
+            "Parse Error: Unexpected end of string. Expected an object key or }.\n\n^"
         );
     }
 
