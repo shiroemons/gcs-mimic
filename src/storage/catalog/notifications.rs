@@ -450,4 +450,61 @@ mod tests {
         );
         catalog.close().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration() {
+        use crate::clock::ManualClock;
+        use std::{
+            sync::Arc,
+            time::{Duration, SystemTime, UNIX_EPOCH},
+        };
+
+        async fn state(catalog: &Catalog) -> (i64, SystemTime) {
+            let bucket = catalog
+                .get_bucket("bucket", PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap();
+            (bucket.metageneration, bucket.updated)
+        }
+
+        let dir = crate::test_support::TestDir::new();
+        let start = UNIX_EPOCH + Duration::from_secs(1_000);
+        let clock = Arc::new(ManualClock::new(start));
+        let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+            .await
+            .unwrap();
+        catalog.insert_bucket(bucket("bucket")).await.unwrap();
+        let (created, _) = state(&catalog).await;
+
+        let inserted_at = start + Duration::from_secs(1);
+        clock.set(inserted_at);
+        let inserted = catalog
+            .insert_notification("bucket", config(""), PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(state(&catalog).await, (created + 1, inserted_at));
+
+        let deleted_at = start + Duration::from_secs(2);
+        clock.set(deleted_at);
+        let id = inserted.id.to_string();
+        assert!(
+            catalog
+                .delete_notification("bucket", &id, PERMISSIVE)
+                .await
+                .unwrap()
+        );
+        assert_eq!(state(&catalog).await, (created + 2, deleted_at));
+
+        // Deleting an absent ID changes neither value.
+        clock.set(start + Duration::from_secs(3));
+        assert!(
+            !catalog
+                .delete_notification("bucket", &id, PERMISSIVE)
+                .await
+                .unwrap()
+        );
+        assert_eq!(state(&catalog).await, (created + 2, deleted_at));
+        catalog.close().await.unwrap();
+    }
 }
