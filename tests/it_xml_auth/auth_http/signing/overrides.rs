@@ -184,7 +184,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
 }
 
 #[test]
-fn xml_response_overrides_reject_injection_duplicates_and_ignore_unknown_names() {
+fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
     let (_config, _data, server) = fixture();
     let before = server.get(ADMIN, METADATA).success().json();
     for parameter in ["response-content-type", "response-content-disposition"] {

@@ -1334,7 +1334,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grpc_iam_config_parent_update_replaces_both_settings() {
+    async fn grpc_iam_config_updates_preserve_other_setting() {
         let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
         assert_eq!(empty.uniform_bucket_level_access_enabled, Some(false));
         assert_eq!(empty.public_access_prevention_enforced, Some(false));
