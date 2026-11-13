@@ -142,8 +142,9 @@ async fn grpc_idle_admission_and_sigterm_drain() {
     if let Err(error) = grpc.read_to_end(&mut Vec::new()) {
         assert!(common::closed_by_server(&error), "{error}");
     }
-    assert!(TcpStream::connect(http_address).is_err());
-    assert!(TcpStream::connect(grpc_address).is_err());
+    // stop_server waited for a clean exit and the stopped event, so both listeners are closed.
+    // Connecting again proves nothing: the OS may already have given the freed port to another
+    // test's server, which made that check fail spuriously in CI.
     let catalog = gcs_mimic::storage::Catalog::open(&dir.0).await.unwrap();
     catalog.close().await.unwrap();
 }
@@ -154,7 +155,6 @@ async fn grpc_sigterm_default_deadlines_close_incomplete_handshake() {
     let (mut server, mut stdout, ready) = start_server(&dir.0, None);
     assert_eq!(ready["header_read_timeout_ms"], 30_000);
     assert_eq!(ready["shutdown_timeout_ms"], 5000);
-    let http_address = ready["listen"].as_str().unwrap();
     let grpc_address = ready["listeners"]
         .as_array()
         .unwrap()
@@ -173,8 +173,9 @@ async fn grpc_sigterm_default_deadlines_close_incomplete_handshake() {
     if let Err(error) = grpc.read_to_end(&mut Vec::new()) {
         assert!(common::closed_by_server(&error), "{error}");
     }
-    assert!(TcpStream::connect(http_address).is_err());
-    assert!(TcpStream::connect(grpc_address).is_err());
+    // stop_server waited for a clean exit and the stopped event, so both listeners are closed.
+    // Connecting again proves nothing: the OS may already have given the freed port to another
+    // test's server, which made that check fail spuriously in CI.
     let catalog = gcs_mimic::storage::Catalog::open(&dir.0).await.unwrap();
     catalog.close().await.unwrap();
 }
