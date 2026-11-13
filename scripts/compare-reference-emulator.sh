@@ -432,7 +432,9 @@ echo 'PATCH-ASSERT reference status, ignored fields, settings and revision behav
 if [[ $reference_only == 0 ]]; then
   jq -es '
     def resource($rows; $case): $rows[$case].body | fromjson;
-    ["patch-settings-omitted","patch-unknown","patch-projection-full","patch-projection-noacl"] as $noops
+    # userProject is ignored on every API, so an empty PATCH that carries it changes nothing.
+    ["patch-settings-omitted","patch-unknown","patch-projection-full","patch-projection-noacl",
+      "patch-user-project"] as $noops
     | [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
     | ($targets | length == 2) and all($targets[];
       (map({key:.case,value:.}) | from_entries) as $rows
@@ -443,7 +445,6 @@ if [[ $reference_only == 0 ]]; then
             elif .case == "patch-missing" then 404
             elif .case == "patch-predefined-acl" or .case == "patch-predefined-default-acl" then
               (if .target == "mimic-native" then 200 else 400 end)
-            elif .case == "patch-user-project" then 400
             elif .case == "patch-match-stale" then 412
             # Cloud Storage answers a failed ifMetagenerationNotMatch on a writing PATCH with
             # an empty 304, as tests/it_json/bucket_http.rs records.
@@ -601,7 +602,8 @@ if [[ $reference_only == 0 ]]; then
     # The contract of each profile is docs/en/slices/bucket-metadata-put.md: the native profile
     # replaces the resource as Cloud Storage did, ignores a generation query, keeps the class for
     # a null storageClass and applies predefinedAcl; the fake-gcs-server profile preserves what
-    # a PUT omits. Both replace ACLs given in the body and clear a setting given as null.
+    # a PUT omits. Both replace ACLs given in the body, clear a setting given as null and ignore
+    # userProject, so put-user-project is an ordinary empty PUT.
     def expected:
       (.target == "mimic-native") as $native
       | if .case == "put-malformed" then [400,"invalid"]
@@ -612,7 +614,6 @@ if [[ $reference_only == 0 ]]; then
         elif .case == "put-missing" then [404,"notFound"]
         elif .case == "put-predefined-acl" or .case == "put-predefined-default-acl" then
           (if $native then [200,null] else [400,"badRequest"] end)
-        elif .case == "put-user-project" then [400,"badRequest"]
         elif .case == "put-match-stale" then [412,"conditionNotMet"]
         # Cloud Storage answers a PUT whose ifMetagenerationNotMatch names the current value
         # with an empty 304 (recorded 2026-11-13), as it does for PATCH.
