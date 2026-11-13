@@ -122,12 +122,13 @@ test('node-regional-location', async () => {
 test('node-unsupported-fails-fast', async () => {
   // The SDK's default retry policy must not turn an unsupported query into a slow failure.
   const retrying = createStorage(origin, {token, retries: true});
-  // Requester Pays billing (userProject) is recognized but not modeled locally.
-  const billed = retrying.bucket(bucket.name, {userProject: 'local-billing-project'});
+  // Requester Pays billing (userProject) is recognized but not modeled locally. It is passed per
+  // call: 9.0.0 no longer sends a userProject given to bucket() on getFiles.
+  const billed = {delimiter: '/', userProject: 'local-billing-project'};
   const started = performance.now();
-  await rejectsWith(400, () => billed.getFiles({delimiter: '/'}), 'badRequest');
+  await rejectsWith(400, () => retrying.bucket(bucket.name).getFiles(billed), 'badRequest');
   assert(performance.now() - started < 3000, 'unsupported call waited for retries');
-  await assert.rejects(() => billed.getFiles({delimiter: '/'}),
+  await assert.rejects(() => retrying.bucket(bucket.name).getFiles(billed),
     /gcs-mimic/, 'unsupported call lacks actionable diagnostics');
 });
 
@@ -387,7 +388,7 @@ if (process.env.GCSM_SIGNED_TESTS === '1') {
   });
 
   test('node-signed-v4-canonical-host-drops-port', async () => {
-    // @google-cloud/storage 8.4.0 signs `host:<hostname>` without the port while emitting the URL
+    // @google-cloud/storage 8.4.0 and 9.0.0 sign `host:<hostname>` without the port, emitting the URL
     // with host:port (signer.js uses URL#hostname). No public option binds host:port, so a strict
     // server at a nondefault port must reject the URL. This proves the limitation and keeps it
     // visible; it is not a successful V4 journey.

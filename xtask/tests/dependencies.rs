@@ -8,7 +8,7 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 19);
+    assert_eq!(scopes.len(), 20);
     for (ecosystem, manifest, lockfile) in [
         ("go", "go/go.mod", "go/go.sum"),
         ("go", "go/sourceexport/go.mod", "go/sourceexport/go.sum"),
@@ -63,6 +63,11 @@ fn sdk_scopes_and_lockfiles_are_declared() {
             "npm",
             "sdk-tests/node/package.json",
             "sdk-tests/node/package-lock.json",
+        ),
+        (
+            "npm",
+            "sdk-tests/node/storage-8/package.json",
+            "sdk-tests/node/storage-8/package-lock.json",
         ),
         (
             "composer",

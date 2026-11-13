@@ -976,3 +976,61 @@ All three keep the Apache-2.0 license and declare Rust 1.85. `cargo update` chan
 | `cargo xtask dependencies check` at `2026-11-13T01:11:14Z` | Exit 1 with 123 `CURRENT` lines; only google.golang.org/api v0.314.0 in three Go modules and @google-cloud/storage 9.0.0 in three npm manifests remain, both development-only |
 
 The complete gates for the release source are recorded with the 0.20.0 release.
+
+## Node.js Storage 9.0.0
+
+The full check after the 0.20.0 release still reported two development-only updates: google.golang.org/api v0.313.0 → v0.314.0 in three Go modules and `@google-cloud/storage` 8.4.0 → 9.0.0, a major release, in three npm manifests. Both are adopted. The Node.js SDK suite now runs every stage with 9.0.0 and with 8.4.0, so gcs-mimic keeps both major lines working.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.313.0 | v0.314.0 (published 2026-11-12, revision `f66baba1fd76977b8c782563f8ee3e8d1a86fbb1`, Go 1.26.0, 52,755,419-byte module zip) | `go`, `sdk-scorecard/go`, `sdk-tests/go` |
+| `@google-cloud/storage` | 8.4.0 | 9.0.0 (published 2026-11-12, `sha512-fjUzqzbxgkItIjEFjs/j/NrjQ9RZ3yWhMqmOdJB4AjdMu03vvpa88RvJEkZ5cjvSZAF+cBNCovw3fmERarOHFA==`, 1,633,490 bytes unpacked, Node.js >=22) | `sdk-tests/node`, `sdk-scorecard/node`, `sdk-tests/testcontainers/node` |
+| `@google-cloud/storage` 8.x line | — | 8.4.0, in the new `sdk-tests/node/storage-8` manifest and lockfile | `GCSM_NODE_STORAGE=8` runs of the Node.js suite |
+| `google-auth-library` (direct edge) | transitive | 11.3.4, already resolved | `sdk-scorecard/node`, `sdk-tests/testcontainers/node`, `examples/node` |
+
+API v0.314.0 lists regenerated Discovery clients only, its BSD-3-Clause LICENSE is byte-identical to v0.313.0, and `go mod tidy` changes no other requirement.
+
+[Storage 9.0.0](https://github.com/googleapis/google-cloud-node/releases/tag/storage-v9.0.0) replaces teeny-request with gaxios 8, returns WHATWG `Headers`, replaces `ApiError` with `GaxiosError` and moves low-level request options to gaxios names. Its lockfiles drop teeny-request, retry-request, `@google-cloud/projectify`, html-entities, abort-controller, event-target-shim, http-proxy-agent, stream-events, stubs and two nested gaxios 7 copies, and add no package. `examples/node` stays on 8.4.0 while it targets the published 0.20.0 image, which answers 400 to the parameters described below.
+
+### Behavior changes found
+
+| 9.0.0 behavior | Effect on gcs-mimic | Resolution |
+| --- | --- | --- |
+| Every JSON request goes through the auth client, even for a custom `apiEndpoint` without `useAuthWithCustomEndpoint` | An anonymous `Storage` fails with `Could not load the default credentials`; with `credentials`, the SDK first exchanges the key at `oauth2.googleapis.com`, which the scorecard's socket guard stopped | Anonymous clients pass `authClient: new PassThroughClient()` from google-auth-library, which also works on 8.x. The scorecard signs with a separate client that sends no request. The user guides show the same setup |
+| `File#delete` sends `responseType=text` and the source of its `validateStatus` function as query parameters | objects.delete answered 400 `Unknown query parameter` | Recorded against Cloud Storage: case `obj-delete-undeclared-query` deleted the object with them and with `projection=noAcl`. objects.delete now ignores undeclared parameters in both profiles; fake-gcs-server v1.56.1 reads only `generation` there |
+| `Bucket#getFiles` sends `autoPaginate` | objects.list answered 400 | Recorded: case `obj-list-undeclared-query` listed the objects with `autoPaginate=false` and `unknown=value`. objects.list now ignores undeclared parameters in both profiles |
+| A `userProject` given to `storage.bucket()` is not sent on `getFiles` | The fail-fast case got 200 instead of the expected 400 | The case passes `userProject` per call |
+| `getFiles` returns the HTTP response as its third value, with the listing under `data` | The scorecard read `prefixes` from the wrong object | The probe reads `data` when present |
+
+Recognized but unsupported standard parameters such as `userProject` are still rejected on both methods, and the other object methods keep the 400 for an undeclared name (SPEC-JSON-UNKNOWN-QUERY-OBJECTS stays open for them).
+
+### Cloud Storage runs
+
+Both cases were recorded with `cargo xtask differential run --filter <case> --record` against a disposable `us-central1` STANDARD bucket with soft delete off, which the harness deleted after the case; 15 and 12 requests reached the live service, with no 429 retry, and `cargo xtask differential sweep` found no leftover bucket. The recordings were merged into `compatibility/differential/reference/gcs.json`.
+
+A probe also ran the SDK itself against Cloud Storage with both lines, in its own disposable bucket, which it deleted:
+
+| Step | 9.0.0 | 8.4.0 |
+| --- | --- | --- |
+| `file.delete()` | Succeeded; query `responseType=text&validateStatus=...`; object gone | Succeeded; no query |
+| `storage.bucket(name, {userProject}).getFiles()` | Succeeded; no `userProject` sent | Succeeded; `userProject` sent |
+| `bucket.getFiles({userProject})` | Succeeded; `userProject` sent | Succeeded; `userProject` sent |
+
+### Validation performed on 2026-11-13
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask differential run --reference compatibility/differential/reference/gcs.json` | All 75 cases match, including the two new ones |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node` | Go suite PASS with API v0.314.0; Node.js self-check 7, migration 2, permissive 22 (2 skipped) and strict 26 (1 skipped) PASS on 9.0.0 and on 8.4.0 |
+| Node.js scorecard probe against a local permissive server | 51 of 51 PASS with 9.0.0 |
+| `examples/node/run.sh` against a local server | PASS with 8.4.0 and `PassThroughClient` |
+| `cargo test --locked --lib json::`; `cargo test --locked --test it_protocol wire_parity` | 139 and 17 PASS |
+| `cargo test --locked -p xtask` | PASS, including the major-line selection |
+| `go test -race -count=1 ./fakestorage` in `go`; `go vet`, `go build` and `go test` in `sdk-scorecard/go`; `go vet` in `sdk-tests/go` | PASS |
+| `cargo xtask dependencies check` at `2026-11-13T03:18:27Z` | Exit 0 with 132 `CURRENT` lines; `npm:@google-cloud/storage (sdk-tests/node/storage-8/package.json, major 8): CURRENT current=8.4.0 latest=8.4.0` |
+| `cargo xtask dependencies check --scope release` at `2026-11-13T03:19:15Z` | Exit 0 with 41 `CURRENT` lines |
+| `just pre-push` on the final source | PASS in 16m14s: 16 Rust test binaries and doctests, Clippy and the production lint gate on the host and the three cross targets, documentation checks; all eight SDK suites, the Node.js suite on 9.0.0 and 8.4.0; both container architectures with seven smoke checks each |
+| `GCSM_SDK_COMPAT_PROFILE=fake-gcs-server bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node` | PASS: the Go suite and the same Node.js counts on both lines |
+| `node scenario.mjs` in `sdk-tests/testcontainers/node` with the arm64 image `just pre-push` built | PASS with 9.0.0: start, health, mapped Location, resumable upload, bytes and cleanup |
+
+Three integration tests asserted the old 400 for an undeclared name on objects.delete or objects.list. They now expect the recorded success for those methods and keep the 400 for object GET and PATCH; the unsupported-request case that deleted with `projection=noAcl` now deletes with `userProject`, which is still rejected with `badRequest` and leaves the object unchanged.

@@ -645,6 +645,27 @@ struct RegistryManifest {
     manifest: &'static str,
     /// Exact runtime pin beside the manifest, checked against the newest stable release.
     runtime_pin: Option<&'static str>,
+    /// The releases the manifest's pins are judged against.
+    line: ReleaseLine,
+}
+
+/// The releases a pin must keep up with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReleaseLine {
+    /// The newest stable release, new majors included.
+    Newest,
+    /// The newest release of one major, for a manifest that keeps testing a previous major
+    /// after a newer one is adopted elsewhere.
+    Major(u64),
+}
+
+impl ReleaseLine {
+    fn contains(self, (major, _, _): (u64, u64, u64)) -> bool {
+        match self {
+            Self::Newest => true,
+            Self::Major(line) => major == line,
+        }
+    }
 }
 
 // The optional scorecard and the official SDK suites keep separate manifests and
@@ -654,36 +675,50 @@ const REGISTRY_MANIFESTS: &[RegistryManifest] = &[
         ecosystem: "npm",
         manifest: "sdk-scorecard/node/package.json",
         runtime_pin: None,
+        line: ReleaseLine::Newest,
     },
     RegistryManifest {
         ecosystem: "npm",
         manifest: "sdk-tests/node/package.json",
         runtime_pin: None,
+        line: ReleaseLine::Newest,
+    },
+    // The Node.js suite also runs against the previous major line of @google-cloud/storage.
+    RegistryManifest {
+        ecosystem: "npm",
+        manifest: "sdk-tests/node/storage-8/package.json",
+        runtime_pin: None,
+        line: ReleaseLine::Major(8),
     },
     RegistryManifest {
         ecosystem: "npm",
         manifest: "sdk-tests/testcontainers/node/package.json",
         runtime_pin: None,
+        line: ReleaseLine::Newest,
     },
     RegistryManifest {
         ecosystem: "pypi",
         manifest: "sdk-scorecard/python/pyproject.toml",
         runtime_pin: Some("sdk-scorecard/python/.python-version"),
+        line: ReleaseLine::Newest,
     },
     RegistryManifest {
         ecosystem: "pypi",
         manifest: "sdk-tests/python/pyproject.toml",
         runtime_pin: Some("sdk-tests/python/.python-version"),
+        line: ReleaseLine::Newest,
     },
     RegistryManifest {
         ecosystem: "composer",
         manifest: "sdk-scorecard/php/composer.json",
         runtime_pin: None,
+        line: ReleaseLine::Newest,
     },
     RegistryManifest {
         ecosystem: "composer",
         manifest: "sdk-tests/php/composer.json",
         runtime_pin: None,
+        line: ReleaseLine::Newest,
     },
 ];
 
@@ -778,7 +813,12 @@ fn registry_pins(source: &str, ecosystem: &str) -> Result<BTreeMap<String, Strin
     Ok(pins)
 }
 
-fn latest_registry_dependency(source: &str, ecosystem: &str, name: &str) -> Result<String> {
+fn latest_registry_dependency(
+    source: &str,
+    ecosystem: &str,
+    name: &str,
+    line: ReleaseLine,
+) -> Result<String> {
     let metadata = json(source)?;
     let releases: Vec<String> = match ecosystem {
         "npm" => metadata["versions"]
@@ -814,6 +854,7 @@ fn latest_registry_dependency(source: &str, ecosystem: &str, name: &str) -> Resu
     releases
         .into_iter()
         .filter_map(|pin| Some((version(&pin)?, pin)))
+        .filter(|(numeric, _)| line.contains(*numeric))
         .max_by_key(|(numeric, _)| *numeric)
         .map(|(_, pin)| pin)
         .ok_or("no stable SDK dependency release".into())
@@ -861,12 +902,15 @@ fn check_registry_sdk(root: &Path, scope: &Value) -> Result<bool> {
             "composer" => format!("https://repo.packagist.org/p2/{name}.json"),
             _ => unreachable!(),
         };
-        let latest = latest_registry_dependency(&fetch(&url, &[], false)?, ecosystem, &name)?;
-        drift |= compare(
-            &format!("{ecosystem}:{name} ({})", entry.manifest),
-            &pin,
-            &latest,
-        );
+        let latest =
+            latest_registry_dependency(&fetch(&url, &[], false)?, ecosystem, &name, entry.line)?;
+        let label = match entry.line {
+            ReleaseLine::Newest => format!("{ecosystem}:{name} ({})", entry.manifest),
+            ReleaseLine::Major(major) => {
+                format!("{ecosystem}:{name} ({}, major {major})", entry.manifest)
+            }
+        };
+        drift |= compare(&label, &pin, &latest);
     }
     Ok(drift)
 }
@@ -1557,6 +1601,7 @@ mod tests {
         for (ecosystem, manifest) in [
             ("npm", "sdk-scorecard/node/package.json"),
             ("npm", "sdk-tests/node/package.json"),
+            ("npm", "sdk-tests/node/storage-8/package.json"),
             ("pypi", "sdk-scorecard/python/pyproject.toml"),
             ("pypi", "sdk-tests/python/pyproject.toml"),
             ("composer", "sdk-scorecard/php/composer.json"),
@@ -1569,6 +1614,12 @@ mod tests {
                 .unwrap()
                 .runtime_pin,
             Some("sdk-tests/python/.python-version")
+        );
+        assert_eq!(
+            registry_manifest("npm", "sdk-tests/node/storage-8/package.json")
+                .unwrap()
+                .line,
+            ReleaseLine::Major(8)
         );
         for (ecosystem, manifest) in [
             ("npm", "sdk-tests/python/pyproject.toml"),
@@ -1613,10 +1664,21 @@ mod tests {
 
     #[test]
     fn registry_release_selection_excludes_prereleases_and_unavailable_files() {
-        assert_eq!(latest_registry_dependency(r#"{"versions":{"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0-rc.1":{"dist":{"integrity":"sha512-test"}},"9.0.0":{}}}"#, "npm", "storage").unwrap(), "8.4.0");
-        assert_eq!(latest_registry_dependency(r#"{"releases":{"3.17.1":[{"yanked":false}],"4.0.0":[{"yanked":true}],"4.0.1":[],"4.1.0rc1":[{"yanked":false}]}}"#, "pypi", "storage").unwrap(), "3.17.1");
-        assert_eq!(latest_registry_dependency(r#"{"packages":{"google/cloud-storage":[{"version":"v3.0.0-RC1"},{"version":"v2.6.1"},{"version":"v2.5.0"}]}}"#, "composer", "google/cloud-storage").unwrap(), "2.6.1");
-        assert!(latest_registry_dependency("{}", "pypi", "storage").is_err());
+        assert_eq!(latest_registry_dependency(r#"{"versions":{"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0-rc.1":{"dist":{"integrity":"sha512-test"}},"9.0.0":{}}}"#, "npm", "storage", ReleaseLine::Newest).unwrap(), "8.4.0");
+        assert_eq!(latest_registry_dependency(r#"{"releases":{"3.17.1":[{"yanked":false}],"4.0.0":[{"yanked":true}],"4.0.1":[],"4.1.0rc1":[{"yanked":false}]}}"#, "pypi", "storage", ReleaseLine::Newest).unwrap(), "3.17.1");
+        assert_eq!(latest_registry_dependency(r#"{"packages":{"google/cloud-storage":[{"version":"v3.0.0-RC1"},{"version":"v2.6.1"},{"version":"v2.5.0"}]}}"#, "composer", "google/cloud-storage", ReleaseLine::Newest).unwrap(), "2.6.1");
+        assert!(latest_registry_dependency("{}", "pypi", "storage", ReleaseLine::Newest).is_err());
+        // A major line keeps a previous-major manifest current while a newer major exists.
+        let npm = r#"{"versions":{"8.3.0":{"dist":{"integrity":"sha512-test"}},"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0":{"dist":{"integrity":"sha512-test"}}}}"#;
+        assert_eq!(
+            latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Newest).unwrap(),
+            "9.0.0"
+        );
+        assert_eq!(
+            latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Major(8)).unwrap(),
+            "8.4.0"
+        );
+        assert!(latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Major(7)).is_err());
     }
 
     #[test]

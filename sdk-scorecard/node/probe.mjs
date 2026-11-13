@@ -3,6 +3,7 @@ import {createHash, randomBytes} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 import {Storage} from '@google-cloud/storage';
+import {PassThroughClient} from 'google-auth-library';
 import {guardLocalConnections} from './local-http.mjs';
 
 const origin = new URL(process.env.SCORECARD_ENDPOINT);
@@ -15,9 +16,13 @@ const projectId = process.env.SCORECARD_PROJECT || 'local-project';
 const private_key = readFileSync(process.env.SCORECARD_SIGNING_KEY ||
   new URL('../../fixtures/signing/test-only-private.pem', import.meta.url), 'utf8');
 delete process.env.STORAGE_EMULATOR_HOST;
+// Requests carry no credentials. Since 9.0.0 the SDK sends every JSON request through its auth
+// client, so a client holding the signing key would exchange it at Google OAuth first; that
+// client only signs.
 const storage = new Storage({projectId, apiEndpoint: origin.origin,
-  credentials: {client_email: 'local-admin@example.invalid', private_key},
-  retryOptions: {autoRetry: false}, timeout: 20000});
+  authClient: new PassThroughClient(), retryOptions: {autoRetry: false}, timeout: 20000});
+const signer = new Storage({projectId, apiEndpoint: origin.origin,
+  credentials: {client_email: 'local-admin@example.invalid', private_key}});
 const unique = () => `sc-node-${randomBytes(6).toString('hex')}`;
 const bucket = async (metadata = {}) => (await storage.createBucket(unique(), metadata))[0];
 const metadata = async resource => (await resource.getMetadata())[0];
@@ -217,7 +222,8 @@ probe('object.list_prefix_delimiter', async () => {
   await seed(b, ['a/1', 'a/2', 'b/1', 'c']);
   const [files, , response] = await b.getFiles({delimiter: '/', autoPaginate: false});
   assert.deepEqual(names(files), ['c']);
-  assert.deepEqual(response.prefixes.sort(), ['a/', 'b/']);
+  // 9.0.0 returns the HTTP response, with the listing in `data`; 8.x returned the listing itself.
+  assert.deepEqual((response.data ?? response).prefixes.sort(), ['a/', 'b/']);
   assert.deepEqual(names(await list(b, {prefix: 'a/'})), ['a/1', 'a/2']);
 });
 probe('object.list_paging', async () => {
@@ -330,7 +336,8 @@ for (const [id, version, action] of [['v4_get', 'v4', 'read'], ['v4_put', 'v4', 
     const b = await bucket();
     const file = b.file('signed.txt');
     if (action === 'read') await file.save('signed', {resumable: false});
-    const [url] = await file.getSignedUrl({version, action, expires: Date.now() + 300000});
+    const [url] = await signer.bucket(b.name).file(file.name)
+      .getSignedUrl({version, action, expires: Date.now() + 300000});
     const response = await http(url, action === 'write' ? {method: 'PUT', body: 'uploaded'} : {});
     assert.equal(response.status, 200);
     if (action === 'read') assert.equal(await response.text(), 'signed');
@@ -339,7 +346,8 @@ for (const [id, version, action] of [['v4_get', 'v4', 'read'], ['v4_put', 'v4', 
 }
 probe('signed.post_policy_v4', async () => {
   const b = await bucket();
-  const [policy] = await b.file('post.txt').generateSignedPostPolicyV4({expires: Date.now() + 300000});
+  const [policy] = await signer.bucket(b.name).file('post.txt')
+    .generateSignedPostPolicyV4({expires: Date.now() + 300000});
   const form = new FormData();
   for (const [key, value] of Object.entries(policy.fields)) form.append(key, value);
   form.append('file', new Blob(['posted']), 'post.txt');

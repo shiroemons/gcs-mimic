@@ -185,7 +185,7 @@ Steps that run directly on the runner use `localhost:4443`.
 | --- | --- | --- | --- |
 | Go | Env `STORAGE_EMULATOR_HOST=E` (`host:port` or a full URL both work), then `storage.NewClient(ctx)` from `cloud.google.com/go/storage` | `localhost:4443` | `gcs:4443` |
 | Ruby | `require "google/cloud/storage"`; `storage = Google::Cloud::Storage.anonymous(endpoint: E)`; `storage.service.project = "local-project"` | `http://localhost:4443/` | `http://gcs:4443/` |
-| Node.js | `import {Storage} from '@google-cloud/storage'`; `new Storage({projectId: 'local-project', apiEndpoint: E})`. Leave `STORAGE_EMULATOR_HOST` unset; this SDK reads it as a path | `http://localhost:4443` | `http://gcs:4443` |
+| Node.js | `import {Storage} from '@google-cloud/storage'`; `import {PassThroughClient} from 'google-auth-library'`; `new Storage({projectId: 'local-project', apiEndpoint: E, authClient: new PassThroughClient()})`. Without `authClient`, 9.x looks for Application Default Credentials. Leave `STORAGE_EMULATOR_HOST` unset; this SDK reads it as a path | `http://localhost:4443` | `http://gcs:4443` |
 | Python | `from google.auth.credentials import AnonymousCredentials`; `from google.cloud import storage`; `storage.Client(project="local-project", credentials=AnonymousCredentials(), client_options={"api_endpoint": E})` | `http://localhost:4443` | `http://gcs:4443` |
 | PHP | `use Google\Cloud\Core\AnonymousCredentials`; `use Google\Cloud\Storage\StorageClient`; `new StorageClient(['projectId' => 'local-project', 'apiEndpoint' => E, 'credentialsFetcher' => new AnonymousCredentials()])` | `http://localhost:4443` | `http://gcs:4443` |
 | Java | `HttpStorageOptions.newBuilder().setHost(E).setProjectId("local-project").setCredentials(NoCredentials.getInstance()).build().getService()` from `com.google.cloud.storage` and `com.google.cloud.NoCredentials` | `http://localhost:4443` | `http://gcs:4443` |
@@ -194,7 +194,7 @@ Steps that run directly on the runner use `localhost:4443`.
 | gcloud | `CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=E`, `CLOUDSDK_AUTH_DISABLE_CREDENTIALS=True`, `CLOUDSDK_CORE_PROJECT=local-project` and a throwaway `CLOUDSDK_CONFIG` | `http://localhost:4443/` | `http://gcs:4443/` |
 | Rails Active Storage | `config/storage.yml` entry with `service: GCS`, `endpoint: E`, `universe_domain: gcs-emulator.invalid`, plus project, bucket and local credentials. See the Rails guide | `http://localhost:4443/` | `http://gcs:4443/` |
 
-Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.js @google-cloud/storage 8.4.0 on Node.js 24+, Python google-cloud-storage 3.17.1, PHP google/cloud-storage 2.6.1, Java google-cloud-storage 2.78.0, .NET Google.Cloud.Storage.V1 5.0.0, Rust google-cloud-storage 1.22.0. Other versions are untested.
+Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.js @google-cloud/storage 9.0.0 and 8.4.0 on Node.js 24+ (9.0.0 needs a gcs-mimic release after 0.20.0 to delete and list objects), Python google-cloud-storage 3.17.1, PHP google/cloud-storage 2.6.1, Java google-cloud-storage 2.78.0, .NET Google.Cloud.Storage.V1 5.0.0, Rust google-cloud-storage 1.22.0. Other versions are untested.
 
 **What works.** Each item works in a tested scope, not with every field of the Google API.
 

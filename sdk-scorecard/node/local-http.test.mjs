@@ -4,6 +4,7 @@ import {connect} from 'node:net';
 import {test} from 'node:test';
 import {Storage} from '@google-cloud/storage';
 import {Gaxios} from 'gaxios';
+import {PassThroughClient} from 'google-auth-library';
 import {guardLocalConnections} from './local-http.mjs';
 
 test('SDK transports accept loopback and reject external sockets', {timeout: 10000}, async () => {
@@ -19,7 +20,8 @@ test('SDK transports accept loopback and reject external sockets', {timeout: 100
   try {
     assert.throws(() => connect(443, 'storage.googleapis.com'), /request escaped emulator/);
     assert.throws(() => connect(Number(origin.port) + 1, '127.0.0.1'), /request escaped emulator/);
-    const storage = new Storage({projectId: 'local-project', apiEndpoint: origin.origin, retryOptions: {autoRetry: false}});
+    const storage = new Storage({projectId: 'local-project', apiEndpoint: origin.origin,
+      authClient: new PassThroughClient(), retryOptions: {autoRetry: false}});
     assert.deepEqual((await storage.getBuckets())[0], []);
     await assert.rejects(() => new Gaxios().request({url: 'http://storage.googleapis.com/upload', retry: false}),
       /request escaped emulator/);

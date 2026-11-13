@@ -107,12 +107,13 @@ storage.service.project = "local-project"
 <details>
 <summary>Node.js</summary>
 
-`apiEndpoint`を使い、`STORAGE_EMULATOR_HOST`は設定しません。このSDKはこの変数をパスとして読みます。
+`apiEndpoint`を使い、`STORAGE_EMULATOR_HOST`は設定しません。このSDKはこの変数をパスとして読みます。`PassThroughClient`は認証情報を送りません。これがないと`@google-cloud/storage` 9.xはApplication Default Credentialsを探します（[SDKの設定](sdk-setup.md#nodejs)）。
 
 ```js
 import {Storage} from '@google-cloud/storage';
+import {PassThroughClient} from 'google-auth-library';
 const storage = new Storage({projectId: 'local-project',
-  apiEndpoint: 'http://localhost:4443'});
+  apiEndpoint: 'http://localhost:4443', authClient: new PassThroughClient()});
 ```
 
 </details>

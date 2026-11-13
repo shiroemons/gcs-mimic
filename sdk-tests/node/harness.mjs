@@ -5,8 +5,19 @@ import {request as httpRequest} from 'node:http';
 import {request as httpsRequest} from 'node:https';
 import {isIP, Socket} from 'node:net';
 import {TLSSocket} from 'node:tls';
-import {Storage} from '@google-cloud/storage';
-import {OAuth2Client} from 'google-auth-library';
+import {OAuth2Client, PassThroughClient} from 'google-auth-library';
+
+// GCSM_NODE_STORAGE=8 runs the suite with the previous major line pinned in storage-8/.
+const storageLine = process.env.GCSM_NODE_STORAGE ?? 'current';
+if (!['current', '8'].includes(storageLine)) {
+  throw new TypeError('GCSM_NODE_STORAGE must be unset, current or 8');
+}
+const {Storage} = await import(storageLine === '8' ? './storage-8/index.mjs' : '@google-cloud/storage');
+export const storageVersion = JSON.parse(readFileSync(new URL(
+  `${storageLine === '8' ? 'storage-8/' : ''}node_modules/@google-cloud/storage/package.json`,
+  import.meta.url))).version;
+assert.equal(storageVersion.split('.')[0], storageLine === '8' ? '8' : '9',
+  `GCSM_NODE_STORAGE=${storageLine} loaded @google-cloud/storage ${storageVersion}`);
 
 export const projectId = 'local-project';
 export const signerEmail = 'local-admin@example.invalid';
@@ -40,9 +51,9 @@ export function emulatorOrigin(raw) {
   return url;
 }
 
-// Both SDK transports (teeny-request and gaxios) and the signed-URL helper reach the network through
-// net.Socket#connect, so this is the one boundary that cannot be bypassed by a redirect, a resumable
-// session URL or credential discovery. TLSSocket identifies HTTPS, rejecting scheme changes too.
+// The SDK transports (teeny-request and gaxios in 8.x, gaxios alone in 9.x) and the signed-URL
+// helper reach the network through net.Socket#connect, so this is the one boundary that cannot be
+// bypassed by a redirect, a resumable session URL or credential discovery. TLSSocket identifies HTTPS, rejecting scheme changes too.
 export function guardSockets(origin) {
   const host = bareHost(origin.hostname);
   const port = Number(origin.port || defaultPort(origin.protocol));
@@ -95,6 +106,10 @@ export function createStorage(origin, {token, retries = false} = {}) {
     const authClient = new OAuth2Client();
     authClient.setCredentials({access_token: token});
     Object.assign(options, {authClient, useAuthWithCustomEndpoint: true});
+  } else {
+    // Since 9.0.0 every JSON request goes through the auth client, even for a custom endpoint, so
+    // without one the SDK looks for default credentials. PassThroughClient sends no credentials.
+    options.authClient = new PassThroughClient();
   }
   return new Storage(options);
 }

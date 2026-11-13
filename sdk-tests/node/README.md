@@ -17,15 +17,21 @@ dependencies, verified against the official npm registry on 2026-10-30
 
 | Package | Version | License | Published | Notes |
 | --- | --- | --- | --- | --- |
-| `@google-cloud/storage` | 8.4.0 | Apache-2.0 | 2026-10-09 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 1,688,266 bytes unpacked; declares Node.js >=22 |
+| `@google-cloud/storage` | 9.0.0 | Apache-2.0 | 2026-11-12 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 1,633,490 bytes unpacked; declares Node.js >=22 |
 | `google-auth-library` | 11.3.4 | Apache-2.0 | 2026-11-09 | `latest` dist-tag; Google-maintained (`googleapis/google-cloud-node`); 785,192 bytes unpacked; declares Node.js >=22 |
 
 `google-auth-library` was already in the SDK's resolved graph; the direct edge
-exists only so the strict run can construct the documented `OAuth2Client`
-holding a static local token. `package-lock.json` pins the complete graph
-(59 packages) with npm integrity hashes, and its resolved package set is
-identical to `sdk-scorecard/node/package-lock.json`. Installation uses
-`npm ci --ignore-scripts`, so no dependency install script runs.
+exists so the strict run can construct the documented `OAuth2Client` holding a
+static local token and the anonymous runs a `PassThroughClient`.
+`package-lock.json` pins the complete graph with npm integrity hashes, and its
+resolved package set is identical to `sdk-scorecard/node/package-lock.json`.
+Installation uses `npm ci --ignore-scripts`, so no dependency install script
+runs.
+
+The previous major line, `@google-cloud/storage` 8.4.0 (2026-10-09; 1,688,266
+bytes unpacked), is pinned with its own lockfile in `storage-8/`, and every
+stage runs once with each line. The daily dependency check compares that pin
+with the newest 8.x release rather than with 9.x.
 
 ## Running
 
@@ -48,9 +54,11 @@ GCSM_ENDPOINT=http://127.0.0.1:4443 \
   GCSM_STRICT_ENDPOINT=http://127.0.0.1:4444 bash sdk-tests/node/run.sh
 ```
 
-`run.sh` installs with `npm ci --ignore-scripts --no-audit --no-fund` (offline
-when the npm cache already holds the locked packages), then runs four
-`node --test` stages with the spec reporter, one line per case:
+`run.sh` installs both lines with `npm ci --ignore-scripts --no-audit --no-fund`
+(offline when the npm cache already holds the locked packages), then runs four
+`node --test` stages with the spec reporter, one line per case, first with 9.0.0
+and then with `GCSM_NODE_STORAGE=8`, which loads 8.4.0 from `storage-8/`. The
+harness checks the major version it loaded.
 
 1. `self-check.test.mjs`: origin and socket-guard checks without a server.
 2. `migration-scenario.test.mjs`: anonymous, against the permissive server.
@@ -64,8 +72,9 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 
 - The endpoint must be a bare loopback HTTP or HTTPS origin; Google hosts,
   the metadata server, other schemes, user info, paths and queries are rejected.
-- `net.Socket#connect` is guarded for the whole process. Both SDK transports
-  (teeny-request for JSON calls, gaxios for resumable uploads) and the raw
+- `net.Socket#connect` is guarded for the whole process. The SDK transports
+  (gaxios in 9.x; teeny-request for JSON calls and gaxios for resumable uploads
+  in 8.x) and the raw
   signed-URL requests can only connect to the exact host, port and scheme
   (TLS or plain) of the emulator origin. Redirects, resumable session URLs and
   credential discovery cannot leave it. `localhost` is accepted as a host
@@ -75,8 +84,10 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
   `METADATA_SERVER_DETECTION=none` is set. `STORAGE_EMULATOR_HOST` is cleared
   because the SDK treats it as a JSON API base path, not an origin; the suite
   uses `apiEndpoint`.
-- The permissive client is anonymous: with a custom `apiEndpoint` the SDK
-  bypasses `google-auth-library`. The strict client passes
+- The permissive client is anonymous through `authClient: PassThroughClient`.
+  8.x bypasses `google-auth-library` for a custom `apiEndpoint` anyway; 9.x
+  sends every JSON request through its auth client and would otherwise look
+  for Application Default Credentials. The strict client passes
   `authClient: OAuth2Client` holding only a non-expiring static access token
   with `useAuthWithCustomEndpoint: true`; it has no refresh path to Google.
 - Signed URLs use a separate signer client with the clearly public
@@ -92,7 +103,7 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 | --- | --- | --- |
 | Bucket PATCH preserves versioning and labels | `createBucket`, `setMetadata` | both |
 | Default bucket creation and regional location | `createBucket(name)`, `createBucket(name, {location})` | both |
-| Unsupported query fails fast with default retries | `bucket(name, {userProject}).getFiles()`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
+| Unsupported query fails fast with default retries | `getFiles({userProject})`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
 | Notifications | `createNotification`, `notification().getMetadata`, `getNotifications`, `delete` | both |
 | JSON ACL and default object ACL | `acl.add/get/delete`, `acl.default.*`, inherited object ACL | both |
 | Autoclass | `createBucket({autoclass})`, COLDLINE upload stored as STANDARD | both |
@@ -119,7 +130,20 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 
 ## SDK limitations
 
-These are properties of `@google-cloud/storage` 8.4.0 observed by this suite:
+These are properties of `@google-cloud/storage` 8.4.0 and 9.0.0 observed by
+this suite, unless an item names one line:
+
+- **9.0.0 sends undeclared query parameters.** `File#delete` adds
+  `responseType=text` and the source of its `validateStatus` function, and
+  `Bucket#getFiles` adds `autoPaginate`. Cloud Storage ignored them on a
+  recorded objects.delete and objects.list (cases
+  `obj-delete-undeclared-query` and `obj-list-undeclared-query`), and
+  gcs-mimic does too since the release after 0.20.0; 0.20.0 answers 400.
+- **9.0.0 drops a bucket-level `userProject` on `getFiles`.** A `userProject`
+  given to `storage.bucket()` is no longer sent on the listing; observed against
+  Cloud Storage too. The fail-fast journey passes it per call.
+- **9.0.0 returns the HTTP response as the third `getFiles` value**, with the
+  listing body under `data`; 8.x returned the body itself.
 
 - **No bucket or object PUT.** `setMetadata` is always PATCH. The Ruby
   bucket-PUT and object-PUT replacement journeys are expressed as conditional
@@ -134,7 +158,8 @@ These are properties of `@google-cloud/storage` 8.4.0 observed by this suite:
   `SignatureDoesNotMatch`; it does not claim a successful strict V4 journey.
   The V4 response-override and tamper cases that Ruby runs therefore have no
   Node.js counterpart. V2 does not sign the host and succeeds.
-- **The streaming resumable path ignores `useAuthWithCustomEndpoint`.**
+- **The streaming resumable path ignores `useAuthWithCustomEndpoint`** (observed
+  in 8.4.0; the suite keeps the workaround on both lines).
   `File#startResumableUpload_` (used by `save`, `createWriteStream` and
   `Bucket#upload`) does not forward the option, so at a custom endpoint it
   initiates sessions without credentials. The strict run creates the session

@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "engines": {"node": ">=24"},
-  "dependencies": {"@google-cloud/storage": "8.4.0", "testcontainers": "12.2.1"}
+  "dependencies": {"@google-cloud/storage": "9.0.0", "google-auth-library": "11.3.4", "testcontainers": "12.2.1"}
 }

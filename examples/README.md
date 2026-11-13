@@ -18,7 +18,7 @@ Only the Rust example needs the gRPC listener on port 4444; the others use HTTP 
 | --- | --- | --- |
 | [go](go/) | `cloud.google.com/go/storage` v1.70.0 | Connects through `STORAGE_EMULATOR_HOST`. |
 | [ruby](ruby/) | `google-cloud-storage` 1.62.2 | Uses an anonymous client with a local project. |
-| [node](node/) | `@google-cloud/storage` 8.4.0 | Uses `apiEndpoint`, not `STORAGE_EMULATOR_HOST`. |
+| [node](node/) | `@google-cloud/storage` 8.4.0 | Uses `apiEndpoint`, not `STORAGE_EMULATOR_HOST`, and `PassThroughClient`, which 9.x needs. |
 | [python](python/) | `google-cloud-storage` 3.17.1 | Runs with uv, which installs Python. |
 | [php](php/) | `google/cloud-storage` 2.6.1 | Runs with local PHP and Composer, or only Docker. |
 | [java](java/) | `google-cloud-storage` 2.76.0 | Uses `HttpStorageOptions` with `NoCredentials`. |

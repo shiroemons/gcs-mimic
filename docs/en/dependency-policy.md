@@ -208,6 +208,11 @@ agree, so each is declared separately in the dependency snapshot. The daily
 checker accepts only the manifests in its fixed table, reads every direct pin
 from them, verifies the declared snapshot and checks stable upstream releases,
 including new majors; PyPI files marked yanked and prereleases do not qualify.
+A manifest that keeps testing the previous major after a breaking release is
+adopted elsewhere names that major in the table, and its pins are compared with
+the newest release of that major only; `sdk-tests/node/storage-8` keeps
+`@google-cloud/storage` 8.x beside 9.x this way. The suite that adopts the new
+major is still checked against every major.
 It fails when a table manifest has no snapshot entry, so a new suite cannot be
 skipped silently. Its intentionally small Python manifest reader requires a
 single JSON-compatible dependency array of exact `name==X.Y.Z` pins and fails

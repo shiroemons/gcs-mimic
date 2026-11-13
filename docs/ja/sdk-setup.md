@@ -67,19 +67,32 @@ bucket = storage.create_bucket "demo-bucket"
 
 ## Node.js
 
-Node.js 24以降で`@google-cloud/storage` 8.4.0（[テスト（英語）](../../sdk-tests/node/README.md)）:
+Node.js 24以降で`@google-cloud/storage` 9.0.0と8.4.0、および`google-auth-library`（[テスト（英語）](../../sdk-tests/node/README.md)）:
 
 ```js
 import {Storage} from '@google-cloud/storage';
+import {PassThroughClient} from 'google-auth-library';
 
 // Leave STORAGE_EMULATOR_HOST unset: this SDK reads it as a JSON API path.
 const storage = new Storage({
   projectId: 'local-project',
   apiEndpoint: 'http://localhost:4443',
+  authClient: new PassThroughClient(),
 });
 ```
 
-`apiEndpoint`を指定すると、SDKは認証情報なしでリクエストを送ります。
+`PassThroughClient`は認証情報なしでリクエストを送ります。
+8.xはカスタムの`apiEndpoint`なら元から認証情報なしで送りますが、
+9.xはすべてのリクエストを認証クライアント経由で送ります。
+`authClient`を渡さないと`Could not load the default credentials`で失敗し、
+Application Default Credentialsがある環境では、
+Googleから本物のアクセストークンを取得してエミュレータに送ります。
+
+9.0.0は`File#delete`と`Bucket#getFiles`に、それらのメソッドが宣言していない
+クエリパラメータ（`responseType`、`validateStatus`、`autoPaginate`）を付けて送ります。
+Cloud Storageはこれを無視し、0.20.0より後のgcs-mimicも無視します。0.20.0は400を返します。
+また9.0.0は、`storage.bucket()`に渡した`userProject`を`getFiles`で送らなくなりました。
+呼び出しに直接渡してください。
 
 ## Python
 

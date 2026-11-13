@@ -90,7 +90,7 @@ differing shared case IDs across SDKs. The SDKs with unsupported cases are
 | --- | --- |
 | Go SDK | `cloud.google.com/go/storage` v1.70.0 (`go/go.mod`, same graph as `sdk-tests/go`) |
 | Ruby SDK | `google-cloud-storage` 1.62.2 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
-| Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 24.22.1, requires Node.js 24+ |
+| Node.js SDK | `@google-cloud/storage` 9.0.0 and `google-auth-library` 11.3.4 for its anonymous `PassThroughClient` (`node/package-lock.json`); requires Node.js 24+. The probe signs with a separate client, because 9.x would exchange a signing key at Google OAuth before every request |
 | PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.1 / PHP 8.5.12 image, digest pinned in `run.sh` |
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
 | Java SDK | `com.google.cloud:google-cloud-storage` 2.78.0 and `google-auth-library-oauth2-http` 1.57.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
@@ -171,7 +171,7 @@ The common HTTP/1 frontend uses a two-second, 32 MiB bounded drain after early
 errors, so clients that finish writing before reading retain the backend's
 checksum-specific response. HTTP/2 uses its normal stream handling. Signed
 cases run in permissive profiles and do not establish server-side signature
-verification. `@google-cloud/storage` 8.4.0's V4 canonical host drops a nondefault port; strict
+verification. The V4 canonical host of `@google-cloud/storage` 8.4.0 and 9.0.0 drops a nondefault port; strict
 use at this origin remains unsupported. See the transport contract for limits.
 
 Ordinary SDK headers and query values are preserved. A failure during setup

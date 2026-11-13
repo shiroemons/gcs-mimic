@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {Socket} from 'node:net';
 import {request} from 'node:http';
 import {Storage} from '@google-cloud/storage';
+import {PassThroughClient} from 'google-auth-library';
 import {GenericContainer, Wait} from 'testcontainers';
 
 function localOrigin(raw) {
@@ -57,7 +58,8 @@ if (process.argv.includes('--self-check')) {
     process.env.METADATA_SERVER_DETECTION = 'none';
     const restore = guardSockets(origin);
     try {
-      const storage = new Storage({projectId: 'local-project', apiEndpoint: origin.origin, retryOptions: {autoRetry: false}});
+      const storage = new Storage({projectId: 'local-project', apiEndpoint: origin.origin,
+        authClient: new PassThroughClient(), retryOptions: {autoRetry: false}});
       const [bucket] = await storage.createBucket(`sdk-tc-node-${crypto.randomUUID()}`);
       try {
         const payload = Buffer.alloc(576 * 1024, 0x5a);

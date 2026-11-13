@@ -74,20 +74,32 @@ setup, Rails in containers, CI and what is verified.
 
 ## Node.js
 
-`@google-cloud/storage` 8.4.0 on Node.js 24 or later
-([tests](../../sdk-tests/node/README.md)):
+`@google-cloud/storage` 9.0.0 and 8.4.0 on Node.js 24 or later
+([tests](../../sdk-tests/node/README.md)), with `google-auth-library`:
 
 ```js
 import {Storage} from '@google-cloud/storage';
+import {PassThroughClient} from 'google-auth-library';
 
 // Leave STORAGE_EMULATOR_HOST unset: this SDK reads it as a JSON API path.
 const storage = new Storage({
   projectId: 'local-project',
   apiEndpoint: 'http://localhost:4443',
+  authClient: new PassThroughClient(),
 });
 ```
 
-With a custom `apiEndpoint`, the SDK sends requests without credentials.
+`PassThroughClient` sends requests without credentials. 8.x already does that
+for a custom `apiEndpoint`, but 9.x sends every request through its auth
+client: without `authClient` it fails with `Could not load the default
+credentials`, or, where Application Default Credentials exist, fetches a real
+access token from Google and sends it to the emulator.
+
+9.0.0 sends `File#delete` and `Bucket#getFiles` with query parameters those
+methods do not declare (`responseType`, `validateStatus`, `autoPaginate`).
+Cloud Storage ignores them, and so does gcs-mimic after 0.20.0; 0.20.0 answers
+400. 9.0.0 also stopped sending a `userProject` given to `storage.bucket()` on
+`getFiles`; pass it to the call instead.
 
 ## Python
 

@@ -31,7 +31,8 @@ test('socket guard rejects other hosts, ports, schemes and the metadata server',
   }
   assert.throws(() => tlsConnect(4443, '127.0.0.1'), /request escaped emulator: scheme/);
   assert.throws(() => connect({path: '/var/run/socket'}), /Unix socket/);
-  // The JSON transport (teeny-request) and the resumable transport (gaxios) both stop at the guard.
+  // The JSON transport (teeny-request in 8.x, gaxios in 9.x) and the resumable transport (gaxios)
+  // both stop at the guard.
   // 192.0.2.1 is TEST-NET-1, so even an unguarded attempt could not reach a real service.
   for (const token of [undefined, 'local-admin-token']) {
     const elsewhere = createStorage(new URL('http://192.0.2.1:4443'), {token});

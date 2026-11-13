@@ -34,7 +34,7 @@ export function signingArguments(origin, {bucket, object, method = 'GET', expire
   return args;
 }
 
-// The Rust signer binds the final host:port; @google-cloud/storage 8.4.0 drops that port.
+// The Rust signer binds the final host:port; @google-cloud/storage 8.4.0 and 9.0.0 drop that port.
 export async function signV4WithCli(origin, options) {
   const {stdout} = await execute(process.env.GCSM_BINARY || 'gcs-mimic', signingArguments(origin, options),
     {timeout: 10000, maxBuffer: 64 * 1024, encoding: 'utf8', windowsHide: true});

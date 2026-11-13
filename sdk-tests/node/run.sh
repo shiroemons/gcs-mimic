@@ -16,6 +16,7 @@ fi
 
 # --ignore-scripts keeps dependency install hooks from running; the lockfile pins every package.
 npm ci --ignore-scripts --no-audit --no-fund
+(cd storage-8 && npm ci --ignore-scripts --no-audit --no-fund)
 
 # Proxies, credential discovery and TLS overrides would make the run non-hermetic or less strict.
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY \
@@ -34,8 +35,12 @@ run() {
   node --test --test-reporter=spec --test-timeout=60000 "$@"
 }
 
-run 'origin and adapter self-check' self-check.test.mjs migration-adapters.test.mjs
-GCSM_ENDPOINT="$GCSM_ENDPOINT" run 'migration scenario (anonymous)' migration-scenario.test.mjs
-GCSM_ENDPOINT="$GCSM_ENDPOINT" run 'permissive suite (anonymous)' suite.test.mjs
-GCSM_ENDPOINT="$GCSM_STRICT_ENDPOINT" GCSM_TOKEN=local-admin-token GCSM_SIGNED_TESTS=1 \
-  run 'strict suite (static token, signed URLs)' suite.test.mjs
+# Each run covers the current SDK major line and the previous one pinned in storage-8/.
+for line in current 8; do
+  export GCSM_NODE_STORAGE=$line
+  run "origin and adapter self-check ($line)" self-check.test.mjs migration-adapters.test.mjs
+  GCSM_ENDPOINT="$GCSM_ENDPOINT" run "migration scenario, anonymous ($line)" migration-scenario.test.mjs
+  GCSM_ENDPOINT="$GCSM_ENDPOINT" run "permissive suite, anonymous ($line)" suite.test.mjs
+  GCSM_ENDPOINT="$GCSM_STRICT_ENDPOINT" GCSM_TOKEN=local-admin-token GCSM_SIGNED_TESTS=1 \
+    run "strict suite, static token and signed URLs ($line)" suite.test.mjs
+done
