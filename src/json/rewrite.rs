@@ -176,9 +176,7 @@ pub(crate) fn route(
         // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
         // knows. What remains is ignored and kept out of the token binding, so a continuation
         // may add or drop such a parameter.
-        for key in remaining.keys() {
-            parameters.remove(key);
-        }
+        parameters.retain(|key, _| !remaining.contains_key(key));
         Ok(RewriteRequest {
             names,
             token,
@@ -266,5 +264,17 @@ mod tests {
                 .is_ok()
             );
         }
+    }
+
+    #[test]
+    fn undeclared_parameters_stay_out_of_the_token_binding() {
+        let base = "/storage/v1/b/source-bucket/o/a/rewriteTo/b/destination-bucket/o/c?maxBytesRewrittenPerCall=1048576";
+        let parse = |uri: &str| {
+            route(&Method::POST, &uri.parse().unwrap(), CompatProfile::Native)
+                .unwrap()
+                .unwrap()
+                .parameters
+        };
+        assert_eq!(parse(&format!("{base}&gcsmimicUnknown=1")), parse(base));
     }
 }

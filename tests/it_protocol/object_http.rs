@@ -398,9 +398,14 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             b"",
         )
         .json_error(400, "notDownload");
-    server
-        .upload("name=existing&generation=1", "", b"new")
-        .json_error(400, "invalidParameter");
+    // objects.insert does not declare `generation`, so it is ignored like any undeclared name
+    // (case obj-undeclared-query-writes) rather than selecting or guarding a generation.
+    let ignored = server
+        .upload("name=other&generation=1", "", b"new")
+        .expect(200)
+        .json();
+    assert_eq!(ignored["name"], "other");
+    assert_ne!(ignored["generation"], "1");
     server
         .request(
             "DELETE",

@@ -374,16 +374,14 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
 fn compose_ignores_the_not_match_conditions_it_does_not_declare() {
     let (_dir, server) = setup(false);
     server.put("a", b"a").json_ok();
-    let current = server.put("destination", b"old").json_ok();
-    for condition in ["ifGenerationNotMatch", "ifMetagenerationNotMatch"] {
-        let value = if condition == "ifGenerationNotMatch" {
-            server.get("destination").json_ok()["generation"]
-                .as_str()
-                .unwrap()
-                .to_owned()
-        } else {
-            "1".to_owned()
-        };
+    server.put("destination", b"old").json_ok();
+    // Each condition names the live destination's own value, so enforcing it would fail.
+    for (condition, field) in [
+        ("ifGenerationNotMatch", "generation"),
+        ("ifMetagenerationNotMatch", "metageneration"),
+    ] {
+        let current = server.get("destination").json_ok();
+        let value = current[field].as_str().unwrap();
         let composed = server
             .request(
                 "POST",

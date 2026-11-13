@@ -556,11 +556,12 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         "sourceGeneration=-1",
         "ifSourceGenerationMatch=bad",
         "ifGenerationMatch=1&ifGenerationMatch=2",
-        "unknown=yes",
     ] {
         copy(&server, "source", "target", &format!("?{query}"), b"")
             .json_reason(400, "invalidParameter");
     }
+    // An undeclared parameter is ignored, as Cloud Storage did (case obj-undeclared-query-writes).
+    copy(&server, "source", "undeclared", "?unknown=yes", b"").json_ok();
     for body in [
         br#"{"acl":[]}"#.as_slice(),
         br#"{"temporaryHold":true}"#,
