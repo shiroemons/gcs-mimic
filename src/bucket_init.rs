@@ -897,7 +897,7 @@ fn example(field: &str) -> &'static str {
         "defaultEventBasedHold" => "\"defaultEventBasedHold\":false",
         "iamConfiguration" => "\"iamConfiguration\":{\"publicAccessPrevention\":\"inherited\"}",
         "softDeletePolicy" | "retentionDurationSeconds" => {
-            "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 1 to 3155760000)"
+            "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 1 to 7776000)"
         }
         "iamPolicy" => policy::EXAMPLE,
         "bindings" => {
@@ -1084,6 +1084,9 @@ fn check_values(
                     native(name, &parsed, &key, now, diagnostics);
                 }
             }
+            // The buckets file keeps an empty location as a request for the default one, which
+            // the JSON API rejects; `records` drops it before the insert parser reads the entry.
+            "location" if parsed == "" => {}
             "name" | "location" | "storageClass" | "defaultEventBasedHold" => {
                 native(name, &parsed, &key, now, diagnostics)
             }
@@ -1661,6 +1664,9 @@ fn records(
             )
         })?;
         let written = entry.written();
+        if entry.location.as_deref() == Some("") {
+            entry.location = None;
+        }
         let policy = entry
             .iam_policy
             .take()

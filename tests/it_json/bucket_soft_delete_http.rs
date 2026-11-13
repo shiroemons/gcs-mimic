@@ -527,7 +527,7 @@ fn zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchang
 
 #[test]
 fn invalid_default_retention_is_rejected_at_startup() {
-    for value in ["3155760001", "18446744073709551616", "-1", "1.5", "week"] {
+    for value in ["7776001", "18446744073709551616", "-1", "1.5", "week"] {
         let output = common::server_command()
             .args([
                 "serve",

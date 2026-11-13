@@ -91,7 +91,8 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     let effective = configured["softDeletePolicy"]["effectiveTime"].clone();
     for invalid in [
         json!(-1),
-        json!(3_155_760_001_u64),
+        json!(7_776_001_u64),
+        json!("7776001"),
         json!("3155760001"),
         json!("9223372036854775808"),
         json!(1.5),
@@ -130,10 +131,10 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         );
     }
     h.clock.advance(Duration::from_secs(1));
-    let increased = policy(&h, 3_155_760_000).await;
+    let increased = policy(&h, 7_776_000).await;
     assert_eq!(
         increased["softDeletePolicy"]["retentionDurationSeconds"],
-        "3155760000"
+        "7776000"
     );
     assert_ne!(increased["softDeletePolicy"]["effectiveTime"], effective);
     let decreased = policy(&h, 604800).await;
@@ -142,7 +143,7 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
         increased["softDeletePolicy"]["effectiveTime"]
     );
     // Any retention below the Cloud Storage minimum of seven days is a deliberate local choice.
-    for seconds in [1, 5, 604_799, 7_776_001] {
+    for seconds in [1, 5, 604_799] {
         let short = policy(&h, seconds).await;
         assert_eq!(
             short["softDeletePolicy"]["retentionDurationSeconds"],
@@ -709,14 +710,27 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
         second["items"][0]["generation"]
     );
     assert!(second.get("nextPageToken").is_none());
-    h.request(
-        "GET",
-        &format!("/storage/v1/b/bucket/o?maxResults=1&prefix=a&matchGlob=*.txt&pageToken={token}"),
-        ADMIN,
-        b"",
-    )
-    .await
-    .error(400, "invalid");
+    // A token is a position, so a live listing continues after the soft-deleted entry's name
+    // (Cloud Storage accepted tokens under other listing parameters, recorded 2026-11).
+    let live = h
+        .request(
+            "GET",
+            &format!(
+                "/storage/v1/b/bucket/o?maxResults=1&prefix=a&matchGlob=*.txt&pageToken={token}"
+            ),
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!(live.status, 200, "{}", live.json());
+    let first_name = first["items"][0]["name"].as_str();
+    assert!(
+        live.json()["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|item| item["name"].as_str() > first_name)
+    );
     let grouped = h
         .request(
             "GET",

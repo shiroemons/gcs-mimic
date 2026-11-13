@@ -144,33 +144,14 @@ fn decode_bucket_cursor(
     Ok(name.clone())
 }
 
-fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> String {
-    let mut payload = vec![
-        serde_json::json!(query.bucket),
-        serde_json::json!(query.prefix),
-        serde_json::json!(query.delimiter),
-        serde_json::json!(query.start_offset),
-        serde_json::json!(query.end_offset),
-        serde_json::json!(query.include_trailing_delimiter),
-        serde_json::json!(projection == super::Projection::Full),
-        serde_json::json!(query.versions),
-        serde_json::json!(query.soft_deleted),
-    ];
-    if let Some(glob) = &query.match_glob {
-        payload.push(glob.pattern().into());
-    }
-    let payload = serde_json::Value::Array(payload).to_string();
-    format!("{:016x}", checksum(payload.as_bytes()))
-}
+/// Version tag of object listing tokens. A token holds only the position of the last entry:
+/// Cloud Storage continued after that name when a token was reused with another prefix,
+/// delimiter or versions flag (recorded 2026-11), so the listing parameters are not bound in.
+const OBJECT_CURSOR: &str = "o3";
 
-pub(crate) fn encode_object_page_token(
-    query: &ObjectListQuery,
-    projection: super::Projection,
-    cursor: &ObjectListCursor,
-) -> String {
+pub(crate) fn encode_object_page_token(cursor: &ObjectListCursor) -> String {
     let payload = serde_json::json!([
-        "o2",
-        object_scope(query, projection),
+        OBJECT_CURSOR,
         cursor.name,
         cursor.is_prefix,
         cursor.generation
@@ -183,10 +164,12 @@ pub(crate) fn encode_object_page_token(
 /// The longest refused object page token an error repeats.
 const NAMED_TOKEN_BYTES: usize = 256;
 
+/// The position a token names, read for `query`. A prefix entry continues past its whole group
+/// only when `query` groups by the same delimiter; otherwise the prefix is a plain name to
+/// continue after. A generation is kept only for listings that page through generations.
 pub(crate) fn decode_object_page_token(
     token: &str,
     query: &ObjectListQuery,
-    projection: super::Projection,
 ) -> Result<ObjectListCursor, JsonError> {
     // Cloud Storage names the token it refuses. Only a short one is named here, so the size of an
     // error stays independent of what the client sent.
@@ -214,38 +197,36 @@ pub(crate) fn decode_object_page_token(
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
     }
-    let (version, scope, name, is_prefix, generation): (String, String, String, bool, Option<i64>) =
+    let (version, name, is_prefix, generation): (String, String, bool, Option<i64>) =
         serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if version != "o2"
-        || scope != object_scope(query, projection)
+    if version != OBJECT_CURSOR
         || name.is_empty()
         || name.len() > 1024
-        || !name.starts_with(&query.prefix)
         || generation.is_some_and(|value| value <= 0)
-        || generation.is_some() != ((query.versions || query.soft_deleted) && !is_prefix)
+        || (is_prefix && generation.is_some())
     {
         return Err(invalid());
     }
-    if is_prefix {
-        if query.delimiter.is_empty()
-            || name
-                .strip_prefix(&query.prefix)
-                .ok_or_else(invalid)?
-                .find(&query.delimiter)
-                .is_none_or(|index| {
-                    query.prefix.len() + index + query.delimiter.len() != name.len()
-                })
-        {
-            return Err(invalid());
-        }
-    } else {
+    if !is_prefix {
         super::validate_object_name(&name).map_err(|_| invalid())?;
     }
+    let is_prefix = is_prefix && groups(query, &name);
+    let paged_generations = (query.versions || query.soft_deleted) && !is_prefix;
     Ok(ObjectListCursor {
         name,
         is_prefix,
-        generation,
+        generation: generation.filter(|_| paged_generations),
     })
+}
+
+/// Whether `query` lists `name` as a prefix entry: the name is the query prefix followed by a
+/// segment that ends at the first delimiter.
+fn groups(query: &ObjectListQuery, name: &str) -> bool {
+    !query.delimiter.is_empty()
+        && name.strip_prefix(&query.prefix).is_some_and(|rest| {
+            rest.find(&query.delimiter)
+                .is_some_and(|index| index + query.delimiter.len() == rest.len())
+        })
 }
 
 fn invalid() -> JsonError {
@@ -263,13 +244,9 @@ mod tests {
     use super::*;
 
     fn refusal(token: &str) -> String {
-        decode_object_page_token(
-            token,
-            &ObjectListQuery::default(),
-            super::super::Projection::NoAcl,
-        )
-        .unwrap_err()
-        .message
+        decode_object_page_token(token, &ObjectListQuery::default())
+            .unwrap_err()
+            .message
     }
 
     #[test]
@@ -307,24 +284,22 @@ mod tests {
             delimiter: "/".into(),
             ..Default::default()
         };
-        let projection = super::super::Projection::NoAcl;
-        let scope = object_scope(&query, projection);
         for payload in [
-            serde_json::json!(["o1", scope, "a", false, null]),
-            serde_json::json!(["o2", "wrong", "a", false, null]),
-            serde_json::json!(["o2", scope, "b", false, null]),
-            serde_json::json!(["o2", scope, "a/no/", true, null]),
-            serde_json::json!(["o2", scope, "a", true, null]),
-            serde_json::json!(["o2", scope, "", false, null]),
-            serde_json::json!(["o2", scope, "a", 1, null]),
-            serde_json::json!(["o2", scope, "a", false, 1]),
-            serde_json::json!(["o2", scope]),
+            serde_json::json!(["o2", "a", false, null]),
+            serde_json::json!(["o3", "", false, null]),
+            serde_json::json!(["o3", "a".repeat(1025), false, null]),
+            serde_json::json!(["o3", "..", false, null]),
+            serde_json::json!(["o3", "a", 1, null]),
+            serde_json::json!(["o3", "a", false, 0]),
+            serde_json::json!(["o3", "a", false, -1]),
+            serde_json::json!(["o3", "a/", true, 1]),
+            serde_json::json!(["o3", "a"]),
             serde_json::json!({}),
         ] {
             let payload = payload.to_string();
             let token = forged_token(&payload);
             assert!(
-                decode_object_page_token(&token, &query, projection).is_err(),
+                decode_object_page_token(&token, &query).is_err(),
                 "{payload}"
             );
         }
@@ -334,39 +309,78 @@ mod tests {
             "0.0000000000000000",
             &"a".repeat(16385),
         ] {
-            assert!(
-                decode_object_page_token(token, &query, projection).is_err(),
-                "{token}"
-            );
+            assert!(decode_object_page_token(token, &query).is_err(), "{token}");
         }
-        let query = ObjectListQuery {
+        let versioned = ObjectListQuery {
             versions: true,
             ..query
         };
-        let scope = object_scope(&query, projection);
-        for (name, is_prefix, generation) in [
-            ("a", false, None),
-            ("a", false, Some(0)),
-            ("a", false, Some(-1)),
-            ("a/", true, Some(1)),
-        ] {
-            let payload = serde_json::json!(["o2", scope, name, is_prefix, generation]).to_string();
-            let token = forged_token(&payload);
-            assert!(
-                decode_object_page_token(&token, &query, projection).is_err(),
-                "{payload}"
-            );
-        }
         let cursor = ObjectListCursor {
             name: "a".into(),
             is_prefix: false,
             generation: Some(i64::MAX),
         };
-        let token = encode_object_page_token(&query, projection, &cursor);
+        let token = encode_object_page_token(&cursor);
         assert_eq!(
-            decode_object_page_token(&token, &query, projection).unwrap(),
+            decode_object_page_token(&token, &versioned).unwrap(),
             cursor
         );
+    }
+
+    #[test]
+    fn object_list_tokens_are_positions_that_any_listing_can_continue_from() {
+        let cursor = |name: &str, is_prefix, generation| ObjectListCursor {
+            name: name.into(),
+            is_prefix,
+            generation,
+        };
+        let query = |prefix: &str, delimiter: &str, versions| ObjectListQuery {
+            bucket: "bucket".into(),
+            prefix: prefix.into(),
+            delimiter: delimiter.into(),
+            versions,
+            ..Default::default()
+        };
+        for (token, query, expected) in [
+            // Another prefix, even one the name is outside of.
+            (
+                cursor("a/x", false, None),
+                query("b/", "", false),
+                cursor("a/x", false, None),
+            ),
+            // A generation is dropped where generations are not paged, and absent from a
+            // versioned listing that continues after a plain name.
+            (
+                cursor("a/x", false, Some(3)),
+                query("a/", "", false),
+                cursor("a/x", false, None),
+            ),
+            (
+                cursor("a/x", false, None),
+                query("a/", "", true),
+                cursor("a/x", false, None),
+            ),
+            // A prefix keeps skipping its group only under the delimiter that formed it.
+            (
+                cursor("a/b-", true, None),
+                query("a/", "-", false),
+                cursor("a/b-", true, None),
+            ),
+            (
+                cursor("a/b-", true, None),
+                query("a/", "", true),
+                cursor("a/b-", false, None),
+            ),
+            (
+                cursor("a/b-", true, None),
+                query("a/", "/", false),
+                cursor("a/b-", false, None),
+            ),
+        ] {
+            let decoded =
+                decode_object_page_token(&encode_object_page_token(&token), &query).unwrap();
+            assert_eq!(decoded, expected, "{token:?} {query:?}");
+        }
     }
 
     #[test]

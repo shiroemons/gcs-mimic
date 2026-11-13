@@ -118,7 +118,15 @@ fn parse(
             if value.get(field).is_some() || !child.children.is_empty() {
                 return Err(malformed());
             }
-            value.insert(field.into(), Value::String(child.text.trim().into()));
+            let text = child.text.trim();
+            // An empty LocationConstraint keeps meaning the configured default here; only the
+            // JSON API has provider evidence that an empty location is rejected.
+            let setting = if field == "location" && text.is_empty() {
+                Value::Null
+            } else {
+                Value::String(text.into())
+            };
+            value.insert(field.into(), setting);
         }
     }
     if profile == crate::config::CompatProfile::FakeGcsServer

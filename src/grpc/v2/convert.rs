@@ -487,7 +487,13 @@ mod tests {
             let error =
                 lifecycle_rules(Some(&pb::bucket::Lifecycle { rule: vec![rule] })).unwrap_err();
             assert_eq!(error.code(), tonic::Code::InvalidArgument);
-            assert!(error.message().contains(field), "{error}");
+            // Cloud Storage's unknown-action text names the rejected value, not the field.
+            let named = if field == "action.type" {
+                "Unknown"
+            } else {
+                field
+            };
+            assert!(error.message().contains(named), "{error}");
         }
     }
 

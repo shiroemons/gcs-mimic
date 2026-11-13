@@ -1335,7 +1335,7 @@ mod tests {
             .patch_bucket(
                 "batch-uniform",
                 crate::bucket::BucketMetadataUpdate {
-                    uniform_bucket_level_access_enabled: Some(true),
+                    uniform_bucket_level_access_enabled: Some(true.into()),
                     ..Default::default()
                 },
                 Default::default(),

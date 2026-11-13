@@ -2,7 +2,8 @@ use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, RETENTION_RANGE_MESSAGE,
     SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD,
-    bucket_location, cors_from_value, cors_value, valid_label, validate_storage_class,
+    UniformAccessRequest, bucket_location, cors_from_value, cors_value, valid_label,
+    validate_storage_class,
 };
 use crate::config::CompatProfile;
 use crate::object::unix_nanos::UnixNanos;
@@ -210,10 +211,9 @@ fn insert_location(
         }
         return Ok("US".into());
     }
-    if body
-        .get("location")
-        .is_none_or(|value| value.is_null() || value == "")
-    {
+    // An empty string is not an absent location: Cloud Storage rejected `"location":""` with the
+    // invalid-location error (recorded 2026-11) while an omitted location gets the default.
+    if body.get("location").is_none_or(Value::is_null) {
         return Ok(default_location.to_owned());
     }
     insert_string(body, "location", Some(default_location))
@@ -350,7 +350,7 @@ pub(crate) fn parse_insert_with_profile(
         uniform_bucket_level_access_locked_time: if parse_uniform_access(
             body.get("iamConfiguration"),
         )?
-        .unwrap_or(false)
+        .is_some_and(|request| request.enabled(None))
         {
             Some(now.checked_add(UNIFORM_ACCESS_LOCK_PERIOD).ok_or_else(|| {
                 JsonError::invalid("Uniform access deadline is outside the supported time range")
@@ -722,7 +722,7 @@ fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, 
         .map_err(Into::into)
 }
 
-fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
+fn parse_uniform_access(value: Option<&Value>) -> Result<Option<UniformAccessRequest>, JsonError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
@@ -743,8 +743,13 @@ fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError
                         "{field}.enabled must be a boolean; use true or false"
                     ))
                 })?;
-                // Ruby patches the modern field while retaining the response's legacy alias.
-                enabled = enabled.or(Some(value));
+                enabled = match enabled {
+                    None => Some(UniformAccessRequest::Set(value)),
+                    Some(UniformAccessRequest::Set(first)) if first != value => {
+                        Some(UniformAccessRequest::Conflicting)
+                    }
+                    agreed => agreed,
+                };
             }
         }
     }
@@ -796,8 +801,11 @@ pub(crate) enum UniformAccess {
 
 impl UniformAccess {
     /// Enabled once the bucket records a lock time, or when the request itself enables it.
-    pub(crate) fn of(locked_time: Option<SystemTime>, requested: Option<bool>) -> Self {
-        if locked_time.is_some() || requested == Some(true) {
+    pub(crate) fn of(
+        locked_time: Option<SystemTime>,
+        requested: Option<UniformAccessRequest>,
+    ) -> Self {
+        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
             Self::Enabled
         } else {
             Self::Disabled

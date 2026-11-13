@@ -81,7 +81,7 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
             .patch_bucket(
                 "bucket",
                 crate::bucket::BucketMetadataUpdate {
-                    uniform_bucket_level_access_enabled: Some(uniform),
+                    uniform_bucket_level_access_enabled: Some(uniform.into()),
                     public_access_prevention_enforced: Some(prevented),
                     ..Default::default()
                 },

@@ -98,9 +98,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         FoldersAsPrefixes::Omitted
     })?;
     if let Some(token) = params.remove("pageToken").filter(|token| !token.is_empty()) {
-        query.cursor = Some(super::page_token::decode_object_page_token(
-            &token, &query, projection,
-        )?);
+        query.cursor = Some(super::page_token::decode_object_page_token(&token, &query)?);
     }
     // objects.list ignores a query parameter it does not declare, such as the autoPaginate
     // option @google-cloud/storage 9.0.0 Bucket#getFiles sends: Cloud Storage listed the objects
@@ -123,8 +121,9 @@ impl From<ListQueryError> for JsonError {
             ListQueryError::FoldersAsPrefixesNeedSlash => Self::invalid_parameter(
                 "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
             ),
-            ListQueryError::GlobNeedsSlashDelimiter => Self::invalid_parameter(
-                "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",
+            // Cloud Storage's text and reason (recorded 2026-11).
+            ListQueryError::GlobNeedsSlashDelimiter => Self::invalid(
+                "When listing with a glob pattern, the only supported delimiter is '/'.",
             ),
         }
     }
@@ -140,8 +139,7 @@ pub(crate) fn object_list(
     if let Some(cursor) = &page.next {
         value.insert(
             "nextPageToken".into(),
-            super::page_token::encode_object_page_token(&params.query, params.projection, cursor)
-                .into(),
+            super::page_token::encode_object_page_token(cursor).into(),
         );
     }
     if !page.prefixes.is_empty() {
@@ -184,11 +182,7 @@ mod tests {
         assert!(value.get("prefixes").is_none());
         assert_eq!(
             value["nextPageToken"],
-            super::super::page_token::encode_object_page_token(
-                &params.query,
-                params.projection,
-                &cursor
-            )
+            super::super::page_token::encode_object_page_token(&cursor)
         );
         assert!(params.empty_soft_deleted_message(&page, None).is_none());
     }

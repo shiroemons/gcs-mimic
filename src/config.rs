@@ -908,7 +908,7 @@ fn apply_storage_setting(
                 .parse::<i64>()
                 .ok()
                 .and_then(|seconds| crate::bucket::SoftDeleteRetention::try_from(seconds).ok())
-                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=3155760000 seconds; use 604800 for the Cloud Storage default of seven days")?
+                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=7776000 seconds (90 days); use 604800 for the Cloud Storage default of seven days")?
                 .enabled();
         }
         Setting::LifecycleExecution => config.lifecycle_execution = Some(value.parse()?),

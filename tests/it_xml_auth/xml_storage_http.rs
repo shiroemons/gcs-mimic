@@ -341,14 +341,27 @@ fn xml_bucket_list_rejects_invalid_scopes_options_and_preserves_objects() {
         assert_eq!(response.0, 400, "{query}: {}", response.1);
         assert!(response.1.contains("<Code>InvalidArgument</Code>"));
     }
+    // A continuation token is a listing position shared with the JSON page token, which Cloud
+    // Storage accepted under other listing parameters (recorded 2026-11); the JSON API still
+    // refuses the XML-tagged form.
     for path in [
         format!("/other-bucket?list-type=2&continuation-token={token}"),
         format!("/list-bucket?list-type=2&prefix=a&continuation-token={token}"),
         format!("/list-bucket?list-type=2&versions&continuation-token={token}"),
-        format!("/storage/v1/b/list-bucket/o?pageToken={token}"),
     ] {
-        assert_eq!(server.request("GET", &path, "", "").0, 400, "{path}");
+        assert_eq!(server.request("GET", &path, "", "").0, 200, "{path}");
     }
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                &format!("/storage/v1/b/list-bucket/o?pageToken={token}"),
+                "",
+                ""
+            )
+            .0,
+        400
+    );
     let body = server.list("");
     assert_eq!(elements(&body, "Generation")[0], generation.to_string());
     assert_eq!(

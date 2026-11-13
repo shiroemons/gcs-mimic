@@ -184,9 +184,16 @@ fn iam_policy_round_trip_and_unconditional_versions() {
             "bindings":[{"role":"roles/storage.objectViewer", "members":["user:viewer@example.invalid", "serviceAccount:no-roles@example.invalid", "projectOwner:another-project", "projectEditor:project-a", "projectViewer:project-a"], "unknown":true}]});
         let result = set(&server, ADMIN, &policy).success().json();
         assert_eq!(result["version"], 1);
+        // Cloud Storage returns the members sorted (recorded 2026-11).
         assert_eq!(
             result["bindings"][0]["members"],
-            policy["bindings"][0]["members"]
+            json!([
+                "projectEditor:project-a",
+                "projectOwner:another-project",
+                "projectViewer:project-a",
+                "serviceAccount:no-roles@example.invalid",
+                "user:viewer@example.invalid"
+            ])
         );
         assert_ne!(result["etag"], previous);
         previous = result["etag"].clone();
@@ -249,8 +256,13 @@ fn iam_preserves_duplicate_members_and_role_bindings() {
         {"role":"roles/storage.bucketViewer", "members":["user:local", "user:local"]},
         {"role":"roles/storage.bucketViewer", "members":["user:another"]}
     ]});
+    // Cloud Storage merged a repeated role, de-duplicated and sorted its members, and kept the
+    // first binding's position (case bkt-iam-policy-shape, recorded 2026-11).
     let result = set(&server, ADMIN, &policy).success().json();
-    assert_eq!(result["bindings"], policy["bindings"]);
+    assert_eq!(
+        result["bindings"],
+        json!([{"role":"roles/storage.bucketViewer", "members":["user:another", "user:local"]}])
+    );
     assert_eq!(server.get(ADMIN, IAM).success().json(), result);
 }
 
@@ -757,7 +769,6 @@ fn iam_rejects_invalid_policy_shapes() {
         json!({"etag":"AA=", "bindings":[]}),
         json!({"etag":"AA===", "bindings":[]}),
         json!({"etag":"AA=A", "bindings":[]}),
-        json!({"etag":"AB==", "bindings":[]}),
         json!({"bindings":null}),
         json!({"bindings":{}}),
         json!({"bindings":[null]}),
@@ -768,6 +779,11 @@ fn iam_rejects_invalid_policy_shapes() {
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":[1]}]}),
     ] {
         set(&server, ADMIN, &policy).auth_error(400, "invalid");
+    }
+    // Nonzero unused bits still decode, so the tag simply does not match (recorded 2026-11).
+    for etag in ["AB==", "CAF="] {
+        set(&server, ADMIN, &json!({"etag":etag, "bindings":[]}))
+            .auth_error(412, "conditionNotMet");
     }
     for role in [
         "",
@@ -951,14 +967,12 @@ fn iam_rejects_queries_paths_and_bodies() {
 fn iam_principal_and_body_limits() {
     let (_config, _data, server) = fixture();
     let member = "user:local";
+    // The limit counts occurrences as sent; the stored policy then keeps each member once.
     let max =
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":vec![member;1500]}]});
     assert_eq!(
-        set(&server, ADMIN, &max).success().json()["bindings"][0]["members"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1500
+        set(&server, ADMIN, &max).success().json()["bindings"][0]["members"],
+        json!([member])
     );
     let mut excess = max;
     excess["bindings"]

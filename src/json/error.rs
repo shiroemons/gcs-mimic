@@ -223,6 +223,11 @@ pub(crate) const IF_MATCH_HEADER: ErrorLocation = ErrorLocation {
     kind: "header",
     name: "If-Match",
 };
+/// An IAM policy body's `etag` member, which Cloud Storage reported as `locationType: other`.
+pub(crate) const POLICY_ETAG_FIELD: ErrorLocation = ErrorLocation {
+    kind: "other",
+    name: "etag",
+};
 pub(crate) const FIELDS_PARAMETER: ErrorLocation = ErrorLocation {
     kind: "parameter",
     name: "fields",

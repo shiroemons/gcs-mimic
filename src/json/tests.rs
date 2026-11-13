@@ -1137,7 +1137,14 @@ fn bkt_ins_003_location_and_storage_class_subset() {
         assert_eq!(bucket.location, location.to_ascii_uppercase());
         assert_eq!(bucket.location_type, kind);
     }
-    for location in ["MARS-CENTRAL1", "unknown", " US", "US ", "US-CENTRAL1-A"] {
+    for location in [
+        "",
+        "MARS-CENTRAL1",
+        "unknown",
+        " US",
+        "US ",
+        "US-CENTRAL1-A",
+    ] {
         let body = json!({"name":"abc", "location":location});
         let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
@@ -1168,9 +1175,30 @@ fn bkt_ins_003_location_and_storage_class_subset() {
 }
 
 #[test]
+fn bucket_insert_with_conflicting_uniform_access_aliases_enables_access() {
+    for (modern, alias, enabled) in [
+        (false, true, true),
+        (true, false, true),
+        (false, false, false),
+        (true, true, true),
+    ] {
+        let body = json!({"name":"abc", "iamConfiguration":{
+            "uniformBucketLevelAccess":{"enabled":modern},"bucketPolicyOnly":{"enabled":alias}}});
+        let bucket = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
+        assert_eq!(
+            bucket.uniform_bucket_level_access_locked_time.is_some(),
+            enabled,
+            "{body}"
+        );
+    }
+}
+
+#[test]
 fn bucket_location_defaults_and_unsupported_placement() {
-    for location in [Value::Null, json!("")] {
-        let body = json!({"name":"abc", "location":location});
+    for body in [
+        json!({"name":"abc"}),
+        json!({"name":"abc", "location":null}),
+    ] {
         let bucket = super::buckets::parse_insert_with_profile(
             body.to_string().as_bytes(),
             "p",

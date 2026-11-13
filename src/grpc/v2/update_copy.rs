@@ -1066,7 +1066,10 @@ mod tests {
         );
         assert!(update.cors.unwrap().is_empty());
         assert_eq!(update.public_access_prevention_enforced, Some(false));
-        assert_eq!(update.uniform_bucket_level_access_enabled, Some(false));
+        assert_eq!(
+            update.uniform_bucket_level_access_enabled,
+            Some(false.into())
+        );
         let create = super::super::buckets::create_fields(&bucket, "").unwrap();
         for omitted in [
             "autoclass",
@@ -1336,7 +1339,10 @@ mod tests {
     #[tokio::test]
     async fn grpc_iam_config_updates_preserve_other_setting() {
         let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
-        assert_eq!(empty.uniform_bucket_level_access_enabled, Some(false));
+        assert_eq!(
+            empty.uniform_bucket_level_access_enabled,
+            Some(crate::bucket::UniformAccessRequest::Set(false))
+        );
         assert_eq!(empty.public_access_prevention_enforced, Some(false));
         assert!(empty.touched);
         assert_eq!(
@@ -1346,7 +1352,7 @@ mod tests {
             )
             .unwrap()
             .uniform_bucket_level_access_enabled,
-            Some(false)
+            Some(false.into())
         );
         let (s, _dir) = setup().await;
         let resource = "projects/_/buckets/update-copy-bucket";

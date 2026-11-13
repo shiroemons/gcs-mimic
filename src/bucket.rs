@@ -193,6 +193,34 @@ pub(crate) struct SoftDeletedBucket {
     pub hard_delete_time: SystemTime,
 }
 
+/// A requested uniform bucket-level access setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UniformAccessRequest {
+    Set(bool),
+    /// `uniformBucketLevelAccess` and its `bucketPolicyOnly` alias disagree, so the one that
+    /// changes the stored setting wins. Cloud Storage enabled access on a disabled bucket when
+    /// only the alias said true (recorded 2026-11), and Ruby's setter disables access while it
+    /// resends the alias's old true value from GET; this is the one rule that fits both.
+    Conflicting,
+}
+
+impl UniformAccessRequest {
+    /// Whether this request leaves access enabled on a bucket whose stored lock deadline is
+    /// `locked_time`; a bucket has one exactly while uniform access is enabled.
+    pub(crate) fn enabled(self, locked_time: Option<SystemTime>) -> bool {
+        match self {
+            Self::Set(enabled) => enabled,
+            Self::Conflicting => locked_time.is_none(),
+        }
+    }
+}
+
+impl From<bool> for UniformAccessRequest {
+    fn from(enabled: bool) -> Self {
+        Self::Set(enabled)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
@@ -212,7 +240,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub(crate) versioning_configured: Option<bool>,
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,
-    pub uniform_bucket_level_access_enabled: Option<bool>,
+    pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
     pub location: Option<String>,
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
@@ -415,8 +443,12 @@ pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass,
     })
 }
 
+/// Cloud Storage's rejection of a soft delete retention outside its range (recorded 2026-11). The
+/// lower bound it names is not enforced locally; see [`SoftDeleteRetention`].
 pub(crate) const SOFT_DELETE_RANGE_MESSAGE: &str =
-    "Soft delete policy must have a retention duration of 0 (disabled) or 1 to 3155760000 seconds.";
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+/// The longest soft delete retention, 90 days in seconds, which Cloud Storage accepts inclusively.
+pub(crate) const MAX_SOFT_DELETE_RETENTION_SECONDS: u64 = 7_776_000;
 pub(crate) const RETENTION_RANGE_MESSAGE: &str =
     "Retention policy must have a retention period greater than 0 and less than 100 years.";
 
@@ -424,9 +456,8 @@ pub(crate) const RETENTION_RANGE_MESSAGE: &str =
 /// API stores and returns it, and it means deletions are permanent.
 ///
 /// Cloud Storage accepts only 0 or 7 to 90 days. The emulator deliberately accepts any shorter
-/// duration too, so local tests can watch deleted data expire without waiting a week. The ceiling
-/// keeps a hard delete time inside the catalog's 64-bit microsecond timestamps for any clock
-/// reading the wire format can represent.
+/// duration too, so local tests can watch deleted data expire without waiting a week. The 90-day
+/// ceiling matches Cloud Storage, which rejected 7776001 seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SoftDeleteRetention(u64);
 
@@ -447,7 +478,7 @@ impl TryFrom<i64> for SoftDeleteRetention {
     fn try_from(seconds: i64) -> Result<Self, CatalogError> {
         u64::try_from(seconds)
             .ok()
-            .filter(|seconds| *seconds <= crate::object::retention::MAX_RETENTION.as_secs())
+            .filter(|seconds| *seconds <= MAX_SOFT_DELETE_RETENTION_SECONDS)
             .map(Self)
             .ok_or_else(|| CatalogError::InvalidMetadata(SOFT_DELETE_RANGE_MESSAGE.into()))
     }

@@ -2,7 +2,10 @@ use super::{
     Binding, Policy,
     roles::{self, GrantLevel},
 };
-use std::fmt;
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt,
+};
 
 /// Adapter-decoded policy fields, before shared semantic validation.
 pub(crate) struct PolicyInput {
@@ -37,23 +40,45 @@ impl PolicyInput {
             ));
         }
         let mut count = 0;
-        let mut bindings = Vec::new();
-        for binding in self.bindings {
+        for binding in &self.bindings {
             validate_role(&binding.role)?;
             count += binding.members.len();
             validate_principal_count(count)?;
             for member in &binding.members {
                 validate_member(member)?;
             }
-            if !binding.members.is_empty() {
-                bindings.push(binding);
-            }
         }
         Ok(Policy {
-            bindings,
+            bindings: normalized(self.bindings),
             etag: self.etag,
         })
     }
+}
+
+/// The bindings Cloud Storage stores for a policy (recorded 2026-11): bindings of one role merge
+/// into the first one's position, members are sorted and de-duplicated, and a binding without
+/// members is dropped.
+fn normalized(bindings: Vec<Binding>) -> Vec<Binding> {
+    let mut positions: HashMap<String, usize> = HashMap::new();
+    let mut roles: Vec<(String, BTreeSet<String>)> = Vec::with_capacity(bindings.len());
+    for binding in bindings {
+        if let Some(&position) = positions.get(&binding.role)
+            && let Some((_, members)) = roles.get_mut(position)
+        {
+            members.extend(binding.members);
+        } else {
+            positions.insert(binding.role.clone(), roles.len());
+            roles.push((binding.role, binding.members.into_iter().collect()));
+        }
+    }
+    roles
+        .into_iter()
+        .filter(|(_, members)| !members.is_empty())
+        .map(|(role, members)| Binding {
+            role,
+            members: members.into_iter().collect(),
+        })
+        .collect()
 }
 
 pub(crate) fn validate_role(role: &str) -> Result<(), PolicyInputError> {
@@ -183,5 +208,37 @@ mod tests {
         let policy = input(3, role, vec![]).into_policy().unwrap();
         assert!(policy.bindings.is_empty());
         assert_eq!(policy.etag.as_deref(), Some("AA=="));
+    }
+
+    #[test]
+    fn policies_merge_roles_and_sort_and_deduplicate_members() {
+        let binding = |role: &str, members: &[&str]| Binding {
+            role: role.into(),
+            members: members.iter().map(|member| (*member).to_owned()).collect(),
+        };
+        let owner = "roles/storage.legacyBucketOwner";
+        let viewer = "roles/storage.objectViewer";
+        let policy = PolicyInput {
+            version: 1,
+            bindings: vec![
+                binding(
+                    owner,
+                    &["projectOwner:p", "projectEditor:p", "projectOwner:p"],
+                ),
+                binding(viewer, &["projectViewer:p"]),
+                binding("roles/storage.legacyBucketReader", &[]),
+                binding(viewer, &["projectEditor:p", "projectViewer:p"]),
+            ],
+            etag: None,
+        }
+        .into_policy()
+        .unwrap();
+        assert_eq!(
+            policy.bindings,
+            [
+                binding(owner, &["projectEditor:p", "projectOwner:p"]),
+                binding(viewer, &["projectEditor:p", "projectViewer:p"]),
+            ]
+        );
     }
 }
