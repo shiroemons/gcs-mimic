@@ -1,5 +1,19 @@
 # Local release gates on the integrated source
 
+## Local gates on the 0.20.0 source
+
+Recorded **2026-11-13** on macOS (Apple Silicon) with Rust 1.100.0 for commit `e341010b0fb1630e75441a477e96fb90ec035702`, tree `7f19f1375ef9f8bb8fd15d2d37341c08fe52e374` (package version 0.20.0).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 17m17s`; 3423 Rust tests in 16 binaries, 0 failed, 1 ignored, including library tests `2075 passed` and `it_process` `109 passed`; the Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust SDK suites passed; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 1 | 123 `CURRENT` lines; `UPDATE_AVAILABLE` only for the development-only google.golang.org/api v0.314.0 in three Go modules and @google-cloud/storage 9.0.0 in three npm manifests |
+
+`just pre-push` ran once as a complete invocation from a clean working tree of that commit. Both dependency checks ran on commit `dc9dab31`, its parent, which differs only in the version strings, the release notes and the recipe image pins, no release input. The commits after it change only `.github/workflows/ci.yaml`, which fetches the locked packages before the reference comparison, the 0.20.0 release notes and this record.
+
+[Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/runs/43342371255) on `bbf9e19f` passed every job but the new `reference-comparison`, which failed because it built offline without fetching the packages first; commit `8151114f` adds the fetch.
+
 ## Published 0.19.1 source
 
 Recorded **2026-11-12** for tag `v0.19.1`, commit `ff0b076cb53c5ec18e4147480f120d56862f30d5`, tree `a385853d95598e9f041f4af8a7d21945a7641d9f`. Remote results were read back from GitHub after publication:
