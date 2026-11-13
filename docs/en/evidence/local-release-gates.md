@@ -1,5 +1,19 @@
 # Local release gates on the integrated source
 
+## Published 0.20.0 source
+
+Recorded **2026-11-13** for tag `v0.20.0`, commit `ba8a3f20d276401800d99a3230cd63f7f4dc6c68`, tree `b835af43a4e9d8dd34ebe7ceee51fe20c5e113bd`. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 17m17s; 3423 Rust tests passed with Rust 1.100.0 | On commit `e341010b`, recorded below |
+| Foundation checks | `success` on the tagged commit, including the reference comparison | [Run 43345818967](https://github.com/shiroemons/gcs-mimic/actions/runs/43345818967) |
+| Documentation checks | `success` on the tagged commit | [Run 43345818984](https://github.com/shiroemons/gcs-mimic/actions/runs/43345818984) |
+| Release binaries dry run | `success` on the tagged commit; all eight native build and test targets passed | [Run 43345837055](https://github.com/shiroemons/gcs-mimic/actions/runs/43345837055) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43349642760](https://github.com/shiroemons/gcs-mimic/actions/runs/43349642760) |
+
+The tagged commit adds to `e341010b` the CI step that fetches the locked packages before the reference comparison, the performance section of the release notes and the local gate record; Foundation checks and the dry run both ran on the tagged commit itself. The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.20.0) has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`, whose `source_commit` is the tagged commit, and GitHub reports it as the latest release. The public multi-architecture image index is `sha256:0467cc149c612af349ee9ce884166bd61c1a8adb0fe946bad1b798dff4a87296`, with `sha256:47f1b8be9557c3c9594a790b272833fc8fbcb5498ffdce79c90337bfaf332ca6` for `linux/amd64` and `sha256:bb7110d282212f2198bf50b2c4f8072af95536500970793864f401ad1273a095` for `linux/arm64`. GHCR `0.20.0`, `0.20` and `latest` and Docker Hub `0.20.0` and `latest` resolved to that index, and the GHCR image printed `gcs-mimic 0.20.0`.
+
 ## Local gates on the 0.20.0 source
 
 Recorded **2026-11-13** on macOS (Apple Silicon) with Rust 1.100.0 for commit `e341010b0fb1630e75441a477e96fb90ec035702`, tree `7f19f1375ef9f8bb8fd15d2d37341c08fe52e374` (package version 0.20.0).
