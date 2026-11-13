@@ -153,9 +153,15 @@ func TestGRPCUpdateCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	iamBucket := client.Bucket(iamName)
+	// The client sends uniform access alone under the parent iam_config mask; Cloud Storage
+	// then resets public access prevention to inherited (recorded 2026-11-13).
 	attrs, err = iamBucket.Update(ctx, storage.BucketAttrsToUpdate{UniformBucketLevelAccess: &storage.UniformBucketLevelAccess{Enabled: true}})
-	if err != nil || attrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced || !attrs.UniformBucketLevelAccess.Enabled {
-		t.Fatalf("UBLA update changed PAP: %+v %v", attrs, err)
+	if err != nil || attrs.PublicAccessPrevention != storage.PublicAccessPreventionInherited || !attrs.UniformBucketLevelAccess.Enabled {
+		t.Fatalf("UBLA update under iam_config: %+v %v", attrs, err)
+	}
+	attrs, err = iamBucket.Update(ctx, storage.BucketAttrsToUpdate{PublicAccessPrevention: storage.PublicAccessPreventionEnforced})
+	if err != nil || !attrs.UniformBucketLevelAccess.Enabled || attrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
+		t.Fatalf("PAP update changed UBLA: %+v %v", attrs, err)
 	}
 	attrs, err = iamBucket.Update(ctx, storage.BucketAttrsToUpdate{PublicAccessPrevention: storage.PublicAccessPreventionInherited})
 	if err != nil || !attrs.UniformBucketLevelAccess.Enabled || attrs.PublicAccessPrevention != storage.PublicAccessPreventionInherited {

@@ -38976,6 +38976,191 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "grpc-iam-config-partial-update",
+      "steps": [
+        {
+          "fingerprint": "5c8953a2ea63e4de",
+          "name": "get-before",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfig": {
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {}
+                },
+                "metageneration": "1"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "1ef26e17bc3d5a8d",
+          "name": "update-uniform-only",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucketId": "<bucket>",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "iamConfig": {
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockTime": "<time:f3>"
+                  }
+                },
+                "labels": {
+                  "gcs-mimic-differential": "1"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "2",
+                "name": "projects/_/buckets/<bucket>",
+                "project": "projects/<project-number>",
+                "softDeletePolicy": {
+                  "retentionDuration": "0s"
+                },
+                "storageClass": "STANDARD",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "5c8953a2ea63e4de",
+          "name": "get-after-uniform",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfig": {
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockTime": "<time:f3>"
+                  }
+                },
+                "metageneration": "2"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "1f7f36f3a7d09ecb",
+          "name": "update-pap-only",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucketId": "<bucket>",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "iamConfig": {
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockTime": "<time:f3>"
+                  }
+                },
+                "labels": {
+                  "gcs-mimic-differential": "1"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "3",
+                "name": "projects/_/buckets/<bucket>",
+                "project": "projects/<project-number>",
+                "softDeletePolicy": {
+                  "retentionDuration": "0s"
+                },
+                "storageClass": "STANDARD",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "5c8953a2ea63e4de",
+          "name": "get-after-pap",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfig": {
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockTime": "<time:f3>"
+                  }
+                },
+                "metageneration": "3"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "4f7dccb54fc4c2ce",
+          "name": "restore",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -38987,7 +39172,7 @@
     "2026-11-09",
     "2026-11-13"
   ],
-  "requests": 1380,
+  "requests": 1394,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

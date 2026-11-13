@@ -148,14 +148,18 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
             update.soft_delete_retention =
                 Some(bucket::SoftDeleteRetention::try_from(duration.seconds).map_err(input_error)?);
         }
-        // The parent path replaces the whole message, so a setting it leaves out takes its
-        // default, as under each leaf path: Cloud Storage answered an `iam_config` mask with an
-        // empty `iam_config` by resetting public access prevention to `inherited` (recorded).
-        // Disabling an absent uniform bucket-level access follows the same field-mask rule; the
-        // recording started with it disabled, so that half is assumed.
+        // Under the parent path Cloud Storage treats the two settings differently (recorded
+        // 2026-11-13): public access prevention is replaced, so an `iam_config` that leaves it
+        // out (empty, or uniform access alone, as the Go client sends) resets it to `inherited`,
+        // while uniform access changes only when its message is present.
         "iam_config" => {
             apply_public_access_prevention(update, b.iam_config.as_ref())?;
-            apply_uniform_access(update, b.iam_config.as_ref());
+            if b.iam_config
+                .as_ref()
+                .is_some_and(|config| config.uniform_bucket_level_access.is_some())
+            {
+                apply_uniform_access(update, b.iam_config.as_ref());
+            }
         }
         "iam_config.public_access_prevention" => {
             apply_public_access_prevention(update, b.iam_config.as_ref())?;

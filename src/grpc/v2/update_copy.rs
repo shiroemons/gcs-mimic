@@ -1337,12 +1337,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grpc_iam_config_updates_preserve_other_setting() {
+    async fn grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access() {
         let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
-        assert_eq!(
-            empty.uniform_bucket_level_access_enabled,
-            Some(crate::bucket::UniformAccessRequest::Set(false))
-        );
+        assert_eq!(empty.uniform_bucket_level_access_enabled, None);
         assert_eq!(empty.public_access_prevention_enforced, Some(false));
         assert!(empty.touched);
         assert_eq!(
@@ -1422,8 +1419,23 @@ mod tests {
         let i = b.iam_config.unwrap();
         assert_eq!(i.public_access_prevention, "enforced");
         assert!(i.uniform_bucket_level_access.unwrap().enabled);
-        // An empty message under the parent path resets both and still advances the
-        // metageneration, as Cloud Storage did for public access prevention (recorded).
+        // Under the parent path, public access prevention alone keeps uniform access, as Cloud
+        // Storage did (recorded 2026-11-13).
+        let b = update(
+            "iam_config",
+            pb::bucket::IamConfig {
+                public_access_prevention: "enforced".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        let i = b.iam_config.unwrap();
+        assert_eq!(i.public_access_prevention, "enforced");
+        assert!(i.uniform_bucket_level_access.unwrap().enabled);
+        // An empty message resets public access prevention, keeps uniform access and still
+        // advances the metageneration (recorded).
         let before = b.metageneration;
         let b = update("iam_config", pb::bucket::IamConfig::default())
             .await
@@ -1432,7 +1444,7 @@ mod tests {
         assert_eq!(b.metageneration, before + 1);
         let i = b.iam_config.unwrap();
         assert_eq!(i.public_access_prevention, "inherited");
-        assert!(!i.uniform_bucket_level_access.unwrap_or_default().enabled);
+        assert!(i.uniform_bucket_level_access.unwrap().enabled);
         let after = s
             .get_bucket(
                 Request::new(pb::GetBucketRequest {
