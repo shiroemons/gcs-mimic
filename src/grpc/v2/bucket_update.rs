@@ -148,10 +148,22 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
             update.soft_delete_retention =
                 Some(bucket::SoftDeleteRetention::try_from(duration.seconds).map_err(input_error)?);
         }
-        "iam_config"
-        | "iam_config.uniform_bucket_level_access"
-        | "iam_config.uniform_bucket_level_access.enabled"
-        | "iam_config.public_access_prevention" => apply_iam(update, b.iam_config.as_ref(), path)?,
+        // The parent path replaces the whole message, so a setting it leaves out takes its
+        // default, as under each leaf path: Cloud Storage answered an `iam_config` mask with an
+        // empty `iam_config` by resetting public access prevention to `inherited` (recorded).
+        // Disabling an absent uniform bucket-level access follows the same field-mask rule; the
+        // recording started with it disabled, so that half is assumed.
+        "iam_config" => {
+            apply_public_access_prevention(update, b.iam_config.as_ref())?;
+            apply_uniform_access(update, b.iam_config.as_ref());
+        }
+        "iam_config.public_access_prevention" => {
+            apply_public_access_prevention(update, b.iam_config.as_ref())?;
+        }
+        "iam_config.uniform_bucket_level_access"
+        | "iam_config.uniform_bucket_level_access.enabled" => {
+            apply_uniform_access(update, b.iam_config.as_ref());
+        }
         "acl" => {
             update.acl = Some(acl_entries(
                 AclKind::Bucket,
@@ -211,37 +223,27 @@ pub(super) fn cors_rules(cors: &[pb::bucket::Cors]) -> Result<Vec<CorsRule>, Sta
     Ok(rules)
 }
 
-fn apply_iam(
+/// Sets public access prevention from `config`; an absent or empty value means `inherited`.
+fn apply_public_access_prevention(
     update: &mut BucketMetadataUpdate,
     config: Option<&pb::bucket::IamConfig>,
-    path: &str,
 ) -> Result<(), Status> {
-    // The parent path replaces the whole message, so a setting it leaves out takes its default,
-    // as each leaf path does: Cloud Storage answered an `iam_config` mask with an empty
-    // `iam_config` by resetting public access prevention to `inherited` (recorded). Disabling
-    // an absent uniform bucket-level access follows the same field-mask rule; the recording
-    // started with it disabled, so that half is assumed.
-    let (prevention, uniform) = match path {
-        "iam_config" => (true, true),
-        "iam_config.public_access_prevention" => (true, false),
-        _ => (false, true),
-    };
-    if prevention {
-        let value = config
-            .map(|config| config.public_access_prevention.as_str())
-            .filter(|value| !value.is_empty())
-            .unwrap_or("inherited");
-        update.public_access_prevention_enforced =
-            Some(bucket::public_access_prevention(value).map_err(input_error)?);
-    }
-    if uniform {
-        update.uniform_bucket_level_access_enabled = Some(
-            config
-                .and_then(|config| config.uniform_bucket_level_access.as_ref())
-                .is_some_and(|uniform| uniform.enabled),
-        );
-    }
+    let value = config
+        .map(|config| config.public_access_prevention.as_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("inherited");
+    update.public_access_prevention_enforced =
+        Some(bucket::public_access_prevention(value).map_err(input_error)?);
     Ok(())
+}
+
+/// Sets uniform bucket-level access from `config`; an absent message means disabled.
+fn apply_uniform_access(update: &mut BucketMetadataUpdate, config: Option<&pb::bucket::IamConfig>) {
+    update.uniform_bucket_level_access_enabled = Some(
+        config
+            .and_then(|config| config.uniform_bucket_level_access.as_ref())
+            .is_some_and(|uniform| uniform.enabled),
+    );
 }
 
 pub(super) fn acl_entries<'a>(
