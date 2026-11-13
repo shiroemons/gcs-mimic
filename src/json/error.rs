@@ -183,6 +183,13 @@ pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
     cache: PlainCache::Unspecified,
 };
 
+/// A multipart upload body that ends before its closing delimiter (recorded 2026-11-13).
+pub(crate) const MISSING_END_BOUNDARY_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: Some("Missing end boundary in multipart body."),
+    cache: PlainCache::Unspecified,
+};
+
 /// A session-protocol failure that has no recorded text of its own. The recorded failures
 /// of a continuation (an unusable `Content-Range`, an unknown session) are bare `text/plain`
 /// pages without cache fields, so the other protocol errors (an inconsistent total, a gap in
@@ -898,6 +905,7 @@ impl From<ObjectError> for JsonError {
                 else { Self::invalid(error.to_string()) }
             }
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
+            ObjectError::ComposeClassMismatch { .. } => Self::invalid(error.to_string()),
             ObjectError::DerivedTransferIncomplete => {
                 Self::invalid_argument("Derived transfer is incomplete")
             }

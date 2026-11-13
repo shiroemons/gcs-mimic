@@ -217,10 +217,15 @@ fn obj_range_http_unsatisfiable_empty_and_ignored_ranges() {
         reply.html_or_json_error(416, "requestedRangeNotSatisfiable");
         assert_eq!(reply.headers["content-range"], "bytes */0");
     }
-    let suffix = server.get("", "Range: bytes=-1\r\n");
-    suffix.expect(200);
-    assert!(suffix.body.is_empty());
-    assert!(!suffix.headers.contains_key("content-range"));
+    // A nonzero suffix of an empty object is an empty 206 that reports only the CRC32C
+    // (recorded 2026-11-13).
+    for range in ["bytes=-1", "bytes=-5"] {
+        let suffix = server.get("", &format!("Range: {range}\r\n"));
+        suffix.expect(206);
+        assert!(suffix.body.is_empty());
+        assert_eq!(suffix.headers["content-range"], "bytes 0-0/0");
+        assert_eq!(suffix.headers["x-goog-hash"], "crc32c=AAAAAA==");
+    }
     assert_eq!(server.get("", "").body, b"");
     server.stop();
 }

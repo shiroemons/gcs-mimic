@@ -70,7 +70,15 @@ async fn bad_ranges_poison_sessions_but_small_nonfinal_chunks_remain_retryable()
         .await;
     assert_eq!(large.status, 400);
     assert_eq!(large.body, b"Nonfinal chunk must be a multiple of 256 KiB");
-    for range in ["invalid", "bytes 0-4", "bytes 0/5", "bytes x-4/*"] {
+    // A chunk that overruns its own total fails the session like malformed syntax (recorded
+    // 2026-11-13).
+    for range in [
+        "invalid",
+        "bytes 0-4",
+        "bytes 0/5",
+        "bytes x-4/*",
+        "bytes 0-4/4",
+    ] {
         let init = h.initiate("name=bad-range", "", b"").await;
         let path = h.path(&init);
         for header in [
@@ -91,7 +99,6 @@ async fn bad_ranges_poison_sessions_but_small_nonfinal_chunks_remain_retryable()
 async fn semantic_range_errors_and_duplicate_headers_leave_sessions_retryable() {
     let h = Harness::start(1024 * 1024, Permissive, None).await;
     for header in [
-        "Content-Range: bytes 0-4/4\r\n",
         "Content-Range: bytes 4-0/*\r\n",
         "Content-Range: bytes 0-18446744073709551615/*\r\n",
         "Content-Range: bytes 0-18446744073709551616/*\r\n",

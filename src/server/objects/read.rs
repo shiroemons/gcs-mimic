@@ -130,8 +130,8 @@ async fn media(
     }
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
     let head = request.method() == Method::HEAD;
-    if transcode {
-        return gunzipped(ctx, &record, reader, headers, request.method()).await;
+    if let json::Transcoding::Gunzipped(reason) = transcode {
+        return gunzipped(ctx, &record, reader, headers, request.method(), reason).await;
     }
     let negotiable = json::object_media_negotiable(&record);
     if negotiable {
@@ -172,12 +172,18 @@ async fn media(
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }
+    // A nonzero suffix of an empty object is an empty 206 (recorded 2026-11-13).
+    let empty_suffix = requested_range.is_suffix_of_empty(record.size);
+    if empty_suffix {
+        headers.insert("content-range", HeaderValue::from_static("bytes 0-0/0"));
+        range_hashes(&mut headers, &record, 0, 0)?;
+    }
     let mut response = if head {
         boxed(empty_response(StatusCode::OK))
     } else {
         Response::new(object_body(reader, ctx.activity))
     };
-    if range.is_some() {
+    if range.is_some() || empty_suffix {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
     *response.headers_mut() = headers;
@@ -220,12 +226,20 @@ async fn gunzipped(
     mut reader: ObjectReader,
     mut headers: HeaderMap,
     method: &Method,
+    reason: json::Gunzip,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let head = method == Method::HEAD;
     if !head && gzip::is_plain(&mut reader, record.size).await? {
         return Ok(gzip::plain_body_rejection(headers));
     }
-    gzip::insert_transcoded_headers(&mut headers);
+    match reason {
+        json::Gunzip::NotAccepted => gzip::insert_transcoded_headers(&mut headers),
+        // The JSON API still varies this response on Accept-Encoding (recorded 2026-11-13).
+        json::Gunzip::DespiteAccept => {
+            gzip::insert_gunzipped_despite_accept_headers(&mut headers);
+            gzip::insert_negotiated_vary(&mut headers);
+        }
+    }
     Ok(gzip::response(ctx, record, reader, headers, method))
 }
 

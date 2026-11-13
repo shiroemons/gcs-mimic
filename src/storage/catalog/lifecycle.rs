@@ -680,6 +680,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
         | ObjectError::TooLarge
         | ObjectError::UniformAccessPredefinedAcl
         | ObjectError::InvalidDerivedArgument(_)
+        | ObjectError::ComposeClassMismatch { .. }
         | ObjectError::DerivedTransferNotFound
         | ObjectError::DerivedTransferExpired
         | ObjectError::DerivedTransferBusy

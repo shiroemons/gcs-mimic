@@ -7,6 +7,9 @@ use hyper::{
     body::Body,
     header::{HeaderName, HeaderValue},
 };
+use transfer::PartEncoding;
+
+mod transfer;
 
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
@@ -17,6 +20,47 @@ pub(crate) const FRAMING_LIMIT: u64 = 2 * JSON_CAP as u64 + 256 * 1024;
 
 fn invalid() -> JsonError {
     JsonError::invalid_parameter("Invalid multipart/related framing")
+}
+
+/// A JSON upload body that ended before its closing delimiter: the upload front end answers
+/// with a bare text page.
+fn missing_end_boundary() -> JsonError {
+    let mut error = JsonError::invalid_parameter("Missing end boundary in multipart body.");
+    error.plain = Some(&super::error::MISSING_END_BOUNDARY_TEXT);
+    error
+}
+
+/// A part's trimmed `Content-Type`, if it has one.
+fn part_content_type(headers: &HeaderMap) -> Result<Option<String>, JsonError> {
+    headers
+        .get("content-type")
+        .map(|v| {
+            v.to_str()
+                .map(str::trim)
+                .map(str::to_owned)
+                .map_err(|_| invalid())
+        })
+        .transpose()
+}
+
+/// Requires a metadata or checksum part to be `application/json`, at most with a UTF-8 charset.
+fn json_part_type(value: Option<&str>) -> Result<(), JsonError> {
+    let (mime, params) = content_type(value.ok_or_else(invalid)?)?;
+    if mime != "application/json"
+        || params
+            .iter()
+            .any(|(k, v)| k != "charset" || !v.eq_ignore_ascii_case("utf-8"))
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+/// Whether the body is a JSON multipart/related upload or an XML POST Object form.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flavor {
+    Related,
+    Form,
 }
 
 fn token(value: &str) -> bool {
@@ -262,6 +306,11 @@ pub(crate) struct Multipart<B> {
     /// `CRLF--boundary`, or `LF--boundary` once the framing is `Lf`.
     delimiter: Vec<u8>,
     framing: Framing,
+    flavor: Flavor,
+    /// How the part being read encodes its bytes.
+    encoding: PartEncoding,
+    /// The metadata part's `Content-Type`, named when a third part's type is refused.
+    metadata_type: Option<String>,
     eof: bool,
     closed: bool,
 }
@@ -278,6 +327,11 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     fn with_framing(body: B, boundary: &str, framing: Framing) -> Self {
+        let flavor = if framing == Framing::Detect {
+            Flavor::Related
+        } else {
+            Flavor::Form
+        };
         let mut delimiter = format!("\r\n--{boundary}").into_bytes();
         if framing == Framing::Lf {
             delimiter.remove(0);
@@ -289,6 +343,9 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             buffer: BytesMut::from(&b"\r\n"[..]),
             delimiter,
             framing,
+            flavor,
+            encoding: PartEncoding::Binary,
+            metadata_type: None,
             eof: false,
             closed: false,
         }
@@ -465,33 +522,32 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     pub(crate) async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
-        let headers = self.part_headers().await?;
-        let value = headers
-            .get("content-type")
-            .map(|v| {
-                v.to_str()
-                    .map(str::trim)
-                    .map(str::to_owned)
-                    .map_err(|_| invalid())
-            })
-            .transpose()?;
-        if part == PartKind::Metadata {
-            let (mime, params) = content_type(value.as_deref().ok_or_else(invalid)?)?;
-            if mime != "application/json"
-                || params
-                    .iter()
-                    .any(|(k, v)| k != "charset" || !v.eq_ignore_ascii_case("utf-8"))
-            {
-                return Err(invalid());
+        let headers = self.header_block().await?;
+        let value = part_content_type(&headers)?;
+        let encoding = PartEncoding::try_from(&headers)?;
+        match part {
+            PartKind::Metadata => {
+                encoding.require_binary()?;
+                json_part_type(value.as_deref())?;
             }
-        } else if let Some(value) = &value {
-            content_type(value)?;
+            PartKind::Media => {
+                self.encoding = encoding;
+                if let Some(value) = &value {
+                    content_type(value)?;
+                }
+            }
         }
         Ok(value)
     }
 
     /// Read one bounded part header block; form-data callers need Content-Disposition.
     pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
+        let headers = self.header_block().await?;
+        PartEncoding::try_from(&headers)?.require_binary()?;
+        Ok(headers)
+    }
+
+    async fn header_block(&mut self) -> Result<HeaderMap, JsonError> {
         if self.closed {
             return Err(invalid());
         }
@@ -517,19 +573,24 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Err(invalid());
             }
         }
-        if let Some(value) = headers.get("content-transfer-encoding")
-            && !value
-                .to_str()
-                .map_err(|_| invalid())?
-                .trim()
-                .eq_ignore_ascii_case("binary")
-        {
-            return Err(invalid());
-        }
         Ok(headers)
     }
 
+    /// The next decoded bytes of the current part, or `None` once its delimiter is read.
     pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
+        loop {
+            let Some(raw) = self.raw_chunk().await? else {
+                std::mem::take(&mut self.encoding).finish()?;
+                return Ok(None);
+            };
+            let chunk = self.encoding.decode(raw)?;
+            if !chunk.is_empty() {
+                return Ok(Some(chunk));
+            }
+        }
+    }
+
+    async fn raw_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
         loop {
             if let Some(index) = self.find_delimiter() {
                 if index > 0 {
@@ -543,7 +604,10 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Ok(Some(self.buffer.split_to(length).freeze()));
             }
             if self.eof {
-                return Err(invalid());
+                return Err(match self.flavor {
+                    Flavor::Related => missing_end_boundary(),
+                    Flavor::Form => invalid(),
+                });
             }
             self.fill().await?;
         }
@@ -551,7 +615,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     pub(crate) async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
         self.start().await?;
-        self.headers(PartKind::Metadata).await?;
+        self.metadata_type = self.headers(PartKind::Metadata).await?;
         let mut bytes = Vec::new();
         while let Some(chunk) = self.next_chunk().await? {
             if chunk.len() > JSON_CAP - bytes.len() {
@@ -603,7 +667,21 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         if self.closed {
             return Ok(expected);
         }
-        self.headers(PartKind::Metadata).await?;
+        let headers = self.header_block().await?;
+        PartEncoding::try_from(&headers)?.require_binary()?;
+        let value = part_content_type(&headers)?;
+        if json_part_type(value.as_deref()).is_err() {
+            // Cloud Storage's wording (recorded 2026-11-13 for a text/plain third part).
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "invalidPayloadTypes",
+                format!(
+                    "Multipart writes with three parts must have application/json for the first and final part, but saw {} and {}",
+                    self.metadata_type.as_deref().unwrap_or_default(),
+                    value.as_deref().unwrap_or_default()
+                ),
+            ));
+        }
         let mut bytes = Vec::new();
         while let Some(chunk) = self.next_chunk().await? {
             if chunk.len() > JSON_CAP - bytes.len() {

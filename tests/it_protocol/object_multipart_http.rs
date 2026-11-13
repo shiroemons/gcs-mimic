@@ -825,8 +825,14 @@ fn assert_preserved(server: &Server, dir: &TestDir, original: &Value) {
     no_leaks(dir, 1);
 }
 
+/// How a refused upload answers: a JSON error reason or a bare text page.
+enum Refusal {
+    Reason(&'static str),
+    Text(&'static str),
+}
+
 fn checksum_failures_preserve_existing_generation(
-    cases: impl IntoIterator<Item = (Vec<u8>, &'static str)>,
+    cases: impl IntoIterator<Item = (Vec<u8>, Refusal)>,
 ) {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);
@@ -837,10 +843,12 @@ fn checksum_failures_preserve_existing_generation(
             &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
         )
         .json_ok();
-    for (body, reason) in cases {
-        server
-            .upload("name=existing", &body)
-            .json_reason(400, reason);
+    for (body, refusal) in cases {
+        let reply = server.upload("name=existing", &body);
+        match refusal {
+            Refusal::Reason(reason) => reply.json_reason(400, reason),
+            Refusal::Text(text) => reply.plain_error(400, "text/plain; charset=utf-8", text),
+        }
         assert_preserved(&server, &dir, &original);
     }
 }
@@ -856,7 +864,7 @@ fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
                     b"new",
                     Some(checksums),
                 ),
-                "parseError",
+                Refusal::Reason("parseError"),
             )
         }),
     );
@@ -867,13 +875,70 @@ fn obj_multipart_http_truncated_checksum_part_preserves_existing_generation() {
     let body = wire(br#"{"metadata":{"key":"new"}}"#, None, b"new", Some(b"{}"));
     let close = b"\r\n--boundary--\r\n";
     assert!(body.ends_with(close));
-    checksum_failures_preserve_existing_generation([b"".as_slice(), b"\r\n--boundary\r\n"].map(
-        |ending| {
+    // A body that stops inside a part is a bare text page (recorded 2026-11-13); one that
+    // opens a part it never sends keeps the framing error.
+    checksum_failures_preserve_existing_generation(
+        [
+            (
+                b"".as_slice(),
+                Refusal::Text("Missing end boundary in multipart body."),
+            ),
+            (b"\r\n--boundary\r\n", Refusal::Reason("invalidParameter")),
+        ]
+        .map(|(ending, refusal)| {
             let mut truncated = body[..body.len() - close.len()].to_vec();
             truncated.extend_from_slice(ending);
-            (truncated, "invalidParameter")
-        },
-    ));
+            (truncated, refusal)
+        }),
+    );
+}
+
+#[test]
+fn obj_multipart_http_decodes_a_base64_media_part_and_names_third_part_types() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    // Cloud Storage stores the decoded bytes of a base64 media part (recorded 2026-11-13).
+    let base64 = Some("text/plain\r\nContent-Transfer-Encoding: base64");
+    let stored = server
+        .upload("name=decoded", &wire(b"{}", base64, b"aGVs\r\nbG8=", None))
+        .json_ok();
+    assert_eq!(stored["size"], "5");
+    assert_eq!(stored["md5Hash"], "XUFAKrxLKna5cZ2REBfFkg==");
+    assert_eq!(server.get("decoded?alt=media").body, b"hello");
+    for malformed in [&b"aGVsbG8"[..], b"aGU=aGVs", b"aGV*bG8="] {
+        server
+            .upload("name=bad", &wire(b"{}", base64, malformed, None))
+            .json_reason(400, "invalidParameter");
+        server.get("bad").json_reason(404, "notFound");
+    }
+    // Only the media part may be base64.
+    let encoded_metadata = String::from_utf8(wire(b"{}", None, b"hello", None))
+        .unwrap()
+        .replacen(
+            "charset=UTF-8\r\n",
+            "charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n",
+            1,
+        );
+    server
+        .upload("name=bad", encoded_metadata.as_bytes())
+        .json_reason(400, "invalidParameter");
+    // A third part that is not JSON names both part types (recorded 2026-11-13).
+    let third = String::from_utf8(wire(b"{}", Some("text/plain"), b"hello", Some(b"extra")))
+        .unwrap()
+        .replacen(
+            "Content-Type: application/json\r\n\r\nextra",
+            "Content-Type: text/plain\r\n\r\nextra",
+            1,
+        );
+    let refused = server
+        .upload("name=bad", third.as_bytes())
+        .json_reason_value(400, "invalidPayloadTypes");
+    assert_eq!(
+        refused["error"]["message"],
+        "Multipart writes with three parts must have application/json for the first and final part, but saw application/json; charset=UTF-8 and text/plain"
+    );
+    server.get("bad").json_reason(404, "notFound");
 }
 
 #[test]
@@ -895,7 +960,6 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
         b"--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--".to_vec(),
         b"--boundary\r\nContent-Type: text/plain\r\n\r\n{}\r\n--boundary--".to_vec(),
         b"--boundary\r\ninvalid header\r\n\r\n{}\r\n--boundary--".to_vec(),
-        missing_close,
         four_parts,
     ] {
         let reply = server.upload("name=bad", &body);
@@ -908,6 +972,14 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
         server.get("bad").json_reason(404, "notFound");
         no_leaks(&dir, 0);
     }
+    // A body without its closing delimiter is a bare text page (recorded 2026-11-13).
+    server.upload("name=bad", &missing_close).plain_error(
+        400,
+        "text/plain; charset=utf-8",
+        "Missing end boundary in multipart body.",
+    );
+    server.get("bad").json_reason(404, "notFound");
+    no_leaks(&dir, 0);
     // A body that is not declared multipart is stored as a media upload (recorded), so only
     // multipart types with a broken boundary are refused here.
     for headers in [
@@ -944,9 +1016,10 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
             "Content-Type: text/plain\r\n",
             1,
         );
+    // A non-JSON third part is refused with Cloud Storage's reason (recorded 2026-11-13).
     server
         .upload("name=bad", wrong_type.as_bytes())
-        .json_reason(400, "invalidParameter");
+        .json_reason(400, "invalidPayloadTypes");
     for length in [JSON_PART_LIMIT, JSON_PART_LIMIT + 1] {
         let original = server.get("final").body;
         let mut value = b"{}".to_vec();

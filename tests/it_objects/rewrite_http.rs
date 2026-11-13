@@ -283,8 +283,10 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
             .request("POST", &format!("{path}&{query}"), ADMIN, b"")
             .json_reason(400, "invalid");
     }
+    // `{}` means no resource, like the empty body the session started with; a real resource
+    // changes the body the token is bound to.
     server
-        .request("POST", &path, ADMIN, b"{}")
+        .request("POST", &path, ADMIN, br#"{"metadata":{"k":"v"}}"#)
         .json_reason(400, "invalid");
     server
         .request(
@@ -736,14 +738,26 @@ fn rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_ta
 fn rewrite_metadata_checksums_validate_and_identity_is_path_selected() {
     let (_dir, server, payload, source) = setup(false, 23);
     let previous = server.put("destination", b"previous").json_ok();
-    for body in [
-        json!({"md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}),
-        json!({"crc32c":"AAAAAA=="}),
-    ] {
-        server
-            .request("POST", BASE, ADMIN, body.to_string().as_bytes())
-            .json_reason(400, "invalid");
-        assert_eq!(server.get("destination").json_ok(), previous);
+    server
+        .request("POST", BASE, ADMIN, br#"{"crc32c":"AAAAAA=="}"#)
+        .json_reason(400, "invalid");
+    assert_eq!(server.get("destination").json_ok(), previous);
+    // Cloud Storage ignores a supplied size and md5Hash on rewrite and completes with the
+    // source's values (recorded 2026-11-13).
+    let ignored = server
+        .request(
+            "POST",
+            BASE,
+            ADMIN,
+            br#"{"size":"999","md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}"#,
+        )
+        .json_ok();
+    assert_eq!(ignored["resource"]["size"], source["size"]);
+    assert_eq!(ignored["resource"]["md5Hash"], source["md5Hash"]);
+    // A null or empty metadata map, like a blank body, inherits the source metadata.
+    for body in [&br#"{"metadata":null}"#[..], br#"{"metadata":{}}"#, b" "] {
+        let kept = server.request("POST", BASE, ADMIN, body).json_ok();
+        assert_eq!(kept["resource"]["contentType"], source["contentType"]);
     }
     let body = json!({"kind":"storage#object","name":"ignored","bucket":"ignored","md5Hash":source["md5Hash"],"crc32c":source["crc32c"],"contentType":"application/x-rewrite","metadata":{"team":"雪"}});
     let completed = server

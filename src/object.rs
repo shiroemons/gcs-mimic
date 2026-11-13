@@ -746,6 +746,11 @@ pub(crate) enum ObjectError {
     UniformAccessPredefinedAcl,
     Metadata(crate::metadata_error::MetadataError),
     InvalidDerivedArgument(String),
+    /// A compose destination named a storage class its components do not share.
+    ComposeClassMismatch {
+        requested: StorageClass,
+        sources: StorageClass,
+    },
     DerivedTransferNotFound,
     DerivedTransferExpired,
     DerivedTransferBusy,
@@ -796,6 +801,13 @@ impl fmt::Display for ObjectError {
             }
             Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
+            // Cloud Storage's wording (recorded 2026-11-13).
+            Self::ComposeClassMismatch { requested, sources } => write!(
+                formatter,
+                "Cannot compose object with destination storage class {} from source components that have different storage classes ({}).",
+                requested.as_str(),
+                sources.as_str()
+            ),
             Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),
             Self::DerivedTransferExpired => formatter.write_str("derived transfer expired"),
             Self::DerivedTransferBusy => formatter.write_str("derived transfer is already in use"),

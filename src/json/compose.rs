@@ -1,4 +1,5 @@
 use crate::{
+    bucket::StorageClass,
     json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
 };
@@ -82,10 +83,12 @@ pub(crate) fn route(
 pub struct ComposeRequest {
     pub sources: Vec<ComposeSource>,
     pub destination: ObjectMetadataUpdate,
+    /// The destination class the request names; it must match every component's class.
+    pub storage_class: Option<StorageClass>,
     pub delete_sources: bool,
 }
 
-pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRequest, JsonError> {
+pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     let body = object(&value, "Compose request")?;
@@ -131,9 +134,11 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
         .iter()
         .map(parse_source)
         .collect::<Result<_, JsonError>>()?;
+    let (destination, storage_class) = destination_metadata(body, bucket)?;
     Ok(ComposeRequest {
         sources,
-        destination: destination_metadata(body, bucket, name)?,
+        destination,
+        storage_class,
         delete_sources,
     })
 }
@@ -166,23 +171,29 @@ fn parse_source(value: &Value) -> Result<ComposeSource, JsonError> {
     })
 }
 
-/// The destination resource's metadata. Its bucket, name and kind must match the request.
+/// The destination resource's metadata and requested class. Its bucket and kind must match
+/// the request.
 fn destination_metadata(
     body: &Map<String, Value>,
     bucket: &str,
-    name: &str,
-) -> Result<ObjectMetadataUpdate, JsonError> {
+) -> Result<(ObjectMetadataUpdate, Option<StorageClass>), JsonError> {
     let mut destination = body
         .get("destination")
         .filter(|value| !value.is_null())
         .map(|value| object(value, "Destination object").cloned())
         .transpose()?
         .unwrap_or_default();
-    for (key, expected) in [
-        ("bucket", bucket),
-        ("name", name),
-        ("kind", "storage#object"),
-    ] {
+    // The path names the destination: Cloud Storage composes at the path name even when the
+    // destination resource names another object (recorded 2026-11-13).
+    if destination
+        .remove("name")
+        .is_some_and(|value| !value.is_string())
+    {
+        return Err(JsonError::invalid_argument(
+            "Destination name must be a string",
+        ));
+    }
+    for (key, expected) in [("bucket", bucket), ("kind", "storage#object")] {
         if let Some(value) = destination.remove(key)
             && value.as_str() != Some(expected)
         {
@@ -194,6 +205,20 @@ fn destination_metadata(
     // The JSON composite-object guide explicitly ignores supplied destination hashes.
     destination.remove("md5Hash");
     destination.remove("crc32c");
+    // Cloud Storage passes over an output-only generation and size and judges the requested
+    // class against the components instead (recorded 2026-11-13).
+    destination.remove("generation");
+    destination.remove("size");
+    let storage_class = destination
+        .remove("storageClass")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            let class = value
+                .as_str()
+                .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string"))?;
+            crate::object::validate_object_storage_class(class).map_err(JsonError::from)
+        })
+        .transpose()?;
     let metadata = parse_object_metadata(
         &Value::Object(destination).to_string().into_bytes(),
         WriteMode::Replace,
@@ -231,7 +256,7 @@ fn destination_metadata(
     {
         return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
     }
-    Ok(metadata.update)
+    Ok((metadata.update, storage_class))
 }
 
 fn object<'a>(value: &'a Value, label: &str) -> Result<&'a Map<String, Value>, JsonError> {

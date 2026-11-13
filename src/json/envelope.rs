@@ -137,8 +137,10 @@ pub(crate) fn apply<B>(
     // The upload front end answers its own protocol failures with a bare `text/plain` page:
     // none of the JSON API fields apply, and the CORS `Vary` added while routing is not
     // sent either (recorded for session status, range, unknown-session and `uploadType`
-    // failures).
-    if call == Call::UploadFrontEnd
+    // failures, and for a multipart body without its closing delimiter). A resumable
+    // initiation's `text/plain` success keeps them.
+    let front_end_failure = path.starts_with("/upload/") && status.is_client_error();
+    if (call == Call::UploadFrontEnd || front_end_failure)
         && content_type.is_some_and(|value| value.starts_with("text/plain"))
     {
         headers.remove(header::VARY);
@@ -335,19 +337,42 @@ mod tests {
 
     #[test]
     fn upload_front_end_text_replies_carry_no_cache_fields_or_vary() {
-        for status in [StatusCode::PERMANENT_REDIRECT, StatusCode::BAD_REQUEST] {
-            let mut reply = text_response(status, "text/plain; charset=utf-8");
-            apply(
-                &Method::PUT,
-                "/upload/storage/v1/b/x/o",
+        // A multipart upload with a boundary is a `Metadata` call whose framing failure is
+        // still a front-end text page.
+        for (call, statuses) in [
+            (
                 Call::UploadFrontEnd,
-                UNIX_EPOCH,
-                &mut reply,
-            );
-            for name in ["cache-control", "expires", "pragma", "vary"] {
-                assert_eq!(header(&reply, name), None, "{name} on {status}");
+                &[StatusCode::PERMANENT_REDIRECT, StatusCode::BAD_REQUEST][..],
+            ),
+            (Call::Metadata, &[StatusCode::BAD_REQUEST]),
+        ] {
+            for &status in statuses {
+                let mut reply = text_response(status, "text/plain; charset=utf-8");
+                apply(
+                    &Method::PUT,
+                    "/upload/storage/v1/b/x/o",
+                    call,
+                    UNIX_EPOCH,
+                    &mut reply,
+                );
+                for name in ["cache-control", "expires", "pragma", "vary"] {
+                    assert_eq!(header(&reply, name), None, "{name} on {status}");
+                }
             }
         }
+    }
+
+    #[test]
+    fn resumable_initiation_text_replies_keep_vary() {
+        let mut reply = text_response(StatusCode::OK, "text/plain; charset=utf-8");
+        apply(
+            &Method::POST,
+            "/upload/storage/v1/b/x/o",
+            Call::Metadata,
+            UNIX_EPOCH,
+            &mut reply,
+        );
+        assert_eq!(header(&reply, "vary"), Some(VARY));
     }
 
     #[test]

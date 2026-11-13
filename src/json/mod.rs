@@ -51,7 +51,9 @@ pub(crate) use buckets::{
     validate_bucket_name,
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
-pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
+pub(crate) use derived_metadata::{
+    DestinationLocation, derived_component_count, derived_metadata, derived_resource,
+};
 pub(crate) use envelope::{
     Call as EnvelopeCall, apply as apply_envelope, etag_header, forbid_caching,
 };
@@ -81,8 +83,9 @@ pub(crate) use objects::revision_etag;
 #[cfg(test)]
 pub(crate) use objects::route_object;
 pub(crate) use objects::{
-    EtagConditions, base64, decode_hash, object_etag, object_media_negotiable,
-    object_media_transcoding, validate_read_condition_headers,
+    EtagConditions, Gunzip, Transcoding, base64, decode_hash, object_double_compressed,
+    object_etag, object_media_negotiable, object_media_transcoding,
+    validate_read_condition_headers,
 };
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,

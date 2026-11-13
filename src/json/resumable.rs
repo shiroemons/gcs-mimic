@@ -366,11 +366,19 @@ pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
 
 enum RangeError {
     Syntax,
+    /// A chunk whose last byte lies at or past the total it declares.
+    Overrun,
     Semantic,
 }
 
-pub(crate) fn range_has_syntax_error(headers: &HeaderMap) -> bool {
-    matches!(parse_range(headers), Err(RangeError::Syntax))
+/// Whether the `Content-Range` fails the whole JSON session, not just this request: malformed
+/// syntax, and a chunk that overruns its own total (recorded 2026-11-13: every later request on
+/// the session got the same text page and no object was created).
+pub(crate) fn range_fails_session(headers: &HeaderMap) -> bool {
+    matches!(
+        parse_range(headers),
+        Err(RangeError::Syntax | RangeError::Overrun)
+    )
 }
 
 fn range_unsigned(value: &str) -> Result<u64, RangeError> {
@@ -403,8 +411,11 @@ fn parse_range(headers: &HeaderMap) -> Result<Option<Range>, RangeError> {
                 return Ok(Range::Open { start, total });
             }
             let (start, end) = (range_unsigned(start)?, range_unsigned(end)?);
-            if end < start || end == u64::MAX || total.is_some_and(|n| end >= n) {
+            if end < start || end == u64::MAX {
                 return Err(RangeError::Semantic);
+            }
+            if total.is_some_and(|n| end >= n) {
+                return Err(RangeError::Overrun);
             }
             Ok(Range::Data { start, end, total })
         })

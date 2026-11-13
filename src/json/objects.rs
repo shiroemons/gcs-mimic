@@ -718,7 +718,31 @@ pub(crate) fn range_request(headers: &HeaderMap) -> RangeRequest<'_> {
     }
 }
 
+/// A range position. Saturation preserves comparisons with the bounded object size for
+/// arbitrarily large numerals.
+fn range_number(value: &str) -> Option<u64> {
+    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
+        value.bytes().fold(0_u64, |n, byte| {
+            n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
+        })
+    })
+}
+
 impl RangeRequest<'_> {
+    /// Whether this is a nonzero suffix range (`bytes=-N`) of an empty object. `resolve`
+    /// ignores it, as RFC 9110 permits; the JSON API answers it with an empty `206`.
+    pub(crate) fn is_suffix_of_empty(self, size: u64) -> bool {
+        let Self::Single(range) = self else {
+            return false;
+        };
+        size == 0
+            && range
+                .trim()
+                .strip_prefix('-')
+                .and_then(range_number)
+                .is_some_and(|suffix| suffix != 0)
+    }
+
     pub(crate) fn resolve(self, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
         let Self::Single(range) = self else {
             return Ok(None);
@@ -726,16 +750,8 @@ impl RangeRequest<'_> {
         let Some((first, last)) = range.trim().split_once('-') else {
             return Ok(None);
         };
-        // Saturation preserves comparisons with the bounded object size for arbitrarily large numerals.
-        let number = |value: &str| {
-            (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
-                value.bytes().fold(0_u64, |n, byte| {
-                    n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
-                })
-            })
-        };
         let (offset, end) = if first.is_empty() {
-            let Some(suffix) = number(last) else {
+            let Some(suffix) = range_number(last) else {
                 return Ok(None);
             };
             // RFC 9110 permits ignoring an empty representation's satisfiable nonzero suffix.
@@ -751,12 +767,12 @@ impl RangeRequest<'_> {
             {
                 return Ok(None);
             }
-            let Some(first) = number(first) else {
+            let Some(first) = range_number(first) else {
                 return Ok(None);
             };
             let last = if last.is_empty() {
                 u64::MAX
-            } else if let Some(last) = number(last) {
+            } else if let Some(last) = range_number(last) {
                 last
             } else {
                 return Ok(None);
@@ -985,14 +1001,54 @@ pub(crate) fn object_media_negotiable(object: &ObjectRecord) -> bool {
         })
 }
 
+/// Whether a negotiable object is typed `application/gzip` as well as gzip-encoded: the doubly
+/// compressed form the transcoding guide warns about. Cloud Storage gunzips it for every
+/// client, one that accepts gzip included (recorded 2026-11-13).
+pub(crate) fn object_double_compressed(object: &ObjectRecord) -> bool {
+    object_media_negotiable(object)
+        && object
+            .content_type
+            .split(';')
+            .next()
+            .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/gzip"))
+}
+
+/// How a media read serves the object's stored bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transcoding {
+    /// The stored bytes, compressed or not.
+    Stored,
+    Gunzipped(Gunzip),
+}
+
+/// Why a media read gunzips the stored bytes; each reason sends its own headers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Gunzip {
+    /// The client does not accept gzip.
+    NotAccepted,
+    /// A doubly compressed object, which a client that accepts gzip receives gunzipped too.
+    DespiteAccept,
+}
+
 /// Select gzip expansion while honoring explicit quality overrides and no-transform.
 pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
-) -> Result<bool, JsonError> {
+) -> Result<Transcoding, JsonError> {
     if !object_media_negotiable(object) {
-        return Ok(false);
+        return Ok(Transcoding::Stored);
     }
+    Ok(
+        match (accepts_gzip(headers)?, object_double_compressed(object)) {
+            (false, _) => Transcoding::Gunzipped(Gunzip::NotAccepted),
+            (true, true) => Transcoding::Gunzipped(Gunzip::DespiteAccept),
+            (true, false) => Transcoding::Stored,
+        },
+    )
+}
+
+/// Whether `Accept-Encoding` admits gzip, directly or through `*`.
+fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
     let mut gzip = None;
     let mut wildcard = None;
     for header in headers.get_all("accept-encoding") {
@@ -1044,7 +1100,7 @@ pub(crate) fn object_media_transcoding(
             }
         }
     }
-    Ok(!gzip.or(wildcard).unwrap_or(false))
+    Ok(gzip.or(wildcard).unwrap_or(false))
 }
 
 /// The JSON API validator of one object generation. It carries no content hash, so a keyless

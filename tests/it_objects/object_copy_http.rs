@@ -329,6 +329,13 @@ fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
     assert_eq!(empty["metadata"], copied["metadata"]);
     assert_eq!(empty["contentType"], copied["contentType"]);
+    // A blank body and a null or empty metadata map inherit too (recorded 2026-11-13).
+    for body in [&b" "[..], br#"{"metadata":null}"#, br#"{"metadata":{}}"#] {
+        let kept = copy(&server, "dir%2F%E7%8C%AB%252F", "kept", "", body).json_ok();
+        assert_eq!(kept["metadata"], copied["metadata"]);
+        assert_eq!(kept["contentType"], copied["contentType"]);
+        assert_eq!(kept["contentLanguage"], copied["contentLanguage"]);
+    }
     assert_eq!(
         server.get("dir%2F%E7%8C%AB%252F").json_ok()["eventBasedHold"],
         true
@@ -587,10 +594,13 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         br#"{"temporaryHold":true}"#,
         br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         br#"{"retention":{}}"#,
-        br#"{"generation":"1"}"#,
+        br#"{"name":"target","generation":"1"}"#,
     ] {
         copy(&server, "source", "target", "", body).json_reason(400, "badRequest");
     }
+    // Cloud Storage asks for a name when the resource names only a generation (recorded
+    // 2026-11-13).
+    copy(&server, "source", "target", "", br#"{"generation":"1"}"#).json_reason(400, "required");
     copy(&server, "source", "target", "", b"invalid").json_reason(400, "invalid");
     copy(&server, "missing", "target", "", b"").json_reason(404, "notFound");
     server

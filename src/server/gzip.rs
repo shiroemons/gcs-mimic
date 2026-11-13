@@ -71,6 +71,21 @@ pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
     );
 }
 
+/// A doubly compressed object gunzipped for a client that accepts gzip: Cloud Storage sends it
+/// with `accept-ranges: none` and neither a validator nor the gunzipped markers (recorded
+/// 2026-11-13 on the JSON API).
+pub(super) fn insert_gunzipped_despite_accept_headers(headers: &mut HeaderMap) {
+    for name in [
+        "content-encoding",
+        "content-length",
+        "content-range",
+        "etag",
+    ] {
+        headers.remove(name);
+    }
+    headers.insert("accept-ranges", HeaderValue::from_static("none"));
+}
+
 /// A stored-gzip object is either sent compressed or gunzipped depending on the client's
 /// `Accept-Encoding`, so caches must key its response on that field. The JSON API sends the
 /// field only on the compressed response and never on a gunzipped one; the XML API sends it

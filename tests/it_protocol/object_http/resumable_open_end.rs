@@ -170,6 +170,38 @@ fn open_range_resumes_after_a_persisted_prefix_without_rewriting_it() {
 }
 
 #[test]
+fn a_chunk_that_overruns_its_total_fails_the_session() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1_000_000, 5000);
+    server.bucket();
+    let path = session(&server, "overrun", "");
+    // Every later request on the session gets the same page and no object is created
+    // (recorded 2026-11-13).
+    for (range, body) in [
+        ("bytes 0-9/5", &b"0123456789"[..]),
+        ("bytes */*", b""),
+        ("bytes */0", b""),
+        ("bytes 0-4/5", b"hello"),
+    ] {
+        put(&server, &path, range, body).plain_error(
+            400,
+            "text/plain; charset=utf-8",
+            "Failed to parse Content-Range header.",
+        );
+    }
+    server.get("overrun").expect(404);
+    // An open range past its total is refused without failing the session.
+    let path = session(&server, "open", "");
+    put_chunked(&server, &path, "bytes 6-*/5", b"abc").plain_error(
+        400,
+        "text/plain; charset=utf-8",
+        "Failed to parse Content-Range header.",
+    );
+    completed(&put(&server, &path, "bytes 0-4/5", b"hello"));
+    assert_eq!(media(&server, "open"), b"hello");
+}
+
+#[test]
 fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1_000_000, 5000);
