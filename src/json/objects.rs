@@ -296,10 +296,10 @@ fn take_common_parameters(
     method: &Method,
     query: &mut BTreeMap<String, String>,
 ) -> Result<Option<String>, JsonError> {
-    if method == Method::DELETE {
+    // A media download has no JSON body to select from: Cloud Storage returned the object bytes
+    // for `alt=media&fields=name` (case obj-fields-selectors).
+    if method == Method::DELETE || query.get("alt").is_some_and(|alt| alt == "media") {
         query.remove("fields");
-    } else if query.contains_key("fields") && query.get("alt").is_some_and(|v| v == "media") {
-        return Err(JsonError::unsupported_object("fields with alt=media"));
     } else {
         super::Fields::take(query, "Object")?;
     }
