@@ -40,6 +40,16 @@ async fn current(catalog: &Catalog, name: &str) -> ObjectRecord {
         .unwrap()
 }
 
+async fn put_data(catalog: &Catalog, name: &str, data: &'static [u8]) -> ObjectRecord {
+    catalog
+        .put_object(
+            permissive_upload("bucket", name, 100),
+            body(vec![Bytes::from_static(data)]),
+        )
+        .await
+        .unwrap()
+}
+
 async fn put_class(catalog: &Catalog, name: &str, class: StorageClass) -> ObjectRecord {
     let mut upload = permissive_upload("bucket", name, 100);
     upload.metadata.storage_class = Some(class);
@@ -825,6 +835,89 @@ async fn each_chained_action_counts_toward_the_pass_limit_and_resumes_next_pass(
         Some(clock.now() + COALESCE),
     );
     assert_eq!(count(&catalog, "SELECT count(*) FROM objects").await, 0);
+    catalog.close().await.unwrap();
+}
+
+/// The sweep hands each version's creation, custom-time, noncurrent and size facts to transitions
+/// exactly as it does to Delete; prefixes keep every rule to its own objects.
+#[tokio::test]
+async fn transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts() {
+    let coldline = |prefix: &str, condition: Value| {
+        let mut condition = condition;
+        condition["matchesPrefix"] = json!([prefix]);
+        transition(StorageClass::Coldline, condition)
+    };
+    let (catalog, clock) = versioned(vec![
+        coldline("created/", json!({"createdBefore":"1970-01-03"})),
+        coldline("size/", json!({"sizeAboveBytes":4})),
+        coldline("custom/", json!({"daysSinceCustomTime":1})),
+        coldline("noncurrent/", json!({"daysSinceNoncurrentTime":1})),
+    ])
+    .await;
+    let start = clock.now();
+    put_data(&catalog, "created/object", b"data").await;
+    put_data(&catalog, "size/large", b"large").await;
+    put_data(&catalog, "size/exact", b"data").await;
+    put_data(&catalog, "custom/unset", b"data").await;
+    put_data(&catalog, "custom/dated", b"data").await;
+    catalog
+        .update_object_metadata(
+            live("bucket", "custom/dated"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                custom_time: Some(Some("1970-01-02T00:00:00Z".into())),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let archived = put_data(&catalog, "noncurrent/object", b"data").await;
+    let live_version = put_data(&catalog, "noncurrent/object", b"data").await;
+
+    // Calendar and size conditions match at once; day counts wait for their deadline.
+    assert_eq!(execute(&catalog).await.transitioned, 2);
+    for (name, expected) in [
+        ("created/object", StorageClass::Coldline),
+        ("size/large", StorageClass::Coldline),
+        ("size/exact", StorageClass::Standard),
+    ] {
+        assert_eq!(
+            current(&catalog, name).await.storage_class,
+            expected,
+            "{name}"
+        );
+    }
+    let due = start + DAY;
+    clock.set(due - MICROSECOND);
+    assert_eq!(execute(&catalog).await.transitioned, 0);
+    assert_eq!(
+        current(&catalog, "custom/dated").await.storage_class,
+        StorageClass::Standard
+    );
+    clock.set(due);
+    assert_eq!(execute(&catalog).await.transitioned, 2);
+    for (target, expected) in [
+        (live("bucket", "custom/dated"), StorageClass::Coldline),
+        (live("bucket", "custom/unset"), StorageClass::Standard),
+        (
+            version("bucket", "noncurrent/object", archived.generation),
+            StorageClass::Coldline,
+        ),
+        (
+            version("bucket", "noncurrent/object", live_version.generation),
+            StorageClass::Standard,
+        ),
+    ] {
+        let found = catalog
+            .get_object(target, Default::default(), PERMISSIVE)
+            .await
+            .unwrap();
+        assert_eq!(found.storage_class, expected, "{}", found.name);
+    }
+    clock.advance(10 * DAY);
+    assert_eq!(execute(&catalog).await.transitioned, 0);
     catalog.close().await.unwrap();
 }
 

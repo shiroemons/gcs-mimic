@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::time::UNIX_EPOCH;
 
 mod safety;
+mod transitions;
 
 const MICROSECOND: Duration = Duration::from_micros(1);
 const DAY: Duration = Duration::from_secs(86_400);

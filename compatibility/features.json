@@ -33420,9 +33420,12 @@
         },
         {
           "id": "storage-class-execution",
-          "description": "Waiting for the SetStorageClass execution slice to apply age and creation-date conditions to class transitions.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "SetStorageClass transitions apply age deadlines (including the zero-age UTC midnight) and strict createdBefore dates exactly as Delete does, in evaluation and in the catalog sweep.",
+          "result": "PASS",
+          "test_ids": [
+            "transitions_apply_age_and_creation_date_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
         },
         {
           "id": "provider-propagation",
@@ -33432,6 +33435,8 @@
         }
       ],
       "test_ids": [
+        "transitions_apply_age_and_creation_date_conditions",
+        "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts",
         "age_uses_the_creation_instant_to_the_microsecond",
         "zero_age_waits_for_the_next_utc_midnight_including_midnight_creation",
         "overflowing_day_counts_never_match_or_schedule_a_deadline",
@@ -33450,6 +33455,16 @@
         "combined_time_conditions_use_the_latest_deadline_and_rules_use_the_earliest"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- transitions_use_each_versions bucket::lifecycle::evaluate::tests::transitions",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "src/bucket/lifecycle/evaluate/tests/transitions.rs",
+          "test_ids": [
+            "transitions_apply_age_and_creation_date_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
+        },
         {
           "command": "cargo test --lib lifecycle",
           "result": "PASS",
@@ -33493,7 +33508,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Delete runs through a deterministic injected-clock model. Supported storage-class transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without promoting this row's condition-only evidence into transition coverage. Multipart initiation-age execution is covered separately by BEHAVIOR-LIFECYCLE-004; provider propagation/timing remains unverified. Age zero follows the guide's next UTC midnight instead of the pinned protobuf's immediate-match description; the source conflict is recorded in docs/en/slices/lifecycle-execution-research.md. Waiting until the following day when creation is exactly at midnight remains a local choice without real-cloud verification."
+        "Delete runs through a deterministic injected-clock model. Supported storage-class transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, and this row's age and creation-date boundaries are also verified on transitions. Multipart initiation-age execution is covered separately by BEHAVIOR-LIFECYCLE-004; provider propagation/timing remains unverified. Age zero follows the guide's next UTC midnight instead of the pinned protobuf's immediate-match description; the source conflict is recorded in docs/en/slices/lifecycle-execution-research.md. Waiting until the following day when creation is exactly at midnight remains a local choice without real-cloud verification."
       ],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
@@ -33573,9 +33588,12 @@
         },
         {
           "id": "storage-class-execution",
-          "description": "Waiting for the SetStorageClass execution slice to apply custom-time conditions to class transitions.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "SetStorageClass transitions apply daysSinceCustomTime deadlines for past, present and future custom times, never match without custom time, and apply strict customTimeBefore dates, in evaluation and in the catalog sweep.",
+          "result": "PASS",
+          "test_ids": [
+            "transitions_apply_custom_time_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
         },
         {
           "id": "provider-timing",
@@ -33585,6 +33603,8 @@
         }
       ],
       "test_ids": [
+        "transitions_apply_custom_time_conditions",
+        "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts",
         "custom_time_days_require_metadata_and_preserve_future_and_past_boundaries",
         "before_date_conditions_are_strict_at_utc_midnight",
         "overflowing_day_counts_never_match_or_schedule_a_deadline",
@@ -33595,6 +33615,16 @@
         "overflowing_days_never_delete_or_schedule_catalog_work"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- transitions_use_each_versions bucket::lifecycle::evaluate::tests::transitions",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "src/bucket/lifecycle/evaluate/tests/transitions.rs",
+          "test_ids": [
+            "transitions_apply_custom_time_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
+        },
         {
           "command": "cargo test --lib bucket::lifecycle",
           "result": "PASS",
@@ -33630,7 +33660,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tested Custom-Time Delete subset executes under deterministic local scheduling, including zero days, past metadata and strict date boundaries. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003; this row does not claim transition coverage for every Custom-Time boundary. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept Custom-Time conditions. Provider propagation/timing remains unverified."
+        "The tested Custom-Time Delete subset executes under deterministic local scheduling, including zero days, past metadata and strict date boundaries. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003; this row's Custom-Time boundaries are also verified on transitions. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept Custom-Time conditions. Provider propagation/timing remains unverified."
       ],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
@@ -33726,12 +33756,17 @@
         },
         {
           "id": "storage-class-execution",
-          "description": "Waiting for the SetStorageClass execution slice to apply version-state, count and noncurrent-time conditions to transitions.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "SetStorageClass transitions apply isLive, inclusive numNewerVersions, daysSinceNoncurrentTime deadlines that never match live versions, and strict noncurrentTimeBefore dates, in evaluation and in the catalog sweep.",
+          "result": "PASS",
+          "test_ids": [
+            "transitions_apply_version_state_count_and_noncurrent_time_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
         }
       ],
       "test_ids": [
+        "transitions_apply_version_state_count_and_noncurrent_time_conditions",
+        "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts",
         "live_condition_distinguishes_live_and_noncurrent_facts",
         "newer_version_threshold_counts_live_and_noncurrent_versions_inclusively",
         "noncurrent_days_start_at_the_transition_instant_and_never_match_live_versions",
@@ -33746,6 +33781,16 @@
         "overflowing_days_never_delete_or_schedule_catalog_work"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib -- transitions_use_each_versions bucket::lifecycle::evaluate::tests::transitions",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "src/bucket/lifecycle/evaluate/tests/transitions.rs",
+          "test_ids": [
+            "transitions_apply_version_state_count_and_noncurrent_time_conditions",
+            "transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"
+          ]
+        },
         {
           "command": "cargo test --lib bucket::lifecycle",
           "result": "PASS",
@@ -33785,7 +33830,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Delete runs under deterministic local scheduling, including zero noncurrent days, strict date equality and newer-count boundaries with and without a live version. The sweep excludes soft-deleted versions from newer counts; provider parity remains a documented gap and the mixed soft-deleted count scenario has no dedicated catalog test. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, including known delayed-pass differences after successor removal or overwrite; this row does not claim every condition boundary for transitions. Provider propagation/timing is not simulated."
+        "Delete runs under deterministic local scheduling, including zero noncurrent days, strict date equality and newer-count boundaries with and without a live version. The sweep excludes soft-deleted versions from newer counts; provider parity remains a documented gap and the mixed soft-deleted count scenario has no dedicated catalog test. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, including known delayed-pass differences after successor removal or overwrite; this row's version-state, count and noncurrent-time boundaries are also verified on transitions. Provider propagation/timing is not simulated."
       ],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
@@ -34043,22 +34088,23 @@
         {"id":"sweep-large-thresholds","description":"A real four-byte body matches sizeBelowBytes but not sizeAboveBytes with thresholds at 5 TiB and one byte below the limit.","result":"PASS","test_ids":["small_bodies_compare_against_thresholds_at_and_near_five_tebibytes"]},
         {"id":"sweep-recorded-size-limit","description":"Test-only SQL size records at 5 TiB and each adjacent byte prove strict sweep comparisons at that threshold; bodies remain four bytes, including the synthetic above-limit record.","result":"PASS","test_ids":["catalog_sizes_around_five_tebibytes_use_small_bodies_and_strict_comparisons"]},
         {"id":"large-body-size-publication","description":"Depends on large-upload evidence: no actual 5 TiB body was uploaded, so correct size publication and lifecycle processing after a real limit-sized upload remain unproven here.","result":"PENDING","test_ids":[]},
-        {"id":"storage-class-execution","description":"Waiting for the SetStorageClass execution slice to apply size conditions to class transitions.","result":"PENDING","test_ids":[]},
+        {"id":"storage-class-execution","description":"SetStorageClass transitions apply strict sizeAboveBytes and sizeBelowBytes comparisons on data bytes, alone and combined up to 5 TiB, in evaluation and in the catalog sweep.","result":"PASS","test_ids":["transitions_apply_strict_size_conditions","transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"]},
         {"id":"provider-propagation","description":"Needs authorized real-provider evidence for configuration propagation and asynchronous size-conditioned action timing; local sweep evidence is a simulation.","result":"PENDING","test_ids":[]}
       ],
-      "test_ids": ["size_conditions_use_strict_data_byte_comparisons","lifecycle_size_accepts_int64_strings_and_numbers_through_five_tebibytes","lifecycle_size_rejects_out_of_range_or_non_int64_values","bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_core_settings_round_trip","grpc_lifecycle_refuses_size_conditions_instead_of_dropping_them","lifecycle_size_normalizes_decimal_spelling_before_storage","grpc_lifecycle_sizes_only_block_reads_that_request_lifecycle","grpc_lifecycle_size_rejection_precedes_bucket_updates_and_retention_lock","grpc_lifecycle_precheck_rejects_concurrent_size_rules_without_its_own_mutation","grpc_lifecycle_precheck_retries_only_implicit_matches","grpc_lifecycle_precheck_stops_after_three_conflicts","name_lists_and_strict_size_conditions_use_published_names_and_data_bytes",
+      "test_ids": ["transitions_apply_strict_size_conditions","transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts","size_conditions_use_strict_data_byte_comparisons","lifecycle_size_accepts_int64_strings_and_numbers_through_five_tebibytes","lifecycle_size_rejects_out_of_range_or_non_int64_values","bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_core_settings_round_trip","grpc_lifecycle_refuses_size_conditions_instead_of_dropping_them","lifecycle_size_normalizes_decimal_spelling_before_storage","grpc_lifecycle_sizes_only_block_reads_that_request_lifecycle","grpc_lifecycle_size_rejection_precedes_bucket_updates_and_retention_lock","grpc_lifecycle_precheck_rejects_concurrent_size_rules_without_its_own_mutation","grpc_lifecycle_precheck_retries_only_implicit_matches","grpc_lifecycle_precheck_stops_after_three_conflicts","name_lists_and_strict_size_conditions_use_published_names_and_data_bytes",
         "stored_body_sizes_use_strict_thresholds_at_equality_and_each_adjacent_byte",
         "small_bodies_compare_against_thresholds_at_and_near_five_tebibytes",
         "catalog_sizes_around_five_tebibytes_use_small_bodies_and_strict_comparisons"
       ],
       "verification": [
+        {"command":"cargo test --locked --lib -- transitions_use_each_versions bucket::lifecycle::evaluate::tests::transitions","result":"PASS","verified_at":"2026-11-13","artifact":"src/bucket/lifecycle/evaluate/tests/transitions.rs","test_ids":["transitions_apply_strict_size_conditions","transitions_use_each_versions_creation_custom_time_noncurrent_and_size_facts"]},
         {"command":"cargo test --lib lifecycle","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["size_conditions_use_strict_data_byte_comparisons","lifecycle_size_accepts_int64_strings_and_numbers_through_five_tebibytes","lifecycle_size_rejects_out_of_range_or_non_int64_values","grpc_lifecycle_refuses_size_conditions_instead_of_dropping_them","lifecycle_size_normalizes_decimal_spelling_before_storage","grpc_lifecycle_sizes_only_block_reads_that_request_lifecycle","grpc_lifecycle_size_rejection_precedes_bucket_updates_and_retention_lock","grpc_lifecycle_precheck_rejects_concurrent_size_rules_without_its_own_mutation","grpc_lifecycle_precheck_retries_only_implicit_matches","grpc_lifecycle_precheck_stops_after_three_conflicts"]},
         {"command":"cargo test --test it_json bucket","result":"PASS","verified_at":"2026-11-11","artifact":"tests/it_json/bucket_http.rs","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_core_settings_round_trip"]},
         {"command":"cargo test --locked --offline --lib lifecycle -- --nocapture","result":"PASS","verified_at":"2026-11-10","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["name_lists_and_strict_size_conditions_use_published_names_and_data_bytes"]},
         {"command":"cargo test --lib lifecycle","result":"PASS","verified_at":"2026-11-11","artifact":"docs/en/slices/lifecycle-execution.md","test_ids":["stored_body_sizes_use_strict_thresholds_at_equality_and_each_adjacent_byte","small_bodies_compare_against_thresholds_at_and_near_five_tebibytes","catalog_sizes_around_five_tebibytes_use_small_bodies_and_strict_comparisons"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["The tested data-size Delete subset executes under deterministic local scheduling. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, without claiming this row's size-boundary tests as transition evidence. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept size conditions. Sweep comparisons at 5 TiB use test-only SQL size records at the limit and each adjacent byte with four-byte bodies; no actual 5 TiB upload or correct size publication from such a body is proven here. Real small bodies also exercise thresholds at and near the limit. Storage v2 has no size fields and returns UNIMPLEMENTED for reads requesting lifecycle; masked reads excluding lifecycle succeed. UpdateBucket uses an explicit or injected metageneration match and retries implicit conflicts at most twice. Retention locking uses its mandatory match. Neither operation prevents same-name recreation with the same metageneration between precheck and mutation. Legacy v1 lifecycle remains unsupported. Provider propagation/timing is not simulated."],
+      "known_deviations": ["The tested data-size Delete subset executes under deterministic local scheduling. Supported transitions and class-dependent Delete execute under BEHAVIOR-LIFECYCLE-003, and this row's size boundaries are also verified on transitions. Multipart abort executes under BEHAVIOR-LIFECYCLE-004 and does not accept size conditions. Sweep comparisons at 5 TiB use test-only SQL size records at the limit and each adjacent byte with four-byte bodies; no actual 5 TiB upload or correct size publication from such a body is proven here. Real small bodies also exercise thresholds at and near the limit. Storage v2 has no size fields and returns UNIMPLEMENTED for reads requesting lifecycle; masked reads excluding lifecycle succeed. UpdateBucket uses an explicit or injected metageneration match and retries implicit conflicts at most twice. Retention locking uses its mandatory match. Neither operation prevents same-name recreation with the same metageneration between precheck and mutation. Legacy v1 lifecycle remains unsupported. Provider propagation/timing is not simulated."],
       "implemented_in": "f8fda6b2",
       "last_verified": "2026-11-11"
     },
