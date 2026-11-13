@@ -2,7 +2,7 @@
 # app and a browser frontend. Local development and tests only: the test signer's key is public.
 services:
   gcs:
-    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.20.0}
+    image: ${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:0.20.1}
     ports:
       # Equal host and container ports let Rails hand the browser the URL it uses itself.
       # Never publish the trusted port 4444.
