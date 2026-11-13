@@ -1604,7 +1604,7 @@
         }
       ],
       "known_deviations": [
-        "Unlike the reference's single unpaged list, prefix and bounded opaque JSON cursors still apply; the row stays PARTIAL until its BEHAVIOR-RPC-005 dependency is complete."
+        "Unlike the reference's single unpaged list, prefix and bounded opaque JSON cursors still apply."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -2366,14 +2366,17 @@
         },
         {
           "id": "DIST-004-TAG-RELEASE",
-          "description": "Observe a version tag release run the Docker Hub job after GHCR publication without manual dispatch. The v0.3.0 tag run 40794280766 reached the job but logged in with an empty DOCKERHUB_TOKEN because the caller passed no secrets to the reusable workflow; the caller now uses secrets: inherit, which the next tag release must confirm.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Observe a version tag release run the Docker Hub job after GHCR publication without manual dispatch. The v0.3.0 tag run 40794280766 reached the job but logged in with an empty DOCKERHUB_TOKEN because the caller passed no secrets to the reusable workflow; the caller now uses secrets: inherit. The v0.20.1 tag run 43370411134 ran publish-dockerhub / mirror after publish-container / manifest without a manual dispatch and succeeded.",
+          "result": "PASS",
+          "test_ids": [
+            "dockerhub-tag-release"
+          ]
         }
       ],
       "test_ids": [
         "dockerhub-mirror-offline",
-        "dockerhub-mirror-publication"
+        "dockerhub-mirror-publication",
+        "dockerhub-tag-release"
       ],
       "verification": [
         {
@@ -2410,7 +2413,12 @@
           "artifact": ".github/workflows/binaries.yaml",
           "test_ids": [
             "dockerhub-mirror-publication"
-          ]
+          ],
+          "superseded_by": {
+            "command": "gh run view 43370411134 (Release binaries, v0.20.1 tag push); docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.20.1",
+            "verified_at": "2026-11-13",
+            "reason": "With secrets: inherit in the caller, the next observed tag release logged in and mirrored the image without a manual dispatch."
+          }
         },
         {
           "command": "gh workflow run dockerhub.yaml --ref main -f version=0.3.0 (run 40796866383); docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.3.0|0.3|latest; docker run --pull always --platform linux/amd64|linux/arm64 docker.io/shiroemons/gcs-mimic:0.3.0 --version",
@@ -2420,14 +2428,24 @@
           "test_ids": [
             "dockerhub-mirror-publication"
           ]
+        },
+        {
+          "command": "gh run view 43370411134 (Release binaries, v0.20.1 tag push); docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.20.1",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-mirror-publication",
+            "dockerhub-tag-release"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Candidate mirroring has mocked local coverage but has not run on GitHub or Docker Hub. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+        "Candidate mirroring has mocked local coverage but has not run on GitHub or Docker Hub. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-10"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "DIST-005",
@@ -2495,9 +2513,7 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Every acceptance case passes, but the row stays PARTIAL until its DIST-004 dependency completes."
-      ],
+      "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
@@ -2724,7 +2740,7 @@
         },
         {
           "id": "DIST-002-PIN-REVISION-CONTRACT",
-          "description": "dist-tag-publication owns the required pin refresh, including the known newer distroless digest, and its revalidation; define baseline, revalidated pin-revision and tag SHA correspondence, protected-input comparisons and evidence placement without a candidate containing its own future SHA/run ID.",
+          "description": "dist-tag-publication owns the required pin refresh and its revalidation (the distroless runtime input was retired when the image moved to scratch on 2026-11-05); define baseline, revalidated pin-revision and tag SHA correspondence, protected-input comparisons and evidence placement without a candidate containing its own future SHA/run ID.",
           "result": "PENDING",
           "test_ids": [
             "release-pin-revision-contract"
@@ -14252,7 +14268,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement If-Range, double-compression handling, full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and GET replay; retained-generation reads and bounded JSON GET gzip expansion are supported locally. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence, SPEC-012/017 exact error/header parity, SPEC-009 redirect behavior and provider-exact transcoding/public-ACL details remain pending.",
+          "description": "Implement double-compression handling, full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and GET replay; retained-generation reads and bounded JSON GET gzip expansion are supported locally. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence, SPEC-012/017 exact error/header parity, SPEC-009 redirect behavior and provider-exact transcoding/public-ACL details remain pending.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -15131,7 +15147,7 @@
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. If-Range and userProject remain unsupported; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
+        "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. JSON media reads ignore If-Range, as the 2026-11-01 recording showed Cloud Storage doing, while metadata GETs reject a standalone If-Range with a local 400; userProject remains unsupported; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
@@ -16500,7 +16516,7 @@
       "known_deviations": [
         "multipart/related accepts gcloud's single-quoted boundary and bare-LF framing from the production gcloud request shape (docs/en/slices/json-object-multipart.md); no live Cloud Storage recording covers either. The first boundary line fixes LF or CRLF framing for the whole body, as Go's mime/multipart decides; a body mixing the two is rejected.",
         "Media, scoped multipart and JSON resumable are supported; ACL/object IAM and broader bucket policies, encryption, upload-side encodings other than the contentEncoding query parameter and media/multipart transport gzip, and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
-        "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
+        "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unexamined upload Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 5 TiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 120000 ms, 0 waits without a limit) or any remaining absolute object_request_timeout_ms budget (default 0, disabled). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
@@ -16515,7 +16531,7 @@
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Matching retained upload tokens replay committed responses; new invocations still enforce conditions. Exact provider cache/error parity remains pending.",
-        "SPEC-010/SPEC-016: Content-MD5 is rejected 501; checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
+        "SPEC-010/SPEC-016: media, multipart and resumable uploads do not examine Content-MD5, as the recorded obj-upload-checksums differential case showed Cloud Storage storing an upload whose header named the wrong digest (docs/en/evidence/differential-comparison.md); copy, compose and rewrite reject it as an unsupported setting. Checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
@@ -17028,7 +17044,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-plus-bucket predefined roles; broader bucket policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
@@ -24602,7 +24618,7 @@
         },
         {
           "id": "BEHAVIOR-COMMON-013-PENDING",
-          "description": "Extend pagination to resources beyond buckets and live objects.",
+          "description": "Extend pagination to the list methods whose resources are not modeled yet (folders, managed folders, Anywhere Caches, Rapid caches and operations). Buckets, live and retained objects, soft-deleted objects and HMAC keys already paginate.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24688,11 +24704,11 @@
         }
       ],
       "known_deviations": [
-        "Other-resource pagination is unimplemented; tokens are not authenticated snapshots.",
+        "Pagination covers buckets, objects and HMAC keys; list methods for unmodeled resources (folders, managed folders, Anywhere Caches, Rapid caches and operations) are absent. Tokens are not authenticated snapshots.",
         "Bucket maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
         "The empty-token rule is local; full projection omits ACL/owner.",
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
@@ -25077,7 +25093,7 @@
         },
         {
           "id": "BEHAVIOR-BUCKET-004-PENDING",
-          "description": "Apply storage classes to transitions (lifecycle SetStorageClass, Autoclass) and supported region/zone interactions; classes remain metadata without placement, billing or minimum-duration effects.",
+          "description": "Apply storage classes to Autoclass transitions and supported region/zone interactions; lifecycle SetStorageClass transitions are delivered under BEHAVIOR-LIFECYCLE-003, and classes remain metadata without placement, billing or minimum-duration effects.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -25173,7 +25189,7 @@
         }
       ],
       "known_deviations": [
-        "Bucket and object classes are metadata only; no object placement, class transitions, billing, minimum storage duration or retrieval-fee effects.",
+        "Bucket and object classes are metadata only; lifecycle SetStorageClass rewrites the stored class (BEHAVIOR-LIFECYCLE-003), while Autoclass transitions, object placement, billing, minimum storage duration and retrieval-fee effects are absent.",
         "XML x-goog-storage-class accepts only exact uppercase class names; provider case handling is unverified."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
@@ -26810,7 +26826,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-002-PENDING",
-          "description": "Implement version retention/history, soft delete and multi-transport semantics.",
+          "description": "Verify generation semantics across the gRPC and XML transports. Version retention and history are delivered under VERSIONING-AND-EVENT-HOLD, and JSON soft delete and restore under JSON-OBJECTS-011.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -26985,7 +27001,7 @@
         "Allocator/ETag/time formatting are local representations; no global Google generation ordering promise.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
-        "One live and retained noncurrent generations are supported; soft delete remains unavailable.",
+        "One live and retained noncurrent generations are supported; JSON soft delete and restore are delivered under JSON-OBJECTS-011, and cross-transport generation semantics remain unverified.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md."
       ],
@@ -27716,7 +27732,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-008/012: local response/condition choices and opaque ID/ETag/link spelling; complete provider header parity unverified.",
-        "Constructed JSON links grant no permission; Public path-style XML URLs now enforce bucket grants; signed URLs and full object ACL/IAM remain unavailable (docs/en/evidence/public-object-reads.md)."
+        "Constructed JSON links grant no permission; Public path-style XML URLs now enforce bucket grants; signed URLs are covered by the signed-access rows (DESIGN-035 through DESIGN-044), and full object ACL/IAM remains unavailable (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
       "last_verified": "2026-10-21"
@@ -28201,7 +28217,7 @@
       ],
       "known_deviations": [
         "SPEC-016: bounded ordered MIME subset, local cap accounting and malformed/transport error reasons; metadata contentType > media header > application/octet-stream, with null/empty fallback. Header folding/duplicates, non-binary transfer encodings and headers-only parts lacking the additional CRLF are rejected. Direct service edge evidence is absent.",
-        "SPEC-016/SPEC-010: third-part CRC32C follows the official example; MD5/empty-object/equal declarations and metadata/header/final checksum conflict and unknown-key rules are local. Content-MD5 remains 501.",
+        "SPEC-016/SPEC-010: third-part CRC32C follows the official example; MD5/empty-object/equal declarations and metadata/header/final checksum conflict and unknown-key rules are local. Upload Content-MD5 is not examined, matching the recorded obj-upload-checksums differential case.",
         "SPEC-013: media/multipart and JSON copy tokens support bounded persistent replay with or without conditions; matching retries return the original resource, empty/duplicate tokens return 400, and conflicting invocations fail without mutation. Exact provider retention/error semantics and replay for other methods remain pending. See docs/en/slices/sdk-upload-replay.md.",
         "SPEC-008/SPEC-015: local mutation/advisory precedence and conservative unsupported/output/unknown metadata 501 rules; query name overrides only string/null metadata name, path bucket overrides string metadata bucket. No IAM/ACL/auth enforcement, advanced metadata, encryption or gzip transcoding.",
         "One live generation and local default 5 TiB media cap (configurable 1 byte..5 TiB). Resumable sessions and XML multipart are separate rows and remain unsupported. Functional carry/deadline/restart checks do not establish CPU/RSS/cgroup benchmarks, every crash boundary or power-loss durability."
@@ -29256,7 +29272,7 @@
       ],
       "known_deviations": [
         "SPEC-009/012: ordinary media GET is direct 200 and JSON header parity/opaque identifiers remain scoped local choices.",
-        "Single ranges, selected historical media, scoped ETag conditions and strict project/bucket grants are supported. JSON GET gzip expansion is bounded and ignores Range with full 200; If-Range, double-compression handling and provider-exact transcoding remain pending. See docs/en/slices/sdk-scorecard-integration.md."
+        "Single ranges, selected historical media, scoped ETag conditions and strict project/bucket grants are supported. JSON GET gzip expansion is bounded and ignores Range with full 200; JSON media reads ignore If-Range as recorded on 2026-11-01. Double-compression handling and provider-exact transcoding remain pending. See docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
       "last_verified": "2026-10-21"
@@ -29684,7 +29700,7 @@
         },
         {
           "id": "OBJECT-LIST-PENDING",
-          "description": "Add IAM policies/ACLs beyond project-level predefined roles, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "description": "Add IAM policies/ACLs beyond project-level predefined roles, folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -29760,7 +29776,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
@@ -29932,7 +29948,7 @@
         },
         {
           "id": "SOFT-DELETE-AND-RESTORE",
-          "description": "softDeleted=true, restore tokens and versions/soft-delete interactions remain unsupported.",
+          "description": "Restore tokens remain unsupported: objects.get rejects restoreToken as an unsupported setting. softDeleted=true listing and its 400 rejection together with versions=true are delivered and tested under JSON-OBJECTS-011.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -29981,7 +29997,7 @@
         }
       ],
       "known_deviations": [
-        "Soft-delete/restore tokens remain unsupported; zero-size/empty-array/token provider edges remain SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
+        "Restore tokens remain unsupported; zero-size/empty-array/token provider edges remain SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
       "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
       "last_verified": "2026-10-22"
@@ -31322,8 +31338,7 @@
       "known_deviations": [
         "SPEC-VERSION-DELETE-CONDITIONS: all four DELETE conditions compare with the selected revision; exact provider interpretation is unverified.",
         "Bucket metadata PATCH/PUT toggle versioning locally; immediate local propagation differs from Google's documented interval.",
-        "Archive timestamp/error wire details and host power-loss/every fsync window remain unverified; soft delete and lifecycle interactions remain pending.",
-        "Required API dependencies remain PARTIAL; target EXACT is unchanged."
+        "Archive timestamp/error wire details and host power-loss/every fsync window remain unverified; soft delete and lifecycle interactions remain pending."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
       "last_verified": "2026-10-23"
@@ -35313,7 +35328,7 @@
         {"command":"GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Deadline-expiry and client-cancellation behavior is not verified across operations. ErrorInfo reason badRequest/domain global intentionally match the JSON emulator rejection contract; this is not provider-exact behavior for valid Google RPCs. Lifecycle and ETag conversion remain for subsequent operation slices."],
+      "known_deviations": ["Deadline-expiry and client-cancellation behavior is not verified across operations. ErrorInfo reason badRequest/domain global intentionally match the JSON emulator rejection contract; this is not provider-exact behavior for valid Google RPCs."],
       "implemented_in": "bdb8900",
       "last_verified": "2026-10-27"
     },
@@ -35451,7 +35466,7 @@
       "test_ids": ["multipart-wire", "multipart_bodyless_operations_accept_omitted_framing", "multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing", "xml::put::empty_request_framing_keeps_header_validation", "multipart-remaining"],
       "verification": [{"command":"cargo check --tests; cargo test --test xml_multipart_http; cargo test --lib multipart","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart-wire"]}, {"command":"cargo test --locked --test it_xml_auth xml_multipart_http","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["multipart_bodyless_operations_accept_omitted_framing","multipart_bodyless_operations_reject_bodies_and_puts_still_require_framing"]}, {"command":"cargo test --locked --lib xml::put::empty_request_framing_keeps_header_validation","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-multipart-upload.md","test_ids":["xml::put::empty_request_framing_keeps_header_validation"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Local sessions have no count limit and expire after seven days, where the provider sets no limit, by owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk unnoticed, and /_internal/reset and abort also remove them. Different part numbers write at the same time; a repeated number, a completion or an abort waits its turn and receives 503 past catalog_wait_timeout_ms. Pages cap at 1000. Owner/provider wire details, lifecycle abort execution and final SDK/container checks remain pending. The local infrastructure model is not EXACT Google fidelity."],
+      "known_deviations": ["Local sessions have no count limit and expire after seven days, where the provider sets no limit, by owner decision: abandoned parts do not appear in object listings, so they would keep using a local disk unnoticed, and /_internal/reset and abort also remove them. Different part numbers write at the same time; a repeated number, a completion or an abort waits its turn and receives 503 past catalog_wait_timeout_ms. Pages cap at 1000. Lifecycle AbortIncompleteMultipartUpload retires these sessions under BEHAVIOR-LIFECYCLE-004; owner/provider wire details and final SDK/container checks remain pending. The local infrastructure model is not EXACT Google fidelity."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },
@@ -54519,7 +54534,7 @@
         },
         {
           "id": "DESIGN-072-PENDING",
-          "description": "Implement objects.list prefix/delimiter/pagination and measure catalog growth/resource behavior.",
+          "description": "Measure catalog growth and resource behavior for the delivered objects.list prefix/delimiter/pagination (BEHAVIOR-OBJECT-018).",
           "result": "PENDING",
           "test_ids": []
         },
@@ -59395,7 +59410,7 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Its own acceptance cases pass with the release gates, including all eight SDK suites under both profiles, but it depends on DESIGN-062 and DESIGN-072, which remain PARTIAL. The release gates, including the builds and tests of all eight native archives, passed for v0.20.0."],
+      "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-11-13"
     },
@@ -61293,7 +61308,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No persisted bucket/object permissions; selected process crashes are covered, every instruction and power loss are not. Native initialization markers prevent fixture replay; seeded Compose verification passes under UX-002.",
+        "Bucket IAM policies persist in the catalog, while object permissions and ACL effects are not modeled; selected process crashes are covered, every instruction and power loss are not. Native initialization markers prevent fixture replay; seeded Compose verification passes under UX-002.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -62120,7 +62135,7 @@
       "interface": "Project dependency and toolchain policy",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
@@ -62128,13 +62143,13 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Daily xtask detects actual Rust/Cargo, Actions, container/Debian, Go and Ruby inputs. Successful scheduled weekday run 39925933967 was observed read-only; weekend execution remains pending. The 0.1.0 preparation freshness check detected a distroless digest update (exit 1); no dependency pin changed. See docs/en/evidence/dist-release-notes.md.",
+      "notes": "Daily xtask detects actual Rust/Cargo, Actions, container/Debian, Go and Ruby inputs. Scheduled weekday run 39925933967 and the weekend runs 42363473094 (Saturday, stopped on a detected update) and 42471562897 (Sunday, all current) were observed read-only. The 0.1.0 preparation check failed on a distroless digest update; the runtime moved to scratch on 2026-11-05, and the 2026-11-13 rerun reported every input current. See docs/en/evidence/dependency-schedule.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DEP-001",
         "DEP-003"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DEP-005-A1",
@@ -62171,8 +62186,10 @@
         {
           "id": "DEP-005-P1",
           "description": "Observe default-branch scheduled execution, including weekends.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "scheduled-weekend-freshness"
+          ]
         },
         {
           "id": "DEP-005-GO",
@@ -62201,7 +62218,8 @@
         "sdk_scopes_and_lockfiles_are_declared",
         "go_versions_exclude_prereleases_and_retractions",
         "go_manifest_direct_requirements_and_exact_toolchain",
-        "scheduled-weekday-freshness"
+        "scheduled-weekday-freshness",
+        "scheduled-weekend-freshness"
       ],
       "verification": [
         {
@@ -62259,7 +62277,12 @@
           "artifact": "docs/en/evidence/dist-release-notes-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
-          ]
+          ],
+          "superseded_by": {
+            "command": "just check-dependencies",
+            "verified_at": "2026-11-13",
+            "reason": "The failure reported a newer distroless digest; the runtime moved to scratch and the rerun reported every input current."
+          }
         },
         {
           "command": "bash scripts/test-rust.sh",
@@ -62267,14 +62290,30 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["sdk_scopes_and_lockfiles_are_declared"]
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dependency-schedule.md",
+          "test_ids": [
+            "freshness-live-check"
+          ]
+        },
+        {
+          "command": "gh run view 42363473094; gh run view 42471562897 (Dependency freshness, schedule, 2026-11-07 and 2026-11-08)",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dependency-schedule.md",
+          "test_ids": [
+            "scheduled-weekend-freshness"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Weekday scheduled execution is observed; weekend execution remains unverified. Current-source freshness reports an unresolved distroless runtime digest update."
-      ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-24"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "DEP-006",
@@ -62352,15 +62391,29 @@
           "artifact": "docs/en/evidence/dist-release-notes-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
+          ],
+          "superseded_by": {
+            "command": "just check-dependencies",
+            "verified_at": "2026-11-13",
+            "reason": "The failure reported a newer distroless digest; the runtime moved to scratch and the rerun reported every input current."
+          }
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dependency-schedule.md",
+          "test_ids": [
+            "freshness-live-check"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No release or weekly maintenance cycle has occurred; 0.1.0 preparation freshness fails on a newer distroless runtime digest."
+        "Tag releases through v0.20.1 ran the release-scope freshness gate, but no dated weekly exception-review record has been kept. The 0.1.0 preparation failure on a newer distroless digest is historical: the runtime moved to scratch on 2026-11-05 and distroless is no longer an input."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-24"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "DEP-007",

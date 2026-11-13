@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 81 | 40 | 0 | 0 |
-| project_requirement | 98 | 22 | 0 | 45 | 31 | 0 | 0 |
+| project_requirement | 98 | 22 | 0 | 44 | 32 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -850,7 +850,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DEP-002 | 最新Rustの固定・editionとMSRVの明示 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-003 | 破壊的更新を含めた直接依存の最新化 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-004 | 解決済みlockfileのコミット・固定ビルド | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-005 | 複数エコシステムの毎日更新検出 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-005 | 複数エコシステムの毎日更新検出 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | 作業開始・リリース前確認と毎週の例外見直し | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | 期限付きの非互換例外管理 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DEP-008 | 更新されるdigest固定の複数arch Docker入力 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |

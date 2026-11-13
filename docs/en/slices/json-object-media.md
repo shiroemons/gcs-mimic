@@ -20,7 +20,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 2 | Both media prefixes serve 200 directly. Ordinary-prefix 303 redirection is an explicit unimplemented deviation (SPEC-009). |
 | 3 | The direct download route is supported from request-endpoints documentation, not a nonexistent Discovery field; non-media direct-download requests return 400 `notDownload`. |
 | 4 | Generation selectors are get/delete-only and projection is insert/get-only; other misplaced parameters fail 400. Signed int64 values are accepted without a leading plus; selectors that do not identify the live positive generation yield 404. |
-| 5 | `X-Goog-Hash` validates MD5/CRC32C before publication; `Content-MD5` and unknown algorithms fail 501, duplicate algorithms/noncanonical encodings fail 400. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
+| 5 | `X-Goog-Hash` validates MD5/CRC32C before publication; unknown algorithms fail 400 `badRequest` as an unsupported setting and duplicate algorithms/noncanonical encodings fail 400. `Content-MD5` is not examined, as the recorded `obj-upload-checksums` differential case showed Cloud Storage storing an upload whose header named the wrong digest. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
 | 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
@@ -176,9 +176,9 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Content-Length` | Honor framing and cap; known oversize can fail before reading; no unchecked allocation based on the value |
 | `Transfer-Encoding: chunked` | Supported bounded stream with unknown final length; full cap/checksum validation still applies |
 | `X-Goog-Hash` on insert | MD5 (16 bytes), CRC32C (4 big-endian bytes), or both in base64; validate against the complete bytes before publication |
-| `Content-MD5` on insert | No JSON support claim; reject 501 rather than silently treating it as validation (SPEC-010) |
-| `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range remains 501. |
-| `If-Match`, `If-None-Match` | Reject 501 until ETag condition semantics exist; query generation conditions remain separate |
+| `Content-MD5` on insert | Not examined and never treated as validation, matching the recorded `obj-upload-checksums` differential case (SPEC-010) |
+| `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range is ignored, as Cloud Storage honored the Range without evaluating it. |
+| `If-Match`, `If-None-Match` | Evaluated against the served ETag on media reads; query generation conditions remain separate |
 | `Content-Encoding` | One `gzip` coding is decoded as transport compression and the decoded bytes are stored (see [HTTP ingress](http-ingress.md)); other codings fail 400 |
 | Custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored key or metadata request |
 | `X-Goog-Gcs-Idempotency-Token` | A supplied token must be one nonempty header; empty/duplicate values return 400 invalidParameter. Media/multipart matching retries return the original committed resource through bounded persistent [upload replay](sdk-upload-replay.md), with or without conditions. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |

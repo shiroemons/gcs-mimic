@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 81 | 40 | 0 | 0 |
-| project_requirement | 98 | 22 | 0 | 45 | 31 | 0 | 0 |
+| project_requirement | 98 | 22 | 0 | 44 | 32 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -850,7 +850,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DEP-002 | Pinned current Rust and explicit edition/MSRV | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-003 | Latest direct libraries including major migrations | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-004 | Committed resolved lockfiles and locked builds | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-005 | Daily multi-ecosystem update detection | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-005 | Daily multi-ecosystem update detection | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | Start/release checks and weekly exception review | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | Explicit expiring incompatibility exceptions | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DEP-008 | Updated digest-pinned multiarch Docker inputs | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |

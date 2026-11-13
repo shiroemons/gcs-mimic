@@ -149,3 +149,17 @@ argument. Docker Hub's published API reference, checked on 2026-10-29, documents
 the script uses the `PATCH /v2/repositories/{namespace}/{repository}` route of
 `peter-evans/dockerhub-description` v5.0.0. `actionlint` on the new workflow and
 `shellcheck` on both scripts: PASS.
+
+## Tag-triggered mirror after the secrets fix
+
+The `v0.20.1` tag push started `Release binaries` run 43370411134 on
+2026-11-13 without a manual dispatch. `gh run view 43370411134` shows the jobs
+in order: `publish-container / manifest` succeeded at 05:21:01Z, then
+`publish-dockerhub / mirror` succeeded at 05:22:11Z. The caller passes
+`secrets: inherit`, so the reusable workflow logged in with a nonempty token,
+unlike the `v0.3.0` run 40794280766.
+
+`docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.20.1`
+afterwards returned an OCI index with `linux/amd64` and `linux/arm64`
+manifests plus one attestation manifest for each (index digest
+`sha256:a08192add61d6f1ca0f8eba97084a056dd0d7a445b41bae531cfb8271c42ff4c`).
