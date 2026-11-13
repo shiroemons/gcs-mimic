@@ -200,21 +200,26 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
 fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
     // Google.Apis replaces a fetched policy's body etag with the response's HTTP ETag, which
     // getIamPolicy sends quoted, and sends that value back; one pair of quotes names the same tag.
-    let raw = raw
+    let tag = raw
         .strip_prefix('"')
         .and_then(|tag| tag.strip_suffix('"'))
         .filter(|tag| !tag.is_empty())
         .unwrap_or(raw);
-    if raw.is_empty() {
+    if tag.is_empty() {
         return Ok(None);
     }
-    let invalid = || invalid("etag must be valid base64");
+    // Cloud Storage decoded "CAF=", whose unused bits are not zero, and then refused the write
+    // with 412 because the tag did not match (recorded 2026-11).
     let decoded = crate::base64::decode(
-        raw,
+        tag,
         crate::base64::Alphabet::Either,
-        crate::base64::Padding::Optional,
+        crate::base64::Padding::OptionalUncheckedBits,
     )
-    .ok_or_else(invalid)?;
+    .ok_or_else(|| {
+        let mut error = invalid(format!("Invalid value for ByteString: {raw}"));
+        error.location = Some(&super::error::POLICY_ETAG_FIELD);
+        error
+    })?;
     Ok(Some(base64(&decoded)))
 }
 
@@ -273,6 +278,15 @@ mod tests {
             let encoded = base64(&bytes);
             assert_eq!(parse_etag(&encoded).unwrap(), Some(encoded));
         }
+        // Nonzero unused bits decode to the same bytes, which then simply fail to match.
+        assert_eq!(parse_etag("CAF=").unwrap().as_deref(), Some("CAE="));
+        assert_eq!(parse_etag("CAE").unwrap().as_deref(), Some("CAE="));
+        let error = parse_etag("!!!").unwrap_err();
+        assert_eq!(error.message, "Invalid value for ByteString: !!!");
+        assert_eq!(
+            error.location,
+            Some(&super::super::error::POLICY_ETAG_FIELD)
+        );
     }
 
     #[test]

@@ -10,10 +10,21 @@ pub(crate) enum Alphabet {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Padding {
     Required,
-    Optional,
     Forbidden,
     /// Preserve the previous XML POST decoder's tolerance of nonzero unused bits.
     RequiredUncheckedBits,
+    /// Protobuf JSON `bytes`: padding is optional and nonzero unused bits are ignored, as Cloud
+    /// Storage did for an IAM policy etag (recorded 2026-11).
+    OptionalUncheckedBits,
+}
+
+impl Padding {
+    fn checks_unused_bits(self) -> bool {
+        !matches!(
+            self,
+            Self::RequiredUncheckedBits | Self::OptionalUncheckedBits
+        )
+    }
 }
 
 pub(crate) fn decode(raw: &str, alphabet: Alphabet, padding: Padding) -> Option<Vec<u8>> {
@@ -48,7 +59,7 @@ pub(crate) fn decode(raw: &str, alphabet: Alphabet, padding: Padding) -> Option<
             output.push(u8::try_from((bits >> count) & 255).ok()?);
         }
     }
-    (padding == Padding::RequiredUncheckedBits || bits & ((1 << count) - 1) == 0).then_some(output)
+    (!padding.checks_unused_bits() || bits & ((1 << count) - 1) == 0).then_some(output)
 }
 
 #[expect(
@@ -99,7 +110,7 @@ mod tests {
                 plain.as_bytes()
             );
             let unpadded = encoded.trim_end_matches('=');
-            for padding in [Padding::Optional, Padding::Forbidden] {
+            for padding in [Padding::OptionalUncheckedBits, Padding::Forbidden] {
                 assert_eq!(
                     decode(unpadded, Alphabet::Standard, padding).unwrap(),
                     plain.as_bytes()
@@ -137,7 +148,7 @@ mod tests {
         assert!(decode("Zg", Alphabet::Standard, Padding::Required).is_none());
         assert!(decode("Zg==", Alphabet::Standard, Padding::Forbidden).is_none());
         assert!(decode("Zh==", Alphabet::Standard, Padding::Required).is_none());
-        assert!(decode("Zm9=", Alphabet::Standard, Padding::Optional).is_none());
+        assert!(decode("Zm9=", Alphabet::Standard, Padding::Required).is_none());
         assert_eq!(
             decode("Zh==", Alphabet::Standard, Padding::RequiredUncheckedBits).unwrap(),
             b"f"
@@ -146,14 +157,20 @@ mod tests {
             decode("Zm9=", Alphabet::Standard, Padding::RequiredUncheckedBits).unwrap(),
             b"fo"
         );
+        for raw in ["Zh==", "Zh"] {
+            assert_eq!(
+                decode(raw, Alphabet::Standard, Padding::OptionalUncheckedBits).unwrap(),
+                b"f"
+            );
+        }
         for raw in [
             "A", "=", "====", "Zg=", "Zg===", "Z=g=", "Zg==AAAA", "Z g==", "Zg==\n", "é",
         ] {
             for padding in [
                 Padding::Required,
-                Padding::Optional,
                 Padding::Forbidden,
                 Padding::RequiredUncheckedBits,
+                Padding::OptionalUncheckedBits,
             ] {
                 assert!(decode(raw, Alphabet::Either, padding).is_none(), "{raw}");
             }
