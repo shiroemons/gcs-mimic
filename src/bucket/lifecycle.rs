@@ -217,13 +217,18 @@ pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
             action.remove("storageClass");
         }
         if let Some(condition) = rule.get_mut("condition").and_then(Value::as_object_mut) {
+            // Cloud Storage dropped an unknown condition field and kept the rest of the rule
+            // (recorded 2026-11). `matchesPattern` is documented but unsupported, so it stays for
+            // `validate` to refuse rather than vanish.
             condition.retain(|field, value| {
-                !CONDITIONS.contains(&field.as_str())
-                    || !(value.is_null()
-                        || (matches!(
-                            field.as_str(),
-                            "matchesPrefix" | "matchesSuffix" | "matchesStorageClass"
-                        ) && value.as_array().is_some_and(Vec::is_empty)))
+                if !CONDITIONS.contains(&field.as_str()) {
+                    return field == "matchesPattern";
+                }
+                !(value.is_null()
+                    || (matches!(
+                        field.as_str(),
+                        "matchesPrefix" | "matchesSuffix" | "matchesStorageClass"
+                    ) && value.as_array().is_some_and(Vec::is_empty)))
             });
         }
     }
@@ -258,18 +263,19 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
             .get("action")
             .and_then(Value::as_object)
             .ok_or_else(|| invalid("action", "{\"type\":\"Delete\"}"))?;
-        let kind = action
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let kind = action.get("type").and_then(Value::as_str).ok_or_else(|| {
+            invalid(
+                "action.type",
+                "Delete, SetStorageClass or AbortIncompleteMultipartUpload",
+            )
+        })?;
         if !matches!(
             kind,
             "Delete" | "SetStorageClass" | "AbortIncompleteMultipartUpload"
         ) {
-            return Err(invalid(
-                "action.type",
-                "Delete, SetStorageClass or AbortIncompleteMultipartUpload",
-            ));
+            return Err(CatalogError::Metadata(MetadataError::LifecycleActionType(
+                kind.into(),
+            )));
         }
         if kind == "SetStorageClass" {
             let class = action
@@ -306,15 +312,16 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
             if kind == "AbortIncompleteMultipartUpload"
                 && !matches!(field.as_str(), "age" | "matchesPrefix" | "matchesSuffix")
             {
-                return Err(invalid(
-                    "AbortIncompleteMultipartUpload condition",
-                    LifecycleExample::AbortCondition,
+                return Err(CatalogError::Metadata(
+                    MetadataError::LifecycleAbortCondition,
                 ));
             }
             prefixes_suffixes += validate_condition(field, value, rule_index)?;
         }
         if count == 0 {
-            return Err(invalid("empty condition", LifecycleExample::EmptyCondition));
+            return Err(CatalogError::Metadata(
+                MetadataError::LifecycleEmptyCondition,
+            ));
         }
     }
     if prefixes_suffixes > 1000 {
@@ -587,6 +594,45 @@ mod tests {
         assert!(matches!(
             LifecycleRule::from_stored(&invalid),
             Err(CatalogError::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn lifecycle_input_drops_unknown_condition_fields_and_uses_provider_messages() {
+        let parsed = parse(&json!({"rule":[{"action":{"type":"Delete"},
+            "condition":{"age":1,"gcsmimicUnknown":{"nested":true}}}]}))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            [json!({"action":{"type":"Delete"},"condition":{"age":1}})]
+        );
+        // A rule left without a known condition is still an empty condition.
+        let message = |rule: Value| parse(&json!({"rule":[rule]})).unwrap_err().to_string();
+        for condition in [json!({}), json!({"gcsmimicUnknown":1})] {
+            assert_eq!(
+                message(json!({"action":{"type":"Delete"},"condition":condition})),
+                "Lifecycle rules must have a condition."
+            );
+        }
+        assert_eq!(
+            message(json!({"action":{"type":"Archive"},"condition":{"age":1}})),
+            "Invalid value for: Archive is not a valid value"
+        );
+        assert_eq!(
+            message(json!({"action":{"type":"AbortIncompleteMultipartUpload"},
+                "condition":{"age":1,"isLive":true}})),
+            "Lifecycle age_days, matches_prefix, and matches_suffix conditions are the only ones allowed for a ABORT_INCOMPLETE_MULTIPART_UPLOAD rule."
+        );
+        // Stored rules are not normalized, so an unknown field there is still corrupt.
+        let stored = [json!({"action":{"type":"Delete"},"condition":{"age":1,"unknown":1}})];
+        assert!(matches!(
+            LifecycleRule::from_stored(&stored),
+            Err(CatalogError::Corrupt(_))
+        ));
+        assert!(matches!(
+            parse(&json!({"rule":[{"action":{"type":"Delete"},
+                "condition":{"matchesPattern":"*.txt"}}]})),
+            Err(CatalogError::UnsupportedMetadata(_))
         ));
     }
 

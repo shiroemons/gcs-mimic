@@ -174,8 +174,19 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
         cleared.expect(200);
         assert!(cleared.json().get("lifecycle").is_none());
         let before = without_acl(cleared.json());
+        for condition in [json!({}), json!({"unknownCondition":true})] {
+            let body =
+                json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}})
+                    .to_string();
+            let reply = server.request("PATCH", path, &body);
+            reply.json_envelope(400, invalid_reason);
+            assert_eq!(
+                reply.json()["error"]["message"],
+                "Lifecycle rules must have a condition."
+            );
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
         for condition in [
-            json!({}),
             json!({"age":-1}),
             json!({"age":"1"}),
             json!({"age":2147483648i64}),
@@ -191,7 +202,6 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             json!({"matchesPrefix":["a","a"]}),
             json!({"matchesStorageClass":["MARS"]}),
             json!({"matchesStorageClass":["REGIONAL"]}),
-            json!({"age":1,"unknownCondition":true}),
         ] {
             let body =
                 json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}})
@@ -220,6 +230,31 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             );
             reply.json_envelope(400, invalid_reason);
         }
+        assert_eq!(
+            server
+                .request(
+                    "PATCH",
+                    path,
+                    &json!({"lifecycle":{"rule":[{"action":{"type":"Archive"},"condition":{"age":1}}]}})
+                        .to_string(),
+                )
+                .json()["error"]["message"],
+            "Invalid value for: Archive is not a valid value"
+        );
+        // Cloud Storage dropped an unknown condition field and kept the rule (recorded 2026-11).
+        let dropped = server.request(
+            "PATCH",
+            path,
+            &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1,"unknownCondition":true}}]}})
+                .to_string(),
+        );
+        dropped.expect(200);
+        let kept = json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]});
+        assert_eq!(dropped.json()["lifecycle"], kept);
+        assert_eq!(server.request("GET", path, "").json()["lifecycle"], kept);
+        server
+            .request("PATCH", path, r#"{"lifecycle":null}"#)
+            .expect(200);
         let before = server.request("GET", path, "").json();
         for (rule, field) in [
             (

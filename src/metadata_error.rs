@@ -18,6 +18,12 @@ pub enum MetadataError {
         field: String,
         value: String,
     },
+    /// A lifecycle action type outside Delete, SetStorageClass and AbortIncompleteMultipartUpload.
+    LifecycleActionType(String),
+    /// A rule whose condition object names no condition.
+    LifecycleEmptyCondition,
+    /// An AbortIncompleteMultipartUpload rule with a condition other than age, prefix or suffix.
+    LifecycleAbortCondition,
     AutoclassTerminal,
     AutoclassDisabled,
     AutoclassStorageClass,
@@ -29,9 +35,7 @@ pub enum MetadataError {
 pub enum LifecycleExample {
     Literal(String),
     AgeCondition,
-    EmptyCondition,
     DocumentedCondition,
-    AbortCondition,
     StorageClassAction,
 }
 
@@ -46,19 +50,9 @@ impl LifecycleExample {
         match self {
             Self::Literal(value) => value.clone(),
             Self::AgeCondition => format!("{{\"{}\":30}}", name("age")),
-            Self::EmptyCondition => format!(
-                "at least one condition, for example {{\"{}\":30}}",
-                name("age")
-            ),
             Self::DocumentedCondition => format!(
                 "a documented lifecycle condition, for example {}",
                 name("age")
-            ),
-            Self::AbortCondition => format!(
-                "{}, {} or {}",
-                name("age"),
-                name("matchesPrefix"),
-                name("matchesSuffix")
             ),
             Self::StorageClassAction => {
                 format!("{} only with SetStorageClass", name("storageClass"))
@@ -113,6 +107,13 @@ impl MetadataError {
                 path(field),
                 name("storageClass")
             ),
+            // The next three are Cloud Storage's own texts (recorded 2026-11); the abort text
+            // names the protobuf conditions on every protocol, as the provider's does.
+            Self::LifecycleActionType(value) => {
+                format!("Invalid value for: {value} is not a valid value")
+            }
+            Self::LifecycleEmptyCondition => "Lifecycle rules must have a condition.".into(),
+            Self::LifecycleAbortCondition => "Lifecycle age_days, matches_prefix, and matches_suffix conditions are the only ones allowed for a ABORT_INCOMPLETE_MULTIPART_UPLOAD rule.".into(),
             Self::AutoclassTerminal => format!(
                 "Invalid autoclass.{}; use NEARLINE or ARCHIVE",
                 name("terminalStorageClass")
