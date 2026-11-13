@@ -14,9 +14,9 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 203 | 0 | 105 | 2 | 0 | 0 |
-| behavior | 201 | 80 | 0 | 80 | 41 | 0 | 0 |
-| project_requirement | 98 | 22 | 0 | 44 | 32 | 0 | 0 |
+| api_operation | 310 | 203 | 0 | 97 | 10 | 0 | 0 |
+| behavior | 201 | 80 | 0 | 79 | 42 | 0 | 0 |
+| project_requirement | 98 | 22 | 0 | 43 | 33 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -145,10 +145,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-NOTIFICATIONS-001 | notifications.delete | PARTIAL | P7 | EXACT | EXACT | 2 |
-| JSON-NOTIFICATIONS-002 | notifications.get | PARTIAL | P7 | EXACT | EXACT | 1 |
+| JSON-NOTIFICATIONS-001 | notifications.delete | IMPLEMENTED | P7 | EXACT | EXACT | 2 |
+| JSON-NOTIFICATIONS-002 | notifications.get | IMPLEMENTED | P7 | EXACT | EXACT | 1 |
 | JSON-NOTIFICATIONS-003 | notifications.insert | PARTIAL | P7 | EXACT | EXACT | 2 |
-| JSON-NOTIFICATIONS-004 | notifications.list | PARTIAL | P7 | EXACT | EXACT | 2 |
+| JSON-NOTIFICATIONS-004 | notifications.list | IMPLEMENTED | P7 | EXACT | EXACT | 2 |
 
 ### JSON API / objectAccessControls
 
@@ -195,11 +195,11 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-PROJECTS-HMACKEYS-001 | projects.hmacKeys.create | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-PROJECTS-HMACKEYS-002 | projects.hmacKeys.delete | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-PROJECTS-HMACKEYS-003 | projects.hmacKeys.get | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-PROJECTS-HMACKEYS-004 | projects.hmacKeys.list | PARTIAL | P3 | EXACT | EXACT | 2 |
-| JSON-PROJECTS-HMACKEYS-005 | projects.hmacKeys.update | PARTIAL | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-001 | projects.hmacKeys.create | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-002 | projects.hmacKeys.delete | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-003 | projects.hmacKeys.get | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-004 | projects.hmacKeys.list | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-005 | projects.hmacKeys.update | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 
 ### JSON API / projects.serviceAccount
 
@@ -598,7 +598,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-008 | JSON・XML・gRPC間の状態整合 | PARTIAL | P6 | EXACT | EXACT | 1 |
+| AUDIT-008 | JSON・XML・gRPC間の状態整合 | IMPLEMENTED | P6 | EXACT | EXACT | 1 |
 
 ### Enrichment semantics
 
@@ -926,7 +926,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-096 | APIスキーマ・protoの仕様差分追跡 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-097 | メソッド網羅率と動作網羅率の分離 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-098 | 独立した適合試験・性質ベース試験 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-099 | Docker・生成ドキュメントのCI検査 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-099 | Docker・生成ドキュメントのCI検査 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 
 ### Resource efficiency
 

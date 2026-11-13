@@ -2,11 +2,12 @@
 
 Scope: JSON-PROJECTS-HMACKEYS-001..005 (`projects.hmacKeys`
 create/delete/get/list/update) and JSON-PROJECTS-SERVICEACCOUNT-001
-(`projects.serviceAccount.get`). All six rows remain PARTIAL: the scoped
-acceptance cases below pass, but provider error details, service account
-existence, requester billing and HMAC signature use are outside this slice.
-ACTIVE keys verify signatures under the [V4](xml-v4-signatures.md) and
-[V2 HMAC](xml-v2-hmac-signatures.md) contracts.
+(`projects.serviceAccount.get`). The five hmacKeys rows are IMPLEMENTED: every
+acceptance case passes, and the choices the sources leave open are recorded as
+scoped differences (SPEC-HMAC-WIRE, SPEC-HMAC-SERVICE-ACCOUNTS,
+SPEC-HMAC-RETENTION and, for `userProject`, SPEC-SDK-UNSUPPORTED). The service
+account row stays PARTIAL. ACTIVE keys verify signatures under the
+[V4](xml-v4-signatures.md) and [V2 HMAC](xml-v2-hmac-signatures.md) contracts.
 
 ## Acceptance contract
 
@@ -96,6 +97,23 @@ DELETED key or exceeding the limit; gcs-mimic returns 400 badRequest with an
 actionable message for each. They also do not document a default page size or
 the etag format: gcs-mimic uses 1000 and an opaque per-key revision.
 
+Opted-in recordings answered what needs no key (cases `bkt-project-resources`
+and `bkt-edges-hmac-keys`, the second on 2026-11-13; see the
+[provider probes](../evidence/provider-differential-gap-probes.md)), and
+gcs-mimic answers each the same way:
+
+- An unknown key is 404 notFound `Access ID not found in project.` on get,
+  update and delete.
+- An empty listing is `{"kind": "storage#hmacKeysMetadata"}` without `items`.
+- A `maxResults` that is not a uint32 is 400 invalidParameter, for example
+  `Invalid unsigned integer value: '-1'.`
+- An update body without `state` is 400 invalid `Must specify resource.state.`,
+  and state `DELETED` is 400 invalid `Cannot set state to 'DELETED'.`; both are
+  reported before the key is looked up.
+
+The harness never creates a key, because the response carries its secret, so
+the statuses above that need a real key stay source questions (SPEC-HMAC-WIRE).
+
 Local choices:
 
 - No IAM directory exists, so any syntactically valid email (one `@`, non-empty
@@ -105,7 +123,10 @@ Local choices:
   a project ID are different local projects.
 - The secret is stored in the catalog so that a later HMAC signature verifier can
   use it; deletion erases it. The catalog is local test state, not a secret store.
-- Requester billing (`userProject`) is rejected rather than ignored.
+- Requester billing (`userProject`) is rejected with 400 badRequest before any
+  change. Cloud Storage served it like an absent parameter for a project without
+  Requester Pays (2026-11-13); the rejection stays deliberate while Requester
+  Pays is unsupported, and the recording marks it as a `local_choice`.
 - The pinned Ruby generated client repeats `serviceAccountEmail` as a
   form-encoded body on create. As for `lockRetentionPolicy`, only an empty body
   or form parameters identical to the URL query are accepted; any other body
@@ -133,3 +154,16 @@ Results are recorded in `compatibility/features.json` for the six rows.
 - `just check-sdk`: `TestHMACKeysAndServiceAccount` (Go) and
   `ruby-project-service-account`, `ruby-project-hmac-keys`,
   `ruby-project-hmac-keys-strict-denied` (Ruby, permissive and strict runs).
+
+On 2026-11-13, after the recorded wording and the empty listing were adopted:
+
+- `cargo test --locked --offline --lib`: PASS, 2093 tests.
+- `cargo test --locked --offline --test it_json --test it_admin`: PASS, 137 and
+  79 tests, including
+  `hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors`.
+- `cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note`:
+  PASS, all 102 cases match, including `bkt-project-resources` and
+  `bkt-edges-hmac-keys`.
+- `env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby`:
+  PASS, 92 Go tests including `TestHMACKeysAndServiceAccount`, and the Ruby
+  `ruby-project-hmac-keys` and `ruby-project-hmac-keys-strict-denied` scenarios.

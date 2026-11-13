@@ -64,15 +64,23 @@ Checked 2026-10-29:
 - Notification CRUD accepts well-formed topics without checking a remote topic
   or service-agent permissions. The optional local emulator publisher retains
   failures and retries; it never creates topics or silently discards events.
-- Error reasons and messages for invalid fields, limits and unknown IDs are
-  local choices; cloud wire parity has not been observed. Duplicate event types
-  are rejected locally; provider behavior is unverified.
+- Unknown, zero-padded (`01`) and non-numeric (`abc`) IDs answer 404 notFound
+  `The requested resource was not found.`, and an empty listing omits `items`,
+  as Cloud Storage answered (cases `bkt-notifications` and
+  `bkt-edges-notification-ids`). Error reasons and messages for invalid fields
+  and limits remain local choices; cloud wire parity for them has not been
+  observed. Duplicate event types are rejected locally; provider behavior is
+  unverified.
 - Custom-attribute key/value bounds come from Pub/Sub message-attribute limits;
   whether Cloud Storage enforces them at insert time is unverified.
-- `userProject` (requester pays) is not supported, consistent with other routes.
+- `userProject` (requester pays) is rejected with 400 badRequest, consistent
+  with other routes. Cloud Storage served it like an absent parameter for a
+  bucket without Requester Pays (2026-11-13); the recording marks the rejection
+  as a `local_choice`, and the get, list and delete rows record it as a scoped
+  difference under SPEC-SDK-UNSUPPORTED.
 - Advancing `updated` together with the documented metageneration increment
   follows the local bucket-update convention; the provider's `updated` behavior
-  is unverified.
+  is unrecorded (SPEC-NOTIFICATION-WIRE), and so is the etag format.
 - gRPC Storage v2 has no notification RPCs in the pinned protos; XML has no
   notification-configuration API in this slice.
 

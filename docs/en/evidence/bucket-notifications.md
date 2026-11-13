@@ -3,7 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract: [bucket-notifications.md](../slices/bucket-notifications.md).
-Rows: JSON-NOTIFICATIONS-001..004 (PARTIAL) and AUDIT-021 (IMPLEMENTED).
+Rows: JSON-NOTIFICATIONS-001, -002 and -004 (IMPLEMENTED since 2026-11-13),
+JSON-NOTIFICATIONS-003 (PARTIAL) and AUDIT-021 (IMPLEMENTED).
 All runs used the pinned Rust 1.99.1 toolchain, Go 1.27.3 with
 `cloud.google.com/go/storage` v1.70.0, and Ruby 4.0.9 with
 `google-cloud-storage` 1.62.1, over plain HTTP on loopback. No Google Cloud or
@@ -47,9 +48,29 @@ emulator or Google service was contacted.
   topic form. Naming the normalized topic in the error for a short
   `projects/P/topics/T` request is a guess.
 
+## Results (2026-11-13, get, list and delete completion)
+
+- `cargo test --locked --offline --lib`: PASS, 2093 tests, including
+  `storage::catalog::notifications::tests::insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration`,
+  which sets a manual clock and checks that an insert and a delete each move
+  the metageneration and `updated` to that instant while a delete of an absent
+  ID changes neither.
+- `cargo test --locked --offline --test it_json --test it_admin`: PASS, 137 and
+  79 tests.
+- `cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note`:
+  PASS, all 102 cases match, including `bkt-notifications` and
+  `bkt-edges-notification-ids`. The second case was recorded against Cloud
+  Storage on 2026-11-13 without a topic or configuration; see
+  [provider probes](provider-differential-gap-probes.md).
+- `env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby`:
+  PASS, 92 Go tests including `TestBucketNotifications` and
+  `TestStrictAuthBucketNotifications`, and both Ruby runs print
+  `ruby-bucket-notifications passed`.
+
 ## Not performed
 
-Real-cloud differential runs, HTTPS SDK runs and container builds were not
-performed. Publisher permission is not modeled, and topic existence is checked
+HTTPS SDK runs and container builds were not performed. The real-cloud
+recordings created no topic or configuration, so a successful insert, its
+etag and its `updated` effect were not recorded. Publisher permission is not modeled, and topic existence is checked
 only when a local emulator is configured; without one the topic is accepted
 unchecked.

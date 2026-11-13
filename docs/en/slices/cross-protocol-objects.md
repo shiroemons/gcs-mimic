@@ -9,7 +9,7 @@ Scope: the object portion of AUDIT-008. Bucket state is covered by the [Storage 
 Each object is written through one transport and observed or mutated through the others against one running emulator. JSON and XML requests are raw HTTP so wire representations are asserted directly. Storage v2 metadata uses `GetObject` on the wire through the SDK's registered pinned descriptors; v2 bytes, writes, updates, listing and deletion use the ordinary Go `storage.NewGRPCClient`. Legacy v1 uses the pinned genproto client and observes metadata and listings only, because its supported subset has no media RPC.
 
 - Write: a JSON multipart upload, an XML `PUT /BUCKET/OBJECT` and a Storage v2 Writer each publish an object with content type and custom metadata. JSON, XML, Storage v2 and v1 then observe identical generation, metageneration, size, CRC32C, MD5, content type and custom metadata, and JSON, XML and Storage v2 return identical bytes, for both the live object and an explicitly selected generation. JSON int64 fields must be decimal strings; XML uses `x-goog-generation`, `x-goog-metageneration`, `x-goog-stored-content-length` and `x-goog-hash`; gRPC uses int64/fixed32/bytes fields.
-- List: JSON, Storage v2 and v1 listings return the same names and generations after writes, mutations and each deletion. XML bucket listing is outside the supported subset and returns 400 `InvalidArgument` rather than an empty listing.
+- List: JSON, Storage v2 and v1 listings return the same names and generations after writes, mutations and each deletion, and the XML bucket listing returns the same names, generations, metagenerations and sizes. Only its owner projection, `fetch-owner=true`, is outside the supported subset; it returns 400 `InvalidArgument` and changes nothing.
 - Metadata mutation: a JSON PATCH conditioned on metageneration 1 bumps the metageneration to 2 and merges metadata for XML, Storage v2 and v1; a Storage v2 `UpdateObject` conditioned on the pre-PATCH metageneration fails FAILED_PRECONDITION. A Storage v2 `UpdateObject` likewise bumps the metageneration observed by JSON, XML and v1, and a JSON PATCH conditioned on the stale metageneration fails 412. Rejected mutations leave every view unchanged.
 - Generation preconditions: a generation observed through XML satisfies `ifGenerationMatch` on JSON, Storage v2 and v1 reads; a non-matching generation fails with JSON 412, XML 412 `PreconditionFailed`, and FAILED_PRECONDITION on both gRPC services. An XML overwrite conditioned on the Storage v2-observed generation creates a new generation (metageneration 1, new bytes and hashes) on every transport; stale overwrites through XML, JSON and Storage v2 then fail with 412, 412 and FAILED_PRECONDITION and change nothing.
 - Delete: Storage v2 deletes the JSON-written object, JSON deletes the XML-written object and XML deletes the Storage v2-written object, each conditioned on a generation that another transport observed. A stale generation fails first with the deleting transport's error (FAILED_PRECONDITION or 412) and leaves the object visible. After deletion the live name and the selected generation return JSON 404, XML 404 `NoSuchKey`, and NOT_FOUND on both gRPC services.
@@ -23,11 +23,13 @@ The strict test first exposed that Storage v2 object RPCs reported anonymous den
 
 ## Scope limits
 
-XML bucket listing and legacy v1 media are outside their supported subsets, so those projections are excluded.
+The XML listing's owner projection (`fetch-owner=true`) and legacy v1 media are outside their supported subsets. Both are rejected rather than projected: the owner listing with 400 `InvalidArgument` (`TestCrossProtocolObjects`) and `GetObjectMedia` with immediate UNIMPLEMENTED and ErrorInfo (`TestGRPCV1Legacy`). AUDIT-008 records them as the scoped difference SPEC-CROSS-PROTOCOL-EXCLUSIONS.
 
 ## Verification
 
 On 2026-11-13, `GCSM_GO_TEST_RUN=TestCrossProtocol bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` passed `TestCrossProtocolDerivedObjects`, `TestCrossProtocolObjects`, `TestCrossProtocolObjectVersions` and `TestCrossProtocolObjectsStrict`. The JSON view helper now leaves an absent `md5Hash` absent, so the existing three tests ran again with it.
+
+Later on 2026-11-13, `env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby` ran the full Go suite and passed all 92 tests, including the four cross-protocol tests, `TestGRPCBuckets`, `TestGRPCBucketsStrict` and `TestGRPCV1Legacy`, which pins the legacy v1 media exclusion.
 
 On 2026-10-28:
 

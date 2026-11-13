@@ -4701,10 +4701,10 @@
         "Strict mode enforces storage.buckets.delete through project-plus-bucket predefined roles; broader bucket policies, ACLs and soft-delete/retention are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "DELETE whose not-match names the current value answers an empty 304 and deletes nothing, and DELETE of a missing object is 404 even with a condition, as recorded on Cloud Storage (case obj-mutation-not-match, 2026-11-13); other precedence remains unverified.",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -4896,7 +4896,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -5644,16 +5644,16 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
-        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "Supported fields selection is delivered; recognized unsupported billing semantics and named selector edges return 501. generation is accepted only with softDeleted=true (SPEC-BUCKET-SOFT-DELETE).",
+        "Supported fields selection is delivered; recognized unsupported billing semantics return 400 badRequest. generation is accepted only with softDeleted=true (SPEC-BUCKET-SOFT-DELETE).",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -5795,7 +5795,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 400 badRequest, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5865,7 +5865,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -6164,10 +6164,10 @@
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 400 badRequest, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for mixed standard/URL-safe etags. Repeated roles merge at the first binding with sorted, de-duplicated members, and unpadded or non-zero-trailing-bit etags decode, as Cloud Storage did (case bkt-iam-policy-shape, recorded 2026-11-13); mixed alphabets are accepted locally without cloud evidence.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-JSON-ETAG-WIRE: IAM GET has a local HTTP validator formed by quoting the selected policy revision etag; provider header spelling and exhaustive error/header parity remain unverified.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
@@ -6555,7 +6555,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -7005,14 +7005,14 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.create on the ?project= project through project-level predefined roles only; IAM/organization policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
+        "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 400 badRequest.",
         "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
         "Native supports the pinned regional/predefined dual-region and US/EU/ASIA location metadata names plus the declared class/label subset; no geographical behavior, configurable dual-region placement or organization defaults. SPEC-REGIONAL-LOCATIONS records normalization and invalid-location error-detail limits.",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -7202,7 +7202,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -7545,10 +7545,10 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.list on the ?project= project through project-level predefined roles only; IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -7905,7 +7905,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -8471,10 +8471,10 @@
         "SPEC-BUCKET-PATCH: whole-map null follows general deletion guidance; native null settings, storageClass null/empty rejection, unknown/output-only handling, empty-update revision increment and missing-bucket error order are local choices, not service-observed parity.",
         "Legacy PATCH preserves omitted settings and exposes actual mutable metadata/revisions after mutation, unlike reference omission resets and fixed resources; supports durable versioning beyond reference filesystem capabilities. Same-profile GET round trips pass; native-to-legacy metageneration-1 carry-over can hide class/labels.",
         "Class is default metadata only; no object rewrite/placement/transition, billing, full Google identity, power-loss or new resource/performance guarantee.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -8812,7 +8812,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 400 badRequest, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -8888,7 +8888,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -9151,11 +9151,11 @@
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 400 badRequest, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for mixed standard/URL-safe etags. Repeated roles merge at the first binding with sorted, de-duplicated members, and unpadded or non-zero-trailing-bit etags decode, as Cloud Storage did (case bkt-iam-policy-shape, recorded 2026-11-13); mixed alphabets are accepted locally without cloud evidence.",
         "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -9596,7 +9596,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -10106,7 +10106,7 @@
         "SPEC-BUCKET-PUT: the legacy profile preserves omitted labels/class/settings as a local SDK compatibility choice, and a native PUT replaces the resource, keeping only the class, soft delete policy and access settings it omits, as recorded; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Omission preservation, explicit null/empty rules, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
         "Native-to-legacy metageneration-1 resources can hide labels/class; same-profile full-resource round trips preserve modeled fields. Actual mutable metadata/revisions are exposed after PUT.",
         "Class is default metadata only; no existing object rewrite, placement, billing, full Google identity, power-loss or new performance/resource claim.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use the shared local 400 badRequest response; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
@@ -11560,7 +11560,7 @@
       "interface": "storage.notifications.delete",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -11575,7 +11575,7 @@
       "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. Delivered subset: DELETE b/{bucket}/notificationConfigs/{notification} removes a stored configuration and returns 204 with an empty body, increments bucket metageneration/updated atomically and returns 404 for absent/non-canonical IDs after authorization. IDs are not reused; bucket deletion cascades configurations; strict requires storage.buckets.update. Source-checkout local outbox/delivery is separately tracked by EXT-BEH-032/033. Deleting a configuration stops future selection but preserves queued snapshots; docs/en/slices/pubsub-notification-delivery.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "NOTIF-DELETE",
@@ -11632,9 +11632,15 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Obtain opted-in cloud responses for absent/non-numeric IDs, error reasons and messages, userProject and the updated-time effect of the documented metageneration increment.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). A delete advances the bucket updated time together with the documented metageneration increment, an effect the provider recording does not cover (SPEC-NOTIFICATION-WIRE). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "storage::catalog::notifications::tests::insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration",
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
         }
       ],
       "test_ids": [
@@ -11645,7 +11651,10 @@
         "json::notifications::tests::routes_methods_paths_and_queries",
         "TestBucketNotifications",
         "TestStrictAuthBucketNotifications",
-        "ruby-bucket-notifications"
+        "ruby-bucket-notifications",
+        "storage::catalog::notifications::tests::insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration",
+        "differential-bkt-notifications",
+        "differential-bkt-edges-notification-ids"
       ],
       "verification": [
         {
@@ -11673,6 +11682,41 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "storage::catalog::notifications::tests::insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/evidence/bucket-notifications.md",
           "test_ids": [
             "TestBucketNotifications",
@@ -11713,11 +11757,33 @@
           ]
         }
       ],
-      "known_deviations": [
-        "LOCAL-PUBSUB-DELIVERY tracks scoped local effects and pending infrastructure/integration boundaries. Error reasons/messages for absent IDs, userProject (400 badRequest, unsupported) and advancing bucket updated with the documented metageneration increment remain local choices without cloud wire evidence."
+      "scoped_differences": [
+        {
+          "text": "A delete advances the bucket updated time together with the documented metageneration increment; the provider's updated behavior is unrecorded.",
+          "gap": "SPEC-NOTIFICATION-WIRE",
+          "test_ids": [
+            "storage::catalog::notifications::tests::insert_and_delete_advance_the_bucket_updated_time_with_its_metageneration"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "text": "Configurations are kept without Google topic or service-agent permission checks; event delivery is the local outbox of EXT-BEH-032/033.",
+          "gap": "LOCAL-PUBSUB-DELIVERY",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "DELETE",
       "path": "b/{bucket}/notificationConfigs/{notification}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -11744,7 +11810,7 @@
       "interface": "storage.notifications.get",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -11758,7 +11824,7 @@
       "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. GET returns stored Notification fields and schema-validated selectors; absent/non-canonical IDs return 404 after bucket authorization, and configurations survive restart. Strict requires storage.buckets.get. Source-checkout local outbox/delivery is separately tracked by EXT-BEH-032/033; this read does not imply Google service-agent/topic verification.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "NOTIF-GET",
@@ -11815,9 +11881,14 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Obtain opted-in cloud responses for absent/non-numeric IDs, error reasons and messages, etag format and userProject.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Absent, zero-padded and non-numeric IDs answer Cloud Storage's recorded 404 notFound 'The requested resource was not found.' (cases bkt-notifications and bkt-edges-notification-ids). The etag equals the configuration ID, a format the sources do not specify (SPEC-NOTIFICATION-WIRE). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
         }
       ],
       "test_ids": [
@@ -11829,7 +11900,9 @@
         "notification::tests::stored_configs_round_trip_and_reject_invalid_rows",
         "json::notifications::tests::routes_methods_paths_and_queries",
         "json::notifications::tests::renders_resources_and_lists",
-        "ruby-bucket-notifications"
+        "ruby-bucket-notifications",
+        "differential-bkt-notifications",
+        "differential-bkt-edges-notification-ids"
       ],
       "verification": [
         {
@@ -11864,6 +11937,41 @@
           "test_ids": [
             "ruby-bucket-notifications"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+            "notification::tests::stored_configs_round_trip_and_reject_invalid_rows",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -11882,11 +11990,33 @@
           ]
         }
       ],
-      "known_deviations": [
-        "LOCAL-PUBSUB-DELIVERY tracks local effects and pending infrastructure/integration boundaries. Error reasons/messages for absent IDs, the etag-equals-ID choice and userProject (400 badRequest, unsupported) remain local choices without cloud wire evidence."
+      "scoped_differences": [
+        {
+          "text": "The etag equals the configuration ID, a format the sources do not specify.",
+          "gap": "SPEC-NOTIFICATION-WIRE",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "text": "Configurations are kept without Google topic or service-agent permission checks; event delivery is the local outbox of EXT-BEH-032/033.",
+          "gap": "LOCAL-PUBSUB-DELIVERY",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "GET",
       "path": "b/{bucket}/notificationConfigs/{notification}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -12153,7 +12283,7 @@
       "interface": "storage.notifications.list",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -12167,7 +12297,7 @@
       "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. GET lists storage#notifications in ID order, omitting empty items and bounding the result by the 100-configuration limit, with validated selectors. Missing buckets return 404; recreated buckets list no old configs; strict requires storage.buckets.get. Source-checkout local outbox/delivery is tracked separately by EXT-BEH-032/033.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "NOTIF-LIST",
@@ -12216,9 +12346,14 @@
         },
         {
           "id": "NOTIF-WIRE-PARITY",
-          "description": "Obtain opted-in cloud responses for the empty-list shape, error reasons/messages and userProject.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "An empty listing is the kind alone without items, as Cloud Storage answered (case bkt-notifications). userProject is rejected with 400 badRequest although Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
         }
       ],
       "test_ids": [
@@ -12230,7 +12365,9 @@
         "json::notifications::tests::renders_resources_and_lists",
         "TestBucketNotifications",
         "TestStrictAuthBucketNotifications",
-        "ruby-bucket-notifications"
+        "ruby-bucket-notifications",
+        "differential-bkt-notifications",
+        "differential-bkt-edges-notification-ids"
       ],
       "verification": [
         {
@@ -12259,6 +12396,41 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-notifications",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/evidence/bucket-notifications.md",
           "test_ids": [
             "TestBucketNotifications",
@@ -12299,11 +12471,26 @@
           ]
         }
       ],
-      "known_deviations": [
-        "LOCAL-PUBSUB-DELIVERY tracks local effects and pending infrastructure/integration boundaries. Omitting empty items, error reasons/messages and userProject (400 badRequest, unsupported) remain local choices without cloud wire evidence."
+      "scoped_differences": [
+        {
+          "text": "userProject is rejected with 400 badRequest, while Cloud Storage serves it for a bucket without Requester Pays (case bkt-edges-notification-ids).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "differential-bkt-edges-notification-ids"
+          ]
+        },
+        {
+          "text": "Configurations are kept without Google topic or service-agent permission checks; event delivery is the local outbox of EXT-BEH-032/033.",
+          "gap": "LOCAL-PUBSUB-DELIVERY",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "GET",
       "path": "b/{bucket}/notificationConfigs",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -14490,10 +14677,10 @@
         "SPEC-013: GET/DELETE tokens are accepted without replay; same-token repeated DELETE returns 404 after 204.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "SPEC-VERSION-DELETE-CONDITIONS keeps selected-generation condition interpretation unverified against the provider.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -14730,7 +14917,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -15531,13 +15718,13 @@
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag.",
         "SPEC-JSON-ETAG-WIRE: for gzip-stored media with an ETag request header, Accept-Encoding validation precedes a NotMatch-query 304; encoding errors can win. A NotMatch-query-only 304 without an ETag request header emits no ETag response header, preserving existing behavior.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-11-13",
@@ -16030,7 +16217,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -16951,14 +17138,14 @@
         "SPEC-013/SPEC-016: media/multipart upload tokens use bounded persistent replay with or without generation conditions (docs/en/slices/sdk-upload-replay.md); resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
         "SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS: JSON resumable has explicit local edge/error/terminal-retention and permission-recheck choices. XML/signed initiation, gRPC and invocation-token replay are excluded. Selected native resumable process-kill boundaries pass; final hash reread and prepublication error-resolution timing limits are recorded in docs/en/evidence/resumable-upload.md.",
         "PHP checksum compatibility: nonfinal chunks persist consistent whole-object declarations with their durable offset; status/completed retries can repeat persisted declarations or a subset only. New algorithms or conflicts return 400 without invalidating a retained completion. Finalization verifies all persisted hashes; no new checksum is silently ignored. This is a local accommodation with provider parity pending; source and acceptance tests: docs/en/slices/sdk-upload-replay.md.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Matching retained upload tokens replay committed responses; new invocations still enforce conditions. Exact provider cache/error parity remains pending.",
         "SPEC-010/SPEC-016: media, multipart and resumable uploads do not examine Content-MD5, as the recorded obj-upload-checksums differential case showed Cloud Storage storing an upload whose header named the wrong digest (docs/en/evidence/differential-comparison.md); copy, compose and rewrite reject it as an unsupported setting. Checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -17214,7 +17401,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -17502,7 +17689,7 @@
         "versions=true supports retained history; softDeleted=true lists soft-deleted generations and cannot be combined with versions=true (400 invalidArgument). includeFoldersAsPrefixes=true requires delimiter=/ and lists exactly as without it, because local buckets hold no folders or managed folders (BEHAVIOR-OBJECT-020). matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 400 badRequest as unsupported settings; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and carry only the listing position, so a token reused with another prefix, delimiter or versions flag continues after its name as Cloud Storage did (case obj-list-edges, recorded 2026-11-13); maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-11-13",
@@ -17894,7 +18081,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -18318,10 +18505,10 @@
         "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "SPEC-015 scoped correction: body generation:null is unspecified during metadata mutation for the pinned Java Storage 2.76.0 update call. Actual request capture and unchanged SDK scenario pass after the repair. Since 2026-11-13 a non-null body generation selects the generation when the query names none (404 when it does not exist), as recorded on Cloud Storage (case obj-metadata-output-only). Other read-only nulls, unknown input and strict authorization/preconditions retain rejection; no general output-only parity is inferred. Sources/archive digest, two wire regressions and real-Google-unverified boundary: docs/en/slices/json-object-metadata.md and docs/en/evidence/migration-integration.md.",
         "SPEC-METADATA-IF-MATCH: metadata PUT/PATCH/override If-Match passes the scoped local SDK extension, comparing strong validators atomically in the existing transaction. Four dedicated wire tests, twenty-two existing metadata/read regressions and the unchanged .NET SDK pass. Official JSON headers document GET support only; actual Google metadata-write semantics remain unverified. If-None-Match, standalone dates/If-Range and unrelated writes retain rejection. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
@@ -19156,7 +19343,7 @@
         },
         {
           "id": "FIELDS-015",
-          "description": "On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (case obj-fields-selectors, recorded 2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution",
+          "description": "On objects, buckets, the bucket list and the IAM policy a whitespace-only selector, whitespace around names, empty segments and empty parentheses such as metadata() follow Cloud Storage (cases obj-fields-selectors and bkt-edges-fields, recorded 2026-11-13); whitespace inside a name and a wildcard with a child answer the recorded 400 invalidParameter",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -19546,10 +19733,10 @@
         "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; object resources follow the recorded whitespace, metadata() and alt=media answers (2026-11-13), while whitespace selectors on other resources, whitespace inside a name and wildcard sub-selections with children remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "SPEC-015 scoped correction: body generation:null is unspecified during metadata mutation for the pinned Java Storage 2.76.0 update call. Actual request capture and unchanged SDK scenario pass after the repair. Since 2026-11-13 a non-null body generation selects the generation when the query names none (404 when it does not exist), as recorded on Cloud Storage (case obj-metadata-output-only). Other read-only nulls, unknown input and strict authorization/preconditions retain rejection; no general output-only parity is inferred. Sources/archive digest, two wire regressions and real-Google-unverified boundary: docs/en/slices/json-object-metadata.md and docs/en/evidence/migration-integration.md.",
         "SPEC-METADATA-IF-MATCH: metadata PUT/PATCH/override If-Match passes the scoped local SDK extension, comparing strong validators atomically in the existing transaction. Four dedicated wire tests, twenty-two existing metadata/read regressions and the unchanged .NET SDK pass. Official JSON headers document GET support only; actual Google metadata-write semantics remain unverified. If-None-Match, standalone dates/If-Range and unrelated writes retain rejection. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
@@ -19843,7 +20030,7 @@
       "interface": "storage.projects.hmacKeys.create",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -19859,7 +20046,7 @@
       "notes": "Creates an ACTIVE key for the path project and serviceAccountEmail and returns storage#hmacKey with the 40-character base64 secret (only here) and metadata with a 61-character GOOG1E access ID, id, selfLink, timestamps and etag. At most ten non-DELETED keys per project and service account, enforced atomically. Keys persist in catalog schema 32. Strict mode requires storage.hmacKeys.create. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "HMAC-CREATE",
@@ -19912,9 +20099,14 @@
         },
         {
           "id": "HMAC-CREATE-PENDING",
-          "description": "Provider status/reason for the key limit, service account existence checks, requester billing and restrictAuthTypes.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Local contract for choices the sources leave open: the per-account key limit answers 400 badRequest, any syntactically valid serviceAccountEmail is accepted without a directory lookup, and userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses for these remain SPEC-HMAC-WIRE source questions; restrictAuthTypes is an organization policy, not a JSON API field.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
         }
       ],
       "test_ids": [
@@ -19929,7 +20121,9 @@
         "strict_profile_authorizes_project_resources",
         "ruby-project-hmac-keys-strict-denied",
         "TestHMACKeysAndServiceAccount",
-        "ruby-project-hmac-keys"
+        "ruby-project-hmac-keys",
+        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
         {
@@ -19953,6 +20147,44 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys",
+            "ruby-project-hmac-keys-strict-denied"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "create_accepts_only_form_parameters_identical_to_the_query",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "generated_access_ids_and_secrets_follow_the_documented_shapes",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "hmac_key_listing_filters_pages_and_limits",
+            "concurrent_creation_never_exceeds_the_per_account_limit",
+            "previous_schema_migrates_and_keys_survive_reopen",
+            "strict_profile_authorizes_project_resources",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-edges-hmac-keys"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "TestHMACKeysAndServiceAccount",
@@ -19992,11 +20224,33 @@
           ]
         }
       ],
-      "known_deviations": [
-        "Any syntactically valid serviceAccountEmail is accepted; no IAM directory verifies that the account exists. The key-limit status (400 badRequest) is a local choice the sources do not specify. userProject is rejected as unsupported. Keys cannot sign requests yet (DESIGN-031, EXT-XML-028..031)."
+      "scoped_differences": [
+        {
+          "text": "Any syntactically valid serviceAccountEmail is accepted; no IAM directory verifies that the account exists.",
+          "gap": "SPEC-HMAC-SERVICE-ACCOUNTS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart"
+          ]
+        },
+        {
+          "text": "The per-account key limit answers 400 badRequest, a status the sources do not specify.",
+          "gap": "SPEC-HMAC-WIRE",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "POST",
       "path": "projects/{projectId}/hmacKeys",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -20023,7 +20277,7 @@
       "interface": "storage.projects.hmacKeys.delete",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20039,7 +20293,7 @@
       "notes": "Deleting an INACTIVE key returns 204, marks it DELETED (retained tombstones remain readable and listed with showDeletedKeys), advances its etag and erases the stored secret in one transaction. Each successful deletion retains the newest 128 DELETED keys per project; older tombstones are purged and then return 404 (local policy; Cloud Storage documents no retention period). ACTIVE and already DELETED keys are rejected with 400 badRequest without mutation; unknown keys or keys of another project return 404. Strict mode requires storage.hmacKeys.delete. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "HMAC-DELETE",
@@ -20070,9 +20324,14 @@
         },
         {
           "id": "HMAC-DELETE-PENDING",
-          "description": "Provider status/reason and message for deleting ACTIVE or DELETED keys, and requester billing.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Local contract for choices the sources leave open: deleting an ACTIVE or an already DELETED key answers 400 badRequest without change, each deletion retains the newest 128 DELETED keys per project, and userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys). Provider statuses and retention remain SPEC-HMAC-WIRE and SPEC-HMAC-RETENTION questions.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
         }
       ],
       "test_ids": [
@@ -20081,7 +20340,10 @@
         "hmac_key_listing_filters_pages_and_limits",
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
-        "ruby-project-hmac-keys"
+        "ruby-project-hmac-keys",
+        "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
+        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
         {
@@ -20100,6 +20362,39 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "hmac_key_listing_filters_pages_and_limits",
+            "strict_profile_authorizes_project_resources",
+            "deleted_key_retention_is_bounded_per_project_without_changing_live_quota",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-edges-hmac-keys"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "TestHMACKeysAndServiceAccount",
@@ -20137,11 +20432,33 @@
           ]
         }
       ],
-      "known_deviations": [
-        "The sources do not specify the status for deleting an ACTIVE or already DELETED key; gcs-mimic returns 400 badRequest with an actionable message. userProject is rejected as unsupported."
+      "scoped_differences": [
+        {
+          "text": "Deleting an ACTIVE or an already DELETED key answers 400 badRequest with an actionable message, a status the sources do not specify.",
+          "gap": "SPEC-HMAC-WIRE",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart"
+          ]
+        },
+        {
+          "text": "Each deletion retains the newest 128 DELETED keys per project; older tombstones return 404.",
+          "gap": "SPEC-HMAC-RETENTION",
+          "test_ids": [
+            "deleted_key_retention_is_bounded_per_project_without_changing_live_quota"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "DELETE",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -20168,7 +20485,7 @@
       "interface": "storage.projects.hmacKeys.get",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20183,7 +20500,7 @@
       "notes": "Returns storage#hmacKeyMetadata without the secret for a key in the path project, including retained DELETED keys; unknown keys or keys of another project return 404 notFound. Each successful deletion retains the newest 128 DELETED keys per project; purged tombstones return 404 (local policy; SPEC-HMAC-RETENTION). fields is validated against HmacKeyMetadata. Strict mode requires storage.hmacKeys.get. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "HMAC-GET",
@@ -20214,9 +20531,14 @@
         },
         {
           "id": "HMAC-GET-PENDING",
-          "description": "Provider 404 message bytes and requester billing.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "An unknown or foreign key answers Cloud Storage's recorded 404 notFound 'Access ID not found in project.' (case bkt-project-resources). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-project-resources",
+            "differential-bkt-edges-hmac-keys"
+          ]
         }
       ],
       "test_ids": [
@@ -20225,7 +20547,10 @@
         "rejects_invalid_methods_and_queries",
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
-        "ruby-project-hmac-keys"
+        "ruby-project-hmac-keys",
+        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "differential-bkt-project-resources",
+        "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
         {
@@ -20244,6 +20569,39 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "strict_profile_authorizes_project_resources",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-project-resources",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "TestHMACKeysAndServiceAccount",
@@ -20281,11 +20639,19 @@
           ]
         }
       ],
-      "known_deviations": [
-        "userProject is rejected as unsupported; the 404 message text is local."
+      "scoped_differences": [
+        {
+          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "GET",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -20312,7 +20678,7 @@
       "interface": "storage.projects.hmacKeys.list",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20327,7 +20693,7 @@
       "notes": "Returns storage#hmacKeysMetadata (metadata only) for the path project ordered by access ID. serviceAccountEmail filters exactly; retained DELETED keys appear only with showDeletedKeys=true. Each successful deletion retains the newest 128 DELETED keys per project (local policy; SPEC-HMAC-RETENTION). maxResults is a uint32 capped at 1000 (0 or omitted uses 1000); nextPageToken appears only when keys remain and is bound to the project and both filters. Strict mode requires storage.hmacKeys.list. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "HMAC-LIST",
@@ -20360,9 +20726,13 @@
         },
         {
           "id": "HMAC-LIST-PENDING",
-          "description": "Provider default page size and ordering, and requester billing.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "An empty listing omits items and a maxResults that is not a uint32 answers Cloud Storage's 400 invalidParameter 'Invalid unsigned integer value' (case bkt-edges-hmac-keys). Without maxResults a page holds up to 1000 keys in access-ID order, choices the sources leave open (SPEC-HMAC-WIRE). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
         }
       ],
       "test_ids": [
@@ -20373,7 +20743,9 @@
         "rejects_invalid_methods_and_queries",
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
-        "ruby-project-hmac-keys"
+        "ruby-project-hmac-keys",
+        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
         {
@@ -20394,6 +20766,40 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "page_tokens_are_bound_to_the_listing_filters",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "strict_profile_authorizes_project_resources",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-edges-hmac-keys"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "TestHMACKeysAndServiceAccount",
@@ -20431,11 +20837,26 @@
           ]
         }
       ],
-      "known_deviations": [
-        "The sources document no default page size or ordering; gcs-mimic uses 1000 and access-ID order. userProject is rejected as unsupported."
+      "scoped_differences": [
+        {
+          "text": "Without maxResults a page holds up to 1000 keys in access-ID order; the sources document no default page size or ordering.",
+          "gap": "SPEC-HMAC-WIRE",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "GET",
       "path": "projects/{projectId}/hmacKeys",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -20474,7 +20895,7 @@
       "interface": "storage.projects.hmacKeys.update",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20489,7 +20910,7 @@
       "notes": "PUT changes only state, to ACTIVE or INACTIVE (required); DELETED is rejected with guidance to use delete. A body etag must match the current etag (412 conditionNotMet otherwise), checked atomically with the mutation. Output-only and unrecognized fields are ignored so whole-resource round trips work. Updates advance the etag and updated time; DELETED keys cannot be updated. Strict mode requires storage.hmacKeys.update. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "HMAC-UPDATE",
@@ -20528,9 +20949,14 @@
         },
         {
           "id": "HMAC-UPDATE-PENDING",
-          "description": "Provider status/reason for updating DELETED keys, treatment of a missing state, and requester billing.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A missing state and DELETED answer Cloud Storage's 400 invalid 'Must specify resource.state.' and 'Cannot set state to 'DELETED'.' before the key is looked up (case bkt-edges-hmac-keys). Updating a DELETED key answers 400 badRequest and the etag is an opaque per-key revision, choices the sources leave open (SPEC-HMAC-WIRE). userProject is rejected with 400 badRequest before any change although Cloud Storage serves it for a project without Requester Pays.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
         }
       ],
       "test_ids": [
@@ -20540,7 +20966,9 @@
         "concurrent_creation_never_exceeds_the_per_account_limit",
         "strict_profile_authorizes_project_resources",
         "TestHMACKeysAndServiceAccount",
-        "ruby-project-hmac-keys"
+        "ruby-project-hmac-keys",
+        "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+        "differential-bkt-edges-hmac-keys"
       ],
       "verification": [
         {
@@ -20560,6 +20988,39 @@
           "command": "just check-sdk",
           "result": "PASS",
           "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib; cargo test --locked --offline --test it_json --test it_admin",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
+            "routes_hmac_key_and_service_account_methods",
+            "concurrent_creation_never_exceeds_the_per_account_limit",
+            "strict_profile_authorizes_project_resources",
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "differential-bkt-edges-hmac-keys"
+          ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
           "artifact": "docs/en/slices/project-hmac-keys.md",
           "test_ids": [
             "TestHMACKeysAndServiceAccount",
@@ -20597,11 +21058,26 @@
           ]
         }
       ],
-      "known_deviations": [
-        "The sources do not specify the status for updating a DELETED key or omitting state; gcs-mimic returns 400 badRequest and 400 required. The etag is an opaque local per-key revision. userProject is rejected as unsupported."
+      "scoped_differences": [
+        {
+          "text": "Updating a DELETED key answers 400 badRequest, and the etag is an opaque local per-key revision; the sources specify neither.",
+          "gap": "SPEC-HMAC-WIRE",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart"
+          ]
+        },
+        {
+          "text": "userProject is rejected with 400 badRequest before any change, while Cloud Storage serves it for a project without Requester Pays (case bkt-edges-hmac-keys).",
+          "gap": "SPEC-SDK-UNSUPPORTED",
+          "test_ids": [
+            "hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors",
+            "differential-bkt-edges-hmac-keys"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-29",
+      "last_verified": "2026-11-13",
       "http_method": "PUT",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -25486,7 +25962,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Projects are local opaque IDs; numeric projectNumber is normalized and string IDs map to \"0\"; userProject returns 501."
+        "Projects are local opaque IDs; numeric projectNumber is normalized and string IDs map to \"0\"; userProject returns 400 badRequest."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
@@ -25568,8 +26044,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
-        "ETags encode only the metageneration, so a recreated bucket repeats its ETag; that is inferred from the recorded encoding, not observed on a recreation."
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity."
       ],
       "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
@@ -30366,7 +30841,7 @@
         },
         {
           "id": "GZIP-REMAINING-PARITY",
-          "description": "Gunzipped responses (200, HEAD and the plain-body 400) now carry a weak ETag as observed 2026-10-31, and the 400 pins its cache, pragma and vary headers per API. Double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
+          "description": "Gunzipped responses (200, HEAD and the plain-body 400) now carry a weak ETag as observed 2026-10-31, and the 400 pins its cache, pragma and vary headers per API. Additional encodings and exact provider negotiation/error parity remain pending; doubly compressed objects follow the 2026-11-13 recording (PROVIDER-GAP-PROBES).",
           "result": "PENDING",
           "test_ids": []
         }
@@ -30466,7 +30941,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. Double-compression detection remains unsupported; provider exactness beyond the observed headers is unverified."
+        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. A doubly compressed object (application/gzip stored with contentEncoding gzip) is gunzipped for every client, as recorded 2026-11-13 (case obj-gzip-double); provider exactness beyond the observed headers is unverified."
       ],
       "implemented_in": "b894ed0",
       "last_verified": "2026-11-13"
@@ -59227,7 +59702,7 @@
       "interface": "Project validation",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
@@ -59238,7 +59713,7 @@
         "DESIGN-092"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-099-A1",
@@ -59353,7 +59828,12 @@
           "artifact": "docs/en/evidence/dist-release-notes.md",
           "test_ids": [
             "local-pre-push-suite"
-          ]
+          ],
+          "superseded_by": {
+            "command": "just pre-push on source accb532bc9da7282437ae0aad71cd0545a93cb60 (its Rust and shell stage runs bash scripts/test-check.sh): exit 0, all stages passed in 24m16s in one invocation",
+            "verified_at": "2026-11-11",
+            "reason": "The failure was PATH selecting Ruby 3.4.1 instead of the pinned 4.0.9; the SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh, and this complete pre-push passed every stage."
+          }
         },
         {
           "command": "just check",
@@ -59362,7 +59842,12 @@
           "artifact": "docs/en/evidence/dist-release-notes.md",
           "test_ids": [
             "local-pre-push-suite"
-          ]
+          ],
+          "superseded_by": {
+            "command": "just check",
+            "verified_at": "2026-10-24",
+            "reason": "The failure (exit 101) came from running inside the sandbox; the same complete just check passed outside it with 665 tests."
+          }
         },
         {
           "command": "just check",
@@ -59515,11 +60000,9 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Every acceptance case passes, but the row stays PARTIAL: it keeps the failed 2026-10-24 just pre-push (exit 18, Ruby 3.4.1 selected instead of pinned 4.0.9) and sandboxed just check (exit 101) verification records as history, and cargo xtask compatibility rejects IMPLEMENTED while any verification record fails. The 2026-11-11 complete pre-push runs on 0.17.1 source accb532b and 0.18.0 source 1e5a89a0 resolve the failure itself, and the SDK suite now selects the pinned Ruby through scripts/pinned-ruby.sh. Promotion needs a decision on how a superseded failure record is kept without blocking IMPLEMENTED."
-      ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "DESIGN-100",
@@ -64119,7 +64602,7 @@
       "interface": "Cross-protocol contract",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -64130,8 +64613,8 @@
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
       "notes": "Write through each supported transport and read/list/modify through the others. Assert equivalent bytes, logical generations, metadata and authorization while preserving protocol-specific representations and errors. This is an integration gate distinct from independently passing each route. Object state: sdk-tests/go/cross_protocol_objects_test.go and docs/en/slices/cross-protocol-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "arrow-object-store-local",
@@ -64179,6 +64662,15 @@
           "test_ids": [
             "TestCrossProtocolDerivedObjects"
           ]
+        },
+        {
+          "id": "excluded_projections_rejected",
+          "description": "The XML bucket listing serves the same names, generations, metagenerations and sizes as the other transports; only its owner projection, fetch-owner=true, is outside the supported subset and answers 400 InvalidArgument without changing state. Legacy v1 has no media RPC, and GetObjectMedia answers immediate UNIMPLEMENTED with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestCrossProtocolObjects",
+            "TestGRPCV1Legacy"
+          ]
         }
       ],
       "test_ids": [
@@ -64188,7 +64680,8 @@
         "TestCrossProtocolObjectVersions",
         "TestCrossProtocolObjectsStrict",
         "TestCrossProtocolDerivedObjects",
-        "arrow-object-store-local"
+        "arrow-object-store-local",
+        "TestGRPCV1Legacy"
       ],
       "verification": [
         {"command":"GCS_MIMIC_ENDPOINT=http://127.0.0.1:63911 GCS_MIMIC_GRPC_ENDPOINT=127.0.0.1:64330 bash sdk-tests/rust/run.sh","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/migration-integration.md","test_ids":["arrow-object-store-local"]},
@@ -64224,6 +64717,21 @@
             "TestCrossProtocolObjectsStrict",
             "TestCrossProtocolDerivedObjects"
           ]
+        },
+        {
+          "command": "env -u GCSM_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/cross-protocol-objects.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict",
+            "TestCrossProtocolObjects",
+            "TestCrossProtocolObjectVersions",
+            "TestCrossProtocolObjectsStrict",
+            "TestCrossProtocolDerivedObjects",
+            "TestGRPCV1Legacy"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -64242,9 +64750,17 @@
           ]
         }
       ],
-      "known_deviations": [
-        "XML bucket listing and legacy v1 media are outside their supported subsets and are excluded."
+      "scoped_differences": [
+        {
+          "text": "The XML listing's owner projection (fetch-owner=true) and legacy v1 media are outside their supported subsets; both are rejected rather than projected.",
+          "gap": "SPEC-CROSS-PROTOCOL-EXCLUSIONS",
+          "test_ids": [
+            "TestCrossProtocolObjects",
+            "TestGRPCV1Legacy"
+          ]
+        }
       ],
+      "known_deviations": [],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-11-13"
     },
