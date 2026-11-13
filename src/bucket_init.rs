@@ -1084,6 +1084,9 @@ fn check_values(
                     native(name, &parsed, &key, now, diagnostics);
                 }
             }
+            // The buckets file keeps an empty location as a request for the default one, which
+            // the JSON API rejects; `records` drops it before the insert parser reads the entry.
+            "location" if parsed == "" => {}
             "name" | "location" | "storageClass" | "defaultEventBasedHold" => {
                 native(name, &parsed, &key, now, diagnostics)
             }
@@ -1661,6 +1664,9 @@ fn records(
             )
         })?;
         let written = entry.written();
+        if entry.location.as_deref() == Some("") {
+            entry.location = None;
+        }
         let policy = entry
             .iam_policy
             .take()

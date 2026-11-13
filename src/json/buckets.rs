@@ -210,10 +210,9 @@ fn insert_location(
         }
         return Ok("US".into());
     }
-    if body
-        .get("location")
-        .is_none_or(|value| value.is_null() || value == "")
-    {
+    // An empty string is not an absent location: Cloud Storage rejected `"location":""` with the
+    // invalid-location error (recorded 2026-11) while an omitted location gets the default.
+    if body.get("location").is_none_or(Value::is_null) {
         return Ok(default_location.to_owned());
     }
     insert_string(body, "location", Some(default_location))
