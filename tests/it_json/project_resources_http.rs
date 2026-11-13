@@ -36,10 +36,11 @@ fn listed(server: &Server, query: &str) -> Vec<String> {
         .request("GET", &format!("{KEYS}?{query}"), ADMIN, b"")
         .json_ok();
     assert_eq!(value["kind"], "storage#hmacKeysMetadata");
+    // An empty listing omits `items`.
     value["items"]
         .as_array()
-        .unwrap()
-        .iter()
+        .into_iter()
+        .flatten()
         .map(|item| item["accessId"].as_str().unwrap().to_owned())
         .collect()
 }
@@ -93,8 +94,8 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
         json!({"state": "INACTIVE", "etag": "stale"}),
     )
     .json_reason(412, "conditionNotMet");
-    set_state(&server, &access_id, json!({"state": "DELETED"})).json_reason(400, "invalidArgument");
-    set_state(&server, &access_id, json!({"etag": first_etag})).json_reason(400, "required");
+    set_state(&server, &access_id, json!({"state": "DELETED"})).json_reason(400, "invalid");
+    set_state(&server, &access_id, json!({"etag": first_etag})).json_reason(400, "invalid");
     assert_eq!(
         server
             .request("GET", &key_path(&access_id), ADMIN, b"")
@@ -239,13 +240,12 @@ fn hmac_key_listing_filters_pages_and_limits() {
             b"",
         )
         .json_reason(400, "invalidParameter");
-    assert!(
+    // A project without keys lists none and, like Cloud Storage, omits `items`.
+    assert_eq!(
         server
             .request("GET", "/storage/v1/projects/elsewhere/hmacKeys", ADMIN, b"")
-            .json_ok()["items"]
-            .as_array()
-            .unwrap()
-            .is_empty()
+            .json_ok(),
+        json!({"kind": "storage#hmacKeysMetadata"})
     );
 
     // At most ten keys that are not DELETED exist per service account.
@@ -284,6 +284,50 @@ fn hmac_key_listing_filters_pages_and_limits() {
     server
         .request("PATCH", &key_path(&second), ADMIN, b"{}")
         .json_reason(405, "methodNotAllowed");
+}
+
+/// Requester billing is outside the emulator's scope, so every HMAC key route rejects
+/// `userProject` before changing anything, although Cloud Storage serves the same requests
+/// for a project without Requester Pays (case bkt-edges-hmac-keys, SPEC-SDK-UNSUPPORTED).
+#[test]
+fn hmac_key_requests_reject_requester_billing_and_unsigned_page_size_errors() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    let access_id = create(&server, "sa%40example.invalid")["metadata"]["accessId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let key = key_path(&access_id);
+    let before = server.request("GET", &key, ADMIN, b"").json_ok();
+    let inactive = json!({"state": "INACTIVE"}).to_string();
+    for (method, target, body) in [
+        (
+            "POST",
+            format!("{KEYS}?serviceAccountEmail=sa%40example.invalid&userProject=local"),
+            "",
+        ),
+        ("GET", format!("{KEYS}?userProject=local"), ""),
+        ("GET", format!("{key}?userProject=local"), ""),
+        ("PUT", format!("{key}?userProject=local"), inactive.as_str()),
+        ("DELETE", format!("{key}?userProject=local"), ""),
+    ] {
+        server
+            .request(method, &target, ADMIN, body.as_bytes())
+            .json_reason(400, "badRequest");
+    }
+    assert_eq!(server.request("GET", &key, ADMIN, b"").json_ok(), before);
+    assert_eq!(listed(&server, ""), [access_id]);
+
+    // Cloud Storage's wording for maxResults=-1; other non-uint32 values reuse it.
+    for value in ["-1", "abc", "4294967296"] {
+        let error = server
+            .request("GET", &format!("{KEYS}?maxResults={value}"), ADMIN, b"")
+            .json_reason_value(400, "invalidParameter");
+        assert_eq!(
+            error["error"]["message"],
+            format!("Invalid unsigned integer value: '{value}'.")
+        );
+    }
 }
 
 /// POST with an explicit content type, as the pinned Ruby client sends create.

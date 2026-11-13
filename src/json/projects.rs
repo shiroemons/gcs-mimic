@@ -154,19 +154,20 @@ fn parse(
             let max_results = match query.remove("maxResults") {
                 None => HMAC_KEY_PAGE_CAP,
                 Some(value) => {
-                    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(JsonError::invalid_parameter("maxResults must be a uint32")
-                            .at_parameter("maxResults"));
+                    // Cloud Storage's wording for maxResults=-1 (case bkt-edges-hmac-keys).
+                    let invalid = || {
+                        JsonError::invalid_parameter(format!(
+                            "Invalid unsigned integer value: '{value}'."
+                        ))
+                        .at_parameter("maxResults")
+                    };
+                    // `u32::from_str` also accepts a leading `+`, which is not a decimal digit.
+                    if !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                        return Err(invalid());
                     }
-                    match value.parse::<u32>() {
-                        Ok(0) => HMAC_KEY_PAGE_CAP,
-                        Ok(size) => size.min(HMAC_KEY_PAGE_CAP),
-                        Err(_) => {
-                            return Err(JsonError::invalid_parameter(
-                                "maxResults must be a uint32",
-                            )
-                            .at_parameter("maxResults"));
-                        }
+                    match value.parse::<u32>().map_err(|_| invalid())? {
+                        0 => HMAC_KEY_PAGE_CAP,
+                        size => size.min(HMAC_KEY_PAGE_CAP),
                     }
                 }
             };
@@ -234,14 +235,13 @@ pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonE
             })
             .transpose()
     };
-    let state = string("state")?.ok_or_else(|| {
-        JsonError::required("Missing required state; set it to ACTIVE or INACTIVE")
-    })?;
+    // Cloud Storage's reasons and wording for a missing state and for DELETED, which it reports
+    // before looking the key up (case bkt-edges-hmac-keys).
+    let state =
+        string("state")?.ok_or_else(|| JsonError::invalid("Must specify resource.state."))?;
     let state = match HmacKeyState::parse(&state) {
         Some(HmacKeyState::Deleted) => {
-            return Err(JsonError::invalid_argument(
-                "state can be updated only to ACTIVE or INACTIVE; use DELETE to delete the key",
-            ));
+            return Err(JsonError::invalid("Cannot set state to 'DELETED'."));
         }
         Some(state) => state,
         None => {
@@ -297,17 +297,15 @@ pub(crate) fn hmac_key_list(
     base_url: &str,
 ) -> Result<Value, JsonError> {
     let items = &page.items;
-    let mut value = Map::from_iter([
-        ("kind".into(), "storage#hmacKeysMetadata".into()),
-        (
-            "items".into(),
-            items
-                .iter()
-                .map(|record| hmac_key_metadata(record, base_url))
-                .collect::<Result<Vec<_>, _>>()?
-                .into(),
-        ),
-    ]);
+    let mut value = Map::from_iter([("kind".into(), "storage#hmacKeysMetadata".into())]);
+    // Cloud Storage omits an empty `items` (case bkt-edges-hmac-keys).
+    if !items.is_empty() {
+        let metadata = items
+            .iter()
+            .map(|record| hmac_key_metadata(record, base_url))
+            .collect::<Result<Vec<_>, _>>()?;
+        value.insert("items".into(), metadata.into());
+    }
     if page.has_more
         && let Some(last) = items.last()
     {
@@ -648,11 +646,11 @@ mod tests {
             }
         );
         for (body, reason) in [
-            (&br#"{"state":"DELETED"}"#[..], "invalidArgument"),
+            (&br#"{"state":"DELETED"}"#[..], "invalid"),
             (br#"{"state":"active"}"#, "invalidArgument"),
             (br#"{"state":1}"#, "invalidArgument"),
             (br#"{"state":"ACTIVE","etag":1}"#, "invalidArgument"),
-            (br#"{}"#, "required"),
+            (br#"{}"#, "invalid"),
             (br#"[]"#, "invalidArgument"),
             (br#"{"#, "parseError"),
         ] {
