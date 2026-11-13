@@ -138,7 +138,7 @@ this suite, unless an item names one line:
   `Bucket#getFiles` adds `autoPaginate`. Cloud Storage ignored them on a
   recorded objects.delete and objects.list (cases
   `obj-delete-undeclared-query` and `obj-list-undeclared-query`), and
-  gcs-mimic does too since the release after 0.20.0; 0.20.0 answers 400.
+  gcs-mimic does too since 0.20.1; 0.20.0 answers 400.
 - **9.0.0 drops a bucket-level `userProject` on `getFiles`.** A `userProject`
   given to `storage.bucket()` is no longer sent on the listing; observed against
   Cloud Storage too. The fail-fast journey passes it per call.

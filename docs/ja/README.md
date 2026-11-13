@@ -240,7 +240,7 @@ gcs_emulator:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.20.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.20.1
     ports:
       - "127.0.0.1:4443:4443"
     volumes:
@@ -415,7 +415,7 @@ gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいる�
 - [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
 - [ボトルネックの探し方](performance-investigation.md)と[性能調査の結果・採否（英語）](../en/evidence/read-optimization-summary.md)
-- [0.20.0のリリースノート（英語）](../en/releases/0.20.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.20.1のリリースノート（英語）](../en/releases/0.20.1.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)
 - [llms.txt（英語）](../../llms.txt): コーディングエージェントがgcs-mimicをプロジェクトに組み込むときの短いガイド

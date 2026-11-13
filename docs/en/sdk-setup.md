@@ -97,7 +97,7 @@ access token from Google and sends it to the emulator.
 
 9.0.0 sends `File#delete` and `Bucket#getFiles` with query parameters those
 methods do not declare (`responseType`, `validateStatus`, `autoPaginate`).
-Cloud Storage ignores them, and so does gcs-mimic after 0.20.0; 0.20.0 answers
+Cloud Storage ignores them, and so does gcs-mimic since 0.20.1; 0.20.0 answers
 400. 9.0.0 also stopped sending a `userProject` given to `storage.bucket()` on
 `getFiles`; pass it to the call instead.
 

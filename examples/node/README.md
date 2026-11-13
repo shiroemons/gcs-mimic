@@ -1,12 +1,12 @@
 # Node.js example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with `@google-cloud/storage` 8.4.0 and `google-auth-library` 11.3.4. Needs Node.js 24 or newer. The example stays on 8.4.0 while it targets 0.20.0: `@google-cloud/storage` 9.0.0 needs a later gcs-mimic to delete and list objects ([SDK setup](../../docs/en/sdk-setup.md#nodejs)).
+Creates a bucket, uploads, lists, downloads and deletes an object with `@google-cloud/storage` 9.0.0 and `google-auth-library` 11.3.4. Needs Node.js 24 or newer, and gcs-mimic 0.20.1 or later: 0.20.0 refuses the query parameters 9.0.0 sends to delete and list objects ([SDK setup](../../docs/en/sdk-setup.md#nodejs)). The same code runs with 8.4.0.
 
 ## Start gcs-mimic
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.20.0
+  ghcr.io/shiroemons/gcs-mimic:0.20.1
 ```
 
 ## Run
@@ -16,8 +16,6 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ```
 
 Set `GCSM_ENDPOINT` to use another address (default `http://localhost:4443`).
-
-The download prints two `MaxListenersExceededWarning` messages. They come from streams inside the SDK, are a known warning, and do not affect the result.
 
 ## Client setup
 

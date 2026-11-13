@@ -90,7 +90,7 @@ Googleから本物のアクセストークンを取得してエミュレータ�
 
 9.0.0は`File#delete`と`Bucket#getFiles`に、それらのメソッドが宣言していない
 クエリパラメータ（`responseType`、`validateStatus`、`autoPaginate`）を付けて送ります。
-Cloud Storageはこれを無視し、0.20.0より後のgcs-mimicも無視します。0.20.0は400を返します。
+Cloud Storageはこれを無視し、0.20.1以降のgcs-mimicも無視します。0.20.0は400を返します。
 また9.0.0は、`storage.bucket()`に渡した`userProject`を`getFiles`で送らなくなりました。
 呼び出しに直接渡してください。
 
