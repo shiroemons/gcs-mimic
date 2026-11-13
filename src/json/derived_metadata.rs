@@ -1,5 +1,6 @@
 use super::JsonError;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
+use serde_json::{Map, Value};
 
 /// Rewrite preserves composite identity in the same location/class and collapses its component
 /// count to one when either changes; adapters retain the source snapshot for this decision.
@@ -34,8 +35,31 @@ pub(crate) fn derived_component_count(
     })
 }
 
+/// The resource a copy or rewrite body supplies, or `None` when the destination inherits the
+/// source metadata. Cloud Storage treats a blank or `null` body, `{}`, and a resource whose only
+/// field is a `null` or empty `metadata` map as no resource at all (recorded 2026-11-13 for a
+/// single-space body, `{"metadata":null}` and `{"metadata":{}}` on copy and rewrite).
+pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, JsonError> {
+    if bytes
+        .iter()
+        .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+    {
+        return Ok(None);
+    }
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+    let inherits = match &value {
+        Value::Null => true,
+        Value::Object(fields) => fields.iter().all(|(key, value)| {
+            key == "metadata" && (value.is_null() || value.as_object().is_some_and(Map::is_empty))
+        }),
+        _ => false,
+    };
+    Ok((!inherits).then_some(value))
+}
+
 /// Empty bodies inherit editable source metadata except holds. A supplied resource replaces
-/// that metadata, including `{}`; path bucket/name always win over resource values.
+/// that metadata; path bucket/name always win over resource values.
 pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
@@ -47,11 +71,7 @@ pub(crate) fn derived_metadata(
     ),
     JsonError,
 > {
-    // An absent, `null` or empty-object resource keeps the source metadata (recorded for `{}`).
-    if bytes.is_empty()
-        || std::str::from_utf8(bytes)
-            .is_ok_and(|value| matches!(value.trim_matches([' ', '\t', '\r', '\n']), "null" | "{}"))
-    {
+    let Some(resource) = derived_resource(bytes)? else {
         let update = ObjectMetadataUpdate::inheriting(source);
         // Publishing checks this as well, but only after the whole body has been copied.
         update.check_encoded_size().map_err(JsonError::from)?;
@@ -60,8 +80,19 @@ pub(crate) fn derived_metadata(
             Some(source.storage_class),
             ExpectedHashes::default(),
         ));
+    };
+    let mut parsed =
+        super::parse_object_metadata(resource.to_string().as_bytes(), super::WriteMode::Replace)?;
+    // Cloud Storage answers a resource naming a generation but no name this way, before it
+    // looks at any other field (recorded 2026-11-13 for a copy body with output-only fields).
+    if parsed
+        .unchanged
+        .get("generation")
+        .is_some_and(|value| !value.is_null())
+        && !parsed.unchanged.contains_key("name")
+    {
+        return Err(JsonError::required("You must specify an object name."));
     }
-    let mut parsed = super::parse_object_metadata(bytes, super::WriteMode::Replace)?;
     parsed.update.validate().map_err(JsonError::from)?;
     if parsed.update.temporary_hold == Some(true) {
         return Err(JsonError::unsupported_object(
@@ -103,6 +134,9 @@ pub(crate) fn derived_metadata(
             crate::bucket::validate_storage_class(class).map_err(JsonError::from)
         })
         .transpose()?;
+    // Cloud Storage ignores a supplied size (recorded 2026-11-13: a rewrite body with a wrong
+    // size completes with the source's size).
+    parsed.unchanged.remove("size");
     let mut expected = ExpectedHashes::default();
     for key in ["md5Hash", "crc32c"] {
         if let Some(value) = parsed.unchanged.remove(key) {
@@ -367,6 +401,64 @@ mod tests {
         assert_eq!(
             derived_metadata(b"{}", &source).unwrap(),
             derived_metadata(b"", &source).unwrap()
+        );
+    }
+
+    #[test]
+    fn blank_and_empty_metadata_resources_inherit_like_an_absent_body() {
+        let mut source = crate::json::object_tests::record();
+        source.metadata.insert("k".into(), "v".into());
+        source.content_language = Some("en".into());
+        let inherited = derived_metadata(b"", &source).unwrap();
+        for body in [
+            &b" "[..],
+            b"\r\n\t ",
+            br#"{"metadata":null}"#,
+            br#" {"metadata":{}} "#,
+        ] {
+            assert_eq!(
+                derived_metadata(body, &source).unwrap(),
+                inherited,
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
+        // Any other field still replaces the editable metadata.
+        let (replaced, ..) =
+            derived_metadata(br#"{"metadata":{},"contentType":""}"#, &source).unwrap();
+        let mut destination = source.clone();
+        replaced.apply(&mut destination).unwrap();
+        assert!(destination.metadata.is_empty());
+        assert_eq!(destination.content_language, None);
+        // A non-JSON blank byte is still malformed.
+        assert_eq!(
+            derived_metadata(b"\x0c", &source).unwrap_err().reason,
+            "invalid"
+        );
+    }
+
+    #[test]
+    fn output_only_size_is_ignored_and_a_generation_needs_a_name() {
+        let source = crate::json::object_tests::record();
+        let (sized, ..) =
+            derived_metadata(br#"{"size":"999","contentType":"a/b"}"#, &source).unwrap();
+        let (plain, ..) = derived_metadata(br#"{"contentType":"a/b"}"#, &source).unwrap();
+        assert_eq!(sized, plain);
+        let error = derived_metadata(
+            br#"{"size":"999","generation":"1","md5Hash":"AAAAAAAAAAAAAAAAAAAAAA==","timeCreated":"2000-01-01T00:00:00Z"}"#,
+            &source,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (error.status.as_u16(), error.reason, error.message.as_str()),
+            (400, "required", "You must specify an object name.")
+        );
+        // Other output-only fields keep their unsupported-setting answer.
+        assert_eq!(
+            derived_metadata(br#"{"timeCreated":"2000-01-01T00:00:00Z"}"#, &source)
+                .unwrap_err()
+                .reason,
+            "badRequest"
         );
     }
 }

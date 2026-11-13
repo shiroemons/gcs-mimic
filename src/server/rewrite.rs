@@ -116,15 +116,7 @@ pub(super) async fn respond(
         }
     }
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
-    let body = if bytes.is_empty() {
-        None
-    } else {
-        Some(
-            serde_json::from_slice::<Value>(&bytes)
-                .map_err(|cause| JsonError::parse_error(&bytes, &cause))?,
-        )
-    };
-    let body = body.filter(|value| !value.is_null());
+    let body = json::derived_resource(&bytes)?;
     let wait = begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.
     let job = RewriteJob {
@@ -326,9 +318,9 @@ fn destination(
 ) -> Result<DerivedDestination, JsonError> {
     let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
     let (metadata, class, supplied) = json::derived_metadata(bytes.as_bytes(), source)?;
-    if supplied.md5.is_some_and(|hash| hash != source.md5)
-        || supplied.crc32c.is_some_and(|hash| hash != source.crc32c)
-    {
+    // Rewrite ignores a supplied md5Hash: Cloud Storage completed one with a wrong md5Hash using
+    // the source's hash (recorded 2026-11-13). A crc32c mismatch still fails.
+    if supplied.crc32c.is_some_and(|hash| hash != source.crc32c) {
         return Err(ObjectError::ChecksumMismatch.into());
     }
     let content_type = metadata

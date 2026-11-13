@@ -51,7 +51,9 @@ pub(crate) use buckets::{
     validate_bucket_name,
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
-pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
+pub(crate) use derived_metadata::{
+    DestinationLocation, derived_component_count, derived_metadata, derived_resource,
+};
 pub(crate) use envelope::{
     Call as EnvelopeCall, apply as apply_envelope, etag_header, forbid_caching,
 };
