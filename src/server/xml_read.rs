@@ -80,7 +80,7 @@ fn conditional_read(
     match evaluate_read(request, &validators) {
         Ok(ReadCondition::Proceed) => Ok(None),
         Ok(ReadCondition::NotModified) => {
-            if json::object_media_negotiable(record) {
+            if varies_on_accept_encoding(record) {
                 gzip::insert_negotiated_vary(headers);
             }
             Ok(Some(boxed(xml::not_modified(headers))))
@@ -142,7 +142,7 @@ async fn read(
     if let Some(response) = conditional_read(request.headers(), &record, &mut headers)? {
         return Ok(response);
     }
-    if json::object_media_negotiable(&record) {
+    if varies_on_accept_encoding(&record) {
         // The XML API varies every representation of a stored-gzip object, gunzipped or not,
         // and a compressed HEAD states no length (observed 2026-10-31).
         gzip::insert_negotiated_vary(&mut headers);
@@ -150,16 +150,17 @@ async fn read(
             headers.remove("content-length");
         }
     }
-    if json::object_media_transcoding(request.headers(), &record)? {
-        return gunzipped(
-            ctx,
-            &record,
-            reader,
-            headers,
-            response_overrides,
-            request.method(),
-        )
-        .await;
+    let transcoding = json::object_media_transcoding(request.headers(), &record)?;
+    match transcoding {
+        json::Transcoding::Stored => {}
+        json::Transcoding::Gunzipped | json::Transcoding::GunzippedDespiteAccept => {
+            let representation = Gunzip {
+                headers,
+                overrides: response_overrides,
+                transcoding,
+            };
+            return gunzipped(ctx, &record, reader, representation, request.method()).await;
+        }
     }
     headers.extend(response_overrides);
     let requested = request
@@ -222,10 +223,14 @@ async fn gunzipped(
     ctx: ObjectCtx<'_>,
     record: &ObjectRecord,
     mut reader: ObjectReader,
-    mut headers: HeaderMap,
-    overrides: HeaderMap,
+    representation: Gunzip,
     method: &Method,
 ) -> Result<Response<ResponseBody>, xml::Error> {
+    let Gunzip {
+        mut headers,
+        overrides,
+        transcoding,
+    } = representation;
     let head = method == Method::HEAD;
     if !head
         && gzip::is_plain(&mut reader, record.size)
@@ -244,9 +249,31 @@ async fn gunzipped(
         }
         return Ok(response);
     }
-    gzip::insert_transcoded_headers(&mut headers);
+    match transcoding {
+        json::Transcoding::Stored | json::Transcoding::Gunzipped => {
+            gzip::insert_transcoded_headers(&mut headers);
+        }
+        // Only the JSON API was recorded for this form; the XML read assumes the same headers.
+        json::Transcoding::GunzippedDespiteAccept => {
+            gzip::insert_gunzipped_despite_accept_headers(&mut headers);
+        }
+    }
     headers.extend(overrides);
     Ok(gzip::response(ctx, record, reader, headers, method))
+}
+
+/// The headers a gunzipped XML read starts from, the response-header overrides that apply only
+/// to a successful representation, and why the object is gunzipped.
+struct Gunzip {
+    headers: HeaderMap,
+    overrides: HeaderMap,
+    transcoding: json::Transcoding,
+}
+
+/// The XML API varies a stored-gzip object on `Accept-Encoding`, except a doubly compressed
+/// one, which every client receives gunzipped (recorded 2026-11-13 without `Accept-Encoding`).
+fn varies_on_accept_encoding(record: &ObjectRecord) -> bool {
+    json::object_media_negotiable(record) && !json::object_double_compressed(record)
 }
 
 /// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with

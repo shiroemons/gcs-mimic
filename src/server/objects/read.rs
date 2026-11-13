@@ -130,8 +130,11 @@ async fn media(
     }
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
     let head = request.method() == Method::HEAD;
-    if transcode {
-        return gunzipped(ctx, &record, reader, headers, request.method()).await;
+    match transcode {
+        json::Transcoding::Stored => {}
+        json::Transcoding::Gunzipped | json::Transcoding::GunzippedDespiteAccept => {
+            return gunzipped(ctx, &record, reader, headers, request.method(), transcode).await;
+        }
     }
     let negotiable = json::object_media_negotiable(&record);
     if negotiable {
@@ -226,12 +229,22 @@ async fn gunzipped(
     mut reader: ObjectReader,
     mut headers: HeaderMap,
     method: &Method,
+    transcoding: json::Transcoding,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let head = method == Method::HEAD;
     if !head && gzip::is_plain(&mut reader, record.size).await? {
         return Ok(gzip::plain_body_rejection(headers));
     }
-    gzip::insert_transcoded_headers(&mut headers);
+    match transcoding {
+        json::Transcoding::Stored | json::Transcoding::Gunzipped => {
+            gzip::insert_transcoded_headers(&mut headers);
+        }
+        // The JSON API still varies this response on Accept-Encoding (recorded 2026-11-13).
+        json::Transcoding::GunzippedDespiteAccept => {
+            gzip::insert_gunzipped_despite_accept_headers(&mut headers);
+            gzip::insert_negotiated_vary(&mut headers);
+        }
+    }
     Ok(gzip::response(ctx, record, reader, headers, method))
 }
 

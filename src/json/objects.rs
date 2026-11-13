@@ -1006,14 +1006,48 @@ pub(crate) fn object_media_negotiable(object: &ObjectRecord) -> bool {
         })
 }
 
+/// Whether a negotiable object is typed `application/gzip` as well as gzip-encoded: the doubly
+/// compressed form the transcoding guide warns about. Cloud Storage gunzips it for every
+/// client, one that accepts gzip included (recorded 2026-11-13).
+pub(crate) fn object_double_compressed(object: &ObjectRecord) -> bool {
+    object_media_negotiable(object)
+        && object
+            .content_type
+            .split(';')
+            .next()
+            .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/gzip"))
+}
+
+/// How a media read serves the object's stored bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transcoding {
+    /// The stored bytes, compressed or not.
+    Stored,
+    /// Gunzipped for a client that does not accept gzip.
+    Gunzipped,
+    /// A doubly compressed object gunzipped for a client that accepts gzip.
+    GunzippedDespiteAccept,
+}
+
 /// Select gzip expansion while honoring explicit quality overrides and no-transform.
 pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
-) -> Result<bool, JsonError> {
+) -> Result<Transcoding, JsonError> {
     if !object_media_negotiable(object) {
-        return Ok(false);
+        return Ok(Transcoding::Stored);
     }
+    Ok(
+        match (accepts_gzip(headers)?, object_double_compressed(object)) {
+            (false, _) => Transcoding::Gunzipped,
+            (true, true) => Transcoding::GunzippedDespiteAccept,
+            (true, false) => Transcoding::Stored,
+        },
+    )
+}
+
+/// Whether `Accept-Encoding` admits gzip, directly or through `*`.
+fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
     let mut gzip = None;
     let mut wildcard = None;
     for header in headers.get_all("accept-encoding") {
@@ -1065,7 +1099,7 @@ pub(crate) fn object_media_transcoding(
             }
         }
     }
-    Ok(!gzip.or(wildcard).unwrap_or(false))
+    Ok(gzip.or(wildcard).unwrap_or(false))
 }
 
 /// The JSON API validator of one object generation. It carries no content hash, so a keyless

@@ -161,6 +161,77 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
 }
 
 #[test]
+fn doubly_compressed_objects_are_gunzipped_for_every_client() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    let compressed = gzip(b"hello hello hello");
+    gzip_object(&server, "double", &compressed);
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket/o/double",
+            ADMIN,
+            br#"{"contentType":"application/gzip"}"#,
+        )
+        .json_ok();
+    let path = "/storage/v1/b/test-bucket/o/double?alt=media";
+    // A client that accepts gzip still gets the expanded bytes, unmarked and unranged
+    // (recorded 2026-11-13).
+    let accepted = server.request(
+        "GET",
+        path,
+        &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+        b"",
+    );
+    accepted.expect(200);
+    assert_eq!(accepted.body, b"hello hello hello");
+    assert_eq!(accepted.headers["accept-ranges"], "none");
+    assert_eq!(
+        accepted.headers["vary"],
+        "Origin, X-Origin, Accept-Encoding"
+    );
+    for name in [
+        "content-encoding",
+        "etag",
+        "warning",
+        "x-guploader-response-body-transformations",
+    ] {
+        assert!(!accepted.headers.contains_key(name), "{name}");
+    }
+    // Without Accept-Encoding it is an ordinary gunzipped read that ignores a Range.
+    for extra in ["", "Range: bytes=0-3\r\n"] {
+        let expanded = server.request("GET", path, &format!("{ADMIN}{extra}"), b"");
+        expanded.expect_with(200, format_args!("{extra}"));
+        assert_eq!(expanded.body, b"hello hello hello");
+        assert_eq!(expanded.headers["warning"], "214 UploadServer gunzipped");
+        assert_eq!(expanded.headers["vary"], "Origin, X-Origin");
+    }
+    // The XML API does not vary this object on Accept-Encoding.
+    let xml = server.request("GET", "/test-bucket/double", ADMIN, b"");
+    xml.expect(200);
+    assert_eq!(xml.body, b"hello hello hello");
+    assert!(!xml.headers.contains_key("vary"));
+    // Any other type keeps the negotiated stored representation.
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket/o/double",
+            ADMIN,
+            br#"{"contentType":"application/x-tar"}"#,
+        )
+        .json_ok();
+    let raw = server.request(
+        "GET",
+        path,
+        &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+        b"",
+    );
+    assert_eq!(raw.body, compressed);
+    assert_eq!(raw.headers["content-encoding"], "gzip");
+}
+
+#[test]
 fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
     let dir = TestDir::new();
     let server = Server::start(&dir, true);
