@@ -194,15 +194,22 @@ fn match_glob_filters_items_prefixes_and_page_tokens() {
             "{error}"
         );
     }
+    // Cloud Storage's answers in case obj-list-edges (recorded 2026-11): a trailing backslash
+    // lists nothing, and a glob with another delimiter is refused with its own text.
     assert_eq!(
-        server
-            .request(
-                "GET",
-                "/storage/v1/b/test-bucket/o?matchGlob=*&delimiter=::",
-                ""
-            )
-            .0,
-        400
+        server.list(&format!("matchGlob={}", encode("a\\"))),
+        json!({"kind":"storage#objects"})
+    );
+    let (status, error) = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o?matchGlob=*&delimiter=::",
+        "",
+    );
+    assert_eq!(status, 400);
+    assert_eq!(error["error"]["errors"][0]["reason"], "invalid");
+    assert_eq!(
+        error["error"]["message"],
+        "When listing with a glob pattern, the only supported delimiter is '/'."
     );
     assert_eq!(
         server

@@ -121,8 +121,9 @@ impl From<ListQueryError> for JsonError {
             ListQueryError::FoldersAsPrefixesNeedSlash => Self::invalid_parameter(
                 "includeFoldersAsPrefixes requires delimiter=/; use includeFoldersAsPrefixes=true&delimiter=/",
             ),
-            ListQueryError::GlobNeedsSlashDelimiter => Self::invalid_parameter(
-                "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",
+            // Cloud Storage's text and reason (recorded 2026-11).
+            ListQueryError::GlobNeedsSlashDelimiter => Self::invalid(
+                "When listing with a glob pattern, the only supported delimiter is '/'.",
             ),
         }
     }

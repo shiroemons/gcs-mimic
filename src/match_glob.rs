@@ -18,6 +18,9 @@ enum Character {
     Literal(char),
     Any(bool),
     Class(bool, Vec<(char, char)>),
+    /// A trailing `\` escapes nothing. Cloud Storage accepted such a pattern and listed no
+    /// objects (recorded 2026-11), so it matches no character.
+    Nothing,
 }
 
 enum Token {
@@ -121,6 +124,7 @@ impl Glob {
                                     .any(|(a, b)| *a <= character && character <= *b)
                                     != *negated)
                         }
+                        Character::Nothing => false,
                     };
                     if matches {
                         self.activate(&mut next, *target, &mut pending);
@@ -140,6 +144,8 @@ pub(crate) enum GlobError {
     InvalidSyntax,
     /// A `[` at this character index that no `]` closes; Cloud Storage names the index.
     UnclosedClass(usize),
+    /// A `{` at this character index that no `}` closes.
+    UnclosedBrace(usize),
 }
 
 impl GlobError {
@@ -153,6 +159,9 @@ impl GlobError {
             ),
             Self::UnclosedClass(index) => format!(
                 "Glob pattern character class has no closing ']' for opening '[' at index {index}. Either add a closing ']' or use '\\[' to match a literal '['."
+            ),
+            Self::UnclosedBrace(index) => format!(
+                "Glob pattern brace expansion opening '{{' at index {index} has no closing '}}'. Use '\\{{' to match a literal '{{'."
             ),
         }
     }
@@ -186,7 +195,10 @@ fn sequence(chars: &[char], position: &mut usize, scope: Scope) -> Result<Vec<To
         *position += 1;
         let token = match character {
             '\\' => {
-                let value = *chars.get(*position).ok_or(INVALID)?;
+                let Some(&value) = chars.get(*position) else {
+                    tokens.push(Token::Character(Character::Nothing));
+                    break;
+                };
                 if brace && value == '/' {
                     return Err(INVALID);
                 }
@@ -247,6 +259,7 @@ fn sequence(chars: &[char], position: &mut usize, scope: Scope) -> Result<Vec<To
                 Token::Character(Character::Class(negated, ranges))
             }
             '{' => {
+                let opening = *position - 1;
                 let mut branches = Vec::new();
                 loop {
                     branches.push(sequence(chars, position, Scope::Brace)?);
@@ -256,7 +269,8 @@ fn sequence(chars: &[char], position: &mut usize, scope: Scope) -> Result<Vec<To
                             *position += 1;
                             break;
                         }
-                        _ => return Err(INVALID),
+                        Some(_) => return Err(INVALID),
+                        None => return Err(GlobError::UnclosedBrace(opening)),
                     }
                 }
                 Token::Alternatives(branches)
@@ -310,11 +324,17 @@ mod tests {
         assert!(Glob::parse("**").unwrap().matches(""));
         assert!(Glob::parse(&"a".repeat(1024)).is_ok());
         assert!(Glob::parse(&"雪".repeat(342)).is_err());
-        for pattern in [
-            "[", "[]", "[!]", "[z-a]", "{a,b", "a\\", "a]", "{a/b,c}", "{**,b}",
-        ] {
+        for pattern in ["[", "[]", "[!]", "[z-a]", "{a,b", "a]", "{a/b,c}", "{**,b}"] {
             assert!(Glob::parse(pattern).is_err(), "{pattern}");
         }
+        let trailing = Glob::parse("a\\").unwrap();
+        for name in ["a", "a\\", "ab"] {
+            assert!(!trailing.matches(name), "{name}");
+        }
+        assert_eq!(
+            Glob::parse("d/{a,b").unwrap_err().to_string(),
+            "Glob pattern brace expansion opening '{' at index 2 has no closing '}'. Use '\\{' to match a literal '{'."
+        );
         let nested = format!("{}x{}", "{".repeat(500), "}".repeat(500));
         assert!(Glob::parse(&nested).unwrap().matches("x"));
     }
