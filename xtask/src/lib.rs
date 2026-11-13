@@ -404,12 +404,6 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
                     "active work needs acceptance decomposition",
                 )?;
             }
-            if row["status"] == "PARTIAL" {
-                ensure(
-                    !array(row, "known_deviations")?.is_empty(),
-                    "PARTIAL needs explicit missing cases",
-                )?;
-            }
             evidence(root, row, &gaps)
         };
         check().map_err(|e| format!("{id}: {e}"))?;
@@ -442,17 +436,28 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
     let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (&id, row) in &by_id {
         let deps = strings(row, "dependencies")?;
+        let mut waiting = false;
         for &dependency in &deps {
             let other = by_id
                 .get(dependency)
                 .ok_or_else(|| format!("{id}: unknown dependency {dependency}"))?;
+            let complete = other["status"] == "IMPLEMENTED";
             if row["status"] == "IMPLEMENTED" {
                 ensure(
-                    other["status"] == "IMPLEMENTED",
+                    complete,
                     &format!("{id}: incomplete dependency {dependency}"),
                 )?;
             }
+            waiting |= !complete;
             dependents.entry(dependency).or_default().push(id);
+        }
+        // An incomplete dependency already names what a PARTIAL row is missing, so the row
+        // need not restate it as a deviation of its own.
+        if row["status"] == "PARTIAL" {
+            ensure(
+                waiting || !array(row, "known_deviations")?.is_empty(),
+                &format!("{id}: PARTIAL needs explicit missing cases or an incomplete dependency"),
+            )?;
         }
         pending.insert(id, deps.len());
     }

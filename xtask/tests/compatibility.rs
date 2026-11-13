@@ -353,6 +353,21 @@ fn partial_and_simulated_work_remain_explicit() {
     let mut d = completed();
     d["features"][0]["status"] = json!("PARTIAL");
     assert!(validate(&root(), &d).unwrap_err().contains("missing cases"));
+    // An incomplete dependency names the missing work without a restated deviation.
+    let mut waiting = d.clone();
+    let mut dependency = ledger()["features"][0].clone();
+    dependency["id"] = json!("TEST-002");
+    waiting["features"][0]["dependencies"] = json!(["TEST-002"]);
+    waiting["features"].as_array_mut().unwrap().push(dependency);
+    waiting["counts_by_kind"]["project_requirement"] = json!(2);
+    validate(&root(), &waiting).unwrap();
+    waiting["features"][1] = completed()["features"][0].clone();
+    waiting["features"][1]["id"] = json!("TEST-002");
+    assert!(
+        validate(&root(), &waiting)
+            .unwrap_err()
+            .contains("missing cases")
+    );
     d["features"][0]["known_deviations"] = json!(["Pending boundary case"]);
     validate(&root(), &d).unwrap();
     d["features"][0]["kind"] = json!("behavior");
