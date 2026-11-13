@@ -7,8 +7,10 @@ iamConfiguration 入力範囲です。状態の正本は機能台帳で、広い
 バケット作成時に `iamConfiguration.uniformBucketLevelAccess.enabled=true` を
 指定できます。GET・一覧・再起動後も設定と、有効化から90日後の `lockedTime` が返ります。
 旧名の `bucketPolicyOnly` も同じ値を読み書きできます。
-両方の `enabled` が矛盾すると現行名の値を優先します。Rubyの通常の更新が、
-GET応答の旧名を持ち越すためです。直接送る場合は現行名だけを指定してください。
+両方の `enabled` が矛盾すると、保存済みの設定を変える側の値を優先します。
+Cloud Storageは、無効なバケットで `bucketPolicyOnly` がtrue、現行名がfalseのとき有効にしました（2026-11-13に記録したケース`bkt-config-edges`）。
+Rubyの通常の更新は、無効にするときにGET応答の旧名trueを持ち越すため、この規則で両方に合います。
+直接送る場合は現行名だけを指定してください。
 無指定・空・nullのUBLA設定は指定なしと同じです。無効時は両方に
 `enabled:false` を返し、`lockedTime` は返しません。
 

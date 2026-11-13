@@ -448,7 +448,7 @@ fn fields_invalid_selectors_leave_all_routes_unchanged() {
 
 #[test]
 /// The ledger names this test; despite its name, `fields` on a media download is now ignored.
-fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() {
+fn fields_on_delete_and_media_are_ignored_and_xml_unchanged() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.bucket();

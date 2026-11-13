@@ -42,12 +42,18 @@ selected-generation reader remain in effect.
 
 ## Validation and failure behavior
 
-Values must be nonempty and have no leading or trailing whitespace. These
-violations, CR, LF, NUL, DEL and other invalid controls return XML 400
-`InvalidArgument`; HEAD suppresses the XML body. Interior HTAB remains allowed.
-Values that cannot be represented as text HTTP headers, including raw non-ASCII
-values, return 501 `NotImplemented`. These are explicit local choices under
-SPEC-XML-RESPONSE-OVERRIDES, pending authoritative Google evidence.
+An empty value returns XML 400 `InvalidArgument` with Details `Empty query
+parameters not supported; <parameter>`. Leading and trailing spaces and tabs are
+trimmed, so a padded `response-content-type` sets the trimmed type, and a
+non-ASCII `response-content-disposition` is passed through as its UTF-8 bytes.
+Cloud Storage answered these three ways on an authenticated GET (case
+`xml-response-override-edges`,
+[recorded 2026-11-13](../evidence/provider-differential-gap-probes.md)); until
+then the emulator rejected padded values with 400 and non-ASCII values with 501.
+A value that is only whitespace, or that holds CR, LF, NUL, DEL or another control
+other than HTAB, still returns XML 400 because it could split the header line;
+HEAD suppresses the XML body. These remaining rejections are explicit local
+choices under SPEC-XML-RESPONSE-OVERRIDES, pending authoritative Google evidence.
 This does not validate the full MIME or Content-Disposition grammar. Use ASCII
 disposition values or RFC 5987 syntax such as
 `attachment; filename*=UTF-8''%C3%A9.csv` for non-ASCII filenames. The percent
@@ -58,10 +64,14 @@ and do not receive either response override.
 
 The official XML inventory does not list S3's `response-cache-control`,
 `response-content-language`, `response-content-encoding` or `response-expires`.
-These and other unknown `response-*` names return 501 `NotImplemented`, as do
-other unsupported query parameters. PUT continues to reject response overrides.
-The provider's unknown-name behavior is not established by omission from an
-inventory, so the rejection remains an explicit local rule.
+Cloud Storage ignored `response-cache-control`, `response-expires` and an
+unknown `response-gcsmimic` on an authenticated GET, leaving Cache-Control,
+Expires and Content-Type as stored, and applied `response-content-type` on an
+authenticated HEAD (2026-11-13). The emulator now ignores these and other unknown
+`response-*` names instead of the earlier 501; HEAD ignoring an unknown name is
+assumed, not recorded. Parameters that select another resource, such as `acl`,
+stay rejected because ignoring them would give a false success. PUT continues to
+reject response overrides.
 
 ## Canonical query and duplicate names
 
@@ -119,8 +129,9 @@ preservation have [executed evidence](../evidence/xml-response-overrides.md).
 Wire tests cover both override headers on whole/range GET and HEAD, private
 bearer and V4 signer access, anonymous public access, retained-generation
 selection, matching cache/hash/ETag metadata, CORS exposure, value mutation,
-CR/LF/control and empty/edge-whitespace rejection, raw non-ASCII 501, duplicate
-encoded aliases, unsupported query rejection, error-response header preservation
+CR/LF/control and empty-value rejection, trimmed padding, non-ASCII pass-through,
+ignored unknown `response-*` names, duplicate encoded aliases, subresource query
+rejection, error-response header preservation
 and unchanged current/retained metadata. CLI tests verify encoding and signing
 with repeated query options; actual CLI-to-server GET/HEAD round trips preserve
 RFC 5987 disposition escapes and exact bytes. Official Go/Ruby signer cases

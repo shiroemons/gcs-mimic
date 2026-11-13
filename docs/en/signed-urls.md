@@ -322,8 +322,9 @@ signing parameter names are rejected case-insensitively,
 including `Expires`, `Signature` and `GoogleAccessId`. Query names supplied to
 `--query` are literal; percent signs are encoded like other data. Duplicate decoded names
 are rejected locally, while exact provider duplicate/validation behavior stays
-open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
-return 501. The [signed-browser subsection](getting-started.md#signed-browser-upload-and-download)
+open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names,
+such as `response-cache-control`, are ignored on GET and HEAD, as Cloud Storage did
+on 2026-11-13; they are still part of the signed query. The [signed-browser subsection](getting-started.md#signed-browser-upload-and-download)
 documents the separate actual-browser preparation/run workflow.
 
 When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing

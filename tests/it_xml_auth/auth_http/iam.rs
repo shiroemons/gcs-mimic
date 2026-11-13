@@ -250,7 +250,7 @@ fn iam_policy_round_trip_and_unconditional_versions() {
 }
 
 #[test]
-fn iam_preserves_duplicate_members_and_role_bindings() {
+fn iam_merges_roles_and_deduplicates_members() {
     let (_config, _data, server) = fixture();
     let policy = json!({"bindings":[
         {"role":"roles/storage.bucketViewer", "members":["user:local", "user:local"]},

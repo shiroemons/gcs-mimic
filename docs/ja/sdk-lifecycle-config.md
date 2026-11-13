@@ -34,4 +34,5 @@ LIFECYCLE-SDK-RUBYです。ストレージクラス変更・マルチパート�
 [英語の契約文書](../en/slices/sdk-lifecycle-config.md)にまとめています。
 2026-10-27にjust check、HTTPのjust check-sdk、文書lintがすべて通りました。
 Goの全体テストとRubyのpermissive・strictの両方で通常の呼び方を確認しています。
-空設定の細部とエラー文言の実Google Cloudとの比較は未実施です。
+2026-11-13の記録（ケース`bkt-config-edges`）に合わせ、未知の条件フィールドは入力時に取り除いて残りのルールを保存し、空の条件・未知のactionの種類・他の条件を持つAbortIncompleteMultipartUploadにはCloud Storageと同じエラー文言を返します。
+それ以外のエラー文言と設定の反映時間は、実Google Cloudとの比較が未実施です。

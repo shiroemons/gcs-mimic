@@ -53,10 +53,12 @@ that JSON body, and successful representation/hash headers are absent.
 Google documents the status/reason; the length header follows RFC 9110 §15.5.17.
 
 RFC 9110 §14.1.2 treats a nonzero suffix as satisfiable even when the representation
-is empty. For that case this emulator ignores Range and returns 200 with length
-zero and no Content-Range, as §14.2 permits. A blanket claim that every empty-object
-range must return 416 would be incorrect; Google's precise empty-suffix response
-has not been independently verified.
+is empty. Cloud Storage answered that case with 206, `Content-Range: bytes 0-0/0`,
+an empty body and only the CRC32C hash (case `obj-range-head`,
+[recorded 2026-11-13](../evidence/provider-differential-gap-probes.md)), and the
+emulator now does the same; until then it ignored Range and returned 200. Closed
+and open ranges on an empty object still return 416, as do a HEAD with a range
+on an empty object and the XML `bytes=0-0` read recorded the same day.
 
 Malformed syntax, unknown units and repeated Range fields are ignored, yielding a
 complete 200 response without Content-Range. A comma-separated (multiple) range
@@ -137,7 +139,7 @@ row-local acceptance IDs in the ledger proposal.
 | OPEN-ENDED | Offset through EOF returns exactly the remaining bytes | PASS | `obj_range_http_single_ranges_and_representation_headers`; `TestObjectRangeReader/open_ended` |
 | SUFFIX | Suffix and oversized suffix return correct bytes; oversized numerals are bounded safely | PASS | `obj_range_http_single_ranges_and_representation_headers`; `TestObjectRangeReader/suffix`; `TestObjectRangeReader/large_suffix` |
 | UNSATISFIABLE | At/end-past offsets and zero suffix return 416, correct JSON reason and `bytes */size` | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges`; `TestObjectRangeReader` |
-| EMPTY | Empty closed/open ranges fail 416; nonzero empty suffix uses explicit 200 fallback | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges` |
+| EMPTY | Empty closed/open ranges fail 416; a nonzero suffix of an empty object returns 206 with `bytes 0-0/0`, as recorded on 2026-11-13 | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges`; `only_a_nonzero_suffix_of_an_empty_object_is_an_empty_suffix` |
 | FALLBACK | Invalid/non-bytes/multiple/repeated ranges return complete 200; If-Range forms fail 501 | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges`; `obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` |
 | HEADERS | Partial representation headers retain selected identity and stored length, omit `x-goog-hash` unless the range covers the object (then CRC32C only); complete response has no Content-Range | PASS | `obj_range_http_single_ranges_and_representation_headers`; `obj_render_002_media_headers_match_selected_generation_and_hashes` |
 | GENERATION | Explicit generation, missing/stale generation, all four preconditions and overwrite during an open response | PASS | `obj_range_http_generation_preconditions_and_overwrite_pin_open_reader`; `TestObjectRangeReader` |
@@ -167,9 +169,10 @@ tests verify its behavior, but this exact curl invocation was not separately run
 
 ## Deviations and limitations
 
-Proposed open gap `SPEC-RANGE-FALLBACK`: establish Google's malformed, repeated,
-multi-range and empty-suffix responses with authoritative clarification or
-explicitly authorized differential tests. Current 200 fallbacks are local rules.
+Open gap `SPEC-RANGE-FALLBACK`: establish Google's malformed and repeated
+responses with authoritative clarification or explicitly authorized differential
+tests. Current 200 fallbacks are local rules; the multi-range 501 (2026-11-01) and
+the empty-object suffix 206 and HEAD range statuses (2026-11-13) are recorded.
 The generic JSON 416 reason is documented; exact message, empty-object edge
 selection and exhaustive error headers are not independently verified.
 

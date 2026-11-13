@@ -27,7 +27,7 @@ The pinned proto's `BidiWriteObjectRequest.object_checksums` documentation allow
 
 ## Checksum sub-paths in read masks
 
-The official Java SDK's `ListObjects` mask names `checksums.md5_hash`; gcs-mimic rejected every nested path as UNIMPLEMENTED, which failed the SDK's basic object workflow. By protobuf field-mask semantics a sub-path selects only that child, so gcs-mimic now accepts `checksums.crc32c` and `checksums.md5_hash` and returns `checksums` with only the named digest. Other nested paths (for example `owner.entity`) are still UNIMPLEMENTED. This is derived from the field-mask contract and the SDK's request, not from a fresh Google observation. Test: `grpc_io_full_read_masks_return_acl_and_owner`.
+The official Java SDK's `ListObjects` mask names `checksums.md5_hash`; gcs-mimic rejected every nested path as UNIMPLEMENTED, which failed the SDK's basic object workflow. By protobuf field-mask semantics a sub-path selects only that child, so gcs-mimic now accepts `checksums.crc32c` and `checksums.md5_hash` and returns `checksums` with only the named digest. Other nested paths (for example `owner.entity`) are still UNIMPLEMENTED. This is derived from the field-mask contract and the SDK's request, not from a fresh Google observation. Test: `grpc_io_full_read_masks_return_acl_and_owner`. A later recording on 2026-11-13 confirmed the empty `checksums` message for GetObject and ListObjects on a composite and showed that ReadObject rejects a mask without `checksummed_data.content`, which gcs-mimic now enforces; see the [provider probes](provider-differential-gap-probes.md).
 
 ## Bucket `project`
 

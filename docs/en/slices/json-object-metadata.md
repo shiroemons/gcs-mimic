@@ -14,8 +14,8 @@ BEHAVIOR-OBJECT-002, BEHAVIOR-OBJECT-006 and BEHAVIOR-COMMON-011.
 | PATCH fixed metadata | Only supplied fields change; null clears a supplied field |
 | PATCH custom metadata | Merge keys; null removes one key; metadata:null clears the map; numbers and booleans are stored as strings; object and array values are dropped, and a PATCH that drops every supplied value clears the map |
 | PUT writable metadata | Replace the set; omitted fields reset, content type defaults to application/octet-stream |
-| Four generation/metageneration conditions | Matching comparisons succeed; failed comparisons return 412 conditionNotMet atomically |
-| generation selector | Live generation succeeds; other generations return 404 notFound |
+| Four generation/metageneration conditions | Matching comparisons succeed; a failed match returns 412 conditionNotMet atomically; a not-match naming the current value returns an empty 304 without a write (recorded 2026-11-13) |
+| generation selector | Live generation succeeds; other generations return 404 notFound; a body `generation` selects the generation when the query names none (recorded 2026-11-13) |
 | Revision transition | Metageneration increments once; updated uses injected clock; ETag changes |
 | Media headers | Stored content fields are reflected while bytes/checksums remain unchanged |
 | Malformed JSON/types | 400 parseError/invalidArgument; state unchanged |
@@ -54,11 +54,21 @@ or `"-0.0E"` for a float zero.
 
 The final merged custom key/value UTF-8 size is
 limited to 8192 bytes, including retained keys. The JSON body has the existing 64 KiB cap.
-Invalid types, control characters in fixed fields and empty `contentLanguage` return
-400 `invalidArgument`; malformed JSON returns 400 `parseError`. Oversized JSON returns
+Invalid types and control characters in fixed fields return 400 `invalidArgument`;
+malformed JSON returns 400 `parseError`. A PATCH with empty `contentLanguage`,
+`contentDisposition`, `contentEncoding` or `cacheControl` stores and returns the
+empty string, as Cloud Storage did on 2026-11-13 (case `obj-metadata-output-only`,
+[provider probes](../evidence/provider-differential-gap-probes.md)); until then an
+empty `contentLanguage` returned 400. Uploads keep refusing an empty
+`contentLanguage`. Output-only `size` and `md5Hash` (recorded) and `id`,
+`selfLink` and `timeCreated` (inferred) are ignored on PATCH and PUT, and a body
+`name` or `bucket` that disagrees with the path returns 400 `Value '<body>' in
+content does not agree with value '<path>'. This can happen when a value set
+through a parameter is inconsistent with a value set in the request.` Oversized JSON returns
 413 `uploadTooLarge`. `contentType:""` is a PATCH no-op; null removes it. When absent,
 metadata JSON omits contentType and media serves `application/octet-stream`.
-Empty disposition, encoding and cache-control values clear their fields.
+A PUT keeps empty content fields the same way (the recording covered PATCH);
+uploads and copies leave an empty content field unset on the new generation.
 Content-Language is limited to 100 characters (100 succeeds, 101 fails).
 Non-ASCII fixed header values and empty custom metadata keys conservatively return
 501 as unsupported semantics; custom values and nonempty keys retain Unicode.
@@ -66,7 +76,10 @@ Non-ASCII fixed header values and empty custom metadata keys conservatively retu
 `generation` selects only the live version; other values return 404 `notFound`.
 All four generation/metageneration match and not-match parameters use the existing
 signed-int64 parser and are evaluated with the mutation in one immediate SQLite
-transaction. Failed comparisons return 412 `conditionNotMet`, never a read-style 304.
+transaction. A failed match returns 412 `conditionNotMet` and is reported before a
+not-match; a not-match naming the current value returns an empty 304 and writes
+nothing, as Cloud Storage did on 2026-11-13 (case `obj-mutation-not-match`); until
+then it returned 412.
 Missing buckets/objects return 404. Conditions precede server-managed input checks.
 Successful calls, including empty updates, increment metageneration exactly once,
 set `updated` from the injected clock, and change the opaque local ETag. Generation,
@@ -128,8 +141,11 @@ Gzip media requiring decompressive transcoding fails 501. `Accept-Encoding` hono
 gzip/wildcard tokens and valid q values; an explicit gzip quality overrides wildcard,
 and q=0 refuses that coding. Invalid quality/duplicate gzip or wildcard tokens return
 400 `invalidParameter`. Allowed gzip or stored `no-transform` permits unchanged bytes;
-no automatic compression/decompression is performed. Double-compression detection is
-outside the supported subset.
+no automatic compression/decompression is performed. Later slices added gzip
+expansion; since 2026-11-13 an object typed `application/gzip` and stored with
+`contentEncoding: gzip` is always served gunzipped, also to a client that accepts
+gzip, as Cloud Storage did (case `obj-gzip-double`,
+[provider probes](../evidence/provider-differential-gap-probes.md)).
 
 JSON media returns the recorded `Cache-Control: no-cache, no-store, max-age=0, must-revalidate` for nonpublic objects (the common-header reference documents `no-cache`).
 Stored cache control is exposed in resource JSON and still determines the no-transform

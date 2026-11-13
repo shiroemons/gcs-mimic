@@ -36,7 +36,11 @@ remain unsigned under Google's [V2 canonical-resource rules](https://docs.cloud.
 - V2 responses include `KeyCount`, optional request-token/start-after echoes and a next token only for a truncated page. Empty/exhausted pages are valid successful responses without a next token.
 
 Continuation tokens add an XML-v2 discriminator to the existing bounded,
-checksummed cursor codec and bind bucket, prefix, delimiter and version selection.
+checksummed cursor codec. Since 2026-11-13 they carry only the listing position,
+like JSON page tokens: Cloud Storage continued a JSON listing after the token's
+name when the token was reused with another prefix, delimiter or versions flag
+(case `obj-list-edges`, [provider probes](../evidence/provider-differential-gap-probes.md)).
+The XML reuse was not recorded and follows the shared cursor.
 They are pagination state, not authorization credentials. Every request repeats
 strict `storage.objects.list` authorization, including the catalog's policy
 check; changing IAM immediately affects subsequent requests.

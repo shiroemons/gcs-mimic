@@ -418,7 +418,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
 }
 
 #[test]
-fn obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence() {
+fn obj_http_all_preconditions_answer_not_match_with_304_and_keep_missing_precedence() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();

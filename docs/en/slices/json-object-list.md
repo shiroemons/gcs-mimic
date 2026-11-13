@@ -23,7 +23,7 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `startOffset` | Inclusive name bound; empty means no additional lower bound. Applied to object names before grouping. |
 | `endOffset` | Exclusive name bound; empty means no additional upper bound. Equal or reversed effective bounds return an empty list. |
 | `maxResults` | uint32; default 1000, zero selects that default, clamped to 1000 for both projections; counts items plus prefixes. Zero-as-default follows existing bucket listing and remains unverified against the real JSON service. |
-| `pageToken` | Opaque local cursor; omitted/empty starts a listing. Validated against bucket, prefix, delimiter, offsets, trailing-delimiter setting and projection; page size may change. |
+| `pageToken` | Opaque local cursor; omitted/empty starts a listing. Since 2026-11-13 it carries only the listing position: reused with another prefix, delimiter or versions flag it continues after its name, as Cloud Storage did (case `obj-list-edges`, [provider probes](../evidence/provider-differential-gap-probes.md)); page size may change. |
 | `includeTrailingDelimiter` | Default false. True includes a marker ending in exactly one delimiter in `items` as well as its common prefix. Repeated terminal delimiters do not become marker items. |
 | `projection` | `noAcl` default and `full` use the existing object renderer. Full omits unimplemented ACL/owner fields, exactly as existing metadata GET does. |
 | `versions` | Omitted/false selects the sole live generation; true returns 501 `notImplemented`. No version-history claim. |
@@ -76,10 +76,13 @@ prefix pages still returns the prefix if surviving children justify it. Tokens
 survive a normal restart and work without an in-memory token registry.
 
 Tokens are versioned and use the existing bucket cursor's corruption checksum
-for their payload and query fingerprint. They are not authorization credentials,
-cryptographic signatures or Google-compatible token encodings. Malformed,
-corrupted, wrong-version, wrong-shape and query-mismatched tokens are rejected;
-deliberate reconstruction with a recomputed checksum is not prevented.
+for their payload. They are not authorization credentials, cryptographic
+signatures or Google-compatible token encodings. Malformed, corrupted,
+wrong-version and wrong-shape tokens are rejected; deliberate reconstruction with
+a recomputed checksum is not prevented. Until 2026-11-13 a token also bound the
+query and a token reused with another query was rejected; it now carries the
+position alone, a prefix entry skips its group only under the delimiter that
+formed it, and a generation is kept only where generations are paged.
 
 ## Acceptance cases
 
@@ -88,7 +91,7 @@ deliberate reconstruction with a recomputed checksum is not prevented.
 | Route, resource and persistence | GET collection, empty omission, identical GET/list resources after conditional metadata PATCH (contentType, cacheControl, custom metadata and metageneration), default booleans/projection, full subset and restart | `object_list_resources_defaults_empty_and_restart` |
 | Grouping and bounds | Empty prefix, prefix equal to an object, root-relative prefixes, duplicate groups, offsets inside a group, reversed bounds, UTF-8 binary bounds, multi-character/multibyte delimiter and single-entry pages | `object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages` |
 | Failures | Exact statuses/reasons for missing bucket, invalid inputs, unsupported options, wrong methods and a supplied body | `object_list_invalid_unsupported_and_missing_bucket_errors`, `bkt_http_query_body_name_and_route_boundaries` |
-| Cursor validation | Corruption, all query dimensions, changed page size, empty token, invalid version/payload/checksum/shape/length | `object_list_tokens_bind_query_and_reject_corruption`, `object_list_tokens_reject_valid_checksums_with_invalid_payloads` |
+| Cursor validation | Corruption, positional reuse under another query, changed page size, empty token, invalid version/payload/checksum/shape/length | `object_list_tokens_are_positional_and_reject_corruption`, `object_list_tokens_reject_valid_checksums_with_invalid_payloads` |
 | Concurrent changes between pages | Cursor and lookahead deletion, overwrite, insertion behind/ahead, restart, deleted marker with children and already-returned prefix | `object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors` |
 | Page limits | 1001 live objects: default, full and uint32 maximum clamp to 1000, then exactly one final object | `object_list_default_and_upper_page_limit_are_1000_for_both_projections` |
 | Bounded SQL | A common prefix containing 20,000 objects is skipped within a 10,000 SQLite VM instruction budget, including continuation to the next item | `object_list_seeks_past_large_prefixes_with_bounded_sql_work` |
@@ -135,9 +138,10 @@ New listing gaps in `compatibility/gaps.json` keep the following limits visible:
   response table specify the requested delimiter. This slice follows the latter
   for arbitrary delimiters. No real-service differential test settles the wording.
 - The source set does not explicitly settle empty-array wire omission, zero-size
-  pages, duplicate marker accounting at size 1 or every token-binding dimension.
-  Omission follows the pinned generated schema; marker paging and token validation
-  are explicit local rules. No real-cloud request was made.
+  pages or duplicate marker accounting at size 1. Omission follows the pinned
+  generated schema and matched an empty delimited listing recorded on 2026-11-13;
+  token reuse across queries follows the same recording; marker paging is an
+  explicit local rule.
 - Full projection, auth, unsupported advanced list semantics and checksum-only
   cursors keep the affected rows PARTIAL. Physical global consistency, snapshot
   listing, RSS/cgroup/CPU benchmarks, Windows and container verification are not

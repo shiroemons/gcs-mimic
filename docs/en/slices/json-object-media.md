@@ -20,7 +20,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 2 | Both media prefixes serve 200 directly. Ordinary-prefix 303 redirection is an explicit unimplemented deviation (SPEC-009). |
 | 3 | The direct download route is supported from request-endpoints documentation, not a nonexistent Discovery field; non-media direct-download requests return 400 `notDownload`. |
 | 4 | Generation selectors are get/delete-only and projection is insert/get-only; other misplaced parameters fail 400. Signed int64 values are accepted without a leading plus; selectors that do not identify the live positive generation yield 404. |
-| 5 | `X-Goog-Hash` validates MD5/CRC32C before publication; unknown algorithms fail 400 `badRequest` as an unsupported setting and duplicate algorithms/noncanonical encodings fail 400. `Content-MD5` is not examined, as the recorded `obj-upload-checksums` differential case showed Cloud Storage storing an upload whose header named the wrong digest. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
+| 5 | Since 2026-11-01 `X-Goog-Hash` is not examined on JSON media and multipart uploads: Cloud Storage stored uploads whose header named a wrong, malformed, unknown-algorithm, conflicting, repeated, upper-case or wrong-length hash with the computed hashes (cases `obj-upload-checksums` and, on 2026-11-13, `obj-upload-hash-edges`); a resumable initiation, which was not recorded, still validates it. `Content-MD5` is not examined, as the recorded `obj-upload-checksums` differential case showed Cloud Storage storing an upload whose header named the wrong digest. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
 | 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
@@ -38,8 +38,9 @@ revision `20261013` confirms media download support but has no `mediaDownload.pa
 independently establishes the optional download prefix.
 
 The [data-validation guide](https://docs.cloud.google.com/storage/docs/data-validation)
-explicitly supports JSON media `X-Goog-Hash`. JSON `Content-MD5`, duplicate algorithms and
-exact mismatch reasons remain SPEC-010. Missing upload Content-Type acceptance is a local
+explicitly supports JSON media `X-Goog-Hash`, but the recorded Cloud Storage
+uploads ignored it, so the emulator does too. A wrong JSON `Content-MD5` alone and
+X-Goog-Hash on resumable requests remain SPEC-010. Missing upload Content-Type acceptance is a local
 convenience, distinct from the Object resource's default serving MIME type (SPEC-011).
 Generation/hash header parity and exact opaque ID/ETag/link encodings remain SPEC-012;
 `timeFinalized` is emitted for this finalized-only subset. Unsupported headers and
@@ -175,7 +176,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Content-Type` on insert | Valid media type becomes stored `contentType`; missing is accepted locally as `application/octet-stream` (SPEC-011); no extension inference |
 | `Content-Length` | Honor framing and cap; known oversize can fail before reading; no unchecked allocation based on the value |
 | `Transfer-Encoding: chunked` | Supported bounded stream with unknown final length; full cap/checksum validation still applies |
-| `X-Goog-Hash` on insert | MD5 (16 bytes), CRC32C (4 big-endian bytes), or both in base64; validate against the complete bytes before publication |
+| `X-Goog-Hash` on insert | Not examined on media and multipart uploads since 2026-11-01, as recorded on Cloud Storage (cases `obj-upload-checksums` and `obj-upload-hash-edges`); the stored hashes are computed from the bytes |
 | `Content-MD5` on insert | Not examined and never treated as validation, matching the recorded `obj-upload-checksums` differential case (SPEC-010) |
 | `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range is ignored, as Cloud Storage honored the Range without evaluating it. |
 | `If-Match`, `If-None-Match` | Evaluated against the served ETag on media reads; query generation conditions remain separate |
@@ -252,7 +253,7 @@ Never expose internal SQLite, filesystem or blob identifiers. A 304/204 has no J
 | Bucket contains live objects | 409 | `conflict`, inherited local reason; bucket must remain intact |
 | Failed match condition / create-if-absent loser | 412 | `conditionNotMet` |
 | GET not-match condition false | 304 empty | `notModified` semantics, no error envelope |
-| Mutation not-match condition false | 412 | `conditionNotMet`; explicit local mutation rule, SPEC-008; no mutation |
+| Mutation not-match naming the current value | 304 empty | No mutation; Cloud Storage's answer on upload, PATCH, PUT, DELETE and copy destination (case `obj-mutation-not-match`, recorded 2026-11-13); a failing match condition is reported first with 412; until then this was a local 412 (SPEC-008) |
 | Object exceeds configured cap | 413 | `uploadTooLarge`; Google's documented maximum is 5 TiB; a smaller local cap is a deviation |
 | Recognized unsupported semantics | 501 | `notImplemented`, local deviation |
 | Wrong verb on recognized route | 405 | `methodNotAllowed`, with `Allow` |

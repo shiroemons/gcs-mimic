@@ -110,10 +110,10 @@ was executed, not that unestablished provider edges were inferred.
 | FIELDS-011 | Multipart insertion filters its result while preserving unselected metadata and exact stored bytes | `object_multipart_http::fields_multipart_response_preserves_uploaded_metadata_and_bytes` | PASS |
 | FIELDS-012 | Resumable initiation has no JSON body; selection survives restart before completion and replay after another restart | `fields_http::fields_resumable_final_response_survives_restart_and_replay` | PASS |
 | FIELDS-013 | Strict denied requests and missing/condition/credential errors retain complete 403/404/412/401 error envelopes; invalid selectors do not mutate | `fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate` | PASS |
-| FIELDS-014 | DELETE ignores fields and keeps empty 204; ordinary JSON media and XML reads remain intact; fields plus alt=media explicitly fails 501 | `fields_http::fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged` | PASS |
-| FIELDS-015 | Empty/whitespace selectors and wildcard children explicitly fail 501 pending contract resolution | `json::fields::tests::fields_reject_malformed_unknown_and_scalar_children`; `fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate` | PASS |
+| FIELDS-014 | DELETE ignores fields and keeps empty 204; ordinary JSON media and XML reads remain intact; fields together with alt=media is ignored, as Cloud Storage did on 2026-11-13 | `fields_http::fields_on_delete_and_media_are_ignored_and_xml_unchanged` | PASS |
+| FIELDS-015 | On object resources a whitespace-only selector, whitespace around names and metadata() follow Cloud Storage (2026-11-13); whitespace inside a name, whitespace selectors on other resources and wildcard sub-selections with children explicitly fail 501 pending contract resolution | `json::fields::tests::fields_reject_malformed_unknown_and_scalar_children`; `fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate` | PASS |
 | FIELDS-016 | Pinned Go generated bucket fields and high-level object iterator attribute selection return selected attributes | `TestPartialResponseFields` | PASS |
-| FIELDS-017 | Provider behavior for terminal wildcards, empty enclosing maps/list elements, empty/whitespace selectors, wildcard children, media combination, exact error edges and local caps | No authorized provider fixture; named gap below | PENDING |
+| FIELDS-017 | Provider behavior for empty enclosing maps/list elements, whitespace selectors on non-object resources, wildcard children, exact error locations and local caps | Object-resource edges recorded on 2026-11-13; the rest has no provider fixture; named gap below | PENDING |
 | FIELDS-018 | Bucket/object GET computes and compares the complete resource ETag before filtering only the final 200 body; 304 is bodyless and 412 retains its complete error envelope | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
 | FIELDS-INPUT-ORDER | Malformed fields returns 400 before stale If-Match or matching If-None-Match evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
 | FIELDS-ROUTE-REJECTIONS | Wrong-root fields on bucket create/PATCH/PUT/list, object list, IAM GET/PUT and media/multipart/resumable insertion returns 400 without changing bucket/object/policy state | `fields_http::fields_invalid_selectors_leave_all_routes_unchanged` | PASS |
@@ -125,8 +125,17 @@ was executed, not that unestablished provider edges were inferred.
 
 **SPEC-FIELDS-EDGES**: The checked Storage documentation does not establish empty
 selector meaning, whitespace normalization, wildcard child selection or how
-`fields` combines with raw `alt=media` responses. These remain explicit 501
-`notImplemented` failures, rather than silently ignored settings. The wildcard
+`fields` combines with raw `alt=media` responses. An opted-in recording on
+2026-11-13 (case `obj-fields-selectors`,
+[provider probes](../evidence/provider-differential-gap-probes.md)) settled them
+for object resources: `fields=%20` selects nothing (`{}`), whitespace around a
+name is ignored, `metadata()` is an empty selection, `metadata/*` and `*` select
+everything below them, a rejected selection reads `Invalid field selection
+metadata/` without a colon, and `fields` is ignored with `alt=media`. The
+emulator follows those answers. Whitespace inside a name, whitespace selectors on
+bucket and other non-object resources (which keep the strict grammar) and
+wildcard sub-selections with children remain explicit 501 `notImplemented`
+failures, rather than silently ignored settings. The wildcard
 child restriction also holds for overlapping selectors. The exact service error
 message/location, combined-invalid-input precedence and service limits remain
 unverified; local 400 `invalidParameter` mapping and the stated caps are explicit.

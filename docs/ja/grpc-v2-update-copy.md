@@ -16,7 +16,7 @@ UpdateBucket・UpdateObject・TestIamPermissionsの再現精度は、共有す�
 
 対応するmaskは、labels・versioning・CORS・lifecycle・保持・soft delete・UBLAなど、JSONで対応済みの項目に限ります。バケットでは`acl`・`default_object_acl`も更新できます。オブジェクトではmetadata・固定メタデータ・custom time・holdに加え、`acl`（オブジェクトACLの置換）と`retention`（object retentionの設定・削除）を更新できます（[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)）。指定しない項目は保持し、未対応maskはErrorInfo付きのUNIMPLEMENTEDです。Go SDKが空の更新で送る出力専用のcreate_timeは無視します。metadataとlabelsのマップ全体は、共有の更新トランザクション内で置き換えます。暗黙の前提条件は追加せず、クライアントが明示した条件だけを適用します。キー単位の更新は指定したキーだけをマージします。
 
-iam_configの親maskでは、存在するUBLA・PAPだけを更新します。UBLAだけを変更してもPAPは保持し、PAPだけを変更してもUBLAは保持します。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
+iam_configの親maskはメッセージ全体を置き換えます。省略したPAPはinheritedに戻り、省略したUBLAは無効になります。Cloud Storageは空の`iam_config`でPAPをinheritedに戻しました（2026-11-13に記録したケース`grpc-empty-iam-update`）。UBLAが有効なバケットで無効になる点は同じ規則からの推定で、記録はありません。Go Storage 1.70.0は個別の設定でも親maskを送るため、片方だけを指定するともう片方も戻ります。`iam_config.public_access_prevention`などの末端maskは、その設定だけを変えます。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
 
 UpdateBucketはprotoから共有の`BucketMetadataUpdate`を直接作り、JSON本文の組み立てと再解析を行いません。
 UpdateObjectも`ObjectMetadataUpdate`を直接作り、ACL・保持時刻を型付きで渡します。
@@ -24,8 +24,8 @@ WriteObject・ComposeObject・RewriteObjectはprotoのメタデータ変換と�
 rewrite tokenの照合用保存形式は既存互換を保ちますが、適用時のJSONパーサーは通りません。
 SetIamPolicyは共有の型付きポリシーを直接作ります。TestIamPermissionsは渡された権限文字列をそのまま検証し、クエリ文字列を組み立てません。
 権限の重複は入力順に除き、入力サイズはgRPCメッセージ上限で制限します。権限ごとのカタログ呼び出しは残ります。
-空の`iam_config`親maskも更新としてmetagenerationを進めますが、設定自体は保持します。
-この空更新の扱いはGoogleで未観測のため、SPEC-GRPC-EMPTY-IAM-UPDATEに記録しています。
+空の`iam_config`親maskも更新としてmetagenerationを進め、両方の設定を戻します。
+この動作は2026-11-13の記録で確認し、SPEC-GRPC-EMPTY-IAM-UPDATEは解決済みです。
 
 バケットの共有検証で返るAutoclass・lifecycle・保持エラーも、gRPCではprotoのフィールド名で案内します。
 更新トランザクション内で検出するエラーも対象です。JSONの文言は維持し、gRPCの保持期間の案内にはJSON本文の例を入れません。

@@ -123,7 +123,7 @@ is routed through the XML adapter.
 
 | Request | Required behavior |
 | --- | --- |
-| Content-Range: bytes start-end/N | Inclusive nonnegative offsets; body length equals end-start+1; N is consistent with prior known total and end is less than N |
+| Content-Range: bytes start-end/N | Inclusive nonnegative offsets; body length equals end-start+1; N is consistent with prior known total and end is less than N. An end at or past its own N fails the session: that request and every later status, data or finalization request return the plain 400 `Failed to parse Content-Range header.` and no object is created, as Cloud Storage did on 2026-11-13 (case `obj-resumable-edges`, [provider probes](../evidence/provider-differential-gap-probes.md)) |
 | Content-Range: bytes start-end/* | Unknown total; accepted prefix remains incomplete until a final request supplies the total |
 | Content-Range: bytes start-*/* | The body carries the rest of the object from start, and the request always completes it. A declared Content-Length, or a total declared at initiation, fixes the end; otherwise a chunked body is bounded by max_object_bytes minus start (413 past it) and its EOF sets the total. An empty body completes the persisted prefix |
 | Content-Range: bytes start-*/N | Same, with a known total: start must not exceed N, N must match any initiation total, and a declared Content-Length must equal N-start (400 before the body is read). A chunked body ending before N or running past it fails with 400 badRequest and acknowledges nothing |

@@ -7,7 +7,10 @@
 [英語の契約と検証結果](../en/slices/sdk-soft-delete-restore.md)を正本とします。
 
 バケットのinsert・PATCH・PUTで`softDeletePolicy.retentionDurationSeconds`を設定します。
-0は無効、1秒から3155760000秒は有効です。範囲外の値は状態を変えず400で拒否します。
+0は無効、1秒から7776000秒（90日）は有効です。範囲外の値は状態を変えず400で拒否します。
+90日を超える値には、Cloud Storageと同じ400を返します
+（2026-11-13に記録したケース`bkt-config-edges`）。
+エラーメッセージはCloud Storageと同じです。
 get・listで保持秒数と`effectiveTime`を返し、期間を延ばしたときだけ有効時刻を更新します。
 空設定と`null`は省略と同じです。
 ポリシーを指定せずに作った新しいバケットには、どの保存方式でもポリシーを保存せず、`softDeletePolicy`を返しません。

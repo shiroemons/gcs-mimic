@@ -549,7 +549,7 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
 }
 
 #[test]
-fn object_list_tokens_bind_query_and_reject_corruption() {
+fn object_list_tokens_are_positional_and_reject_corruption() {
     let dir = TestDir::new();
     let server = Server::start(&dir);
     server.bucket();

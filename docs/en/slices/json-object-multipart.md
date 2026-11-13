@@ -226,10 +226,19 @@ independently verified; SPEC-016 retains the multipart container questions.
 Transport errors and trailers encountered inside a multipart body map to 400
 `invalidParameter`, unlike the media path's `badRequest` body-abort error. A
 headers-only body part lacking the additional CRLF expected by this parser is
-rejected. Folded/duplicate part headers and Content-Transfer-Encoding other than
-`binary` (including `7bit` and `8bit`) return 400 `invalidParameter`. Delimiter
-spaces/tabs are supported. These restrictions are local compatibility limits,
-not independently verified Google errors. No CPU/RSS performance claim is made.
+rejected. A media part with `Content-Transfer-Encoding: base64` is decoded as it
+streams, with bounded buffers, and its hashes describe the decoded bytes. A
+three-part body whose first or final part is not JSON returns 400
+`invalidPayloadTypes` naming both part types, and a body without its closing
+delimiter returns the text/plain 400 `Missing end boundary in multipart body.`;
+Cloud Storage answered both ways and decoded base64 (case
+`obj-multipart-mime-edges`,
+[recorded 2026-11-13](../evidence/provider-differential-gap-probes.md)).
+Folded/duplicate part headers and other Content-Transfer-Encoding values
+(including `7bit` and `8bit`) return 400 `invalidParameter`. Delimiter
+spaces/tabs are supported. These remaining restrictions are local compatibility
+limits, not independently verified Google errors. No CPU/RSS performance claim is
+made.
 
 Recognized advanced metadata (ACL/IAM, holds, retention, contexts, customTime,
 storage class and encryption), other server-managed fields and unknown metadata

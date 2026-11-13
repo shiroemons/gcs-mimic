@@ -171,7 +171,7 @@ The following are also local choices, not provider behavior:
 
 - `max_connections` of 1024 and `max_object_bytes` of 5 TiB. Only the object size comes from the quotas page.
 - Unlimited active resumable sessions, unfinished rewrites, XML multipart uploads and derived transfers.
-- Soft delete off by default and retention of 1 second through 3155760000 seconds. Both differ from the page above, as `SPEC-SOFT-DELETE` records.
+- Soft delete off by default and retention from 1 second, below the seven-day minimum. Both differ from the page above, as `SPEC-SOFT-DELETE` records; the 7776000-second (90-day) ceiling follows Cloud Storage.
 - `max_buckets_per_batch`, `max_sync_entries`, `max_sync_depth`, `max_seed_entries`, `max_seed_depth` and the `import` limits, all unlimited by default. The quotas page states no number of buckets per project or objects per bucket, and these inputs are trusted and local, so a named value only sizes what one local operation takes on.
 - A synchronized tree that stops at 1024 levels, a bucket file of 1 GiB, an identity file of 16 MiB with a token of 8 KiB, and 1,000,000 retained conflict entries.
 

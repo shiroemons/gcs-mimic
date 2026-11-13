@@ -84,7 +84,7 @@ nativeの`api_base_url`は再開可能URLも固定するため、すべてのク
 
 | soft deleteの操作 | gcs-mimicでの動作 |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または1～3155760000秒を設定できます。soft deleteはfake-gcs-serverと同じく、すべての保存方式で既定では無効です。作成時に省略するとポリシーを保存せず、**上書きや削除の直後に本文を解放します**。残すには`softDeletePolicy.retentionDurationSeconds`を指定するか、サーバーを`--default-soft-delete-retention-seconds N`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`）で起動します。この既定と範囲はローカル独自の仕様です。Cloud Storageの既定は7日で、受け付けるのは0または7～90日なので、7日未満を拒否する動作はここでは試せません。ポリシーを保存済みのバケットは、0.11.0までが新規バケットに付けた7日も含めてそのまま残ります。PATCH・PUTで省略した場合は既存設定を保持します。`--compat-profile fake-gcs-server`は引き続き既定を適用しません。 |
+| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または1～7776000秒（Cloud Storageと同じく上限は90日）を設定できます。soft deleteはfake-gcs-serverと同じく、すべての保存方式で既定では無効です。作成時に省略するとポリシーを保存せず、**上書きや削除の直後に本文を解放します**。残すには`softDeletePolicy.retentionDurationSeconds`を指定するか、サーバーを`--default-soft-delete-retention-seconds N`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=N`）で起動します。この既定と7日未満の範囲はローカル独自の仕様です。Cloud Storageの既定は7日で、受け付けるのは0または7～90日なので、7日未満を拒否する動作はここでは試せません。ポリシーを保存済みのバケットは、0.11.0までが新規バケットに付けた7日も含めてそのまま残ります。PATCH・PUTで省略した場合は既存設定を保持します。`--compat-profile fake-gcs-server`は引き続き既定を適用しません。 |
 | 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。ポリシーを持たないバケットと0を明示したバケットはいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
 | 削除済み世代だけのバケットを削除 | 正の保持期間があれば、バケットは保持中の世代ごとsoft deleteされ、generationを指定して復元できます（`buckets.restore`）。オブジェクトはsoft deleteされたままで、別途復元します。保持期間がなければ完全削除します。初期ファイルやバケットファイルで作るバケットにはサーバーの既定を使い、バケットファイルの項目では`softDeletePolicy`も指定できます。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
 

@@ -48,9 +48,14 @@ IAM. Without UBLA the shared unsupported response is 400 badRequest, as defined
 by the integrated fail-fast slice; neither case applies an ACL.
 
 The resource reference warns that supplying both aliases can be unreliable.
-Locally the explicit modern enabled value takes precedence over the legacy
-alias, matching Ruby's high-level setter, which resends the old alias from GET.
-Use only uniformBucketLevelAccess in hand-written requests. Null/empty settings
+When the aliases conflict, the alias whose value changes the stored setting
+wins, resolved inside the catalog transaction; a bucket insert treats a conflict
+as enabling. Cloud Storage enabled access on a disabled bucket when
+bucketPolicyOnly said true and uniformBucketLevelAccess said false (case
+`bkt-config-edges`, [recorded 2026-11-13](../evidence/provider-differential-gap-probes.md)),
+and Ruby's high-level setter disables access while resending the old true
+alias from GET; this rule fits both. Before 2026-11-13 the modern value always
+won locally. Use only uniformBucketLevelAccess in hand-written requests. Null/empty settings
 are absent, and disabled output
 contains enabled:false without lockedTime on both aliases. Output-only lockedTime
 is ignored. Exact provider error text and disabled field omission need provider

@@ -28,17 +28,23 @@ policy-free request. See [local credentials and listing notes](sdk-local-auth-so
 for the separate diagnostic checks; no HTTP response is changed.
 
 - SOFT-DELETE-CONFIG: insert/PATCH/PUT, the buckets file and gRPC accept integral
-  retention seconds, 0 or 1 through 3155760000; get/list return
+  retention seconds, 0 or 1 through 7776000; get/list return
   retentionDurationSeconds/effectiveTime. Invalid values return 400 without
-  mutation; null/empty means unspecified. Cloud Storage accepts only 0 or 7 to 90
-  days, so a test of its rejection below seven days cannot run against the emulator.
+  mutation; null/empty means unspecified. A value above 7776000 (90 days)
+  returns Cloud Storage's 400 `Soft delete policy must have a retention
+  duration between 3 days and 90 days.`, as recorded on 2026-11-13 (case
+  `bkt-config-edges`,
+  [provider probes](../evidence/provider-differential-gap-probes.md)). Cloud
+  Storage accepts only 0 or 7 to 90 days, so a test of its rejection below seven
+  days cannot run against the emulator.
 - SOFT-DELETE-DEFAULT: a new bucket created without a policy gets none, on every
   backend, so `softDeletePolicy` is omitted and an overwrite or delete frees the
   old body at once. Cloud Storage defaults to seven days, so this default and the
-  range above are deliberate local choices (SPEC-SOFT-DELETE). The server setting
+  range below seven days are deliberate local choices (SPEC-SOFT-DELETE). The
+  server setting
   `default_soft_delete_retention_seconds` (`--default-soft-delete-retention-seconds`,
   `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`, JSON `default_soft_delete_retention_seconds`;
-  0 or 1 through 3155760000, default 0) gives new buckets a policy, with
+  0 or 1 through 7776000, default 0) gives new buckets a policy, with
   `effectiveTime` equal to `timeCreated`; 604800 matches Cloud Storage's default
   as recorded on 2026-10-31.
   An explicit policy in the request, zero included, is kept as sent. Existing

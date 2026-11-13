@@ -95,22 +95,26 @@ and the 16 MiB JSON body. Whichever API writes a policy, the catalog stores at
 most 1,600 occurrences, the 1,500 plus one full ACL of 100, and 1 MiB once
 encoded. Past either is a client error, and an ACL entity stops at 272 bytes, the
 longest form a project ID allows. Repeating an ACL edit does not grow the policy.
-Duplicate members and repeated bindings for
-the same role are stored and returned in their submitted order, without merging
-or deduplication. The official setIamPolicy and Policy references checked above
-do not specify their normalization; this preservation is the supported local
-behavior, with cloud normalization parity unverified.
+Bindings of the same role merge at the first binding's position, and their
+members are sorted and de-duplicated; setIamPolicy returns and getIamPolicy reads
+that normalized form. Cloud Storage did this when recorded on 2026-11-13 (case
+`bkt-iam-policy-shape`, [provider probes](../evidence/provider-differential-gap-probes.md));
+the official setIamPolicy and Policy references do not specify it. Until then the
+emulator kept submitted order without merging. Dropping a binding left without
+members is a local rule. The principal limit counts members as sent.
 Every accepted policy update advances the bucket metageneration and its
 `updated` time, including a replay of the current policy, as Cloud Storage did
 when recorded on 2026-10-31. An opaque base64 etag changes on every
 successful set, including identical sets. An omitted or empty-string etag
 overwrites, following the ProtoJSON bytes default. Malformed base64 returns
-400 `invalid`; standard and URL-safe encodings, with or without padding,
-compare as the same bytes.
-The local decoder also accepts mixed standard/URL-safe alphabets, but rejects
-non-zero trailing bits with 400 `invalid`. Cloud parity for these malformed
-inputs is unverified; acceptance of mixed alphabets is not a cloud compatibility
-claim.
+400 `invalid` `Invalid value for ByteString: <etag>` located at `etag`, as Cloud
+Storage answered `!!!` on 2026-11-13; standard and URL-safe encodings, with or
+without padding, compare as the same bytes.
+The decoder is lenient like Cloud Storage's: non-zero trailing bits, as in
+`CAF=`, decode, so a stale etag of that form answers 412 `conditionNotMet`
+(recorded 2026-11-13; until then the emulator rejected it with 400). The local
+decoder also accepts mixed standard/URL-safe alphabets; that acceptance has no
+cloud evidence and is not a cloud compatibility claim.
 A supplied different valid etag returns 412 without changing policy or etag.
 Comparison and update are one immediate
 catalog transaction. A catalog-wide persistent counter prevents etag reuse
@@ -155,7 +159,7 @@ preserve the existing policy, its etag, object data and bucket metadata.
 | --- | --- |
 | Default policy and requested versions | `iam_default_policy_and_versions` |
 | Replacement, ignored fields, empty policy and fresh etags | `iam_policy_round_trip_and_unconditional_versions` |
-| Duplicate members and repeated role bindings preserve order | `iam_preserves_duplicate_members_and_role_bindings` |
+| Duplicate members and repeated role bindings preserve order | `iam_merges_roles_and_deduplicates_members` |
 | Persistence across restart | `iam_policy_survives_restart` |
 | Existing v5 database migration preserves objects | `iam_migrates_v5_catalog` |
 | Migration covers binary name boundaries with unique default revisions | `policy_migration_visits_every_bucket_in_binary_name_order` |

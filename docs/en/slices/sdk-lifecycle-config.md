@@ -68,8 +68,17 @@ Empty configurations and null rule lists normalize to absence. Provider edge cas
 remain recorded in SPEC-LIFECYCLE-CONFIG. Legacy matchesStorageClass names must
 agree with the bucket's location type. Storage class transitions themselves are
 not checked, matching the guide: invalid transitions are accepted but never run.
-Unknown resource/rule/action fields follow existing ignored-input behavior;
-unknown condition names are invalid, as specified by the lifecycle guide.
+Unknown resource/rule/action fields follow existing ignored-input behavior.
+Since 2026-11-13 an unknown condition field in client input is dropped and the
+rest of the rule is stored, and an empty condition, an unknown action type and an
+AbortIncompleteMultipartUpload rule with another condition return Cloud Storage's
+texts (`Lifecycle rules must have a condition.`, `Invalid value for: <type> is not
+a valid value` and `Lifecycle age_days, matches_prefix, and matches_suffix
+conditions are the only ones allowed for a ABORT_INCOMPLETE_MULTIPART_UPLOAD
+rule.`), as recorded in case `bkt-config-edges`
+([provider probes](../evidence/provider-differential-gap-probes.md)). Stored rules
+are still validated strictly, so an unknown condition name read back from the
+catalog is invalid.
 Recognized out-of-scope conditions use the shared unsupported response and are
 never silently dropped.
 Ruby 1.62.1 serializes unused condition fields and action.storageClass as null,
