@@ -1,5 +1,33 @@
 # Local release gates on the integrated source
 
+## Published 0.20.1 source
+
+Recorded **2026-11-13** for tag `v0.20.1`, commit `7a32ed92aabb7619f7b8211a8196dd38553d8cc0`, tree `0117e765a77700cbfd09c93a1262635674ff4704`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 25m59s; 3423 Rust tests passed with Rust 1.100.0 | Recorded below |
+| Foundation checks | `success`, including the reference comparison | [Run 43365419286](https://github.com/shiroemons/gcs-mimic/actions/runs/43365419286) |
+| Documentation checks | `success` | [Run 43365419367](https://github.com/shiroemons/gcs-mimic/actions/runs/43365419367) |
+| Release binaries dry run | `success` on its second attempt; all eight native build and test targets passed | [Run 43365437472](https://github.com/shiroemons/gcs-mimic/actions/runs/43365437472) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43370411134](https://github.com/shiroemons/gcs-mimic/actions/runs/43370411134) |
+
+The first attempt of the dry run failed in `foundation / rust (pinned)` at `it_process::grpc_foundation::grpc_sigterm_default_deadlines_close_incomplete_handshake`: after the server stopped, `TcpStream::connect` to its former HTTP address succeeded, which the test treats as a listener left open. The release changed no gRPC, listener or shutdown code, the same test passed in Foundation checks and in the local `just pre-push` on the same commit, and another test binding the freed port is the likely cause, so the failed jobs were rerun and passed. The test's port check stays a known source of flakes.
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.20.1) has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`, whose `source_commit` is the tagged commit, and GitHub reports it as the latest release. The public multi-architecture image index is `sha256:a08192add61d6f1ca0f8eba97084a056dd0d7a445b41bae531cfb8271c42ff4c`, with `sha256:12f3b4183bc8dc0450190c92faff78e51738e2795097088edab1e50e6aedc291` for `linux/amd64` and `sha256:c2d52f848d30da1d72fcee87d476cbb410876005abd6121a6b8564f442b27865` for `linux/arm64`. GHCR `0.20.1`, `0.20` and `latest` and Docker Hub `0.20.1` and `latest` resolved to that index, and the GHCR image printed `gcs-mimic 0.20.1`. With `@google-cloud/storage` 9.0.0, the Testcontainers scenario, whose cleanup lists and deletes objects, passed against the published 0.20.1 image and failed against 0.20.0 with `Unknown query parameter for this method: responseType`.
+
+## Local gates on the 0.20.1 source
+
+Recorded **2026-11-13** on macOS (Apple Silicon) with Rust 1.100.0 for commit `7a32ed92aabb7619f7b8211a8196dd38553d8cc0` (package version 0.20.1).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 25m59s`; 3423 Rust tests in 16 binaries, 0 failed, 1 ignored, including library tests `2075 passed` and `it_process` `109 passed`; the Go, Ruby, Node.js (on `@google-cloud/storage` 9.0.0 and 8.4.0), PHP, Python, Java, .NET and Rust SDK suites passed; seven container `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 0 | 132 `CURRENT` lines and no `UPDATE_AVAILABLE`, at `2026-11-13T03:18:27Z` on the working tree that became `371ad642`; later commits changed no pin, only three test expectations, how xtask builds one output label (same text), the version strings, the recipe image pins and documents |
+
+`just pre-push` ran once as a complete invocation from a clean working tree of that commit, while the remote Foundation and Documentation checks ran on it; that concurrency made the stages slower than the 16m14s of the same gates on `371ad642`.
+
 ## Published 0.20.0 source
 
 Recorded **2026-11-13** for tag `v0.20.0`, commit `ba8a3f20d276401800d99a3230cd63f7f4dc6c68`, tree `b835af43a4e9d8dd34ebe7ceee51fe20c5e113bd`. Remote results were read back from GitHub after publication:
