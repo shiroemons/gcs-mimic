@@ -73,9 +73,10 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                     ADMIN,
                     br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
                 );
-                // Cloud Storage answers a PATCH whose ifMetagenerationNotMatch names the
-                // current value with 304 and no body (observed 2026-10-31); PUT stays 412.
-                if method == "PATCH" && condition == not_match {
+                // Cloud Storage answers a PATCH or PUT whose ifMetagenerationNotMatch names
+                // the current value with 304 and no body (PATCH observed 2026-10-31, PUT
+                // recorded 2026-11).
+                if condition == not_match {
                     reply.expect(304);
                     assert!(reply.body.is_empty());
                 } else {
