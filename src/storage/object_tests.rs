@@ -515,6 +515,13 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         } else {
             ObjectError::PreconditionFailed
         };
+        let write_error = || {
+            if index % 2 == 1 {
+                ObjectError::WriteNotModified
+            } else {
+                ObjectError::PreconditionFailed
+            }
+        };
         assert_eq!(
             catalog
                 .get_object(live("bucket", "conditions"), fail, PERMISSIVE)
@@ -534,13 +541,13 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         );
         assert_eq!(
             put(&catalog, "conditions", b"bad", fail).await,
-            Err(ObjectError::PreconditionFailed)
+            Err(write_error())
         );
         assert_eq!(
             catalog
                 .delete_object(live("bucket", "conditions"), fail, PERMISSIVE)
                 .await,
-            Err(ObjectError::PreconditionFailed)
+            Err(write_error())
         );
         assert_eq!(blobs(&dir.0).len(), 1);
         let pass = conditions(record.generation, index, ConditionOutcome::Pass);
@@ -583,6 +590,17 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
     };
     assert_eq!(
         put(&catalog, "conditions", b"bad", both).await,
+        Err(ObjectError::WriteNotModified)
+    );
+    // A failing match is reported before a not-match naming the current value (recorded on
+    // Cloud Storage for PATCH with ifGenerationMatch and ifMetagenerationNotMatch).
+    let match_fails_first = ObjectConditions {
+        if_generation_match: Some(1),
+        if_metageneration_not_match: Some(record.metageneration),
+        ..Default::default()
+    };
+    assert_eq!(
+        put(&catalog, "conditions", b"bad", match_fails_first).await,
         Err(ObjectError::PreconditionFailed)
     );
     for absent in [

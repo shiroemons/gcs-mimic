@@ -349,7 +349,14 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                 if success {
                     assert_eq!(reply.json_ok()["generation"], original["generation"]);
                 } else {
-                    reply.metadata_error(412, "conditionNotMet");
+                    // Cloud Storage answers a not-match naming the current value with an
+                    // empty 304 (recorded 2026-11).
+                    if equal_succeeds {
+                        reply.metadata_error(412, "conditionNotMet");
+                    } else {
+                        reply.expect(304);
+                        assert!(reply.body.is_empty(), "{method} {key}");
+                    }
                     assert_eq!(
                         server
                             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")

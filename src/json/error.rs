@@ -135,6 +135,7 @@ pub(crate) enum ErrorKind {
     FieldMaskSyntax,
     PreconditionFailed,
     NotModified,
+    WriteNotModified,
     Other,
 }
 
@@ -378,6 +379,12 @@ impl JsonError {
     pub(crate) fn not_modified() -> Self {
         Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
             .with_kind(ErrorKind::NotModified)
+    }
+
+    /// The JSON API's 304 for a write whose not-match condition named the current value. Its
+    /// own kind lets the gRPC adapter keep reporting the failed precondition it always has.
+    fn write_not_modified() -> Self {
+        Self::not_modified().with_kind(ErrorKind::WriteNotModified)
     }
 
     pub(crate) fn legacy_parse_error(message: impl Into<String>) -> Self {
@@ -908,6 +915,7 @@ impl From<ObjectError> for JsonError {
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
             ObjectError::NotModified => Self::not_modified(),
+            ObjectError::WriteNotModified => Self::write_not_modified(),
             ObjectError::ObjectNotFound => Self::missing_object(),
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,

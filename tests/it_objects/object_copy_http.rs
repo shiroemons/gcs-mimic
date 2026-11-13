@@ -442,17 +442,37 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
         "?ifSourceMetagenerationMatch=2".to_owned(),
         "?ifSourceMetagenerationNotMatch=1".to_owned(),
         "?ifGenerationMatch=0".to_owned(),
-        format!(
-            "?ifGenerationNotMatch={}",
-            target["generation"].as_str().unwrap()
-        ),
         "?ifMetagenerationMatch=2".to_owned(),
-        "?ifMetagenerationNotMatch=1".to_owned(),
     ] {
         copy(&server, "source", "target", &query, b"").json_reason(412, "conditionNotMet");
         assert_eq!(server.get("target").json_ok(), target);
         assert_no_transfer_files(&dir);
     }
+    // Cloud Storage answers an empty 304 when a destination not-match names the current
+    // destination (recorded 2026-11 for ifGenerationNotMatch).
+    for query in [
+        format!(
+            "?ifGenerationNotMatch={}",
+            target["generation"].as_str().unwrap()
+        ),
+        "?ifMetagenerationNotMatch=1".to_owned(),
+    ] {
+        let reply = copy(&server, "source", "target", &query, b"");
+        reply.expect(304);
+        assert!(reply.body.is_empty(), "{query}");
+        assert_eq!(server.get("target").json_ok(), target);
+        assert_no_transfer_files(&dir);
+    }
+    // A failing match still wins over a not-match naming the current destination.
+    copy(
+        &server,
+        "source",
+        "target",
+        "?ifGenerationMatch=0&ifMetagenerationNotMatch=1",
+        b"",
+    )
+    .json_reason(412, "conditionNotMet");
+    assert_eq!(server.get("target").json_ok(), target);
     copy(&server, "source", "missing", "?ifGenerationNotMatch=0", b"")
         .json_reason(412, "conditionNotMet");
     let first = copy(&server, "source", "missing", "?ifGenerationMatch=0", b"").json_ok();

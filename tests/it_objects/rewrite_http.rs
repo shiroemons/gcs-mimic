@@ -382,9 +382,18 @@ fn rewrite_all_conditions_preserve_failed_destination_and_retained_source() {
             .json_reason(412, "conditionNotMet");
         assert_eq!(server.get("destination").json_ok(), old);
     }
+    // A destination not-match naming the current destination is an empty 304, as recorded
+    // for copy; source not-match conditions stay failed preconditions.
     for (key, value) in [
         ("ifGenerationNotMatch", old["generation"].as_str().unwrap()),
         ("ifMetagenerationNotMatch", "1"),
+    ] {
+        let reply = server.request("POST", &format!("{BASE}?{key}={value}"), ADMIN, b"");
+        reply.expect(304);
+        assert!(reply.body.is_empty(), "{key}");
+        assert_eq!(server.get("destination").json_ok(), old);
+    }
+    for (key, value) in [
         (
             "ifSourceGenerationNotMatch",
             source["generation"].as_str().unwrap(),

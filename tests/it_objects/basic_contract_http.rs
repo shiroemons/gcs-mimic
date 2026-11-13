@@ -174,7 +174,13 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                 current
             };
             let reply = server.mutate_object(method, &name, &format!("{condition}={value}"));
-            if !passes {
+            if !passes && not_match {
+                // Cloud Storage answers a mutation whose not-match names the current value
+                // with an empty 304 (recorded 2026-11 for patch, update, delete and upload).
+                reply.expect_with(304, format_args!("{method} {condition}"));
+                assert!(reply.body.is_empty(), "{method} {condition}");
+                assert_eq!(server.snapshot(&name), before, "{method} {condition}");
+            } else if !passes {
                 reply.condition_failed();
                 assert_eq!(server.snapshot(&name), before, "{method} {condition}");
             } else if method == "DELETE" {
@@ -256,12 +262,12 @@ fn basic_contract_object_metageneration_match_matrix_preserves_failed_resources(
 }
 
 #[test]
-fn basic_contract_local_object_generation_not_match_mutations_use_412_without_side_effects() {
+fn basic_contract_object_generation_not_match_mutations_use_304_without_side_effects() {
     object_condition_matrix("ifGenerationNotMatch", "generation", true);
 }
 
 #[test]
-fn basic_contract_local_object_metageneration_not_match_mutations_use_412_without_side_effects() {
+fn basic_contract_object_metageneration_not_match_mutations_use_304_without_side_effects() {
     object_condition_matrix("ifMetagenerationNotMatch", "metageneration", true);
 }
 

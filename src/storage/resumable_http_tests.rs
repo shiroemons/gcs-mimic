@@ -1512,12 +1512,14 @@ async fn all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_r
             )
             .await
             .status;
-        assert!(matches!(relaxed, 400 | 412), "{relaxed}");
+        // A not-match naming the current object answers 304, as a media upload does.
+        let refused = if index % 2 == 1 { 304 } else { 412 };
+        assert!(matches!(relaxed, 400) || relaxed == refused, "{relaxed}");
         let r = h.request("PUT", &path, "", b"failed replacement").await;
         // A rejected finalization ends the session, so a repeat sees it gone.
         assert_eq!(
             r.status,
-            if relaxed == 412 { 410 } else { 412 },
+            if relaxed == refused { 410 } else { refused },
             "{index}: {}",
             String::from_utf8_lossy(&r.body)
         );

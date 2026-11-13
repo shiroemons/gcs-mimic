@@ -729,6 +729,11 @@ pub(crate) enum ObjectError {
     /// was recreated, administrative access through upload replay, or a refused sync control.
     Forbidden,
     NotModified,
+    /// A write's `ifGenerationNotMatch` or `ifMetagenerationNotMatch` named the current value of
+    /// the object it would change, delete or replace; nothing was written. Cloud Storage answers
+    /// 304 over JSON (recorded 2026-11 for patch, update, delete, media upload and copy), while
+    /// gRPC still reports a failed precondition.
+    WriteNotModified,
     ChecksumMismatch,
     /// The streamed body disagreed with a declared hash; the same failure as
     /// [`Self::ChecksumMismatch`], with both digests for the JSON message.
@@ -779,7 +784,7 @@ impl fmt::Display for ObjectError {
             ),
             Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
-            Self::NotModified => formatter.write_str("not modified"),
+            Self::NotModified | Self::WriteNotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch | Self::HashMismatch(_) => {
                 formatter.write_str("checksum mismatch")
             }
