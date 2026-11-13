@@ -35,7 +35,8 @@ Source digests and executed checks are recorded in the evidence document.
 | CRC32C | Big-endian base64 x-goog-hash crc32c, alone or combined/repeated hash headers with MD5; malformed declaration fails 400 InvalidDigest and mismatch fails 400 BadDigest under the local checksum-error rule |
 | Conditions | Single decimal generation match, including zero create-if-absent, and positive metageneration match; advisory check before body, authoritative check atomically with publication; exactly one competing conditional PUT wins |
 | Authorization | Strict local tokens require create and additionally delete on live overwrite; project and bucket permissions are additive; allUsers may grant anonymous writes; invalid tokens never become anonymous; permissive uses the same storage transitions without auth checks |
-| Unsupported input | Unknown query and x-goog inputs, CSEK/CMEK, class override, requester billing, retention/hold, resumable, content SHA256/signing, copy, ranges, HTTP validators, trailers and `x-amz-*` headers without an `x-goog-*` equivalent fail 501 before body reads. `x-goog-acl` and [AWS-signed `x-amz-*` headers](../signed-urls.md#s3-compatible-extension-headers) were added after this slice |
+| Unsupported input | Unknown query and x-goog inputs, CSEK/CMEK, class override, requester billing, retention/hold, resumable, content SHA256/signing, copy, ranges, HTTP validators, trailers and `x-amz-*` headers without an `x-goog-*` equivalent fail 400 InvalidArgument before body reads. `x-goog-acl`, `x-goog-custom-time` and [AWS-signed `x-amz-*` headers](../signed-urls.md#s3-compatible-extension-headers) were added after this slice |
+| Custom time | `x-goog-custom-time` sets the object's customTime with nanosecond precision, validated like the POST form field; a copy with `x-goog-metadata-directive: REPLACE` takes it from the request while `COPY` keeps the source's; a value that is not RFC 3339 fails 400 InvalidArgument before body reads and changes nothing |
 | Errors and preservation | XML Error/Code/Message; 400 InvalidAuthentication, 401 AuthenticationRequired, 403 AccessDenied, authorized 404 NoSuchBucket, 412 PreconditionFailed, 411 MissingContentLength, configured-size 400 EntityTooLarge; failed requests preserve previous bytes, metadata, history and generation counter |
 | Success | 200 empty body, quoted lowercase hexadecimal MD5 ETag, generation, metageneration, whole-object x-goog-hash, stored length and stored encoding (identity when absent) |
 | Resource bounds | Reuse JSON's two-slot 64 KiB upload bridge, HTTP max_connections limit, transfer/request/catalog deadlines, shared incremental checksums, opaque disk staging and recovery protocol; exact max succeeds and max+1 fails for known and streamed sizes |
@@ -49,9 +50,10 @@ boundaries not established by the official pages. Hyper owns malformed HTTP
 framing and Expect: 100-continue: accepted requests receive 100 when body polling
 starts, while early failures return a final error without requesting the body.
 Transport-invalid framing may fail before the XML adapter can format an error.
-Any syntactically valid nonempty PUT query returns 501 before interpreting a
-generation selector, including a malformed numeric value. Malformed query
-encoding or duplicate keys retain the shared XML query parser's 400 response.
+Any syntactically valid nonempty PUT query returns 400 InvalidArgument before
+interpreting a generation selector, including a malformed numeric value.
+Malformed query encoding or duplicate keys retain the shared XML query parser's
+400 response.
 
 Single-request uploads share the existing commit/recovery protocol. Before EOF,
 disconnect, timeout or shutdown aborts publication. After confirmed EOF,

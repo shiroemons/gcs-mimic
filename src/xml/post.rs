@@ -17,7 +17,7 @@ use crate::{
     json::{self, JsonError},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
-        UploadChunk, custom_time_key,
+        UploadChunk,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
     storage::ObjectUpload,
@@ -441,7 +441,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             | "content-disposition"
             | "content-encoding"
             | "content-length"
-            | "x-goog-custom-time" => {}
+            | super::CUSTOM_TIME => {}
             name if name.len() > "x-goog-meta-".len() && name.starts_with("x-goog-meta-") => {}
             name => return Err(Error::unsupported(&format!("POST form field {name}"))),
         }
@@ -541,11 +541,8 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
             *target = Some(Some(header_value(field, value)?));
         }
     }
-    if let Some(value) = fields.get("x-goog-custom-time") {
-        custom_time_key(value).map_err(|_| {
-            Error::invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
-        })?;
-        metadata.custom_time = Some(Some(value.clone()));
+    if let Some(value) = fields.get(super::CUSTOM_TIME) {
+        metadata.custom_time = Some(Some(super::custom_time(value)?));
     }
     let mut custom = BTreeMap::new();
     for (field, value) in fields {

@@ -267,7 +267,8 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         "x-goog-content-sha256: UNSIGNED-PAYLOAD",
         "x-goog-copy-source: /iam-bucket/object",
         "x-goog-allowed-resources: value",
-        "x-goog-custom-time: 2026-10-23T00:00:00Z",
+        // A valid custom time is supported; a malformed one still fails before Continue.
+        "x-goog-custom-time: yesterday",
         "x-goog-unknown: value",
         "x-amz-server-side-encryption: AES256",
         "Range: bytes=0-1",

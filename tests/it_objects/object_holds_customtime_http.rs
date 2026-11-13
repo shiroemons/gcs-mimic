@@ -137,6 +137,58 @@ fn stale_conditions_and_invalid_storage_classes_keep_wire_precedence() {
     }
 }
 
+#[test]
+fn xml_put_and_replacing_copy_set_custom_time_and_reject_malformed_values() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    server.bucket();
+    let custom = "2026-10-20T01:02:03.123456789Z";
+    server
+        .request(
+            "PUT",
+            "/test-bucket/dated",
+            &format!("x-goog-custom-time: {custom}\r\n"),
+            b"dated",
+        )
+        .expect(200);
+    let dated = server.get("dated").json_ok();
+    assert_eq!(dated["customTime"], custom);
+
+    // REPLACE takes the request's custom time; COPY keeps the source's and ignores the header.
+    for (name, directive, expected) in [
+        ("replaced", "REPLACE", "2026-10-21T00:00:00Z"),
+        ("copied", "COPY", custom),
+    ] {
+        server
+            .request(
+                "PUT",
+                &format!("/test-bucket/{name}"),
+                &format!(
+                    "x-goog-copy-source: /test-bucket/dated\r\nx-goog-metadata-directive: {directive}\r\nx-goog-custom-time: 2026-10-21T00:00:00Z\r\n"
+                ),
+                b"",
+            )
+            .expect_with(200, name);
+        assert_eq!(server.get(name).json_ok()["customTime"], expected, "{name}");
+    }
+
+    for value in ["yesterday", "2026-10-20", "0000-01-01T00:00:00Z"] {
+        let reply = server.request(
+            "PUT",
+            "/test-bucket/dated",
+            &format!("x-goog-custom-time: {value}\r\n"),
+            b"replaced",
+        );
+        assert_eq!(reply.status, 400, "{value}");
+        assert_eq!(
+            String::from_utf8(reply.body).unwrap(),
+            "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.</Message></Error>",
+            "{value}"
+        );
+        assert_eq!(server.get("dated").json_ok(), dated, "{value}");
+    }
+}
+
 fn update(server: &Server, method: &str, value: Value) -> common::effects::Reply {
     server.update(method, "held", &value)
 }

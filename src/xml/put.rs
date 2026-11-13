@@ -131,6 +131,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
                 name,
                 "x-goog-hash"
                     | "x-goog-storage-class"
+                    | super::CUSTOM_TIME
                     | super::canned_acl::HEADER
                     | length_range::HEADER
             ))
@@ -341,6 +342,9 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
                 ),
             })?;
         metadata.storage_class = Some(class);
+    }
+    if let Some(value) = single(headers, super::CUSTOM_TIME)? {
+        metadata.custom_time = Some(Some(super::custom_time(value)?));
     }
     let mut custom = BTreeMap::new();
     let mut custom_bytes = 0usize;

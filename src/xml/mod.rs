@@ -854,6 +854,17 @@ const HTTP_PRECONDITION_HEADERS: &[&str] = &[
     "if-range",
 ];
 
+/// The custom time a PUT header or a POST form field sets on the new object.
+const CUSTOM_TIME: &str = "x-goog-custom-time";
+
+/// Validates an `x-goog-custom-time` value and returns it in the stored form.
+fn custom_time(value: &str) -> Result<String, Error> {
+    crate::object::custom_time_key(value).map_err(|_| {
+        Error::invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
+    })?;
+    Ok(value.to_owned())
+}
+
 // These headers have the same meaning on XML reads, PUT and resumable initiation.
 fn is_common_object_header(name: &str) -> bool {
     crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)

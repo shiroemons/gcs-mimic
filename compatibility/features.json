@@ -37210,9 +37210,18 @@
         },
         {
           "id": "EXT-XML-022-UNSUPPORTED",
-          "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, requester billing, retention/hold, resumable, copy, signing/payload, custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 501 XML NotImplemented.",
+          "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, requester billing, retention/hold, resumable, copy, signing/payload, a malformed custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 400 XML InvalidArgument.",
           "result": "PASS",
           "test_ids": [
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"
+          ]
+        },
+        {
+          "id": "EXT-XML-022-CUSTOM-TIME",
+          "description": "x-goog-custom-time on PUT sets the object's customTime with nanosecond precision; a copy with x-goog-metadata-directive REPLACE takes the request's value while COPY keeps the source's; a value that is not RFC 3339 fails 400 InvalidArgument without changing the object.",
+          "result": "PASS",
+          "test_ids": [
+            "object_holds_customtime_http::xml_put_and_replacing_copy_set_custom_time_and_reject_malformed_values",
             "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"
           ]
         },
@@ -37325,7 +37334,7 @@
         },
         {
           "id": "EXT-XML-022-PENDING",
-          "description": "Implement and verify the full official advanced contract: remaining signing formats and optional payload provider parity, ACLs, CSEK/CMEK, class overrides, requester billing, retention/explicit holds, custom time and other upload variants; establish exact metadata/CRC/error/header/framing/unknown-input parity under SPEC-XML-PUT-EDGES and existing SPEC-XML-INPUTS, SPEC-012/017, SPEC-XML-PREFIX/PATH-ERROR. Post-EOF commit outcome may be unknown after timeout/disconnect/shutdown; all fsync boundaries, power loss, dedicated resource measurements and actual signed-browser execution remain unclaimed.",
+          "description": "Implement and verify the full official advanced contract: remaining signing formats and optional payload provider parity, ACLs, CSEK/CMEK, class overrides, requester billing, retention/explicit holds and other upload variants; establish exact metadata/CRC/error/header/framing/unknown-input parity under SPEC-XML-PUT-EDGES and existing SPEC-XML-INPUTS, SPEC-012/017, SPEC-XML-PREFIX/PATH-ERROR. Post-EOF commit outcome may be unknown after timeout/disconnect/shutdown; all fsync boundaries, power loss, dedicated resource measurements and actual signed-browser execution remain unclaimed.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -37409,6 +37418,7 @@
         }
       ],
       "test_ids": [
+        "object_holds_customtime_http::xml_put_and_replacing_copy_set_custom_time_and_reject_malformed_values",
         "xml_canned::xml_canned_acl_values_produce_the_recorded_entries_on_every_write",
         "xml_canned::xml_canned_acl_applies_to_a_copy_that_replaces_metadata",
         "xml_canned::xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing",
@@ -37460,6 +37470,7 @@
         "xml-content-length-range"
       ],
       "verification": [
+        {"command":"cargo test --locked --test it_objects object_holds_customtime && cargo test --locked --test it_xml_auth xml_put","result":"PASS","verified_at":"2026-11-13","artifact":"docs/en/slices/xml-put-object.md","test_ids":["object_holds_customtime_http::xml_put_and_replacing_copy_set_custom_time_and_reject_malformed_values","xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"]},
         {"command":"cargo +1.99.1 test --locked --offline --test it_xml_auth xml_canned","result":"PASS","verified_at":"2026-11-09","artifact":"docs/en/evidence/client-compat-0.16.0.md","test_ids":["xml_canned::xml_canned_acl_values_produce_the_recorded_entries_on_every_write","xml_canned::xml_canned_acl_applies_to_a_copy_that_replaces_metadata","xml_canned::xml_canned_acl_refuses_json_spellings_and_unknown_values_without_writing","xml_canned::xml_canned_acl_under_uniform_access_answers_the_recorded_error"]},
         {"command":"cargo test --lib xml::put && cargo test --test it_xml_auth length_range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml::put::length_range::tests::malformed_values_report_the_recorded_reason","xml::put::length_range::tests::accepts_the_signed_decimal_forms_cloud_storage_accepted","xml::put::length_range::tests::bounds_are_inclusive_and_name_the_failed_side","signing::length_range::signed_range_admits_inclusive_sizes_and_rejects_others_before_publication","signing::length_range::signature_binds_the_range_and_malformed_ranges_fail"]},
         {"command":"cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter xml-content-length-range","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/slices/xml-content-length-range.md","test_ids":["xml-content-length-range"]},
@@ -37682,7 +37693,7 @@
         }
       ],
       "known_deviations": [
-        "Full official PUT remains PARTIAL: encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
+        "Full official PUT remains PARTIAL: encryption, requester billing, storage-class overrides, retention/explicit holds and other advanced variants are explicitly rejected, not implemented.",
         "SPEC-XML-PUT-EDGES: CRC32C malformed values use local 400 InvalidDigest rather than the separately documented InvalidCrc, and all checksum mismatches use BadDigest; duplicate/conflicting declarations, non-ASCII/custom metadata accounting, framing/trailers, exact headers and mixed-error precedence need provider evidence.",
         "Existing SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017 local addressing, unknown-input, ETag and authentication/permission precedence rules apply unchanged; retry tokens require generation match without response replay.",
         "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and actual signed-browser execution remain unverified.",
