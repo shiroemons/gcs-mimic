@@ -22,9 +22,15 @@ const EXPIRED: &str = "Mon, 01 Jan 1990 00:00:00 GMT";
 
 const VARY: &str = "Origin, X-Origin";
 
-/// Whether a request path belongs to the JSON API (metadata, uploads and resumable sessions).
+/// The optional download endpoint, which serves only object media.
+const DOWNLOAD_PREFIX: &str = "/download/storage/v1/";
+
+/// Whether a request path belongs to the JSON API (metadata, media downloads, uploads and
+/// resumable sessions).
 fn is_json_api(path: &str) -> bool {
-    path.starts_with("/storage/v1/") || path.starts_with("/upload/storage/v1/")
+    path.starts_with("/storage/v1/")
+        || path.starts_with("/upload/storage/v1/")
+        || path.starts_with(DOWNLOAD_PREFIX)
 }
 
 /// The `ETag` header of a resource response: the resource's own `etag`, unquoted as the body has it.
@@ -68,7 +74,11 @@ impl Call {
                 return Self::UploadFrontEnd;
             }
         }
-        if param("alt").as_deref() == Some("media") {
+        // The download endpoint serves only media; its 206 carries the same past `Expires` as
+        // the ordinary media route (recorded 2026-11-13).
+        if request.uri().path().starts_with(DOWNLOAD_PREFIX)
+            || param("alt").as_deref() == Some("media")
+        {
             Self::MediaRead
         } else {
             Self::Metadata
