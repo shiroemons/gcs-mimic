@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
-| behavior | 201 | 80 | 0 | 81 | 40 | 0 | 0 |
+| api_operation | 310 | 203 | 0 | 105 | 2 | 0 | 0 |
+| behavior | 201 | 80 | 0 | 80 | 41 | 0 | 0 |
 | project_requirement | 98 | 22 | 0 | 44 | 32 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
-| behavior | 81 | 68 | 49 | 3 | 0 | 0 |
+| behavior | 80 | 69 | 49 | 3 | 0 | 0 |
 | project_requirement | 22 | 0 | 0 | 0 | 1 | 75 |
 
 ## api_operation
@@ -453,7 +453,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-LEGACY-002 | 旧Storage v1 DeleteBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | RPC-LEGACY-003 | 旧Storage v1 InsertBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | RPC-LEGACY-004 | 旧Storage v1 UpdateBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
-| RPC-LEGACY-005 | 旧Storage v1 ListBuckets | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-005 | 旧Storage v1 ListBuckets | IMPLEMENTED | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | RPC-LEGACY-006 | 旧Storage v1 InsertObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | RPC-LEGACY-007 | 旧Storage v1 GetObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | RPC-LEGACY-008 | 旧Storage v1 DeleteObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
@@ -756,7 +756,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-003 | gRPCストリームのチェックサムとoffset | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | PARTIAL | P6 | EXACT | EXACT | 1 |
-| BEHAVIOR-RPC-005 | gRPCステータスと詳細 | PARTIAL | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RPC-005 | gRPCステータスと詳細 | IMPLEMENTED | P6 | EXACT | EXACT | 0 |
 
 ### Signed access
 

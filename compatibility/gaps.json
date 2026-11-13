@@ -1535,6 +1535,38 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The retain-until time was held as a std SystemTime, whose Windows representation is a count of 100 ns intervals, so a finer fraction was floored when a request was parsed. Cloud Storage keeps the nanosecond (observed 2026-10-31). On Windows a shortening by one nanosecond inside the same 100 ns interval was accepted instead of refused with 403, gRPC retention.retain_until_time read back floored, and the nanosecond fraction in the retained-delete denial differed. The fix is in: ObjectRetention.retain_until is a UnixNanos value (whole seconds plus nanoseconds, src/object/unix_nanos.rs) on every platform, clock readings are converted to it exactly, and the catalog columns and resumable session form are unchanged. Unit tests use fractions that are not multiples of 100 ns with no platform switch and pass on macOS (2026-11-01); Linux runs them in CI. Windows has not run them yet: this stays OPEN until the Windows CI job (portability x86_64-pc-windows-msvc) passes the retention_roundtrip_http tests and the new unit tests.",
       "required_resolution": "Confirm in the Windows CI job that retention_roundtrip_http and the new retention unit tests pass, then mark this RESOLVED."
+    },
+    {
+      "id": "SPEC-GRPC-ERRORINFO",
+      "title": "Emulator rejections over gRPC reuse the JSON rejection ErrorInfo",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
+      ],
+      "observed_at": "2026-11-13",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "When the emulator rejects an unsupported Storage v2 method, field or value, the status carries google.rpc.ErrorInfo with reason badRequest and domain global, the same contract as its JSON rejection (src/grpc/v2/status.rs, pinned by grpc::v2::status::tests::unsupported_errors_keep_their_details). A valid Google RPC that Cloud Storage would serve has no provider counterpart for this rejection, so no provider reason exists to match. Errors that the 2026-11-01 differential recording covers (malformed resource names, an empty object name, failed preconditions) follow the recorded details instead.",
+      "required_resolution": "Keep the badRequest/global ErrorInfo as the emulator's own rejection contract and record it as a scoped difference of BEHAVIOR-RPC-005. Replace it only where an opted-in recording shows Cloud Storage's own details for the same request."
+    },
+    {
+      "id": "SPEC-GRPC-V1-LIST-PAGING",
+      "title": "Legacy v1 ListBuckets pages where the migration reference returns one list",
+      "status": "OPEN",
+      "affected_features": [
+        "RPC-LEGACY-005"
+      ],
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "observed_at": "2026-11-13",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The pinned fake-gcs-server reference answers legacy ListBuckets with one unpaged list. The google.storage.v1 proto defines prefix, max_results and page_token, and the emulator applies them with bounded opaque cursors shared with JSON listing (grpc::v1::tests::list_buckets_without_project_spans_projects_with_paging, TestGRPCV1Legacy).",
+      "required_resolution": "Keep the proto-defined paging as the legacy migration profile's behavior; a client that reads only the first page of a large result must follow next_page_token."
     }
   ],
   "resolved_research_items": [

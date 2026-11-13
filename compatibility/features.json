@@ -1512,7 +1512,7 @@
       "interface": "google.storage.v1.Storage/ListBuckets",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "LOCAL_SIMULATION",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
@@ -1525,8 +1525,8 @@
       "dependencies": [
         "BEHAVIOR-RPC-005"
       ],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "legacy_rpc_journey",
@@ -1588,6 +1588,28 @@
             "strict_list_buckets_without_project_only_sees_listable_projects",
             "bucket_list_among_projects_orders_by_name_across_owners"
           ]
+        },
+        {
+          "command": "GCSM_GO_TEST_RUN=TestGRPCV1Legacy bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib -- grpc::v1::tests storage::catalog_tests::bucket_list",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "list_buckets_without_project_spans_projects_with_paging",
+            "strict_list_buckets_without_project_only_sees_listable_projects",
+            "bucket_list_among_projects_orders_by_name_across_owners"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1603,11 +1625,19 @@
           ]
         }
       ],
-      "known_deviations": [
-        "Unlike the reference's single unpaged list, prefix and bounded opaque JSON cursors still apply."
+      "known_deviations": [],
+      "scoped_differences": [
+        {
+          "text": "Unlike the fake-gcs-server reference's single unpaged list, the proto-defined prefix, max_results and page_token apply with bounded opaque cursors.",
+          "gap": "SPEC-GRPC-V1-LIST-PAGING",
+          "test_ids": [
+            "list_buckets_without_project_spans_projects_with_paging",
+            "TestGRPCV1Legacy"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "RPC-LEGACY-006",
@@ -22449,7 +22479,8 @@
       ],
       "known_deviations": [
         "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
-        "Appendable writes follow the Rapid limitations recorded in BEHAVIOR-RAPID-002 to BEHAVIOR-RAPID-005."
+        "Appendable writes follow the Rapid limitations recorded in BEHAVIOR-RAPID-002 to BEHAVIOR-RAPID-005.",
+        "A message received before a client cancellation still commits, and QueryWriteStatus does not wait for that in-flight write, so a status queried right after cancelling can report an offset that the write then advances; resuming from it returns OUT_OF_RANGE until the client queries again (docs/en/evidence/grpc-deadlines.md)."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"
@@ -35278,25 +35309,25 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests. Messages are received up to 4 MiB and sent up to 33 MiB on Storage v2 and 4 MiB on Storage v1. Object list pages end near 2 MiB with a next page token and always hold one entry. A client left at a receive limit of 4 MiB should fail a larger bucket read on its side and can exclude those fields with read_mask; this has not been checked with a real SDK. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
+      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests. Messages are received up to 4 MiB and sent up to 33 MiB on Storage v2 and 4 MiB on Storage v1. Object list pages end near 2 MiB with a next page token and always hold one entry. A client left at a receive limit of 4 MiB should fail a larger bucket read on its side and can exclude those fields with read_mask; this has not been checked with a real SDK. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*). Client deadlines and cancellations end calls without publishing partial objects or holding writers (docs/en/evidence/grpc-deadlines.md); the server applies no grpc-timeout limit of its own. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {"id":"GRPC-ERROR-DETAILS-RECORDED","description":"Malformed resource names answer INVALID_ARGUMENT with an ErrorInfo detail, an empty object name with a BadRequest field violation, and only a failed precondition is reworded to the gRPC wording.","result":"PASS","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"id":"grpc_listener_disabled_by_default","description":"No grpc_listen means no gRPC listener; HTTP/HTTPS behavior is preserved.","result":"PASS","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization"]},
         {"id":"grpc_listener_starts_when_configured","description":"Config/environment enable separate h2c; invalid and occupied addresses have actionable startup failures.","result":"PASS","test_ids":["grpc_listener_configuration_precedence_and_diagnostics","grpc_listener_disabled_by_default_and_bound_after_initialization","TestGRPCFoundationWireStatus"]},
         {"id":"grpc_listener_follows_startup_and_shutdown_order","description":"Serve only after ready; idle gRPC releases shared admission. Real SIGTERM drains an incomplete handshake, closes HTTP and gRPC, reports stopped and releases the catalog for immediate reopen.","result":"PASS","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_idle_admission_and_sigterm_drain","TestGRPCFoundationWireStatus"]},
-        {"id":"grpc_unimplemented_is_immediate_and_actionable","description":"Unknown Storage v2 methods and unknown services immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and a JSON API remedy. At the foundation snapshot every pinned v2 RPC took this path; implemented operations now follow their own rows.","result":"PASS","test_ids":["TestGRPCFoundationWireStatus"]},
+        {"id":"grpc_unimplemented_is_immediate_and_actionable","description":"Unknown Storage v2 methods and unknown services immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and a JSON API remedy. At the foundation snapshot every pinned v2 RPC took this path; implemented operations now follow their own rows.","result":"PASS","test_ids":["TestGRPCFoundationWireStatus","grpc::v2::status::tests::unsupported_errors_keep_their_details"]},
         {"id":"grpc_go_client_fails_fast","description":"Ordinary Go client, Writer through Close and multi-range with SDK-required WithGRPCBidiReads fail before deadline with ShouldRetry=false and distinct not-found errors.","result":"PASS","test_ids":["TestGRPCFoundationFailsFast"]},
         {"id":"grpc_resource_name_parsing","description":"Parse bucket/object resource names; invalid shapes return INVALID_ARGUMENT.","result":"PASS","test_ids":["grpc_resource_name_parsing"]},
         {"id":"grpc_record_conversion","description":"Map supported shared record values to protobuf Bucket/Object; unsupported fields remain empty.","result":"PASS","test_ids":["grpc_record_conversion"]},
@@ -35311,10 +35342,12 @@
         {"id":"grpc_idle_reclaim_at_a_full_server","description":"At a full server an idle gRPC connection gives its slot to a waiting client through GOAWAY, oldest first and one per client, in the same line as HTTP/1 connections. An open stream is not reclaimed, a stream that races the GOAWAY is served, and a silent peer holds the slot for a short grace only.","result":"PASS","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client"]},
         {"id":"grpc_message_limits_and_list_pages","description":"The largest bucket resource fits one Storage v2 response, bucket lists keep it on its own page, and object list pages end on their size and reach every object, always advancing one entry.","result":"PASS","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
         {"id":"grpc_stream_limit_setting","description":"max_grpc_streams defaults to 100 streams per connection, follows the setting and requires grpc_listen, and with a gRPC listener startup raises the open-file target for its streams without adding a warning.","result":"PASS","test_ids":["grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
-        {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows; explicit deadline-expiry and client-cancellation behavior across operations remains unverified.","result":"PENDING","test_ids":[]}
+        {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows. A client deadline or cancellation on WriteObject, resumable BidiWriteObject, ReadObject and BidiReadObject ends the call with DEADLINE_EXCEEDED or CANCELED, publishes no partial object, leaves no writer behind, keeps an acknowledged resumable session resumable, and leaves the connection serving.","result":"PASS","test_ids":["TestGRPCDeadlineAndCancellation"]}
       ],
-      "test_ids": ["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time","grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
+      "test_ids": ["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time","grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits","grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","grpc_idle_connection_outlives_the_handshake_deadline","grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth","TestGRPCDeadlineAndCancellation","grpc::v2::status::tests::unsupported_errors_keep_their_details"],
       "verification": [
+        {"command":"GCSM_GO_TEST_RUN=TestGRPCDeadlineAndCancellation bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh (three runs)","result":"PASS","verified_at":"2026-11-13","artifact":"docs/en/evidence/grpc-deadlines.md","test_ids":["TestGRPCDeadlineAndCancellation"]},
+        {"command":"cargo test --locked --lib grpc::v2::status","result":"PASS","verified_at":"2026-11-13","artifact":"docs/en/evidence/grpc-deadlines.md","test_ids":["grpc::v2::status::tests::unsupported_errors_keep_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["the_largest_bucket_resource_fits_one_grpc_response","grpc_bucket_lists_keep_a_large_bucket_on_its_own_page","grpc_object_lists_page_on_their_size_and_reach_every_object","an_object_page_past_its_budget_still_advances_one_entry_at_a_time"]},
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_idle_connection_gives_its_slot_to_a_waiting_client","grpc_oldest_idle_connection_gives_way_first_and_only_one_per_client","grpc_open_stream_is_not_reclaimed_until_it_ends","grpc_stream_racing_the_reclaim_goaway_is_served_past_the_grace","grpc_reclaimed_connection_with_a_silent_peer_ends_within_the_short_grace","a_full_server_reclaims_an_idle_grpc_connection_for_a_new_client","grpc_stream_limit_defaults_to_100_streams_per_connection","grpc_stream_limit_follows_the_setting","grpc_stream_limit_follows_precedence_within_its_bounds","a_grpc_listener_raises_the_target_and_keeps_the_required_budget","a_grpc_listener_never_adds_a_warning_when_the_real_limit_fits"]},
         {"command":"cargo test --locked --lib -- grpc::tests","result":"PASS","verified_at":"2026-11-06","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["grpc_missing_preface_is_bounded_by_the_handshake_deadline_alone","grpc_idle_connection_outlives_the_handshake_deadline","grpc_disabled_and_largest_limits_keep_every_phase_open","grpc_shutdown_grace_is_never_zero","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
@@ -35328,9 +35361,10 @@
         {"command":"GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Deadline-expiry and client-cancellation behavior is not verified across operations. ErrorInfo reason badRequest/domain global intentionally match the JSON emulator rejection contract; this is not provider-exact behavior for valid Google RPCs."],
+      "known_deviations": [],
+      "scoped_differences": [{"text":"Emulator rejections of unsupported RPCs, fields and values carry ErrorInfo reason badRequest and domain global, the JSON rejection contract; a valid Google RPC has no provider counterpart for this rejection.","gap":"SPEC-GRPC-ERRORINFO","test_ids":["grpc::v2::status::tests::unsupported_errors_keep_their_details"]}],
       "implemented_in": "bdb8900",
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-13"
     },
     {
       "id": "EXT-XML-001",
