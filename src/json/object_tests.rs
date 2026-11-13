@@ -63,6 +63,25 @@ fn range_classification_is_shared_and_ignores_repeated_fields() {
     }
 }
 
+#[test]
+fn only_a_nonzero_suffix_of_an_empty_object_is_an_empty_suffix() {
+    for (range, size, expected) in [
+        ("-5", 0, true),
+        (" -1 ", 0, true),
+        ("-0", 0, false),
+        ("-5", 1, false),
+        ("0-", 0, false),
+        ("-x", 0, false),
+    ] {
+        assert_eq!(
+            RangeRequest::Single(range).is_suffix_of_empty(size),
+            expected,
+            "{range} of {size}"
+        );
+    }
+    assert!(!RangeRequest::Whole.is_suffix_of_empty(0));
+}
+
 #[track_caller]
 fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")

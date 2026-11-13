@@ -172,12 +172,18 @@ async fn media(
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }
+    // A nonzero suffix of an empty object is an empty 206 (recorded 2026-11-13).
+    let empty_suffix = requested_range.is_suffix_of_empty(record.size);
+    if empty_suffix {
+        headers.insert("content-range", HeaderValue::from_static("bytes 0-0/0"));
+        range_hashes(&mut headers, &record, 0, 0)?;
+    }
     let mut response = if head {
         boxed(empty_response(StatusCode::OK))
     } else {
         Response::new(object_body(reader, ctx.activity))
     };
-    if range.is_some() {
+    if range.is_some() || empty_suffix {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
     *response.headers_mut() = headers;

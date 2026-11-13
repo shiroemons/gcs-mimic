@@ -723,7 +723,31 @@ pub(crate) fn range_request(headers: &HeaderMap) -> RangeRequest<'_> {
     }
 }
 
+/// A range position. Saturation preserves comparisons with the bounded object size for
+/// arbitrarily large numerals.
+fn range_number(value: &str) -> Option<u64> {
+    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
+        value.bytes().fold(0_u64, |n, byte| {
+            n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
+        })
+    })
+}
+
 impl RangeRequest<'_> {
+    /// Whether this is a nonzero suffix range (`bytes=-N`) of an empty object. `resolve`
+    /// ignores it, as RFC 9110 permits; the JSON API answers it with an empty `206`.
+    pub(crate) fn is_suffix_of_empty(self, size: u64) -> bool {
+        let Self::Single(range) = self else {
+            return false;
+        };
+        size == 0
+            && range
+                .trim()
+                .strip_prefix('-')
+                .and_then(range_number)
+                .is_some_and(|suffix| suffix != 0)
+    }
+
     pub(crate) fn resolve(self, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
         let Self::Single(range) = self else {
             return Ok(None);
@@ -731,16 +755,8 @@ impl RangeRequest<'_> {
         let Some((first, last)) = range.trim().split_once('-') else {
             return Ok(None);
         };
-        // Saturation preserves comparisons with the bounded object size for arbitrarily large numerals.
-        let number = |value: &str| {
-            (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
-                value.bytes().fold(0_u64, |n, byte| {
-                    n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
-                })
-            })
-        };
         let (offset, end) = if first.is_empty() {
-            let Some(suffix) = number(last) else {
+            let Some(suffix) = range_number(last) else {
                 return Ok(None);
             };
             // RFC 9110 permits ignoring an empty representation's satisfiable nonzero suffix.
@@ -756,12 +772,12 @@ impl RangeRequest<'_> {
             {
                 return Ok(None);
             }
-            let Some(first) = number(first) else {
+            let Some(first) = range_number(first) else {
                 return Ok(None);
             };
             let last = if last.is_empty() {
                 u64::MAX
-            } else if let Some(last) = number(last) {
+            } else if let Some(last) = range_number(last) {
                 last
             } else {
                 return Ok(None);
