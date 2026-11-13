@@ -256,13 +256,21 @@ pub struct Publication {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AdminError {
-    Busy { retry_after: Duration },
+    Busy {
+        retry_after: Duration,
+    },
     DiskFull(IoCause),
     Closed,
     Precondition,
     Hold,
     SeedProjectMismatch,
-    SourceChanged { fields: Vec<String> },
+    /// Fixture metadata exceeded the budget that `max_seed_entries` sets, in MiB.
+    SeedMetadataBudget {
+        mib: usize,
+    },
+    SourceChanged {
+        fields: Vec<String>,
+    },
     Corrupt(BackendCause),
     Io(IoCause),
     NotFound,
@@ -286,6 +294,10 @@ impl fmt::Display for AdminError {
             Self::SeedProjectMismatch => {
                 f.write_str("Invalid(\"existing seed bucket belongs to another project\")")
             }
+            Self::SeedMetadataBudget { mib } => write!(
+                f,
+                "Invalid(\"seed metadata exceeds {mib} MiB; raise max_seed_entries\")"
+            ),
             Self::SourceChanged { fields } => write!(f, "SourceChanged {{ fields: {fields:?} }}"),
             Self::Corrupt(cause) => write!(f, "Corrupt({cause:?})"),
             Self::Io(cause) => write!(f, "Io({cause:?})"),

@@ -153,10 +153,12 @@ fn admin_failure(error: &AdminError) -> JsonError {
             "forbidden",
             "Reseed made no changes because an object is protected by a hold or retention",
         ),
-        // Includes fixture metadata past the budget that max_seed_entries sets.
         AdminError::Invalid(_) | AdminError::SeedProjectMismatch => {
             JsonError::invalid("Invalid fixture state; reseed made no changes")
         }
+        AdminError::SeedMetadataBudget { mib } => JsonError::invalid(format!(
+            "Reseed made no changes because fixture metadata exceeds {mib} MiB; raise max_seed_entries or reduce the tree"
+        )),
         AdminError::TooLarge => JsonError::invalid(
             "Reseed made no changes because a fixture file exceeds max_object_bytes",
         ),
@@ -271,9 +273,11 @@ mod tests {
                 "max_object_bytes",
             ),
             (
-                wrapped(SeedError::Admin(AdminError::Invalid(
-                    "seed metadata exceeds 8 MiB; raise max_seed_entries".into(),
-                ))),
+                wrapped(SeedError::Admin(AdminError::SeedMetadataBudget { mib: 8 })),
+                "exceeds 8 MiB; raise max_seed_entries",
+            ),
+            (
+                wrapped(SeedError::Admin(AdminError::Invalid("bad metadata".into()))),
                 "Invalid fixture state",
             ),
             (SeedError::NotDirectory, "not a directory"),

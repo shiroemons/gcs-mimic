@@ -128,11 +128,8 @@ impl SeedBatch {
             .metadata_bytes
             .checked_add(bytes)
             .filter(|size| *size <= budget)
-            .ok_or_else(|| {
-                AdminError::Invalid(format!(
-                    "seed metadata exceeds {} MiB; raise max_seed_entries",
-                    budget / (1024 * 1024)
-                ))
+            .ok_or(AdminError::SeedMetadataBudget {
+                mib: budget / (1024 * 1024),
             })?;
         Ok(())
     }

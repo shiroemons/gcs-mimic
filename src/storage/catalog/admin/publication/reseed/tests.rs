@@ -30,9 +30,12 @@ async fn the_metadata_budget_grows_with_the_allowed_tree_and_refuses_past_it() {
         .await
         .unwrap();
     batch.charge_metadata(16 * MIB).unwrap();
-    let AdminError::Invalid(message) = batch.charge_metadata(1).unwrap_err() else {
-        panic!("a charge past the budget is invalid input");
-    };
+    let error = batch.charge_metadata(1).unwrap_err();
+    assert!(
+        matches!(error, AdminError::SeedMetadataBudget { mib: 16 }),
+        "{error}"
+    );
+    let message = error.to_string();
     assert!(message.contains("16 MiB"), "{message}");
     assert!(message.contains("max_seed_entries"), "{message}");
     drop(batch);

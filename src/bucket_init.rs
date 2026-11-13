@@ -1238,6 +1238,7 @@ fn initialization_failure(error: &AdminError, setting: Setting) -> std::io::Erro
         AdminError::Precondition
         | AdminError::Hold
         | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
         | AdminError::SourceChanged { .. }
         | AdminError::NotFound
         | AdminError::Checksum
