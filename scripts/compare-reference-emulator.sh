@@ -613,7 +613,10 @@ if [[ $reference_only == 0 ]]; then
         elif .case == "put-predefined-acl" or .case == "put-predefined-default-acl" then
           (if $native then [200,null] else [400,"badRequest"] end)
         elif .case == "put-user-project" then [400,"badRequest"]
-        elif .case == "put-match-stale" or .case == "put-notmatch-failure" then [412,"conditionNotMet"]
+        elif .case == "put-match-stale" then [412,"conditionNotMet"]
+        # Cloud Storage answers a PUT whose ifMetagenerationNotMatch names the current value
+        # with an empty 304 (recorded 2026-11-13), as it does for PATCH.
+        elif .case == "put-notmatch-failure" then [304,null]
         else [200,null] end;
     [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
     | ($targets | length == 2) and all($targets[];
@@ -623,7 +626,7 @@ if [[ $reference_only == 0 ]]; then
       | ($puts | length == 32) and all($puts[];
           expected as $expected
           | .status == $expected[0]
-            and (if .status == 200 then true
+            and (if .status == 200 or .status == 304 then true
               else (.body | fromjson | .error.errors[0].reason) == $expected[1] end))
         and resource($rows; "put-create-get-state") == resource($rows; "put-before-get-state")
         and resource($rows; "put-object-before").eventBasedHold == true

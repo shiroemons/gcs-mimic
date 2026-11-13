@@ -127,7 +127,9 @@ func TestBucketMetadataReplace(t *testing.T) {
 	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 	_, err = api.Buckets.Update(bucket.BucketName(), &raw.Bucket{}).
 		IfMetagenerationNotMatch(second.Metageneration).Context(ctx).Do()
-	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
+	// Cloud Storage answers a PUT whose not-match names the current metageneration with an
+	// empty 304 and writes nothing (recorded 2026-11-13).
+	requireObjectStatus(t, err, http.StatusNotModified)
 	unchanged, err := bucket.Attrs(ctx)
 	if err != nil {
 		t.Fatal(err)
