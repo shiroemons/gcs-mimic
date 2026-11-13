@@ -215,7 +215,7 @@ pub(super) async fn compose(
         ],
     )?;
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
-    let mut body = json::compose::parse_compose(&bytes, &bucket, &name)?;
+    let mut body = json::compose::parse_compose(&bytes, &bucket)?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
     let _wait = crate::server::begin_catalog_wait(ctx.activity).await;
     let record = ctx
@@ -229,7 +229,7 @@ pub(super) async fn compose(
                 access,
                 metadata: body.destination,
                 content_type: String::new(),
-                storage_class: None,
+                storage_class: body.storage_class,
                 expected: Default::default(),
                 component_count: None,
             },

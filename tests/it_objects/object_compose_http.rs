@@ -64,6 +64,35 @@ fn compose_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
 }
 
 #[test]
+fn compose_writes_the_path_object_when_the_destination_names_another() {
+    let (_dir, server) = setup(false);
+    server.put("a", b"first").json_ok();
+    // Cloud Storage composes at the path name and ignores the resource's (recorded 2026-11-13).
+    let result = compose(
+        &server,
+        "path",
+        json!({"sourceObjects":[{"name":"a"}],"destination":{"name":"body"}}),
+    )
+    .json_ok();
+    assert_eq!(result["name"], "path");
+    assert_eq!(media(&server, "path").body, b"first");
+    server.get("body").json_reason(404, "notFound");
+    let classed = compose(
+        &server,
+        "classed",
+        json!({"sourceObjects":[{"name":"a"}],"destination":{"storageClass":"STANDARD"}}),
+    )
+    .json_ok();
+    assert_eq!(classed["storageClass"], "STANDARD");
+    compose(
+        &server,
+        "path",
+        json!({"sourceObjects":[{"name":"a"}],"destination":{"name":7}}),
+    )
+    .json_reason(400, "invalidArgument");
+}
+
+#[test]
 fn compose_order_checksums_metadata_fields_and_restart() {
     let (dir, mut server) = setup(false);
     let first = server.put("a", b"1234").json_ok();
@@ -348,8 +377,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         json!({"contexts":{}}),
         json!({"temporaryHold":true}),
         json!({"customTime":"2026-10-20T01:02:03Z"}),
-        json!({"storageClass":"STANDARD"}),
-        json!({"storageClass":"NEARLINE"}),
+        json!({"storageClass":"REGIONAL"}),
     ] {
         compose(
             &server,
@@ -358,6 +386,23 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         )
         .json_reason(400, "badRequest");
     }
+    // A class the components do not share is refused in Cloud Storage's wording, past an
+    // output-only generation and size (recorded 2026-11-13).
+    let refused = compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"a"}],"destination":{"generation":"1","size":"999","storageClass":"NEARLINE"}}),
+    );
+    assert_eq!(
+        refused.json_reason_value(400, "invalid")["error"]["message"],
+        "Cannot compose object with destination storage class NEARLINE from source components that have different storage classes (STANDARD)."
+    );
+    compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"a"}],"destination":{"storageClass":"standard"}}),
+    )
+    .json_reason(400, "invalid");
     server
         .request(
             "POST",

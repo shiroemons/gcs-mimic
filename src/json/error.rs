@@ -883,6 +883,7 @@ impl From<ObjectError> for JsonError {
                 else { Self::invalid(error.to_string()) }
             }
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
+            ObjectError::ComposeClassMismatch { .. } => Self::invalid(error.to_string()),
             ObjectError::DerivedTransferIncomplete => {
                 Self::invalid_argument("Derived transfer is incomplete")
             }

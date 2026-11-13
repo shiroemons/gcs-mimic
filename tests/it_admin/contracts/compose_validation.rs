@@ -3,11 +3,7 @@ use hyper::StatusCode;
 use serde_json::{Value, json};
 
 fn parse(value: Value) -> Result<compose::ComposeRequest, json::JsonError> {
-    compose::parse_compose(
-        value.to_string().as_bytes(),
-        "compose-bucket",
-        "destination",
-    )
+    compose::parse_compose(value.to_string().as_bytes(), "compose-bucket")
 }
 
 #[test]
@@ -84,9 +80,7 @@ fn compose_body_rejects_malformed_source_and_destination_shapes() {
         assert_eq!(error.status, StatusCode::BAD_REQUEST, "{body}");
     }
     assert_eq!(
-        compose::parse_compose(b"{", "bucket", "name")
-            .unwrap_err()
-            .reason,
+        compose::parse_compose(b"{", "bucket").unwrap_err().reason,
         "invalid"
     );
 }

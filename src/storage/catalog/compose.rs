@@ -60,6 +60,14 @@ fn combine_sources(
             .min(i32::MAX as i64);
         keys.insert((source.object.name.clone(), source.object.generation));
     }
+    if let Some(requested) = destination.storage_class
+        && requested != class
+    {
+        return Err(ObjectError::ComposeClassMismatch {
+            requested,
+            sources: class,
+        });
+    }
     destination.storage_class = Some(class);
     destination.component_count = Some(count);
     destination.expected = ExpectedHashes {
