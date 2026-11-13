@@ -307,8 +307,9 @@ fn bucket_condition_matrix(not_match: bool) {
                 body,
             );
             if !passes {
-                if not_match && method == "PATCH" {
-                    // Observed on Cloud Storage: an empty 304 even with writable settings.
+                if not_match && method != "DELETE" {
+                    // Observed on Cloud Storage for PATCH and PUT: an empty 304 even with
+                    // writable settings.
                     reply.expect(304);
                     assert!(reply.body.is_empty());
                 } else {
@@ -354,7 +355,7 @@ fn basic_contract_bucket_metageneration_match_matrix_preserves_failed_resources(
 }
 
 #[test]
-fn basic_contract_local_bucket_metageneration_not_match_mutations_use_412_without_side_effects() {
+fn basic_contract_bucket_metageneration_not_match_mutations_preserve_failed_resources() {
     bucket_condition_matrix(true);
 }
 
