@@ -701,14 +701,27 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
         second["items"][0]["generation"]
     );
     assert!(second.get("nextPageToken").is_none());
-    h.request(
-        "GET",
-        &format!("/storage/v1/b/bucket/o?maxResults=1&prefix=a&matchGlob=*.txt&pageToken={token}"),
-        ADMIN,
-        b"",
-    )
-    .await
-    .error(400, "invalid");
+    // A token is a position, so a live listing continues after the soft-deleted entry's name
+    // (Cloud Storage accepted tokens under other listing parameters, recorded 2026-11).
+    let live = h
+        .request(
+            "GET",
+            &format!(
+                "/storage/v1/b/bucket/o?maxResults=1&prefix=a&matchGlob=*.txt&pageToken={token}"
+            ),
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!(live.status, 200, "{}", live.json());
+    let first_name = first["items"][0]["name"].as_str();
+    assert!(
+        live.json()["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|item| item["name"].as_str() > first_name)
+    );
     let grouped = h
         .request(
             "GET",
