@@ -1,0 +1,13 @@
+{
+  "id": "obj-delete-undeclared-query",
+  "description": "Object DELETE with query parameters objects.delete does not declare: the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, and projection, which other object methods declare.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "delete-sdk-options", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"responseType": "text", "validateStatus": "(status) => {{\n                return ((status >= 200 && status < 300) || status === 404 || status === 403);\n            }}"}},
+    {"name": "read-after-sdk-options", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name"}},
+    {"name": "upload-again", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "delete-projection", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"projection": "noAcl"}},
+    {"name": "read-after-projection", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

@@ -403,12 +403,9 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "includeFoldersAsPrefixes=true&delimiter=",
         "includeFoldersAsPrefixes=true&delimiter=-",
         "includeFoldersAsPrefixes=True&delimiter=%2F%2F",
-        "unknown=1",
         "prefix=%FF",
         "prefix=%",
         "prefix=a&pre%66ix=b",
-        "generation=1",
-        "ifGenerationMatch=1",
     ] {
         let (status, value) =
             server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
@@ -437,6 +434,19 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
             server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
         assert_eq!(status, 400, "{query}: {value}");
         assert_eq!(value["error"]["errors"][0]["reason"], "badRequest");
+    }
+    // objects.list ignores names it does not declare, as Cloud Storage did with autoPaginate
+    // and an arbitrary name (case obj-list-undeclared-query).
+    for query in [
+        "unknown=1",
+        "autoPaginate=false",
+        "generation=1",
+        "ifGenerationMatch=1",
+    ] {
+        let (status, value) =
+            server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
+        assert_eq!(status, 200, "{query}: {value}");
+        assert_eq!(value["kind"], "storage#objects", "{query}");
     }
     // prettyPrint only selects the body layout; a non-boolean value is still rejected.
     assert_eq!(

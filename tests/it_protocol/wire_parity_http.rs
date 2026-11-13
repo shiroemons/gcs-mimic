@@ -888,7 +888,12 @@ fn error_items_name_the_rejected_parameter_or_header() {
         assert_eq!(item(&reply)["location"], name, "{path}");
         assert_eq!(item(&reply)["locationType"], "parameter", "{path}");
     }
-    let unknown = server.request("GET", "/storage/v1/b/parity/o?unknown=value", "", b"");
+    // objects.list ignores an undeclared name, as Cloud Storage did; methods whose treatment is
+    // unrecorded still reject one without naming a location.
+    server
+        .request("GET", "/storage/v1/b/parity/o?unknown=value", "", b"")
+        .status(200);
+    let unknown = server.request("GET", "/storage/v1/b/parity/iam?unknown=value", "", b"");
     unknown.status(400);
     assert!(item(&unknown).get("location").is_none());
     assert!(item(&unknown).get("locationType").is_none());

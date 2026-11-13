@@ -560,8 +560,27 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
         )
         .is_ok()
     );
-    for query in ["projection=noAcl", "softDeleted=false", "name=file"] {
-        assert!(request(Method::DELETE, &format!("/storage/v1/b/abc/o/file?{query}")).is_err());
+    // objects.delete ignores parameters it does not declare, as Cloud Storage did; recognized
+    // but unsupported standard parameters and malformed declared ones are still rejected.
+    let plain_delete = request(Method::DELETE, "/storage/v1/b/abc/o/file").unwrap();
+    for query in [
+        "projection=noAcl",
+        "softDeleted=false",
+        "name=file",
+        "responseType=text",
+        "validateStatus=%28status%29%20%3D%3E%20%7B%7D",
+    ] {
+        assert_eq!(
+            request(Method::DELETE, &format!("/storage/v1/b/abc/o/file?{query}")).unwrap(),
+            plain_delete,
+            "{query}"
+        );
+    }
+    for query in ["userProject=p", "generation=x", "ifGenerationMatch=x"] {
+        assert!(
+            request(Method::DELETE, &format!("/storage/v1/b/abc/o/file?{query}")).is_err(),
+            "{query}"
+        );
     }
     assert!(
         request(

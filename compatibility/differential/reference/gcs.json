@@ -30417,17 +30417,355 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-delete-undeclared-query",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-delete-undeclared-query-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-delete-undeclared-query-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-delete-undeclared-query-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "48abe7538a11ecd3",
+          "name": "delete-sdk-options",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?responseType=text&validateStatus=%28status%29%20%3D%3E%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20return%20%28%28status%20%3E%3D%20200%20%26%26%20status%20%3C%20300%29%20%7C%7C%20status%20%3D%3D%3D%20404%20%7C%7C%20status%20%3D%3D%3D%20403%29%3B%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "980ae1bd68aa8c49",
+          "name": "read-after-sdk-options",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-delete-undeclared-query-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-delete-undeclared-query-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload-again",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-delete-undeclared-query-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-delete-undeclared-query-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-delete-undeclared-query-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e462e9d57da16f6e",
+          "name": "delete-projection",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?projection=noAcl",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "980ae1bd68aa8c49",
+          "name": "read-after-projection",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-delete-undeclared-query-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-delete-undeclared-query-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-delete-undeclared-query-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-delete-undeclared-query-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-delete-undeclared-query-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-list-undeclared-query",
+      "steps": [
+        {
+          "fingerprint": "f34fc114cc18db91",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-list-undeclared-query-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "qTxfkw==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-list-undeclared-query-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-list-undeclared-query-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-list-undeclared-query-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-list-undeclared-query-1",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d7829535f5d01908",
+          "name": "list-auto-paginate",
+          "request": "GET /storage/v1/b/<bucket>/o?autoPaginate=false&fields=items%28name%29&prefix=obj-list-undeclared-query-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "obj-list-undeclared-query-1"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1f8290b9386cc68a",
+          "name": "list-unknown",
+          "request": "GET /storage/v1/b/<bucket>/o?fields=items%28name%29&prefix=obj-list-undeclared-query-1&unknown=value",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "obj-list-undeclared-query-1"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-list-undeclared-query-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
     }
   ],
   "format": 2,
-  "generated": "2026-11-09",
+  "generated": "2026-11-13",
   "recorded_dates": [
     "2026-11-01",
     "2026-11-02",
     "2026-11-04",
-    "2026-11-09"
+    "2026-11-09",
+    "2026-11-13"
   ],
-  "requests": 1024,
+  "requests": 1051,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

@@ -404,11 +404,11 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     server
         .request(
             "DELETE",
-            "/storage/v1/b/test-bucket/o/existing?projection=noAcl",
+            "/storage/v1/b/test-bucket/o/existing?userProject=billing",
             "",
             b"",
         )
-        .json_error(400, "invalidParameter");
+        .json_error(400, "badRequest");
     assert_eq!(server.get("existing?alt=media").body, b"old");
 }
 

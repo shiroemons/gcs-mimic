@@ -51,23 +51,31 @@ fn other_undeclared_parameters_and_other_methods_stay_rejected() {
     for (method, path, body) in [
         ("GET", format!("{OBJECT}?response-content-language=en"), ""),
         (
-            "GET",
-            "/storage/v1/b/test-bucket/o?response-content-type=text%2Fcsv".to_owned(),
-            "",
-        ),
-        (
             "PATCH",
             format!("{OBJECT}?response-content-type=text%2Fcsv"),
             "{}",
-        ),
-        (
-            "DELETE",
-            format!("{OBJECT}?response-content-disposition=inline"),
-            "",
         ),
     ] {
         server
             .request(method, &path, "", body.as_bytes())
             .json_reason(400, "invalidParameter");
     }
+    // objects.list and objects.delete ignore every name they do not declare, these included
+    // (cases obj-list-undeclared-query and obj-delete-undeclared-query).
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o?response-content-type=text%2Fcsv",
+            "",
+            b"",
+        )
+        .json_ok();
+    server
+        .request(
+            "DELETE",
+            &format!("{OBJECT}?response-content-disposition=inline"),
+            "",
+            b"",
+        )
+        .expect(204);
 }

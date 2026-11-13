@@ -1,0 +1,10 @@
+{
+  "id": "obj-list-undeclared-query",
+  "description": "Object listing with query parameters objects.list does not declare: the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, and an arbitrary name.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "x", "compare": false, "expect_status": 200},
+    {"name": "list-auto-paginate", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "autoPaginate": "false", "fields": "items(name)"}},
+    {"name": "list-unknown", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"prefix": "{object}", "unknown": "value", "fields": "items(name)"}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}

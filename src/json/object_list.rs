@@ -1,6 +1,6 @@
 use super::{
     JsonError, Projection, object_resource,
-    query::{boolean, finish, parse_query, projection, standard_parameters},
+    query::{boolean, parse_query, projection, standard_parameters},
 };
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
 use serde_json::{Map, Value, json};
@@ -102,7 +102,10 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
             &token, &query, projection,
         )?);
     }
-    finish(&params)?;
+    // objects.list ignores a query parameter it does not declare, such as the autoPaginate
+    // option @google-cloud/storage 9.0.0 Bucket#getFiles sends: Cloud Storage listed the objects
+    // (case obj-list-undeclared-query, recorded 2026-11-13), and fake-gcs-server reads only the
+    // parameters it knows. Unsupported standard parameters were rejected above.
     Ok(ObjectListParams {
         query,
         projection,

@@ -13589,6 +13589,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "JSON-OBJECTS-004-UNDECLARED-QUERY",
+          "description": "objects.delete ignores query parameters it does not declare, such as projection and the responseType and validateStatus options @google-cloud/storage 9.0.0 File#delete sends, in both profiles, as Cloud Storage did (differential case obj-delete-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as userProject and malformed declared ones are still rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_query_002_duplicates_invalid_scalars_and_method_parameters",
+            "obj-delete-undeclared-query",
+            "node-json-acl"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-004-MEDIA",
           "description": "OBJ-MEDIA-023..035/049: delete selected live data atomically, preserve failed conditions, return empty 204 or structured 404/412 and keep opened readers pinned; both storage race outcomes pass.",
           "result": "PASS",
@@ -13713,6 +13723,9 @@
         }
       ],
       "test_ids": [
+        "obj_query_002_duplicates_invalid_scalars_and_method_parameters",
+        "obj-delete-undeclared-query",
+        "node-json-acl",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
@@ -13772,6 +13785,17 @@
         "conditional_delete_and_metadata_patch_have_one_winner"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib json::; cargo xtask differential run --reference compatibility/differential/reference/gcs.json; bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dependency-refresh.md",
+          "test_ids": [
+            "obj_query_002_duplicates_invalid_scalars_and_method_parameters",
+            "obj-delete-undeclared-query",
+            "node-json-acl"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -16555,6 +16579,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "OBJECT-LIST-UNDECLARED-QUERY",
+          "description": "objects.list ignores query parameters it does not declare, such as the autoPaginate option @google-cloud/storage 9.0.0 Bucket#getFiles sends, in both profiles, as Cloud Storage did (differential case obj-list-undeclared-query, recorded 2026-11-13) and fake-gcs-server v1.56.1 does; unsupported standard parameters such as userProject are still rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "error_items_name_the_rejected_parameter_or_header",
+            "obj-list-undeclared-query",
+            "node-unsupported-fails-fast"
+          ]
+        },
+        {
           "id": "OBJECT-LIST-RESOURCE",
           "description": "GET collection returns identical GET resource metadata after conditional contentType/cacheControl/custom metadata PATCH and metageneration increment, omits empty arrays/final tokens and survives restart; full omits unsupported ACL/owner.",
           "result": "PASS",
@@ -16768,9 +16802,23 @@
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "obj_http_bad_hashes_and_unsupported_requests_never_publish"
+        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
+        "error_items_name_the_rejected_parameter_or_header",
+        "obj-list-undeclared-query",
+        "node-unsupported-fails-fast"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test it_protocol wire_parity; cargo xtask differential run --reference compatibility/differential/reference/gcs.json; bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-node",
+          "result": "PASS",
+          "verified_at": "2026-11-13",
+          "artifact": "docs/en/evidence/dependency-refresh.md",
+          "test_ids": [
+            "error_items_name_the_rejected_parameter_or_header",
+            "obj-list-undeclared-query",
+            "node-unsupported-fails-fast"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",

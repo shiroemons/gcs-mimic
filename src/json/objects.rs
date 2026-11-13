@@ -486,7 +486,11 @@ fn parse_named_object_query(
     // Cloud Storage accepted the parameter on objects.delete and ignored it: a retained object
     // stayed protected (observed 2026-10-31). Only PATCH and PUT honour the override.
     boolean(&mut query, "overrideUnlockedRetention")?;
-    finish(&query)?;
+    // objects.delete ignores a query parameter it does not declare: Cloud Storage deleted the
+    // object with `projection=noAcl`, and with the `responseType` and `validateStatus` options
+    // that @google-cloud/storage 9.0.0 File#delete sends (case obj-delete-undeclared-query,
+    // recorded 2026-11-13), and fake-gcs-server reads only `generation`. Unsupported standard
+    // parameters were already rejected by take_common_parameters.
     Ok(ObjectRequest::Delete { target, conditions })
 }
 
