@@ -100,7 +100,8 @@ async fn a_cancellation_waits_for_the_abandoned_chunk() {
 #[tokio::test]
 async fn a_writer_that_keeps_working_past_the_budget_reports_a_busy_session() {
     let h = with_writer_wait(100).await;
-    let init = h.initiate("name=busy", "", b"").await;
+    // The short budget also bounds this setup request, which a loaded runner can exceed.
+    let init = retry_unavailable(|| h.initiate("name=busy", "", b"")).await;
     let path = h.path(&init);
     let stalled = stalled_chunk(&h, &path).await;
     let reply = h
