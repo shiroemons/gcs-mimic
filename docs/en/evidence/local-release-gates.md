@@ -1,5 +1,33 @@
 # Local release gates on the integrated source
 
+## Published 0.21.0 source
+
+Recorded **2026-11-13** for tag `v0.21.0`, commit `5beab6e4f018036ba79133370e55579b788a8b67`, tree `e28d12c1bf165fcc3e5a47031cb829b3bb321169`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 22m17s; 3454 Rust tests passed with Rust 1.100.0 | Recorded below |
+| Foundation checks | `success`, including the reference comparison | [Run 43420081278](https://github.com/shiroemons/gcs-mimic/actions/runs/43420081278) |
+| Documentation checks | `success` on `94634290`; the tagged commit changed only a Go test and a script, which do not start this workflow | [Run 43411638161](https://github.com/shiroemons/gcs-mimic/actions/runs/43411638161) |
+| Release binaries dry run | `success`; all eight native build and test targets passed | [Run 43420086252](https://github.com/shiroemons/gcs-mimic/actions/runs/43420086252) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43424457339](https://github.com/shiroemons/gcs-mimic/actions/runs/43424457339) |
+
+The tag was first pushed on commit `94634290` without a dry run. Its tag run [43411662826](https://github.com/shiroemons/gcs-mimic/actions/runs/43411662826) stopped in `validate` because `scripts/find-release-dry-run.sh` found no dry run of that commit, so nothing was published. The dry run then started on that commit ([43412411856](https://github.com/shiroemons/gcs-mimic/actions/runs/43412411856)) failed in `foundation / sdk-go` and `foundation / reference-comparison`, as did Foundation checks [43411638170](https://github.com/shiroemons/gcs-mimic/actions/runs/43411638170). Both jobs still expected 412 from a bucket PUT whose `ifMetagenerationNotMatch` names the current metageneration, which the release changed to Cloud Storage's 304. Commit `5beab6e4` updated those two expectations. The unpublished tag was deleted and pushed again on `5beab6e4` only after its dry run succeeded.
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.21.0) has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`. `ghcr.io/shiroemons/gcs-mimic:0.21.0` and `shiroemons/gcs-mimic:0.21.0` resolve to the same index digest `sha256:51a3d72dc687ee7d4d69de885fd178a475f98c67b24fa12ffeb56435a0f44878` for `linux/amd64` and `linux/arm64`.
+
+## Local gates on the 0.21.0 source
+
+Recorded **2026-11-13** on macOS (Apple Silicon) with Rust 1.100.0 for commit `5beab6e4f018036ba79133370e55579b788a8b67` (package version 0.21.0).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 22m17s`. Rust: 3454 tests in 16 binaries, 0 failed, 1 ignored, including library tests `2092 passed` and `it_process` `109 passed`. SDK suites passed: Go, Ruby, Node.js (`@google-cloud/storage` 9.0.0 and 8.4.0), PHP, Python, Java, .NET and Rust. Containers: seven `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 0 | 132 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+
+`just pre-push` ran once as a complete invocation from a clean detached worktree of that commit after the tag was published.
+
 ## Published 0.20.1 source
 
 Recorded **2026-11-13** for tag `v0.20.1`, commit `7a32ed92aabb7619f7b8211a8196dd38553d8cc0`, tree `0117e765a77700cbfd09c93a1262635674ff4704`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
