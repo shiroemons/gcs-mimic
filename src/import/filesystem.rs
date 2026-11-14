@@ -229,19 +229,14 @@ impl Baseline {
     }
 }
 
-pub(super) fn time(micros: i64) -> Result<SystemTime, io::Error> {
+pub(super) fn time(micros: i64) -> Result<SystemTime, codec::TimestampError> {
     let duration = Duration::from_micros(micros.unsigned_abs());
     if micros >= 0 {
         UNIX_EPOCH.checked_add(duration)
     } else {
         UNIX_EPOCH.checked_sub(duration)
     }
-    .ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "source timestamp is outside this platform's range",
-        )
-    })
+    .ok_or(codec::TimestampError::OUTSIDE_PLATFORM_RANGE)
 }
 
 fn identity(
@@ -271,15 +266,11 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
                 crate::bucket::validate_storage_class(&attrs.storage_class)
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
             ),
-            custom_time: Patch::nullable(
-                if codec::is_unset_time(&attrs.custom_time)
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-                {
-                    None
-                } else {
-                    Some(attrs.custom_time.clone())
-                },
-            ),
+            custom_time: Patch::nullable(if codec::is_unset_time(&attrs.custom_time)? {
+                None
+            } else {
+                Some(attrs.custom_time.clone())
+            }),
             content_encoding: Patch::Set(attrs.content_encoding.clone()),
             content_disposition: Patch::Set(attrs.content_disposition.clone()),
             // A new generation stores neither an empty language nor a cleared one, but
@@ -605,7 +596,7 @@ fn terminal(error: &ImportError) -> bool {
         }
         // A native read that found malformed data cannot succeed on retry.
         ImportError::Io(error) => error.kind() == io::ErrorKind::InvalidData,
-        ImportError::SourceChanged(_) | ImportError::Invalid(_) => true,
+        ImportError::SourceChanged(_) | ImportError::Invalid(_) | ImportError::Codec(_) => true,
         // A refused resume changed nothing; it never reaches this check, which sees only the
         // failures of the import itself.
         ImportError::OtherImport | ImportError::Resume(_) => false,
@@ -1002,6 +993,7 @@ mod error_tests {
                 true,
             ),
             (ImportError::SourceUnreadable, false),
+            (codec::TimestampError::OUTSIDE_PLATFORM_RANGE.into(), true),
         ] {
             assert_eq!(terminal(&error), expected, "{error}");
         }

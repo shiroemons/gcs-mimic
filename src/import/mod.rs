@@ -17,6 +17,7 @@ use crate::{
     hashing::Hashes,
     source_tree,
 };
+pub use codec::CodecError;
 pub use error::{CleanupOperation, ImportError, SourceChange};
 pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};

@@ -608,7 +608,7 @@ pub(super) fn check_object_fields(
             relative,
             ObjectField::Acl,
             &error.to_string(),
-            serde_json::to_string(&attrs.acl).map_err(io::Error::other)?,
+            serde_json::to_string(&attrs.acl)?,
         )?;
     }
     if !attrs.custom_time.is_empty()

@@ -1,4 +1,7 @@
-use super::ImportFailure;
+use super::{
+    ImportFailure,
+    codec::{CodecError, TimestampError},
+};
 use crate::{
     bucket::CatalogError,
     diagnostics::Diagnostics,
@@ -50,6 +53,8 @@ pub enum ImportError {
     Invalid(Cow<'static, str>),
     /// A source read failed during the scan; retry the same snapshot after repairing access.
     SourceUnreadable,
+    /// A source value the codec cannot convert.
+    Codec(CodecError),
 }
 
 /// Why the source no longer matches the import. The `source_changed:` prefix is part of the text
@@ -115,6 +120,7 @@ impl fmt::Display for ImportError {
             Self::SourceUnreadable => f.write_str(
                 "source I/O failure: resolve the reported filesystem error and retry the same immutable snapshot",
             ),
+            Self::Codec(error) => error.fmt(f),
         }
     }
 }
@@ -133,6 +139,7 @@ impl Error for ImportError {
             // Error chains are linear; the secondary cleanup cause remains in the variant.
             Self::Cleanup { original, .. } => Some(original.as_ref()),
             Self::Resume(error) => error.source(),
+            Self::Codec(error) => error.source(),
             Self::OtherImport
             | Self::SourceChanged(_)
             | Self::Invalid(_)
@@ -179,6 +186,16 @@ impl From<TryFromIntError> for ImportError {
 impl From<SourceChange> for ImportError {
     fn from(change: SourceChange) -> Self {
         Self::SourceChanged(change)
+    }
+}
+impl From<CodecError> for ImportError {
+    fn from(error: CodecError) -> Self {
+        Self::Codec(error)
+    }
+}
+impl From<TimestampError> for ImportError {
+    fn from(error: TimestampError) -> Self {
+        Self::Codec(error.into())
     }
 }
 

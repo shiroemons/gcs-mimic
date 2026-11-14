@@ -9,6 +9,12 @@ use std::{collections::BTreeMap, fmt};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TimestampError(&'static str);
 
+impl TimestampError {
+    /// A valid timestamp that this platform's `SystemTime` cannot hold.
+    pub(super) const OUTSIDE_PLATFORM_RANGE: Self =
+        Self("source timestamp is outside this platform's range");
+}
+
 impl fmt::Display for TimestampError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
@@ -20,6 +26,68 @@ impl std::error::Error for TimestampError {}
 impl From<TimestampError> for String {
     fn from(error: TimestampError) -> Self {
         error.0.into()
+    }
+}
+
+/// A source value this codec cannot convert. Callers report its message; only the codec's own
+/// tests look at which conversion failed.
+#[derive(Debug)]
+pub struct CodecError(Kind);
+
+#[derive(Debug)]
+enum Kind {
+    Timestamp(TimestampError),
+    /// A bucket timestamp outside this platform's clock; the inner error names the range.
+    BucketTimeRange(TimestampError),
+    Acl(crate::acl::AclError),
+    AclIdentity,
+    RetentionMode,
+    RetentionUntil,
+    Escape,
+    Utf8(std::string::FromUtf8Error),
+}
+
+impl fmt::Display for CodecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Kind::Timestamp(error) => error.fmt(f),
+            Kind::BucketTimeRange(_) => {
+                f.write_str("bucket timestamp is outside this platform's range")
+            }
+            Kind::Acl(error) => error.fmt(f),
+            Kind::AclIdentity => f.write_str(
+                "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
+            ),
+            Kind::RetentionMode => f.write_str("source retention mode must be Locked or Unlocked"),
+            Kind::RetentionUntil => {
+                f.write_str("source retention mode requires a nonzero retain-until time")
+            }
+            Kind::Escape => {
+                f.write_str("malformed bucket percent escape; restore the escaped directory name")
+            }
+            Kind::Utf8(_) => {
+                f.write_str("decoded bucket must be UTF-8; restore the original snapshot")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.0 {
+            // These print as the wrapped error itself.
+            Kind::Timestamp(error) => error.source(),
+            Kind::Acl(error) => error.source(),
+            Kind::BucketTimeRange(error) => Some(error),
+            Kind::Utf8(error) => Some(error),
+            Kind::AclIdentity | Kind::RetentionMode | Kind::RetentionUntil | Kind::Escape => None,
+        }
+    }
+}
+
+impl From<TimestampError> for CodecError {
+    fn from(error: TimestampError) -> Self {
+        Self(Kind::Timestamp(error))
     }
 }
 
@@ -38,7 +106,7 @@ pub(crate) struct SourceAcl {
 pub(super) fn acl(
     values: Option<&[SourceAcl]>,
     kind: crate::acl::AclKind,
-) -> Result<Option<Vec<crate::acl::AclEntry>>, std::io::Error> {
+) -> Result<Option<Vec<crate::acl::AclEntry>>, CodecError> {
     let Some(values) = values else {
         return Ok(None);
     };
@@ -49,10 +117,7 @@ pub(super) fn acl(
             || !source.email.is_empty()
             || source.project_team.is_some()
         {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
-            ));
+            return Err(CodecError(Kind::AclIdentity));
         }
         entries.push(crate::acl::AclEntryInput {
             entity: source.entity.clone(),
@@ -61,28 +126,23 @@ pub(super) fn acl(
     }
     crate::acl::parse_entries(kind, entries)
         .map(Some)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        .map_err(|error| CodecError(Kind::Acl(error)))
 }
 
 pub(super) fn retention(
     attrs: &ObjectAttrs,
-) -> Result<Option<crate::object::retention::ObjectRetention>, std::io::Error> {
-    let invalid = |reason| std::io::Error::new(std::io::ErrorKind::InvalidData, reason);
-    let unset = is_unset_time(&attrs.retention_retain_until)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+) -> Result<Option<crate::object::retention::ObjectRetention>, CodecError> {
+    let unset = is_unset_time(&attrs.retention_retain_until)?;
     if attrs.retention_mode.is_empty() && unset {
         return Ok(None);
     }
     let mode = crate::object::retention::RetentionMode::parse(&attrs.retention_mode)
-        .ok_or_else(|| invalid("source retention mode must be Locked or Unlocked"))?;
+        .ok_or(CodecError(Kind::RetentionMode))?;
     if unset {
-        return Err(invalid(
-            "source retention mode requires a nonzero retain-until time",
-        ));
+        return Err(CodecError(Kind::RetentionUntil));
     }
     // Nanosecond precision, like the JSON adapter: retention times compare exactly.
-    let retain_until = parse_retention_timestamp(&attrs.retention_retain_until)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let retain_until = parse_retention_timestamp(&attrs.retention_retain_until)?;
     Ok(Some(crate::object::retention::ObjectRetention {
         mode,
         retain_until,
@@ -180,37 +240,22 @@ pub(crate) fn path_escape(name: &str) -> String {
     result
 }
 
-pub(crate) fn path_unescape(name: &str) -> Result<String, std::io::Error> {
+pub(crate) fn path_unescape(name: &str) -> Result<String, CodecError> {
     let mut result = Vec::with_capacity(name.len());
     let mut bytes = name.bytes();
     while let Some(byte) = bytes.next() {
         if byte == b'%' {
-            match bytes
+            let byte = bytes
                 .next()
                 .zip(bytes.next())
                 .and_then(|(high, low)| crate::hex::byte(&[high, low]))
-            {
-                Some(byte) => result.push(byte),
-                None => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "malformed bucket percent escape; restore the escaped directory name",
-                    ));
-                }
-            }
+                .ok_or(CodecError(Kind::Escape))?;
+            result.push(byte);
         } else {
             result.push(byte);
         }
     }
-    String::from_utf8(result).map_err(|error| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            crate::storage::failure::BackendCause::with_source(
-                "decoded bucket must be UTF-8; restore the original snapshot",
-                error,
-            ),
-        )
-    })
+    String::from_utf8(result).map_err(|error| CodecError(Kind::Utf8(error)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -234,30 +279,21 @@ pub(super) fn parse_retention_timestamp(
     )
 }
 
-pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, std::io::Error> {
-    let invalid =
-        |reason| std::io::Error::new(std::io::ErrorKind::InvalidData, TimestampError(reason));
-    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    let base = super::filesystem::time(micros).map_err(|error| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            crate::storage::failure::BackendCause::with_source(
-                "bucket timestamp is outside this platform's range",
-                error,
-            ),
-        )
-    })?;
+pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, CodecError> {
+    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
+    let base = super::filesystem::time(micros)
+        .map_err(|error| CodecError(Kind::BucketTimeRange(error)))?;
     let remainder = std::time::Duration::from_nanos(u64::from(nanos));
-    let time = base
-        .checked_add(remainder)
-        .ok_or_else(|| invalid("bucket timestamp is outside this platform's range"))?;
+    let time = base.checked_add(remainder).ok_or(TimestampError(
+        "bucket timestamp is outside this platform's range",
+    ))?;
     // Windows keeps 100 ns intervals, so sub-interval digits would be dropped silently;
     // reject them like other unrepresentable source precision.
     if time.duration_since(base).ok() != Some(remainder) {
-        return Err(invalid(
+        return Err(TimestampError(
             "bucket timestamp is finer than this platform's clock resolution",
-        ));
+        )
+        .into());
     }
     Ok(time)
 }
@@ -390,18 +426,9 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let error = acl(Some(&entries), crate::acl::AclKind::Object).unwrap_err();
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::InvalidData,
-                "{count} {entity}"
-            );
-            assert_eq!(
-                error
-                    .get_ref()
-                    .unwrap()
-                    .downcast_ref::<crate::acl::AclError>(),
-                Some(&expected),
-                "{count} {entity}"
+            assert!(
+                matches!(error.0, Kind::Acl(ref error) if *error == expected),
+                "{count} {entity}: {error:?}"
             );
         }
     }
@@ -569,21 +596,18 @@ mod tests {
     #[test]
     fn decoding_errors_keep_diagnostics_and_causes() {
         let error = path_unescape("%ff").unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(matches!(error.0, Kind::Utf8(_)), "{error:?}");
         assert_eq!(
             error.to_string(),
             "decoded bucket must be UTF-8; restore the original snapshot"
         );
         assert!(
-            error
-                .get_ref()
-                .unwrap()
-                .source()
+            std::error::Error::source(&error)
                 .unwrap()
                 .is::<std::string::FromUtf8Error>()
         );
         let error = path_unescape("%f").unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(matches!(error.0, Kind::Escape), "{error:?}");
         assert_eq!(
             error.to_string(),
             "malformed bucket percent escape; restore the escaped directory name"
@@ -600,5 +624,25 @@ mod tests {
                 .unwrap()
                 .is::<TimestampError>()
         );
+    }
+
+    /// The journal stores the outer text, and diagnostics show the whole chain, so a bucket
+    /// timestamp this platform cannot hold keeps naming both the bucket and the platform range.
+    #[test]
+    fn a_bucket_timestamp_outside_the_platform_keeps_its_text_and_cause() {
+        const OUTER: &str = "bucket timestamp is outside this platform's range";
+        const CHAIN: &str = "bucket timestamp is outside this platform's range: source timestamp is outside this platform's range";
+        let error = CodecError(Kind::BucketTimeRange(
+            TimestampError::OUTSIDE_PLATFORM_RANGE,
+        ));
+        assert_eq!(error.to_string(), OUTER);
+        assert_eq!(crate::error::Report(&error).to_string(), CHAIN);
+        // Windows SystemTime starts in 1601, so only it reaches this through parsing.
+        #[cfg(not(unix))]
+        {
+            let error = parse_bucket_timestamp("0000-01-01T00:00:00Z").unwrap_err();
+            assert!(matches!(error.0, Kind::BucketTimeRange(_)), "{error:?}");
+            assert_eq!(crate::error::Report(&error).to_string(), CHAIN);
+        }
     }
 }
