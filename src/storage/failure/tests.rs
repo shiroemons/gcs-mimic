@@ -66,6 +66,10 @@ fn a_full_database_names_the_memory_catalog_budget_only_inside_its_job() {
                 .any(|error| error.downcast_ref::<rusqlite::Error>().is_some()),
             "the SQLite failure stays in the cause chain"
         );
+        assert_eq!(
+            crate::error::Report(&CatalogError::Io(cause)).to_string(),
+            "catalog I/O: no storage space: RAM catalog page budget exhausted; increase memory_catalog_max_bytes: Error code 13: database or disk is full"
+        );
     }
     assert_eq!(full().memory_budget(), None, "the job's scope ended");
 }
@@ -253,6 +257,10 @@ fn backend_guidance_survives_changed_context_and_io_wrappers() {
             "renamed I/O diagnostic",
             BackendFailure::CatalogClosed,
         ))),
+        // A closed catalog that an administrative operation reported as a backend failure.
+        BackendCause::from_error(crate::storage::admin::AdminError::from(
+            CatalogError::Unavailable(BackendFailure::CatalogClosed.into()),
+        )),
     ] {
         assert_eq!(cause.failure(), Some(BackendFailure::CatalogClosed));
         assert!(cause.source().is_some());

@@ -145,22 +145,20 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
     )
     .await
     .unwrap();
-    let mut reservations = Vec::new();
-    while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
-        reservations.push(stage);
-    }
-    assert!(
-        chunk(
-            &catalog,
-            &session.id.to_string(),
-            b"tail",
-            4,
-            Some(8),
-            Finalize
-        )
-        .await
-        .is_err()
-    );
+    let reservations = exhaust_blob_budget(&catalog);
+    let Err(ResumableError::Object(full)) = chunk(
+        &catalog,
+        &session.id.to_string(),
+        b"tail",
+        4,
+        Some(8),
+        Finalize,
+    )
+    .await
+    else {
+        panic!("a draft write past the RAM blob budget fails as an object error");
+    };
+    assert_blob_budget_exhausted(&full);
     assert_eq!(
         catalog
             .resumable_session(&session.id.to_string(), "test-bucket")

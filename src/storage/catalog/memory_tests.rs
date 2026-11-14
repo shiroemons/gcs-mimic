@@ -309,6 +309,74 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     catalog.close().await.unwrap();
 }
 
+/// What a reply and a log line say when the RAM blob byte budget runs out.
+const BLOB_BUDGET_REPORT: &str = "object I/O: no storage space: RAM blob byte budget exhausted; delete objects or increase memory_max_bytes";
+
+/// Reserves the rest of the RAM blob budget until the returned stages drop.
+fn exhaust_blob_budget(catalog: &Catalog) -> Vec<crate::storage::memory::Stage> {
+    let memory = catalog.0.backend.memory().unwrap();
+    let mut reservations = Vec::new();
+    while let Ok(stage) = memory.stage() {
+        reservations.push(stage);
+    }
+    reservations
+}
+
+/// An exhausted RAM blob budget is a full-storage I/O failure that names `memory_max_bytes`.
+fn assert_blob_budget_exhausted(error: &ObjectError) {
+    let ObjectError::Io(cause) = error else {
+        panic!("an exhausted blob budget is an I/O failure: {error:?}");
+    };
+    assert_eq!(cause.kind(), std::io::ErrorKind::StorageFull);
+    assert_eq!(
+        cause.memory_budget(),
+        Some(crate::storage::failure::MemoryBudget::Blobs)
+    );
+    assert_eq!(crate::error::Report(error).to_string(), BLOB_BUDGET_REPORT);
+}
+
+#[tokio::test]
+async fn ram_copy_sources_compose_and_draft_publication_report_an_exhausted_blob_budget() {
+    let catalog = setup(8192, Off).await;
+    put(&catalog, Default::default(), Complete).await.unwrap();
+    let transfer = ram_transfer(&catalog).await;
+    catalog
+        .advance_derived(&transfer.id, u64::MAX)
+        .await
+        .unwrap();
+    let reservations = exhaust_blob_budget(&catalog);
+    // Copy and rewrite pin their source before reading it.
+    let Err(pinned) = catalog
+        .resolve_derived_source(live("test-bucket", "value"), Default::default(), PERMISSIVE)
+        .await
+    else {
+        panic!("a source pin past the RAM blob budget fails");
+    };
+    assert_blob_budget_exhausted(&pinned);
+    let component = crate::object::ComposeSource {
+        name: "value".into(),
+        generation: None,
+        if_generation_match: None,
+    };
+    let composed = catalog
+        .compose_object(
+            ram_destination("composed"),
+            vec![component.clone(), component],
+            SourceDisposal::Keep,
+            1024,
+        )
+        .await
+        .unwrap_err();
+    assert_blob_budget_exhausted(&composed);
+    let published = catalog
+        .publish_derived(&transfer.id, ram_destination("copy"), |_, _| Ok(()))
+        .await
+        .unwrap_err();
+    assert_blob_budget_exhausted(&published);
+    drop(reservations);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination_conditions() {
     let catalog = setup(8192, On).await;
