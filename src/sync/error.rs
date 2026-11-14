@@ -1,6 +1,7 @@
 //! Failures of a synchronization pass or control, typed for the decisions made on them.
 
 use crate::{
+    bucket::CatalogError,
     storage::{
         admin::AdminError,
         sync_state::{
@@ -46,7 +47,169 @@ pub(crate) enum Pass {
     Ingest,
 }
 
+/// One failure in a `SyncError`'s source chain, as the retry, pause and control decisions see it.
+#[derive(Clone, Copy)]
+pub(crate) enum Cause<'a> {
+    Admin(&'a AdminError),
+    Writeback(&'a writeback::Error),
+    Conflict(&'a conflicts::Error),
+    Stop(Stop),
+    Catalog(&'a CatalogError),
+    Sqlite(&'a rusqlite::Error),
+    Io(&'a io::Error),
+    /// A failure no decision depends on, such as a serde or join error.
+    Other,
+}
+
+impl<'a> Cause<'a> {
+    /// The one place that turns a chain back into types. The typed layers reach each other only
+    /// through `source()`, and `BackendCause`/`IoCause` keep their sources as `dyn Error`.
+    /// Write-back wraps typed sync failures into `AdminError::Backend` on purpose (a displaced
+    /// live copy, a conflict transfer) so that its retry leaves them alone, and the decisions
+    /// below must still see what that wrapper holds. These downcasts can go once storage stops
+    /// erasing synchronization failures into backend causes.
+    fn of(error: &'a (dyn Error + 'static)) -> Self {
+        if let Some(error) = error.downcast_ref::<AdminError>() {
+            Self::Admin(error)
+        } else if let Some(error) = error.downcast_ref::<writeback::Error>() {
+            Self::Writeback(error)
+        } else if let Some(error) = error.downcast_ref::<conflicts::Error>() {
+            Self::Conflict(error)
+        } else if let Some(stop) = error.downcast_ref::<Stop>() {
+            Self::Stop(*stop)
+        } else if let Some(error) = error.downcast_ref::<CatalogError>() {
+            Self::Catalog(error)
+        } else if let Some(error) = error.downcast_ref::<rusqlite::Error>() {
+            Self::Sqlite(error)
+        } else if let Some(error) = error.downcast_ref::<io::Error>() {
+            Self::Io(error)
+        } else {
+            Self::Other
+        }
+    }
+
+    fn is_transient(self) -> bool {
+        match self {
+            Self::Admin(error) => match error {
+                AdminError::Busy { .. } => true,
+                // The kind alone; a raw OS error below it is its own `Io` cause.
+                AdminError::Io(cause) => transient_kind(cause.kind()),
+                AdminError::DiskFull(_)
+                | AdminError::Closed
+                | AdminError::Precondition
+                | AdminError::Hold
+                | AdminError::SeedProjectMismatch
+                | AdminError::SeedMetadataBudget { .. }
+                | AdminError::SourceChanged { .. }
+                | AdminError::Corrupt(_)
+                | AdminError::NotFound
+                | AdminError::Invalid(_)
+                | AdminError::Checksum
+                | AdminError::TooLarge
+                | AdminError::Forbidden
+                | AdminError::BodyAborted(_)
+                | AdminError::Backend(_) => false,
+            },
+            Self::Catalog(error) => matches!(error, CatalogError::Unavailable(_)),
+            Self::Sqlite(error) => matches!(
+                error.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+            ),
+            Self::Io(error) => transient_io(error),
+            Self::Writeback(_) | Self::Conflict(_) | Self::Stop(_) | Self::Other => false,
+        }
+    }
+
+    fn pause_reason(self) -> Option<PauseReason> {
+        match self {
+            Self::Stop(stop) => Some(match stop {
+                Stop::ConflictCapacity => PauseReason::ConflictCapacity,
+                Stop::IoFailure => PauseReason::IoFailure,
+                Stop::RecoveryRequired | Stop::ProtectedBody => PauseReason::RecoveryRequired,
+                Stop::Ready => PauseReason::ObserverFailure,
+            }),
+            Self::Writeback(writeback::Error::Capacity)
+            | Self::Conflict(conflicts::Error::Capacity) => Some(PauseReason::ConflictCapacity),
+            Self::Writeback(
+                writeback::Error::RecoveryRequired
+                | writeback::Error::Protected
+                | writeback::Error::WorkspaceChanged,
+            ) => Some(PauseReason::RecoveryRequired),
+            Self::Admin(AdminError::DiskFull(_) | AdminError::Io(_)) => {
+                Some(PauseReason::IoFailure)
+            }
+            // Every other variant is listed so that a new one must choose a reason.
+            Self::Writeback(writeback::Error::Admin(_) | writeback::Error::Root(_))
+            | Self::Conflict(
+                conflicts::Error::Admin(_)
+                | conflicts::Error::Root(_)
+                | conflicts::Error::RevisionMismatch
+                | conflicts::Error::TargetChanged
+                | conflicts::Error::OperationIdReused
+                | conflicts::Error::InvalidResolution,
+            )
+            | Self::Admin(
+                AdminError::Busy { .. }
+                | AdminError::Closed
+                | AdminError::Precondition
+                | AdminError::Hold
+                | AdminError::SeedProjectMismatch
+                | AdminError::SeedMetadataBudget { .. }
+                | AdminError::SourceChanged { .. }
+                | AdminError::Corrupt(_)
+                | AdminError::NotFound
+                | AdminError::Invalid(_)
+                | AdminError::Checksum
+                | AdminError::TooLarge
+                | AdminError::Forbidden
+                | AdminError::BodyAborted(_)
+                | AdminError::Backend(_),
+            )
+            | Self::Catalog(_)
+            | Self::Sqlite(_)
+            | Self::Io(_)
+            | Self::Other => None,
+        }
+    }
+}
+
 impl SyncError {
+    /// The failures below this one, outermost first, ending with whatever storage keeps as an
+    /// erased source.
+    pub(crate) fn causes(&self) -> impl Iterator<Item = Cause<'_>> {
+        Error::source(self)
+            .into_iter()
+            .flat_map(crate::error::causes)
+            .map(Cause::of)
+    }
+
+    /// Whether the failure may clear on its own: catalog contention, an admission timeout or an
+    /// interrupted or timed-out I/O call. Everything else, such as an invalid name, a permission
+    /// error or a corrupt catalog, needs an operator and pauses the mirror.
+    pub(super) fn is_transient(&self) -> bool {
+        self.causes().any(Cause::is_transient)
+    }
+
+    /// Whether rebuilding the native watch may succeed later: a transient failure, or read and
+    /// search permission an operator may restore.
+    pub(super) fn is_watch_retryable(&self) -> bool {
+        self.is_transient()
+            || self.causes().any(|cause| {
+                matches!(cause, Cause::Io(error) if error.kind() == io::ErrorKind::PermissionDenied)
+            })
+    }
+
+    /// Why the mirror pauses after this failure: the first cause in the chain that names a
+    /// reason, or an observer failure when none does.
+    pub(super) fn pause_reason(&self) -> PauseReason {
+        if let Self::RescanStopped(reason) = self {
+            return *reason;
+        }
+        self.causes()
+            .find_map(Cause::pause_reason)
+            .unwrap_or(PauseReason::ObserverFailure)
+    }
+
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
     pub(super) fn is_stale_deletion(&self) -> bool {
         matches!(
@@ -56,6 +219,31 @@ impl SyncError {
             ))
         )
     }
+}
+
+/// Retry a write-back step that failed under descriptor or memory pressure.
+pub(super) fn resource_pressure(error: &AdminError) -> bool {
+    crate::error::causes(error)
+        .map(Cause::of)
+        .any(|cause| matches!(cause, Cause::Io(error) if transient_io(error)))
+}
+
+fn transient_kind(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::TimedOut
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::ResourceBusy
+    )
+}
+
+pub(super) fn transient_io(error: &io::Error) -> bool {
+    transient_kind(error.kind())
+        || matches!(
+            error.raw_os_error(),
+            Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
+        )
 }
 
 impl fmt::Display for SyncError {

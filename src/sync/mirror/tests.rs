@@ -1592,7 +1592,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
         })
         .await
         .unwrap_err();
-    assert_eq!(pause_reason(&error), PauseReason::RecoveryRequired);
+    assert_eq!(error.pause_reason(), PauseReason::RecoveryRequired);
     assert!(result.await.unwrap().is_err());
     assert_eq!(
         root.observation().await.unwrap().paused_reason,
@@ -1611,7 +1611,6 @@ fn only_typed_transient_io_failures_are_retried() {
     for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
         let error = writeback::Error::Admin(io::Error::from_raw_os_error(errno).into());
         assert!(retryable(&error));
-        assert!(is_transient(&SyncError::Writeback(error)));
     }
 }
 
@@ -1791,91 +1790,6 @@ async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
 }
 
 #[test]
-fn only_contention_and_timeouts_are_transient() {
-    let wrapped = SyncError::Admin;
-    for transient in [
-        wrapped(AdminError::Busy {
-            retry_after: std::time::Duration::from_secs(1),
-        }),
-        wrapped(AdminError::Io(io::ErrorKind::TimedOut.into())),
-        wrapped(AdminError::backend(CatalogError::Unavailable(
-            "database is locked".into(),
-        ))),
-        SyncError::Io(io::Error::from(io::ErrorKind::TimedOut)),
-        SyncError::Io(io::Error::other(io::Error::from(
-            io::ErrorKind::Interrupted,
-        ))),
-    ] {
-        assert!(is_transient(&transient), "{transient:?}");
-    }
-    for unrecoverable in [
-        wrapped(AdminError::Invalid("object name is not valid".into())),
-        wrapped(AdminError::Forbidden),
-        wrapped(AdminError::Corrupt("catalog row".into())),
-        wrapped(AdminError::Closed),
-        wrapped(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
-        SyncError::Io(io::Error::from(io::ErrorKind::PermissionDenied)),
-        SyncError::Io(io::Error::other("injected live sync failure")),
-    ] {
-        assert!(!is_transient(&unrecoverable), "{unrecoverable:?}");
-    }
-}
-
-#[test]
-fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
-    use crate::storage::sync_state::observation::PauseReason;
-    for error in [
-        io::Error::other(AdminError::Busy {
-            retry_after: Duration::from_secs(1),
-        }),
-        io::Error::other(CatalogError::Unavailable("database is locked".into())),
-        io::Error::other(rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-            None,
-        )),
-        io::Error::other(rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
-            None,
-        )),
-        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
-        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
-        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
-    ] {
-        let nested = SyncError::Io(io::Error::other(error));
-        assert!(is_transient(&nested), "{nested:?}");
-        assert!(watch_retryable(&nested), "{nested:?}");
-    }
-    let denied = SyncError::Io(io::Error::other(io::Error::other(io::Error::from(
-        io::ErrorKind::PermissionDenied,
-    ))));
-    assert!(watch_retryable(&denied));
-    assert!(!is_transient(&denied));
-    for (error, reason) in [
-        (
-            io::Error::other(writeback::Error::Capacity),
-            PauseReason::ConflictCapacity,
-        ),
-        (
-            io::Error::other(writeback::Error::Protected),
-            PauseReason::RecoveryRequired,
-        ),
-        (
-            io::Error::other(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
-            PauseReason::IoFailure,
-        ),
-        (
-            io::Error::other(AdminError::Forbidden),
-            PauseReason::ObserverFailure,
-        ),
-    ] {
-        assert_eq!(
-            pause_reason(&SyncError::Io(io::Error::other(error))),
-            reason
-        );
-    }
-}
-
-#[test]
 fn writeback_retries_resource_pressure_without_retrying_unclassified_failures() {
     for error in [
         io::Error::from_raw_os_error(libc::EMFILE),
@@ -1887,31 +1801,6 @@ fn writeback_retries_resource_pressure_without_retrying_unclassified_failures() 
     assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
         io::Error::other("invalid state").into()
     ))));
-}
-
-#[test]
-fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
-    use crate::storage::sync_state::observation::PauseReason;
-    for (stop, reason) in [
-        (Stop::ConflictCapacity, PauseReason::ConflictCapacity),
-        (Stop::IoFailure, PauseReason::IoFailure),
-        (Stop::RecoveryRequired, PauseReason::RecoveryRequired),
-        (Stop::ProtectedBody, PauseReason::RecoveryRequired),
-    ] {
-        let error = SyncError::Recovery(stop);
-        assert_eq!(
-            std::error::Error::source(&error).and_then(|cause| cause.downcast_ref::<Stop>()),
-            Some(&stop)
-        );
-        assert!(!is_transient(&error));
-        assert!(!watch_retryable(&error));
-        assert_eq!(pause_reason(&error), reason);
-        assert!(
-            crate::error::causes(&error)
-                .skip(1)
-                .all(|cause| !cause.is::<io::Error>())
-        );
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

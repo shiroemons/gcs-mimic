@@ -77,7 +77,7 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/upload_replay.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/xml_multipart.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/xml_multipart/transfer.rs	1
 clippy::wildcard_enum_match_arm	src/storage/failure.rs	3
-clippy::wildcard_enum_match_arm	src/sync/mirror.rs	4
+clippy::wildcard_enum_match_arm	src/sync/mirror.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4
 clippy::wildcard_enum_match_arm	src/url.rs	1
 clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1

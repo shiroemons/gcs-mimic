@@ -139,3 +139,161 @@ fn only_root_preconditions_and_missing_rows_are_stale_deletions() {
         assert!(!error.is_stale_deletion(), "{error:?}");
     }
 }
+
+#[test]
+fn only_contention_and_timeouts_are_transient() {
+    let wrapped = SyncError::Admin;
+    for transient in [
+        wrapped(AdminError::Busy {
+            retry_after: std::time::Duration::from_secs(1),
+        }),
+        wrapped(AdminError::Io(io::ErrorKind::TimedOut.into())),
+        wrapped(AdminError::backend(CatalogError::Unavailable(
+            "database is locked".into(),
+        ))),
+        SyncError::Io(io::Error::from(io::ErrorKind::TimedOut)),
+        SyncError::Io(io::Error::other(io::Error::from(
+            io::ErrorKind::Interrupted,
+        ))),
+    ] {
+        assert!(transient.is_transient(), "{transient:?}");
+    }
+    for unrecoverable in [
+        wrapped(AdminError::Invalid("object name is not valid".into())),
+        wrapped(AdminError::Forbidden),
+        wrapped(AdminError::Corrupt("catalog row".into())),
+        wrapped(AdminError::Closed),
+        wrapped(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
+        SyncError::Io(io::Error::from(io::ErrorKind::PermissionDenied)),
+        SyncError::Io(io::Error::other("injected live sync failure")),
+    ] {
+        assert!(!unrecoverable.is_transient(), "{unrecoverable:?}");
+    }
+}
+
+/// Write-back that fails under descriptor or memory pressure is retried by the mirror too.
+#[test]
+fn descriptor_and_memory_pressure_below_write_back_is_transient() {
+    for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
+        let error = writeback::Error::Admin(io::Error::from_raw_os_error(errno).into());
+        assert!(SyncError::Writeback(error).is_transient());
+    }
+}
+
+#[test]
+fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
+    for error in [
+        io::Error::other(AdminError::Busy {
+            retry_after: std::time::Duration::from_secs(1),
+        }),
+        io::Error::other(CatalogError::Unavailable("database is locked".into())),
+        io::Error::other(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            None,
+        )),
+        io::Error::other(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
+            None,
+        )),
+        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
+        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
+    ] {
+        let nested = SyncError::Io(io::Error::other(error));
+        assert!(nested.is_transient(), "{nested:?}");
+        assert!(nested.is_watch_retryable(), "{nested:?}");
+    }
+    let denied = SyncError::Io(io::Error::other(io::Error::other(io::Error::from(
+        io::ErrorKind::PermissionDenied,
+    ))));
+    assert!(denied.is_watch_retryable());
+    assert!(!denied.is_transient());
+    for (error, reason) in [
+        (
+            io::Error::other(writeback::Error::Capacity),
+            PauseReason::ConflictCapacity,
+        ),
+        (
+            io::Error::other(writeback::Error::Protected),
+            PauseReason::RecoveryRequired,
+        ),
+        (
+            io::Error::other(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
+            PauseReason::IoFailure,
+        ),
+        (
+            io::Error::other(AdminError::Forbidden),
+            PauseReason::ObserverFailure,
+        ),
+    ] {
+        assert_eq!(
+            SyncError::Io(io::Error::other(error)).pause_reason(),
+            reason
+        );
+    }
+}
+
+/// A displaced live copy keeps its write-back failure inside `AdminError::Backend` so that the
+/// write-back retry leaves it alone; the mirror still sees the timeout below it, retries the
+/// pass and, once it pauses, names the storage failure.
+#[test]
+fn write_back_failures_kept_as_backend_causes_still_decide_retry_and_pause() {
+    let displaced = || {
+        AdminError::backend(writeback::Error::Admin(AdminError::Io(
+            io::ErrorKind::TimedOut.into(),
+        )))
+    };
+    for error in [
+        SyncError::Admin(displaced()),
+        SyncError::Writeback(writeback::Error::Admin(displaced())),
+    ] {
+        assert!(error.is_transient(), "{error:?}");
+        assert!(error.is_watch_retryable(), "{error:?}");
+        assert_eq!(error.pause_reason(), PauseReason::IoFailure);
+    }
+    let capacity = SyncError::Admin(AdminError::backend(conflicts::Error::Capacity));
+    assert!(!capacity.is_transient());
+    assert_eq!(capacity.pause_reason(), PauseReason::ConflictCapacity);
+}
+
+#[test]
+fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
+    for (stop, reason) in [
+        (Stop::ConflictCapacity, PauseReason::ConflictCapacity),
+        (Stop::IoFailure, PauseReason::IoFailure),
+        (Stop::RecoveryRequired, PauseReason::RecoveryRequired),
+        (Stop::ProtectedBody, PauseReason::RecoveryRequired),
+    ] {
+        let error = SyncError::Recovery(stop);
+        assert_eq!(
+            Error::source(&error).and_then(|cause| cause.downcast_ref::<Stop>()),
+            Some(&stop)
+        );
+        assert!(!error.is_transient());
+        assert!(!error.is_watch_retryable());
+        assert_eq!(error.pause_reason(), reason);
+        assert!(
+            crate::error::causes(&error)
+                .skip(1)
+                .all(|cause| !cause.is::<io::Error>())
+        );
+    }
+}
+
+/// An explicit rescan's own reason wins over any cause, and failures that carry only a message
+/// pause as observer failures.
+#[test]
+fn rescan_stops_keep_their_reason_and_messages_pause_as_observer_failures() {
+    assert_eq!(
+        SyncError::RescanStopped(PauseReason::ConflictCapacity).pause_reason(),
+        PauseReason::ConflictCapacity
+    );
+    for error in [
+        SyncError::WritebackUnfinished(Pass::Reconcile),
+        SyncError::Invariant("invalid sync path"),
+        SyncError::Panicked(panicked()),
+    ] {
+        assert!(!error.is_transient(), "{error:?}");
+        assert_eq!(error.pause_reason(), PauseReason::ObserverFailure);
+    }
+}

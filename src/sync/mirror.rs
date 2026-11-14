@@ -4,7 +4,6 @@ use super::mapping::{self, PathMapping, Reason};
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
 use super::{Pass, SyncError};
 use crate::{
-    bucket::CatalogError,
     config::Config,
     diagnostics::{self, LogLevel},
     fsutil,
@@ -129,7 +128,7 @@ impl DirectoryWatch {
                     health.pass_succeeded();
                     return Ok(());
                 }
-                Err(error) if watch_retryable(&error) => {
+                Err(error) if error.is_watch_retryable() => {
                     failures += 1;
                     health.pass_failed();
                     #[cfg(test)]
@@ -160,16 +159,6 @@ impl DirectoryWatch {
     }
 }
 
-fn watch_retryable(error: &SyncError) -> bool {
-    if is_transient(error) {
-        return true;
-    }
-    crate::error::causes(error).any(|cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
-    })
-}
 impl Task {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
@@ -201,49 +190,6 @@ const RETRY_DELAY_MIN: Duration = if cfg!(test) {
 };
 /// The retry delay cap, also the run length after which a failure starts the backoff over.
 const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
-
-/// Whether a mirror failure may clear on its own: catalog contention, an admission timeout or
-/// an interrupted or timed-out I/O call. Everything else, such as an invalid name, a permission
-/// error or a corrupt catalog, needs an operator and stops the mirror.
-fn transient_io(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::TimedOut
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::Interrupted
-            | io::ErrorKind::ResourceBusy
-    ) || matches!(
-        error.raw_os_error(),
-        Some(libc::EMFILE | libc::ENFILE | libc::EAGAIN | libc::ENOMEM)
-    )
-}
-fn is_transient(error: &SyncError) -> bool {
-    crate::error::causes(error).any(|cause| {
-        if let Some(admin) = cause.downcast_ref::<AdminError>() {
-            match admin {
-                AdminError::Busy { .. } => true,
-                AdminError::Io(cause) => transient_io(&io::Error::from(cause.kind())),
-                _ => false,
-            }
-        } else if let Some(catalog) = cause.downcast_ref::<CatalogError>() {
-            matches!(catalog, CatalogError::Unavailable(_))
-        } else if let Some(io) = cause.downcast_ref::<io::Error>() {
-            transient_io(io)
-        } else if let Some(sqlite) = cause.downcast_ref::<rusqlite::Error>() {
-            matches!(
-                sqlite.sqlite_error_code(),
-                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
-            )
-        } else {
-            false
-        }
-    }) || resource_pressure(error)
-}
-
-fn resource_pressure(error: &(dyn std::error::Error + 'static)) -> bool {
-    crate::error::causes(error)
-        .any(|cause| cause.downcast_ref::<io::Error>().is_some_and(transient_io))
-}
 
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
     let config = config.clone();
@@ -288,11 +234,11 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 Ok(Err(error)) => error,
                 Err(error) => SyncError::Panicked(error),
             };
-            if !is_transient(&error) {
+            if !error.is_transient() {
                 health.mark_restarting();
                 descriptor::paused(&error);
                 if let Err(error) =
-                    runtime.block_on(root.observation_pause(Some(pause_reason(&error))))
+                    runtime.block_on(root.observation_pause(Some(error.pause_reason())))
                 {
                     diagnostics::emit(
                         LogLevel::Error,
@@ -608,49 +554,6 @@ struct Initialized {
     writeback: Writeback,
 }
 
-fn pause_reason(error: &SyncError) -> crate::storage::sync_state::observation::PauseReason {
-    use crate::storage::sync_state::observation::PauseReason;
-    if let SyncError::RescanStopped(reason) = error {
-        return *reason;
-    }
-    for cause in crate::error::causes(error) {
-        if let Some(stop) = cause.downcast_ref::<Stop>() {
-            return match stop {
-                Stop::ConflictCapacity => PauseReason::ConflictCapacity,
-                Stop::IoFailure => PauseReason::IoFailure,
-                Stop::RecoveryRequired | Stop::ProtectedBody => PauseReason::RecoveryRequired,
-                Stop::Ready => PauseReason::ObserverFailure,
-            };
-        }
-        if matches!(
-            cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
-            Some(crate::storage::sync_state::conflicts::Error::Capacity)
-        ) || matches!(
-            cause.downcast_ref::<writeback::Error>(),
-            Some(writeback::Error::Capacity)
-        ) {
-            return PauseReason::ConflictCapacity;
-        }
-        if matches!(
-            cause.downcast_ref::<writeback::Error>(),
-            Some(
-                writeback::Error::RecoveryRequired
-                    | writeback::Error::Protected
-                    | writeback::Error::WorkspaceChanged
-            )
-        ) {
-            return PauseReason::RecoveryRequired;
-        }
-        if matches!(
-            cause.downcast_ref::<AdminError>(),
-            Some(AdminError::DiskFull(_) | AdminError::Io(_))
-        ) {
-            return PauseReason::IoFailure;
-        }
-    }
-    PauseReason::ObserverFailure
-}
-
 async fn initialize_live(
     run: LiveRun<'_>,
     stopping: &tokio::sync::watch::Receiver<bool>,
@@ -943,8 +846,8 @@ impl LiveControl<'_> {
                 let stop = summary
                     .as_ref()
                     .err()
-                    .filter(|error| !is_transient(error))
-                    .map(pause_reason);
+                    .filter(|error| !error.is_transient())
+                    .map(SyncError::pause_reason);
                 let paused = if let Some(reason) = stop {
                     self.root.observation_pause(Some(reason)).await
                 } else {
@@ -1418,9 +1321,21 @@ fn live_source(
 }
 
 fn retryable(error: &writeback::Error) -> bool {
-    let (writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error))) = error
-    else {
-        return false;
+    let error = match error {
+        writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
+        writeback::Error::Root(
+            RootError::InUse
+            | RootError::Unsupported
+            | RootError::RootChanged
+            | RootError::MissingMarker
+            | RootError::InvalidMarker
+            | RootError::ForeignMarker
+            | RootError::ReinitializeDenied,
+        )
+        | writeback::Error::Capacity
+        | writeback::Error::RecoveryRequired
+        | writeback::Error::Protected
+        | writeback::Error::WorkspaceChanged => return false,
     };
     match error {
         AdminError::DiskFull(_) => true,
@@ -1428,10 +1343,24 @@ fn retryable(error: &writeback::Error) -> bool {
             matches!(
                 cause.kind(),
                 std::io::ErrorKind::StorageFull | std::io::ErrorKind::PermissionDenied
-            ) || transient_io(&io::Error::from(cause.kind()))
-                || resource_pressure(error)
+            ) || super::error::transient_io(&io::Error::from(cause.kind()))
+                || super::error::resource_pressure(error)
         }
-        _ => false,
+        AdminError::Busy { .. }
+        | AdminError::Closed
+        | AdminError::Precondition
+        | AdminError::Hold
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::NotFound
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::Forbidden
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => false,
     }
 }
 
@@ -1665,7 +1594,27 @@ fn concurrent_change(error: &writeback::Error) -> bool {
         writeback::Error::Admin(AdminError::Io(cause)) => {
             cause.kind() == io::ErrorKind::AlreadyExists
         }
-        _ => false,
+        writeback::Error::Admin(
+            AdminError::Busy { .. }
+            | AdminError::DiskFull(_)
+            | AdminError::Closed
+            | AdminError::Hold
+            | AdminError::SeedProjectMismatch
+            | AdminError::SeedMetadataBudget { .. }
+            | AdminError::SourceChanged { .. }
+            | AdminError::Corrupt(_)
+            | AdminError::Invalid(_)
+            | AdminError::Checksum
+            | AdminError::TooLarge
+            | AdminError::Forbidden
+            | AdminError::BodyAborted(_)
+            | AdminError::Backend(_),
+        )
+        | writeback::Error::Root(_)
+        | writeback::Error::Capacity
+        | writeback::Error::RecoveryRequired
+        | writeback::Error::Protected
+        | writeback::Error::WorkspaceChanged => false,
     }
 }
 
