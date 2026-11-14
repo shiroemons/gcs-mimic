@@ -465,8 +465,11 @@ fn locked_direct_pins(
         return Err("NuGet lock target frameworks differ from the project".into());
     }
     for framework in frameworks {
-        let entries = targets[framework.as_str()]
-            .as_object()
+        // `Map` indexing panics on a missing key, and the count check above lets a lock
+        // with the same number of differently named targets through.
+        let entries = targets
+            .get(framework.as_str())
+            .and_then(Value::as_object)
             .ok_or_else(|| format!("missing NuGet locked target {framework}"))?;
         if entries
             .values()

@@ -144,6 +144,13 @@ fn nuget_lock_must_hold_exactly_the_project_frameworks() {
     assert!(locked_direct_pins(&lock, &both, &pins).is_err());
     let one = json!({"dependencies":{"net11.0":{"x":entry}}});
     assert!(locked_direct_pins(&one, &both, &pins).is_err());
+    // The same number of targets under another name must not pass the count check.
+    let renamed = json!({"dependencies":{"net10.0":{"x":entry},"net12.0":{"x":entry}}});
+    let error = locked_direct_pins(&renamed, &both, &pins).unwrap_err();
+    assert!(
+        error.contains("missing NuGet locked target net11.0"),
+        "{error}"
+    );
 }
 
 #[test]

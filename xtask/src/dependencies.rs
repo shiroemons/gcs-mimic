@@ -73,7 +73,7 @@ fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Resul
     let read = child
         .stdout
         .take()
-        .unwrap()
+        .ok_or("curl stdout was not captured")?
         .take(MAX_RESPONSE + 1)
         .read_to_end(&mut bytes);
     if bytes.len() as u64 > MAX_RESPONSE || read.is_err() {
@@ -352,10 +352,11 @@ fn latest_stable_go(
     mut fetch: impl FnMut(&str) -> Result<Option<String>>,
 ) -> Result<Option<String>> {
     let (root, major) = match name.rsplit_once("/v") {
-        Some((root, suffix)) if suffix.parse::<u64>().is_ok_and(|n| n >= 2) => {
-            (root, suffix.parse::<u64>().unwrap())
-        }
-        _ => (name, 1),
+        Some((root, suffix)) => match suffix.parse::<u64>() {
+            Ok(major) if major >= 2 => (root, major),
+            _ => (name, 1),
+        },
+        None => (name, 1),
     };
     let mut path = name.to_owned();
     let mut major = major;
@@ -416,7 +417,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
         }
     }
     let releases = json(&fetch("https://go.dev/dl/?mode=json", &[], false)?)?;
-    let latest = releases
+    let ((major, minor, _), latest) = releases
         .as_array()
         .ok_or("invalid Go releases")?
         .iter()
@@ -426,9 +427,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
             Some((version(name)?, name))
         })
         .max_by_key(|(v, _)| *v)
-        .map(|(_, name)| name)
         .ok_or("no stable Go release")?;
-    let (major, minor, _) = version(latest).unwrap();
     let mut drift = compare(
         "Go language baseline",
         &module.go,
@@ -1354,6 +1353,25 @@ pub fn check_release_platforms(root: &Path) -> Result<()> {
     platforms::check(root, &status)
 }
 
+/// The `version` of `[pkg.rust]` in a Rust release channel manifest, such as
+/// `1.100.0` from `version = "1.100.0 (abcdef 2026-10-30)"`.
+fn stable_rust_version(channel: &str) -> Result<String> {
+    let rust = channel
+        .split_once("[pkg.rust]\n")
+        .ok_or("missing stable Rust metadata")?
+        .1;
+    let rust = rust.split_once("\n[").map_or(rust, |(table, _)| table);
+    let latest = scalar(rust, "version")?
+        .split_whitespace()
+        .next()
+        .ok_or("empty stable Rust version")?
+        .to_owned();
+    if version(&latest).is_none() {
+        return Err("invalid stable Rust version".into());
+    }
+    Ok(latest)
+}
+
 pub fn check(root: &Path, scope: Scope) -> Result<bool> {
     println!("scope={scope:?}");
     check_release_platforms(root)?;
@@ -1368,26 +1386,11 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         &std::fs::read_to_string(root.join("rust-toolchain.toml")).map_err(|e| e.to_string())?,
         "channel",
     )?;
-    let upstream = fetch(
+    let latest = stable_rust_version(&fetch(
         "https://static.rust-lang.org/dist/channel-rust-stable.toml",
         &[],
         false,
-    )?;
-    let rust = upstream
-        .split("[pkg.rust]\n")
-        .nth(1)
-        .ok_or("missing stable Rust metadata")?
-        .split("\n[")
-        .next()
-        .unwrap();
-    let latest = scalar(rust, "version")?
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .to_owned();
-    if version(&latest).is_none() {
-        return Err("invalid stable Rust version".into());
-    }
+    )?)?;
     let mut drift = compare("rust", &pin, &latest);
     let output = Command::new("cargo")
         .args(["metadata", "--format-version=1", "--locked", "--offline"])
@@ -1978,6 +1981,31 @@ mod tests {
         }
         assert!(!compare("test", "1.0.0", "1.0.0"));
         assert!(compare("test", "1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn stable_rust_version_reads_only_the_rust_package_and_rejects_malformed_channels() {
+        let channel = |rust: &str| {
+            format!(
+                "manifest-version = \"2\"\n[pkg.cargo]\nversion = \"0.101.0 (abc 2026-10-30)\"\n[pkg.rust]\n{rust}\n[pkg.rust.target.aarch64-apple-darwin]\navailable = true\n"
+            )
+        };
+        assert_eq!(
+            stable_rust_version(&channel("version = \"1.100.0 (abc 2026-10-30)\"")).unwrap(),
+            "1.100.0"
+        );
+        for (rust, message) in [
+            ("version = \"\"", "empty stable Rust version"),
+            ("version = \" \"", "empty stable Rust version"),
+            ("version = \"1.100 (abc)\"", "invalid stable Rust version"),
+            ("available = true", "expected one quoted version"),
+        ] {
+            assert_eq!(stable_rust_version(&channel(rust)).unwrap_err(), message);
+        }
+        assert_eq!(
+            stable_rust_version("[pkg.cargo]\nversion = \"0.101.0\"\n").unwrap_err(),
+            "missing stable Rust metadata"
+        );
     }
 
     #[test]
