@@ -1,4 +1,4 @@
-use crate::{UnknownName, named};
+use crate::{UnknownName, Verdict, named};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -62,8 +62,28 @@ impl fmt::Display for Ecosystem {
     }
 }
 
-fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String> {
-    let (status, body) = fetch_response(url, headers, include_headers)?;
+/// What curl writes before the status line.
+#[derive(Clone, Copy)]
+enum CurlOutput {
+    Body,
+    /// The response headers first, for a registry's digest header.
+    HeadersAndBody,
+}
+
+fn fetch(url: &str, headers: &[String]) -> Result<String> {
+    success(url, fetch_response(url, headers, CurlOutput::Body)?)
+}
+
+/// A registry manifest request: its digest header and its JSON index.
+fn fetch_manifest(url: &str, headers: &[String]) -> Result<(String, Value)> {
+    registry_response(&success(
+        url,
+        fetch_response(url, headers, CurlOutput::HeadersAndBody)?,
+    )?)
+}
+
+/// The body of a 2xx response; any other status fails the fetch.
+fn success(url: &str, (status, body): (u16, String)) -> Result<String> {
     if !(200..300).contains(&status) {
         return Err(format!("fetch failed: {url}: HTTP {status}"));
     }
@@ -83,10 +103,10 @@ fn github_api_headers(url: &str, token: Option<&str>) -> Vec<String> {
 
 fn fetch_github_api(url: &str) -> Result<String> {
     let token = std::env::var("GITHUB_TOKEN").ok();
-    fetch(url, &github_api_headers(url, token.as_deref()), false)
+    fetch(url, &github_api_headers(url, token.as_deref()))
 }
 
-fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Result<(u16, String)> {
+fn fetch_response(url: &str, headers: &[String], output: CurlOutput) -> Result<(u16, String)> {
     let mut command = Command::new("curl");
     command.args([
         "--disable",
@@ -105,8 +125,11 @@ fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Resul
         "--write-out",
         "\n%{http_code}",
     ]);
-    if include_headers {
-        command.arg("--include");
+    match output {
+        CurlOutput::Body => {}
+        CurlOutput::HeadersAndBody => {
+            command.arg("--include");
+        }
     }
     for header in headers {
         command.args(["--header", header]);
@@ -459,7 +482,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
             return Err(format!("Go checksum lock mismatch: {name}"));
         }
     }
-    let releases = json(&fetch("https://go.dev/dl/?mode=json", &[], false)?)?;
+    let releases = json(&fetch("https://go.dev/dl/?mode=json", &[])?)?;
     let ((major, minor, _), latest) = releases
         .as_array()
         .ok_or("invalid Go releases")?
@@ -479,7 +502,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     drift |= compare("Go toolchain", &module.toolchain, latest);
     for (name, current) in module.direct {
         let proxy = |url: &str| {
-            let (status, body) = fetch_response(url, &[], false)?;
+            let (status, body) = fetch_response(url, &[], CurlOutput::Body)?;
             go_proxy_response(status, body).map_err(|error| format!("{url}: {error}"))
         };
         let latest = if go_pseudo_version(&current).is_some() {
@@ -592,7 +615,7 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
     if version(current.trim()).is_none() {
         return Err("invalid pinned Ruby version".into());
     }
-    let releases = fetch("https://www.ruby-lang.org/en/downloads.md", &[], false)?;
+    let releases = fetch("https://www.ruby-lang.org/en/downloads.md", &[])?;
     let mut drift = compare("Ruby toolchain", current.trim(), latest_ruby(&releases)?);
     let lock =
         std::fs::read_to_string(directory.join("Gemfile.lock")).map_err(|e| e.to_string())?;
@@ -612,7 +635,6 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
         let latest = latest_gem(&fetch(
             &format!("https://rubygems.org/api/v1/versions/{name}.json"),
             &[],
-            false,
         )?)?;
         drift |= compare(name, current, &latest);
     }
@@ -802,7 +824,6 @@ fn check_python_runtime(root: &Path, scope: &Value, pin: &str) -> Result<bool> {
     let releases = fetch(
         "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false",
         &[],
-        false,
     )?;
     Ok(compare(
         &format!("Python toolchain ({pin})"),
@@ -943,8 +964,7 @@ fn check_registry_sdk(root: &Path, scope: &Value, ecosystem: RegistryEcosystem) 
             RegistryEcosystem::Pypi => format!("https://pypi.org/pypi/{name}/json"),
             RegistryEcosystem::Composer => format!("https://repo.packagist.org/p2/{name}.json"),
         };
-        let latest =
-            latest_registry_dependency(&fetch(&url, &[], false)?, ecosystem, &name, entry.line)?;
+        let latest = latest_registry_dependency(&fetch(&url, &[])?, ecosystem, &name, entry.line)?;
         let label = match entry.line {
             ReleaseLine::Newest => format!("{ecosystem}:{name} ({})", entry.manifest),
             ReleaseLine::Major(major) => {
@@ -1097,7 +1117,6 @@ fn check_apt_packages(root: &Path, status: &Value, scope: Scope) -> Result<bool>
         let versions = json(&fetch(
             &format!("https://sources.debian.org/api/src/{name}/"),
             &[],
-            false,
         )?)?;
         let latest = versions["versions"]
             .as_array()
@@ -1200,8 +1219,7 @@ fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) ->
     let digest = text(image, "digest")?;
     let tag = text(image, "tag")?;
     let latest_tag = text(image, "latest_tag")?;
-    let (actual, pinned_index) =
-        registry_response(&fetch(&format!("{manifest_source}{tag}"), headers, true)?)?;
+    let (actual, pinned_index) = fetch_manifest(&format!("{manifest_source}{tag}"), headers)?;
     let mut drift = compare(&format!("docker {repository}:{tag}"), digest, &actual);
     if actual == digest {
         for (platform, pinned) in image["platforms"]
@@ -1226,11 +1244,8 @@ fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) ->
     if latest_tag == tag {
         return Ok(drift);
     }
-    let (latest_digest, latest_index) = registry_response(&fetch(
-        &format!("{manifest_source}{latest_tag}"),
-        headers,
-        true,
-    )?)?;
+    let (latest_digest, latest_index) =
+        fetch_manifest(&format!("{manifest_source}{latest_tag}"), headers)?;
     let label = format!("docker {repository}:{latest_tag}");
     if latest_digest == digest {
         return Ok(drift | compare(&label, digest, &latest_digest));
@@ -1414,7 +1429,8 @@ fn stable_rust_version(channel: &str) -> Result<String> {
     Ok(latest)
 }
 
-pub fn check(root: &Path, scope: Scope) -> Result<bool> {
+/// Fails when any tracked input has a newer release than its pin.
+pub fn check(root: &Path, scope: Scope) -> Result<Verdict> {
     println!("scope={scope:?}");
     check_release_platforms(root)?;
     println!(
@@ -1429,12 +1445,11 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
     drift |= check_github_actions(root, &status)?;
     drift |= check_docker_images(root, &status, scope)?;
     drift |= check_apt_packages(root, &status, scope)?;
-    if scope == Scope::Release {
-        println!("SDK ecosystems: SKIPPED development-only inputs");
-        return Ok(drift);
+    match scope {
+        Scope::Release => println!("SDK ecosystems: SKIPPED development-only inputs"),
+        Scope::All => drift |= check_sdk_ecosystems(root, &status)?,
     }
-    drift |= check_sdk_ecosystems(root, &status)?;
-    Ok(drift)
+    Ok(Verdict::fail_if(drift))
 }
 
 /// The pinned toolchain and every direct crate of the workspace against their newest releases.
@@ -1446,7 +1461,6 @@ fn check_rust_toolchain(root: &Path) -> Result<bool> {
     let latest = stable_rust_version(&fetch(
         "https://static.rust-lang.org/dist/channel-rust-stable.toml",
         &[],
-        false,
     )?)?;
     let mut drift = compare("rust", &pin, &latest);
     let output = Command::new("cargo")
@@ -1469,7 +1483,6 @@ fn check_rust_toolchain(root: &Path) -> Result<bool> {
         let latest = latest_crate(&fetch(
             &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
-            false,
         )?)?;
         drift |= compare(&name, versions.first().unwrap(), &latest);
     }
@@ -1561,19 +1574,14 @@ fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool
         }
         if image.get("stable_codename").is_some() {
             let expected = text(image, "stable_codename")?;
-            let release = fetch(
-                "https://deb.debian.org/debian/dists/stable/Release",
-                &[],
-                false,
-            )?;
+            let release = fetch("https://deb.debian.org/debian/dists/stable/Release", &[])?;
             let codename = release
                 .lines()
                 .find_map(|line| line.strip_prefix("Codename: "))
                 .ok_or("missing Debian stable codename")?;
             drift |= compare("Debian stable codename", expected, codename);
         }
-        let (manifest_source, headers) =
-            registry_manifest_source(image, |url| fetch(url, &[], false))?;
+        let (manifest_source, headers) = registry_manifest_source(image, |url| fetch(url, &[]))?;
         drift |= check_image_tags(image, &manifest_source, &headers)?;
     }
     Ok(drift)

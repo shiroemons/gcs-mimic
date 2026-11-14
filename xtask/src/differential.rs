@@ -21,6 +21,7 @@ mod template;
 mod transport;
 mod xml;
 
+use crate::Verdict;
 use guard::Guarded;
 use pace::Paced;
 use runner::{CaseOutcome, Names, Side, run_side};
@@ -221,8 +222,8 @@ fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<
     ))
 }
 
-/// Runs the harness. Returns whether the run counts as failed.
-pub fn run(root: &Path, args: &[String]) -> Result<bool> {
+/// Runs the harness. A failed cleanup or a failing case fails the run.
+pub fn run(root: &Path, args: &[String]) -> Result<Verdict> {
     let options = parse_options(args)?;
     let mode = select_mode(&options)?;
     let dir = root.join(
@@ -393,7 +394,7 @@ fn execute(
     cases: &[case::Case],
     work: &Path,
     scratch: &Path,
-) -> Result<bool> {
+) -> Result<Verdict> {
     let (runnable, skipped) = split_unrunnable(cases, transport::grpcurl_available());
     let cases = runnable.as_slice();
     let binary = match &options.binary {
@@ -514,12 +515,14 @@ fn execute(
         diff: options.fail_on_diff,
         note: options.fail_on_note,
     };
-    Ok(failed_cleanup || report::has_failures(&reports, fail_on))
+    Ok(Verdict::fail_if(
+        failed_cleanup || report::has_failures(&reports, fail_on),
+    ))
 }
 
 /// Deletes every bucket whose name starts with the harness prefix, for the
 /// leftovers of a run that was interrupted. Needs the live environment.
-pub fn sweep(args: &[String]) -> Result<bool> {
+pub fn sweep(args: &[String]) -> Result<Verdict> {
     if !args.is_empty() {
         return Err("differential sweep takes no options".into());
     }
@@ -558,7 +561,7 @@ pub fn sweep(args: &[String]) -> Result<bool> {
         println!("{line}");
     }
     println!("{} requests sent to the live service", curl.requests());
-    Ok(failed)
+    Ok(Verdict::fail_if(failed))
 }
 
 fn out_dir(options: &Options, work: &Path) -> PathBuf {

@@ -3,7 +3,7 @@
 //! one update that needs no migration decision; the proposal's checks decide whether it is safe.
 //! A newer version behind a moving tag stays a deliberate manual adoption, so `check` keeps
 //! reporting it.
-use super::{Result, fetch, is_digest, json, registry_manifest_source, registry_response, text};
+use super::{Result, fetch, fetch_manifest, is_digest, json, registry_manifest_source, text};
 use serde_json::Value;
 use std::{path::Path, process::Command};
 
@@ -254,10 +254,9 @@ pub fn update_images(root: &Path, checked_at: &str) -> Result<()> {
         .as_array()
         .ok_or("missing Docker inputs")?
     {
-        let (source, headers) = registry_manifest_source(image, |url| fetch(url, &[], false))?;
+        let (source, headers) = registry_manifest_source(image, |url| fetch(url, &[]))?;
         let tag = text(image, "tag")?;
-        let (proposed, index) =
-            registry_response(&fetch(&format!("{source}{tag}"), &headers, true)?)?;
+        let (proposed, index) = fetch_manifest(&format!("{source}{tag}"), &headers)?;
         let Some(update) = plan_image(image, &proposed, &index)? else {
             continue;
         };

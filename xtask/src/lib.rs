@@ -16,6 +16,29 @@ use std::{
 
 type Result<T> = std::result::Result<T, String>;
 
+/// What a check concluded. A failure to run the check at all is `Err`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Pass,
+    Fail,
+}
+
+impl Verdict {
+    pub const fn fail_if(failed: bool) -> Self {
+        if failed { Self::Fail } else { Self::Pass }
+    }
+}
+
+/// A failed check exits with 1; a check that could not run picks its own status.
+impl From<Verdict> for std::process::ExitCode {
+    fn from(verdict: Verdict) -> Self {
+        match verdict {
+            Verdict::Pass => Self::SUCCESS,
+            Verdict::Fail => Self::FAILURE,
+        }
+    }
+}
+
 /// A text that names no member of a closed set; the caller says which set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct UnknownName;
@@ -718,6 +741,13 @@ mod tests {
     use super::*;
 
     use serde_json::json;
+    use std::process::ExitCode;
+
+    #[test]
+    fn a_failed_check_exits_with_failure() {
+        assert_eq!(ExitCode::from(Verdict::fail_if(false)), ExitCode::SUCCESS);
+        assert_eq!(ExitCode::from(Verdict::fail_if(true)), ExitCode::FAILURE);
+    }
 
     #[test]
     fn schema_enumerations_match_validator() {

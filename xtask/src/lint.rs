@@ -9,6 +9,7 @@
 //! target, so code behind that target's `cfg` is checked too. Text rules cover only what Clippy
 //! cannot express; prefer a Clippy lint or `clippy.toml` entry for anything new.
 
+use crate::Verdict;
 use serde_json::Value;
 
 mod ratchet;
@@ -256,8 +257,8 @@ impl Compiler {
     }
 }
 
-/// Runs the selected mode and returns whether it passed.
-pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
+/// Runs the selected mode. Printing a baseline always passes.
+pub fn run(root: &Path, mode: &Mode) -> Result<Verdict> {
     match mode {
         Mode::Gate => gate(root),
         Mode::Target(triple) => target_gate(root, triple, &clippy(root, Some(triple))?),
@@ -267,11 +268,11 @@ pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
                 None => scan_tree(root)?.findings,
             };
             print!("{}", ratchet::Baseline::from_findings(&findings).render());
-            Ok(true)
+            Ok(Verdict::Pass)
         }
         Mode::TestClockBaseline => {
             print!("{}", test_clock::render(&test_clock::scan(root)?));
-            Ok(true)
+            Ok(Verdict::Pass)
         }
     }
 }
@@ -287,7 +288,7 @@ fn test_clock_gate(root: &Path) -> Result<Vec<String>> {
     Ok(problems)
 }
 
-fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> {
+fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<Verdict> {
     let violations: Vec<_> = findings
         .iter()
         .filter(|finding| !ratchet::eligible(&finding.rule))
@@ -298,7 +299,8 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
     for finding in &violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
-    if violations.is_empty() && problems.is_empty() {
+    let passed = violations.is_empty() && problems.is_empty();
+    if passed {
         let ratcheted_count = findings
             .iter()
             .filter(|finding| ratchet::eligible(&finding.rule))
@@ -312,10 +314,10 @@ fn target_gate(root: &Path, triple: &str, findings: &[Finding]) -> Result<bool> 
             violations.len() + problems.len()
         );
     }
-    Ok(violations.is_empty() && problems.is_empty())
+    Ok(Verdict::fail_if(!passed))
 }
 
-fn gate(root: &Path) -> Result<bool> {
+fn gate(root: &Path) -> Result<Verdict> {
     let compiler = Compiler::load(root)?;
     let mut findings = clippy(root, None)?;
     let problems = ratchet::Baseline::load(root, Some(&compiler.host))?.check(&findings);
@@ -369,7 +371,7 @@ fn gate(root: &Path) -> Result<bool> {
             "Fix each finding, or justify it with `#[expect(<lint>, reason = \"...\")]` or `{SUPPRESSION_SYNTAX}`."
         );
     }
-    Ok(passed)
+    Ok(Verdict::fail_if(!passed))
 }
 
 /// Gate violations: every finding except the single shared `fn unavailable` in

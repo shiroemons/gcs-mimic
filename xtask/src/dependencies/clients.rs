@@ -133,7 +133,6 @@ fn cargo(root: &Path, scope: &Value) -> Result<bool> {
         let latest = latest_crate(&fetch(
             &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
-            false,
         )?)?;
         drift |= compare(&format!("cargo:{name} (SDK)"), &pin, &latest);
     }
@@ -243,7 +242,6 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
                 group.replace('.', "/")
             ),
             &[],
-            false,
         )?)?;
         drift |= compare(&format!("maven:{name}"), &pin, &latest);
     }
@@ -257,7 +255,6 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
         &latest_maven(&fetch(
             "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml",
             &[],
-            false,
         )?)?,
     );
     let java = read_sibling(root, scope, ".java-version")?;
@@ -267,7 +264,6 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
     let available = json(&fetch(
         "https://api.adoptium.net/v3/info/available_releases",
         &[],
-        false,
     )?)?;
     let major = available["most_recent_feature_release"]
         .as_u64()
@@ -277,7 +273,6 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
             "https://api.adoptium.net/v3/assets/latest/{major}/hotspot?architecture=x64&image_type=jdk&os=linux&vendor=eclipse"
         ),
         &[],
-        false,
     )?)?;
     let latest = temurin_version(&releases)?;
     drift |= compare("Temurin toolchain", java.trim(), latest);
@@ -547,7 +542,7 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
         &pins,
     )?;
     let mut drift = false;
-    let index = json(&fetch("https://api.nuget.org/v3/index.json", &[], false)?)?;
+    let index = json(&fetch("https://api.nuget.org/v3/index.json", &[])?)?;
     let base = index["resources"]
         .as_array()
         .ok_or("missing NuGet resources")?
@@ -562,9 +557,8 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
         let source = json(&fetch(
             &format!("{base}{}/index.json", name.to_ascii_lowercase()),
             &[],
-            false,
         )?)?;
-        let latest = latest_nuget(&source, base, &mut |url| fetch(url, &[], false))?;
+        let latest = latest_nuget(&source, base, &mut |url| fetch(url, &[]))?;
         drift |= compare(&format!("nuget:{name}"), &pin, &latest);
     }
     let global = json(&read_sibling(root, scope, "global.json")?)?;
@@ -581,7 +575,6 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
     let releases = json(&fetch(
         "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json",
         &[],
-        false,
     )?)?;
     drift |= compare(".NET SDK", pin, newest_sdk(&releases)?);
     if let Some(lts) = lts {
