@@ -1216,7 +1216,7 @@ async fn bucket_list_among_projects_orders_by_name_across_owners() {
     ] {
         catalog.insert_bucket(bucket(name, project)).await.unwrap();
     }
-    let names = |page: super::catalog::BucketListPage| {
+    let names = |page: super::catalog::Page<BucketRecord>| {
         page.items
             .into_iter()
             .map(|item| item.name)

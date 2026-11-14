@@ -117,10 +117,9 @@ mod bucket_update;
 mod buckets;
 mod close;
 mod connection;
+mod keyset;
 mod open;
 mod schema;
-#[cfg(test)]
-pub(crate) use bucket_list::BucketListPage;
 #[cfg(test)]
 use bucket_list::bucket_list_page;
 use bucket_list::bucket_metadata_charge;
@@ -129,6 +128,7 @@ use buckets::{
     BucketCreation, Cors, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
 };
 use connection::ConnectionUnavailable;
+pub(crate) use keyset::{Page, PageLimit};
 #[cfg(test)]
 use open::immutable_catalog_uri;
 #[cfg(test)]

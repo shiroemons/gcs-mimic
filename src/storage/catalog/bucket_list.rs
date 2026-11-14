@@ -1,11 +1,5 @@
 use super::*;
 
-/// A bounded keyset page. Continue after the last returned name when `has_more` is true.
-pub(crate) struct BucketListPage {
-    pub items: Vec<BucketRecord>,
-    pub has_more: bool,
-}
-
 impl Catalog {
     /// Returns at most `limit` rows within the expanded metadata budget (or one large row).
     /// Use `list_buckets_page` when a continuation indicator is needed.
@@ -30,7 +24,7 @@ impl Catalog {
         prefix: Option<&str>,
         start_after: Option<&str>,
         limit: usize,
-    ) -> Result<BucketListPage, CatalogError> {
+    ) -> Result<Page<BucketRecord>, CatalogError> {
         self.list_buckets_page_among(Some(vec![project.to_owned()]), prefix, start_after, limit)
             .await
     }
@@ -42,14 +36,14 @@ impl Catalog {
         prefix: Option<&str>,
         start_after: Option<&str>,
         limit: usize,
-    ) -> Result<BucketListPage, CatalogError> {
+    ) -> Result<Page<BucketRecord>, CatalogError> {
         if limit > MAX_LIST_LIMIT {
             return Err(CatalogError::Unavailable(
                 format!("list limit exceeds {MAX_LIST_LIMIT}").into(),
             ));
         }
         if projects.as_ref().is_some_and(Vec::is_empty) {
-            return Ok(BucketListPage {
+            return Ok(Page {
                 items: Vec::new(),
                 has_more: false,
             });
@@ -75,7 +69,7 @@ pub(super) fn bucket_list_page(
     prefix: &str,
     start_after: Option<&str>,
     limit: usize,
-) -> Result<BucketListPage, CatalogError> {
+) -> Result<Page<BucketRecord>, CatalogError> {
     use objects::SeekStart;
     use rusqlite::types::Value;
     let upper = objects::prefix_end(prefix);
@@ -133,23 +127,14 @@ pub(super) fn bucket_list_page(
     ));
     let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query(rusqlite::params_from_iter(values))?;
-    let mut records = Vec::new();
-    let mut remaining = BUCKET_LIST_METADATA_BUDGET;
-    let mut has_more = false;
-    while let Some(row) = rows.next()? {
-        // Charge typed rules, JSON values and serialization before allocating any of them.
-        let charge = bucket_metadata_charge(row)?;
-        if records.len() == limit || (!records.is_empty() && charge > remaining) {
-            has_more = !records.is_empty();
-            break;
-        }
-        records.push(read_bucket(row)?);
-        remaining = remaining.saturating_sub(charge);
-    }
-    Ok(BucketListPage {
-        items: records,
-        has_more,
-    })
+    // Charge typed rules, JSON values and serialization before allocating any of them.
+    keyset::budgeted_page(
+        &mut rows,
+        limit,
+        BUCKET_LIST_METADATA_BUDGET,
+        bucket_metadata_charge,
+        |row| Ok(read_bucket(row)?),
+    )
 }
 
 /// Columns whose text a listed bucket expands, and how much each byte costs once decoded.

@@ -93,11 +93,6 @@ pub(crate) struct HmacKeyListQuery {
     pub limit: usize,
 }
 
-pub(crate) struct HmacKeyPage {
-    pub items: Vec<HmacKeyRecord>,
-    pub has_more: bool,
-}
-
 #[derive(Debug)]
 pub(crate) enum HmacKeyError {
     NotFound,
@@ -280,10 +275,10 @@ impl Catalog {
     pub(crate) async fn list_hmac_keys(
         &self,
         query: HmacKeyListQuery,
-    ) -> Result<HmacKeyPage, HmacKeyError> {
-        if !(1..=super::MAX_LIST_LIMIT - 1).contains(&query.limit) {
-            return Err(CatalogError::InvalidMetadata("invalid HMAC key page size".into()).into());
-        }
+    ) -> Result<super::Page<HmacKeyRecord>, HmacKeyError> {
+        let limit = super::PageLimit::<{ super::MAX_LIST_LIMIT - 1 }>::try_from(query.limit)
+            .map_err(|_| CatalogError::InvalidMetadata("invalid HMAC key page size".into()))?
+            .get();
         Ok(self
             .run::<_, CatalogError>(move |connection| {
                 let mut statement = connection.prepare_cached(LIST_KEYS)?;
@@ -294,14 +289,14 @@ impl Catalog {
                             query.service_account_email,
                             query.show_deleted,
                             query.after,
-                            query.limit + 1
+                            limit + 1
                         ],
                         record,
                     )?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
-                let has_more = items.len() > query.limit;
-                items.truncate(query.limit);
-                Ok(HmacKeyPage { items, has_more })
+                let has_more = items.len() > limit;
+                items.truncate(limit);
+                Ok(super::Page { items, has_more })
             })
             .await?)
     }

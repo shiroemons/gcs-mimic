@@ -409,10 +409,13 @@ pub(crate) struct BucketEntry {
     pub incarnation: Incarnation,
 }
 
-pub(crate) struct BucketPage {
-    pub items: Vec<BucketEntry>,
-    pub has_more: bool,
+/// Checks a management listing's page size, which every route reports in the same words.
+fn management_page_limit(limit: usize) -> Result<usize, AdminError> {
+    super::PageLimit::<MAX_PAGE>::try_from(limit)
+        .map(super::PageLimit::get)
+        .map_err(|_| AdminError::Invalid("management page limit must be 1..=256".into()))
 }
+
 impl Catalog {
     pub(crate) fn local_admin(&self) -> Option<Admin> {
         self.0.local_admin.clone().map(|grant| Admin {
@@ -623,14 +626,10 @@ impl Admin {
         project: &str,
         after: Option<&BucketName>,
         limit: usize,
-    ) -> Result<super::BucketListPage, AdminError> {
+    ) -> Result<super::Page<BucketRecord>, AdminError> {
         crate::json::validate_project(project)
             .map_err(|error| AdminError::Invalid(error.message))?;
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid(
-                "management page limit must be 1..=256".into(),
-            ));
-        }
+        let limit = management_page_limit(limit)?;
         let project = project.to_owned();
         let after = after.map(|name| name.as_str().to_owned());
         self.catalog
@@ -645,12 +644,8 @@ impl Admin {
         &self,
         after: Option<&str>,
         limit: usize,
-    ) -> Result<BucketPage, AdminError> {
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid(
-                "management page limit must be 1..=256".into(),
-            ));
-        }
+    ) -> Result<super::Page<BucketEntry>, AdminError> {
+        let limit = management_page_limit(limit)?;
         let after = after.unwrap_or("").to_owned();
         self.catalog
             .run_admin(move |connection| {
@@ -662,24 +657,23 @@ impl Admin {
                  WHERE name > ?1 ORDER BY name LIMIT ?2"
                 ))?;
                 let mut rows = statement.query(rusqlite::params![after, limit + 1])?;
-                let mut items = Vec::new();
-                let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
-                let mut has_more = false;
-                while let Some(row) = rows.next()? {
-                    let incarnation = row.get_ref("incarnation")?.as_str().map_err(unavailable)?;
-                    let charge = super::bucket_metadata_charge(row)?
-                        .saturating_add(incarnation.len().saturating_mul(8));
-                    if items.len() == limit || (!items.is_empty() && charge > remaining) {
-                        has_more = true;
-                        break;
-                    }
-                    items.push(BucketEntry {
-                        bucket: read_bucket(row)?,
-                        incarnation: row.get("incarnation")?,
-                    });
-                    remaining = remaining.saturating_sub(charge);
-                }
-                Ok(BucketPage { items, has_more })
+                super::keyset::budgeted_page(
+                    &mut rows,
+                    limit,
+                    super::BUCKET_LIST_METADATA_BUDGET,
+                    |row| {
+                        let incarnation =
+                            row.get_ref("incarnation")?.as_str().map_err(unavailable)?;
+                        Ok(super::bucket_metadata_charge(row)?
+                            .saturating_add(incarnation.len().saturating_mul(8)))
+                    },
+                    |row| {
+                        Ok(BucketEntry {
+                            bucket: read_bucket(row)?,
+                            incarnation: row.get("incarnation")?,
+                        })
+                    },
+                )
             })
             .await
     }
@@ -844,11 +838,7 @@ impl Admin {
         mut query: super::ObjectListQuery,
         limit: usize,
     ) -> Result<super::ObjectListPage, AdminError> {
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid(
-                "management page limit must be 1..=256".into(),
-            ));
-        }
+        let limit = management_page_limit(limit)?;
         if !query.bucket.is_empty() && query.bucket != bucket.as_str() {
             return Err(AdminError::Invalid("list query bucket mismatch".into()));
         }

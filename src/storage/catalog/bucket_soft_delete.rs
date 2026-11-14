@@ -124,12 +124,6 @@ const LIST_VERSIONS: &str = concat!(
         ORDER BY name, generation LIMIT ?6"
 );
 
-/// A bounded page of soft-deleted versions in (name, generation) order.
-pub(crate) struct SoftDeletedBucketPage {
-    pub items: Vec<SoftDeletedBucket>,
-    pub has_more: bool,
-}
-
 /// Retained objects of a soft-deleted version live under this key. Bucket names never
 /// contain `#` in any profile, so no request can address it.
 fn retained_key(name: &str, generation: i64) -> String {
@@ -346,7 +340,7 @@ impl Catalog {
         prefix: &str,
         start_after: Option<(String, i64)>,
         limit: usize,
-    ) -> Result<SoftDeletedBucketPage, CatalogError> {
+    ) -> Result<super::Page<SoftDeletedBucket>, CatalogError> {
         let (project, prefix, clock) =
             (project.to_owned(), prefix.to_owned(), self.0.clock.clone());
         self.run(move |connection| {
@@ -361,19 +355,13 @@ impl Catalog {
                 after_generation,
                 limit + 1
             ])?;
-            let mut items = Vec::new();
-            let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
-            let mut has_more = false;
-            while let Some(row) = rows.next()? {
-                let charge = bucket_metadata_charge(row)?;
-                if items.len() == limit || (!items.is_empty() && charge > remaining) {
-                    has_more = !items.is_empty();
-                    break;
-                }
-                items.push(read_version(row)?);
-                remaining = remaining.saturating_sub(charge);
-            }
-            Ok(SoftDeletedBucketPage { items, has_more })
+            super::keyset::budgeted_page(
+                &mut rows,
+                limit,
+                super::BUCKET_LIST_METADATA_BUDGET,
+                bucket_metadata_charge,
+                |row| Ok(read_version(row)?),
+            )
         })
         .await
     }

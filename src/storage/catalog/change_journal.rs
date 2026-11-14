@@ -361,11 +361,8 @@ impl Catalog {
         fence: Option<JournalFence>,
         limit: usize,
     ) -> Result<ChangePage, AdminError> {
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid(
-                "change page limit must be 1..=256".into(),
-            ));
-        }
+        let limit = super::PageLimit::<MAX_PAGE>::try_from(limit)
+            .map_err(|_| AdminError::Invalid("change page limit must be 1..=256".into()))?;
         self.run_admin(move |connection| {
             let (current, floor, enabled) = state(connection)?;
             let target = fence.unwrap_or(current);

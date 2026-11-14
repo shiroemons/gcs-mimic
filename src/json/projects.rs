@@ -8,7 +8,8 @@ use super::page_token::{self, CursorTag};
 use super::query::{Decoding, common, decode, finish, parse_query};
 use super::{Fields, JsonError, Schema};
 use crate::auth::ProjectId;
-use crate::storage::hmac_keys::{HmacKeyError, HmacKeyPage, HmacKeyRecord, HmacKeyState};
+use crate::storage::Page;
+use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
 
@@ -318,7 +319,7 @@ pub(crate) fn hmac_key_resource(
 }
 
 pub(crate) fn hmac_key_list(
-    page: &HmacKeyPage,
+    page: &Page<HmacKeyRecord>,
     params: &HmacKeyListParams,
     base_url: &str,
 ) -> Result<Value, JsonError> {

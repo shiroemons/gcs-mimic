@@ -24,6 +24,7 @@ pub use catalog::sync_state;
 pub(crate) use catalog::xml_multipart;
 
 pub(crate) use catalog::CopyReplay;
+pub(crate) use catalog::Page;
 pub(crate) use catalog::ResumableChunk;
 pub(crate) use catalog::ResumableError;
 pub(crate) use catalog::SessionId;
