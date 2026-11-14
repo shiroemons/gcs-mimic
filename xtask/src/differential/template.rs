@@ -69,6 +69,23 @@ pub(crate) fn expand(template: &str, vars: &Vars) -> Result<String> {
     Ok(out)
 }
 
+/// The template as the static rules read it: `{{` and `}}` unescaped and every
+/// variable kept as its `{name}` reference, since no value is known yet.
+pub(crate) fn literal(template: &str) -> Result<String> {
+    let mut out = String::new();
+    for part in parts(template)? {
+        match part {
+            Part::Text(text) => out.push_str(&text),
+            Part::Var(name) => {
+                out.push('{');
+                out.push_str(&name);
+                out.push('}');
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub(crate) fn variables(template: &str) -> Result<Vec<String>> {
     Ok(parts(template)?
         .into_iter()
@@ -230,6 +247,14 @@ mod tests {
             expand("{{\"a\":\"{bucket}\"}}", &vars()).unwrap(),
             "{\"a\":\"b1\"}"
         );
+    }
+
+    #[test]
+    fn literal_unescapes_braces_and_keeps_variable_references() {
+        assert_eq!(literal("{{\"a\":\"{b}\"}}").unwrap(), "{\"a\":\"{b}\"}");
+        // Read as the expansion reads it: an escaped brace on each side of a variable.
+        assert_eq!(literal("{{{x}}}").unwrap(), "{{x}}");
+        assert!(literal("{bad").is_err());
     }
 
     #[test]

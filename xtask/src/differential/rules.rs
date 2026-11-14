@@ -7,8 +7,9 @@
 use super::case::{Body, BucketMode, Case, Protocol, Step, step_variables};
 use super::guard;
 use super::runner::build_request;
-use super::template::Vars;
+use super::template::{Vars, literal};
 use serde_json::Value;
+use std::borrow::Cow;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -53,19 +54,21 @@ fn check_step(case: &Case, step: &Step) -> Result<()> {
     Ok(())
 }
 
+/// The step's JSON body as the static rules read it: a `body` as written, or a
+/// `body_text` unescaped by the template parser, so `{{`/`}}` cannot hide a document
+/// from a rule. `None` when the body is absent, binary or not JSON.
+fn json_body(step: &Step) -> Result<Option<Cow<'_, Value>>> {
+    match &step.body {
+        Body::Json(value) => Ok(Some(Cow::Borrowed(value))),
+        Body::Text(text) => Ok(serde_json::from_str(&literal(text)?).ok().map(Cow::Owned)),
+        Body::None | Body::Bytes(_) => Ok(None),
+    }
+}
+
 /// A variable could resolve to a lock at run time, so a mode or `isLocked`
 /// that is not a literal is refused here, on the template.
 fn check_unexpanded_lock(step: &Step) -> Result<()> {
-    let reason = match &step.body {
-        Body::Json(value) => guard::json_locks(value),
-        Body::Text(text) => {
-            serde_json::from_str::<Value>(&text.replace("{{", "{").replace("}}", "}"))
-                .ok()
-                .and_then(|value| guard::json_locks(&value))
-        }
-        Body::None | Body::Bytes(_) => None,
-    };
-    match reason {
+    match json_body(step)?.as_deref().and_then(guard::json_locks) {
         Some(reason) => Err(format!("forbidden locked retention: {reason}")),
         None => Ok(()),
     }
@@ -120,12 +123,9 @@ fn check_bucket_creation(step: &Step) -> Result<()> {
 }
 
 fn check_json_bucket_creation(step: &Step) -> Result<()> {
-    let body = match &step.body {
-        Body::Json(value) => value.clone(),
-        // A body that is not JSON cannot name a bucket.
-        Body::Text(text) if serde_json::from_str::<Value>(text).is_err() => return Ok(()),
-        Body::Text(text) => serde_json::from_str(text).map_err(|e| e.to_string())?,
-        Body::None | Body::Bytes(_) => return Ok(()),
+    // A body that is not JSON cannot name a bucket.
+    let Some(body) = json_body(step)? else {
+        return Ok(());
     };
     let name = body["name"].as_str().unwrap_or_default();
     if invalid_bucket_name(name) {
@@ -148,14 +148,6 @@ fn check_json_bucket_creation(step: &Step) -> Result<()> {
     Ok(())
 }
 
-fn json_body(step: &Step) -> Option<Value> {
-    match &step.body {
-        Body::Json(value) => Some(value.clone()),
-        Body::Text(text) => serde_json::from_str(&text.replace("{{", "{").replace("}}", "}")).ok(),
-        Body::None | Body::Bytes(_) => None,
-    }
-}
-
 /// A bucket PUT replaces the whole resource and a PATCH nulling
 /// `iamConfiguration` removes it, so either can reset public access prevention
 /// to its default even though no step names the setting. The live guard cannot
@@ -173,7 +165,7 @@ fn check_pap_reset(step: &Step) -> Result<()> {
     if !on_bucket || !matches!(step.method.as_str(), "PUT" | "PATCH") {
         return Ok(());
     }
-    let Some(body) = json_body(step) else {
+    let Some(body) = json_body(step)? else {
         return Ok(());
     };
     let config = &body["iamConfiguration"];
@@ -205,7 +197,7 @@ fn check_iam_keeps_admin(step: &Step) -> Result<()> {
     {
         return Ok(());
     }
-    let Some(body) = json_body(step) else {
+    let Some(body) = json_body(step)? else {
         return Ok(());
     };
     // A body without literal bindings is the subject of the step itself.
@@ -342,6 +334,43 @@ mod tests {
             json!(false),
             json!({"name": "s", "protocol": "grpc", "rpc": "google.storage.v2.Storage/CreateBucket"}),
             "CreateBucket",
+        );
+    }
+
+    #[test]
+    fn escaped_body_text_cannot_bypass_the_bucket_creation_rules() {
+        let create = |body_text: &str| json!({"name": "s", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body_text": body_text});
+        rejects(
+            json!(false),
+            create("{{\"name\": \"other-bucket\"}}"),
+            "named {new_bucket}",
+        );
+        rejects(
+            json!(false),
+            create(
+                "{{\"name\": \"{new_bucket}\", \"softDeletePolicy\": {{\"retentionDurationSeconds\": \"0\"}}}}",
+            ),
+            "publicAccessPrevention",
+        );
+        rejects(
+            json!(false),
+            create(
+                "{{\"name\": \"{new_bucket}\", \"iamConfiguration\": {{\"publicAccessPrevention\": \"enforced\"}}}}",
+            ),
+            "softDeletePolicy",
+        );
+        let good = create(
+            "{{\"name\": \"{new_bucket}\", \"iamConfiguration\": {{\"publicAccessPrevention\": \"enforced\"}}, \
+             \"softDeletePolicy\": {{\"retentionDurationSeconds\": \"0\"}}}}",
+        );
+        assert!(parse_case(&case_of(json!(false), good), "x").is_ok());
+        // A body that is not JSON cannot name a bucket.
+        assert!(parse_case(&case_of(json!(false), create("{{not json")), "x").is_ok());
+        rejects(
+            json!(false),
+            json!({"name": "s", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}",
+                   "body_text": "{{\"retentionPolicy\": {{\"isLocked\": true}}}}"}),
+            "forbidden locked retention",
         );
     }
 
