@@ -1,25 +1,15 @@
 //! Fixed source-seed MIME profile; provenance and notices live in mime.NOTICE.
 
-use std::{collections::BTreeMap, str::FromStr, sync::LazyLock};
+use std::{collections::BTreeMap, sync::LazyLock};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SeedContentType {
-    OctetStream,
-    Extension,
-}
-
-impl FromStr for SeedContentType {
-    type Err = crate::config::InvalidChoice;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "octet-stream" => Ok(Self::OctetStream),
-            "extension" => Ok(Self::Extension),
-            _ => Err(crate::config::InvalidChoice(
-                "seed_content_type must be octet-stream or extension",
-            )),
-        }
+crate::config::string_enum! {
+    no_default
+    /// How a seed tree names the content type of the objects it creates.
+    pub enum SeedContentType {
+        OctetStream => "octet-stream",
+        Extension => "extension",
     }
+    "seed_content_type must be octet-stream or extension"
 }
 
 static TYPES: LazyLock<BTreeMap<&str, &str>> = LazyLock::new(|| {
