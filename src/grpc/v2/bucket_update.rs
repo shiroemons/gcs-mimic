@@ -215,10 +215,9 @@ fn apply_autoclass(
     if path != "autoclass.enabled"
         && let Some(class) = config.and_then(|config| config.terminal_storage_class.as_ref())
     {
-        bucket::autoclass::validate_terminal_storage_class(class).map_err(|_| {
+        next.terminal_storage_class = Some(class.parse().map_err(|_| {
             Status::invalid_argument("autoclass.terminal_storage_class must be NEARLINE or ARCHIVE")
-        })?;
-        next.terminal_storage_class = Some(class.clone());
+        })?);
     }
     Ok(())
 }

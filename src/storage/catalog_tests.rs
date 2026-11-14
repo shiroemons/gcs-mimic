@@ -215,7 +215,9 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
             BucketMetadataUpdate {
                 autoclass: Some(gcs_mimic::bucket::autoclass::AutoclassUpdate {
                     enabled: Some(true),
-                    terminal_storage_class: Some("ARCHIVE".into()),
+                    terminal_storage_class: Some(
+                        gcs_mimic::bucket::autoclass::TerminalStorageClass::Archive,
+                    ),
                 }),
                 ..Default::default()
             },
@@ -224,13 +226,14 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
         )
         .await
         .unwrap();
-    let config = enabled.autoclass.clone().unwrap();
-    assert!(config.enabled);
-    assert_eq!(config.terminal_storage_class.as_deref(), Some("ARCHIVE"));
+    let config = enabled.autoclass.unwrap();
     assert!(original.updated <= config.toggle_time && config.toggle_time <= enabled.updated);
     assert_eq!(
-        config.terminal_storage_class_update_time,
-        Some(config.toggle_time)
+        config.state,
+        gcs_mimic::bucket::autoclass::AutoclassState::Enabled {
+            terminal_storage_class: gcs_mimic::bucket::autoclass::TerminalStorageClass::Archive,
+            terminal_storage_class_update_time: config.toggle_time,
+        }
     );
     // A rejected change rolls back the whole transaction.
     let error = catalog

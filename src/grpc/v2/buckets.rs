@@ -240,7 +240,7 @@ pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_jso
         }
         let mut config = Map::from_iter([("enabled".into(), json!(autoclass.enabled))]);
         if let Some(class) = &autoclass.terminal_storage_class {
-            crate::bucket::autoclass::validate_terminal_storage_class(class)?;
+            class.parse::<crate::bucket::autoclass::TerminalStorageClass>()?;
             config.insert("terminalStorageClass".into(), class.clone().into());
         }
         body.insert("autoclass".into(), Value::Object(config));

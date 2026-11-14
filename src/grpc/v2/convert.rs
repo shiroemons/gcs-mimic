@@ -3,6 +3,7 @@ use crate::{
     acl::{AclEntry, AclKind},
     bucket::{
         BucketRecord, CatalogError,
+        autoclass::AutoclassState,
         lifecycle::{LifecycleAction, LifecycleDate, LifecycleRule},
     },
     json::acl::AclOwner,
@@ -229,17 +230,24 @@ pub(crate) fn bucket(
         location: record.location.as_str().into(),
         location_type: record.location.kind().as_str().into(),
         storage_class: record.storage_class.as_str().into(),
-        autoclass: record
-            .autoclass
-            .as_ref()
-            .map(|config| pb::bucket::Autoclass {
-                enabled: config.enabled,
+        autoclass: record.autoclass.as_ref().map(|config| {
+            let (terminal_storage_class, terminal_storage_class_update_time) = match config.state {
+                AutoclassState::Enabled {
+                    terminal_storage_class,
+                    terminal_storage_class_update_time,
+                } => (
+                    Some(terminal_storage_class.as_str().into()),
+                    Some(terminal_storage_class_update_time.into()),
+                ),
+                AutoclassState::Disabled => (None, None),
+            };
+            pb::bucket::Autoclass {
+                enabled: config.is_enabled(),
                 toggle_time: Some(config.toggle_time.into()),
-                terminal_storage_class: config.terminal_storage_class.clone(),
-                terminal_storage_class_update_time: config
-                    .terminal_storage_class_update_time
-                    .map(Into::into),
-            }),
+                terminal_storage_class,
+                terminal_storage_class_update_time,
+            }
+        }),
         labels: record.labels.clone().into_iter().collect(),
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),

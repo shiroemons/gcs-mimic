@@ -1,4 +1,5 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
+use crate::bucket::autoclass::AutoclassState;
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket,
@@ -284,7 +285,7 @@ pub(crate) fn parse_insert_with_profile(
         .transpose()?
         .map(|update| crate::bucket::autoclass::apply(None, &update, now))
         .transpose()?
-        .and_then(|(config, _)| config);
+        .flatten();
     let labels = insert_labels(body, profile)?;
     timestamp(now)?;
     Ok(BucketRecord {
@@ -1064,17 +1065,24 @@ fn add_optional_bucket_fields(
 ) -> Result<(), JsonError> {
     if let Some(config) = &bucket.autoclass {
         let mut autoclass = Map::from_iter([
-            ("enabled".into(), config.enabled.into()),
+            ("enabled".into(), config.is_enabled().into()),
             ("toggleTime".into(), timestamp(config.toggle_time)?.into()),
         ]);
-        if let Some(class) = &config.terminal_storage_class {
-            autoclass.insert("terminalStorageClass".into(), class.as_str().into());
-        }
-        if let Some(time) = config.terminal_storage_class_update_time {
-            autoclass.insert(
-                "terminalStorageClassUpdateTime".into(),
-                timestamp(time)?.into(),
-            );
+        match config.state {
+            AutoclassState::Enabled {
+                terminal_storage_class,
+                terminal_storage_class_update_time,
+            } => {
+                autoclass.insert(
+                    "terminalStorageClass".into(),
+                    terminal_storage_class.as_str().into(),
+                );
+                autoclass.insert(
+                    "terminalStorageClassUpdateTime".into(),
+                    timestamp(terminal_storage_class_update_time)?.into(),
+                );
+            }
+            AutoclassState::Disabled => {}
         }
         value.insert("autoclass".into(), autoclass.into());
     }

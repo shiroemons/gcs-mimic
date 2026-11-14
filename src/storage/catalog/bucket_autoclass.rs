@@ -18,14 +18,10 @@ fn store(
     bucket: &str,
     config: Option<&Autoclass>,
 ) -> Result<(), CatalogError> {
-    let value = config
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(unavailable)?;
     sql::exec(
         transaction,
         "UPDATE buckets SET autoclass = ?2 WHERE name = ?1",
-        rusqlite::params![bucket, value],
+        rusqlite::params![bucket, config.map(sql::Json)],
     )?;
     Ok(())
 }
@@ -37,16 +33,10 @@ pub(super) fn insert(
     record: &mut BucketRecord,
     lifecycle: &[LifecycleRule],
 ) -> Result<(), CatalogError> {
-    if let Some(config) = &mut record.autoclass {
-        // Creation-time Autoclass reports the bucket create time as its toggle time.
-        config.toggle_time = record.time_created;
-        if config.terminal_storage_class_update_time.is_some() {
-            config.terminal_storage_class_update_time = Some(record.time_created);
-        }
-        if let Some(class) = &config.terminal_storage_class {
-            autoclass::validate_terminal_storage_class(class)?;
-        }
-    }
+    // Creation-time Autoclass reports the bucket create time as its toggle time.
+    record.autoclass = record
+        .autoclass
+        .map(|config| config.created_at(record.time_created));
     autoclass::validate_bucket(record.autoclass.as_ref(), record.storage_class, lifecycle)?;
     store(transaction, &record.name, record.autoclass.as_ref())
 }
@@ -67,8 +57,9 @@ pub(super) fn update(
         LifecycleRule::from_stored(&record.lifecycle)?
     };
     if let Some(requested) = &update.autoclass {
-        let (config, newly_enabled) = autoclass::apply(record.autoclass.as_ref(), requested, now)?;
-        if newly_enabled {
+        let was_enabled = record.autoclass.is_some_and(|config| config.is_enabled());
+        let config = autoclass::apply(record.autoclass.as_ref(), requested, now)?;
+        if !was_enabled && config.is_some_and(|config| config.is_enabled()) {
             if update.storage_class.is_none() {
                 record.storage_class = AUTOCLASS_STORAGE_CLASS;
             }

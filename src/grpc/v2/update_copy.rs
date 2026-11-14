@@ -1206,7 +1206,9 @@ mod tests {
                 .unwrap(),
             crate::bucket::autoclass::AutoclassUpdate {
                 enabled: Some(true),
-                terminal_storage_class: Some("ARCHIVE".into())
+                terminal_storage_class: Some(
+                    crate::bucket::autoclass::TerminalStorageClass::Archive
+                )
             }
         );
         assert_eq!(
@@ -1219,7 +1221,9 @@ mod tests {
             .unwrap(),
             crate::bucket::autoclass::AutoclassUpdate {
                 enabled: None,
-                terminal_storage_class: Some("ARCHIVE".into())
+                terminal_storage_class: Some(
+                    crate::bucket::autoclass::TerminalStorageClass::Archive
+                )
             }
         );
         assert_eq!(

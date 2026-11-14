@@ -285,10 +285,11 @@ async fn autoclass_rejects_transition_configuration_without_changing_objects_or_
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
         record.autoclass = Some(crate::bucket::autoclass::Autoclass {
-            enabled: true,
             toggle_time: clock.now(),
-            terminal_storage_class: Some("NEARLINE".into()),
-            terminal_storage_class_update_time: Some(clock.now()),
+            state: crate::bucket::autoclass::AutoclassState::Enabled {
+                terminal_storage_class: crate::bucket::autoclass::TerminalStorageClass::Nearline,
+                terminal_storage_class_update_time: clock.now(),
+            },
         });
         record.lifecycle = vec![incompatible.clone()];
         assert!(catalog.insert_bucket(record.clone()).await.is_err());
