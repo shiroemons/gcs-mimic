@@ -1,23 +1,67 @@
 use super::{JsonError, parse_query};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
 
 /// A query string holds no more than this, so it also bounds the selections: each takes two bytes.
 const MAX_LENGTH: usize = super::MAX_QUERY_BYTES;
 const MAX_DEPTH: usize = 32;
 
+crate::config::string_enum! {
+    no_default listed
+    /// A Discovery schema a field selection is checked against. Every variant names a schema in
+    /// `compatibility/upstream/json-schemas.json`; loading `SCHEMAS` checks that.
+    pub(crate) enum Schema {
+        Bucket => "Bucket",
+        BucketAccessControl => "BucketAccessControl",
+        BucketAccessControls => "BucketAccessControls",
+        BucketStorageLayout => "BucketStorageLayout",
+        Buckets => "Buckets",
+        HmacKey => "HmacKey",
+        HmacKeyMetadata => "HmacKeyMetadata",
+        HmacKeysMetadata => "HmacKeysMetadata",
+        Notification => "Notification",
+        Notifications => "Notifications",
+        Object => "Object",
+        ObjectAccessControl => "ObjectAccessControl",
+        ObjectAccessControls => "ObjectAccessControls",
+        Objects => "Objects",
+        Policy => "Policy",
+        RewriteResponse => "RewriteResponse",
+        ServiceAccount => "ServiceAccount",
+        TestIamPermissionsResponse => "TestIamPermissionsResponse",
+    }
+    "unknown Discovery schema"
+}
+
+/// The `schemas` object of the checked-in Discovery document, if every [`Schema`] is in it.
+fn load_schemas() -> Option<Map<String, Value>> {
+    let mut document: Value = serde_json::from_str(include_str!(
+        "../../compatibility/upstream/json-schemas.json"
+    ))
+    .ok()?;
+    let Value::Object(schemas) = document.get_mut("schemas")?.take() else {
+        return None;
+    };
+    Schema::ALL
+        .iter()
+        .all(|schema| schemas.contains_key(schema.as_str()))
+        .then_some(schemas)
+}
+
 // Validate against the same pinned Discovery schema as the compatibility inventory,
 // including optional fields absent from a particular rendered resource.
 #[expect(
     clippy::expect_used,
-    reason = "the schemas are compiled in with include_str!, and the field tests parse them"
+    reason = "the schemas are compiled in with include_str!, load_schemas checks every Schema, and the field tests load them"
 )]
-static SCHEMAS: LazyLock<Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!(
-        "../../compatibility/upstream/json-schemas.json"
-    ))
-    .expect("checked-in Discovery schemas")
-});
+static SCHEMAS: LazyLock<Map<String, Value>> =
+    LazyLock::new(|| load_schemas().expect("checked-in Discovery schemas name every Schema"));
+
+/// A definition by name. A `$ref` the document does not define validates nothing, so every
+/// selection below it is rejected; a [`Schema`] always resolves.
+fn definition(name: &str) -> &'static Value {
+    SCHEMAS.get(name).unwrap_or(&Value::Null)
+}
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Fields {
@@ -26,33 +70,34 @@ pub(crate) struct Fields {
 }
 
 impl Fields {
-    pub(crate) fn from_query(raw: Option<&str>, schema: &str) -> Result<Self, JsonError> {
+    /// The whole resource, as when no `fields` parameter was sent.
+    pub(crate) fn whole() -> Self {
+        Self {
+            whole: true,
+            children: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn from_query(raw: Option<&str>, schema: Schema) -> Result<Self, JsonError> {
         let mut query = parse_query(raw.unwrap_or_default())?;
         Self::take(&mut query, schema)
     }
 
     pub(crate) fn take(
         query: &mut BTreeMap<String, String>,
-        schema: &str,
+        schema: Schema,
     ) -> Result<Self, JsonError> {
         match query.remove("fields") {
             Some(value) => Self::parse(&value, schema),
-            None => Ok(Self {
-                whole: true,
-                children: BTreeMap::new(),
-            }),
+            None => Ok(Self::whole()),
         }
     }
 
-    pub(crate) fn parse(value: &str, schema: &str) -> Result<Self, JsonError> {
+    pub(crate) fn parse(value: &str, schema: Schema) -> Result<Self, JsonError> {
         let fields = Self::parse_syntax(value)?;
-        let schema = SCHEMAS
-            .get("schemas")
-            .and_then(|schemas| schemas.get(schema))
-            .unwrap_or(&Value::Null);
         // Cloud Storage named only the rejected field, at the `fields` parameter (observed
         // 2026-10-31 for retentionExpireTime); every `validate` error carries that location.
-        fields.validate(schema, value)?;
+        fields.validate(definition(schema.as_str()), value)?;
         Ok(fields)
     }
 
@@ -91,13 +136,9 @@ impl Fields {
     /// Checks the selection against `schema`. `source` is the whole expression, which Cloud
     /// Storage quotes after a wildcard that has a child.
     fn validate(&self, schema: &Value, source: &str) -> Result<(), JsonError> {
-        let schema = if let Some(name) = schema["$ref"].as_str() {
-            SCHEMAS
-                .get("schemas")
-                .and_then(|schemas| schemas.get(name))
-                .unwrap_or(&Value::Null)
-        } else {
-            schema
+        let schema = match schema["$ref"].as_str() {
+            Some(name) => definition(name),
+            None => schema,
         };
         if schema["type"] == "array" {
             return self.validate(&schema["items"], source);
@@ -271,7 +312,7 @@ mod tests {
             "items/name,items/metadata/key,nextPageToken",
         ] {
             let mut value = original.clone();
-            Fields::parse(selector, "Objects")
+            Fields::parse(selector, Schema::Objects)
                 .unwrap()
                 .apply(&mut value);
             assert_eq!(
@@ -281,13 +322,13 @@ mod tests {
         }
         for selector in ["*", "*,items(name)", "items(*),kind,prefixes,nextPageToken"] {
             let mut value = original.clone();
-            Fields::parse(selector, "Objects")
+            Fields::parse(selector, Schema::Objects)
                 .unwrap()
                 .apply(&mut value);
             assert_eq!(value, original);
         }
         let mut value = original;
-        Fields::parse("items(metadata/*),prefixes", "Objects")
+        Fields::parse("items(metadata/*),prefixes", Schema::Objects)
             .unwrap()
             .apply(&mut value);
         assert_eq!(
@@ -295,7 +336,7 @@ mod tests {
             json!({"items":[{"metadata":{"key":"value","other":"hidden"}},{}],"prefixes":["dir/"]})
         );
         let mut value = json!({"name":"zero","size":"0"});
-        Fields::parse("size,metadata/key,contentEncoding", "Object")
+        Fields::parse("size,metadata/key,contentEncoding", Schema::Object)
             .unwrap()
             .apply(&mut value);
         assert_eq!(value, json!({"size":"0"}));
@@ -317,7 +358,7 @@ mod tests {
             "metadata/key/unknown",
             "*,unknown",
         ] {
-            let error = Fields::parse(selector, "Object").unwrap_err();
+            let error = Fields::parse(selector, Schema::Object).unwrap_err();
             assert_eq!(
                 (error.status.as_u16(), error.reason),
                 (400, "invalidParameter"),
@@ -333,10 +374,10 @@ mod tests {
         }
         // A wildcard with a child is rejected with the whole expression (case bkt-edges-fields).
         for (selector, schema) in [
-            ("*/name", "Bucket"),
-            ("items/*/name", "Objects"),
-            ("items/*/name,items/*", "Objects"),
-            ("items/*,items/*/unknown", "Objects"),
+            ("*/name", Schema::Bucket),
+            ("items/*/name", Schema::Objects),
+            ("items/*/name,items/*", Schema::Objects),
+            ("items/*,items/*/unknown", Schema::Objects),
         ] {
             let error = Fields::parse(selector, schema).unwrap_err();
             assert_eq!(
@@ -357,7 +398,7 @@ mod tests {
         }
         // Whitespace inside a name is an invalid selection where whitespace around one is
         // ignored (case bkt-edges-fields).
-        for schema in ["Object", "Bucket"] {
+        for schema in [Schema::Object, Schema::Bucket] {
             let error = Fields::parse("na me", schema).unwrap_err();
             assert_eq!(
                 (error.status.as_u16(), error.reason, error.message.as_str()),
@@ -369,7 +410,9 @@ mod tests {
             );
         }
         assert_eq!(
-            Fields::parse("metadata/", "Object").unwrap_err().message,
+            Fields::parse("metadata/", Schema::Object)
+                .unwrap_err()
+                .message,
             "Invalid field selection metadata/"
         );
     }
@@ -378,10 +421,10 @@ mod tests {
     fn empty_selections_and_empty_segments_follow_cloud_storage() {
         let original = json!({"name":"o","size":"5","metadata":{"a":"1"}});
         let mut value = original.clone();
-        Fields::parse("", "Object").unwrap().apply(&mut value);
+        Fields::parse("", Schema::Object).unwrap().apply(&mut value);
         assert_eq!(value, json!({}));
         let mut value = original.clone();
-        Fields::parse("name,,size", "Object")
+        Fields::parse("name,,size", Schema::Object)
             .unwrap()
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o","size":"5"}));
@@ -392,39 +435,41 @@ mod tests {
             ("metadata()", json!({})),
         ] {
             let mut value = original.clone();
-            Fields::parse(selector, "Object").unwrap().apply(&mut value);
+            Fields::parse(selector, Schema::Object)
+                .unwrap()
+                .apply(&mut value);
             assert_eq!(value, expected, "{selector:?}");
         }
         // Buckets, the bucket list and the IAM policy answered the same selectors alike
         // (case bkt-edges-fields).
         let bucket = json!({"name":"b","location":"US-CENTRAL1","labels":{"a":"1"}});
         for (selector, schema, expected) in [
-            (" ", "Bucket", json!({})),
+            (" ", Schema::Bucket, json!({})),
             (
                 "name , location",
-                "Bucket",
+                Schema::Bucket,
                 json!({"name":"b","location":"US-CENTRAL1"}),
             ),
             (
                 "name,,location",
-                "Bucket",
+                Schema::Bucket,
                 json!({"name":"b","location":"US-CENTRAL1"}),
             ),
-            ("labels()", "Bucket", json!({})),
-            (" ", "Buckets", json!({})),
-            (" ", "Policy", json!({})),
+            ("labels()", Schema::Bucket, json!({})),
+            (" ", Schema::Buckets, json!({})),
+            (" ", Schema::Policy, json!({})),
         ] {
             let mut value = bucket.clone();
             Fields::parse(selector, schema).unwrap().apply(&mut value);
-            assert_eq!(value, expected, "{schema} {selector:?}");
+            assert_eq!(value, expected, "{schema:?} {selector:?}");
         }
         // A selection that matches nothing inside metadata drops the key instead of `{}`.
         let mut value = original;
-        Fields::parse("name,metadata/zzz", "Object")
+        Fields::parse("name,metadata/zzz", Schema::Object)
             .unwrap()
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o"}));
-        let error = Fields::parse("metadata(a", "Object").unwrap_err();
+        let error = Fields::parse("metadata(a", Schema::Object).unwrap_err();
         assert_eq!(error.kind, super::super::ErrorKind::FieldMaskSyntax);
         assert_eq!(
             error.message,
@@ -435,7 +480,7 @@ mod tests {
     #[test]
     fn fields_persisted_selection_does_not_depend_on_current_schema() {
         let selector = "retiredProperty";
-        assert!(Fields::parse(selector, "Object").is_err());
+        assert!(Fields::parse(selector, Schema::Object).is_err());
         let mut value = json!({"retiredProperty":"completed","name":"hidden"});
         Fields::parse_syntax(selector).unwrap().apply(&mut value);
         assert_eq!(value, json!({"retiredProperty":"completed"}));
@@ -448,7 +493,10 @@ mod tests {
             ("name , size", json!({"name":"o","size":"5"})),
             ("name,,size", json!({"name":"o","size":"5"})),
         ] {
-            assert!(Fields::parse(selector, "Object").is_ok(), "{selector:?}");
+            assert!(
+                Fields::parse(selector, Schema::Object).is_ok(),
+                "{selector:?}"
+            );
             let mut value = json!({"name":"o","size":"5","bucket":"b"});
             Fields::parse_syntax(selector).unwrap().apply(&mut value);
             assert_eq!(value, expected, "{selector:?}");
@@ -463,7 +511,7 @@ mod tests {
             storage::{ObjectListCursor, ObjectListPage},
         };
 
-        fn check(value: &Value, path: &str, schema: &str) {
+        fn check(value: &Value, path: &str, schema: Schema) {
             match value {
                 Value::Object(object) => {
                     for (name, value) in object {
@@ -473,7 +521,7 @@ mod tests {
                             format!("{path}/{name}")
                         };
                         Fields::parse(&path, schema)
-                            .unwrap_or_else(|error| panic!("{schema} {path}: {error}"));
+                            .unwrap_or_else(|error| panic!("{schema:?} {path}: {error}"));
                         check(value, &path, schema);
                     }
                 }
@@ -517,7 +565,7 @@ mod tests {
                 &json::bucket_resource_with_profile(&bucket, base, json::Projection::Full, profile)
                     .unwrap(),
                 "",
-                "Bucket",
+                Schema::Bucket,
             );
             check(
                 &json::bucket_list_with_profile(
@@ -529,29 +577,45 @@ mod tests {
                 )
                 .unwrap(),
                 "",
-                "Buckets",
+                Schema::Buckets,
             );
         }
         check(
             &json::object_resource(&object, base, json::Projection::Full).unwrap(),
             "",
-            "Object",
+            Schema::Object,
         );
         check(
             &json::object_list(&page, &params, base).unwrap(),
             "",
-            "Objects",
+            Schema::Objects,
         );
-        check(&json::policy_resource(&policy, &bucket.name), "", "Policy");
+        check(
+            &json::policy_resource(&policy, &bucket.name),
+            "",
+            Schema::Policy,
+        );
+    }
+
+    /// A schema missing from the Discovery document would reject every selection.
+    #[test]
+    fn every_schema_resolves() {
+        assert!(load_schemas().is_some());
+        for schema in Schema::ALL {
+            assert!(
+                definition(schema.as_str())["properties"].is_object(),
+                "{schema:?}"
+            );
+        }
     }
 
     #[test]
     fn fields_bound_length_depth_and_selection_count() {
         let exact = format!("metadata/{}", "k".repeat(MAX_LENGTH - 9));
         assert_eq!(exact.len(), crate::json::MAX_QUERY_BYTES);
-        assert!(Fields::parse(&exact, "Object").is_ok());
+        assert!(Fields::parse(&exact, Schema::Object).is_ok());
         assert_eq!(
-            Fields::parse(&(exact + "k"), "Object")
+            Fields::parse(&(exact + "k"), Schema::Object)
                 .unwrap_err()
                 .status
                 .as_u16(),
@@ -560,7 +624,7 @@ mod tests {
         // The length alone bounds the selections, far above the former limit of 256.
         let selections = "name,".repeat(MAX_LENGTH / 5 - 1) + "name";
         assert!(selections.len() <= MAX_LENGTH);
-        assert!(Fields::parse(&selections, "Object").is_ok());
+        assert!(Fields::parse(&selections, Schema::Object).is_ok());
         for separator in ["/", "("] {
             let value = if separator == "/" {
                 vec!["a"; MAX_DEPTH].join("/")

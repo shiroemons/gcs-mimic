@@ -1,6 +1,6 @@
 use super::{
-    Decoding, Fields, JsonError, decode, parse_query, query, validate_bucket_name_for_profile,
-    validate_object_name,
+    Decoding, Fields, JsonError, Schema, decode, parse_query, query,
+    validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
     config::CompatProfile,
@@ -112,7 +112,7 @@ pub(crate) fn route(
         // be one of them.
         query::ignore_accepted_parameters(&mut parameters);
         let mut remaining = parameters.clone();
-        Fields::take(&mut remaining, "RewriteResponse")?;
+        Fields::take(&mut remaining, Schema::RewriteResponse)?;
         query::common(&mut remaining)?;
         query::projection(&mut remaining)?;
         if let Some(acl) = remaining.get("destinationPredefinedAcl")
@@ -207,7 +207,7 @@ pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
     }
     let mut value = Value::Object(value);
     if let Some(fields) = progress.fields {
-        Fields::parse(&fields, "RewriteResponse")?.apply(&mut value);
+        Fields::parse(&fields, Schema::RewriteResponse)?.apply(&mut value);
     }
     Ok(value)
 }

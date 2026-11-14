@@ -34,7 +34,7 @@ impl ObjectListParams {
 
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
-    super::Fields::take(&mut params, "Objects")?;
+    super::Fields::take(&mut params, super::Schema::Objects)?;
     standard_parameters(&mut params, &[], JsonError::unsupported_object)?;
     if params
         .remove("filter")

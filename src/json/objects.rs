@@ -304,7 +304,7 @@ fn take_common_parameters(
     if method == Method::DELETE || query.get("alt").is_some_and(|alt| alt == "media") {
         query.remove("fields");
     } else {
-        super::Fields::take(query, "Object")?;
+        super::Fields::take(query, super::Schema::Object)?;
     }
     super::query::standard_parameters(query, &[], JsonError::unsupported_object)?;
     let content_encoding = if method == Method::POST {

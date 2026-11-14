@@ -161,7 +161,7 @@ fn parse_lock_retention_policy(
     let bucket = decode(segment, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
-    super::Fields::take(&mut query, "Bucket")?;
+    super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
     let metageneration = query
         .remove("ifMetagenerationMatch")
@@ -195,7 +195,7 @@ fn parse_restore(
     let bucket = decode(segment, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
-    super::Fields::take(&mut query, "Bucket")?;
+    super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
     let generation = bucket_generation(&mut query)?.ok_or_else(generation_required)?;
     let projection = projection(&mut query)?;
@@ -299,7 +299,7 @@ fn parse_storage_layout(
     let bucket = decode(segment, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
-    super::Fields::take(&mut query, "BucketStorageLayout")?;
+    super::Fields::take(&mut query, super::Schema::BucketStorageLayout)?;
     common(&mut query)?;
     query.remove("prefix");
     finish(&query)?;
@@ -327,7 +327,7 @@ fn parse_iam(
         ));
     }
     let mut query = parse_query(uri.query().unwrap_or_default())?;
-    super::Fields::take(&mut query, "Policy")?;
+    super::Fields::take(&mut query, super::Schema::Policy)?;
     common(&mut query)?;
     if *method == Method::GET {
         // Cloud Storage answered an out-of-range version such as -1 with its version 1 policy
@@ -455,9 +455,9 @@ fn parse(
         super::Fields::take(
             &mut query,
             if bucket.is_none() && method == Method::GET {
-                "Buckets"
+                super::Schema::Buckets
             } else {
-                "Bucket"
+                super::Schema::Bucket
             },
         )?;
     }

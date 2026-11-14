@@ -127,9 +127,9 @@ pub(super) async fn respond(
 
 fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {
     match operation {
-        ObjectRequest::Delete { .. } => json::Fields::from_query(None, "Object"),
-        ObjectRequest::List(_) => json::Fields::from_query(uri.query(), "Objects"),
-        _ => json::Fields::from_query(uri.query(), "Object"),
+        ObjectRequest::Delete { .. } => Ok(json::Fields::whole()),
+        ObjectRequest::List(_) => json::Fields::from_query(uri.query(), json::Schema::Objects),
+        _ => json::Fields::from_query(uri.query(), json::Schema::Object),
     }
 }
 

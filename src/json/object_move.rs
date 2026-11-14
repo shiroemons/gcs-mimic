@@ -54,7 +54,7 @@ pub(super) fn route(
             ));
         }
         let mut query = parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, "Object")?;
+        super::Fields::take(&mut query, super::Schema::Object)?;
         let projection = projection(&mut query)?;
         if projection == Projection::Full {
             return Err(JsonError::unsupported_object(

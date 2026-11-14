@@ -2,7 +2,7 @@
 //! routes, request bodies and resources, plus the ACL fields of `projection=full` resources.
 
 use super::{
-    Decoding, Fields, JsonError,
+    Decoding, Fields, JsonError, Schema,
     buckets::encode_segment,
     decode,
     objects::revision_etag,
@@ -118,10 +118,10 @@ fn parse_route(
     };
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     let schema = match (kind, &operation) {
-        (AclKind::Bucket, AclOperation::List) => "BucketAccessControls",
-        (AclKind::Bucket, _) => "BucketAccessControl",
-        (_, AclOperation::List) => "ObjectAccessControls",
-        _ => "ObjectAccessControl",
+        (AclKind::Bucket, AclOperation::List) => Schema::BucketAccessControls,
+        (AclKind::Bucket, _) => Schema::BucketAccessControl,
+        (_, AclOperation::List) => Schema::ObjectAccessControls,
+        _ => Schema::ObjectAccessControl,
     };
     let fields = Fields::take(&mut query, schema)?;
     common(&mut query)?;

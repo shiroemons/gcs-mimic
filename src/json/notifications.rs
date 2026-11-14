@@ -3,7 +3,7 @@
 //! Routing, request validation and rendering only; persistence and authorization live in the
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
-use super::{Fields, JsonError, buckets::encode_segment, query};
+use super::{Fields, JsonError, Schema, buckets::encode_segment, query};
 use crate::{
     config::CompatProfile,
     notification::{
@@ -94,9 +94,9 @@ pub(crate) fn route(
         };
         let mut query = query::parse_query(uri.query().unwrap_or_default())?;
         let schema = if matches!(request, NotificationRequest::List { .. }) {
-            "Notifications"
+            Schema::Notifications
         } else {
-            "Notification"
+            Schema::Notification
         };
         let fields = Fields::take(&mut query, schema)?;
         query::common(&mut query)?;

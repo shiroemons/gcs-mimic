@@ -290,13 +290,13 @@ fn response_fields(
         return Ok(json::test_permissions_query(request.uri().query())?.1);
     }
     if matches!(operation, BucketRequest::Delete { .. }) {
-        return json::Fields::from_query(None, "Bucket");
+        return Ok(json::Fields::whole());
     }
     let schema = match operation {
-        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => "Buckets",
-        BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
-        BucketRequest::GetStorageLayout { .. } => "BucketStorageLayout",
-        _ => "Bucket",
+        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => json::Schema::Buckets,
+        BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => json::Schema::Policy,
+        BucketRequest::GetStorageLayout { .. } => json::Schema::BucketStorageLayout,
+        _ => json::Schema::Bucket,
     };
     json::Fields::from_query(request.uri().query(), schema)
 }

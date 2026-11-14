@@ -28,7 +28,7 @@ pub(crate) fn route(
         let name = crate::json::decode(name, crate::json::Decoding::Path)?;
         validate_object_name(&name)?;
         let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
-        crate::json::Fields::take(&mut query, "Object")?;
+        super::Fields::take(&mut query, super::Schema::Object)?;
         query.remove("destinationPredefinedAcl");
         // objects.compose declares no `ifGenerationNotMatch` or `ifMetagenerationNotMatch`, so
         // they fall to the undeclared-parameter rule below: Cloud Storage composed over the

@@ -38,7 +38,7 @@ pub(super) fn route(
         super::validate_bucket_name_for_profile(&bucket, profile)?;
         super::validate_object_name(&name)?;
         let mut query = parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, "Object")?;
+        super::Fields::take(&mut query, super::Schema::Object)?;
         standard_parameters(&mut query, &["restoreToken"], JsonError::unsupported_object)?;
         if super::query::boolean(&mut query, "copySourceAcl")? {
             return Err(JsonError::unsupported_object("copySourceAcl"));

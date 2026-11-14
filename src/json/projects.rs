@@ -5,7 +5,7 @@
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
 use super::query::{Decoding, common, decode, finish, parse_query};
-use super::{Fields, JsonError};
+use super::{Fields, JsonError, Schema};
 use crate::auth::ProjectId;
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyPage, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
@@ -122,13 +122,13 @@ fn parse(
     let mut query = parse_query(raw)?;
     let fields = if *method == Method::DELETE {
         query.remove("fields");
-        Fields::from_query(None, "HmacKeyMetadata")?
+        Fields::whole()
     } else {
         let schema = match (kind, method) {
-            (Kind::HmacKeys, &Method::POST) => "HmacKey",
-            (Kind::HmacKeys, _) => "HmacKeysMetadata",
-            (Kind::HmacKey, _) => "HmacKeyMetadata",
-            (Kind::ServiceAccount, _) => "ServiceAccount",
+            (Kind::HmacKeys, &Method::POST) => Schema::HmacKey,
+            (Kind::HmacKeys, _) => Schema::HmacKeysMetadata,
+            (Kind::HmacKey, _) => Schema::HmacKeyMetadata,
+            (Kind::ServiceAccount, _) => Schema::ServiceAccount,
         };
         Fields::take(&mut query, schema)?
     };

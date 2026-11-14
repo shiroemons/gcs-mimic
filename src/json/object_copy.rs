@@ -34,7 +34,7 @@ pub(super) fn route(
         let (source_bucket, source_name) = names(source, profile)?;
         let (bucket, name) = names(destination, profile)?;
         let mut query = parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, "Object")?;
+        super::Fields::take(&mut query, super::Schema::Object)?;
         query.remove("destinationPredefinedAcl");
         standard_parameters(
             &mut query,

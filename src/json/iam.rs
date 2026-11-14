@@ -1,4 +1,4 @@
-use super::{BucketRequest, Fields, JsonError, objects::base64, query};
+use super::{BucketRequest, Fields, JsonError, Schema, objects::base64, query};
 use crate::auth::{
     Binding, Policy,
     policy_input::{self, PolicyInput, PolicyInputError},
@@ -66,7 +66,7 @@ pub(crate) fn test_permissions_query(
         );
     }
     let mut query = query::parse_query(&rest.join("&"))?;
-    let fields = Fields::take(&mut query, "TestIamPermissionsResponse")?;
+    let fields = Fields::take(&mut query, Schema::TestIamPermissionsResponse)?;
     query::common(&mut query)?;
     query::finish(&query)?;
     Ok((permissions, fields))
