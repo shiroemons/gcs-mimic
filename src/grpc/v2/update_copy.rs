@@ -25,6 +25,9 @@ use crate::{
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
+/// How often an update tries when the bucket changes between the lifecycle check and the write.
+const LIFECYCLE_CHECK_ATTEMPTS: usize = 3;
+
 fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
@@ -324,35 +327,38 @@ impl Storage {
         let create = self
             .access(caller, target.destination_bucket, auth::OBJECTS_CREATE)
             .await?;
-        let mut owner = None;
-        let token = if let Some(binding) = binding {
-            if !target.matches(binding)
-                || parameters
-                    .iter()
-                    .any(|(k, v)| binding.parameters.get(k) != Some(v))
-                || body
-                    .as_ref()
-                    .is_some_and(|v| binding.metadata.as_ref() != Some(v))
-            {
-                return Err(Status::invalid_argument(
-                    "rewrite_token does not match the request; repeat the original parameters",
-                ));
+        // A new session's guard stays armed until its first response is stored and read back;
+        // returning early drops it, which cancels the session.
+        let (token, mut owner) = match binding {
+            Some(binding) => {
+                if !target.matches(binding)
+                    || parameters
+                        .iter()
+                        .any(|(k, v)| binding.parameters.get(k) != Some(v))
+                    || body
+                        .as_ref()
+                        .is_some_and(|v| binding.metadata.as_ref() != Some(v))
+                {
+                    return Err(Status::invalid_argument(
+                        "rewrite_token does not match the request; repeat the original parameters",
+                    ));
+                }
+                (r.rewrite_token.clone(), None)
             }
-            r.rewrite_token.clone()
-        } else {
-            let new = NewRewrite {
-                target,
-                source_generation: r.source_generation,
-                max_bytes_rewritten_per_call: r.max_bytes_rewritten_per_call,
-                source_conditions: sc,
-                destination_conditions: dc,
-                parameters,
-                metadata: body,
-                resource: r.destination.as_ref(),
-            };
-            let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
-            owner = Some(guard);
-            token
+            None => {
+                let new = NewRewrite {
+                    target,
+                    source_generation: r.source_generation,
+                    max_bytes_rewritten_per_call: r.max_bytes_rewritten_per_call,
+                    source_conditions: sc,
+                    destination_conditions: dc,
+                    parameters,
+                    metadata: body,
+                    resource: r.destination.as_ref(),
+                };
+                let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
+                (token, Some(guard))
+            }
         };
         let progress = self
             .state
@@ -653,8 +659,7 @@ impl Storage {
     ) -> Result<BucketRecord, Status> {
         let implicit_match =
             conditions.if_metageneration_match.is_none() && update.lifecycle.is_none();
-        let mut retries_left = 2;
-        loop {
+        for _ in 0..LIFECYCLE_CHECK_ATTEMPTS {
             let mut checked = conditions;
             if update.lifecycle.is_none() {
                 let metageneration = self
@@ -673,17 +678,13 @@ impl Storage {
                 .patch_bucket(bucket, update.clone(), checked, access)
                 .await
             {
-                Err(CatalogError::PreconditionFailed) if implicit_match => {
-                    if retries_left == 0 {
-                        return Err(Status::aborted(
-                            "Bucket changed during lifecycle validation; retry the update",
-                        ));
-                    }
-                    retries_left -= 1;
-                }
+                Err(CatalogError::PreconditionFailed) if implicit_match => {}
                 result => return result.map_err(super::bucket_update::input_error),
             }
         }
+        Err(Status::aborted(
+            "Bucket changed during lifecycle validation; retry the update",
+        ))
     }
 
     pub(super) async fn update_bucket(
