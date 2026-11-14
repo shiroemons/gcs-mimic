@@ -11,6 +11,7 @@ use std::{
 pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
+pub(crate) mod name;
 
 // Keep exhaustive transition tests tied to the enum's declaration rather than a second variant list.
 macro_rules! storage_classes {

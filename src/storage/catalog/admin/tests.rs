@@ -538,6 +538,39 @@ fn admin_names_generations_and_permissions_are_validated() {
     assert!(crate::auth::Permission::parse_testable("storage.objects.typo").is_none());
 }
 
+/// Seed, fixtures and the sync engine report these texts, so the typed errors keep them.
+#[test]
+fn admin_name_and_generation_errors_keep_their_text() {
+    assert_eq!(
+        BucketName::new("UPPER"),
+        Err(AdminError::Invalid("Invalid bucket name".into()))
+    );
+    assert_eq!(
+        ObjectName::new(".."),
+        Err(AdminError::Invalid("Invalid object name".into()))
+    );
+    assert_eq!(
+        Generation::new(0),
+        Err(AdminError::Invalid("generation must be positive".into()))
+    );
+}
+
+#[test]
+fn names_and_generations_serialize_as_their_values() {
+    assert_eq!(
+        serde_json::to_value(BucketName::new("test-bucket").unwrap()).unwrap(),
+        serde_json::json!("test-bucket")
+    );
+    assert_eq!(
+        serde_json::to_value(ObjectName::new("日本語/a b").unwrap()).unwrap(),
+        serde_json::json!("日本語/a b")
+    );
+    assert_eq!(
+        serde_json::to_value(Generation::new(i64::MAX).unwrap()).unwrap(),
+        serde_json::json!(i64::MAX)
+    );
+}
+
 #[tokio::test]
 async fn admin_ensure_batches_preserve_identity_order_and_rollback() {
     let (dir, catalog, admin, name, _) = setup().await;

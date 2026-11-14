@@ -8,7 +8,7 @@ type StoredWorkspace = (
     String,
     Incarnation,
     String,
-    i64,
+    Generation,
     [u8; 8],
     [u8; 8],
     Option<Vec<u8>>,
@@ -70,7 +70,7 @@ fn validate(
     proof: &OwnedProof,
 ) -> Result<(), Error> {
     let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND id=?2 AND revision=?3 AND state=1 AND source_op=?4 AND owner=?5 AND bucket=?6 AND incarnation=?7 AND name=?8 AND generation=?9 AND source=?10 AND retained=?11)")?
-        .query_row(params![root,proof.id,proof.revision,item.id,item.owner,item.request.binding.bucket,item.request.binding.incarnation,item.request.name.as_str(),item.request.expected_generation.map(Generation::get),proof.source.encode()?,proof.retained.encode()?], |row|row.get(0))?;
+        .query_row(params![root,proof.id,proof.revision,item.id,item.owner,item.request.binding.bucket,item.request.binding.incarnation,item.request.name,item.request.expected_generation,proof.source.encode()?,proof.retained.encode()?], |row|row.get(0))?;
     if !valid {
         return Err(Error::TargetChanged);
     }
@@ -417,7 +417,7 @@ impl RootLease {
             let (owner,bucket,incarnation,name,generation,device,inode,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
                 .query_row(params![root,id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)))?;
             let accepted = snapshot.as_deref().map(self::snapshot).transpose()?.flatten().and_then(|snapshot|snapshot.transfer);
-            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(Generation::new(generation)?),source_op:Some(id)},accepted,device,inode })
+            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(generation),source_op:Some(id)},accepted,device,inode })
         }).await
     }
 

@@ -27,7 +27,7 @@ use crate::{
     },
 };
 use rusqlite::Connection;
-use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
+use std::{fmt, io, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
 pub(crate) const MAX_PAGE: usize = 256;
@@ -87,45 +87,25 @@ impl AdminGrant {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BucketName(String);
+pub use crate::bucket::name::{BucketName, InvalidBucketName};
+pub use crate::object::generation::{Generation, InvalidGeneration};
+pub use crate::object::name::{InvalidObjectName, ObjectName};
+
+// The administration API's constructors keep its error type: seed, fixtures and the sync engine
+// report `AdminError`'s text. They live beside `AdminError` rather than beside the types.
 impl BucketName {
     pub fn new(value: impl Into<String>) -> Result<Self, AdminError> {
-        let value = value.into();
-        crate::json::validate_bucket_name(&value)
-            .map_err(|error| AdminError::Invalid(error.message))?;
-        Ok(Self(value))
-    }
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+        Ok(Self::try_from(value.into())?)
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObjectName(String);
 impl ObjectName {
     pub fn new(value: impl Into<String>) -> Result<Self, AdminError> {
-        let value = value.into();
-        crate::object::name::validate(&value)
-            .map_err(|_| AdminError::Invalid("Invalid object name".into()))?;
-        Ok(Self(value))
-    }
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+        Ok(Self::try_from(value.into())?)
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Generation(NonZeroI64);
 impl Generation {
     pub fn new(value: i64) -> Result<Self, AdminError> {
-        NonZeroI64::new(value)
-            .filter(|value| value.get() > 0)
-            .map(Self)
-            .ok_or_else(|| AdminError::Invalid("generation must be positive".into()))
-    }
-    pub fn get(self) -> i64 {
-        self.0.get()
+        Ok(Self::try_from(value)?)
     }
 }
 
@@ -339,6 +319,21 @@ impl AdminError {
         } else {
             Self::Io(cause)
         }
+    }
+}
+impl From<InvalidBucketName> for AdminError {
+    fn from(_: InvalidBucketName) -> Self {
+        Self::Invalid("Invalid bucket name".into())
+    }
+}
+impl From<InvalidObjectName> for AdminError {
+    fn from(_: InvalidObjectName) -> Self {
+        Self::Invalid("Invalid object name".into())
+    }
+}
+impl From<InvalidGeneration> for AdminError {
+    fn from(_: InvalidGeneration) -> Self {
+        Self::Invalid("generation must be positive".into())
     }
 }
 impl From<CatalogError> for AdminError {
@@ -603,7 +598,7 @@ impl Admin {
     }
 
     pub async fn get_bucket(&self, name: &BucketName) -> Result<Option<BucketRecord>, AdminError> {
-        let name = name.0.clone();
+        let name = name.as_str().to_owned();
         self.catalog
             .run_admin(move |connection| select_bucket(connection, &name).map_err(unavailable))
             .await
@@ -624,7 +619,7 @@ impl Admin {
             ));
         }
         let project = project.to_owned();
-        let after = after.map(|name| name.0.clone());
+        let after = after.map(|name| name.as_str().to_owned());
         self.catalog
             .run_admin(move |connection| {
                 super::bucket_list_page(connection, Some(&[project]), "", after.as_deref(), limit)
@@ -754,8 +749,8 @@ impl Admin {
         condition: Option<GenerationCondition>,
         deadline: tokio::time::Instant,
     ) -> Result<(), AdminError> {
-        let bucket = bucket.0.clone();
-        let name = name.0.clone();
+        let bucket = bucket.as_str().to_owned();
+        let name = name.as_str().to_owned();
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         self.catalog
@@ -782,8 +777,8 @@ impl Admin {
         name: &ObjectName,
         generation: Option<Generation>,
     ) -> Result<ObjectRecord, AdminError> {
-        let bucket = bucket.0.clone();
-        let name = name.0.clone();
+        let bucket = bucket.as_str().to_owned();
+        let name = name.as_str().to_owned();
         let access = BucketAccess::Admin(self.grant.clone());
         self.catalog
             .run_admin_with_error(move |connection| {
@@ -810,8 +805,8 @@ impl Admin {
         generation: Option<Generation>,
     ) -> Result<(ObjectRecord, super::ObjectReader), AdminError> {
         let target = ObjectTarget::new(
-            bucket.0.clone(),
-            name.0.clone(),
+            bucket.as_str().to_owned(),
+            name.as_str().to_owned(),
             generation.map(Generation::get),
         );
         let access = BucketAccess::Admin(self.grant.clone());
@@ -844,7 +839,7 @@ impl Admin {
         if !query.bucket.is_empty() && query.bucket != bucket.as_str() {
             return Err(AdminError::Invalid("list query bucket mismatch".into()));
         }
-        query.bucket = bucket.0.clone();
+        query.bucket = bucket.as_str().to_owned();
         let access = BucketAccess::Admin(self.grant.clone());
         self.catalog
             .run_admin_with_error(move |connection| {
@@ -882,7 +877,7 @@ impl Admin {
         condition: GenerationCondition,
         binding: Option<super::sync_state::SyncBinding>,
     ) -> Result<(), AdminError> {
-        let target = ObjectTarget::new(bucket.0.clone(), name.0.clone(), None);
+        let target = ObjectTarget::new(bucket.as_str().to_owned(), name.as_str().to_owned(), None);
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         let retired = self

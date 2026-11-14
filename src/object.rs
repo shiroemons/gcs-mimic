@@ -7,6 +7,7 @@ use crate::{
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
 
+pub(crate) mod generation;
 pub(crate) mod name;
 pub(crate) mod owner;
 pub(crate) mod retention;

@@ -26,33 +26,8 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
 ];
 
 pub(crate) fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
-    let invalid = || JsonError::invalid_parameter("Invalid bucket name");
-    let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    if name.len() < 3
-        || name.len() > 222
-        || (!name.contains('.') && name.len() > 63)
-        || !name
-            .bytes()
-            .all(|byte| alphanumeric(byte) || matches!(byte, b'-' | b'_' | b'.'))
-        || !name.bytes().next().is_some_and(alphanumeric)
-        || !name.bytes().last().is_some_and(alphanumeric)
-        || name
-            .split('.')
-            .any(|component| component.is_empty() || component.len() > 63)
-        || name.starts_with("goog")
-        || name.replace('0', "o").contains("google")
-    {
-        return Err(invalid());
-    }
-    let parts: Vec<_> = name.split('.').collect();
-    if parts.len() == 4
-        && parts.iter().all(|part| {
-            part.bytes().all(|byte| byte.is_ascii_digit()) && part.parse::<u8>().is_ok()
-        })
-    {
-        return Err(invalid());
-    }
-    Ok(())
+    crate::bucket::name::validate(name)
+        .map_err(|_| JsonError::invalid_parameter("Invalid bucket name"))
 }
 
 /// The name of a bucket being created. Insert reports the offending value in the body error, and

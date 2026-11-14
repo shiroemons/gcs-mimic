@@ -397,8 +397,6 @@ const SELECT_PENDING: &str = concat!(
 );
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
     let id: OpaqueId = row.get(0)?;
-    let generation = Generation::new(row.get(7)?)
-        .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Integer, error))?;
     Ok(Pending {
         token: Token {
             catalog,
@@ -412,7 +410,7 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
         incarnation: row.get(4)?,
         name: row.get(5)?,
         path: row.get(6)?,
-        generation,
+        generation: row.get(7)?,
         kind: row.get(8)?,
         phase: row.get(9)?,
         reserved_bytes: u64::from_be_bytes(row.get(13)?),
@@ -507,11 +505,11 @@ fn original_with_protection(
             if !complete || objects::lookup(connection, &item.bucket, &item.name)?.is_some() {
                 return Err(stale());
             }
-            let held: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND (event_based_hold=1 OR temporary_hold=1))")?.query_row(params![item.bucket,item.name,item.generation.get()],|r|r.get(0))?;
+            let held: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND (event_based_hold=1 OR temporary_hold=1))")?.query_row(params![item.bucket,item.name,item.generation],|r|r.get(0))?;
             if held {
                 return Err(AdminError::Hold.into());
             }
-            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get(),item.size,item.md5,item.crc32c],|r|r.get(0))?;
+            let valid: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4 AND size=?5 AND md5=?6 AND crc32c=?7)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation,item.size,item.md5,item.crc32c],|r|r.get(0))?;
             if !valid {
                 return Err(stale());
             }

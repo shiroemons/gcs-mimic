@@ -169,7 +169,7 @@ fn api_original(
     if objects::lookup(c, &item.bucket, &item.name)?.is_some() {
         return Err(stale());
     }
-    let valid: bool = c.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation.get()], |r| r.get(0))?;
+    let valid: bool = c.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation], |r| r.get(0))?;
     if !valid {
         return Err(stale());
     }
@@ -344,8 +344,8 @@ impl Writeback {
                 super::super::matching(&tx,&binding,bucket.as_str())?;
                 let mut usage = status(&tx, root)?;
                 if usage.stop != Stop::Ready { return Err(Error::RecoveryRequired); }
-                let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([bucket.as_str()], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
-                let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket.as_str(),name.as_str(),incarnation],super::super::read_record).optional()?;
+                let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
+                let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket,name,incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
@@ -363,7 +363,7 @@ impl Writeback {
                 let captured_snapshot=proof_token.as_ref().map(|token|token.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
                 let id = OpaqueId::generate().map_err(AdminError::backend)?;
-                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
+                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket,incarnation,name,path,generation,kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
                 if let Some(snapshot)=captured_snapshot {
                     tx.prepare_cached("UPDATE sync_writeback_ops SET snapshot=?2 WHERE id=?1")?.execute(params![id,snapshot])?;
                 }
@@ -731,9 +731,9 @@ impl Writeback {
                     // Track the bytes actually installed even if a newer API generation won meanwhile.
                     super::super::record_in_transaction(&tx,&update,record.as_ref().ok_or_else(stale)?)?;
                 } else {
-                    tx.prepare_cached("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4")?.execute(params![current.bucket,current.name,current.incarnation,current.generation.get()])?;
+                    tx.prepare_cached("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4")?.execute(params![current.bucket,current.name,current.incarnation,current.generation])?;
                     if valid {
-                        tx.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND generation=?5")?.execute(params![current.token.root,current.bucket,current.name,current.incarnation,current.generation.get()])?;
+                        tx.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND generation=?5")?.execute(params![current.token.root,current.bucket,current.name,current.incarnation,current.generation])?;
                     }
                 }
             }

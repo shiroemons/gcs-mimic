@@ -77,10 +77,10 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
             let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|stored| stored.record.generation == generation.get());
-            let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation])?;
+            let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name,generation,binding.incarnation])?;
             let valid = live || tracked;
             if valid {
-                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()])?;
+                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation])?;
                 remember_owner(&tx,root,&binding.bucket,name.as_str())?;
             }
             tx.commit().map_err(unavailable)
@@ -110,7 +110,7 @@ impl RootLease {
             }
             sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                 ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
-                WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get(),reason]).map_err(unavailable)?;
+                WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation,reason]).map_err(unavailable)?;
             remember_owner(&tx,root,&binding.bucket,name.as_str())?;
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())
@@ -131,7 +131,7 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT ordinal,bucket,name,incarnation,generation,reason FROM sync_findings INDEXED BY sync_findings_page WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
                 .query_map(params![status.root_id,after,limit], |r| {
-                    Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:Generation::new(r.get(4)?).map_err(|error|sql::conversion_error(4,rusqlite::types::Type::Integer,error))?,reason:r.get(5)?})
+                    Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:r.get(4)?,reason:r.get(5)?})
                 })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
@@ -148,7 +148,7 @@ impl RootLease {
         let lease = self.clone();
         self.catalog().run_admin(move |c| {
             let _lease = lease;
-            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id,finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),finding.reason])
+            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id,finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation,finding.reason])
                 .map(|count|count == 1).map_err(unavailable)
         }).await.map_err(RootError::from)
     }

@@ -315,12 +315,10 @@ const SELECT_BY_NAME: &str = concat!(
     " FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3"
 );
 fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncRecord> {
-    let generation: i64 = row.get(2)?;
     Ok(SyncRecord {
         name: row.get(0)?,
         path: row.get(1)?,
-        generation: Generation::new(generation)
-            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, generation))?,
+        generation: row.get(2)?,
         fingerprint: SyncFingerprint {
             size: row.get(3)?,
             mtime_ns: i128::from_be_bytes(row.get(4)?),

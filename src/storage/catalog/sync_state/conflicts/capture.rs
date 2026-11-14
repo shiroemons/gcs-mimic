@@ -142,7 +142,7 @@ impl RootLease {
         let selected = request.clone();
         let exists = self.conflict_db(move |connection| {
             Ok(connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND bucket=?2 AND incarnation=?3 AND name=?4 AND state=1 AND source_op IS NULL)")?
-                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str()], |row| row.get::<_,bool>(0))?)
+                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name], |row| row.get::<_,bool>(0))?)
         }).await?;
         if !exists {
             return Ok(None);
@@ -161,7 +161,7 @@ impl RootLease {
         let candidate = self.conflict_db(move |connection| {
             let owner = check_original(connection, &selected.binding, &selected.name, selected.expected_generation)?;
             connection.prepare_cached("SELECT id,revision,retained FROM sync_conflicts WHERE root_id=?1 AND bucket=?2 AND incarnation=?3 AND name=?4 AND owner=?5 AND state=1 AND source_op IS NULL AND source=?6 ORDER BY ordinal DESC LIMIT 1")?
-                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),owner,source_blob], |row| Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,OpaqueId>(1)?,row.get::<_,Vec<u8>>(2)?)))
+                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name,owner,source_blob], |row| Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,OpaqueId>(1)?,row.get::<_,Vec<u8>>(2)?)))
                 .optional().map_err(Error::from)
         }).await?;
         let Some((id, revision, retained_blob)) = candidate else {
@@ -255,14 +255,14 @@ impl RootLease {
             let owner=if let Some(op)=selected.source_op {
                 recovery::account_workspace(&tx,root,op,size)?;
                 tx.prepare_cached("SELECT owner FROM sync_writeback_ops WHERE root_id=?1 AND id=?2 AND bucket=?3 AND incarnation=?4 AND name=?5 AND generation=?6 AND phase=2")?
-                    .query_row(params![root,op,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get)],|row|row.get::<_,String>(0)).optional()?.ok_or(Error::TargetChanged)?
+                    .query_row(params![root,op,selected.binding.bucket,selected.binding.incarnation,selected.name,selected.expected_generation],|row|row.get::<_,String>(0)).optional()?.ok_or(Error::TargetChanged)?
             } else {check_original(&tx,&selected.binding,&selected.name,selected.expected_generation)?};
             let usage=list::total_usage(&tx,root)?;
             let limits:Option<(u64,u64)>=tx.prepare_cached("SELECT max_bytes,max_entries FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
             let (max_bytes,max_entries)=limits.unwrap_or((MAX_BYTES,MAX_ENTRIES));
             if usage.over_limit || usage.reserved_bytes+usage.retained_bytes+u128::from(size)>u128::from(max_bytes.min(MAX_BYTES)) || usage.entries>=max_entries.min(MAX_ENTRIES) {return Err(Error::Capacity)}
             tx.prepare_cached("INSERT INTO sync_conflicts(id,root_id,revision,owner,bucket,incarnation,name,generation,state,size,source_op,source) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9,?10,?11)")?
-                .execute(params![id,root,revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get),size,selected.source_op,observed])?;
+                .execute(params![id,root,revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name,selected.expected_generation,size,selected.source_op,observed])?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]

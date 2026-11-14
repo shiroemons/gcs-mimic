@@ -13,6 +13,7 @@ pub(crate) enum Action {
     Restore,
     Discard,
 }
+sql::integer_enum!(Action, { Restore => 0, Discard => 1 });
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Confirmation {
@@ -186,7 +187,7 @@ fn accept(
         fault::Step::ConflictAccept,
     )?;
     connection.prepare_cached("INSERT INTO sync_conflict_operations(operation_id,root_id,target_id,target_kind,owner,payload,action,done) VALUES(?1,?2,?3,?4,?5,?6,?7,0)")?
-        .execute(params![request.operation_id,root,id,kind,owner,serde_json::to_vec(request).map_err(AdminError::backend)?,i64::from(request.action==Action::Discard)])?;
+        .execute(params![request.operation_id,root,id,kind,owner,serde_json::to_vec(request).map_err(AdminError::backend)?,request.action])?;
     Ok(())
 }
 
