@@ -49,10 +49,16 @@ enum Report {
     Yes,
 }
 
+/// Whether a message finalizes the object, with the CRC32C the client declared for all of it.
+enum Finish {
+    No,
+    Yes { expected_crc32c: Option<u32> },
+}
+
 /// A message's validations finish before any of its bytes reach the writer.
 struct AppendStep {
     data: Option<(u64, bytes::Bytes)>,
-    finish: Option<Option<u32>>,
+    finish: Finish,
     flush: Flush,
     report: Report,
 }
@@ -91,7 +97,13 @@ fn append_step(message: &mut pb::BidiWriteObjectRequest) -> Result<AppendStep, S
     };
     Ok(AppendStep {
         data,
-        finish: message.finish_write.then_some(expected.crc32c),
+        finish: if message.finish_write {
+            Finish::Yes {
+                expected_crc32c: expected.crc32c,
+            }
+        } else {
+            Finish::No
+        },
         flush: if message.flush { Flush::Yes } else { Flush::No },
         report: if message.flush || message.state_lookup {
             Report::Yes
@@ -264,7 +276,7 @@ impl Storage {
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }
-            if let Some(expected_crc32c) = step.finish {
+            if let Finish::Yes { expected_crc32c } = step.finish {
                 let record = writer
                     .finalize(expected_crc32c, access.clone(), self.max_object_bytes)
                     .await
