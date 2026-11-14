@@ -740,7 +740,7 @@ async fn findings_page(
         let items = items
             .iter()
             .map(|item| findings::value(item, &prefix, observation.writeback.as_ref()))
-            .collect();
+            .collect::<Result<_, _>>()?;
         super::encode(&RootDocument::new(
             &ids,
             FindingsPage {

@@ -6,4 +6,4 @@ text::downcast	src/storage/failure.rs	2
 text::downcast	src/sync/error.rs	8
 text::immediately_invoked_closure	src/source_tree.rs	1
 text::json_macro_value	src/import/filesystem.rs	2
-text::json_macro_value	src/server/admin/sync/findings.rs	7
+text::json_macro_value	src/server/admin/sync/findings.rs	6

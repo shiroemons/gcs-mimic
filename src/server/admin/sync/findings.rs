@@ -1,4 +1,5 @@
 use crate::{
+    json::JsonError,
     storage::sync_state::observation::{
         FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
     },
@@ -6,7 +7,13 @@ use crate::{
 };
 use serde_json::{Value, json};
 
-pub(super) fn value(item: &Item, prefix: &str, quota: Option<&WritebackSummary>) -> Value {
+/// Renders one finding. A recovery finding's retained hashes that fail to encode answer like
+/// any other unencodable management result.
+pub(super) fn value(
+    item: &Item,
+    prefix: &str,
+    quota: Option<&WritebackSummary>,
+) -> Result<Value, JsonError> {
     let (reason, remedy) = match &item.reason {
         FindingReason::RootStop(PauseReason::SourceUnrepresentable) => (
             "SourceUnrepresentable",
@@ -78,11 +85,75 @@ pub(super) fn value(item: &Item, prefix: &str, quota: Option<&WritebackSummary>)
         value.insert("phase".into(), json!(recovery.phase));
         value.insert("retained_location".into(), json!("workspace"));
         value.insert("retained_bytes".into(), json!(recovery.retained_bytes));
-        value.insert("hashes".into(), json!(recovery.hashes));
+        value.insert("hashes".into(), super::super::encode(&recovery.hashes)?);
         value.insert(
             "over_limit".into(),
             json!(quota.is_some_and(|quota| quota.over_limit)),
         );
     }
-    value
+    Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::sync_state::{
+        OpaqueId, conflicts::RecoveryPhase, observation::RecoveryDetails, writeback::Phase,
+    };
+
+    fn id(digit: char) -> OpaqueId {
+        digit.to_string().repeat(32).parse().unwrap()
+    }
+
+    fn recovery_finding(hashes: serde_json::Value) -> Item {
+        Item {
+            kind: 3,
+            ordinal: 7,
+            category: FindingCategory::Writeback,
+            bucket: Some("bucket".into()),
+            object: Some("object".into()),
+            bucket_incarnation: None,
+            generation: Some(5),
+            reason: FindingReason::Writeback(Phase::Protected),
+            operation_id: Some(id('a')),
+            owner_project: Some("project".into()),
+            recovery: Some(RecoveryDetails {
+                recovery_revision: id('b'),
+                target_identity: id('c'),
+                phase: RecoveryPhase::Protected,
+                retained_bytes: 18,
+                hashes: serde_json::from_value(hashes).unwrap(),
+            }),
+            conflict_id: None,
+            conflict_revision: None,
+        }
+    }
+
+    /// A protected write-back finding lists its recovery fields after the common ones.
+    #[test]
+    fn recovery_findings_render_their_workspace_details() {
+        let md5: Vec<u8> = (0..16).collect();
+        let hashes = json!({"md5": md5, "crc32c": 4_294_967_295_u32});
+        let quota = WritebackSummary {
+            state: crate::storage::sync_state::writeback::Stop::Ready,
+            reserved_bytes: 0,
+            retained_bytes: 18,
+            entries: 1,
+            protected_entries: 1,
+            max_bytes: 10,
+            max_entries: 10,
+            over_limit: true,
+        };
+        let a = "a".repeat(32);
+        let b = "b".repeat(32);
+        let c = "c".repeat(32);
+        let expected = format!(
+            r#"{{"finding_id":"prefix030000000000000007","category":"writeback","reason":"RecoveryRequired","scope":"path","bucket":"bucket","object":"object","bucket_incarnation":null,"generation":5,"owner_project":"project","detail_code":"protected","remedy":"Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal","operation_id":"{a}","conflict_id":null,"conflict_revision":null,"recovery_id":"{a}","recovery_revision":"{b}","target_identity":"{c}","phase":"protected","retained_location":"workspace","retained_bytes":18,"hashes":{{"md5":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],"crc32c":4294967295}},"over_limit":true}}"#
+        );
+        let rendered = value(&recovery_finding(hashes), "prefix", Some(&quota)).unwrap();
+        assert_eq!(serde_json::to_string(&rendered).unwrap(), expected);
+        let without = value(&recovery_finding(Value::Null), "prefix", None).unwrap();
+        assert_eq!(without["hashes"], Value::Null);
+        assert_eq!(without["over_limit"], false);
+    }
 }
