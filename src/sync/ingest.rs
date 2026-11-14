@@ -235,8 +235,7 @@ async fn clear_missing_observations(
         }
         for (ordinal, binding, name) in page {
             after = ordinal;
-            let bucket = BucketName::new(binding.bucket_name())?;
-            if let mapping::PathMapping::File(path) = mapping::name_to_path(&bucket, &name)
+            if let mapping::PathMapping::File(path) = mapping::name_to_path(binding.bucket(), &name)
                 && let Some(path) = path.to_str()
                 && super::deletion::absent(root, path.to_owned()).await?
             {

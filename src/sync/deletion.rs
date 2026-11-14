@@ -198,8 +198,8 @@ pub(super) async fn execute_with(
                     super::mirror::restore_from_catalog(
                         catalog,
                         root,
-                        &candidate.bucket.clone(),
-                        &candidate.name.clone(),
+                        &candidate.bucket,
+                        &candidate.name,
                     )
                     .await?;
                     crate::diagnostics::emit(
@@ -228,9 +228,7 @@ async fn delete(
     set: &DeletionSet,
     candidate: &Candidate,
 ) -> Result<Deleted, SyncError> {
-    let bucket = candidate.bucket.clone();
-    let name = candidate.name.clone();
-    let binding = match root.sync_binding(&bucket).await {
+    let binding = match root.sync_binding(&candidate.bucket).await {
         Ok(binding) => binding,
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),
         Err(error) => return Err(error.into()),
@@ -239,8 +237,8 @@ async fn delete(
     match root
         .sync_admin()
         .delete_synced_object(
-            &bucket,
-            &name,
+            &candidate.bucket,
+            &candidate.name,
             GenerationCondition::Is(candidate.generation),
             binding.clone(),
         )

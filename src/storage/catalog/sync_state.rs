@@ -139,8 +139,8 @@ impl SyncBinding {
         }
     }
 
-    pub(crate) fn bucket_name(&self) -> &str {
-        self.bucket.as_str()
+    pub(crate) fn bucket(&self) -> &BucketName {
+        &self.bucket
     }
 
     pub(crate) fn with_control(mut self, scope: authority::ControlScope) -> Self {
