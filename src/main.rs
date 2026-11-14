@@ -5,7 +5,13 @@ use gcs_mimic::{
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     tls,
 };
-use std::{collections::BTreeMap, io, path::Path, process::ExitCode, time::Duration};
+use std::{
+    collections::{BTreeMap, btree_map},
+    io,
+    path::Path,
+    process::ExitCode,
+    time::Duration,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod startup;
 mod sync_cli;
@@ -386,47 +392,91 @@ fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
     }
 }
 
+/// The options `url public` accepts, each at most once.
+const URL_PUBLIC_OPTIONS: [&str; 5] = ["--base-url", "--config", "--bucket", "--object", "--style"];
+
+/// The options `url sign` accepts at most once; `--header` and `--query` may repeat.
+const URL_SIGN_OPTIONS: [&str; 10] = [
+    "--base-url",
+    "--config",
+    "--bucket",
+    "--object",
+    "--method",
+    "--expires",
+    "--signer",
+    "--private-key",
+    "--timestamp",
+    "--style",
+];
+
+/// The options of a `url` helper that may each be given once.
+struct UrlOptions<'a> {
+    values: BTreeMap<&'a str, &'a str>,
+    /// The usage text that a missing option's error repeats.
+    help: &'static str,
+}
+
+impl<'a> UrlOptions<'a> {
+    fn new(help: &'static str) -> Self {
+        Self {
+            values: BTreeMap::new(),
+            help,
+        }
+    }
+
+    fn insert(&mut self, name: &'a str, value: &'a str) -> Result<(), UrlFix> {
+        match self.values.entry(name) {
+            btree_map::Entry::Vacant(entry) => {
+                entry.insert(value);
+                Ok(())
+            }
+            btree_map::Entry::Occupied(_) => Err(format!("duplicate option: {name}").into()),
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&'a str> {
+        self.values.get(name).copied()
+    }
+
+    fn required(&self, name: &str) -> Result<&'a str, UrlFix> {
+        self.get(name)
+            .ok_or_else(|| format!("missing required option: {name}\n{}", self.help).into())
+    }
+
+    /// The object URL both helpers start from, in the selected style.
+    fn object_url(&self, configured: Option<String>) -> Result<String, UrlFix> {
+        let build = match self.get("--style").unwrap_or("path").parse()? {
+            UrlStyle::Path => gcs_mimic::url::public_object_url,
+            UrlStyle::VirtualHosted => gcs_mimic::url::virtual_host_object_url,
+        };
+        let base = self.get("--base-url").map(str::to_owned).or(configured).ok_or(
+            "missing required option: --base-url; provide --base-url URL or --config PATH containing public_base_url.",
+        )?;
+        build(
+            &base,
+            self.required("--bucket")?,
+            self.required("--object")?,
+        )
+        .map_err(|error| error.to_string().into())
+    }
+}
+
 fn url_public(args: &[String], configured: Option<String>) -> Result<String, UrlFix> {
-    let mut options = BTreeMap::new();
+    let mut options = UrlOptions::new(URL_PUBLIC_HELP);
     for pair in option_pairs(args) {
         let (name, value) = pair.map_err(|_| {
             format!("url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}")
         })?;
-        if !matches!(
-            name,
-            "--base-url" | "--config" | "--bucket" | "--object" | "--style"
-        ) {
+        if !URL_PUBLIC_OPTIONS.contains(&name) {
             return Err(format!("unknown url public option: {name}\n{URL_PUBLIC_HELP}").into());
         }
-        if options.insert(name, value).is_some() {
-            return Err(format!("duplicate option: {name}").into());
-        }
+        options.insert(name, value)?;
     }
-    let required = |name| {
-        options
-            .get(name)
-            .copied()
-            .ok_or_else(|| format!("missing required option: {name}\n{URL_PUBLIC_HELP}"))
-    };
-    let build = match options.get("--style").copied().unwrap_or("path").parse()? {
-        UrlStyle::Path => gcs_mimic::url::public_object_url,
-        UrlStyle::VirtualHosted => gcs_mimic::url::virtual_host_object_url,
-    };
-    build(
-        &url_base(&options, configured)?,
-        required("--bucket")?,
-        required("--object")?,
-    )
-    .map_err(|error| error.to_string().into())
-}
-
-fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Result<String, UrlFix> {
-    options.get("--base-url").map(|base| (*base).to_owned()).or(configured)
-        .ok_or_else(|| "missing required option: --base-url; provide --base-url URL or --config PATH containing public_base_url.".into())
+    options.object_url(configured)
 }
 
 fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFix> {
-    let mut options = BTreeMap::new();
+    let mut options = UrlOptions::new(URL_SIGN_HELP);
     let mut headers = hyper::HeaderMap::new();
     let mut query = Vec::new();
     for pair in option_pairs(args) {
@@ -448,50 +498,22 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
                 gcs_mimic::auth::signature::encode_query_component(value)
             ));
         } else {
-            if !matches!(
-                name,
-                "--base-url"
-                    | "--config"
-                    | "--bucket"
-                    | "--object"
-                    | "--method"
-                    | "--expires"
-                    | "--signer"
-                    | "--private-key"
-                    | "--timestamp"
-                    | "--style"
-            ) {
+            if !URL_SIGN_OPTIONS.contains(&name) {
                 return Err(format!("unknown url sign option: {name}").into());
             }
-            if options.insert(name, value).is_some() {
-                return Err(format!("duplicate option: {name}").into());
-            }
+            options.insert(name, value)?;
         }
     }
-    let required = |name| {
-        options
-            .get(name)
-            .copied()
-            .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
-    };
-    let build = match options.get("--style").copied().unwrap_or("path").parse()? {
-        UrlStyle::Path => gcs_mimic::url::public_object_url,
-        UrlStyle::VirtualHosted => gcs_mimic::url::virtual_host_object_url,
-    };
-    let mut url = build(
-        &url_base(&options, configured)?,
-        required("--bucket")?,
-        required("--object")?,
-    )
-    .map_err(|error| error.to_string())?;
+    let mut url = options.object_url(configured)?;
     if !query.is_empty() {
         url.push('?');
         url.push_str(&query.join("&"));
     }
-    let method = required("--method")?
+    let method = options
+        .required("--method")?
         .parse()
         .map_err(|_| "invalid signing method")?;
-    let duration = required("--expires")?;
+    let duration = options.required("--expires")?;
     let expires = gcs_mimic::config_input::duration(
         duration,
         &[("s", 1), ("m", 60), ("h", 3600), ("d", 86400), ("", 1)],
@@ -501,7 +523,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
     .ok_or("invalid signing duration")?;
     let now = options
         .get("--timestamp")
-        .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
+        .map(gcs_mimic::auth::signature::parse_timestamp)
         .transpose()
         .map_err(|error| error.to_string())?
         .unwrap_or_else(|| SystemClock.now());
@@ -521,7 +543,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFi
 /// The explicit signer and its key file, or the built-in test signer when neither is given. A
 /// signer without its key, or a key without its signer, would sign as someone unintended.
 fn signing_credentials<'a>(
-    options: &BTreeMap<&str, &'a str>,
+    options: &UrlOptions<'a>,
 ) -> Result<(&'a str, std::borrow::Cow<'static, [u8]>), UrlFix> {
     use gcs_mimic::auth::test_signer;
     match (options.get("--signer"), options.get("--private-key")) {
@@ -931,6 +953,26 @@ mod tests {
         assert_eq!(
             url_sign(&args, None).unwrap_err().0,
             format!("url sign options require --name VALUE pairs\n{URL_SIGN_HELP}")
+        );
+        // Both helpers share the once-only options and the missing-option text with its help.
+        let args = ["--bucket", "a", "--bucket", "b"].map(str::to_owned);
+        assert_eq!(
+            url_public(&args, None).unwrap_err().0,
+            "duplicate option: --bucket"
+        );
+        assert_eq!(
+            url_sign(&args, None).unwrap_err().0,
+            "duplicate option: --bucket"
+        );
+        // The base is checked before the bucket and object, so it is supplied here.
+        let args = ["--base-url", "http://localhost:4443", "--bucket", "a"].map(str::to_owned);
+        assert_eq!(
+            url_public(&args, None).unwrap_err().0,
+            format!("missing required option: --object\n{URL_PUBLIC_HELP}")
+        );
+        assert_eq!(
+            url_sign(&args, None).unwrap_err().0,
+            format!("missing required option: --object\n{URL_SIGN_HELP}")
         );
     }
 }
