@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::WriteMode;
+use crate::object::{MapPatch, WriteMode};
 use crate::storage::test_fixtures::PERMISSIVE;
 
 #[tokio::test]
@@ -276,7 +276,7 @@ async fn bucket_metadata_rechecks_revocation(mode: WriteMode) {
         .await
         .unwrap();
     let update = BucketMetadataUpdate {
-        labels: Some(None),
+        labels: MapPatch::Clear,
         ..Default::default()
     };
     let before = catalog
@@ -301,10 +301,10 @@ async fn bucket_metadata_rechecks_revocation(mode: WriteMode) {
         before
     );
     let invalid = BucketMetadataUpdate {
-        labels: Some(Some(std::collections::BTreeMap::from([(
+        labels: MapPatch::Merge(std::collections::BTreeMap::from([(
             "Bad".into(),
             Some("value".into()),
-        )]))),
+        )])),
         ..Default::default()
     };
     assert_eq!(

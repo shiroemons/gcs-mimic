@@ -4,7 +4,7 @@ use super::{
 use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
-    object::{ExpectedHashes, ObjectError},
+    object::{ExpectedHashes, MapPatch, ObjectError},
     storage::ResumableOptions,
 };
 use hyper::{HeaderMap, Method, Uri};
@@ -305,25 +305,18 @@ pub(crate) fn final_options(
             super::WriteMode::Patch,
         )?
         .update;
-        let incoming = update.metadata.flatten().unwrap_or_default();
-        let stored = options
-            .metadata
-            .metadata
-            .get_or_insert_with(|| Some(Default::default()))
-            .get_or_insert_with(Default::default);
-        stored.extend(incoming);
+        // Header values are strings, so the parsed headers always merge at least one key.
+        if let MapPatch::Merge(incoming) = update.metadata {
+            for (key, value) in incoming {
+                options.metadata.metadata.merge_entry(key, value);
+            }
+        }
     }
-    if options
-        .metadata
-        .metadata
-        .as_ref()
-        .and_then(|m| m.as_ref())
-        .is_some_and(|m| {
-            m.iter()
-                .map(|(k, v)| k.len() + v.as_ref().map_or(0, String::len))
-                .sum::<usize>()
-                > 8192
-        })
+    if let MapPatch::Merge(m) = &options.metadata.metadata
+        && m.iter()
+            .map(|(k, v)| k.len() + v.as_ref().map_or(0, String::len))
+            .sum::<usize>()
+            > 8192
     {
         return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
     }

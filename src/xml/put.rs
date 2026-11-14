@@ -7,7 +7,8 @@ use crate::{
     auth::{self, Caller},
     json,
     object::{
-        ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch,
+        ExpectedHashes, HashAlgorithm, MapPatch, ObjectConditions, ObjectError,
+        ObjectMetadataUpdate, Patch,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
@@ -370,7 +371,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
             "Custom metadata exceeds 8 KiB.",
         ));
     }
-    metadata.metadata = Some(Some(custom));
+    metadata.metadata = MapPatch::Merge(custom);
     Ok(metadata)
 }
 

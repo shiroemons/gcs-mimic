@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::Patch;
+use crate::object::{MapPatch, Patch};
 use crate::storage::ObjectUpload;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
@@ -1031,10 +1031,8 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
         .await
         .unwrap();
     let mut first_request = request(Some(GenerationCondition::Absent));
-    first_request.metadata.metadata = Some(Some(BTreeMap::from([(
-        "custom".into(),
-        Some("value".into()),
-    )])));
+    first_request.metadata.metadata =
+        MapPatch::Merge(BTreeMap::from([("custom".into(), Some("value".into()))]));
     let first = admin
         .publish_object(&bucket, &name, first_request, body(b"original"))
         .await
@@ -1364,10 +1362,8 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
                 publication.metadata.cache_control = Patch::Set("public\u{7f}".into())
             }
             "custom-key" => {
-                publication.metadata.metadata = Some(Some(BTreeMap::from([(
-                    String::new(),
-                    Some("value".into()),
-                )])))
+                publication.metadata.metadata =
+                    MapPatch::Merge(BTreeMap::from([(String::new(), Some("value".into()))]))
             }
             _ => unreachable!(),
         }

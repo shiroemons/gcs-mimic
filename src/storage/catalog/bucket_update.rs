@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::WriteMode;
+use crate::object::{MapPatch, WriteMode};
 
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, versioning_configured = ?14, default_event_based_hold = ?5,
@@ -141,9 +141,7 @@ pub(super) fn update_in_transaction(
     )?;
     validate_retention_expiration(transaction, &record)?;
     bucket_autoclass::update(transaction, &mut record, &update, clock.now())?;
-    if let Some(labels) = update.labels.take() {
-        apply_labels(&mut record, labels, mode, update.labels_mode)?;
-    }
+    apply_labels(&mut record, std::mem::take(&mut update.labels), mode)?;
     if record.labels.len() > 64 {
         return Err(CatalogError::InvalidMetadata(
             "A bucket can have at most 64 labels".into(),
@@ -397,35 +395,46 @@ fn apply_plain_settings(
     Ok(())
 }
 
-/// Applies a label update; `None` clears every label and a replace starts from none.
+/// Applies a label update. A PUT whose labels merge (a library caller: the adapters send a
+/// replacement) starts from none and may not remove a label.
 fn apply_labels(
     record: &mut BucketRecord,
-    labels: Option<std::collections::BTreeMap<String, Option<String>>>,
+    labels: MapPatch,
     mode: WriteMode,
-    map_mode: crate::object::MapMode,
 ) -> Result<(), CatalogError> {
-    if mode == WriteMode::Replace || map_mode == crate::object::MapMode::Replace {
-        record.labels.clear();
-    }
-    let Some(labels) = labels else {
-        record.labels.clear();
-        return Ok(());
+    let invalid = || CatalogError::InvalidMetadata("Invalid bucket label".into());
+    // Library callers can bypass adapter validation.
+    let valid = |key: &str, value: Option<&str>| {
+        valid_label(key, LabelPart::Key)
+            && value.is_none_or(|value| valid_label(value, LabelPart::Value))
     };
-    for (key, value) in labels {
-        // Library callers can bypass adapter validation.
-        if ((mode == WriteMode::Replace || map_mode == crate::object::MapMode::Replace)
-            && value.is_none())
-            || !valid_label(&key, LabelPart::Key)
-            || value
-                .as_deref()
-                .is_some_and(|value| !valid_label(value, LabelPart::Value))
-        {
-            return Err(CatalogError::InvalidMetadata("Invalid bucket label".into()));
+    match labels {
+        MapPatch::Keep => {}
+        MapPatch::Clear => record.labels.clear(),
+        MapPatch::Replace(labels) => {
+            if labels.iter().any(|(key, value)| !valid(key, Some(value))) {
+                return Err(invalid());
+            }
+            record.labels = labels;
         }
-        if let Some(value) = value {
-            record.labels.insert(key, value);
-        } else {
-            record.labels.remove(&key);
+        MapPatch::Merge(changes) => {
+            if mode == WriteMode::Replace {
+                record.labels.clear();
+            }
+            for (key, value) in changes {
+                if (mode == WriteMode::Replace && value.is_none()) || !valid(&key, value.as_deref())
+                {
+                    return Err(invalid());
+                }
+                match value {
+                    Some(value) => {
+                        record.labels.insert(key, value);
+                    }
+                    None => {
+                        record.labels.remove(&key);
+                    }
+                }
+            }
         }
     }
     Ok(())

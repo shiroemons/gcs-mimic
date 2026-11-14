@@ -967,7 +967,12 @@ mod tests {
         self as fixtures, assert_code, assert_unsupported, caller, registry,
     };
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
-    use crate::{auth::Auth, object::UploadChunk, storage::Catalog, test_support::TestDir};
+    use crate::{
+        auth::Auth,
+        object::{MapPatch, UploadChunk},
+        storage::Catalog,
+        test_support::TestDir,
+    };
     use std::{cell::RefCell, collections::VecDeque, sync::Arc};
     use tonic::Code;
 
@@ -1162,7 +1167,7 @@ mod tests {
         };
         assert_eq!(
             bucket_patch(&b, &["labels.keep".into()]).unwrap().labels,
-            Some(Some([("keep".into(), Some("changed".into()))].into()))
+            MapPatch::Merge([("keep".into(), Some("changed".into()))].into())
         );
         let update = object_patch(
             &pb::Object::default(),
@@ -1729,10 +1734,10 @@ mod tests {
         for index in 0..OBJECTS {
             let name = format!("object-{index:04}");
             let mut upload = permissive_upload("update-copy-bucket", &name, s.max_object_bytes);
-            upload.metadata.metadata = Some(Some(std::collections::BTreeMap::from([(
+            upload.metadata.metadata = MapPatch::Merge(std::collections::BTreeMap::from([(
                 "key".to_owned(),
                 Some("v".repeat(8000)),
-            )])));
+            )]));
             let (tx, rx) = tokio::sync::mpsc::channel(1);
             tx.send(Ok(UploadChunk::End)).await.unwrap();
             drop(tx);

@@ -6,7 +6,7 @@ use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::test_support::hooked_worker;
 use crate::{
-    object::{ObjectMetadataUpdate, Patch, UploadChunk},
+    object::{MapPatch, ObjectMetadataUpdate, Patch, UploadChunk},
     storage::admin::Origin,
     test_support::{TestDir, eventually_async, eventually_some_async},
 };
@@ -668,10 +668,10 @@ async fn ingest_preserves_metadata_patch_and_api_body_racing_publication() {
                     Default::default(),
                     ObjectMetadataUpdate {
                         content_type: Patch::Set("application/patched".into()),
-                        metadata: Some(Some(BTreeMap::from([(
+                        metadata: MapPatch::Merge(BTreeMap::from([(
                             "key".into(),
                             Some("patched".into()),
-                        )]))),
+                        )])),
                         ..Default::default()
                     },
                     |_| Ok(()),

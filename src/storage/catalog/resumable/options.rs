@@ -4,7 +4,9 @@ use super::{InvalidOptions, ResumableOptions};
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode},
+    object::{
+        ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -65,8 +67,9 @@ impl<T, C> Metadata<T, C> {
             content_disposition: restored(self.content_disposition, &string),
             content_language: restored(self.content_language, &string),
             cache_control: restored(self.cache_control, string),
-            metadata: self.metadata.map(custom),
-            metadata_mode: crate::object::MapMode::Merge,
+            metadata: self.metadata.map_or(MapPatch::Keep, |stored| {
+                custom(stored).map_or(MapPatch::Clear, MapPatch::Merge)
+            }),
             retention: super::super::objects::retention::from_session(&self.retention)?,
             customer_key_sha256: self.customer_key_sha256,
             storage_class: self.storage_class,
@@ -92,6 +95,26 @@ fn stored<T: Clone>(patch: &Patch<T>) -> Option<Field<Option<T>>> {
         Patch::Clear => Some(Field { value: None }),
         Patch::Set(value) => Some(Field {
             value: Some(value.clone()),
+        }),
+    }
+}
+
+/// Custom metadata as the document stores it. The document has no map mode: no session holds a
+/// replacement (only UpdateObject builds one), and one is written as a merge of its values.
+fn stored_metadata(patch: &MapPatch) -> Option<Field<Option<CustomMetadata>>> {
+    match patch {
+        MapPatch::Keep => None,
+        MapPatch::Clear => Some(Field { value: None }),
+        MapPatch::Merge(entries) => Some(Field {
+            value: Some(entries.clone()),
+        }),
+        MapPatch::Replace(entries) => Some(Field {
+            value: Some(
+                entries
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Some(value.clone())))
+                    .collect(),
+            ),
         }),
     }
 }
@@ -138,7 +161,7 @@ impl StoredOptions {
             content_disposition: stored(&m.content_disposition),
             content_language: stored(&m.content_language),
             cache_control: stored(&m.cache_control),
-            metadata: m.metadata.clone().map(|value| Field { value }),
+            metadata: stored_metadata(&m.metadata),
             retention: super::super::objects::retention::session_value(&m.retention),
             customer_key_sha256: m.customer_key_sha256,
             storage_class: m.storage_class,

@@ -663,7 +663,7 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::Patch;
+    use crate::object::{MapPatch, Patch};
 
     #[tokio::test]
     async fn rejected_creation_releases_the_draft_but_post_commit_failure_retains_it() {
@@ -781,10 +781,10 @@ mod tests {
         );
         assert_eq!(
             options.metadata.metadata,
-            Some(Some(std::collections::BTreeMap::from([(
+            MapPatch::Merge(std::collections::BTreeMap::from([(
                 "key".into(),
                 Some("value".into())
-            )])))
+            )]))
         );
         assert_eq!(options.conditions.if_generation_match, Some(0));
         assert!(options.projection_full);
@@ -794,7 +794,7 @@ mod tests {
     fn nullable_updates_keep_removal_distinct_from_omission() {
         let mut options = ResumableOptions::new(BucketAccess::Permissive);
         options.metadata.content_type = Patch::Clear;
-        options.metadata.metadata = Some(None);
+        options.metadata.metadata = MapPatch::Clear;
         options.metadata.retention = Patch::Clear;
         let encoded = encode_options(&options);
         assert_eq!(

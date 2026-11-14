@@ -3,7 +3,7 @@ use crate::{
     bucket::{BucketMetadataUpdate, SoftDeletePolicy},
     clock::{Clock, ManualClock},
     object::{
-        ObjectMetadataUpdate, Patch,
+        MapPatch, ObjectMetadataUpdate, Patch,
         retention::{ObjectRetention, RetentionMode},
     },
     storage::{
@@ -644,10 +644,10 @@ async fn name_lists_and_strict_size_conditions_use_published_names_and_data_byte
             live("bucket", "logs/match.bin"),
             Default::default(),
             ObjectMetadataUpdate {
-                metadata: Some(Some(std::collections::BTreeMap::from([(
+                metadata: MapPatch::Merge(std::collections::BTreeMap::from([(
                     "large".into(),
                     Some("x".repeat(1024)),
-                )]))),
+                )])),
                 ..Default::default()
             },
             |_| Ok(()),

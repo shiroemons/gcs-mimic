@@ -1487,6 +1487,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::MapPatch;
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::test_support::TestDir;
 
@@ -1651,10 +1652,10 @@ mod tests {
                         .unwrap();
                     let update = BucketMetadataUpdate {
                         public_access_prevention_enforced: value,
-                        labels: Some(Some(BTreeMap::from([(
+                        labels: MapPatch::Merge(BTreeMap::from([(
                             "team".into(),
                             Some("storage".into()),
-                        )]))),
+                        )])),
                         ..Default::default()
                     };
                     let result = if replace {
@@ -1740,10 +1741,10 @@ mod tests {
                             entries[0].role = crate::acl::AclRole::Owner;
                         }
                         let mut update = BucketMetadataUpdate {
-                            labels: Some(Some(BTreeMap::from([(
+                            labels: MapPatch::Merge(BTreeMap::from([(
                                 "changed".into(),
                                 Some("yes".into()),
-                            )]))),
+                            )])),
                             ..Default::default()
                         };
                         if default_acl {

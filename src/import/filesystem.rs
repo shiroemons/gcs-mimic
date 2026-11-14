@@ -5,7 +5,7 @@ use super::{
     scan_with_baseline,
 };
 use crate::{
-    object::{ExpectedHashes, ObjectMetadataUpdate, Patch},
+    object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch},
     storage::{
         Catalog,
         admin::{
@@ -304,12 +304,14 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
                 (!attrs.content_language.is_empty()).then(|| attrs.content_language.clone()),
             ),
             cache_control: Patch::Set(attrs.cache_control.clone()),
-            metadata: Some(attrs.metadata.clone().map(|entries| {
-                entries
-                    .into_iter()
-                    .map(|(key, value)| (key, Some(value)))
-                    .collect()
-            })),
+            metadata: attrs.metadata.clone().map_or(MapPatch::Clear, |entries| {
+                MapPatch::Merge(
+                    entries
+                        .into_iter()
+                        .map(|(key, value)| (key, Some(value)))
+                        .collect(),
+                )
+            }),
             event_based_hold: None,
             ..Default::default()
         },

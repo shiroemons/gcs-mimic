@@ -4,7 +4,7 @@ use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
     clock::ManualClock,
-    object::Patch,
+    object::{MapPatch, Patch},
     storage::{Catalog, ResumableError, ResumableOptions},
 };
 use std::{
@@ -65,7 +65,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
             content_type: Patch::Clear,
             content_encoding: Patch::Clear,
             content_disposition: Patch::Set("inline".into()),
-            metadata: Some(None),
+            metadata: MapPatch::Clear,
             ..Default::default()
         },
         ..gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive)

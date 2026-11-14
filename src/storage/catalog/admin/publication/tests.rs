@@ -1,6 +1,6 @@
 use super::super::tests::{body, request, setup};
 use super::*;
-use crate::object::Patch;
+use crate::object::{MapPatch, Patch};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::test_support::{eventually_async, eventually_some_async};
 use std::io::{Seek, SeekFrom};
@@ -347,10 +347,8 @@ async fn publication_disk_full_rolls_back_the_batch_and_journal() {
     let fence = catalog.read_changes(None, None, 256).await.unwrap().fence;
     let a = entry(&admin, &dir.0, "a", b"a").await;
     let mut b = entry(&admin, &dir.0, "b", b"b").await;
-    b.request.metadata.metadata = Some(Some(BTreeMap::from([(
-        "large".into(),
-        Some("x".repeat(7_000)),
-    )])));
+    b.request.metadata.metadata =
+        MapPatch::Merge(BTreeMap::from([("large".into(), Some("x".repeat(7_000)))]));
     catalog
         .run_upload(|connection| {
             let pages: i64 = connection
@@ -497,10 +495,7 @@ async fn publication_inherits_metadata_patched_after_staging() {
     let patch = ObjectMetadataUpdate {
         content_type: Patch::Set("application/custom".into()),
         cache_control: Patch::Set("private".into()),
-        metadata: Some(Some(BTreeMap::from([(
-            "patched".into(),
-            Some("value".into()),
-        )]))),
+        metadata: MapPatch::Merge(BTreeMap::from([("patched".into(), Some("value".into()))])),
         ..Default::default()
     };
     catalog

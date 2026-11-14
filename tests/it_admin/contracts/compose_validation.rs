@@ -1,5 +1,5 @@
 use gcs_mimic::json::{self, compose};
-use gcs_mimic::object::{Patch, WriteMode};
+use gcs_mimic::object::{MapPatch, Patch, WriteMode};
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
@@ -36,8 +36,8 @@ fn compose_body_preserves_source_order_duplicates_generations_and_metadata() {
     assert_eq!(parsed.destination.write, WriteMode::Replace);
     assert!(!parsed.delete_sources);
     assert_eq!(
-        parsed.destination.metadata.unwrap().unwrap()["key"],
-        Some("value".into())
+        parsed.destination.metadata,
+        MapPatch::Merge([("key".into(), Some("value".into()))].into())
     );
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::Patch;
+use crate::object::{MapPatch, Patch};
 
 #[test]
 fn unknown_stored_storage_class_is_catalog_corruption() {
@@ -60,7 +60,6 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
     ResumableOptions {
         content_type: "text/plain".into(),
         metadata: ObjectMetadataUpdate {
-            metadata_mode: crate::object::MapMode::Merge,
             acl: None,
             predefined_acl: Some(crate::acl::PredefinedObjectAcl::parse("publicRead").unwrap()),
             write: crate::object::WriteMode::Replace,
@@ -69,10 +68,10 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             content_disposition: Patch::Set("inline".into()),
             content_language: Patch::Set("en".into()),
             cache_control: Patch::Set("private".into()),
-            metadata: Some(Some(std::collections::BTreeMap::from([
+            metadata: MapPatch::Merge(std::collections::BTreeMap::from([
                 ("alpha".into(), Some("one".into())),
                 ("removed".into(), None),
-            ]))),
+            ])),
             event_based_hold: Some(false),
             temporary_hold: Some(true),
             custom_time: Patch::Set("2026-01-02T03:04:05Z".into()),
@@ -118,6 +117,23 @@ fn populated_options_keep_their_json_bytes() {
         decode_options(&serde_json::from_str(&encoded).unwrap()).unwrap(),
         options
     );
+}
+
+/// The document never stored the map mode, so a replacement keeps the bytes of a merge of the
+/// same values and reads back as that merge.
+#[test]
+fn custom_metadata_replacement_is_stored_as_a_merge_of_its_values() {
+    let mut replace = populated_options();
+    replace.metadata.metadata = MapPatch::Replace([("alpha".into(), "one".into())].into());
+    let mut merge = populated_options();
+    merge.metadata.metadata = MapPatch::Merge([("alpha".into(), Some("one".into()))].into());
+    let encoded = encode_options(&replace);
+    assert_eq!(
+        encoded["metadata"]["metadata"].to_string(),
+        r#"{"value":{"alpha":"one"}}"#
+    );
+    assert_eq!(encoded.to_string(), encode_options(&merge).to_string());
+    assert_eq!(decode_options(&encoded).unwrap(), merge);
 }
 
 #[test]

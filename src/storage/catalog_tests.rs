@@ -5,6 +5,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, assert_current_schema, downgrade
 use gcs_mimic::{
     bucket::{BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
     clock::ManualClock,
+    object::MapPatch,
     storage::Catalog,
     test_support::TestDir,
 };
@@ -709,7 +710,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     original.default_event_based_hold = true;
     let original = catalog.insert_bucket(original).await.unwrap();
     let update = BucketMetadataUpdate {
-        labels: Some(Some(BTreeMap::from([("new".into(), Some("value".into()))]))),
+        labels: MapPatch::Merge(BTreeMap::from([("new".into(), Some("value".into()))])),
         storage_class: Some(crate::bucket::StorageClass::Nearline),
         ..Default::default()
     };
@@ -743,7 +744,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         .replace_bucket(
             "put-clock",
             BucketMetadataUpdate {
-                labels: Some(Some(labels)),
+                labels: MapPatch::Merge(labels),
                 ..update.clone()
             },
             Default::default(),
@@ -754,19 +755,19 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     assert_eq!(full.labels.len(), 64);
     let invalid = [
         BucketMetadataUpdate {
-            labels: Some(Some(
+            labels: MapPatch::Merge(
                 (0..65)
                     .map(|i| (format!("key{i}"), Some("v".into())))
                     .collect(),
-            )),
+            ),
             ..update.clone()
         },
         BucketMetadataUpdate {
-            labels: Some(Some(BTreeMap::from([("Bad".into(), Some("v".into()))]))),
+            labels: MapPatch::Merge(BTreeMap::from([("Bad".into(), Some("v".into()))])),
             ..update.clone()
         },
         BucketMetadataUpdate {
-            labels: Some(Some(BTreeMap::from([("key".into(), None)]))),
+            labels: MapPatch::Merge(BTreeMap::from([("key".into(), None)])),
             ..update.clone()
         },
     ];
@@ -853,7 +854,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         .await
         .unwrap();
     let update = BucketMetadataUpdate {
-        labels: Some(Some(BTreeMap::from([("new".into(), Some("value".into()))]))),
+        labels: MapPatch::Merge(BTreeMap::from([("new".into(), Some("value".into()))])),
         storage_class: Some(crate::bucket::StorageClass::Archive),
         versioning_enabled: Some(true),
         default_event_based_hold: Some(true),
@@ -885,11 +886,11 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     assert_eq!(next.updated, record.updated);
     assert_eq!(next.metageneration, 4);
     let too_many = BucketMetadataUpdate {
-        labels: Some(Some(
+        labels: MapPatch::Merge(
             (0..64)
                 .map(|i| (format!("key{i}"), Some("v".into())))
                 .collect(),
-        )),
+        ),
         ..update.clone()
     };
     let unconditioned = Default::default();
@@ -910,7 +911,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         Err(CatalogError::PreconditionFailed)
     );
     let invalid = BucketMetadataUpdate {
-        labels: Some(Some(BTreeMap::from([("Bad".into(), None)]))),
+        labels: MapPatch::Merge(BTreeMap::from([("Bad".into(), None)])),
         ..update.clone()
     };
     assert!(matches!(

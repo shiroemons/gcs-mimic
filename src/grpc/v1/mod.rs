@@ -28,7 +28,7 @@ use crate::{
         validate::{self, bucket_conditions, request_conditions},
     },
     json,
-    object::{ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch},
+    object::{MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch},
     server::State,
 };
 use prost::Message;
@@ -193,13 +193,13 @@ fn metadata(
         }
     }
     if replace || !object.metadata.is_empty() {
-        update.metadata = Some(Some(
+        update.metadata = MapPatch::Merge(
             object
                 .metadata
                 .iter()
                 .map(|(key, value)| (key.clone(), Some(value.clone())))
                 .collect(),
-        ));
+        );
     }
     update.event_based_hold = object.event_based_hold;
     // `temporary_hold` is a plain bool, so false cannot be told from omitted; a replace
@@ -224,11 +224,8 @@ fn metadata(
             "legacy object metadata outside content fields, custom metadata and holds",
         ));
     }
-    if update
-        .metadata
-        .as_ref()
-        .and_then(Option::as_ref)
-        .is_some_and(|entries| entries.contains_key(""))
+    if let MapPatch::Merge(entries) = &update.metadata
+        && entries.contains_key("")
     {
         return Err(ObjectError::UnsupportedMetadata("empty custom metadata key".into()).into());
     }

@@ -3,9 +3,8 @@ use crate::{
     acl::{AclEntry, AclEntryInput, AclKind},
     bucket::{self, BucketMetadataUpdate, CatalogError, CorsRule, autoclass::AutoclassUpdate},
     json::JsonError,
-    object::MapMode,
+    object::MapPatch,
 };
-use std::collections::BTreeMap;
 use tonic::Status;
 
 pub(super) fn from_proto(
@@ -80,22 +79,26 @@ pub(super) fn proto_field(field: &str) -> &str {
 fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> Result<(), Status> {
     match path {
         "labels" => {
-            update.labels = Some(Some(
+            update.labels = MapPatch::Replace(
                 b.labels
                     .iter()
-                    .map(|(k, v)| (k.clone(), Some(v.clone())))
+                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
-            ));
-            update.labels_mode = MapMode::Replace;
+            );
         }
         p if let Some(key) = p.strip_prefix("labels.")
             && !key.is_empty() =>
         {
-            update
-                .labels
-                .get_or_insert_with(|| Some(BTreeMap::new()))
-                .get_or_insert_with(BTreeMap::new)
-                .insert(key.into(), b.labels.get(key).cloned());
+            let value = b.labels.get(key).cloned();
+            // A `labels` path replaces the map, which cannot carry the removal of a key missing
+            // from it. The answer is the catalog's for an invalid label, given before
+            // authorization like the other update-mask errors.
+            if value.is_none() && matches!(update.labels, MapPatch::Replace(_)) {
+                return Err(input_error(CatalogError::InvalidMetadata(
+                    "Invalid bucket label".into(),
+                )));
+            }
+            update.labels.merge_entry(key.into(), value);
         }
         "storage_class" => {
             update.storage_class =
@@ -270,6 +273,25 @@ pub(super) fn acl_entries<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `labels` path replaces the map, so a later `labels.KEY` path can add or change a key it
+    /// carries but cannot remove one; an earlier one is overwritten by the replacement.
+    #[test]
+    fn label_masks_combine_a_replacement_with_key_paths_by_their_order() {
+        let bucket = pb::Bucket {
+            labels: [("present".into(), "value".into())].into(),
+            ..Default::default()
+        };
+        let replaced = MapPatch::Replace([("present".into(), "value".into())].into());
+        let paths = |paths: [&str; 2]| paths.map(String::from);
+        let error = from_proto(&bucket, &paths(["labels", "labels.missing"])).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert_eq!(error.message(), "Invalid bucket label");
+        for order in [["labels.missing", "labels"], ["labels", "labels.present"]] {
+            let update = from_proto(&bucket, &paths(order)).unwrap();
+            assert_eq!(update.labels, replaced, "{order:?}");
+        }
+    }
 
     #[test]
     fn invalid_storage_classes_keep_client_values_verbatim() {

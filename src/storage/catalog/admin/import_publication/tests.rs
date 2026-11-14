@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     clock::SystemClock,
+    object::MapPatch,
     test_support::{TestDir, eventually_async},
 };
 use std::{
@@ -302,10 +303,11 @@ async fn import_publication_disk_full_rolls_back_records_observations_and_cursor
     bucket(&admin, &source).await;
     let a = entry(&dir, &admin, 2, "a", b"a").await;
     let mut b = entry(&dir, &admin, 3, "b", b"b").await;
-    b.publication.request.metadata.metadata = Some(Some(std::collections::BTreeMap::from([(
-        "large".into(),
-        Some("x".repeat(7000)),
-    )])));
+    b.publication.request.metadata.metadata =
+        MapPatch::Merge(std::collections::BTreeMap::from([(
+            "large".into(),
+            Some("x".repeat(7000)),
+        )]));
     catalog
         .run_upload(|connection| {
             let pages: i64 = connection

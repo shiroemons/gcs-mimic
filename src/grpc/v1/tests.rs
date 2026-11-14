@@ -22,7 +22,14 @@ fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
                 crate::object::Patch::Keep
             }
         );
-        assert_eq!(update.metadata.is_some(), mode == json::WriteMode::Replace);
+        assert_eq!(
+            update.metadata,
+            if mode == json::WriteMode::Replace {
+                crate::object::MapPatch::Merge(Default::default())
+            } else {
+                crate::object::MapPatch::Keep
+            }
+        );
         assert_eq!(update.event_based_hold, None);
         assert_eq!(update.temporary_hold, None);
     }

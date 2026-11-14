@@ -7,7 +7,9 @@ use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
     clock::ManualClock,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, Patch, UploadChunk},
+    object::{
+        ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectRecord, Patch, UploadChunk,
+    },
     storage::{Catalog, MoveConditions, MoveNames, ObjectReader, ObjectUpload},
     test_support::{TestDir, eventually_async, live_len},
 };
@@ -1612,7 +1614,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
             ObjectMetadataUpdate {
                 content_type: Patch::Set("text/plain".into()),
                 content_encoding: Patch::Set("identity".into()),
-                metadata: Some(Some(BTreeMap::from([("key".into(), Some("value".into()))]))),
+                metadata: MapPatch::Merge(BTreeMap::from([("key".into(), Some("value".into()))])),
                 ..Default::default()
             },
             |_| Ok(()),
@@ -1686,10 +1688,10 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                         live("bucket", "race"),
                         conditions,
                         ObjectMetadataUpdate {
-                            metadata: Some(Some(BTreeMap::from([(
+                            metadata: MapPatch::Merge(BTreeMap::from([(
                                 "key".into(),
                                 Some("value".into()),
-                            )]))),
+                            )])),
                             ..Default::default()
                         },
                         |_| Ok(()),

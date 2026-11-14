@@ -1,7 +1,7 @@
 use super::JsonError;
 use crate::config::ApiBaseSource;
 use crate::object::{
-    ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+    MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -163,7 +163,6 @@ fn parse_metadata(
         content_language: string(body, kind, "contentLanguage")?,
         cache_control: string(body, kind, "cacheControl")?,
         metadata,
-        metadata_mode: crate::object::MapMode::Merge,
         temporary_hold: hold(body, "temporaryHold"),
         custom_time: string(body, kind, "customTime")?,
         event_based_hold: hold(body, "eventBasedHold"),
@@ -245,17 +244,18 @@ fn hold(body: &Map<String, Value>, key: &str) -> Option<bool> {
     body.get(key).and_then(Value::as_bool)
 }
 
-/// A custom metadata change: `None` keeps the entries, `Some(None)` clears them, and a `None`
-/// value removes one key.
-type CustomMetadataUpdate = Option<Option<BTreeMap<String, Option<String>>>>;
-
-fn custom_metadata(body: &Map<String, Value>) -> Result<CustomMetadataUpdate, JsonError> {
+/// A custom metadata change; a JSON body merges its entries and a null value removes one key.
+fn custom_metadata(body: &Map<String, Value>) -> Result<MapPatch, JsonError> {
     match body.get("metadata") {
-        None => Ok(None),
-        Some(Value::Null) => Ok(Some(None)),
-        Some(Value::Object(entries)) => custom_metadata_entries(entries).map(Some),
+        None => Ok(MapPatch::Keep),
+        Some(Value::Null) => Ok(MapPatch::Clear),
+        Some(Value::Object(entries)) => {
+            Ok(custom_metadata_entries(entries)?.map_or(MapPatch::Clear, MapPatch::Merge))
+        }
         // A value that is neither an object nor null was ignored (recorded for a string).
-        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => Ok(None),
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
+            Ok(MapPatch::Keep)
+        }
     }
 }
 

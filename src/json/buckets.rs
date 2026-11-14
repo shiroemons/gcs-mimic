@@ -6,7 +6,7 @@ use crate::bucket::{
     validate_storage_class,
 };
 use crate::config::CompatProfile;
-use crate::object::unix_nanos::UnixNanos;
+use crate::object::{MapPatch, unix_nanos::UnixNanos};
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
@@ -366,60 +366,70 @@ pub(crate) fn parse_bucket_replacement(
     parse_bucket_update(bytes, profile, WriteMode::Replace)
 }
 
-/// Labels of a bucket update, where `None` clears every label. A patch removes a label with a
-/// null value; a replacement requires string values and is limited to 64 labels.
+/// Labels of a bucket update. A patch merges them and removes a label with a null value; a
+/// replacement requires string values and is limited to 64 labels.
 fn update_labels(
     value: &Value,
     mode: WriteMode,
     profile: CompatProfile,
-) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
+) -> Result<MapPatch, JsonError> {
     // A labels member that is not a map clears every label, like null. A string was confirmed in
     // the recording (`bkt-patch-errors`, own bucket: the harness label vanished with the rest);
     // an array or other non-map type is extrapolated from the string, which the recording cannot
     // distinguish.
     if value.is_null() {
-        return Ok(None);
+        return Ok(MapPatch::Clear);
     }
     if profile == CompatProfile::Native && !value.is_object() {
-        return Ok(None);
+        return Ok(MapPatch::Clear);
     }
-    let replace = mode == WriteMode::Replace;
     let labels = value
         .as_object()
         .ok_or_else(|| JsonError::invalid("labels must be an object or null"))?;
-    if replace && labels.len() > 64 {
-        return Err(JsonError::invalid("A bucket can have at most 64 labels"));
-    }
-    labels
-        .iter()
-        .map(|(key, value)| {
-            let value = if value.is_null() && !replace {
-                None
-            } else {
-                Some(
-                    value
-                        .as_str()
-                        .ok_or_else(|| {
-                            JsonError::invalid(if replace {
-                                "Label values must be strings"
-                            } else {
-                                "Label values must be strings or null"
-                            })
-                        })?
-                        .to_owned(),
-                )
-            };
-            if !valid_label(key, crate::bucket::LabelPart::Key)
-                || value
-                    .as_deref()
-                    .is_some_and(|value| !valid_label(value, crate::bucket::LabelPart::Value))
-            {
-                return Err(JsonError::invalid("Invalid bucket label"));
+    match mode {
+        WriteMode::Replace => {
+            if labels.len() > 64 {
+                return Err(JsonError::invalid("A bucket can have at most 64 labels"));
             }
-            Ok((key.clone(), value))
-        })
-        .collect::<Result<_, JsonError>>()
-        .map(Some)
+            labels
+                .iter()
+                .map(|(key, value)| {
+                    let value = value
+                        .as_str()
+                        .ok_or_else(|| JsonError::invalid("Label values must be strings"))?;
+                    check_label(key, Some(value))?;
+                    Ok((key.clone(), value.to_owned()))
+                })
+                .collect::<Result<_, JsonError>>()
+                .map(MapPatch::Replace)
+        }
+        WriteMode::Patch => labels
+            .iter()
+            .map(|(key, value)| {
+                let value = if value.is_null() {
+                    None
+                } else {
+                    let value = value.as_str().ok_or_else(|| {
+                        JsonError::invalid("Label values must be strings or null")
+                    })?;
+                    Some(value.to_owned())
+                };
+                check_label(key, value.as_deref())?;
+                Ok((key.clone(), value))
+            })
+            .collect::<Result<_, JsonError>>()
+            .map(MapPatch::Merge),
+    }
+}
+
+/// Refuses a label key or value outside the label grammar.
+fn check_label(key: &str, value: Option<&str>) -> Result<(), JsonError> {
+    if !valid_label(key, crate::bucket::LabelPart::Key)
+        || value.is_some_and(|value| !valid_label(value, crate::bucket::LabelPart::Value))
+    {
+        return Err(JsonError::invalid("Invalid bucket label"));
+    }
+    Ok(())
 }
 
 fn parse_bucket_update(
@@ -468,8 +478,9 @@ fn parse_bucket_update(
     // profile keeps merging.
     let omitted_clears = replace && native;
     let labels = match body.get("labels") {
-        Some(value) => Some(update_labels(value, mode, profile)?),
-        None => omitted_clears.then_some(None),
+        Some(value) => update_labels(value, mode, profile)?,
+        None if omitted_clears => MapPatch::Clear,
+        None => MapPatch::Keep,
     };
     let versioning_enabled = body
         .get("versioning")
@@ -520,7 +531,6 @@ fn parse_bucket_update(
             .or_else(|| omitted_clears.then(Vec::new)),
         labels,
         touched: update_touches_bucket(body),
-        labels_mode: crate::object::MapMode::Merge,
         omitted_retention: omitted_clears && !body.contains_key("retentionPolicy"),
         storage_class,
         autoclass: body

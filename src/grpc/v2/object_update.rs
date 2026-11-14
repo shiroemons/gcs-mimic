@@ -3,12 +3,11 @@ use crate::{
     acl::AclKind,
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     object::{
-        MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
+        MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
         retention::{ObjectRetention, RetentionMode},
         unix_nanos::UnixNanos,
     },
 };
-use std::collections::BTreeMap;
 use tonic::Status;
 
 pub(super) fn from_proto(
@@ -26,23 +25,20 @@ pub(super) fn from_proto(
     for path in paths {
         match path.as_str() {
             "metadata" => {
-                update.metadata = Some(Some(
+                update.metadata = MapPatch::Replace(
                     object
                         .metadata
                         .iter()
-                        .map(|(key, value)| (key.clone(), Some(value.clone())))
+                        .map(|(key, value)| (key.clone(), value.clone()))
                         .collect(),
-                ));
-                update.metadata_mode = MapMode::Replace;
+                );
             }
             path if let Some(key) = path.strip_prefix("metadata.")
                 && !key.is_empty() =>
             {
                 update
                     .metadata
-                    .get_or_insert_with(|| Some(BTreeMap::new()))
-                    .get_or_insert_with(BTreeMap::new)
-                    .insert(key.into(), object.metadata.get(key).cloned());
+                    .merge_entry(key.into(), object.metadata.get(key).cloned());
             }
             "content_type" => update.content_type = Patch::Set(object.content_type.clone()),
             // A proto3 string cannot tell empty from unset: an empty masked field clears it.
@@ -141,13 +137,15 @@ pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
         content_disposition: named(&object.content_disposition),
         content_language: named(&object.content_language),
         cache_control: named(&object.cache_control),
-        metadata: Some(Some(
+        // A merge of every value, not a replacement: the new generation has no entries to keep,
+        // and a replacement would add the map-mode extension to the upload replay fingerprint.
+        metadata: MapPatch::Merge(
             object
                 .metadata
                 .iter()
                 .map(|(key, value)| (key.clone(), Some(value.clone())))
                 .collect(),
-        )),
+        ),
         temporary_hold: object.temporary_hold.then_some(true),
         event_based_hold: object.event_based_hold,
         custom_time: object
@@ -203,13 +201,17 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(update.metadata_mode, MapMode::Replace);
-        assert_eq!(update.metadata.unwrap().unwrap().len(), 1);
+        assert_eq!(
+            update.metadata,
+            MapPatch::Replace([("keep".into(), "value".into())].into())
+        );
         assert_eq!(update.content_language, Patch::Clear);
         assert_eq!(update.retention, Patch::Clear);
         let update = from_proto(&object, &["metadata.missing".into()]).unwrap();
-        assert_eq!(update.metadata_mode, MapMode::Merge);
-        assert_eq!(update.metadata.unwrap().unwrap()["missing"], None);
+        assert_eq!(
+            update.metadata,
+            MapPatch::Merge([("missing".into(), None)].into())
+        );
     }
 
     #[test]

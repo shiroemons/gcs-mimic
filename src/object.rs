@@ -14,7 +14,7 @@ mod patch;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
 
-pub use patch::{Patch, WriteMode};
+pub use patch::{MapPatch, Patch, WriteMode};
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -296,14 +296,6 @@ pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
     UnixNanos::new(micros / 1_000_000, nanos).ok_or_else(invalid)
 }
 
-/// How a present custom-metadata or label map changes its stored entries.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum MapMode {
-    #[default]
-    Merge,
-    Replace,
-}
-
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
@@ -318,8 +310,7 @@ pub struct ObjectMetadataUpdate {
     pub content_disposition: Patch<String>,
     pub content_language: Patch<String>,
     pub cache_control: Patch<String>,
-    pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
-    pub(crate) metadata_mode: MapMode,
+    pub metadata: MapPatch,
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
     /// Only a time changes the stored custom time; `Clear` keeps it (see `apply_with`).
@@ -376,11 +367,11 @@ impl ObjectMetadataUpdate {
     /// Options store the content type both as a session field and inside the metadata.
     fn encoded_size(&self) -> usize {
         let text = |patch: &Patch<String>| patch.value().map_or(0, encoded_json_len);
-        let metadata = self
-            .metadata
-            .as_ref()
-            .and_then(Option::as_ref)
-            .map_or(0, encoded_json_len);
+        let metadata = match &self.metadata {
+            MapPatch::Keep | MapPatch::Clear => 0,
+            MapPatch::Merge(entries) => encoded_json_len(entries),
+            MapPatch::Replace(entries) => encoded_json_len(entries),
+        };
         self.fixed_fields()
             .into_iter()
             .map(|(_, patch)| text(patch))
@@ -405,17 +396,6 @@ impl ObjectMetadataUpdate {
 
     fn validate_for(&self, empty: EmptyContent) -> Result<(), ObjectError> {
         self.check_encoded_size()?;
-        if self.metadata_mode == MapMode::Replace
-            && self
-                .metadata
-                .as_ref()
-                .and_then(Option::as_ref)
-                .is_some_and(|entries| entries.values().any(Option::is_none))
-        {
-            return Err(ObjectError::InvalidFixedMetadata(
-                "Custom metadata replacement cannot remove individual keys".into(),
-            ));
-        }
         if let Some(value) = self.custom_time.value() {
             custom_time_key(value)?;
         }
@@ -426,12 +406,12 @@ impl ObjectMetadataUpdate {
                 validate_fixed_metadata(field, value)?;
             }
         }
-        if self
-            .metadata
-            .as_ref()
-            .and_then(Option::as_ref)
-            .is_some_and(|entries| entries.keys().any(String::is_empty))
-        {
+        let names_empty_key = match &self.metadata {
+            MapPatch::Keep | MapPatch::Clear => false,
+            MapPatch::Merge(entries) => entries.contains_key(""),
+            MapPatch::Replace(entries) => entries.contains_key(""),
+        };
+        if names_empty_key {
             return Err(ObjectError::UnsupportedMetadata(
                 "empty custom metadata key".into(),
             ));
@@ -475,13 +455,15 @@ impl ObjectMetadataUpdate {
             content_disposition: set(&source.content_disposition),
             content_language: set(&source.content_language),
             cache_control: set(&source.cache_control),
-            metadata: Some(Some(
+            // A merge rather than a replacement: a rewrite session stores this update and must
+            // read back an equal one.
+            metadata: MapPatch::Merge(
                 source
                     .metadata
                     .iter()
                     .map(|(key, value)| (key.clone(), Some(value.clone())))
                     .collect(),
-            )),
+            ),
             ..Default::default()
         }
     }
@@ -548,22 +530,7 @@ impl ObjectMetadataUpdate {
         ] {
             empty.apply(field, patch);
         }
-        if self.metadata_mode == MapMode::Replace && self.metadata.is_some() {
-            record.metadata.clear();
-        }
-        match self.metadata {
-            Some(Some(entries)) => {
-                for (key, value) in entries {
-                    if let Some(value) = value {
-                        record.metadata.insert(key, value);
-                    } else {
-                        record.metadata.remove(&key);
-                    }
-                }
-            }
-            Some(None) => record.metadata.clear(),
-            None => {}
-        }
+        apply_custom_metadata(&mut record.metadata, self.metadata);
         if record
             .metadata
             .iter()
@@ -609,6 +576,27 @@ impl EmptyContent {
                 *field = (self.is_stored(&value) || !value.is_empty()).then_some(value);
             }
         }
+    }
+}
+
+/// Applies a custom metadata change; a merge removes the keys it names without a value.
+fn apply_custom_metadata(stored: &mut BTreeMap<String, String>, change: MapPatch) {
+    match change {
+        MapPatch::Keep => {}
+        MapPatch::Clear => stored.clear(),
+        MapPatch::Merge(entries) => {
+            for (key, value) in entries {
+                match value {
+                    Some(value) => {
+                        stored.insert(key, value);
+                    }
+                    None => {
+                        stored.remove(&key);
+                    }
+                }
+            }
+        }
+        MapPatch::Replace(entries) => *stored = entries,
     }
 }
 

@@ -564,7 +564,7 @@ impl UploadGuard {
 mod tests {
     use super::super::unavailable;
     use super::*;
-    use crate::object::{ObjectMetadataUpdate, Patch};
+    use crate::object::{MapPatch, ObjectMetadataUpdate, Patch};
     use std::collections::BTreeMap;
 
     #[tokio::test]
@@ -726,11 +726,11 @@ mod tests {
     fn fingerprint_encoding_has_a_stable_golden_digest() {
         let metadata = ObjectMetadataUpdate {
             content_type: Patch::Set("text/plain".into()),
-            metadata: Some(Some(BTreeMap::from([
+            metadata: MapPatch::Merge(BTreeMap::from([
                 ("zeta".to_owned(), Some("1".to_owned())),
                 ("alpha".to_owned(), None),
                 ("mid".to_owned(), Some("3".to_owned())),
-            ]))),
+            ])),
             acl: Some(vec![
                 crate::acl::AclEntry {
                     entity: "user-b@example.test".into(),
@@ -764,8 +764,13 @@ mod tests {
             hex,
             "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
         );
-        let mut replace = metadata.clone();
-        replace.metadata_mode = crate::object::MapMode::Replace;
+        let replace = ObjectMetadataUpdate {
+            metadata: MapPatch::Replace(BTreeMap::from([
+                ("zeta".to_owned(), "1".to_owned()),
+                ("mid".to_owned(), "3".to_owned()),
+            ])),
+            ..metadata.clone()
+        };
         assert_ne!(
             digest,
             UploadFingerprint {

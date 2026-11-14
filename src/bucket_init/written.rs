@@ -4,7 +4,7 @@
 use crate::{
     auth::Policy,
     bucket::{BucketMetadataUpdate, BucketRecord, SoftDeleteRetention, cors_value},
-    object::MapMode,
+    object::MapPatch,
     storage::admin::{
         AdminError,
         initialization::{EntryDigest, MemberBits, RecordedEntry, Stored},
@@ -123,16 +123,7 @@ impl Member {
         match self {
             Self::Location | Self::IamPolicy => return Ok(false),
             Self::StorageClass => update.storage_class = Some(wanted.storage_class),
-            Self::Labels => {
-                update.labels = Some(Some(
-                    wanted
-                        .labels
-                        .iter()
-                        .map(|(key, value)| (key.clone(), Some(value.clone())))
-                        .collect(),
-                ));
-                update.labels_mode = MapMode::Replace;
-            }
+            Self::Labels => update.labels = MapPatch::Replace(wanted.labels.clone()),
             Self::Cors => update.cors = Some(wanted.cors.clone()),
             Self::Versioning => {
                 update.versioning_enabled = Some(wanted.versioning_enabled);

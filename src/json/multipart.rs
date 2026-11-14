@@ -1,5 +1,5 @@
 use super::{JsonError, ObjectMetadataRequest, parse_object_metadata};
-use crate::object::{ExpectedHashes, ObjectMetadataUpdate, Patch};
+use crate::object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
@@ -733,7 +733,8 @@ pub(crate) fn multipart_metadata(
         Patch::Set(value) if !value.is_empty() => Patch::Set(value),
         Patch::Keep | Patch::Clear | Patch::Set(_) => Patch::Keep,
     };
-    if let Some(Some(metadata)) = &update.metadata
+    // A JSON body only merges custom metadata; a replacement comes from an update mask.
+    if let MapPatch::Merge(metadata) = &update.metadata
         && metadata
             .iter()
             .filter_map(|(key, value)| value.as_ref().map(|value| key.len() + value.len()))

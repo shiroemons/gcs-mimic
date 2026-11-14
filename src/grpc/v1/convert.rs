@@ -2,7 +2,7 @@ use super::{pb, unsupported};
 use crate::{
     bucket::{BucketMetadataUpdate, BucketRecord},
     config::CompatProfile,
-    object::{ObjectError, ObjectRecord},
+    object::{MapPatch, ObjectError, ObjectRecord},
 };
 use serde_json::{Map, json};
 use tonic::Status;
@@ -101,13 +101,13 @@ pub(super) fn bucket_update(
     let native = profile == CompatProfile::Native;
     let class = bucket.storage_class.clone();
     let mut update = BucketMetadataUpdate {
-        labels: Some(Some(
+        labels: MapPatch::Replace(
             bucket
                 .labels
                 .iter()
-                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
-        )),
+        ),
         default_event_based_hold: Some(bucket.default_event_based_hold),
         versioning_enabled: bucket
             .versioning
@@ -245,8 +245,8 @@ mod tests {
             assert_eq!(update.cors.is_some(), native);
             assert_eq!(update.lifecycle.is_some(), native);
             assert_eq!(
-                update.labels.unwrap().unwrap()["key"].as_deref(),
-                Some("value")
+                update.labels,
+                MapPatch::Replace([("key".into(), "value".into())].into())
             );
         }
     }

@@ -16,8 +16,8 @@ use crate::{
     },
     json::{self, JsonError},
     object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch,
-        UploadChunk,
+        ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
+        ObjectRecord, Patch, UploadChunk,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
     storage::ObjectUpload,
@@ -561,7 +561,7 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
             "Custom metadata exceeds 8 KiB.",
         ));
     }
-    metadata.metadata = Some(Some(custom));
+    metadata.metadata = MapPatch::Merge(custom);
     Ok(metadata)
 }
 
@@ -1146,10 +1146,7 @@ mod tests {
         );
         assert_eq!(
             planned.metadata.metadata,
-            Some(Some(BTreeMap::from([(
-                "owner".into(),
-                Some("alice".into())
-            )])))
+            MapPatch::Merge(BTreeMap::from([("owner".into(), Some("alice".into()))]))
         );
         assert!(matches!(
             planned.success,

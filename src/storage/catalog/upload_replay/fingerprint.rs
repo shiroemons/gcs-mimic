@@ -1,5 +1,5 @@
 use crate::object::{
-    MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, WriteMode,
+    MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, WriteMode,
 };
 use ring::digest::{Context, SHA256};
 
@@ -117,7 +117,6 @@ impl Canonical {
             content_language,
             cache_control,
             metadata,
-            metadata_mode,
             event_based_hold,
             temporary_hold,
             custom_time,
@@ -148,15 +147,7 @@ impl Canonical {
         ] {
             self.patch(field, |encoded, value| encoded.text(value));
         }
-        self.optional(metadata.as_ref(), |encoded, value| {
-            encoded.optional(value.as_ref(), |encoded, entries| {
-                encoded.u64(entries.len() as u64);
-                for (key, value) in entries {
-                    encoded.text(key);
-                    encoded.optional(value.as_deref(), Self::text);
-                }
-            })
-        });
+        self.custom_metadata(metadata);
         self.optional(*event_based_hold, Self::flag);
         self.optional(*temporary_hold, Self::flag);
         self.patch(retention, |encoded, value| {
@@ -175,11 +166,32 @@ impl Canonical {
             encoded.text(class.as_str())
         });
         // Merge keeps the original v2 bytes; only replacement adds a tagged extension.
-        match metadata_mode {
-            MapMode::Merge => {}
-            MapMode::Replace => {
-                self.bytes(b"metadata-map-mode");
-                self.bytes(b"replace");
+        if let MapPatch::Replace(_) = metadata {
+            self.bytes(b"metadata-map-mode");
+            self.bytes(b"replace");
+        }
+    }
+
+    /// Custom metadata in the same nested layout; a replacement writes each value as present.
+    fn custom_metadata(&mut self, metadata: &MapPatch) {
+        match metadata {
+            MapPatch::Keep => self.0.update(&[0]),
+            MapPatch::Clear => self.0.update(&[1, 0]),
+            MapPatch::Merge(entries) => {
+                self.0.update(&[1, 1]);
+                self.u64(entries.len() as u64);
+                for (key, value) in entries {
+                    self.text(key);
+                    self.optional(value.as_deref(), Self::text);
+                }
+            }
+            MapPatch::Replace(entries) => {
+                self.0.update(&[1, 1]);
+                self.u64(entries.len() as u64);
+                for (key, value) in entries {
+                    self.text(key);
+                    self.optional(Some(value.as_str()), Self::text);
+                }
             }
         }
     }
@@ -188,6 +200,7 @@ impl Canonical {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn request(metadata: &ObjectMetadataUpdate) -> UploadFingerprint<'_> {
         UploadFingerprint {
@@ -221,8 +234,10 @@ mod tests {
             |value| value.content_disposition = Patch::Keep,
             |value| value.content_language = Patch::Keep,
             |value| value.cache_control = Patch::Keep,
-            |value| value.metadata = None,
-            |value| value.metadata_mode = MapMode::Replace,
+            |value| value.metadata = MapPatch::Keep,
+            |value| {
+                value.metadata = MapPatch::Replace(BTreeMap::from([("alpha".into(), "one".into())]))
+            },
             |value| value.event_based_hold = None,
             |value| value.temporary_hold = None,
             |value| value.custom_time = Patch::Keep,
@@ -247,16 +262,27 @@ mod tests {
 
     #[test]
     fn metadata_map_modes_have_distinct_request_identities() {
-        for metadata in [None, Some(None), Some(Some(Default::default()))] {
-            let mut update = ObjectMetadataUpdate {
-                metadata,
+        for entries in [
+            BTreeMap::new(),
+            BTreeMap::from([("alpha".to_owned(), "one".to_owned())]),
+        ] {
+            let merge = ObjectMetadataUpdate {
+                metadata: MapPatch::Merge(
+                    entries
+                        .iter()
+                        .map(|(key, value)| (key.clone(), Some(value.clone())))
+                        .collect(),
+                ),
                 ..Default::default()
             };
-            let default = request(&update).digest().unwrap();
-            update.metadata_mode = MapMode::Merge;
-            assert_eq!(request(&update).digest().unwrap(), default);
-            update.metadata_mode = MapMode::Replace;
-            assert_ne!(request(&update).digest().unwrap(), default);
+            let replace = ObjectMetadataUpdate {
+                metadata: MapPatch::Replace(entries),
+                ..Default::default()
+            };
+            assert_ne!(
+                request(&merge).digest().unwrap(),
+                request(&replace).digest().unwrap()
+            );
         }
     }
 
@@ -284,7 +310,7 @@ mod tests {
             content_disposition: Patch::Clear,
             content_language: Patch::Clear,
             cache_control: Patch::Clear,
-            metadata: Some(None),
+            metadata: MapPatch::Clear,
             custom_time: Patch::Clear,
             retention: Patch::Clear,
             ..Default::default()
@@ -294,6 +320,21 @@ mod tests {
         assert_eq!(
             hex,
             "90ae3438bc8dea7a5af82941eb5b7ce99c32bf859364ce28ffb71fdc2b954582"
+        );
+    }
+
+    /// A custom metadata replacement keeps the map-mode extension earlier releases wrote.
+    #[test]
+    fn replaced_custom_metadata_keeps_its_golden_digest() {
+        let metadata = ObjectMetadataUpdate {
+            metadata: MapPatch::Replace(BTreeMap::from([("alpha".into(), "one".into())])),
+            ..Default::default()
+        };
+        let digest = request(&metadata).digest().unwrap();
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            hex,
+            "544f46b2fe46415a92aeef495c1ffcbb57988022b94b15833c9d53961bb3c0c5"
         );
     }
 
