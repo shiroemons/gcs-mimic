@@ -119,6 +119,9 @@ pub(crate) struct Case {
 
     pub(crate) bucket: BucketMode,
     pub(crate) steps: Vec<Step>,
+    /// Every variable the steps reference, collected once the case is validated so
+    /// a lookup cannot meet a malformed template.
+    variables: BTreeSet<String>,
 }
 
 impl Step {
@@ -173,11 +176,7 @@ impl Case {
     }
 
     pub(crate) fn uses_variable(&self, name: &str) -> bool {
-        self.steps.iter().any(|step| {
-            step_variables(step)
-                .map(|vars| vars.iter().any(|v| v == name))
-                .unwrap_or(false)
-        })
+        self.variables.contains(name)
     }
 }
 
@@ -527,13 +526,19 @@ pub(crate) fn parse_case(value: &Value, file_stem: &str) -> Result<Case> {
         .enumerate()
         .map(|(index, step)| parse_step(step, &defaults, &format!("steps[{index}]")))
         .collect::<Result<_>>()?;
-    let case = Case {
+    let mut case = Case {
         id: id.to_owned(),
         description: description.to_owned(),
         bucket,
         steps,
+        variables: BTreeSet::new(),
     };
     validate(&case)?;
+    // Collected after `validate`, which has just read every step's variables without
+    // error; collecting first would report a malformed reference before a hidden lock.
+    for step in &case.steps {
+        case.variables.extend(step_variables(step)?);
+    }
     Ok(case)
 }
 
@@ -573,12 +578,15 @@ fn validate(case: &Case) -> Result<()> {
 }
 
 pub(crate) fn load_cases(dir: &Path) -> Result<Vec<Case>> {
-    let mut files: Vec<_> = fs::read_dir(dir)
-        .map_err(|e| format!("{}: {e}", dir.display()))?
-        .filter_map(std::result::Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect();
+    // A directory entry that cannot be read is an error: skipping it would leave its
+    // case neither validated nor run.
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            files.push(path);
+        }
+    }
     files.sort();
     let mut cases = Vec::new();
     for path in files {

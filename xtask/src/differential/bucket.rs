@@ -406,13 +406,26 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
         format!("/storage/v1/b/{name}?fields=name,retentionPolicy,defaultEventBasedHold,billing"),
         None,
     );
-    let mut bucket = Value::Null;
-    if let Ok(response) = send_retrying(side, &probe) {
-        if response.status == 404 {
-            return Ok("already absent (404)".into());
-        }
-        bucket = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-    }
+    // Without the settings, holds and retention stay set and the deletion below can
+    // fail; the probe's failure is then the reason, so it leads the report.
+    let (bucket, probe_failure) = match send_retrying(side, &probe) {
+        Ok(response) if response.status == 404 => return Ok("already absent (404)".into()),
+        Ok(response) if !(200..300).contains(&response.status) => (
+            Value::Null,
+            Some(format!(
+                "read bucket settings: {}",
+                describe(norm, &response)
+            )),
+        ),
+        Ok(response) => match serde_json::from_slice(&response.body) {
+            Ok(bucket) => (bucket, None),
+            Err(error) => (Value::Null, Some(format!("read bucket settings: {error}"))),
+        },
+        Err(error) => (
+            Value::Null,
+            Some(format!("read bucket settings: {}", norm.text(&error))),
+        ),
+    };
     let mut problems = Vec::new();
     clear_bucket_settings(side, norm, name, &bucket, &mut problems);
     let listing =
@@ -464,6 +477,9 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
             "emptied ({deleted} object versions), deleted, GET confirmed 404"
         ))
     } else {
+        if let Some(failure) = probe_failure {
+            problems.insert(0, failure);
+        }
         // Say what state the bucket is in, so a failed step is not read as a leftover.
         let state = if gone {
             "the bucket itself is deleted (GET confirmed 404)"
@@ -778,6 +794,66 @@ mod tests {
         let error = cleanup(&side(&fake), &Normalizer::default(), "bk").unwrap_err();
         assert!(error.contains("list managed folders"), "{error}");
         assert!(error.contains("the bucket itself is deleted"), "{error}");
+    }
+
+    /// Answers the settings probe with `probe`, refuses the bucket delete when
+    /// `delete_fails`, and passes everything else to a [`FakeBucket`].
+    struct ProbeFails {
+        bucket: FakeBucket,
+        probe: Result<Response>,
+        delete_fails: bool,
+    }
+
+    impl Transport for ProbeFails {
+        fn send(&self, req: &Request) -> Result<Response> {
+            if req.method == "GET" && req.target.contains("fields=name,retentionPolicy") {
+                return self.probe.clone();
+            }
+            if self.delete_fails && req.method == "DELETE" && req.target == "/storage/v1/b/bk" {
+                return response(409, "{\"error\":\"retention policy not met\"}");
+            }
+            self.bucket.send(req)
+        }
+        fn requests(&self) -> u64 {
+            self.bucket.requests()
+        }
+    }
+
+    #[test]
+    fn a_failed_settings_probe_leads_the_report_only_when_cleanup_fails() {
+        let probes = [
+            (
+                Err("connection reset for someone@example.com".to_owned()),
+                "read bucket settings: connection reset for <email>",
+            ),
+            (response(200, "<html>"), "read bucket settings: "),
+            (
+                response(403, "{\"error\":\"denied for someone@example.com\"}"),
+                "read bucket settings: HTTP 403",
+            ),
+        ];
+        for (probe, start) in probes {
+            let failing = ProbeFails {
+                bucket: FakeBucket::default(),
+                probe: probe.clone(),
+                delete_fails: true,
+            };
+            let error = cleanup(&side_of(&failing), &Normalizer::default(), "bk").unwrap_err();
+            assert!(error.starts_with(start), "{error}");
+            assert!(error.contains("delete bucket: HTTP 409"), "{error}");
+            assert!(!error.contains("someone@"), "{error}");
+            // A cleanup that succeeds without the settings reports as before.
+            let passing = ProbeFails {
+                bucket: FakeBucket::default(),
+                probe,
+                delete_fails: false,
+            };
+            let note = cleanup(&side_of(&passing), &Normalizer::default(), "bk").unwrap();
+            assert_eq!(
+                note,
+                "emptied (1 object versions), deleted, GET confirmed 404"
+            );
+        }
     }
 
     #[test]

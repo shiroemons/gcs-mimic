@@ -223,9 +223,19 @@ impl CurlTransport {
             body: if request.method == "HEAD" {
                 Vec::new()
             } else {
-                fs::read(body_path).unwrap_or_default()
+                read_body(body_path)?
             },
         })
+    }
+}
+
+/// curl may leave no `--output` file for an empty body, so a missing file is an
+/// empty body; any other read failure is the harness's and fails the step.
+fn read_body(path: &Path) -> Result<Vec<u8>> {
+    match fs::read(path) {
+        Ok(body) => Ok(body),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(format!("read body: {error}")),
     }
 }
 
@@ -517,6 +527,22 @@ mod tests {
                 ("Vary".to_owned(), "X-Origin".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn a_missing_body_file_is_an_empty_body_and_other_read_failures_are_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "gcsmimic-body-{}",
+            crate::differential::random_hex()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("b0"), b"payload").unwrap();
+        assert_eq!(read_body(&dir.join("b0")).unwrap(), b"payload");
+        assert!(read_body(&dir.join("b1")).unwrap().is_empty());
+        // A directory exists but cannot be read as a file.
+        let error = read_body(&dir).unwrap_err();
+        assert!(error.starts_with("read body: "), "{error}");
+        crate::differential::server::remove_dir(&dir);
     }
 
     #[test]
