@@ -398,4 +398,77 @@ mod tests {
             assert!(decode_page_token(&token, "p", "").is_err(), "{payload}");
         }
     }
+
+    /// Clients keep page tokens across requests, and the gRPC and XML adapters hand out the
+    /// same text, so a token must keep its bytes and a token issued earlier must still open.
+    #[test]
+    fn page_tokens_keep_their_bytes_and_open() {
+        const BUCKET: &str = "5b226231222c2270726f6a6563742d31222c226c6f6773222c226c6f67732d32303234225d.2a695ec2890f728e";
+        assert_eq!(
+            encode_page_token("project-1", "logs", "logs-2024").unwrap(),
+            BUCKET
+        );
+        assert_eq!(
+            decode_page_token(BUCKET, "project-1", "logs").unwrap(),
+            "logs-2024"
+        );
+        const ALL_PROJECTS: &str =
+            "5b2262312a222c22222c22222c226275636b65742d61225d.132d4f68d056d91e";
+        assert_eq!(
+            encode_all_projects_page_token("", "bucket-a").unwrap(),
+            ALL_PROJECTS
+        );
+        assert_eq!(
+            decode_all_projects_page_token(ALL_PROJECTS, "").unwrap(),
+            "bucket-a"
+        );
+        const SOFT_DELETED: &str = "5b22623173222c2270726f6a6563742d31222c22222c2264656c657465642d6275636b6574222c2231373030303030303030313233225d.60f83ca2962239f6";
+        assert_eq!(
+            encode_soft_deleted_page_token("project-1", "", "deleted-bucket", 1_700_000_000_123)
+                .unwrap(),
+            SOFT_DELETED
+        );
+        assert_eq!(
+            decode_soft_deleted_page_token(SOFT_DELETED, "project-1", "").unwrap(),
+            ("deleted-bucket".to_owned(), 1_700_000_000_123)
+        );
+        for (token, cursor, query) in [
+            (
+                "5b226f33222c22615c22625c5c632fe697a5e69cac5c7530303031222c66616c73652c6e756c6c5d.1357486b6935cd9a",
+                ObjectListCursor {
+                    name: "a\"b\\c/日本\u{1}".into(),
+                    is_prefix: false,
+                    generation: None,
+                },
+                ObjectListQuery::default(),
+            ),
+            (
+                "5b226f33222c226c6f67732f222c747275652c6e756c6c5d.3819579151678fd0",
+                ObjectListCursor {
+                    name: "logs/".into(),
+                    is_prefix: true,
+                    generation: None,
+                },
+                ObjectListQuery {
+                    delimiter: "/".into(),
+                    ..Default::default()
+                },
+            ),
+            (
+                "5b226f33222c2276222c66616c73652c393232333337323033363835343737353830375d.37c294a36584de78",
+                ObjectListCursor {
+                    name: "v".into(),
+                    is_prefix: false,
+                    generation: Some(i64::MAX),
+                },
+                ObjectListQuery {
+                    versions: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            assert_eq!(encode_object_page_token(&cursor), token, "{cursor:?}");
+            assert_eq!(decode_object_page_token(token, &query).unwrap(), cursor);
+        }
+    }
 }

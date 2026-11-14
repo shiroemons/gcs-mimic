@@ -10,6 +10,25 @@ use crate::{
 };
 use serde_json::Value;
 
+/// The parameters a new rewrite session binds: the request's, then the response defaults it
+/// left out, so a continuation that spells a default explicitly still matches.
+fn bound_parameters(parameters: &serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    let mut parameters = parameters.clone();
+    for (key, value) in [
+        ("projection", "noAcl"),
+        ("alt", "json"),
+        ("prettyPrint", "false"),
+    ] {
+        parameters
+            .entry(key)
+            .or_insert_with(|| Value::String(value.into()));
+    }
+    parameters
+}
+
+#[cfg(test)]
+mod tests;
+
 fn error(error: RewriteError) -> JsonError {
     match error {
         RewriteError::Invalid => JsonError::invalid("Invalid argument."),
@@ -258,23 +277,13 @@ async fn execute(
         } else {
             u64::MAX
         };
-        let mut parameters = operation.parameters.clone();
-        for (key, value) in [
-            ("projection", "noAcl"),
-            ("alt", "json"),
-            ("prettyPrint", "false"),
-        ] {
-            parameters
-                .entry(key)
-                .or_insert_with(|| Value::String(value.into()));
-        }
         let binding = RewriteBinding {
             source_bucket: names.source.bucket.clone(),
             source_object: names.source.name.clone(),
             source_generation: source.object.generation,
             destination_bucket: names.destination.bucket.clone(),
             destination_object: names.destination.name.clone(),
-            parameters,
+            parameters: bound_parameters(&operation.parameters),
             metadata: body.clone(),
         };
         let start = RewriteStart {

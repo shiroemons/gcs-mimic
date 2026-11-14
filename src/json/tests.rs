@@ -1663,3 +1663,87 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
     };
     assert_eq!(read_body(frames, 4).await.unwrap_err().reason, "badRequest");
 }
+
+/// Every bucket read answers with this resource, so pin its whole JSON text for both profiles,
+/// a first and a later metageneration, and with and without labels.
+#[test]
+fn bucket_resource_json_keeps_its_bytes() {
+    let created = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_789);
+    // The fake-gcs-server profile leaves labels out and answers its own ETag until the first
+    // metadata update, as that server does.
+    for (profile, metageneration, labeled, expected) in [
+        (
+            CompatProfile::Native,
+            1,
+            false,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
+        ),
+        (
+            CompatProfile::Native,
+            1,
+            true,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
+        ),
+        (
+            CompatProfile::Native,
+            2,
+            false,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
+        ),
+        (
+            CompatProfile::Native,
+            2,
+            true,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
+        ),
+        (
+            CompatProfile::FakeGcsServer,
+            1,
+            false,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","metageneration":"1","location":"US-CENTRAL1","storageClass":"STANDARD","etag":"RVRhZw==","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"region","versioning":{"enabled":false},"defaultEventBasedHold":false}"#,
+        ),
+        (
+            CompatProfile::FakeGcsServer,
+            1,
+            true,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","metageneration":"1","location":"US-CENTRAL1","storageClass":"STANDARD","etag":"RVRhZw==","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"region","versioning":{"enabled":false},"defaultEventBasedHold":false}"#,
+        ),
+        (
+            CompatProfile::FakeGcsServer,
+            2,
+            false,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","metageneration":"2","location":"US-CENTRAL1","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"region","versioning":{"enabled":false},"defaultEventBasedHold":false}"#,
+        ),
+        (
+            CompatProfile::FakeGcsServer,
+            2,
+            true,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","metageneration":"2","location":"US-CENTRAL1","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"region","labels":{"env":"test"},"versioning":{"enabled":false},"defaultEventBasedHold":false}"#,
+        ),
+    ] {
+        let mut bucket = crate::storage::test_fixtures::bucket("golden-bucket", "project-1");
+        bucket.generation = 1_700_000_000_123_456_789;
+        bucket.time_created = created;
+        bucket.metageneration = metageneration;
+        bucket.updated = if metageneration > 1 {
+            created + std::time::Duration::from_secs(60)
+        } else {
+            created
+        };
+        if labeled {
+            bucket.labels.insert("env".into(), "test".into());
+        }
+        let resource = bucket_resource_with_profile(
+            &bucket,
+            "http://localhost:4443",
+            Projection::NoAcl,
+            profile,
+        )
+        .unwrap();
+        assert_eq!(
+            resource.to_string(),
+            expected,
+            "{profile:?} {metageneration} {labeled}"
+        );
+    }
+}

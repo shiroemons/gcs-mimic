@@ -278,4 +278,21 @@ mod tests {
         };
         assert_eq!(parse(&format!("{base}&gcsmimicUnknown=1")), parse(base));
     }
+
+    /// A rewrite session stores these parameters as JSON, key order included, and a continued
+    /// call must bind the same values.
+    #[test]
+    fn rewrite_binding_parameters_keep_their_json_bytes() {
+        let uri = "/storage/v1/b/source-bucket/o/a/rewriteTo/b/destination-bucket/o/c?sourceGeneration=5&ifGenerationMatch=007&ifSourceMetagenerationNotMatch=-0&fields=done&prettyPrint=False&projection=noAcl&destinationPredefinedAcl=private&maxBytesRewrittenPerCall=1048576&gcsmimicUnknown=1&key=k";
+        let parameters = route(&Method::POST, &uri.parse().unwrap(), CompatProfile::Native)
+            .unwrap()
+            .unwrap()
+            .parameters;
+        // Numbers are respelled, `False` keeps its spelling, the undeclared parameter and the
+        // API key are left out, and keys come in sorted order.
+        assert_eq!(
+            serde_json::to_string(&parameters).unwrap(),
+            r#"{"destinationPredefinedAcl":"private","fields":"done","ifGenerationMatch":"7","ifSourceMetagenerationNotMatch":"0","maxBytesRewrittenPerCall":"1048576","prettyPrint":"False","projection":"noAcl","sourceGeneration":"5"}"#
+        );
+    }
 }

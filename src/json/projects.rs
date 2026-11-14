@@ -683,4 +683,32 @@ mod tests {
         );
         assert_eq!(service_account("p")["kind"], "storage#serviceAccount");
     }
+
+    /// Clients keep HMAC key listing tokens across requests, so a token must keep its bytes and
+    /// a token issued earlier must still open for the same filters.
+    #[test]
+    fn hmac_key_list_tokens_keep_their_bytes_and_open() {
+        for (token, email, show_deleted_keys) in [
+            (
+                "5b5b226831222c2270726f6a6563742d31222c6e756c6c2c66616c73655d2c22474f4f47314558414d504c45225d.affac523806258da",
+                None,
+                false,
+            ),
+            (
+                "5b5b226831222c2270726f6a6563742d31222c2273614070726f6a6563742e69616d2e67736572766963656163636f756e742e636f6d222c747275655d2c22474f4f47314558414d504c45225d.c41050cb7937b2ba",
+                Some("sa@project.iam.gserviceaccount.com"),
+                true,
+            ),
+        ] {
+            let params = HmacKeyListParams {
+                project: "project-1".into(),
+                service_account_email: email.map(str::to_owned),
+                show_deleted_keys,
+                max_results: 10,
+                start_after: None,
+            };
+            assert_eq!(encode_list_token(&params, "GOOG1EXAMPLE"), token);
+            assert_eq!(decode_list_token(token, &params).unwrap(), "GOOG1EXAMPLE");
+        }
+    }
 }
