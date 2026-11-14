@@ -979,7 +979,9 @@ fn migration_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf>
                 normalized.pop();
             }
             Component::CurDir => {}
-            _ => normalized.push(component.as_os_str()),
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
         }
     }
     Ok(normalized)

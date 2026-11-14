@@ -158,7 +158,7 @@ impl PublicOrigin {
     pub(crate) fn dns_name(&self) -> Option<&str> {
         match &self.host {
             OriginHost::Dns(name) => Some(name),
-            _ => None,
+            OriginHost::Ipv4(_) | OriginHost::Ipv6(_) => None,
         }
     }
 

@@ -2,8 +2,6 @@
 clippy::option_option	src/storage/catalog/sync_state/writeback/live_export.rs	1
 clippy::struct_excessive_bools	src/xml/list.rs	1
 clippy::wildcard_enum_match_arm	src/auth/mod.rs	1
-clippy::wildcard_enum_match_arm	src/config/setting.rs	1
-clippy::wildcard_enum_match_arm	src/config_input.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/bucket_update.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/names.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/object_io/write.rs	1
@@ -35,7 +33,6 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/writeback.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/writeback/live_export.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4
-clippy::wildcard_enum_match_arm	src/url.rs	1
 clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1
 clippy::wildcard_enum_match_arm	src/xml/document.rs	1
 clippy::wildcard_enum_match_arm	src/xml/mod.rs	1

@@ -222,7 +222,17 @@ impl fmt::Display for Spelled<'_> {
         let (prefix, map): (&str, fn(char) -> char) = match self.source {
             DiagnosticSource::Cli => ("--", |c| if c == '_' { '-' } else { c }),
             DiagnosticSource::Environment => ("GCS_MIMIC_", |c| c.to_ascii_uppercase()),
-            _ => ("", |c| c),
+            DiagnosticSource::Config
+            | DiagnosticSource::Tls
+            | DiagnosticSource::Identity
+            | DiagnosticSource::Filesystem
+            | DiagnosticSource::Catalog
+            | DiagnosticSource::Initializer
+            | DiagnosticSource::Seed
+            | DiagnosticSource::Sync
+            | DiagnosticSource::Import
+            | DiagnosticSource::Listener
+            | DiagnosticSource::Runtime => ("", |c| c),
         };
         f.write_str(prefix)?;
         self.name.chars().try_for_each(|c| f.write_char(map(c)))
