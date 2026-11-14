@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     auth::Caller,
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, CatalogError, CorsRule},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
@@ -317,60 +317,31 @@ async fn respond_xml_cors(
     // The rules and the existence of the bucket matter only to a request with an Origin.
     // Every other request needs just whether `Vary: Origin` applies: the configured fallback
     // always adds it, so only a fallback-less bucket needs a (light) lookup.
-    //
-    // A failed lookup counts as "no rules" instead of answering 503 here: this wrapper runs
-    // before authentication and signature checks, so an unauthenticated request must not
-    // learn of catalog trouble ahead of the 401/403 it would otherwise get. The routed
-    // handler reports a real catalog failure after authorizing. Without rules no CORS access
-    // is granted, so the failure fails closed. A missing bucket has no stored rules either;
-    // the fallback lets browsers read the 404.
-    let mut lookup_failed = false;
-    let (rules, found, has_rules) = if has_origin {
-        match state
-            .catalog
-            .get_bucket(&object.bucket, &BucketAccess::Permissive)
-            .await
-        {
-            Ok(Some(bucket)) => {
-                let has_rules = !bucket.cors.is_empty();
-                (bucket.cors, true, has_rules)
-            }
-            Ok(None) => (Vec::new(), false, false),
-            Err(error) => {
-                report_cors_lookup_failed(&object.bucket, &error);
-                lookup_failed = true;
-                (Vec::new(), false, false)
-            }
-        }
-    } else if fallback != CorsFallback::None {
-        (Vec::new(), false, false)
+    let lookup = if has_origin {
+        origin_bucket_cors(state, &object.bucket).await
     } else {
-        let has_rules = match state.catalog.bucket_has_cors(&object.bucket).await {
-            Ok(has_rules) => has_rules,
-            Err(error) => {
-                report_cors_lookup_failed(&object.bucket, &error);
-                false
-            }
-        };
-        (Vec::new(), false, has_rules)
+        BucketCors::WithoutOrigin {
+            has_rules: fallback == CorsFallback::None
+                && bucket_has_cors(state, &object.bucket).await,
+        }
     };
     // The fallback applies only once the bucket is known to have no rules (or not to exist).
-    // After a failed lookup that is unknown, and granting every origin would fail open, so no
-    // CORS field is sent at all.
-    let cors = if has_origin && !lookup_failed {
-        let cors = xml::cors(request.headers(), request.method(), &rules, kind, fallback);
-        if found && rules.is_empty() {
-            note_bucket_without_rules(state, &object.bucket, request.headers(), choice, &cors);
+    let cors = match &lookup {
+        BucketCors::Found(rules) => {
+            let cors = xml::cors(request.headers(), request.method(), rules, kind, fallback);
+            if rules.is_empty() {
+                note_bucket_without_rules(state, &object.bucket, request.headers(), choice, &cors);
+            }
+            cors
         }
-        cors
-    } else {
-        hyper::HeaderMap::new()
+        BucketCors::Missing => xml::cors(request.headers(), request.method(), &[], kind, fallback),
+        BucketCors::Failed | BucketCors::WithoutOrigin { .. } => HeaderMap::new(),
     };
     // Cloud Storage sends no `Vary: Origin` for a bucket without CORS configuration, even
     // when the request has an Origin (observed 2026-10-31). Where rules or the local
     // fallback can add CORS fields, the response still varies by Origin when none match;
     // that case was not observed on Cloud Storage.
-    let varies_by_origin = has_rules || fallback != CorsFallback::None;
+    let varies_by_origin = lookup.has_rules() || fallback != CorsFallback::None;
     let (mut response, vary) = match kind {
         CorsRequest::Preflight => (
             boxed(empty_response(StatusCode::OK)),
@@ -386,9 +357,65 @@ async fn respond_xml_cors(
     response
 }
 
-/// CORS fields replace the routed response's, except `vary`: a representation that also
-/// varies by `Accept-Encoding` keeps that field after the CORS `vary`, as Cloud Storage
-/// sends both (observed 2026-10-31).
+/// What the CORS wrapper learned about the rules of the bucket an XML request names.
+///
+/// A failed lookup never answers 503 here: this wrapper runs before authentication and
+/// signature checks, so an unauthenticated request must not learn of catalog trouble ahead of
+/// the 401/403 it would otherwise get. The routed handler reports a real catalog failure after
+/// authorizing.
+enum BucketCors {
+    /// An Origin-bearing request on an existing bucket, with its rules (possibly none).
+    Found(Vec<CorsRule>),
+    /// An Origin-bearing request on a bucket that does not exist. It has no stored rules, and
+    /// the fallback lets browsers read the 404.
+    Missing,
+    /// The lookup for an Origin-bearing request failed. Whether the fallback applies is then
+    /// unknown, and granting every origin would fail open, so no CORS field is sent: without
+    /// rules no CORS access is granted, and the failure fails closed.
+    Failed,
+    /// A request without Origin needs only whether `Vary: Origin` applies; a failed lookup
+    /// counts as no rules.
+    WithoutOrigin { has_rules: bool },
+}
+
+impl BucketCors {
+    /// Whether the bucket is known to have CORS rules.
+    fn has_rules(&self) -> bool {
+        match self {
+            Self::Found(rules) => !rules.is_empty(),
+            Self::Missing | Self::Failed => false,
+            Self::WithoutOrigin { has_rules } => *has_rules,
+        }
+    }
+}
+
+/// The rules of the bucket an Origin-bearing request names, and whether it exists.
+async fn origin_bucket_cors(state: &super::State, bucket: &str) -> BucketCors {
+    match state
+        .catalog
+        .get_bucket(bucket, &BucketAccess::Permissive)
+        .await
+    {
+        Ok(Some(record)) => BucketCors::Found(record.cors),
+        Ok(None) => BucketCors::Missing,
+        Err(error) => {
+            report_cors_lookup_failed(bucket, &error);
+            BucketCors::Failed
+        }
+    }
+}
+
+/// Whether a bucket has CORS rules, without reading them; a failed lookup counts as none.
+async fn bucket_has_cors(state: &super::State, bucket: &str) -> bool {
+    match state.catalog.bucket_has_cors(bucket).await {
+        Ok(has_rules) => has_rules,
+        Err(error) => {
+            report_cors_lookup_failed(bucket, &error);
+            false
+        }
+    }
+}
+
 /// The fields of a failed CORS rule lookup. The cause passes through the same allow-list as
 /// client-visible backend errors, because catalog messages may embed SQL values.
 fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value {
@@ -431,6 +458,9 @@ fn report_cors_lookup_failed(bucket: &str, error: &CatalogError) {
     );
 }
 
+/// CORS fields replace the routed response's, except `vary`: a representation that also
+/// varies by `Accept-Encoding` keeps that field after the CORS `vary`, as Cloud Storage
+/// sends both (observed 2026-10-31).
 fn apply_cors(headers: &mut HeaderMap, cors: HeaderMap, default_vary: Option<&'static str>) {
     let (leading, representation): (Vec<HeaderValue>, Vec<HeaderValue>) = headers
         .get_all("vary")
