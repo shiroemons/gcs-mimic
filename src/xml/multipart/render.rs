@@ -86,7 +86,7 @@ pub(super) async fn list(
                 name: path.target.name,
                 id,
             };
-            let (upload, parts, more) = ctx
+            let page = ctx
                 .await_catalog(
                     ctx.state
                         .catalog
@@ -94,7 +94,13 @@ pub(super) async fn list(
                 )
                 .await
                 .map_err(|error| storage_error(error, ctx))?;
-            Ok(response(parts_body(&upload, &parts, marker, limit, more)?))
+            Ok(response(parts_body(
+                &page.upload,
+                &page.parts,
+                marker,
+                limit,
+                page.more,
+            )?))
         }
         Operation::Uploads => {
             let limit = numeric(&mut query, "max-uploads", 1000, u32::MAX)?.min(1000) as usize;

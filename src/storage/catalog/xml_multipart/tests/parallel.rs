@@ -96,10 +96,11 @@ fn etag_of(bytes: &[u8]) -> String {
 }
 
 async fn numbers(catalog: &Catalog, target: &Target) -> Vec<u16> {
-    let (_, parts, _) = catalog
+    let parts = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 1000)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     parts.into_iter().map(|part| part.number).collect()
 }
 
@@ -190,10 +191,11 @@ async fn the_same_part_number_waits_and_the_last_to_finish_wins() {
         .unwrap();
     assert_eq!(first.etag, etag_of(b"first body"));
     assert_eq!(second.etag, etag_of(b"second body"));
-    let (_, parts, _) = catalog
+    let parts = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 1)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(parts[0].etag, second.etag);
     assert_eq!(parts[0].size, 11);
     // The replaced body is gone: one staging file for each stored part.

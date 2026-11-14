@@ -417,7 +417,11 @@ impl Catalog {
                         principals.as_ref(),
                     )?),
                 };
-                let (_, retired, resource) = objects::publish_in_transaction(
+                let objects::PublishedVersion {
+                    retired,
+                    prepared: resource,
+                    ..
+                } = objects::publish_in_transaction(
                     &transaction,
                     previous.as_ref(),
                     &bucket,

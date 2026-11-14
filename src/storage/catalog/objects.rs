@@ -36,7 +36,7 @@ mod reclaim_tests;
 pub(super) mod retention;
 pub(crate) use list_query::{FoldersAsPrefixes, ListQueryError};
 
-use super::object_hold::columns as hold_columns;
+use super::object_hold::HoldColumns;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 // A literal macro lets per-request queries build static SQL with concat!, which
@@ -129,8 +129,8 @@ pub(super) use list::{SeekStart, list_page, prefix_end};
 pub(crate) use publication::Versioning;
 pub(super) use publication::{
     BucketPublication, DeletePermission, GenerationAssignment, NewVersion, PublicationDefaults,
-    PublicationTime, RequestKind, Retired, Retirement, acl_update_error, publish_in_transaction,
-    retention_expiration,
+    PublicationTime, PublishedVersion, RequestKind, Retired, Retirement, acl_update_error,
+    publish_in_transaction, publish_version, retention_expiration,
 };
 use publication::{RetirementContext, retire_previous};
 pub(crate) use reader::ObjectReader;
@@ -288,10 +288,9 @@ impl Catalog {
                     override_unlocked,
                 )?;
             }
-            let (retention_mode, retain_until, retain_sub_micro) =
-                retention::columns(record.retention.as_ref())?;
-            let (event_hold, event_released) = hold_columns(record.event_based_hold);
-            let (temporary_hold, temporary_released) = hold_columns(record.temporary_hold);
+            let retention = retention::columns(record.retention.as_ref())?;
+            let event = HoldColumns::from(record.event_based_hold);
+            let temporary = HoldColumns::from(record.temporary_hold);
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -317,15 +316,15 @@ impl Catalog {
                         record.content_language,
                         record.cache_control,
                         metadata,
-                        event_hold,
+                        event.held,
                         record.generation,
-                        temporary_hold,
+                        temporary.held,
                         record.custom_time,
-                        retention_mode,
-                        retain_until,
-                        retain_sub_micro,
-                        temporary_released,
-                        event_released
+                        retention.mode,
+                        retention.until,
+                        retention.sub_micro,
+                        temporary.released,
+                        event.released
                     ])?;
             super::change_journal::object(
                 &transaction,

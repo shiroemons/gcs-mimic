@@ -374,32 +374,45 @@ enum Lookup {
     Live(Box<Row>),
 }
 
+/// An appendable row as stored. Its options, size and times decode only once the row is known
+/// to be live, so a stale row is retired whatever it holds.
+struct StoredRow {
+    generation: i64,
+    incarnation: Incarnation,
+    blob_id: BlobId,
+    options: String,
+    size: i64,
+    crc32c: u32,
+    time_created: i64,
+    updated: i64,
+    write_handle: String,
+}
+
 fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, ObjectError> {
     const SELECT: &str = "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2";
     let row = sql::row(connection, SELECT, params![bucket, name], |row| {
-        Ok((
-            row.get::<_, i64>("generation")?,
-            row.get::<_, Incarnation>("incarnation")?,
-            row.get::<_, BlobId>("blob_id")?,
-            row.get::<_, String>("options")?,
-            row.get::<_, i64>("size")?,
-            row.get::<_, u32>("crc32c")?,
-            row.get::<_, i64>("time_created")?,
-            row.get::<_, i64>("updated")?,
-            row.get::<_, String>("write_handle")?,
-        ))
+        Ok(StoredRow {
+            generation: row.get("generation")?,
+            incarnation: row.get("incarnation")?,
+            blob_id: row.get("blob_id")?,
+            options: row.get("options")?,
+            size: row.get("size")?,
+            crc32c: row.get("crc32c")?,
+            time_created: row.get("time_created")?,
+            updated: row.get("updated")?,
+            write_handle: row.get("write_handle")?,
+        })
     })
     .optional()?;
-    let Some((generation, stored, blob_id, options, size, crc32c, created, updated, handle)) = row
-    else {
+    let Some(stored) = row else {
         return Ok(Lookup::Absent);
     };
-    if published_generation(connection, bucket, name, generation)?
-        || bucket_incarnation(connection, bucket).optional()? != Some(stored)
+    if published_generation(connection, bucket, name, stored.generation)?
+        || bucket_incarnation(connection, bucket).optional()? != Some(stored.incarnation)
     {
-        return Ok(Lookup::Stale(blob_id));
+        return Ok(Lookup::Stale(stored.blob_id));
     }
-    let options = serde_json::from_str(&options)
+    let options = serde_json::from_str(&stored.options)
         .map_err(object_unavailable)
         .and_then(|value| {
             decode_options(&value).map_err(|error| {
@@ -407,14 +420,14 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
             })
         })?;
     Ok(Lookup::Live(Box::new(Row {
-        generation,
-        blob_id,
+        generation: stored.generation,
+        blob_id: stored.blob_id,
         options,
-        size: u64::try_from(size).map_err(object_unavailable)?,
-        crc32c,
-        time_created: system_time_micros(created)?,
-        updated: system_time_micros(updated)?,
-        write_handle: handle,
+        size: u64::try_from(stored.size).map_err(object_unavailable)?,
+        crc32c: stored.crc32c,
+        time_created: system_time_micros(stored.time_created)?,
+        updated: system_time_micros(stored.updated)?,
+        write_handle: stored.write_handle,
     })))
 }
 

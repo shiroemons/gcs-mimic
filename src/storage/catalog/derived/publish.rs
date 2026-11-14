@@ -184,7 +184,7 @@ where
         acl: super::super::acl::PublicationAcl::requested(destination.metadata.predefined_acl),
     };
     // Publishing a transfer always wakes the maintenance scheduler once it settles.
-    let (record, _retired, ()) = objects::publish_in_transaction(
+    let objects::PublishedVersion { record, .. } = objects::publish_version(
         transaction,
         previous.as_ref(),
         &bucket,
@@ -215,7 +215,7 @@ where
                 [id],
             )?;
             prepare(transaction, &mut record)?;
-            Ok((record, ()))
+            Ok(record)
         },
     )?;
     complete(transaction, &record)?;

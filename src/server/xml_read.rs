@@ -11,7 +11,7 @@ use crate::{
     csek::CustomerKey,
     json,
     object::{ObjectConditions, ObjectRecord},
-    storage::ObjectReader,
+    storage::{ObjectReader, StoredHashes},
     xml,
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
@@ -107,15 +107,16 @@ async fn read(
     let catalog = &ctx.state.catalog;
     let head = request.method() == Method::HEAD;
     // HEAD returns only metadata, which an encrypted object exposes without its key.
-    let (record, mut reader, reveal) = if head {
+    let (record, mut reader, hashes) = if head {
         catalog
             .open_object_metadata_keyed(target, conditions, access, key)
             .await
+            .map(|opened| (opened.record, opened.reader, opened.hashes))
     } else {
         catalog
             .open_object_keyed(target, conditions, access, key, body_read_ahead(request))
             .await
-            .map(|(record, reader)| (record, reader, true))
+            .map(|(record, reader)| (record, reader, StoredHashes::Revealed))
     }
     .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
     let scope = if reader.publicly_readable {
@@ -136,7 +137,7 @@ async fn read(
         headers.insert("expires", value);
     }
     json::insert_response_headers(&record, &mut headers);
-    if !reveal {
+    if hashes == StoredHashes::Withheld {
         headers.remove("x-goog-hash");
     }
     if let Some(response) = conditional_read(request.headers(), &record, &mut headers)? {

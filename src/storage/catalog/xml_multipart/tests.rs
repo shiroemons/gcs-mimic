@@ -379,10 +379,11 @@ async fn part_eof_lease_serialization_and_reset_busy_preserve_state() {
             .await
             .is_err()
     );
-    let (_, parts, _) = catalog
+    let parts = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 1)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(parts[0].etag, original.etag);
     let lease = catalog
         .lease_xml_multipart(target.clone(), BucketAccess::Permissive)
@@ -420,10 +421,11 @@ async fn part_durable_step_failures_keep_prior_part_and_cleanup_after_restart() 
         assert_eq!(catalog.pending_faults(), 0);
         catalog.close().await.unwrap();
         let reopened = Catalog::open(&dir.0).await.unwrap();
-        let (_, parts, _) = reopened
+        let parts = reopened
             .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
             .await
-            .unwrap();
+            .unwrap()
+            .parts;
         assert_eq!(parts.len(), 1);
         if step == Step::AfterCommit {
             assert_ne!(parts[0].etag, old.etag);
@@ -510,7 +512,7 @@ async fn abort_commit_and_reclaim_crash_snapshots_never_resurrect_retired_parts(
                         .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
                         .await
                         .unwrap()
-                        .1
+                        .parts
                         .len(),
                     1
                 );
@@ -565,7 +567,7 @@ async fn completion_durable_step_failures_preserve_old_or_confirm_committed_gene
                     .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
                     .await
                     .unwrap()
-                    .1
+                    .parts
                     .len(),
                 1
             );
@@ -632,10 +634,11 @@ async fn multipart_part_and_completion_crash_and_power_loss_snapshots_recover() 
                     ));
                 } else {
                     assert_eq!(bytes(&reopened).await, b"previous");
-                    let (_, parts, _) = reopened
+                    let parts = reopened
                         .list_xml_parts(target, BucketAccess::Permissive, 0, 1000)
                         .await
-                        .unwrap();
+                        .unwrap()
+                        .parts;
                     assert_eq!(parts.len(), 1);
                     if !completing && step == Step::AfterCommit {
                         assert_ne!(parts[0].etag, old.etag);

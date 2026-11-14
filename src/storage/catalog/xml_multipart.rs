@@ -126,6 +126,15 @@ pub(crate) struct Part {
     crc32c: u32,
 }
 
+/// One page of an upload's parts in part-number order.
+#[derive(Debug)]
+pub(crate) struct PartsPage {
+    pub upload: Upload,
+    pub parts: Vec<Part>,
+    /// Parts after the last one listed remain.
+    pub more: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct CompletedPart {
     pub number: u16,
@@ -338,7 +347,7 @@ impl Catalog {
         access: BucketAccess,
         marker: u16,
         limit: usize,
-    ) -> Result<(Upload, Vec<Part>, bool), Error> {
+    ) -> Result<PartsPage, Error> {
         let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
@@ -346,7 +355,7 @@ impl Catalog {
             let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
                 .and_then(|mut s|s.query_map(params![target.id,marker,limit.clamp(1,1000)+1],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
             let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
-            Ok((upload,parts,more))
+            Ok(PartsPage { upload, parts, more })
         }).await
     }
 

@@ -271,20 +271,28 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
     Ok(())
 }
 
-fn state(connection: &Connection) -> Result<(JournalFence, JournalSeq, bool), CatalogError> {
+/// The journal's position and whether it records changes.
+struct JournalState {
+    current: JournalFence,
+    /// The oldest sequence a cursor can still continue from.
+    floor: JournalSeq,
+    enabled: bool,
+}
+
+fn state(connection: &Connection) -> Result<JournalState, CatalogError> {
     sql::row(
         connection,
         "SELECT sequence, epoch, floor, enabled FROM change_journal_state WHERE singleton = 1",
         [],
         |r| {
-            Ok((
-                JournalFence {
+            Ok(JournalState {
+                current: JournalFence {
                     sequence: r.get(0)?,
                     revision: r.get(1)?,
                 },
-                r.get(2)?,
-                r.get(3)?,
-            ))
+                floor: r.get(2)?,
+                enabled: r.get(3)?,
+            })
         },
     )
     .map_err(unavailable)
@@ -308,7 +316,11 @@ impl Catalog {
             wait_checkpoint("registered").await;
             let observation = self
                 .run_admin(move |connection| {
-                    let (current, floor, enabled) = state(connection)?;
+                    let JournalState {
+                        current,
+                        floor,
+                        enabled,
+                    } = state(connection)?;
                     Ok(ChangeObservation {
                         fence: current,
                         rescan_required: !enabled || !valid_cursor(after, current, floor),
@@ -350,7 +362,7 @@ impl Catalog {
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
             sql::exec(connection, "UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled])?;
-            Ok(state(connection)?.0)
+            Ok(state(connection)?.current)
         }).await
     }
 
@@ -364,7 +376,7 @@ impl Catalog {
         let limit = super::PageLimit::<MAX_PAGE>::try_from(limit)
             .map_err(|_| AdminError::Invalid("change page limit must be 1..=256".into()))?;
         self.run_admin(move |connection| {
-            let (current, floor, enabled) = state(connection)?;
+            let JournalState { current, floor, enabled } = state(connection)?;
             let target = fence.unwrap_or(current);
             let valid = |f: JournalFence| valid_cursor(f, current, floor);
             let rescan = !enabled || after.is_none_or(|a| !valid(a)) || !valid(target) || after.is_some_and(|a| a.sequence > target.sequence);

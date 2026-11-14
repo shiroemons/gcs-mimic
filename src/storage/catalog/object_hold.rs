@@ -18,8 +18,18 @@ ALTER TABLE objects ADD COLUMN event_based_hold_released INTEGER NOT NULL DEFAUL
 PRAGMA user_version = 48;";
 
 /// The column pair (`hold`, `hold_released`) that stores a state.
-pub(super) fn columns(state: Hold) -> (bool, bool) {
-    (state.is_held(), state == Hold::Released)
+pub(super) struct HoldColumns {
+    pub(super) held: bool,
+    pub(super) released: bool,
+}
+
+impl From<Hold> for HoldColumns {
+    fn from(state: Hold) -> Self {
+        Self {
+            held: state.is_held(),
+            released: state == Hold::Released,
+        }
+    }
 }
 
 pub(super) fn read(row: &Row<'_>, hold: usize, released: usize) -> rusqlite::Result<Hold> {
@@ -112,11 +122,11 @@ mod tests {
             (Some(false), "event"),
             (Some(true), "temporary"),
         ] {
-            let (hold, released) = columns(state.into());
+            let columns = HoldColumns::from(Hold::from(state));
             connection
                 .execute(
                     "UPDATE objects SET temporary_hold = ?1, temporary_hold_released = ?2 WHERE name = ?3",
-                    rusqlite::params![hold, released, name],
+                    rusqlite::params![columns.held, columns.released, name],
                 )
                 .unwrap();
         }

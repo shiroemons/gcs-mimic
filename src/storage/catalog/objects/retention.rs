@@ -69,12 +69,22 @@ pub(super) fn read(row: &Row<'_>, columns: Columns) -> rusqlite::Result<Option<O
 }
 
 /// Values for the (`retention_mode`, `retain_until_time`, `retain_until_sub_micro_nanos`)
-/// columns. The remainder (0 to 999) keeps the nanoseconds that the microsecond column drops.
-pub(super) fn columns(
-    retention: Option<&ObjectRetention>,
-) -> Result<(Option<&'static str>, Option<i64>, i64), ObjectError> {
+/// columns, as [`Columns`] names their positions.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RetentionValues {
+    pub(super) mode: Option<&'static str>,
+    pub(super) until: Option<i64>,
+    /// The nanoseconds (0 to 999) that the microsecond column drops.
+    pub(super) sub_micro: i64,
+}
+
+pub(super) fn columns(retention: Option<&ObjectRetention>) -> Result<RetentionValues, ObjectError> {
     let Some(retention) = retention else {
-        return Ok((None, None, 0));
+        return Ok(RetentionValues {
+            mode: None,
+            until: None,
+            sub_micro: 0,
+        });
     };
     let (micros, remainder) = retention
         .retain_until
@@ -84,11 +94,11 @@ pub(super) fn columns(
                 "retention.retainUntilTime is outside the supported range".into(),
             )
         })?;
-    Ok((
-        Some(retention.mode.as_str()),
-        Some(micros),
-        i64::from(remainder),
-    ))
+    Ok(RetentionValues {
+        mode: Some(retention.mode.as_str()),
+        until: Some(micros),
+        sub_micro: i64::from(remainder),
+    })
 }
 
 /// Encodes upload metadata retention for a persisted resumable session.
@@ -206,16 +216,23 @@ mod tests {
             mode: RetentionMode::Unlocked,
             retain_until: time,
         };
-        let (mode, micros, remainder) = columns(Some(&retention)).unwrap();
-        assert_eq!(mode, Some("Unlocked"));
-        assert_eq!(micros, Some(4_000_000_000_123_456));
-        assert_eq!(remainder, i64::from(REMAINDER));
+        let values = columns(Some(&retention)).unwrap();
+        assert_eq!(values.mode, Some("Unlocked"));
+        assert_eq!(values.until, Some(4_000_000_000_123_456));
+        assert_eq!(values.sub_micro, i64::from(REMAINDER));
         let whole = ObjectRetention {
             retain_until: at(4_000_000_000, 123_456_000),
             ..retention
         };
-        assert_eq!(columns(Some(&whole)).unwrap().2, 0);
-        assert_eq!(columns(None).unwrap(), (None, None, 0));
+        assert_eq!(columns(Some(&whole)).unwrap().sub_micro, 0);
+        assert_eq!(
+            columns(None).unwrap(),
+            RetentionValues {
+                mode: None,
+                until: None,
+                sub_micro: 0
+            }
+        );
     }
 
     /// A row written with a nanosecond fraction that is not a multiple of 100 reads back exactly,
@@ -257,7 +274,11 @@ mod tests {
         let retention = rows[0].unwrap();
         assert_eq!(
             columns(Some(&retention)).unwrap(),
-            (Some("Locked"), Some(4_000_000_000_123_456), 789)
+            RetentionValues {
+                mode: Some("Locked"),
+                until: Some(4_000_000_000_123_456),
+                sub_micro: 789
+            }
         );
     }
 

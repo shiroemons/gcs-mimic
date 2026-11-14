@@ -984,7 +984,7 @@ fn publish_entry(
             )?)
         },
     };
-    let (mut record, _, ()) = objects::publish_in_transaction(
+    let objects::PublishedVersion { mut record, .. } = objects::publish_version(
         transaction,
         previous.as_ref(),
         &publication,
@@ -1005,7 +1005,7 @@ fn publish_entry(
         |generation| {
             let mut record = publication_record(entry, generation, defaults)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);
-            Ok((record, ()))
+            Ok(record)
         },
     )?;
     record_publication_metadata(transaction, entry, &access, &mut record)?;

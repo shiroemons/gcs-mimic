@@ -126,37 +126,40 @@ pub(super) fn transfer(
     id: &BlobId,
     now: UnixMillis,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
+    /// A transfer row as stored.
+    struct TransferRow {
+        total: u64,
+        offset: u64,
+        md5_state: Vec<u8>,
+        crc32c: u32,
+        created: UnixMillis,
+        deadline: UnixMillis,
+    }
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
-    let (total, offset, state, crc, created, deadline): (
-        u64,
-        u64,
-        Vec<u8>,
-        u32,
-        UnixMillis,
-        UnixMillis,
-    ) = sql::row(connection, SELECT, [id], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-            row.get(3)?,
-            row.get(4)?,
-            row.get(5)?,
-        ))
+    let row = sql::row(connection, SELECT, [id], |row| {
+        Ok(TransferRow {
+            total: row.get(0)?,
+            offset: row.get(1)?,
+            md5_state: row.get(2)?,
+            crc32c: row.get(3)?,
+            created: row.get(4)?,
+            deadline: row.get(5)?,
+        })
     })
     .optional()?
     .ok_or(ObjectError::DerivedTransferNotFound)?;
-    if now >= deadline {
+    if now >= row.deadline {
         return Err(ObjectError::DerivedTransferExpired);
     }
-    let hasher = Hasher::from_md5_state(&state, crc, offset).map_err(object_unavailable)?;
+    let hasher = Hasher::from_md5_state(&row.md5_state, row.crc32c, row.offset)
+        .map_err(object_unavailable)?;
     Ok((
         DerivedTransfer {
             id: *id,
-            total,
-            offset,
-            created: created.system_time()?,
-            deadline: deadline.system_time()?,
+            total: row.total,
+            offset: row.offset,
+            created: row.created.system_time()?,
+            deadline: row.deadline.system_time()?,
         },
         hasher,
     ))

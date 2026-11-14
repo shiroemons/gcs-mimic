@@ -109,10 +109,11 @@ async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_by
         })
         .await
         .unwrap();
-    let (_, listed, _) = catalog
+    let listed = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 100)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(listed.len(), 1);
     assert_eq!((&listed[0].etag, listed[0].size), (&first.etag, 5));
     let lease = catalog
@@ -172,10 +173,11 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
             .unwrap(),
         original
     );
-    let (_, listed, _) = catalog
+    let listed = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 100)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(listed[0].etag, first.etag);
     catalog
         .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
@@ -271,10 +273,11 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
         original
     );
     assert!(catalog.next_notification().await.unwrap().is_none());
-    let (_, listed, _) = catalog
+    let listed = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 100)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(listed[0].etag, selected.etag);
     catalog
         .run::<_, ObjectError>(|connection| {
@@ -395,10 +398,11 @@ async fn ram_xml_multipart_parts_write_side_by_side_and_a_disconnect_frees_its_b
     kept.send(Ok(UploadChunk::End)).await.unwrap();
     kept_request.await.unwrap().unwrap();
     assert_eq!(memory.blob_count(), 2);
-    let (_, listed, _) = catalog
+    let listed = catalog
         .list_xml_parts(target.clone(), BucketAccess::Permissive, 0, 100)
         .await
-        .unwrap();
+        .unwrap()
+        .parts;
     assert_eq!(
         listed.iter().map(|part| part.number).collect::<Vec<_>>(),
         [1, 2]

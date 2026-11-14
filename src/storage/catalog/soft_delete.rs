@@ -184,7 +184,9 @@ fn restore_in_transaction(
     record.time_deleted = None;
     record.soft_delete_time = None;
     record.hard_delete_time = None;
-    let (record, retired, ()) = objects::publish_in_transaction(
+    let objects::PublishedVersion {
+        record, retired, ..
+    } = objects::publish_version(
         &transaction,
         previous.as_ref(),
         &bucket,
@@ -199,7 +201,7 @@ fn restore_in_transaction(
         },
         |generation| {
             record.generation = generation;
-            Ok((record, ()))
+            Ok(record)
         },
     )?;
     objects::commit_publication(transaction)?;

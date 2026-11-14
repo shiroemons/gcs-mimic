@@ -1,8 +1,8 @@
 use super::{
     Catalog,
     objects::{
-        GenerationAssignment, NewVersion, PublicationTime, authorized_bucket, check_publication,
-        lookup, publish_in_transaction, selected,
+        GenerationAssignment, NewVersion, PublicationTime, PublishedVersion, authorized_bucket,
+        check_publication, lookup, publish_version, selected,
     },
 };
 use crate::storage::catalog::sql;
@@ -117,7 +117,9 @@ impl Catalog {
                 record.time_created = now.time;
                 record.updated = now.time;
                 record.time_deleted = None;
-                let (record, retired, ()) = publish_in_transaction(
+                let PublishedVersion {
+                    record, retired, ..
+                } = publish_version(
                     &transaction,
                     previous.as_ref(),
                     &publication,
@@ -134,7 +136,7 @@ impl Catalog {
                     },
                     |generation| {
                         record.generation = generation;
-                        Ok((record, ()))
+                        Ok(record)
                     },
                 )?;
                 transaction.commit()?;

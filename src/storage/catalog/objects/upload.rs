@@ -215,7 +215,9 @@ impl UploadCommit {
                 OwnerAssignment::Unknown => None,
             },
         };
-        let (record, retired, ()) = publish_in_transaction(
+        let PublishedVersion {
+            record, retired, ..
+        } = publish_version(
             transaction,
             previous.as_ref(),
             &bucket,
@@ -231,7 +233,7 @@ impl UploadCommit {
             |generation| {
                 let mut record = self.record(generation, defaults)?;
                 inherit_metadata(self.mode, previous.as_ref(), &mut record);
-                Ok((record, ()))
+                Ok(record)
             },
         )?;
         let appendable = self.finish_metadata(transaction, &record)?;

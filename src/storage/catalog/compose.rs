@@ -4,7 +4,7 @@ use super::{
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::bucket_incarnation;
 use crate::{
-    bucket::BucketAccess,
+    bucket::{BucketAccess, StorageClass},
     clock::Clock,
     object::{
         ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
@@ -25,13 +25,34 @@ pub(crate) enum SourceDisposal {
 /// The source identities a compose read, re-checked when it publishes.
 type SourceKeys = BTreeSet<(String, i64)>;
 
-/// Combines source checksums and component counts into the destination's expectations.
+/// What a compose's sources determine about its destination.
+struct Combined {
+    keys: SourceKeys,
+    storage_class: StorageClass,
+    component_count: i64,
+    crc32c: u32,
+}
+
+impl Combined {
+    /// Sets the destination's class, component count and expected checksum.
+    fn apply(&self, destination: &mut DerivedDestination) {
+        destination.storage_class = Some(self.storage_class);
+        destination.component_count = Some(self.component_count);
+        destination.expected = ExpectedHashes {
+            md5: None,
+            crc32c: Some(self.crc32c),
+        };
+    }
+}
+
+/// Combines source checksums and component counts; a `requested` destination class must match
+/// the sources'.
 fn combine_sources(
     sources: &[DerivedSource],
     disposal: SourceDisposal,
     clock: &dyn Clock,
-    destination: &mut DerivedDestination,
-) -> Result<SourceKeys, ObjectError> {
+    requested: Option<StorageClass>,
+) -> Result<Combined, ObjectError> {
     let class = sources
         .first()
         .ok_or_else(|| {
@@ -61,7 +82,7 @@ fn combine_sources(
             .min(i32::MAX as i64);
         keys.insert((source.object.name.clone(), source.object.generation));
     }
-    if let Some(requested) = destination.storage_class
+    if let Some(requested) = requested
         && requested != class
     {
         return Err(ObjectError::ComposeClassMismatch {
@@ -69,13 +90,12 @@ fn combine_sources(
             sources: class,
         });
     }
-    destination.storage_class = Some(class);
-    destination.component_count = Some(count);
-    destination.expected = ExpectedHashes {
-        md5: None,
-        crc32c: Some(crc),
-    };
-    Ok(keys)
+    Ok(Combined {
+        keys,
+        storage_class: class,
+        component_count: count,
+        crc32c: crc,
+    })
 }
 
 /// What a compose observed before reading its sources, re-checked and acted on inside the
@@ -216,7 +236,14 @@ impl Catalog {
             .customer_key_sha256
             .map(crate::csek::CustomerKey::from_sha256);
         let sources = self.resolve_compose_components(specs, key).await?;
-        let keys = combine_sources(&sources, disposal, &*self.0.clock, &mut destination)?;
+        let combined = combine_sources(
+            &sources,
+            disposal,
+            &*self.0.clock,
+            destination.storage_class,
+        )?;
+        combined.apply(&mut destination);
+        let keys = combined.keys;
         let transfer = self
             .begin_derived_ephemeral(
                 sources.into_iter().map(|source| source.whole()).collect(),

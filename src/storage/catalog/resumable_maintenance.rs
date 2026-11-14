@@ -52,16 +52,23 @@ impl SweepOutcome {
     }
 }
 
+/// A session whose storage maintenance cleans: expired, or cancelled with its blob journaled.
+struct DueSession {
+    id: SessionId,
+    blob_id: BlobId,
+    deadline: UnixMillis,
+}
+
 fn cleanup_page(
     connection: &Connection,
     now: UnixMillis,
     after: &After<SessionId>,
-) -> Result<Vec<(SessionId, BlobId, UnixMillis)>, CatalogError> {
+) -> Result<Vec<DueSession>, CatalogError> {
     // Requests wake maintenance, so this runs per request and must not read every session. Both
     // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
     // from scanning sessions in id order instead).
     connection.prepare_cached("SELECT id, blob_id, deadline FROM resumable_sessions INDEXED BY resumable_sessions_deadline WHERE deadline <= ?2 AND id > ?1 UNION ALL SELECT session.id, session.blob_id, session.deadline FROM pending_blob_deletions AS pending CROSS JOIN resumable_sessions AS session ON session.blob_id = pending.blob_id WHERE session.id > ?1 AND session.state = 'CANCELLED' AND session.deadline > ?2 ORDER BY id LIMIT ?3")?
-        .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .query_map(params![after, now, PAGE_SIZE], |row| Ok(DueSession { id: row.get(0)?, blob_id: row.get(1)?, deadline: row.get(2)? }))?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
 }
 
@@ -95,9 +102,9 @@ pub(super) fn recover_due(
         if rows.is_empty() {
             return Ok(());
         }
-        for (id, blob_id, deadline) in rows {
-            clean_record(connection, backend, id, &blob_id, deadline, now)?;
-            after = After::Key(id);
+        for due in rows {
+            clean_record(connection, backend, due.id, &due.blob_id, due.deadline, now)?;
+            after = After::Key(due.id);
         }
     }
 }
@@ -336,8 +343,13 @@ impl Catalog {
             let Some(last) = rows.last() else {
                 break;
             };
-            after = After::Key(last.0);
-            for (id, blob_id, deadline) in rows {
+            after = After::Key(last.id);
+            for DueSession {
+                id,
+                blob_id,
+                deadline,
+            } in rows
+            {
                 // A held session is swept once its request releases it, so this never waits.
                 let writer = match self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {
                     Ok(writer) => Arc::new(writer),

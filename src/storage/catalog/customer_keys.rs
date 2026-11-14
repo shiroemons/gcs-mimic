@@ -18,6 +18,21 @@ use crate::{
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, ReadAhead},
 };
 
+/// Whether a metadata response may show hashes of the stored bytes: an encrypted object's
+/// hashes need its key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StoredHashes {
+    Revealed,
+    Withheld,
+}
+
+/// An object opened for its metadata alone.
+pub(crate) struct KeyedMetadata {
+    pub record: ObjectRecord,
+    pub reader: ObjectReader,
+    pub hashes: StoredHashes,
+}
+
 /// Whether to fetch the body's start while opening the object. A stored-gzip response depends on
 /// the bytes and may be chunked or transcoded, which the streaming path decides.
 fn wants_read_ahead(record: &ObjectRecord, read_ahead: ReadAhead) -> bool {
@@ -89,22 +104,31 @@ impl Catalog {
     }
 
     /// Open for a metadata-only response (XML HEAD): no key is needed, a supplied key must
-    /// match. The returned flag says whether hashes of the stored bytes may be revealed.
+    /// match.
     pub(crate) async fn open_object_metadata_keyed(
         &self,
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
         key: Option<CustomerKey>,
-    ) -> Result<(ObjectRecord, ObjectReader, bool), ObjectError> {
+    ) -> Result<KeyedMetadata, ObjectError> {
         let catalog = self.clone();
         let access = access.clone();
         self.run_read(move |connection| {
             let (record, reader) =
                 objects::open_selected(connection, &catalog, &target, conditions, &access)?;
-            let reveal = crate::csek::check_metadata(record.customer_key_sha256, key)
-                .map_err(ObjectError::CustomerEncryption)?;
-            Ok((record, reader, reveal))
+            let hashes = if crate::csek::check_metadata(record.customer_key_sha256, key)
+                .map_err(ObjectError::CustomerEncryption)?
+            {
+                StoredHashes::Revealed
+            } else {
+                StoredHashes::Withheld
+            };
+            Ok(KeyedMetadata {
+                record,
+                reader,
+                hashes,
+            })
         })
         .await
     }
@@ -223,7 +247,7 @@ mod tests {
                 CsekError::ResourceIsEncrypted
             ))
         );
-        let (_, _, reveal) = catalog
+        let opened = catalog
             .open_object_metadata_keyed(
                 live("bucket", "secret"),
                 Default::default(),
@@ -232,7 +256,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!reveal);
+        assert_eq!(opened.hashes, StoredHashes::Withheld);
         catalog.close().await.unwrap();
     }
 

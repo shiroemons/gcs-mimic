@@ -272,14 +272,37 @@ pub(in crate::storage::catalog) enum GenerationAssignment {
     Imported(super::super::admin::Generation),
 }
 
+/// A version a publication wrote, what it did to the version it replaced, and what the
+/// preparation produced alongside the record.
+pub(in crate::storage::catalog) struct PublishedVersion<T> {
+    pub(in crate::storage::catalog) record: ObjectRecord,
+    pub(in crate::storage::catalog) retired: Retired,
+    pub(in crate::storage::catalog) prepared: T,
+}
+
+/// [`publish_in_transaction`] for a publication whose preparation yields only the record.
+pub(in crate::storage::catalog) fn publish_version(
+    transaction: &Transaction<'_>,
+    previous: Option<&StoredObject>,
+    bucket: &BucketPublication,
+    version: NewVersion<'_>,
+    prepare: impl FnOnce(i64) -> Result<ObjectRecord, ObjectError>,
+) -> Result<PublishedVersion<()>, ObjectError> {
+    publish_in_transaction(transaction, previous, bucket, version, |generation| {
+        prepare(generation).map(|record| (record, ()))
+    })
+}
+
 /// The caller owns protocol-specific completion and commits before reclaiming retired bytes.
+/// Preparation may also yield a value derived from the record before publication changes it,
+/// such as a completion response rendered inside the transaction.
 pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     transaction: &Transaction<'_>,
     previous: Option<&StoredObject>,
     bucket: &BucketPublication,
     version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
-) -> Result<(ObjectRecord, Retired, T), ObjectError> {
+) -> Result<PublishedVersion<T>, ObjectError> {
     let NewVersion {
         blob_id,
         assignment,
@@ -319,10 +342,9 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     }
     retention::validate_publication(transaction, &record, now)?;
     validate_publication_timestamps(&record)?;
-    let (retention_mode, retain_until, retain_sub_micro) =
-        retention::columns(record.retention.as_ref())?;
-    let (event_hold, event_released) = hold_columns(record.event_based_hold);
-    let (temporary_hold, temporary_released) = hold_columns(record.temporary_hold);
+    let retention = retention::columns(record.retention.as_ref())?;
+    let event = HoldColumns::from(record.event_based_hold);
+    let temporary = HoldColumns::from(record.temporary_hold);
     if matches!(assignment, GenerationAssignment::Imported(_)) {
         let exists: bool = sql::scalar(
             transaction,
@@ -374,12 +396,12 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
             record.content_type, size,
             &record.md5[..], record.crc32c, record.storage_class, time_created, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
-            record.cache_control, metadata, event_hold, record.component_count,
-            updated, temporary_hold, record.custom_time,
-            retention_mode, retain_until,
+            record.cache_control, metadata, event.held, record.component_count,
+            updated, temporary.held, record.custom_time,
+            retention.mode, retention.until,
             record.customer_key_sha256.as_ref().map(|sha256| &sha256[..]),
             record.md5_availability == crate::object::Md5Availability::Available, owner,
-            retain_sub_micro, temporary_released, event_released, class_updated]))?;
+            retention.sub_micro, temporary.released, event.released, class_updated]))?;
     super::super::acl::publish_object_acl(transaction, &record, acl)?;
     if notification_mode == NotificationMode::Emit {
         super::super::notification_outbox::published(transaction, origin, &record, previous, now)?;
@@ -390,7 +412,11 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         super::super::change_journal::ChangeKind::Publish,
         &record,
     )?;
-    Ok((record, retired, prepared))
+    Ok(PublishedVersion {
+        record,
+        retired,
+        prepared,
+    })
 }
 
 fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectError> {
