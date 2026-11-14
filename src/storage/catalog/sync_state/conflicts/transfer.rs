@@ -1,6 +1,7 @@
 //! An accepted, verified copy is the only authority to release a protected workspace.
 
 use super::*;
+#[cfg(test)]
 use crate::sync::mapping::WORKSPACE;
 
 /// The protected write-back operation a transfer releases, with its workspace identity.
@@ -488,15 +489,22 @@ impl RootLease {
         self.transfer_boundary(super::super::super::fault::Step::TransferAccepted)
             .await?;
         let selected = self.transfer_context(item.id).await?;
+        #[cfg(test)]
         let data = data_path(self);
         #[cfg(test)]
         let parent = self.fault_tree().join(WORKSPACE);
-        #[cfg(not(test))]
-        let parent = data.join(WORKSPACE);
         let expected = proof.source.clone();
         self.conflict_files(move |root| {
             let workspace = open_workspace(root, selected.node)?;
-            resolve::checked_unlink(&workspace, selected.id, Some(&expected), &data, &parent)?;
+            resolve::checked_unlink(
+                &workspace,
+                selected.id,
+                Some(&expected),
+                #[cfg(test)]
+                &data,
+                #[cfg(test)]
+                &parent,
+            )?;
             root.sync_all()?;
             Ok(())
         })

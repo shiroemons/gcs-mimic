@@ -549,7 +549,9 @@ impl RootLease {
                 &directory,
                 id,
                 observation.as_ref(),
+                #[cfg(test)]
                 &data,
+                #[cfg(test)]
                 &data.join("sync-conflicts"),
             )
         })
@@ -579,8 +581,8 @@ pub(super) fn checked_unlink(
     directory: &File,
     id: OpaqueId,
     expected: Option<&Observation>,
-    _data: &std::path::Path,
-    _parent: &std::path::Path,
+    #[cfg(test)] data: &std::path::Path,
+    #[cfg(test)] parent: &std::path::Path,
 ) -> Result<(), Error> {
     let name = id.to_hex();
     match fsutil::open_regular_at(directory, name.as_ref()) {
@@ -607,21 +609,21 @@ pub(super) fn checked_unlink(
             #[cfg(test)]
             {
                 fault::hit(
-                    _parent.parent().ok_or(Error::TargetChanged)?,
+                    parent.parent().ok_or(Error::TargetChanged)?,
                     fault::Step::ConflictUnlink,
                 )?;
-                fault::hit(_data, fault::Step::ConflictUnlink)?;
+                fault::hit(data, fault::Step::ConflictUnlink)?;
             }
             #[cfg(all(test, unix))]
-            super::super::super::fault::unlinked(&_parent.join(&name), &file)?;
+            super::super::super::fault::unlinked(&parent.join(&name), &file)?;
             fsutil::unlink_file_at(directory, name.as_ref())?;
             #[cfg(test)]
             {
                 fault::hit(
-                    _parent.parent().ok_or(Error::TargetChanged)?,
+                    parent.parent().ok_or(Error::TargetChanged)?,
                     fault::Step::ConflictUnlinked,
                 )?;
-                fault::hit(_data, fault::Step::ConflictUnlinked)?;
+                fault::hit(data, fault::Step::ConflictUnlinked)?;
             }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -630,14 +632,14 @@ pub(super) fn checked_unlink(
     #[cfg(test)]
     {
         fault::hit(
-            _parent.parent().ok_or(Error::TargetChanged)?,
+            parent.parent().ok_or(Error::TargetChanged)?,
             fault::Step::ConflictParentSync,
         )?;
-        fault::hit(_data, fault::Step::ConflictParentSync)?;
+        fault::hit(data, fault::Step::ConflictParentSync)?;
     }
     directory.sync_all()?;
     #[cfg(all(test, unix))]
-    super::super::super::fault::dir_synced(_parent);
+    super::super::super::fault::dir_synced(parent);
     Ok(())
 }
 

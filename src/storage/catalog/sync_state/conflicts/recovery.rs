@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(test)]
 use crate::sync::mapping::WORKSPACE;
 
 /// How far an operator's recovery decision has gone, as stored in
@@ -251,15 +252,22 @@ impl RootLease {
             Ok(())
         })
         .await?;
+        #[cfg(test)]
         let data = data_path(self);
         let entry = selected.clone();
         #[cfg(test)]
         let parent = self.fault_tree().join(WORKSPACE);
-        #[cfg(not(test))]
-        let parent = data.join(WORKSPACE);
         self.conflict_files(move |root| {
             let workspace = open_workspace(root, entry.node)?;
-            resolve::checked_unlink(&workspace, entry.id, Some(&observation), &data, &parent)
+            resolve::checked_unlink(
+                &workspace,
+                entry.id,
+                Some(&observation),
+                #[cfg(test)]
+                &data,
+                #[cfg(test)]
+                &parent,
+            )
         })
         .await?;
         #[cfg(test)]
