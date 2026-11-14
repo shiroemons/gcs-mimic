@@ -253,7 +253,7 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
             );
             let settings = admin.get_bucket(&bucket).await.unwrap().unwrap();
             assert!(
-                settings.versioning_enabled
+                settings.versioning.is_enabled()
                     && settings.object_retention_enabled
                     && settings.default_event_based_hold
             );
@@ -286,7 +286,9 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
             .patch_bucket(
                 "bucket-one",
                 crate::bucket::BucketMetadataUpdate {
-                    versioning_enabled: Some(true),
+                    versioning: Some(crate::bucket::VersioningUpdate::Set(
+                        crate::bucket::Versioning::Enabled,
+                    )),
                     ..Default::default()
                 },
                 Default::default(),

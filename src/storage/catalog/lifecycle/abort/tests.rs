@@ -785,7 +785,7 @@ async fn multipart_aborts_transitions_deletes_and_archives_share_one_strict_acti
         json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1,"matchesPrefix":["transition/"]}}),
     ]).await;
     let mut versioned = bucket("versions", "project");
-    versioned.versioning_enabled = true;
+    versioned.versioning = crate::bucket::Versioning::Enabled;
     versioned.lifecycle =
         vec![json!({"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}})];
     catalog.insert_bucket(versioned).await.unwrap();

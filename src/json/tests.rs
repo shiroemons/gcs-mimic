@@ -883,6 +883,141 @@ fn bkt_lst_001_max_results_defaults_bounds_and_clamping() {
     }
 }
 
+/// Every `versioning` spelling a PATCH or PUT can send, in both profiles, and the change it
+/// asks for. Only the fake-gcs-server profile turns versioning off without making an unset
+/// setting visible, and only a native PUT clears what it omits.
+#[test]
+fn bucket_updates_name_each_versioning_change() {
+    use crate::bucket::{
+        Versioning::{Disabled, Enabled, Unset},
+        VersioningUpdate::{self, Disable, Set},
+    };
+    use CompatProfile::{FakeGcsServer, Native};
+    let parse = |body: &str, profile, replace| {
+        let parse = if replace {
+            parse_bucket_replacement
+        } else {
+            parse_bucket_patch
+        };
+        parse(body.as_bytes(), profile).map(|update| update.versioning)
+    };
+    // (body, profile, replace, expected change)
+    let cases: [(&str, CompatProfile, bool, Option<VersioningUpdate>); 20] = [
+        ("{}", Native, false, None),
+        ("{}", FakeGcsServer, false, None),
+        ("{}", Native, true, Some(Set(Unset))),
+        ("{}", FakeGcsServer, true, None),
+        (r#"{"versioning":null}"#, Native, false, Some(Set(Unset))),
+        (
+            r#"{"versioning":null}"#,
+            FakeGcsServer,
+            true,
+            Some(Set(Unset)),
+        ),
+        (r#"{"versioning":{}}"#, Native, false, None),
+        (r#"{"versioning":{}}"#, FakeGcsServer, false, None),
+        (r#"{"versioning":{}}"#, Native, true, Some(Set(Unset))),
+        (r#"{"versioning":{}}"#, FakeGcsServer, true, Some(Disable)),
+        (
+            r#"{"versioning":{"enabled":false}}"#,
+            Native,
+            false,
+            Some(Set(Disabled)),
+        ),
+        (
+            r#"{"versioning":{"enabled":false}}"#,
+            FakeGcsServer,
+            true,
+            Some(Set(Disabled)),
+        ),
+        (
+            r#"{"versioning":{"enabled":true}}"#,
+            Native,
+            false,
+            Some(Set(Enabled)),
+        ),
+        (
+            r#"{"versioning":{"enabled":true}}"#,
+            Native,
+            true,
+            Some(Set(Enabled)),
+        ),
+        (
+            r#"{"versioning":{"enabled":true}}"#,
+            FakeGcsServer,
+            false,
+            Some(Set(Enabled)),
+        ),
+        (
+            r#"{"versioning":{"enabled":null}}"#,
+            FakeGcsServer,
+            false,
+            Some(Disable),
+        ),
+        (
+            r#"{"versioning":{"enabled":null}}"#,
+            FakeGcsServer,
+            true,
+            Some(Disable),
+        ),
+        (
+            r#"{"versioning":null}"#,
+            FakeGcsServer,
+            false,
+            Some(Set(Unset)),
+        ),
+        (r#"{"labels":{}}"#, Native, true, Some(Set(Unset))),
+        (r#"{"labels":{}}"#, FakeGcsServer, true, None),
+    ];
+    for (body, profile, replace, expected) in cases {
+        assert_eq!(
+            parse(body, profile, replace).unwrap(),
+            expected,
+            "{body} {profile:?} replace={replace}"
+        );
+    }
+    for (body, message) in [
+        (
+            r#"{"versioning":{"enabled":null}}"#,
+            "versioning.enabled must be a boolean",
+        ),
+        (
+            r#"{"versioning":{"enabled":"yes"}}"#,
+            "versioning.enabled must be a boolean",
+        ),
+        (r#"{"versioning":true}"#, "versioning must be an object"),
+    ] {
+        for replace in [false, true] {
+            assert_eq!(parse(body, Native, replace).unwrap_err().message, message);
+        }
+    }
+    // An insert stores what `enabled` names; anything but a boolean leaves it unset.
+    for (body, profile, expected) in [
+        (r#"{"name":"abc"}"#, Native, Unset),
+        (r#"{"name":"abc","versioning":{}}"#, Native, Unset),
+        (
+            r#"{"name":"abc","versioning":{"enabled":false}}"#,
+            Native,
+            Disabled,
+        ),
+        (
+            r#"{"name":"abc","versioning":{"enabled":true}}"#,
+            Native,
+            Enabled,
+        ),
+        (r#"{"name":"abc","versioning":null}"#, FakeGcsServer, Unset),
+        (
+            r#"{"name":"abc","versioning":{"enabled":null}}"#,
+            FakeGcsServer,
+            Unset,
+        ),
+    ] {
+        let bucket =
+            parse_insert_with_profile(body.as_bytes(), "p", UNIX_EPOCH, profile, "US").unwrap();
+        assert_eq!(bucket.versioning, expected, "{body} {profile:?}");
+    }
+}
+
 #[test]
 fn bkt_ins_001_defaults_and_server_owned_values() {
     let now = UNIX_EPOCH + Duration::new(123, 456_789_123);

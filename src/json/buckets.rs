@@ -2,8 +2,8 @@ use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, RETENTION_RANGE_MESSAGE,
     RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass,
-    UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, cors_from_value, cors_value, valid_label,
-    validate_storage_class,
+    UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning, VersioningUpdate,
+    cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
 use crate::object::{MapPatch, Patch, unix_nanos::UnixNanos};
@@ -251,14 +251,18 @@ pub(crate) fn parse_insert_with_profile(
         validate_bucket_name_for_profile(&name, profile)
             .map_err(|_| JsonError::invalid("invalid bucket name"))?;
     }
-    let versioning_enabled = match body.get("versioning") {
-        None => false,
-        Some(Value::Null) if profile == CompatProfile::FakeGcsServer => false,
+    let versioning = match body.get("versioning") {
+        None => Versioning::Unset,
+        Some(Value::Null) if profile == CompatProfile::FakeGcsServer => Versioning::Unset,
         Some(value) => {
-            let versioning = value
+            let enabled = value
                 .as_object()
-                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?;
-            insert_bool(versioning.get("enabled"), "versioning.enabled", profile)?
+                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?
+                .get("enabled");
+            // Only a boolean configures versioning; the fake-gcs-server profile reads a null as
+            // no setting.
+            insert_bool(enabled, "versioning.enabled", profile)?;
+            Versioning::from(enabled.and_then(Value::as_bool))
         }
     };
     let default_event_based_hold = insert_bool(
@@ -311,11 +315,7 @@ pub(crate) fn parse_insert_with_profile(
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
         lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?.unwrap_or_default(),
-        versioning_enabled,
-        versioning_configured: body
-            .get("versioning")
-            .and_then(|value| value.get("enabled"))
-            .is_some_and(Value::is_boolean),
+        versioning,
         default_event_based_hold,
         public_access_prevention_enforced: parse_public_access_prevention(
             body.get("iamConfiguration"),
@@ -481,21 +481,26 @@ fn parse_bucket_update(
         None if omitted_clears => MapPatch::Clear,
         None => MapPatch::Keep,
     };
-    let versioning_enabled = body
-        .get("versioning")
-        .map(|value| {
-            if value.is_null() {
-                return Ok(Some(false));
-            }
-            let versioning = value
+    let versioning = match body.get("versioning") {
+        None => omitted_clears.then_some(VersioningUpdate::Set(Versioning::Unset)),
+        Some(Value::Null) => Some(VersioningUpdate::Set(Versioning::Unset)),
+        Some(value) => {
+            let enabled = value
                 .as_object()
-                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?;
-            boolean(versioning.get("enabled"), "versioning.enabled")
-                .map(|enabled| enabled.or(replace.then_some(false)))
-        })
-        .transpose()?
-        .flatten()
-        .or(omitted_clears.then_some(false));
+                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?
+                .get("enabled");
+            match boolean(enabled, "versioning.enabled")? {
+                Some(on) if enabled.is_some_and(Value::is_boolean) => {
+                    Some(VersioningUpdate::Set(Versioning::from(Some(on))))
+                }
+                // A null `enabled`, which only the fake-gcs-server profile reads as false.
+                Some(_) => Some(VersioningUpdate::Disable),
+                None if omitted_clears => Some(VersioningUpdate::Set(Versioning::Unset)),
+                None if replace => Some(VersioningUpdate::Disable),
+                None => None,
+            }
+        }
+    };
     // The location of a bucket cannot change, and Cloud Storage ignored a different one in a
     // PATCH or PUT body like any other output-only member (recorded 2026-10-31).
     // The fake-gcs-server profile exposes a fixed location independently of the stored
@@ -541,12 +546,7 @@ fn parse_bucket_update(
             .get("autoclass")
             .map(crate::bucket::autoclass::parse_json)
             .transpose()?,
-        versioning_enabled,
-        versioning_configured: match body.get("versioning") {
-            Some(Value::Null) => Some(false),
-            Some(value) if value.get("enabled").is_some_and(Value::is_boolean) => Some(true),
-            _ => omitted_clears.then_some(false),
-        },
+        versioning,
         default_event_based_hold: boolean(
             body.get("defaultEventBasedHold"),
             "defaultEventBasedHold",
@@ -1086,13 +1086,10 @@ fn add_optional_bucket_fields(
     if !bucket.lifecycle.is_empty() {
         value.insert("lifecycle".into(), json!({"rule": bucket.lifecycle}));
     }
-    if bucket.versioning_enabled
-        || bucket.versioning_configured
-        || profile == CompatProfile::FakeGcsServer
-    {
+    if bucket.versioning != Versioning::Unset || profile == CompatProfile::FakeGcsServer {
         value.insert(
             "versioning".into(),
-            json!({"enabled": bucket.versioning_enabled}),
+            json!({"enabled": bucket.versioning.is_enabled()}),
         );
     }
     if let Some(policy) = &bucket.retention_policy {

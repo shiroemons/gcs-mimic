@@ -592,7 +592,7 @@ async fn grpc_derived_writes_return_the_recorded_owner_and_acl_views() {
         .patch_bucket(
             "grpc-io",
             crate::bucket::BucketMetadataUpdate {
-                versioning_enabled: Some(false),
+                versioning: Some(crate::bucket::VersioningUpdate::Disable),
                 soft_delete_retention: Some(604800_i64.try_into().unwrap()),
                 ..Default::default()
             },

@@ -197,14 +197,15 @@ fn store_bucket(
         LifecycleColumn::Replace => Some(sql::Json(&record.lifecycle)),
         LifecycleColumn::Keep => None,
     };
+    let (versioning_enabled, versioning_configured) = record.versioning.columns();
     transaction
         .prepare_cached(UPDATE_BUCKET)?
         .execute(rusqlite::named_params! {
             ":name": record.name,
             ":labels": sql::Json(&record.labels),
             ":storage_class": record.storage_class,
-            ":versioning_enabled": record.versioning_enabled,
-            ":versioning_configured": record.versioning_configured,
+            ":versioning_enabled": versioning_enabled,
+            ":versioning_configured": versioning_configured,
             ":default_event_based_hold": record.default_event_based_hold,
             ":metageneration": record.metageneration,
             ":updated": updated,
@@ -375,11 +376,8 @@ fn apply_plain_settings(
     if let Some(class) = update.storage_class.take() {
         record.storage_class = class;
     }
-    if let Some(enabled) = update.versioning_enabled {
-        record.versioning_enabled = enabled;
-    }
-    if let Some(configured) = update.versioning_configured {
-        record.versioning_configured = configured;
+    if let Some(versioning) = update.versioning {
+        record.versioning = versioning.apply(record.versioning);
     }
     if let Some(hold) = update.default_event_based_hold {
         record.default_event_based_hold = hold;

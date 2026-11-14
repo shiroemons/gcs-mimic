@@ -1,6 +1,8 @@
 use super::{pb, unsupported};
 use crate::{
-    bucket::{BucketMetadataUpdate, BucketRecord, RetentionPolicyUpdate},
+    bucket::{
+        BucketMetadataUpdate, BucketRecord, RetentionPolicyUpdate, Versioning, VersioningUpdate,
+    },
     config::CompatProfile,
     object::{MapPatch, ObjectError, ObjectRecord},
 };
@@ -18,7 +20,7 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
         labels: record.labels.clone().into_iter().collect(),
         default_event_based_hold: record.default_event_based_hold,
         versioning: Some(pb::bucket::Versioning {
-            enabled: record.versioning_enabled,
+            enabled: record.versioning.is_enabled(),
         }),
         time_created: Some(record.time_created.into()),
         updated: Some(record.updated.into()),
@@ -109,16 +111,11 @@ pub(super) fn bucket_update(
                 .collect(),
         ),
         default_event_based_hold: Some(bucket.default_event_based_hold),
-        versioning_enabled: bucket
+        versioning: bucket
             .versioning
             .as_ref()
-            .map(|config| config.enabled)
-            .or(native.then_some(false)),
-        versioning_configured: bucket
-            .versioning
-            .as_ref()
-            .map(|_| true)
-            .or(native.then_some(false)),
+            .map(|config| VersioningUpdate::Set(Versioning::from(Some(config.enabled))))
+            .or(native.then_some(VersioningUpdate::Set(Versioning::Unset))),
         cors: native.then(Vec::new),
         lifecycle: native.then(Vec::new),
         retention_policy: if native {
@@ -250,7 +247,10 @@ mod tests {
                     RetentionPolicyUpdate::Keep
                 }
             );
-            assert_eq!(update.versioning_enabled, native.then_some(false));
+            assert_eq!(
+                update.versioning,
+                native.then_some(VersioningUpdate::Set(Versioning::Unset))
+            );
             assert_eq!(update.cors.is_some(), native);
             assert_eq!(update.lifecycle.is_some(), native);
             assert_eq!(

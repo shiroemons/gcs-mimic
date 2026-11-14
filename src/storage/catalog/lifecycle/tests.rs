@@ -163,7 +163,7 @@ async fn lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versio
 async fn versioned_live_archives_and_the_next_pass_removes_the_noncurrent_generation() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.lifecycle = vec![delete(json!({"age":1}))];
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object").await;
@@ -189,7 +189,7 @@ async fn versioned_live_archives_and_the_next_pass_removes_the_noncurrent_genera
 async fn only_matching_noncurrent_generations_are_removed_with_newer_versions_across_pages() {
     let (catalog, _clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     catalog.insert_bucket(record).await.unwrap();
     let oldest = put(&catalog, "object").await;
     for _ in 0..129 {
@@ -599,7 +599,7 @@ async fn noncurrent_time_conditions_use_the_archive_instant_and_preserve_live_ve
     let (catalog, clock) = memory().await;
     clock.advance(Duration::from_secs(43_200));
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     catalog.insert_bucket(record).await.unwrap();
     let original = put(&catalog, "object").await;
     clock.advance(DAY);
@@ -1028,7 +1028,7 @@ async fn notifications(catalog: &Catalog) {
 async fn lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.lifecycle = vec![delete(json!({"age":1}))];
     catalog.insert_bucket(record).await.unwrap();
     notifications(&catalog).await;
@@ -1295,7 +1295,7 @@ async fn administrative_ensure_import_seed_and_initialization_all_arm_the_shared
 async fn retention_deadlines_replace_an_earlier_future_age_deadline_and_block_live_archiving() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.object_retention_enabled = true;
     record.lifecycle = vec![delete(json!({"age":1}))];
     catalog.insert_bucket(record).await.unwrap();

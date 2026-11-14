@@ -1022,7 +1022,9 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
         .patch_bucket(
             bucket.as_str(),
             crate::bucket::BucketMetadataUpdate {
-                versioning_enabled: Some(true),
+                versioning: Some(crate::bucket::VersioningUpdate::Set(
+                    crate::bucket::Versioning::Enabled,
+                )),
                 ..Default::default()
             },
             Default::default(),

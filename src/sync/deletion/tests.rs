@@ -241,7 +241,9 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
         .patch_bucket(
             "test-bucket",
             crate::bucket::BucketMetadataUpdate {
-                versioning_enabled: Some(true),
+                versioning: Some(crate::bucket::VersioningUpdate::Set(
+                    crate::bucket::Versioning::Enabled,
+                )),
                 ..Default::default()
             },
             Default::default(),
@@ -421,7 +423,9 @@ async fn incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_de
         .patch_bucket(
             "test-bucket",
             crate::bucket::BucketMetadataUpdate {
-                versioning_enabled: Some(true),
+                versioning: Some(crate::bucket::VersioningUpdate::Set(
+                    crate::bucket::Versioning::Enabled,
+                )),
                 ..Default::default()
             },
             Default::default(),

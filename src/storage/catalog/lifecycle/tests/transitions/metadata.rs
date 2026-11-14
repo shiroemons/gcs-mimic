@@ -68,7 +68,7 @@ async fn live_only_rules_never_match_existing_noncurrent_versions_even_after_ver
             .patch_bucket(
                 "bucket",
                 BucketMetadataUpdate {
-                    versioning_enabled: suspended.then_some(false),
+                    versioning: suspended.then_some(crate::bucket::VersioningUpdate::Disable),
                     lifecycle: Some(vec![
                         delete(json!({"isLive":true,"age":30})),
                         transition(StorageClass::Nearline, json!({"isLive":true,"age":30})),
@@ -116,7 +116,7 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
     for with_class_delete in [false, true] {
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
-        record.versioning_enabled = true;
+        record.versioning = crate::bucket::Versioning::Enabled;
         record.object_retention_enabled = true;
         record.lifecycle = vec![
             delete(json!({"isLive":true})),

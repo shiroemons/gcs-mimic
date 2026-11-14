@@ -105,7 +105,7 @@ async fn setup_with_clock(
     let mut record = BucketDefinition::default_for(&name, "local", &*clock)
         .unwrap()
         .into_record();
-    record.versioning_enabled = matches!(versioning, On);
+    record.versioning = crate::bucket::Versioning::from_columns((matches!(versioning, On), false));
     catalog
         .admin(admin::Origin::Seed)
         .ensure_bucket(BucketDefinition::new(record).unwrap())

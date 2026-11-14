@@ -140,7 +140,7 @@ mod tests {
         let bucket = BucketName::new("import-bucket").unwrap();
         let mut definition =
             BucketDefinition::default_for(&bucket, "project", &FixedClock).unwrap();
-        definition.0.versioning_enabled = versioning;
+        definition.0.versioning = crate::bucket::Versioning::from_columns((versioning, false));
         admin.ensure_bucket(definition).await.unwrap();
         (
             dir,

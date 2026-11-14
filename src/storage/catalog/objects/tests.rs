@@ -65,7 +65,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
                 .enumerate()
         {
             let mut record = bucket(&format!("settings-{index}"), "project");
-            record.versioning_enabled = versioning;
+            record.versioning = crate::bucket::Versioning::from_columns((versioning, false));
             record.default_event_based_hold = hold;
             catalog.insert_bucket(record).await.unwrap();
         }
@@ -81,7 +81,10 @@ async fn bucket_settings_migrate_supported_catalogs() {
                 .unwrap()
                 .unwrap();
             assert_eq!(
-                (record.versioning_enabled, record.default_event_based_hold),
+                (
+                    record.versioning.is_enabled(),
+                    record.default_event_based_hold
+                ),
                 settings
             );
         }

@@ -350,7 +350,9 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         .patch_bucket(
             "empty-bucket",
             BucketMetadataUpdate {
-                versioning_enabled: Some(true),
+                versioning: Some(crate::bucket::VersioningUpdate::Set(
+                    crate::bucket::Versioning::Enabled,
+                )),
                 ..Default::default()
             },
             Default::default(),

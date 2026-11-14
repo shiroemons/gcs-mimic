@@ -111,8 +111,9 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
             apply_autoclass(update, b.autoclass.as_ref(), path)?;
         }
         "versioning" | "versioning.enabled" => {
-            update.versioning_enabled = Some(b.versioning.as_ref().is_some_and(|v| v.enabled));
-            update.versioning_configured = Some(true);
+            update.versioning = Some(bucket::VersioningUpdate::Set(bucket::Versioning::from(
+                Some(b.versioning.as_ref().is_some_and(|v| v.enabled)),
+            )));
         }
         "default_event_based_hold" => {
             update.default_event_based_hold = Some(b.default_event_based_hold)

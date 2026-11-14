@@ -109,9 +109,7 @@ pub struct BucketRecord {
     pub(crate) soft_delete_policy: Option<SoftDeletePolicy>,
     /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
     pub object_retention_enabled: bool,
-    pub versioning_enabled: bool,
-    /// Explicit false is observable; an unset versioning configuration has no JSON field.
-    pub(crate) versioning_configured: bool,
+    pub versioning: Versioning,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
     pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
@@ -180,6 +178,77 @@ pub(crate) enum RetentionPolicyUpdate {
     Lock,
 }
 
+/// A bucket's versioning setting. `Unset` has no `versioning` member in a JSON resource; an
+/// explicit `{"enabled":false}` is `Disabled`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Versioning {
+    #[default]
+    Unset,
+    Disabled,
+    Enabled,
+}
+
+impl Versioning {
+    pub fn is_enabled(self) -> bool {
+        match self {
+            Self::Enabled => true,
+            Self::Unset | Self::Disabled => false,
+        }
+    }
+
+    /// The stored `(versioning_enabled, versioning_configured)` columns.
+    pub(crate) fn columns(self) -> (bool, bool) {
+        match self {
+            Self::Unset => (false, false),
+            Self::Disabled => (false, true),
+            Self::Enabled => (true, true),
+        }
+    }
+
+    /// Decodes the stored `(versioning_enabled, versioning_configured)` columns. Buckets that
+    /// enabled versioning before schema 49 kept `versioning_configured = 0`; every reader
+    /// already treated them as enabled.
+    pub(crate) fn from_columns(columns: (bool, bool)) -> Self {
+        match columns {
+            (true, _) => Self::Enabled,
+            (false, true) => Self::Disabled,
+            (false, false) => Self::Unset,
+        }
+    }
+}
+
+/// The setting a request's or import source's `versioning.enabled` names; absent is unset.
+impl From<Option<bool>> for Versioning {
+    fn from(enabled: Option<bool>) -> Self {
+        match enabled {
+            None => Self::Unset,
+            Some(false) => Self::Disabled,
+            Some(true) => Self::Enabled,
+        }
+    }
+}
+
+/// A requested versioning change; `None` in the update leaves the setting alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum VersioningUpdate {
+    Set(Versioning),
+    /// Turns versioning off without making an unset setting visible: the fake-gcs-server
+    /// profile's `{"enabled":null}` and its PUT of `versioning: {}`.
+    Disable,
+}
+
+impl VersioningUpdate {
+    pub(crate) fn apply(self, current: Versioning) -> Versioning {
+        match self {
+            Self::Set(versioning) => versioning,
+            Self::Disable => match current {
+                Versioning::Unset => Versioning::Unset,
+                Versioning::Disabled | Versioning::Enabled => Versioning::Disabled,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
@@ -193,8 +262,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub labels: crate::object::MapPatch,
     pub storage_class: Option<StorageClass>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
-    pub versioning_enabled: Option<bool>,
-    pub(crate) versioning_configured: Option<bool>,
+    pub(crate) versioning: Option<VersioningUpdate>,
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,
     pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
@@ -217,8 +285,7 @@ impl BucketMetadataUpdate {
             labels,
             storage_class,
             autoclass,
-            versioning_enabled,
-            versioning_configured,
+            versioning,
             default_event_based_hold,
             public_access_prevention_enforced,
             uniform_bucket_level_access_enabled,
@@ -236,8 +303,7 @@ impl BucketMetadataUpdate {
             && autoclass
                 .as_ref()
                 .is_none_or(|update| *update == autoclass::AutoclassUpdate::default())
-            && versioning_enabled.is_none()
-            && versioning_configured.is_none()
+            && versioning.is_none()
             && default_event_based_hold.is_none()
             && public_access_prevention_enforced.is_none()
             && uniform_bucket_level_access_enabled.is_none()
@@ -507,6 +573,32 @@ mod tests {
             assert!(!ObjectError::from(other).is_refusal());
         }
         assert!(!ObjectError::OverwriteForbidden(denied()).is_refusal());
+    }
+
+    /// Each setting keeps its own pair of stored columns. A bucket that enabled versioning before
+    /// the presence column existed stored `(1, 0)` and reads as enabled.
+    #[test]
+    fn versioning_columns_round_trip_and_updates_follow_the_current_setting() {
+        use Versioning::{Disabled, Enabled, Unset};
+        for (versioning, columns) in [
+            (Unset, (false, false)),
+            (Disabled, (false, true)),
+            (Enabled, (true, true)),
+        ] {
+            assert_eq!(versioning.columns(), columns);
+            assert_eq!(Versioning::from_columns(columns), versioning);
+        }
+        assert_eq!(Versioning::from_columns((true, false)), Enabled);
+        assert_eq!(Versioning::from(None), Unset);
+        assert_eq!(Versioning::from(Some(false)), Disabled);
+        assert_eq!(Versioning::from(Some(true)), Enabled);
+        assert!(Enabled.is_enabled() && !Disabled.is_enabled() && !Unset.is_enabled());
+        for (current, disabled) in [(Unset, Unset), (Disabled, Disabled), (Enabled, Disabled)] {
+            assert_eq!(VersioningUpdate::Disable.apply(current), disabled);
+            for wanted in [Unset, Disabled, Enabled] {
+                assert_eq!(VersioningUpdate::Set(wanted).apply(current), wanted);
+            }
+        }
     }
 
     /// Re-scoping changes only the permission a policy access checks; it never gives

@@ -3,7 +3,9 @@
 
 use crate::{
     auth::Policy,
-    bucket::{BucketMetadataUpdate, BucketRecord, SoftDeleteRetention, cors_value},
+    bucket::{
+        BucketMetadataUpdate, BucketRecord, SoftDeleteRetention, VersioningUpdate, cors_value,
+    },
     object::MapPatch,
     storage::admin::{
         AdminError,
@@ -95,7 +97,9 @@ impl Member {
                     .collect(),
             ),
             Self::Cors => cors_value(&record.cors),
-            Self::Versioning => record.versioning_enabled.into(),
+            // Recorded digests hash this boolean, so a richer value would need a new
+            // `DIGEST_LABEL`.
+            Self::Versioning => record.versioning.is_enabled().into(),
             Self::DefaultEventBasedHold => record.default_event_based_hold.into(),
             Self::PublicAccessPrevention => record.public_access_prevention_enforced.into(),
             Self::SoftDeletePolicy => retention(record).into(),
@@ -125,10 +129,7 @@ impl Member {
             Self::StorageClass => update.storage_class = Some(wanted.storage_class),
             Self::Labels => update.labels = MapPatch::Replace(wanted.labels.clone()),
             Self::Cors => update.cors = Some(wanted.cors.clone()),
-            Self::Versioning => {
-                update.versioning_enabled = Some(wanted.versioning_enabled);
-                update.versioning_configured = Some(wanted.versioning_configured);
-            }
+            Self::Versioning => update.versioning = Some(VersioningUpdate::Set(wanted.versioning)),
             Self::DefaultEventBasedHold => {
                 update.default_event_based_hold = Some(wanted.default_event_based_hold);
             }
@@ -157,10 +158,7 @@ impl Member {
             Self::Labels => wanted.labels != record.labels,
             Self::Cors => wanted.cors != record.cors,
             // A written `enabled` also makes the setting visible, which a bucket without one lacks.
-            Self::Versioning => {
-                (wanted.versioning_enabled, wanted.versioning_configured)
-                    != (record.versioning_enabled, record.versioning_configured)
-            }
+            Self::Versioning => wanted.versioning != record.versioning,
             Self::DefaultEventBasedHold => {
                 wanted.default_event_based_hold != record.default_event_based_hold
             }

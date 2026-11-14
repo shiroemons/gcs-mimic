@@ -541,7 +541,7 @@ async fn versioned_schema_migrations_preserve_objects() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(bucket.versioning_enabled, version == 8);
+            assert_eq!(bucket.versioning.is_enabled(), version == 8);
             let (selected, mut reader) = catalog
                 .admin(Origin::Seed)
                 .open_object(

@@ -103,7 +103,7 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
         .await
         .unwrap();
     let mut enabled = bucket("enabled", "project");
-    enabled.versioning_enabled = true;
+    enabled.versioning = crate::bucket::Versioning::Enabled;
     catalog.insert_bucket(enabled).await.unwrap();
     downgraded(&dir, &catalog, |connection| {
         common::downgrade_deletion_history_schema(connection);
@@ -117,12 +117,27 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
     })
     .await;
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    for (name, expected) in [("plain", false), ("enabled", true)] {
+    // A bucket that enabled versioning before the presence column keeps `(1, 0)` and reads
+    // as enabled.
+    for (name, expected) in [
+        ("plain", crate::bucket::Versioning::Unset),
+        ("enabled", crate::bucket::Versioning::Enabled),
+    ] {
         let record = catalog.get_bucket(name, PERMISSIVE).await.unwrap().unwrap();
-        assert_eq!(record.versioning_enabled, expected);
-        assert!(!record.versioning_configured);
+        assert_eq!(record.versioning, expected);
     }
     catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    for (name, enabled) in [("plain", false), ("enabled", true)] {
+        let columns: (bool, bool) = connection
+            .query_row(
+                "SELECT versioning_enabled, versioning_configured FROM buckets WHERE name = ?1",
+                [name],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(columns, (enabled, false), "{name}");
+    }
 }
 
 #[tokio::test]
@@ -706,7 +721,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         .unwrap();
     let mut original = bucket("put-clock", "project");
     original.storage_class = crate::bucket::StorageClass::Archive;
-    original.versioning_enabled = true;
+    original.versioning = crate::bucket::Versioning::Enabled;
     original.default_event_based_hold = true;
     let original = catalog.insert_bucket(original).await.unwrap();
     let update = BucketMetadataUpdate {
@@ -727,7 +742,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         BTreeMap::from([("new".into(), "value".into())])
     );
     assert_eq!(record.storage_class.as_str(), "NEARLINE");
-    assert!(record.versioning_enabled);
+    assert!(record.versioning.is_enabled());
     assert!(record.default_event_based_hold);
     assert_eq!(
         record.updated,
@@ -856,7 +871,9 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     let update = BucketMetadataUpdate {
         labels: MapPatch::Merge(BTreeMap::from([("new".into(), Some("value".into()))])),
         storage_class: Some(crate::bucket::StorageClass::Archive),
-        versioning_enabled: Some(true),
+        versioning: Some(crate::bucket::VersioningUpdate::Set(
+            crate::bucket::Versioning::Enabled,
+        )),
         default_event_based_hold: Some(true),
         ..Default::default()
     };
@@ -974,7 +991,7 @@ async fn create_get_delete_and_restart_preserve_every_field() {
         None
     );
     let mut expected = bucket("bucket", "project");
-    expected.versioning_enabled = true;
+    expected.versioning = crate::bucket::Versioning::Enabled;
     expected.default_event_based_hold = true;
     expected.time_created = UNIX_EPOCH + Duration::from_micros(42_123_456);
     expected.updated = UNIX_EPOCH + Duration::from_micros(43_987_654);

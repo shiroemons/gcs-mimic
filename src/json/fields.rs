@@ -537,7 +537,7 @@ mod tests {
         let base = "http://localhost";
         let mut bucket = json::tests::record();
         bucket.labels.insert("team".into(), "example".into());
-        bucket.versioning_enabled = true;
+        bucket.versioning = crate::bucket::Versioning::Enabled;
         bucket.default_event_based_hold = true;
         bucket.metageneration = 2;
         let mut object = json::object_tests::record();

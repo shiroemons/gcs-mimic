@@ -1,5 +1,5 @@
 use super::*;
-use crate::bucket::{Location, LocationKind};
+use crate::bucket::{Location, LocationKind, Versioning};
 use std::num::NonZeroU64;
 
 const INSERT_BUCKET: &str = concat!(
@@ -315,6 +315,7 @@ fn insert_row(
         .uniform_bucket_level_access_locked_time
         .map(unix_micros)
         .transpose()?;
+    let (versioning_enabled, versioning_configured) = record.versioning.columns();
     let changed = transaction
         .prepare_cached(INSERT_BUCKET)?
         .execute(rusqlite::named_params! {
@@ -327,7 +328,7 @@ fn insert_row(
             ":metageneration": record.metageneration,
             ":time_created": created,
             ":updated": updated,
-            ":versioning_enabled": record.versioning_enabled,
+            ":versioning_enabled": versioning_enabled,
             ":default_event_based_hold": record.default_event_based_hold,
             ":cors": Cors(&record.cors),
             ":public_access_prevention_enforced": record.public_access_prevention_enforced,
@@ -340,7 +341,7 @@ fn insert_row(
             ":time_created_nanos": 0,
             ":updated_nanos": 0,
             ":generation": record.generation,
-            ":versioning_configured": record.versioning_configured,
+            ":versioning_configured": versioning_configured,
         })?;
     Ok(changed)
 }
@@ -392,8 +393,10 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         time_created: bucket_timestamps::read(row, "time_created", "time_created_nanos")?,
         updated: bucket_timestamps::read(row, "updated", "updated_nanos")?,
         object_retention_enabled: row.get("object_retention_enabled")?,
-        versioning_enabled: row.get("versioning_enabled")?,
-        versioning_configured: row.get("versioning_configured")?,
+        versioning: Versioning::from_columns((
+            row.get("versioning_enabled")?,
+            row.get("versioning_configured")?,
+        )),
         default_event_based_hold: row.get("default_event_based_hold")?,
         public_access_prevention_enforced: row.get("public_access_prevention_enforced")?,
         uniform_bucket_level_access_locked_time: row

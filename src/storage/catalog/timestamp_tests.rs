@@ -249,14 +249,16 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .unwrap();
         let mut bucket =
             json::parse_insert(br#"{"name":"timestamp-bucket"}"#, "project", now).unwrap();
-        bucket.versioning_enabled = true;
+        bucket.versioning = crate::bucket::Versioning::Enabled;
         let bucket = catalog.insert_bucket(bucket).await.unwrap();
         assert_eq!(bucket.time_created, expected);
         let patched = catalog
             .patch_bucket(
                 "timestamp-bucket",
                 BucketMetadataUpdate {
-                    versioning_enabled: Some(true),
+                    versioning: Some(crate::bucket::VersioningUpdate::Set(
+                        crate::bucket::Versioning::Enabled,
+                    )),
                     ..Default::default()
                 },
                 Default::default(),
@@ -434,7 +436,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         UNIX_EPOCH - Duration::from_nanos(123_456_789),
     )
     .unwrap();
-    bucket.versioning_enabled = true;
+    bucket.versioning = crate::bucket::Versioning::Enabled;
     let bucket = catalog.insert_bucket(bucket).await.unwrap();
     assert_eq!(bucket.time_created, system_time_micros(-123_457).unwrap());
     let object = catalog
@@ -513,7 +515,9 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             .patch_bucket(
                 "timestamp-bucket",
                 crate::bucket::BucketMetadataUpdate {
-                    versioning_enabled: Some(true),
+                    versioning: Some(crate::bucket::VersioningUpdate::Set(
+                        crate::bucket::Versioning::Enabled,
+                    )),
                     ..Default::default()
                 },
                 Default::default(),

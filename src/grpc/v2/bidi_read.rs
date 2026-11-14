@@ -661,7 +661,9 @@ mod tests {
                     .patch_bucket(
                         "handle-bucket",
                         crate::bucket::BucketMetadataUpdate {
-                            versioning_enabled: Some(true),
+                            versioning: Some(crate::bucket::VersioningUpdate::Set(
+                                crate::bucket::Versioning::Enabled,
+                            )),
                             ..Default::default()
                         },
                         Default::default(),

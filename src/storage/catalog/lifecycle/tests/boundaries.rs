@@ -35,7 +35,7 @@ async fn overflowing_days_never_delete_or_schedule_catalog_work() {
             let (catalog, clock) = memory().await;
             clock.set(time("2026-01-10T10:00:00.123456Z"));
             let mut record = bucket("bucket", "project");
-            record.versioning_enabled = true;
+            record.versioning = crate::bucket::Versioning::Enabled;
             catalog.insert_bucket(record).await.unwrap();
             let original = catalog
                 .put_object(
@@ -100,7 +100,7 @@ async fn extreme_date_conditions_match_present_timestamps_consistently_in_the_sw
         for field in ["createdBefore", "customTimeBefore", "noncurrentTimeBefore"] {
             let (catalog, clock) = memory().await;
             let mut record = bucket("bucket", "project");
-            record.versioning_enabled = true;
+            record.versioning = crate::bucket::Versioning::Enabled;
             catalog.insert_bucket(record).await.unwrap();
             let original = catalog
                 .put_object(
@@ -221,7 +221,7 @@ async fn early_custom_times_can_produce_representable_future_day_deadlines_in_th
 async fn combined_time_conditions_use_the_latest_deadline_and_rules_use_the_earliest() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     catalog.insert_bucket(record).await.unwrap();
     let original = catalog
         .put_object(
@@ -351,7 +351,7 @@ async fn custom_time_one_microsecond_before_the_date_matches_but_midnight_does_n
 async fn zero_noncurrent_days_delete_on_the_pass_after_archiving() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.lifecycle = vec![
         delete(json!({"age":1,"isLive":true})),
         delete(json!({"daysSinceNoncurrentTime":0})),
@@ -376,7 +376,7 @@ async fn zero_noncurrent_days_delete_on_the_pass_after_archiving() {
 async fn noncurrent_date_midnight_excludes_equality_but_includes_one_microsecond_before() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     catalog.insert_bucket(record).await.unwrap();
     let before = put(&catalog, "before").await;
     let equal = put(&catalog, "equal").await;
@@ -404,7 +404,7 @@ async fn newer_version_thresholds_include_live_versions_and_work_without_a_live_
         for minimum in 0..=3 {
             let (catalog, clock) = memory().await;
             let mut record = bucket("bucket", "project");
-            record.versioning_enabled = true;
+            record.versioning = crate::bucket::Versioning::Enabled;
             catalog.insert_bucket(record).await.unwrap();
             let mut generations = Vec::new();
             for _ in 0..3 {

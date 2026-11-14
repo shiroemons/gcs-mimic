@@ -12,7 +12,7 @@ const MICROSECOND: Duration = Duration::from_micros(1);
 async fn versioned(configured: Vec<Value>) -> (Catalog, Arc<ManualClock>) {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.lifecycle = configured;
     catalog.insert_bucket(record).await.unwrap();
     (catalog, clock)
@@ -717,7 +717,7 @@ async fn a_hold_blocks_delete_after_transition_and_waits_for_the_next_transition
 async fn transitions_update_live_and_noncurrent_generations_but_exclude_soft_deleted_versions() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.soft_delete_policy = Some(SoftDeletePolicy {
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
@@ -788,7 +788,7 @@ async fn transitions_update_live_and_noncurrent_generations_but_exclude_soft_del
 async fn transition_then_versioned_delete_archives_once_and_deletes_on_the_next_pass() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.versioning_enabled = true;
+    record.versioning = crate::bucket::Versioning::Enabled;
     record.lifecycle = vec![
         transition(StorageClass::Coldline, json!({"age":1})),
         delete(json!({"age":1,"matchesStorageClass":["COLDLINE"]})),

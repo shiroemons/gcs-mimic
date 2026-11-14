@@ -240,7 +240,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
 async fn enabling_autoclass_updates_the_class_time_only_for_changed_live_and_noncurrent_versions() {
     let (catalog, clock) = memory().await;
     let mut bucket = bucket("bucket", "project");
-    bucket.versioning_enabled = true;
+    bucket.versioning = crate::bucket::Versioning::Enabled;
     bucket.soft_delete_policy = Some(SoftDeletePolicy {
         retention_duration_seconds: 604800,
         effective_time: clock.now(),

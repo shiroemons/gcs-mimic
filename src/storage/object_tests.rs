@@ -1540,7 +1540,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         .await
         .unwrap()
         .unwrap();
-    assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
+    assert!(!settings.versioning.is_enabled() && !settings.default_event_based_hold);
     let object = put(&catalog, "migrated", b"body", ObjectConditions::default())
         .await
         .unwrap();
@@ -1645,7 +1645,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         .await
         .unwrap()
         .unwrap();
-    assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
+    assert!(!settings.versioning.is_enabled() && !settings.default_event_based_hold);
     assert_eq!(
         catalog
             .get_object(live("bucket", "metadata"), Default::default(), PERMISSIVE)

@@ -246,7 +246,8 @@ pub(crate) fn bucket(
         default_event_based_hold: record.default_event_based_hold,
         // Cloud Storage omits the message for a bucket whose versioning is currently off, as JSON does.
         versioning: record
-            .versioning_enabled
+            .versioning
+            .is_enabled()
             .then_some(pb::bucket::Versioning { enabled: true }),
         cors: record
             .cors
@@ -722,8 +723,7 @@ mod tests {
                 effective_time: now,
             }),
             object_retention_enabled: false,
-            versioning_enabled: true,
-            versioning_configured: true,
+            versioning: crate::bucket::Versioning::Enabled,
             default_event_based_hold: true,
             public_access_prevention_enforced: false,
             uniform_bucket_level_access_locked_time: Some(now),

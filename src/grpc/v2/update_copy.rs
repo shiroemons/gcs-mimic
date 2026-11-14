@@ -1071,7 +1071,12 @@ mod tests {
         .map(String::from);
         let update = bucket_patch(&bucket, &paths).unwrap();
         assert_eq!(update.autoclass.unwrap().enabled, Some(false));
-        assert_eq!(update.versioning_enabled, Some(false));
+        assert_eq!(
+            update.versioning,
+            Some(crate::bucket::VersioningUpdate::Set(
+                crate::bucket::Versioning::Disabled
+            ))
+        );
         assert_eq!(update.retention_policy, RetentionPolicyUpdate::Remove);
         assert_eq!(
             update
