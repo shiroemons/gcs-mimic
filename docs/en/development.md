@@ -394,15 +394,15 @@ cannot express.
 | `clippy::disallowed_methods` | The methods listed in `clippy.toml`: unsupervised spawns (`tokio::spawn`, `tokio::task::spawn`, `tokio::task::spawn_local`, `tokio::task::spawn_blocking`, `Handle::spawn_blocking`, `Runtime::spawn_blocking`, `Handle::spawn`, `Runtime::spawn`, `std::thread::spawn`, `std::thread::Builder::spawn`) outside `src/task.rs`, and rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, which prepare their SQL on every call. Calls through a `Transaction` resolve to the `Connection` methods; `Statement` methods from `prepare_cached`, `execute_batch`, `JoinSet::spawn` and scoped threads are not listed. |
 | `clippy::manual_let_else`, `clippy::useless_let_if_seq` | A `match` or `if let` that only unwraps or diverges, which `let else` states; a `let mut` assigned in a following `if` instead of binding the `if`'s value. |
 | `clippy::ref_option` | `&Option<T>` parameters and returns; take or return `Option<&T>`. `avoid-breaking-exported-api = false` in `clippy.toml` applies it to `pub` items too. |
-| `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing; per-file ratchet. |
-| `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss; per-file ratchet. Casts do not themselves panic. |
+| `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing. |
+| `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss. Casts do not themselves panic. |
 | `clippy::wildcard_enum_match_arm` | `_` arms on an enum, which let a new variant compile without a decision; per-file ratchet. A deliberate wildcard takes a reasoned `#[expect]` on the statement or function. |
 | `clippy::option_option` | `Option<Option<T>>`; name the three states with a type; per-file ratchet. |
 | `clippy::struct_excessive_bools` | Structs with more than three `bool` fields, which mix up modes; per-file ratchet. |
 | `clippy::unreachable` | `unreachable!`, which panics like `panic!`; per-file ratchet. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
-| `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types; per-file ratchet. |
+| `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
 | `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
 | `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
@@ -489,6 +489,14 @@ fails as new. Establish its file with `--baseline --target TRIPLE` after
 reviewing those findings; no other target's counts are substituted. The shared
 text baseline is required. Review increases explicitly; ordinary fixes should
 only lower counts.
+
+#### Graduating a ratcheted rule
+
+When a rule's last baseline row is deleted, move it from
+`RATCHETED_CLIPPY_LINTS` to `CLIPPY_LINTS`, or drop it from
+`RATCHETED_TEXT_RULES`, in the same change, and remove "per-file ratchet" from
+its row in the [Rules](#rules) table. The baseline parser then rejects any new
+row for it, so `--baseline` cannot record a regression.
 
 #### Reasoned suppressions
 

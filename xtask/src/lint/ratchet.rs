@@ -257,7 +257,7 @@ mod tests {
     }
 
     fn finding(line: usize) -> Finding {
-        Finding::new("clippy::indexing_slicing", "src/example.rs", line)
+        Finding::new("clippy::wildcard_enum_match_arm", "src/example.rs", line)
     }
 
     #[test]
@@ -283,7 +283,11 @@ mod tests {
         ));
         assert!(
             !baseline
-                .check(&[Finding::new("clippy::indexing_slicing", "src/new.rs", 1)])
+                .check(&[Finding::new(
+                    "clippy::wildcard_enum_match_arm",
+                    "src/new.rs",
+                    1
+                )])
                 .is_empty()
         );
     }
@@ -292,7 +296,7 @@ mod tests {
     fn shared_and_target_files_are_isolated_and_each_rejects_growth_and_staleness() {
         let directory = TempRoot::new();
         let root = &directory.0;
-        let shared = [Finding::new("text::static_str_error", "src/shared.rs", 1)];
+        let shared = [Finding::new("text::downcast", "src/shared.rs", 1)];
         fs::write(root.join(FILE), Baseline::from_findings(&shared).render()).unwrap();
         for (target, count) in [
             ("x86_64-unknown-linux-gnu", 2),
@@ -353,17 +357,17 @@ mod tests {
         let baseline = Baseline::from_findings(&[
             finding(1),
             finding(2),
-            Finding::new("text::static_str_error", "src/other.rs", 5),
+            Finding::new("text::downcast", "src/other.rs", 5),
         ]);
         assert_eq!(Baseline::parse(&baseline.render(), FILE).unwrap(), baseline);
         for text in [
-            "clippy::indexing_slicing\tsrc/example.rs\tzero",
-            "clippy::indexing_slicing\tsrc/example.rs\t0",
+            "clippy::wildcard_enum_match_arm\tsrc/example.rs\tzero",
+            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t0",
             "clippy::unwrap_used\tsrc/example.rs\t1",
             "unknown\tsrc/example.rs\t1",
-            "clippy::indexing_slicing\tsrc/../outside.rs\t1",
-            "clippy::indexing_slicing\tsrc/example.rs\t1\textra",
-            "clippy::indexing_slicing\tsrc/example.rs\t1\nclippy::indexing_slicing\tsrc/example.rs\t2",
+            "clippy::wildcard_enum_match_arm\tsrc/../outside.rs\t1",
+            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t1\textra",
+            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t1\nclippy::wildcard_enum_match_arm\tsrc/example.rs\t2",
         ] {
             assert!(Baseline::parse(text, FILE).is_err(), "{text}");
         }

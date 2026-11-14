@@ -26,10 +26,15 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 12] = [
+pub const CLIPPY_LINTS: [&str; 16] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
+    // Indexing and slicing can panic; casts silently truncate or lose the sign.
+    "clippy::indexing_slicing",
+    "clippy::string_slice",
+    "clippy::cast_possible_truncation",
+    "clippy::cast_sign_loss",
     "clippy::too_many_lines",
     "clippy::fn_params_excessive_bools",
     "clippy::needless_pass_by_value",
@@ -44,11 +49,9 @@ pub const CLIPPY_LINTS: [&str; 12] = [
     "clippy::ref_option",
 ];
 
-pub const RATCHETED_CLIPPY_LINTS: [&str; 8] = [
-    "clippy::indexing_slicing",
-    "clippy::string_slice",
-    "clippy::cast_possible_truncation",
-    "clippy::cast_sign_loss",
+/// Lints whose existing findings are counted per file; see "Graduating a ratcheted rule" in
+/// `docs/en/development.md` for moving one to `CLIPPY_LINTS` once its last row is gone.
+pub const RATCHETED_CLIPPY_LINTS: [&str; 4] = [
     // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
     "clippy::wildcard_enum_match_arm",
     // "Encode invariants in types": nested options and bool bundles mix up states and modes.
@@ -63,8 +66,7 @@ const JSON_MACRO_VALUE: &str = "text::json_macro_value";
 const DOWNCAST: &str = "text::downcast";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
 const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
-pub const RATCHETED_TEXT_RULES: [&str; 5] = [
-    STATIC_STR_ERROR,
+pub const RATCHETED_TEXT_RULES: [&str; 4] = [
     JSON_MACRO_VALUE,
     DOWNCAST,
     DIAGNOSTICS_IN_IO_ERROR,
