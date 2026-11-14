@@ -51,10 +51,10 @@ pub(crate) fn object_resource_keyed(
             .ok_or_else(|| JsonError::service_unavailable("Object resource must be an object"))?;
         value.insert(
             "crc32c".into(),
-            json!(super::base64(&object.crc32c.to_be_bytes())),
+            super::base64(&object.crc32c.to_be_bytes()).into(),
         );
         if object.has_md5() {
-            value.insert("md5Hash".into(), json!(super::base64(&object.md5)));
+            value.insert("md5Hash".into(), super::base64(&object.md5).into());
         }
     }
     Ok(value)

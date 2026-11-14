@@ -594,7 +594,7 @@ impl JsonError {
 
     pub(crate) fn value(&self) -> Value {
         let mut item = Map::from_iter([
-            ("message".into(), json!(self.message)),
+            ("message".into(), self.message.as_str().into()),
             ("domain".into(), "global".into()),
             ("reason".into(), self.reason.into()),
         ]);

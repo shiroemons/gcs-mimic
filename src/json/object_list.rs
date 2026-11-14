@@ -3,7 +3,7 @@ use super::{
     query::{boolean, parse_query, projection, standard_parameters},
 };
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListParams {
@@ -137,7 +137,7 @@ pub(crate) fn object_list(
         );
     }
     if !page.prefixes.is_empty() {
-        value.insert("prefixes".into(), json!(page.prefixes));
+        value.insert("prefixes".into(), Value::from(page.prefixes.as_slice()));
     }
     if !page.items.is_empty() {
         value.insert(
@@ -155,6 +155,7 @@ pub(crate) fn object_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn empty_glob_page_retains_its_continuation_token() {

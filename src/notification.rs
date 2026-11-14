@@ -185,11 +185,6 @@ pub(crate) struct NotificationRecord {
 
 impl NotificationConfig {
     pub(crate) fn to_stored(&self) -> String {
-        let custom_attributes = self
-            .custom_attributes
-            .iter()
-            .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
-            .collect::<Map<_, _>>();
         // serde_json's preserve_order keeps this member order, which stored rows have always had.
         Value::Object(Map::from_iter([
             ("topic".into(), Value::from(self.topic.as_str())),
@@ -198,7 +193,10 @@ impl NotificationConfig {
                 Value::from(self.payload_format.as_str()),
             ),
             ("event_types".into(), Value::from(&self.event_types)),
-            ("custom_attributes".into(), Value::Object(custom_attributes)),
+            (
+                "custom_attributes".into(),
+                crate::serde_util::string_map(&self.custom_attributes),
+            ),
             (
                 "object_name_prefix".into(),
                 Value::from(self.object_name_prefix.as_str()),

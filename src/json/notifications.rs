@@ -310,13 +310,7 @@ pub(crate) fn notification_resource(
     if !config.custom_attributes.is_empty() {
         value.insert(
             "custom_attributes".into(),
-            Value::Object(
-                config
-                    .custom_attributes
-                    .iter()
-                    .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
-                    .collect::<Map<_, _>>(),
-            ),
+            crate::serde_util::string_map(&config.custom_attributes),
         );
     }
     if !config.object_name_prefix.is_empty() {

@@ -1057,17 +1057,18 @@ pub(crate) fn bucket_resource_with_profile(
     // Fields follow the order of a recorded Cloud Storage response. Fields it did not contain
     // follow `locationType`, in an order that has not been verified.
     let mut value = Map::from_iter([
-        ("kind".into(), json!("storage#bucket")),
+        ("kind".into(), "storage#bucket".into()),
         (
             "selfLink".into(),
-            json!(format!(
+            format!(
                 "{}/storage/v1/b/{}",
                 base_url.trim_end_matches('/'),
                 encode_segment(&bucket.name)
-            )),
+            )
+            .into(),
         ),
-        ("id".into(), json!(bucket.name)),
-        ("name".into(), json!(bucket.name)),
+        ("id".into(), bucket.name.as_str().into()),
+        ("name".into(), bucket.name.as_str().into()),
         ("projectNumber".into(), fields.project_number.into()),
     ]);
     // The reference emulator's bucket shape has no generation; keep that profile unchanged.
@@ -1161,7 +1162,7 @@ fn add_optional_bucket_fields(
         value.insert("autoclass".into(), autoclass.into());
     }
     if let Some(labels) = labels.filter(|labels| !labels.is_empty()) {
-        value.insert("labels".into(), json!(labels));
+        value.insert("labels".into(), crate::serde_util::string_map(labels));
     }
     if !bucket.cors.is_empty() {
         value.insert("cors".into(), cors_value(&bucket.cors));

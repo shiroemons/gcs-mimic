@@ -10,7 +10,7 @@ use crate::{
     storage::rewrite::{RewriteNames, RewriteProgress},
 };
 use hyper::{Method, Uri};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 
 pub(crate) struct RewriteRequest {
@@ -204,16 +204,16 @@ fn byte_budget(number: i64) -> Result<NonZeroU64, JsonError> {
 
 pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
     let mut value = Map::from_iter([
-        ("kind".into(), json!("storage#rewriteResponse")),
+        ("kind".into(), "storage#rewriteResponse".into()),
         (
             "totalBytesRewritten".into(),
-            json!(progress.offset.to_string()),
+            progress.offset.to_string().into(),
         ),
-        ("objectSize".into(), json!(progress.total.to_string())),
-        ("done".into(), json!(progress.resource.is_some())),
+        ("objectSize".into(), progress.total.to_string().into()),
+        ("done".into(), progress.resource.is_some().into()),
     ]);
     if let Some(token) = progress.token {
-        value.insert("rewriteToken".into(), json!(token));
+        value.insert("rewriteToken".into(), token.into());
     }
     if let Some(resource) = progress.resource {
         value.insert("resource".into(), resource);
