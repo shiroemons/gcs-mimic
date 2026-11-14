@@ -3,15 +3,32 @@
 use super::*;
 use crate::sync::mapping::WORKSPACE;
 
-type StoredWorkspace = (
-    String,
-    String,
-    Incarnation,
-    String,
-    Generation,
-    NodeId,
-    Option<Vec<u8>>,
-);
+/// The protected write-back operation a transfer releases, with its workspace identity.
+struct StoredTransfer {
+    owner: String,
+    bucket: String,
+    incarnation: Incarnation,
+    name: String,
+    generation: Generation,
+    node: NodeId,
+    snapshot: Option<Vec<u8>>,
+}
+
+impl StoredTransfer {
+    const SELECT: &str = "SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            owner: row.get(0)?,
+            bucket: row.get(1)?,
+            incarnation: row.get(2)?,
+            name: row.get(3)?,
+            generation: row.get(4)?,
+            node: NodeId::from_be_bytes(row.get(5)?, row.get(6)?),
+            snapshot: row.get(7)?,
+        })
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,16 +64,6 @@ struct Transfer {
     request: CaptureRequest,
     accepted: Option<OwnedProof>,
     node: NodeId,
-}
-
-fn directory(root: &File, selected: &Transfer) -> Result<File, Error> {
-    let directory =
-        fsutil::directory_at(root, WORKSPACE.as_ref(), fsutil::DirectoryOpen::Existing)?;
-    let identity = fsutil::stat_identity(&directory)?;
-    if identity.node() != selected.node {
-        return Err(Error::TargetChanged);
-    }
-    Ok(directory)
 }
 
 fn validate(
@@ -181,7 +188,7 @@ impl RootLease {
         let selected = item.clone();
         let absent = self
             .conflict_files(move |root| {
-                let workspace = directory(root, &selected)?;
+                let workspace = open_workspace(root, selected.node)?;
                 match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
                     Ok(_) => Ok(false),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
@@ -269,7 +276,7 @@ impl RootLease {
         let copy = proof.clone();
         self.conflict_files(move |_| verify_copy(&data, &copy))
             .await?;
-        let hashes = observed.hashes.ok_or(Error::TargetChanged)?;
+        let fingerprint = observed.fingerprint()?;
         Ok(Some(CapturedConflict {
             root,
             id: proof.id,
@@ -277,15 +284,7 @@ impl RootLease {
             binding: request.binding.clone(),
             name: request.name.clone(),
             expected_generation: request.expected_generation,
-            fingerprint: SyncFingerprint {
-                size: observed.size,
-                mtime_ns: observed.modified_ns,
-                ctime_ns: observed.changed_ns,
-                inode: observed.inode,
-                md5: hashes.md5,
-                crc32c: hashes.crc32c,
-                racy: true,
-            },
+            fingerprint,
             device: observed.device,
         }))
     }
@@ -361,7 +360,7 @@ impl RootLease {
         let probe = self.transfer_context(id).await?;
         let source = self
             .conflict_files(move |root| {
-                let workspace = directory(root, &probe)?;
+                let workspace = open_workspace(root, probe.node)?;
                 match fsutil::open_regular_at(&workspace, probe.id.to_hex().as_ref()) {
                     Ok(file) => Ok(Some(file)),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -385,7 +384,7 @@ impl RootLease {
         let id = selected.id;
         let size = self
             .conflict_files(move |root| {
-                let workspace = directory(root, &selected)?;
+                let workspace = open_workspace(root, selected.node)?;
                 match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
                     Ok(file) => Ok(Some(fsutil::stat_identity(&file)?.size)),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -410,11 +409,36 @@ impl RootLease {
         let root = self.status().root_id;
         let catalog = self.catalog().sync_state().catalog_id().await?;
         self.conflict_db(move |connection| {
-            let (owner,bucket,incarnation,name,generation,node,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
-                .query_row(params![root,id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,NodeId::from_be_bytes(row.get(5)?,row.get(6)?),row.get(7)?)))?;
-            let accepted = snapshot.as_deref().map(self::snapshot).transpose()?.flatten().and_then(|snapshot|snapshot.transfer);
-            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(generation),source_op:Some(id)},accepted,node })
-        }).await
+            let stored = connection
+                .prepare_cached(StoredTransfer::SELECT)?
+                .query_row(params![root, id], StoredTransfer::read)?;
+            let accepted = stored
+                .snapshot
+                .as_deref()
+                .map(self::snapshot)
+                .transpose()?
+                .flatten()
+                .and_then(|snapshot| snapshot.transfer);
+            Ok(Transfer {
+                id,
+                owner: stored.owner,
+                request: CaptureRequest {
+                    binding: SyncBinding {
+                        catalog,
+                        bucket: stored.bucket,
+                        incarnation: stored.incarnation,
+                        deletion: None,
+                        control: None,
+                    },
+                    name: ObjectName::new(stored.name)?,
+                    expected_generation: Some(stored.generation),
+                    source_op: Some(id),
+                },
+                accepted,
+                node: stored.node,
+            })
+        })
+        .await
     }
 
     async fn transfer_capture(&self, item: &Transfer, source: File) -> Result<OwnedProof, Error> {
@@ -475,7 +499,7 @@ impl RootLease {
         let parent = data.join(WORKSPACE);
         let expected = proof.source.clone();
         self.conflict_files(move |root| {
-            let workspace = directory(root, &selected)?;
+            let workspace = open_workspace(root, selected.node)?;
             resolve::checked_unlink(&workspace, selected.id, Some(&expected), &data, &parent)?;
             root.sync_all()?;
             Ok(())

@@ -108,7 +108,7 @@ impl RootLease {
             let mut more=false;
             while let Some(row)=rows.next()? {
                 let retained:Option<Vec<u8>>=row.get(9)?;
-                let hashes=retained.as_deref().map(Observation::decode).transpose()?.and_then(|observation|observation.hashes).map(|h|Hashes {md5:h.md5,crc32c:h.crc32c});
+                let hashes=retained.as_deref().map(Observation::decode).transpose()?.and_then(|observation|observation.hashes).map(Hashes::from);
                 let item=Conflict {ordinal:row.get(0)?,conflict_id:row.get(1)?,revision:row.get(2)?,owner_project:row.get(3)?,bucket:row.get(4)?,bucket_incarnation:row.get(5)?,name:row.get(6)?,generation:row.get(7)?,size:row.get(8)?,hashes,
                     phase:if row.get::<_,i64>(10)?==0 {"capturing"} else {"registered"},remedy:"Inspect the current generation, then restore or explicitly discard this revision."};
                 let size=serde_json::to_vec(&item).map_err(AdminError::backend)?.len();

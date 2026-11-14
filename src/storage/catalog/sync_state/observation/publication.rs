@@ -36,17 +36,7 @@ fn snapshot(
     connection: &Connection,
     root: super::super::root::RootId,
 ) -> Result<Snapshot, CatalogError> {
-    let fence = connection
-        .prepare_cached(
-            "SELECT sequence,epoch FROM change_journal_state WHERE singleton=1 AND enabled=1",
-        )?
-        .query_row([], |row| {
-            Ok(JournalFence {
-                sequence: row.get(0)?,
-                revision: row.get(1)?,
-            })
-        })
-        .optional()?;
+    let fence = super::super::enabled_fence(connection).optional()?;
     Ok(Snapshot {
         deletions: super::super::deletions::read_set(connection, root)?,
         fence,

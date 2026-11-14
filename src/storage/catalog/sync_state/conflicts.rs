@@ -212,6 +212,24 @@ struct StoredHashes {
     crc32c: u32,
 }
 
+impl From<Hashes> for StoredHashes {
+    fn from(hashes: Hashes) -> Self {
+        Self {
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+        }
+    }
+}
+
+impl From<StoredHashes> for Hashes {
+    fn from(hashes: StoredHashes) -> Self {
+        Self {
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+        }
+    }
+}
+
 impl Observation {
     fn new(identity: FileIdentity, hashes: Option<Hashes>) -> Self {
         Self {
@@ -220,11 +238,22 @@ impl Observation {
             size: identity.size,
             modified_ns: identity.modified_ns,
             changed_ns: identity.changed_ns,
-            hashes: hashes.map(|h| StoredHashes {
-                md5: h.md5,
-                crc32c: h.crc32c,
-            }),
+            hashes: hashes.map(StoredHashes::from),
         }
+    }
+    /// A fully hashed observation as the fingerprint the tree tracks; unhashed bodies cannot be
+    /// tracked.
+    fn fingerprint(&self) -> Result<SyncFingerprint, Error> {
+        let hashes = self.hashes.as_ref().ok_or(Error::TargetChanged)?;
+        Ok(SyncFingerprint {
+            size: self.size,
+            mtime_ns: self.modified_ns,
+            ctime_ns: self.changed_ns,
+            inode: self.inode,
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+            racy: true,
+        })
     }
     fn matches(&self, identity: FileIdentity) -> bool {
         self.device == identity.device
@@ -248,6 +277,21 @@ fn changed(connection: &Connection, root: RootId) -> Result<(), Error> {
 }
 fn data_path(lease: &RootLease) -> PathBuf {
     lease.catalog().0.data_dir.clone()
+}
+
+/// Opens the workspace a protected operation was recorded in; a replaced directory is a changed
+/// target.
+fn open_workspace(root: &File, recorded: NodeId) -> Result<File, Error> {
+    let directory = fsutil::directory_at(
+        root,
+        crate::sync::mapping::WORKSPACE.as_ref(),
+        fsutil::DirectoryOpen::Existing,
+    )?;
+    let identity = fsutil::stat_identity(&directory)?;
+    if identity.node() != recorded {
+        return Err(Error::TargetChanged);
+    }
+    Ok(directory)
 }
 
 impl RootLease {
@@ -309,10 +353,12 @@ enum HashMode {
 fn observe(file: &File, hash: HashMode) -> Result<Observation, Error> {
     let before = fsutil::stat_identity(file)?;
     let hashes = if matches!(hash, HashMode::Body) {
-        match fsutil::hash_exact(file, before.size, |_| Ok::<_, io::Error>(()))? {
-            fsutil::HashOutcome::Complete(hashes) => Some(hashes),
-            _ => return Err(Error::TargetChanged),
-        }
+        let fsutil::HashOutcome::Complete(hashes) =
+            fsutil::hash_exact(file, before.size, |_| Ok::<_, io::Error>(()))?
+        else {
+            return Err(Error::TargetChanged);
+        };
+        Some(hashes)
     } else {
         None
     };

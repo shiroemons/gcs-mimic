@@ -149,28 +149,94 @@ struct Selected {
     generation: Option<i64>,
 }
 
+/// What an earlier request with the same operation ID has done so far.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct RecordedOperation {
+    pub(super) done: bool,
+    pub(super) reclaimed: bool,
+    pub(super) result_generation: Option<i64>,
+}
+
+/// A `sync_conflict_operations` row, found by its operation ID.
+struct StoredOperation {
+    root: RootId,
+    payload: Vec<u8>,
+    done: bool,
+    reclaimed: bool,
+    result_generation: Option<i64>,
+    owner: String,
+    error_code: Option<String>,
+}
+
+impl StoredOperation {
+    const SELECT: &str = "SELECT root_id,payload,done,reclaimed,result_generation,owner,error_code FROM sync_conflict_operations WHERE operation_id=?1";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            root: row.get(0)?,
+            payload: row.get(1)?,
+            done: row.get(2)?,
+            reclaimed: row.get(3)?,
+            result_generation: row.get(4)?,
+            owner: row.get(5)?,
+            error_code: row.get(6)?,
+        })
+    }
+}
+
+/// A `sync_conflicts` row a resolution selects.
+struct StoredConflict {
+    revision: OpaqueId,
+    owner: String,
+    bucket: String,
+    incarnation: Incarnation,
+    name: String,
+    retained: Option<Vec<u8>>,
+    state: i64,
+}
+
+impl StoredConflict {
+    const SELECT: &str = "SELECT revision,owner,bucket,incarnation,name,retained,state FROM sync_conflicts WHERE root_id=?1 AND id=?2";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            revision: row.get(0)?,
+            owner: row.get(1)?,
+            bucket: row.get(2)?,
+            incarnation: row.get(3)?,
+            name: row.get(4)?,
+            retained: row.get(5)?,
+            state: row.get(6)?,
+        })
+    }
+}
+
 fn operation(
     connection: &Connection,
     root: RootId,
     request: &ResolveRequest,
     authority: &ControlAuthority,
-) -> Result<Option<(bool, bool, Option<i64>)>, Error> {
-    let existing=connection.prepare_cached("SELECT root_id,payload,done,reclaimed,result_generation,owner,error_code FROM sync_conflict_operations WHERE operation_id=?1")?
-        .query_row([&request.operation_id],|row|Ok((row.get::<_,RootId>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,bool>(2)?,row.get::<_,bool>(3)?,row.get::<_,Option<i64>>(4)?,row.get::<_,String>(5)?,row.get::<_,Option<String>>(6)?))).optional()?;
+) -> Result<Option<RecordedOperation>, Error> {
+    let existing = connection
+        .prepare_cached(StoredOperation::SELECT)?
+        .query_row([&request.operation_id], StoredOperation::read)
+        .optional()?;
     let payload = serde_json::to_vec(request).map_err(AdminError::backend)?;
-    match existing {
-        None => Ok(None),
-        Some((r, p, d, c, g, owner, error)) => {
-            authority.require_project(&owner)?;
-            if r != root || p != payload {
-                return Err(Error::OperationIdReused);
-            }
-            if error.is_some() {
-                return Err(Error::TargetChanged);
-            }
-            Ok(Some((d, c, g)))
-        }
+    let Some(existing) = existing else {
+        return Ok(None);
+    };
+    authority.require_project(&existing.owner)?;
+    if existing.root != root || existing.payload != payload {
+        return Err(Error::OperationIdReused);
     }
+    if existing.error_code.is_some() {
+        return Err(Error::TargetChanged);
+    }
+    Ok(Some(RecordedOperation {
+        done: existing.done,
+        reclaimed: existing.reclaimed,
+        result_generation: existing.result_generation,
+    }))
 }
 
 fn accept(
@@ -245,25 +311,73 @@ impl RootLease {
         let root = self.status().root_id;
         let req = request.clone();
         let auth = authority.clone();
-        let selected=self.conflict_db(move|connection| {
-            let tx=connection.transaction()?;auth.authorize(&tx,root)?;
-            let prior=operation(&tx,root,&req,&auth)?;
-            let row=tx.prepare_cached("SELECT revision,owner,bucket,incarnation,name,retained,state FROM sync_conflicts WHERE root_id=?1 AND id=?2")?
-                .query_row(params![root,target],|row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Incarnation>(3)?,row.get::<_,String>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,i64>(6)?))).optional()?.ok_or(Error::RevisionMismatch)?;
-            if prior.is_none() {
-                if row.0!=inspected || row.6==2 || (req.action==Action::Restore && row.6!=1) {return Err(Error::RevisionMismatch)}
-                if req.action==Action::Restore {
-                    let ResolveTarget::Conflict(ConflictTarget {expected_generation,..})=req.target else {return Err(Error::InvalidResolution)};
-                    let expected=(expected_generation!=0).then(||Generation::new(expected_generation)).transpose()?;
-                    let binding=SyncBinding {catalog:super::super::catalog_id(&tx)?,bucket:row.2.clone(),incarnation:row.3,deletion:None,control:None};
-                    if check_original(&tx,&binding,&ObjectName::new(row.4.clone())?,expected)?!=row.1 {return Err(Error::TargetChanged)}
+        let selected = self
+            .conflict_db(move |connection| {
+                let tx = connection.transaction()?;
+                auth.authorize(&tx, root)?;
+                let prior = operation(&tx, root, &req, &auth)?;
+                let row = tx
+                    .prepare_cached(StoredConflict::SELECT)?
+                    .query_row(params![root, target], StoredConflict::read)
+                    .optional()?
+                    .ok_or(Error::RevisionMismatch)?;
+                if prior.is_none() {
+                    if row.revision != inspected
+                        || row.state == 2
+                        || (req.action == Action::Restore && row.state != 1)
+                    {
+                        return Err(Error::RevisionMismatch);
+                    }
+                    if req.action == Action::Restore {
+                        let ResolveTarget::Conflict(ConflictTarget {
+                            expected_generation,
+                            ..
+                        }) = req.target
+                        else {
+                            return Err(Error::InvalidResolution);
+                        };
+                        let expected = (expected_generation != 0)
+                            .then(|| Generation::new(expected_generation))
+                            .transpose()?;
+                        let binding = SyncBinding {
+                            catalog: super::super::catalog_id(&tx)?,
+                            bucket: row.bucket.clone(),
+                            incarnation: row.incarnation,
+                            deletion: None,
+                            control: None,
+                        };
+                        if check_original(
+                            &tx,
+                            &binding,
+                            &ObjectName::new(row.name.clone())?,
+                            expected,
+                        )? != row.owner
+                        {
+                            return Err(Error::TargetChanged);
+                        }
+                    }
+                    accept(&tx, root, &req, target, 0, &row.owner)?;
                 }
-                accept(&tx,root,&req,target,0,&row.1)?;
-            }
-            let (done,reclaimed,generation)=prior.unwrap_or((false,false,None));
-            let observation=row.5.as_deref().map(Observation::decode).transpose()?;
-            tx.commit()?;Ok(Selected {id:target,owner:row.1,bucket:row.2,incarnation:row.3,name:row.4,observation,done,reclaimed,generation})
-        }).await?;
+                let prior = prior.unwrap_or_default();
+                let observation = row
+                    .retained
+                    .as_deref()
+                    .map(Observation::decode)
+                    .transpose()?;
+                tx.commit()?;
+                Ok(Selected {
+                    id: target,
+                    owner: row.owner,
+                    bucket: row.bucket,
+                    incarnation: row.incarnation,
+                    name: row.name,
+                    observation,
+                    done: prior.done,
+                    reclaimed: prior.reclaimed,
+                    generation: prior.result_generation,
+                })
+            })
+            .await?;
         #[cfg(test)]
         self.conflict_boundary(fault::Step::ConflictAccepted)
             .await?;
@@ -528,7 +642,7 @@ pub(super) fn recorded_operation(
     root: RootId,
     request: &ResolveRequest,
     authority: &ControlAuthority,
-) -> Result<Option<(bool, bool, Option<i64>)>, Error> {
+) -> Result<Option<RecordedOperation>, Error> {
     operation(connection, root, request, authority)
 }
 pub(super) fn accept_recovery(

@@ -201,7 +201,7 @@ impl RootLease {
             if !valid { return Err(Error::TargetChanged); }
             Ok(())
         }).await?;
-        let hashes = original.hashes.ok_or(Error::TargetChanged)?;
+        let fingerprint = original.fingerprint()?;
         Ok(Some(CapturedConflict {
             root,
             id,
@@ -209,15 +209,7 @@ impl RootLease {
             binding: request.binding.clone(),
             name: request.name.clone(),
             expected_generation: request.expected_generation,
-            fingerprint: SyncFingerprint {
-                size: original.size,
-                mtime_ns: original.modified_ns,
-                ctime_ns: original.changed_ns,
-                inode: original.inode,
-                md5: hashes.md5,
-                crc32c: hashes.crc32c,
-                racy: true,
-            },
+            fingerprint,
             device: original.device,
         }))
     }
@@ -288,15 +280,7 @@ impl RootLease {
                 return Err(error);
             }
         };
-        let fingerprint = SyncFingerprint {
-            size: original.size,
-            mtime_ns: original.modified_ns,
-            ctime_ns: original.changed_ns,
-            inode: original.inode,
-            md5: original.hashes.as_ref().ok_or(Error::TargetChanged)?.md5,
-            crc32c: original.hashes.as_ref().ok_or(Error::TargetChanged)?.crc32c,
-            racy: true,
-        };
+        let fingerprint = original.fingerprint()?;
         let source_blob = original.encode()?;
         let retained_blob = retained.encode()?;
         #[cfg(test)]

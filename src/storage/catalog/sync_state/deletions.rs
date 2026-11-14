@@ -121,18 +121,7 @@ pub(crate) fn guarded(guard: Guard, baseline: u64, candidates: u64) -> bool {
 }
 
 fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
-    sql::row(
-        connection,
-        "SELECT sequence,epoch FROM change_journal_state WHERE singleton=1 AND enabled=1",
-        [],
-        |row| {
-            Ok(JournalFence {
-                sequence: row.get(0)?,
-                revision: row.get(1)?,
-            })
-        },
-    )
-    .map_err(unavailable)
+    super::enabled_fence(connection).map_err(unavailable)
 }
 
 fn matching(connection: &Connection, root: RootId, revision: OpaqueId) -> Result<(), CatalogError> {

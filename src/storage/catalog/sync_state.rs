@@ -208,6 +208,23 @@ fn catalog_id(connection: &Connection) -> Result<CatalogId, CatalogError> {
     .map_err(unavailable)
 }
 
+/// The change-journal fence while the journal is enabled; a disabled journal has no row.
+fn enabled_fence(
+    connection: &Connection,
+) -> rusqlite::Result<crate::storage::change_journal::JournalFence> {
+    sql::row(
+        connection,
+        "SELECT sequence,epoch FROM change_journal_state WHERE singleton=1 AND enabled=1",
+        [],
+        |row| {
+            Ok(crate::storage::change_journal::JournalFence {
+                sequence: row.get(0)?,
+                revision: row.get(1)?,
+            })
+        },
+    )
+}
+
 pub(super) fn matching(
     connection: &Connection,
     binding: &SyncBinding,

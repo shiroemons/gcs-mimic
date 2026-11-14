@@ -148,37 +148,41 @@ fn revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> 
     .map_err(unavailable)
 }
 
+/// The observation counters `read_summary` reads in one statement.
+struct Totals {
+    baseline_complete: bool,
+    tracked_objects: u64,
+    mapping_findings: u64,
+    pending_writeback: u64,
+    paused_reason: Option<PauseReason>,
+    path_stops: u64,
+    unresolved_conflicts: u64,
+    scan_stop: Option<PauseReason>,
+}
+
+impl Totals {
+    const SELECT: &str = "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            baseline_complete: row.get(0)?,
+            tracked_objects: row.get(1)?,
+            mapping_findings: row.get(2)?,
+            pending_writeback: row.get(3)?,
+            paused_reason: row.get(4)?,
+            path_stops: row.get(5)?,
+            unresolved_conflicts: row.get(6)?,
+            scan_stop: row.get(7)?,
+        })
+    }
+}
+
 fn read_summary(
     connection: &Connection,
     root: super::root::RootId,
 ) -> Result<Summary, CatalogError> {
     let revision = revision(connection, root)?;
-    let (
-        baseline_complete,
-        tracked_objects,
-        mapping_findings,
-        pending_writeback,
-        paused_reason,
-        path_stops,
-        unresolved_conflicts,
-        scan_stop,
-    ) = sql::row(
-        connection,
-        "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1",
-        [root],
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-            ))
-        },
-    )?;
+    let totals = sql::row(connection, Totals::SELECT, [root], Totals::read)?;
     let exists: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)",
@@ -194,14 +198,14 @@ fn read_summary(
     };
     Ok(Summary {
         revision,
-        baseline_complete,
-        tracked_objects,
-        mapping_findings,
-        pending_writeback,
-        path_stops,
-        unresolved_conflicts,
-        paused_reason,
-        scan_stop,
+        baseline_complete: totals.baseline_complete,
+        tracked_objects: totals.tracked_objects,
+        mapping_findings: totals.mapping_findings,
+        pending_writeback: totals.pending_writeback,
+        path_stops: totals.path_stops,
+        unresolved_conflicts: totals.unresolved_conflicts,
+        paused_reason: totals.paused_reason,
+        scan_stop: totals.scan_stop,
         writeback,
     })
 }
