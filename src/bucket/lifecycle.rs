@@ -65,15 +65,15 @@ crate::serde_util::serialize_as_str!(LifecycleMatchClass);
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LifecycleCondition {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub age: Option<i64>,
+    pub age: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_time_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_custom_time: Option<i64>,
+    pub days_since_custom_time: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_noncurrent_time: Option<i64>,
+    pub days_since_noncurrent_time: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_live: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -85,19 +85,133 @@ pub(crate) struct LifecycleCondition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub noncurrent_time_before: Option<LifecycleDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_newer_versions: Option<i64>,
+    pub num_newer_versions: Option<ConditionInt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_above_bytes: Option<LifecycleSize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_below_bytes: Option<LifecycleSize>,
 }
 
+/// A condition's day or version count: a nonnegative int32, the range the lifecycle contract
+/// accepts and Storage v2's `int32` fields carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "i64", try_from = "i64")]
+pub(crate) struct ConditionInt(i32);
+
+impl TryFrom<i64> for ConditionInt {
+    type Error = InvalidConditionInt;
+
+    fn try_from(value: i64) -> Result<Self, InvalidConditionInt> {
+        i32::try_from(value)
+            .ok()
+            .filter(|value| *value >= 0)
+            .map(Self)
+            .ok_or(InvalidConditionInt)
+    }
+}
+
+impl From<ConditionInt> for i32 {
+    fn from(value: ConditionInt) -> Self {
+        value.0
+    }
+}
+
+impl From<ConditionInt> for i64 {
+    fn from(value: ConditionInt) -> Self {
+        Self::from(value.0)
+    }
+}
+
+impl From<ConditionInt> for u64 {
+    fn from(value: ConditionInt) -> Self {
+        Self::from(value.0.unsigned_abs())
+    }
+}
+
+/// A count outside the nonnegative int32 range.
+#[derive(Debug)]
+pub(crate) struct InvalidConditionInt;
+
+impl std::fmt::Display for InvalidConditionInt {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Invalid lifecycle condition count")
+    }
+}
+
+impl std::error::Error for InvalidConditionInt {}
+
+/// A lifecycle condition date, 0001-01-01 to 9999-12-31 in the proleptic Gregorian calendar,
+/// written `YYYY-MM-DD`. `FromStr` is the one calendar rule, shared by input validation and
+/// stored rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LifecycleDate {
-    pub year: i32,
-    pub month: i32,
-    pub day: i32,
+    year: u16,
+    month: u8,
+    day: u8,
 }
+
+impl LifecycleDate {
+    pub(crate) fn year(self) -> i32 {
+        i32::from(self.year)
+    }
+
+    pub(crate) fn month(self) -> i32 {
+        i32::from(self.month)
+    }
+
+    pub(crate) fn day(self) -> i32 {
+        i32::from(self.day)
+    }
+}
+
+impl FromStr for LifecycleDate {
+    type Err = InvalidLifecycleDate;
+
+    fn from_str(value: &str) -> Result<Self, InvalidLifecycleDate> {
+        let bytes = value.as_bytes();
+        if bytes.len() != 10
+            || bytes.get(4) != Some(&b'-')
+            || bytes.get(7) != Some(&b'-')
+            || bytes
+                .iter()
+                .enumerate()
+                .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
+        {
+            return Err(InvalidLifecycleDate);
+        }
+        let part = |range: std::ops::Range<usize>| value.get(range).ok_or(InvalidLifecycleDate);
+        let year: u16 = part(0..4)?.parse().map_err(|_| InvalidLifecycleDate)?;
+        let month: u8 = part(5..7)?.parse().map_err(|_| InvalidLifecycleDate)?;
+        let day: u8 = part(8..10)?.parse().map_err(|_| InvalidLifecycleDate)?;
+        let days = match month {
+            4 | 6 | 9 | 11 => 30,
+            2 => {
+                28 + u8::from(
+                    year.is_multiple_of(4)
+                        && (!year.is_multiple_of(100) || year.is_multiple_of(400)),
+                )
+            }
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            _ => return Err(InvalidLifecycleDate),
+        };
+        if year == 0 || day == 0 || day > days {
+            return Err(InvalidLifecycleDate);
+        }
+        Ok(Self { year, month, day })
+    }
+}
+
+/// Text that is not a `YYYY-MM-DD` calendar date.
+#[derive(Debug)]
+pub(crate) struct InvalidLifecycleDate;
+
+impl std::fmt::Display for InvalidLifecycleDate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Invalid lifecycle date")
+    }
+}
+
+impl std::error::Error for InvalidLifecycleDate {}
 
 impl serde::Serialize for LifecycleDate {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -110,24 +224,9 @@ impl serde::Serialize for LifecycleDate {
 
 impl<'de> serde::Deserialize<'de> for LifecycleDate {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let mut parts = value.split('-');
-        let mut component = || -> Result<i32, D::Error> {
-            parts
-                .next()
-                .ok_or_else(|| serde::de::Error::custom("Invalid lifecycle date"))?
-                .parse()
-                .map_err(serde::de::Error::custom)
-        };
-        let date = Self {
-            year: component()?,
-            month: component()?,
-            day: component()?,
-        };
-        if parts.next().is_some() {
-            return Err(serde::de::Error::custom("Invalid lifecycle date"));
-        }
-        Ok(date)
+        <String as serde::Deserialize>::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -343,13 +442,16 @@ fn validate_condition(
         "age" | "daysSinceCustomTime" | "daysSinceNoncurrentTime" | "numNewerVersions" => {
             if !value
                 .as_i64()
-                .is_some_and(|number| (0..=i64::from(i32::MAX)).contains(&number))
+                .is_some_and(|number| ConditionInt::try_from(number).is_ok())
             {
                 return Err(invalid(field, "a nonnegative int32, for example 30"));
             }
         }
         "createdBefore" | "customTimeBefore" | "noncurrentTimeBefore" => {
-            if !value.as_str().is_some_and(valid_date) {
+            if !value
+                .as_str()
+                .is_some_and(|text| text.parse::<LifecycleDate>().is_ok())
+            {
                 return Err(invalid(
                     field,
                     "a valid YYYY-MM-DD date, for example 2026-10-27",
@@ -401,36 +503,6 @@ fn validate_condition(
         }
     }
     Ok(0)
-}
-
-fn valid_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() != 10
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || bytes
-            .iter()
-            .enumerate()
-            .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
-    {
-        return false;
-    }
-    let number =
-        |range: std::ops::Range<usize>| value.get(range).and_then(|part| part.parse::<u32>().ok());
-    let (Some(year), Some(month), Some(day)) = (number(0..4), number(5..7), number(8..10)) else {
-        return false;
-    };
-    let days = match month {
-        4 | 6 | 9 | 11 => 30,
-        2 => {
-            28 + u32::from(
-                year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)),
-            )
-        }
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        _ => return false,
-    };
-    year > 0 && day > 0 && day <= days
 }
 
 impl LifecycleAction {
@@ -507,25 +579,32 @@ mod tests {
             serde_json::to_string(&LifecycleRule::to_stored(&typed).unwrap()).unwrap(),
             serde_json::to_string(&values).unwrap()
         );
-        let mut invalid_age = typed.clone();
-        invalid_age[0].condition.age = Some(-1);
+        // A typed rule cannot hold a count or date the contract refuses; parsing refuses them.
+        for (age, accepted) in [
+            (-1, false),
+            (0, true),
+            (i64::from(i32::MAX), true),
+            (i64::from(i32::MAX) + 1, false),
+        ] {
+            assert_eq!(ConditionInt::try_from(age).is_ok(), accepted, "{age}");
+            let rule = json!({"action":{"type":"Delete"},"condition":{"age":age}});
+            match LifecycleRule::from_input(&[rule]) {
+                Ok(rules) => assert_eq!(rules[0].condition.age.map(i64::from), Some(age)),
+                Err(error) => {
+                    assert!(!accepted, "{age}");
+                    assert!(error.to_string().contains("nonnegative int32"), "{error}");
+                }
+            }
+        }
+        assert!("2025-02-29".parse::<LifecycleDate>().is_err());
+        assert!(serde_json::from_value::<LifecycleDate>(json!("2025-02-29")).is_err());
         assert!(
-            LifecycleRule::to_stored(&invalid_age)
-                .unwrap_err()
-                .to_string()
-                .contains("nonnegative int32")
-        );
-        let mut invalid_date = typed;
-        invalid_date[0].condition.created_before = Some(LifecycleDate {
-            year: 2025,
-            month: 2,
-            day: 29,
-        });
-        assert!(
-            LifecycleRule::to_stored(&invalid_date)
-                .unwrap_err()
-                .to_string()
-                .contains("valid YYYY-MM-DD")
+            LifecycleRule::from_input(&[
+                json!({"action":{"type":"Delete"},"condition":{"createdBefore":"2025-02-29"}})
+            ])
+            .unwrap_err()
+            .to_string()
+            .contains("valid YYYY-MM-DD")
         );
         assert!(matches!(
             LifecycleRule::from_stored(&[json!({})]),
@@ -621,7 +700,8 @@ mod tests {
     #[test]
     fn lifecycle_date_and_prefix_suffix_boundaries() {
         for date in ["2000-02-29", "2024-02-29", "0001-01-01", "9999-12-31"] {
-            assert!(valid_date(date), "{date}");
+            let parsed: LifecycleDate = date.parse().unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), json!(date));
         }
         for date in [
             "1900-02-29",
@@ -632,7 +712,7 @@ mod tests {
             "2026-01-00",
             "日本語日付",
         ] {
-            assert!(!valid_date(date), "{date}");
+            assert!(date.parse::<LifecycleDate>().is_err(), "{date}");
         }
         let prefixes: Vec<_> = (0..1000).map(|number| format!("prefix-{number}")).collect();
         let mut rules =

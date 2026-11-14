@@ -27,10 +27,7 @@ pub(super) fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>
         return Ok(None);
     }
     Ok(Some(pb::bucket::Lifecycle {
-        rule: rules
-            .iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?,
+        rule: rules.iter().map(proto_rule).collect::<Result<_, _>>()?,
     }))
 }
 
@@ -46,23 +43,17 @@ pub(super) fn lifecycle_rules(
         .map_err(super::bucket_update::input_error)
 }
 
-impl From<&crate::grpc::generated::google::r#type::Date> for LifecycleDate {
-    fn from(value: &crate::grpc::generated::google::r#type::Date) -> Self {
-        Self {
-            year: value.year,
-            month: value.month,
-            day: value.day,
-        }
-    }
+/// The JSON spelling of a proto date, which the lifecycle contract then validates like any
+/// JSON date.
+fn date_text(date: &crate::grpc::generated::google::r#type::Date) -> String {
+    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day)
 }
 
-impl From<&LifecycleDate> for crate::grpc::generated::google::r#type::Date {
-    fn from(value: &LifecycleDate) -> Self {
-        Self {
-            year: value.year,
-            month: value.month,
-            day: value.day,
-        }
+fn proto_date(date: &LifecycleDate) -> crate::grpc::generated::google::r#type::Date {
+    crate::grpc::generated::google::r#type::Date {
+        year: date.year(),
+        month: date.month(),
+        day: date.day(),
     }
 }
 
@@ -76,70 +67,59 @@ fn lifecycle_rule(value: &pb::bucket::lifecycle::Rule) -> Value {
     let condition = value.condition.as_ref().map(|condition| {
         json!({
             "age": condition.age_days,
-            "createdBefore": condition.created_before.as_ref().map(LifecycleDate::from),
-            "customTimeBefore": condition.custom_time_before.as_ref().map(LifecycleDate::from),
+            "createdBefore": condition.created_before.as_ref().map(date_text),
+            "customTimeBefore": condition.custom_time_before.as_ref().map(date_text),
             "daysSinceCustomTime": condition.days_since_custom_time,
             "daysSinceNoncurrentTime": condition.days_since_noncurrent_time,
             "isLive": condition.is_live,
             "matchesPrefix": condition.matches_prefix,
             "matchesStorageClass": condition.matches_storage_class,
             "matchesSuffix": condition.matches_suffix,
-            "noncurrentTimeBefore": condition.noncurrent_time_before.as_ref().map(LifecycleDate::from),
+            "noncurrentTimeBefore": condition.noncurrent_time_before.as_ref().map(date_text),
             "numNewerVersions": condition.num_newer_versions,
         })
     });
     json!({"action":action, "condition":condition})
 }
 
-impl TryFrom<&LifecycleRule> for pb::bucket::lifecycle::Rule {
-    type Error = ObjectError;
-
-    fn try_from(value: &LifecycleRule) -> Result<Self, Self::Error> {
-        let condition = &value.condition;
-        if condition.size_above_bytes.is_some() || condition.size_below_bytes.is_some() {
-            return Err(ObjectError::UnsupportedMetadata(
-                "lifecycle sizeAboveBytes/sizeBelowBytes cannot be represented by Storage v2; use the JSON API".into(),
-            ));
-        }
-        let days = |number: Option<i64>| {
-            number.map(i32::try_from).transpose().map_err(|error| {
-                ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
-                    "Stored lifecycle condition exceeds int32 range",
-                    error,
-                ))
-            })
-        };
-        let (kind, storage_class) = match value.action {
-            LifecycleAction::Delete => ("Delete", ""),
-            LifecycleAction::SetStorageClass(class) => ("SetStorageClass", class.as_str()),
-            LifecycleAction::AbortIncompleteMultipartUpload => {
-                ("AbortIncompleteMultipartUpload", "")
-            }
-        };
-        Ok(Self {
-            action: Some(pb::bucket::lifecycle::rule::Action {
-                r#type: kind.into(),
-                storage_class: storage_class.into(),
-            }),
-            condition: Some(pb::bucket::lifecycle::rule::Condition {
-                age_days: days(condition.age)?,
-                created_before: condition.created_before.as_ref().map(Into::into),
-                custom_time_before: condition.custom_time_before.as_ref().map(Into::into),
-                days_since_custom_time: days(condition.days_since_custom_time)?,
-                days_since_noncurrent_time: days(condition.days_since_noncurrent_time)?,
-                is_live: condition.is_live,
-                matches_prefix: condition.matches_prefix.clone(),
-                matches_storage_class: condition
-                    .matches_storage_class
-                    .iter()
-                    .map(|class| class.as_str().into())
-                    .collect(),
-                matches_suffix: condition.matches_suffix.clone(),
-                noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(Into::into),
-                num_newer_versions: days(condition.num_newer_versions)?,
-            }),
-        })
+/// A typed rule as Storage v2 reports it. A function rather than `TryFrom`: rustc's dead-code
+/// analysis treats an impl for a generated type that only the impl builds as unused, and with
+/// it the date accessors it calls.
+fn proto_rule(value: &LifecycleRule) -> Result<pb::bucket::lifecycle::Rule, ObjectError> {
+    let condition = &value.condition;
+    if condition.size_above_bytes.is_some() || condition.size_below_bytes.is_some() {
+        return Err(ObjectError::UnsupportedMetadata(
+            "lifecycle sizeAboveBytes/sizeBelowBytes cannot be represented by Storage v2; use the JSON API".into(),
+        ));
     }
+    let (kind, storage_class) = match value.action {
+        LifecycleAction::Delete => ("Delete", ""),
+        LifecycleAction::SetStorageClass(class) => ("SetStorageClass", class.as_str()),
+        LifecycleAction::AbortIncompleteMultipartUpload => ("AbortIncompleteMultipartUpload", ""),
+    };
+    Ok(pb::bucket::lifecycle::Rule {
+        action: Some(pb::bucket::lifecycle::rule::Action {
+            r#type: kind.into(),
+            storage_class: storage_class.into(),
+        }),
+        condition: Some(pb::bucket::lifecycle::rule::Condition {
+            age_days: condition.age.map(i32::from),
+            created_before: condition.created_before.as_ref().map(proto_date),
+            custom_time_before: condition.custom_time_before.as_ref().map(proto_date),
+            days_since_custom_time: condition.days_since_custom_time.map(i32::from),
+            days_since_noncurrent_time: condition.days_since_noncurrent_time.map(i32::from),
+            is_live: condition.is_live,
+            matches_prefix: condition.matches_prefix.clone(),
+            matches_storage_class: condition
+                .matches_storage_class
+                .iter()
+                .map(|class| class.as_str().into())
+                .collect(),
+            matches_suffix: condition.matches_suffix.clone(),
+            noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(proto_date),
+            num_newer_versions: condition.num_newer_versions.map(i32::from),
+        }),
+    })
 }
 
 macro_rules! access_control {
@@ -465,10 +445,7 @@ mod tests {
         let proto = lifecycle(&stored).unwrap().unwrap();
         assert_eq!(lifecycle_rules(Some(&proto)).unwrap(), stored);
         let typed = LifecycleRule::from_stored(&stored).unwrap();
-        assert_eq!(
-            pb::bucket::lifecycle::Rule::try_from(&typed[0]).unwrap(),
-            proto.rule[0]
-        );
+        assert_eq!(proto_rule(&typed[0]).unwrap(), proto.rule[0]);
         for (mut rule, field) in [
             (proto.rule[0].clone(), "age_days"),
             (proto.rule[0].clone(), "created_before"),
@@ -515,26 +492,16 @@ mod tests {
 
     #[test]
     fn grpc_lifecycle_rejects_integer_overflow_without_truncation() {
-        let mut rule = LifecycleRule {
-            action: LifecycleAction::Delete,
-            condition: crate::bucket::lifecycle::LifecycleCondition {
-                age: Some(i64::from(i32::MAX)),
-                ..Default::default()
-            },
-        };
+        let rule = |age: i64| json!({"action":{"type":"Delete"},"condition":{"age":age}});
+        let converted = lifecycle(&[rule(i64::from(i32::MAX))]).unwrap().unwrap();
         assert_eq!(
-            pb::bucket::lifecycle::Rule::try_from(&rule)
-                .unwrap()
-                .condition
-                .unwrap()
-                .age_days,
+            converted.rule[0].condition.as_ref().unwrap().age_days,
             Some(i32::MAX)
         );
-        rule.condition.age = Some(i64::from(i32::MAX) + 1);
-        assert!(matches!(
-            pb::bucket::lifecycle::Rule::try_from(&rule),
-            Err(ObjectError::Corrupt(_))
-        ));
+        // A stored count past int32 cannot become a typed rule, so it reads as corrupt rather
+        // than wrapping.
+        let error = lifecycle(&[rule(i64::from(i32::MAX) + 1)]).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::Unavailable);
     }
 
     #[test]

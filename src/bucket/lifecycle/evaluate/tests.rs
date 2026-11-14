@@ -201,6 +201,20 @@ fn future_deadlines_beyond_the_platform_clock_never_schedule_an_early_wakeup() {
     );
 }
 
+/// A date condition starts at UTC midnight of its day, across the whole accepted calendar.
+#[test]
+fn lifecycle_dates_start_at_utc_midnight_across_the_calendar() {
+    for (date, secs) in [
+        ("0001-01-01", -62_135_596_800),
+        ("1970-01-01", 0),
+        ("2024-02-29", 1_709_164_800),
+        ("9999-12-31", 253_402_214_400),
+    ] {
+        let date: LifecycleDate = serde_json::from_value(json!(date)).unwrap();
+        assert_eq!(date.midnight(), UnixNanos::new(secs, 0), "{date:?}");
+    }
+}
+
 #[test]
 fn before_date_conditions_are_strict_at_utc_midnight() {
     let midnight = timestamp("2026-02-01T00:00:00Z");

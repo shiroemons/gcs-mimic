@@ -92,7 +92,7 @@ fn pacific_daylight_time(utc_seconds: i64) -> bool {
     (start..end).contains(&utc_seconds)
 }
 
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let year = year - i64::from(month <= 2);
     let era = year.div_euclid(400);
     let year_of_era = year.rem_euclid(400);

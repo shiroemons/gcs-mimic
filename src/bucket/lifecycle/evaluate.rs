@@ -5,10 +5,7 @@ use super::{
 };
 use crate::bucket::StorageClass;
 use crate::object::unix_nanos::UnixNanos;
-use std::{
-    io::Write,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 #[cfg(test)]
 mod tests;
@@ -142,7 +139,7 @@ fn eligible_at(
         return None;
     }
     let mut due = now;
-    if let Some(age) = condition.age {
+    if let Some(age) = condition.age.map(i64::from) {
         let deadline = if age == 0 {
             next_midnight(facts.time_created)?
         } else {
@@ -155,7 +152,7 @@ fn eligible_at(
         (condition.days_since_noncurrent_time, facts.noncurrent_time),
     ] {
         if let Some(days) = days {
-            due = due.max(after_days(origin?, days)?);
+            due = due.max(after_days(origin?, i64::from(days))?);
         }
     }
     wakeup_at(due, now)
@@ -165,9 +162,9 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
     condition
         .is_live
         .is_none_or(|live| live == facts.noncurrent_time.is_none())
-        && condition.num_newer_versions.is_none_or(|count| {
-            u64::try_from(count).is_ok_and(|count| facts.newer_versions >= count)
-        })
+        && condition
+            .num_newer_versions
+            .is_none_or(|count| facts.newer_versions >= u64::from(count))
         && before_date(condition.created_before, Some(facts.time_created))
         && before_date(condition.custom_time_before, facts.custom_time)
         && before_date(condition.noncurrent_time_before, facts.noncurrent_time)
@@ -202,20 +199,14 @@ fn before_date(date: Option<LifecycleDate>, time: Option<UnixNanos>) -> bool {
 
 impl LifecycleDate {
     fn midnight(self) -> Option<UnixNanos> {
-        // Reuse calendar validation on a stack buffer; evaluation must not allocate per version.
-        let mut timestamp = [0_u8; 20];
-        write!(
-            timestamp.as_mut_slice(),
-            "{:04}-{:02}-{:02}T00:00:00Z",
-            self.year,
-            self.month,
-            self.day
-        )
-        .ok()?;
-        let timestamp = std::str::from_utf8(&timestamp).ok()?;
-        let micros = crate::import::codec::parse_timestamp(timestamp).ok()?;
-        // Accepted calendar dates include times before Windows' 1601 SystemTime epoch.
-        UnixNanos::from_micros_and_remainder(micros, 0)
+        // Accepted calendar dates include times before Windows' 1601 SystemTime epoch, so the
+        // instant is computed from the date rather than through the platform clock.
+        let days = crate::object::retention::days_from_civil(
+            i64::from(self.year),
+            u32::from(self.month),
+            u32::from(self.day),
+        );
+        UnixNanos::new(days.checked_mul(86_400)?, 0)
     }
 }
 
@@ -284,7 +275,14 @@ pub(crate) fn multipart_abort_due(
             if !matches_storage_class.is_empty() {
                 return None;
             }
-            multipart_condition_due(*age, matches_prefix, matches_suffix, name, initiated, now)
+            multipart_condition_due(
+                age.map(i64::from),
+                matches_prefix,
+                matches_suffix,
+                name,
+                initiated,
+                now,
+            )
         })
         .min()
 }

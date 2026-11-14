@@ -67,7 +67,7 @@ impl<'a> OracleRule<'a> {
             .is_none_or(|live| live == facts.noncurrent_time.is_none())
             && condition
                 .num_newer_versions
-                .is_none_or(|count| facts.newer_versions >= count as u64)
+                .is_none_or(|count| facts.newer_versions >= u64::from(count))
             && [
                 (condition.created_before, Some(time_created)),
                 (condition.custom_time_before, custom_time),
@@ -92,10 +92,10 @@ impl<'a> OracleRule<'a> {
             if let Some(days) = days {
                 due = due
                     .zip(origin)
-                    .map(|(due, origin)| due.max(origin + DAY * days as u32));
+                    .map(|(due, origin)| due.max(origin + DAY * i32::from(days).unsigned_abs()));
             }
         }
-        if condition.age == Some(0) {
+        if condition.age.map(i64::from) == Some(0) {
             // Every generated creation time is UTC midnight, so age zero first matches one day later.
             due = due.map(|due| due.max(time_created + DAY));
         }
