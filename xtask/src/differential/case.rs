@@ -1,6 +1,6 @@
 //! Declarative case files: parsing and static validation.
 
-use super::template::{json_variables, variables};
+use super::template::{Capture, json_variables, variables};
 use serde_json::{Map, Value};
 use std::{collections::BTreeSet, fs, path::Path};
 
@@ -76,7 +76,7 @@ pub(crate) struct Step {
     /// gcs-mimic answers this step differently from the reference on purpose. `expect_status`
     /// then speaks only for the reference.
     pub(crate) local_choice: Option<LocalChoice>,
-    pub(crate) capture: Vec<(String, String)>,
+    pub(crate) capture: Vec<(String, Capture)>,
     /// `None` runs the step without comparing it (setup or probe steps).
     pub(crate) compare: Option<CompareOpts>,
 }
@@ -143,10 +143,14 @@ impl Step {
             Body::Bytes(bytes) => format!("bytes:{}", super::base64::encode(bytes)),
         };
         // Cargo feature unification can enable serde_json's insertion-order maps.
+        // A capture hashes as the spec text the case file wrote.
         let (mut query, mut headers, mut capture) = (
             self.query.clone(),
             self.headers.clone(),
-            self.capture.clone(),
+            self.capture
+                .iter()
+                .map(|(name, capture)| (name.clone(), capture.to_string()))
+                .collect::<Vec<_>>(),
         );
         for pairs in [&mut query, &mut headers, &mut capture] {
             pairs.sort_unstable();
@@ -224,6 +228,18 @@ fn string_pairs(value: &Value, context: &str) -> Result<Vec<(String, String)>> {
             item.as_str()
                 .map(|text| (key.clone(), text.to_owned()))
                 .ok_or_else(|| format!("{context}.{key}: expected a string"))
+        })
+        .collect()
+}
+
+fn captures(value: &Value, context: &str) -> Result<Vec<(String, Capture)>> {
+    string_pairs(value, context)?
+        .into_iter()
+        .map(|(name, spec)| {
+            let capture = spec
+                .parse()
+                .map_err(|error| format!("{context}.{name}: {error}"))?;
+            Ok((name, capture))
         })
         .collect()
 }
@@ -470,7 +486,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         },
         capture: map
             .get("capture")
-            .map(|v| string_pairs(v, &format!("{context}.capture")))
+            .map(|v| captures(v, &format!("{context}.capture")))
             .transpose()?
             .unwrap_or_default(),
         compare,
@@ -653,7 +669,10 @@ mod tests {
         first.headers = vec![("z".into(), "1".into()), ("a".into(), "2".into())];
         let mut other = first.clone();
         other.headers.reverse();
-        first.capture = vec![("z".into(), "/z".into()), ("a".into(), "/a".into())];
+        first.capture = vec![
+            ("z".into(), "body:z".parse().unwrap()),
+            ("a".into(), "header:a?b".parse().unwrap()),
+        ];
         other.capture = first.capture.iter().rev().cloned().collect();
         assert_eq!(fingerprint(&first), fingerprint(&other));
         other.headers.clear();
@@ -735,6 +754,17 @@ mod tests {
         let no_bucket = json!({"id": "x", "description": "d", "bucket": false,
             "steps": [get("/b/{bucket}")]});
         assert!(parse_case(&no_bucket, "x").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_capture_specs_when_the_case_is_loaded() {
+        for spec in ["body:", "header:", "header:?x", "cookie:x"] {
+            let step = json!({"name": "s", "method": "GET", "path": "/p", "capture": {"v": spec}});
+            assert_eq!(
+                parse_case(&case_with(step), "x").unwrap_err(),
+                format!("steps[0].capture.v: capture {spec}: expected body:PATH or header:NAME")
+            );
+        }
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use super::transport::Response;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt, str::FromStr};
 
 pub(crate) type Vars = BTreeMap<String, String>;
 type Result<T> = std::result::Result<T, String>;
@@ -197,36 +197,83 @@ pub(crate) fn json_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     Some(current)
 }
 
-/// Extracts a value from a response. Supported specs: `body:a.b.0.c`,
-/// `header:name` and `header:name?param` (a query parameter of the header value,
+/// Where a step's capture takes its value: `body:a.b.0.c` (a JSON scalar at a dotted
+/// path), `header:name` or `header:name?param` (a query parameter of the header value,
 /// for example the upload ID in a resumable session `Location`).
-pub(crate) fn extract(spec: &str, response: &Response) -> Result<String> {
-    if let Some(path) = spec.strip_prefix("body:") {
-        let json: Value = serde_json::from_slice(&response.body)
-            .map_err(|e| format!("capture {spec}: body is not JSON: {e}"))?;
-        return json_get(&json, path)
-            .and_then(json_scalar)
-            .ok_or_else(|| format!("capture {spec}: no scalar at that path"));
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Capture {
+    Body { path: String },
+    Header { name: String, param: Option<String> },
+}
+
+/// Parsed when a case is loaded, so a malformed spec fails validation instead of
+/// failing after earlier steps were already sent to the service.
+impl FromStr for Capture {
+    type Err = String;
+
+    fn from_str(spec: &str) -> Result<Self> {
+        if let Some(path) = spec.strip_prefix("body:").filter(|path| !path.is_empty()) {
+            return Ok(Self::Body {
+                path: path.to_owned(),
+            });
+        }
+        let rest = spec
+            .strip_prefix("header:")
+            .filter(|rest| !rest.is_empty() && !rest.starts_with('?'))
+            .ok_or_else(|| format!("capture {spec}: expected body:PATH or header:NAME"))?;
+        Ok(match rest.split_once('?') {
+            Some((name, param)) => Self::Header {
+                name: name.to_owned(),
+                param: Some(param.to_owned()),
+            },
+            None => Self::Header {
+                name: rest.to_owned(),
+                param: None,
+            },
+        })
     }
-    if let Some(rest) = spec.strip_prefix("header:") {
-        let (name, param) = match rest.split_once('?') {
-            Some((name, param)) => (name, Some(param)),
-            None => (rest, None),
-        };
-        let value = response
-            .header(name)
-            .ok_or_else(|| format!("capture {spec}: header absent"))?;
-        let Some(param) = param else {
-            return Ok(value.to_owned());
-        };
-        let query = value.split_once('?').map_or("", |(_, query)| query);
-        return query
-            .split('&')
-            .find_map(|pair| pair.strip_prefix(param)?.strip_prefix('='))
-            .map(str::to_owned)
-            .ok_or_else(|| format!("capture {spec}: query parameter absent"));
+}
+
+/// The spec as written: the step fingerprint hashes this text, so it must give back
+/// exactly what `from_str` read.
+impl fmt::Display for Capture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Body { path } => write!(f, "body:{path}"),
+            Self::Header { name, param: None } => write!(f, "header:{name}"),
+            Self::Header {
+                name,
+                param: Some(param),
+            } => write!(f, "header:{name}?{param}"),
+        }
     }
-    Err(format!("capture {spec}: expected body:PATH or header:NAME"))
+}
+
+/// Extracts a captured value from a response.
+pub(crate) fn extract(capture: &Capture, response: &Response) -> Result<String> {
+    match capture {
+        Capture::Body { path } => {
+            let json: Value = serde_json::from_slice(&response.body)
+                .map_err(|e| format!("capture {capture}: body is not JSON: {e}"))?;
+            json_get(&json, path)
+                .and_then(json_scalar)
+                .ok_or_else(|| format!("capture {capture}: no scalar at that path"))
+        }
+        Capture::Header { name, param } => {
+            let value = response
+                .header(name)
+                .ok_or_else(|| format!("capture {capture}: header absent"))?;
+            let Some(param) = param else {
+                return Ok(value.to_owned());
+            };
+            let query = value.split_once('?').map_or("", |(_, query)| query);
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix(param.as_str())?.strip_prefix('='))
+                .map(str::to_owned)
+                .ok_or_else(|| format!("capture {capture}: query parameter absent"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -288,14 +335,56 @@ mod tests {
             )],
             body: br#"{"generation":"7","items":[{"name":"a"}]}"#.to_vec(),
         };
-        assert_eq!(extract("body:generation", &response).unwrap(), "7");
-        assert_eq!(extract("body:items.0.name", &response).unwrap(), "a");
+        let capture = |spec: &str| extract(&spec.parse().unwrap(), &response);
+        assert_eq!(capture("body:generation").unwrap(), "7");
+        assert_eq!(capture("body:items.0.name").unwrap(), "a");
+        assert_eq!(capture("header:location?upload_id").unwrap(), "XYZ");
         assert_eq!(
-            extract("header:location?upload_id", &response).unwrap(),
-            "XYZ"
+            capture("body:missing").unwrap_err(),
+            "capture body:missing: no scalar at that path"
         );
-        assert!(extract("body:missing", &response).is_err());
-        assert!(extract("header:etag", &response).is_err());
-        assert!(extract("cookie:x", &response).is_err());
+        assert_eq!(
+            capture("header:etag").unwrap_err(),
+            "capture header:etag: header absent"
+        );
+        assert_eq!(
+            capture("header:location?session").unwrap_err(),
+            "capture header:location?session: query parameter absent"
+        );
+    }
+
+    #[test]
+    fn capture_specs_print_as_written_and_reject_other_forms() {
+        for (spec, capture) in [
+            (
+                "body:items.0.name",
+                Capture::Body {
+                    path: "items.0.name".into(),
+                },
+            ),
+            (
+                "header:etag",
+                Capture::Header {
+                    name: "etag".into(),
+                    param: None,
+                },
+            ),
+            (
+                "header:a?b?c",
+                Capture::Header {
+                    name: "a".into(),
+                    param: Some("b?c".into()),
+                },
+            ),
+        ] {
+            assert_eq!(spec.parse::<Capture>().unwrap(), capture);
+            assert_eq!(capture.to_string(), spec);
+        }
+        for spec in ["body:", "header:", "header:?x", "cookie:x", ""] {
+            assert_eq!(
+                spec.parse::<Capture>().unwrap_err(),
+                format!("capture {spec}: expected body:PATH or header:NAME")
+            );
+        }
     }
 }
