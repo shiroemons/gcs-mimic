@@ -568,6 +568,107 @@ fn a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_sto
     assert!(report.contains("snapshot entry limit exceeded"), "{report}");
 }
 
+/// Rewrites the capture's rows; the tests that use it fail before the completion digest.
+fn edit_rows(options: &Options, edit: impl FnOnce(&mut Vec<Value>)) {
+    let path = options.source.join("snapshot.jsonl");
+    let mut rows: Vec<Value> = fs::read(&path)
+        .unwrap()
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    edit(&mut rows);
+    let mut bytes = Vec::new();
+    for row in rows {
+        serde_json::to_writer(&mut bytes, &row).unwrap();
+        bytes.push(b'\n');
+    }
+    fs::write(path, bytes).unwrap();
+}
+
+/// The blocking findings of an inspection, as `(key, reason)`.
+fn blocking_findings(options: &Options) -> Vec<(String, String)> {
+    let mut output = Vec::new();
+    let summary = import::inspect(options.clone(), &mut output, Vec::new()).unwrap();
+    assert!(!summary.eligible);
+    std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter_map(|page| page["page"]["findings"].as_array().cloned())
+        .flatten()
+        .filter(|finding| finding["blocking"] == true)
+        .map(|finding| {
+            (
+                finding["diagnostic"]["key"].as_str().unwrap().to_owned(),
+                finding["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Every row kind refuses a field it does not declare.
+#[test]
+fn snapshot_rows_refuse_fields_they_do_not_declare() {
+    for (kind, reason) in [
+        (
+            "snapshot",
+            "invalid source snapshot JSON: unknown field `extra`, expected one of `version`, `source_revision`, `capture_id`, `quiesced`, `backend`, `original_names_verified`",
+        ),
+        (
+            "bucket",
+            "invalid source snapshot JSON: unknown field `extra`, expected one of `name`, `created`, `attributes`, `enable_object_retention`",
+        ),
+        (
+            "object",
+            "invalid source snapshot JSON: unknown field `extra`, expected one of `bucket`, `name`, `membership`, `blob`, `size`, `attributes`",
+        ),
+        (
+            "complete",
+            "invalid source snapshot JSON: unknown field `extra`, expected one of `buckets`, `generations`, `bytes`, `manifest_sha256`",
+        ),
+    ] {
+        let (_dir, options) = fixture(vec![object("body", 7, "live")]);
+        edit_rows(&options, |rows| {
+            let row = rows.iter_mut().find(|row| row["kind"] == kind).unwrap();
+            row["extra"] = json!(true);
+        });
+        assert_eq!(
+            blocking_findings(&options),
+            [(".:snapshot_json".to_owned(), reason.to_owned())],
+            "{kind}"
+        );
+    }
+}
+
+/// A second header row is a corrupt capture, but it still counts against the entry limit
+/// first, so a capture past the limit names the option to raise.
+#[test]
+fn a_second_header_row_is_refused_after_the_entry_limit() {
+    for (limit, reason) in [
+        (None, "unexpected snapshot record"),
+        (Some(2), "unexpected snapshot record"),
+        (Some(1), "snapshot entry limit exceeded"),
+    ] {
+        let (_dir, mut options) = fixture(Vec::new());
+        edit_rows(&options, |rows| {
+            let header = rows[0].clone();
+            rows.insert(2, header);
+        });
+        options.max_entries = limit.and_then(std::num::NonZeroUsize::new);
+        let key = if limit == Some(1) {
+            ".:limits"
+        } else {
+            ".:snapshot"
+        };
+        assert_eq!(
+            blocking_findings(&options),
+            [(key.to_owned(), reason.to_owned())],
+            "{limit:?}"
+        );
+    }
+}
+
 #[test]
 fn snapshot_preserves_empty_memory_buckets() {
     let (_dir, options) = fixture(Vec::new());

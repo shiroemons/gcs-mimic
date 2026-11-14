@@ -5,7 +5,10 @@ use super::{
     codec::{self, BucketAttrs, ObjectAttrs},
     reader,
 };
-use crate::{fsutil, hashing::encode_lower, storage::failure::BackendCause};
+use crate::{
+    bucket::name::BucketName, fsutil, hashing::encode_lower, object::name::ObjectName,
+    storage::failure::BackendCause,
+};
 use ring::digest::{Context, SHA256};
 use serde::Deserialize;
 use std::{
@@ -34,26 +37,36 @@ enum Row {
         backend: String,
         original_names_verified: bool,
     },
-    Bucket {
-        name: String,
-        created: String,
-        attributes: BucketAttrs,
-        enable_object_retention: bool,
-    },
-    Object {
-        bucket: String,
-        name: String,
-        membership: Membership,
-        blob: String,
-        size: u64,
-        attributes: Box<ObjectAttrs>,
-    },
+    Bucket(BucketRow),
+    Object(ObjectRow),
     Complete {
         buckets: u64,
         generations: u64,
         bytes: u64,
         manifest_sha256: String,
     },
+}
+
+/// A tagged row's newtype variant reads its struct from the fields after the tag, so the struct
+/// itself refuses the fields it does not declare.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BucketRow {
+    name: String,
+    created: String,
+    attributes: BucketAttrs,
+    enable_object_retention: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObjectRow {
+    bucket: String,
+    name: String,
+    membership: Membership,
+    blob: String,
+    size: u64,
+    attributes: Box<ObjectAttrs>,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -83,47 +96,88 @@ fn line(input: &mut BufReader<File>) -> Result<Vec<u8>, ImportFailure> {
     Ok(bytes)
 }
 
+/// The bucket whose objects the capture is reading.
+struct CurrentBucket {
+    name: BucketName,
+    object_retention_enabled: bool,
+    last: Option<LastObject>,
+    /// Generations already read for `last`'s name: a live generation must not repeat an
+    /// archived one.
+    generations: BTreeSet<i64>,
+}
+
+/// The previous object row of the current bucket, which the next row must follow.
+struct LastObject {
+    name: ObjectName,
+    membership: Membership,
+    generation: i64,
+}
+
+/// Where an object row belongs: its bucket, and whether that bucket enables object retention.
+struct Placement {
+    bucket: BucketName,
+    object_retention_enabled: bool,
+}
+
 struct Capture<'a> {
     options: &'a Options,
     report: &'a mut Reporter,
     blobs: File,
-    bucket: String,
-    retention_enabled: bool,
-    previous: Option<(String, Membership, i64)>,
-    generations_for_name: BTreeSet<i64>,
+    current: Option<CurrentBucket>,
     buckets: u64,
     generations: u64,
     bytes: u64,
 }
 
 impl Capture<'_> {
-    fn bucket(
-        &mut self,
-        name: String,
-        created: &str,
-        attributes: BucketAttrs,
-        retention: crate::object::retention::BucketRetention,
-        raw: &[u8],
-    ) -> Result<(), ImportFailure> {
-        crate::json::validate_bucket_name(&name).map_err(|error| corrupt(error.message))?;
-        if name <= self.bucket {
+    /// Counts one data row against the entry limit and adds it to the capture digest.
+    fn admit(&mut self, hash: &mut Context, row: &[u8]) -> Result<(), ImportFailure> {
+        self.report.summary.entries += 1;
+        if self
+            .options
+            .max_entries
+            .is_some_and(|limit| self.report.summary.entries > limit.get() as u64)
+        {
+            return Err(ImportFailure::corrupt(
+                CorruptField::Limits,
+                "snapshot entry limit exceeded",
+                "Raise --max-entries to at least the number of snapshot rows, then retry.",
+            ));
+        }
+        hash.update(row);
+        Ok(())
+    }
+
+    fn bucket(&mut self, row: BucketRow, raw: &[u8]) -> Result<(), ImportFailure> {
+        let BucketRow {
+            name,
+            created,
+            attributes,
+            enable_object_retention,
+        } = row;
+        let name = BucketName::try_from(name).map_err(|_| corrupt("Invalid bucket name"))?;
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|current| name <= current.name)
+        {
             return Err(corrupt("bucket rows must be unique and in lexical order"));
         }
-        codec::parse_bucket_timestamp(created)
+        codec::parse_bucket_timestamp(&created)
             .map_err(|error| corrupt(BackendCause::from_error(error)))?;
         codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)
             .map_err(|error| corrupt(BackendCause::from_error(error)))?;
         self.buckets += 1;
         self.report.summary.buckets += 1;
         self.report.summary.eligible_buckets += 1;
-        self.report.manifest("snapshot_bucket", &name, &[raw]);
-        let retention = retention == crate::object::retention::BucketRetention::Enabled;
+        self.report
+            .manifest("snapshot_bucket", name.as_str(), &[raw]);
         self.report.record(Record::Bucket {
             path: format!("bucket:{name}"),
-            name: name.clone(),
+            name: name.as_str().to_owned(),
             attributes,
-            created_timestamp: Some(created.into()),
-            enable_object_retention: retention,
+            created_timestamp: Some(created),
+            enable_object_retention,
             generated: &[
                 "project_local-project",
                 "native_location",
@@ -135,60 +189,69 @@ impl Capture<'_> {
             observed_stat: "creation identity from the source memory bucket".into(),
             attributes_digest: super::filesystem::sha(raw),
         })?;
-        self.bucket = name;
-        self.retention_enabled = retention;
-        self.previous = None;
-        self.generations_for_name.clear();
+        self.current = Some(CurrentBucket {
+            name,
+            object_retention_enabled: enable_object_retention,
+            last: None,
+            generations: BTreeSet::new(),
+        });
         Ok(())
     }
 
+    /// Checks the row's place after the previous one; returns the bucket it belongs to.
     fn order(
         &mut self,
         bucket: &str,
-        name: &str,
+        name: &ObjectName,
         membership: Membership,
         generation: i64,
-    ) -> Result<(), ImportFailure> {
-        crate::object::name::validate(name).map_err(|_| corrupt("Invalid object name"))?;
-        if bucket != self.bucket || bucket.is_empty() {
+    ) -> Result<Placement, ImportFailure> {
+        let Some(current) = self
+            .current
+            .as_mut()
+            .filter(|current| current.name.as_str() == bucket)
+        else {
             return Err(corrupt("object must follow its declared bucket"));
-        }
-        if let Some((previous, member, previous_generation)) = &self.previous
-            && (name < previous.as_str()
-                || (name == previous
-                    && (*member == Membership::Live
-                        || generation == *previous_generation
-                        || (membership == Membership::Archived
-                            && generation <= *previous_generation))))
+        };
+        if let Some(last) = &current.last
+            && (*name < last.name
+                || (*name == last.name
+                    && (last.membership == Membership::Live
+                        || generation == last.generation
+                        || (membership == Membership::Archived && generation <= last.generation))))
         {
             return Err(corrupt(
                 "object names, archive generations or live membership are duplicated or out of order",
             ));
         }
-        if self
-            .previous
-            .as_ref()
-            .is_none_or(|(previous, _, _)| previous != name)
-        {
-            self.generations_for_name.clear();
+        if current.last.as_ref().is_none_or(|last| last.name != *name) {
+            current.generations.clear();
         }
-        if !self.generations_for_name.insert(generation) {
+        if !current.generations.insert(generation) {
             return Err(corrupt("duplicate generation in the same source object"));
         }
-        self.previous = Some((name.into(), membership, generation));
-        Ok(())
+        current.last = Some(LastObject {
+            name: name.clone(),
+            membership,
+            generation,
+        });
+        Ok(Placement {
+            bucket: current.name.clone(),
+            object_retention_enabled: current.object_retention_enabled,
+        })
     }
 
-    fn object(&mut self, object: SnapshotObject, raw: &[u8]) -> Result<(), ImportFailure> {
-        let SnapshotObject {
+    fn object(&mut self, row: ObjectRow, raw: &[u8]) -> Result<(), ImportFailure> {
+        let ObjectRow {
             bucket,
             name,
             membership,
             blob,
             size,
             attributes,
-        } = object;
-        self.order(&bucket, &name, membership, attributes.generation)?;
+        } = row;
+        let name = ObjectName::try_from(name).map_err(|_| corrupt("Invalid object name"))?;
+        let placement = self.order(&bucket, &name, membership, attributes.generation)?;
         let ordinal = self
             .generations
             .checked_add(1)
@@ -201,7 +264,7 @@ impl Capture<'_> {
         let checks = reader::check_object_fields(self.report, &blob, &attributes)?;
         let retention = codec::retention(&attributes)
             .map_err(|error| corrupt(BackendCause::from_error(error)))?;
-        if retention.is_some() && !self.retention_enabled {
+        if retention.is_some() && !placement.object_retention_enabled {
             return Err(corrupt(
                 "retention configuration requires declared derived bucket enablement",
             ));
@@ -269,8 +332,8 @@ impl Capture<'_> {
             self.report.summary.eligible_objects += 1;
             self.report.record(Record::Object {
                 path: blob,
-                bucket,
-                name,
+                bucket: placement.bucket.as_str().to_owned(),
+                name: name.as_str().to_owned(),
                 attributes,
                 created_micros: accepted.created_micros,
                 updated_micros: accepted.updated_micros,
@@ -309,15 +372,6 @@ impl Capture<'_> {
         }
         Ok(())
     }
-}
-
-struct SnapshotObject {
-    bucket: String,
-    name: String,
-    membership: Membership,
-    blob: String,
-    size: u64,
-    attributes: Box<ObjectAttrs>,
 }
 
 fn check_attribute_cap(bytes: &[u8]) -> Result<(), ImportFailure> {
@@ -395,86 +449,47 @@ pub(super) fn scan(options: &Options, report: &mut Reporter) -> Result<(), Impor
         options,
         report,
         blobs,
-        bucket: String::new(),
-        retention_enabled: false,
-        previous: None,
-        generations_for_name: BTreeSet::new(),
+        current: None,
         buckets: 0,
         generations: 0,
         bytes: 0,
     };
     loop {
         let bytes = line(&mut input)?;
-        let row: Row = serde_json::from_slice(&bytes)?;
-        if matches!(row, Row::Bucket { .. } | Row::Object { .. }) {
-            check_attribute_cap(&bytes)?;
-        }
-        if let Row::Complete {
-            buckets,
-            generations,
-            bytes: total,
-            manifest_sha256,
-        } = row
-        {
-            if (buckets, generations, total)
-                != (capture.buckets, capture.generations, capture.bytes)
-                || manifest_sha256 != encode_lower(hash.finish().as_ref())
-                || !input.fill_buf()?.is_empty()
-            {
-                return Err(corrupt(
-                    "snapshot completion counts, digest or EOF do not match",
-                ));
+        match serde_json::from_slice::<Row>(&bytes)? {
+            Row::Complete {
+                buckets,
+                generations,
+                bytes: total,
+                manifest_sha256,
+            } => {
+                if (buckets, generations, total)
+                    != (capture.buckets, capture.generations, capture.bytes)
+                    || manifest_sha256 != encode_lower(hash.finish().as_ref())
+                    || !input.fill_buf()?.is_empty()
+                {
+                    return Err(corrupt(
+                        "snapshot completion counts, digest or EOF do not match",
+                    ));
+                }
+                break;
             }
-            break;
-        }
-        capture.report.summary.entries += 1;
-        if options
-            .max_entries
-            .is_some_and(|limit| capture.report.summary.entries > limit.get() as u64)
-        {
-            return Err(ImportFailure::corrupt(
-                CorruptField::Limits,
-                "snapshot entry limit exceeded",
-                "Raise --max-entries to at least the number of snapshot rows, then retry.",
-            ));
-        }
-        hash.update(&bytes);
-        match row {
-            Row::Bucket {
-                name,
-                created,
-                attributes,
-                enable_object_retention,
-            } => capture.bucket(
-                name,
-                &created,
-                attributes,
-                if enable_object_retention {
-                    crate::object::retention::BucketRetention::Enabled
-                } else {
-                    crate::object::retention::BucketRetention::Disabled
-                },
-                &bytes,
-            )?,
-            Row::Object {
-                bucket,
-                name,
-                membership,
-                blob,
-                size,
-                attributes,
-            } => capture.object(
-                SnapshotObject {
-                    bucket,
-                    name,
-                    membership,
-                    blob,
-                    size,
-                    attributes,
-                },
-                &bytes,
-            )?,
-            _ => return Err(corrupt("unexpected snapshot record")),
+            // A second header still counts against the limit, so a capture past it names the
+            // option to raise first.
+            Row::Snapshot { .. } => {
+                capture.admit(&mut hash, &bytes)?;
+                return Err(corrupt("unexpected snapshot record"));
+            }
+            Row::Bucket(row) => {
+                check_attribute_cap(&bytes)?;
+                capture.admit(&mut hash, &bytes)?;
+                capture.bucket(row, &bytes)?;
+            }
+            Row::Object(row) => {
+                check_attribute_cap(&bytes)?;
+                capture.admit(&mut hash, &bytes)?;
+                capture.object(row, &bytes)?;
+            }
         }
     }
     capture.check_blobs()?;
