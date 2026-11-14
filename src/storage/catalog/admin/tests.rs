@@ -1050,7 +1050,7 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
                 ..Default::default()
             },
             Default::default(),
-            &BucketAccess::Admin(admin.grant.clone()),
+            &admin.grant.access(),
         )
         .await
         .unwrap();
@@ -1169,7 +1169,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
                 ..Default::default()
             },
             Default::default(),
-            &BucketAccess::Admin(admin.grant.clone()),
+            &admin.grant.access(),
         )
         .await
         .unwrap();

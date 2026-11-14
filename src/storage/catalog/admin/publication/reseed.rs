@@ -372,12 +372,9 @@ fn commit(
     let clock = batch.admin.catalog.0.clock.as_ref();
     check_guards(&transaction, mode, clock)?;
     let epoch = if matches!(mode, SeedMode::Replace) {
-        let reclamation = if batch.admin.catalog.0.backend.is_memory() {
-            super::super::reset::Reclamation::ClearMemory
-        } else {
-            super::super::reset::Reclamation::Journal
-        };
-        Some(super::super::reset::clear_in_transaction(&transaction, reclamation)?.2)
+        let reclamation =
+            super::super::reset::Reclamation::for_backend(&batch.admin.catalog.0.backend);
+        Some(super::super::reset::clear_in_transaction(&transaction, reclamation)?.epoch)
     } else {
         None
     };

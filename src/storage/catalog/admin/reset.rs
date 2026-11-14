@@ -79,12 +79,7 @@ impl Admin {
 
 fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutcome, CatalogError> {
     let transaction = sql::immediate(connection)?;
-    let mode = if backend.is_memory() {
-        Reclamation::ClearMemory
-    } else {
-        Reclamation::Journal
-    };
-    let (buckets, objects, next) = clear_in_transaction(&transaction, mode)?;
+    let cleared = clear_in_transaction(&transaction, Reclamation::for_backend(backend))?;
     if let Err(error) = objects::commit_publication(transaction) {
         // A commit can succeed before reporting an I/O error. The durable epoch resolves it.
         let committed: i64 = sql::scalar(
@@ -92,7 +87,7 @@ fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutc
             "SELECT epoch FROM change_journal_state WHERE singleton = 1",
             [],
         )?;
-        if committed != next {
+        if committed != cleared.epoch {
             return Err(unavailable(error));
         }
     }
@@ -112,8 +107,8 @@ fn reset(connection: &mut Connection, backend: &BlobBackend) -> Result<ResetOutc
         }
     };
     Ok(ResetOutcome {
-        buckets,
-        objects,
+        buckets: cleared.buckets,
+        objects: cleared.objects,
         cleanup_pending,
     })
 }
@@ -124,10 +119,28 @@ pub(super) enum Reclamation {
     ClearMemory,
 }
 
+impl Reclamation {
+    /// RAM drops its whole registry after commit; disk journals every blob for crash-safe
+    /// reclamation.
+    pub(super) fn for_backend(backend: &BlobBackend) -> Self {
+        match backend {
+            BlobBackend::Memory(_) => Self::ClearMemory,
+            BlobBackend::Disk(_) => Self::Journal,
+        }
+    }
+}
+
+/// What a reset or replacing reseed removed, and the journal epoch it committed.
+pub(super) struct Cleared {
+    pub(super) buckets: i64,
+    pub(super) objects: i64,
+    pub(super) epoch: i64,
+}
+
 pub(super) fn clear_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     mode: Reclamation,
-) -> Result<(i64, i64, i64), CatalogError> {
+) -> Result<Cleared, CatalogError> {
     let importing: bool = sql::scalar(
         transaction,
         "SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)",
@@ -168,7 +181,11 @@ pub(super) fn clear_in_transaction(
         "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1",
         [next],
     )?;
-    Ok((buckets, objects, next))
+    Ok(Cleared {
+        buckets,
+        objects,
+        epoch: next,
+    })
 }
 
 // High-water allocators, catalog identity and the blob deletion journal survive reset.

@@ -1055,7 +1055,7 @@ fn publish_entry(
     if let Tracking::Restore(binding) = &entry.staged.tracking {
         super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
     }
-    let access = BucketAccess::Admin(grant.clone());
+    let access = grant.access();
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
     let (_, delete_permission) = objects::authorized_bucket(transaction, bucket, &access)?;

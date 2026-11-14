@@ -98,6 +98,10 @@ impl AdminGrant {
     pub(crate) fn notification_mode(&self) -> crate::notification::NotificationMode {
         self.notification_mode
     }
+    /// The bucket access every administrative operation of this grant checks.
+    pub(crate) fn access(&self) -> BucketAccess {
+        BucketAccess::Admin(self.clone())
+    }
 }
 
 pub use crate::bucket::name::{BucketName, InvalidBucketName};
@@ -723,7 +727,7 @@ impl Admin {
             .condition
             .map(GenerationCondition::conditions)
             .unwrap_or_default();
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         self.check_upload_until(bucket, name, request.condition, deadline)
             .await?;
         self.catalog
@@ -764,7 +768,7 @@ impl Admin {
     ) -> Result<(), AdminError> {
         let bucket = bucket.as_str().to_owned();
         let name = name.as_str().to_owned();
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         let clock = self.catalog.0.clock.clone();
         self.catalog
             .run_admin_until(deadline, move |connection| {
@@ -792,7 +796,7 @@ impl Admin {
     ) -> Result<ObjectRecord, AdminError> {
         let bucket = bucket.as_str().to_owned();
         let name = name.as_str().to_owned();
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         self.catalog
             .run_admin_with_error(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
@@ -822,7 +826,7 @@ impl Admin {
             name.as_str().to_owned(),
             generation.map(Generation::get),
         );
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         let catalog = self.catalog.clone();
         self.catalog
             .run_admin_with_error(move |connection| {
@@ -849,7 +853,7 @@ impl Admin {
             return Err(AdminError::Invalid("list query bucket mismatch".into()));
         }
         query.bucket = bucket.as_str().to_owned();
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         self.catalog
             .run_admin_with_error(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
@@ -887,7 +891,7 @@ impl Admin {
         binding: Option<super::sync_state::SyncBinding>,
     ) -> Result<(), AdminError> {
         let target = ObjectTarget::new(bucket.as_str().to_owned(), name.as_str().to_owned(), None);
-        let access = BucketAccess::Admin(self.grant.clone());
+        let access = self.grant.access();
         let clock = self.catalog.0.clock.clone();
         let retired = self
             .catalog
