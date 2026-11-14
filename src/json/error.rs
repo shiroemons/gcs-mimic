@@ -236,10 +236,6 @@ pub(crate) const POLICY_ETAG_FIELD: ErrorLocation = ErrorLocation {
     kind: "other",
     name: "etag",
 };
-pub(crate) const FIELDS_PARAMETER: ErrorLocation = ErrorLocation {
-    kind: "parameter",
-    name: "fields",
-};
 
 /// Const constructor for the query-parameter entries of [`PARAMETERS`].
 const fn parameter_location(name: &'static str) -> ErrorLocation {
@@ -318,35 +314,25 @@ impl JsonError {
     }
 
     fn backend(backend: &BackendCause) -> Self {
-        // Only fixed diagnostics cross the HTTP boundary; arbitrary backend text can contain paths or secrets.
-        if let Some(failure) = backend.failure()
-            && let Some(message) = failure.guidance()
-        {
-            return Self::service_unavailable(message).with_kind(ErrorKind::Backend(failure));
+        match classify(backend) {
+            Some((failure, remedy)) => {
+                Self::service_unavailable(format!("Object storage is unavailable: {remedy}"))
+                    .with_kind(ErrorKind::Backend(failure))
+            }
+            None => Self::service_unavailable(
+                "Object storage is unavailable: internal storage failure (private backend details withheld)",
+            ),
         }
-        let cause = backend
-            .message()
-            .strip_prefix("catalog unavailable: ")
-            .unwrap_or(backend.message());
-        crate::diagnostics::emit(
-            crate::diagnostics::LogLevel::Error,
-            "object_backend_failure",
-            json!({"cause": safe_backend_cause(cause)}),
-        );
-        Self::service_unavailable(
-            "Object storage is unavailable: internal storage failure (private backend details withheld)",
-        )
     }
 
     fn catalog_backend(backend: &BackendCause) -> Self {
-        let mut error = Self::backend(backend);
-        error.message = match error.kind {
-            ErrorKind::Backend(_) => error
-                .message
-                .replacen("Object storage", "Bucket catalog", 1),
-            _ => "Bucket catalog is unavailable".into(),
-        };
-        error
+        match classify(backend) {
+            Some((failure, remedy)) => {
+                Self::service_unavailable(format!("Bucket catalog is unavailable: {remedy}"))
+                    .with_kind(ErrorKind::Backend(failure))
+            }
+            None => Self::service_unavailable("Bucket catalog is unavailable"),
+        }
     }
 
     /// An unclassified protocol error; use a named constructor for a semantic error kind.
@@ -429,10 +415,21 @@ impl JsonError {
         self
     }
 
+    /// Names where the rejected value was sent (the error item's `locationType`/`location`).
+    pub(crate) fn at(mut self, location: &'static ErrorLocation) -> Self {
+        self.location = Some(location);
+        self
+    }
+
     /// Names the `If-Match` header: Cloud Storage reports every failed precondition there, even
     /// when the condition was a query parameter.
-    pub(crate) fn at_if_match(mut self) -> Self {
-        self.location = Some(&IF_MATCH_HEADER);
+    pub(crate) fn at_if_match(self) -> Self {
+        self.at(&IF_MATCH_HEADER)
+    }
+
+    /// Sends the error as `page`, the bare text page Cloud Storage's front end answered with.
+    pub(crate) fn with_plain(mut self, page: &'static PlainText) -> Self {
+        self.plain = Some(page);
         self
     }
 
@@ -456,9 +453,10 @@ impl JsonError {
         message: impl Into<String>,
         allow: Option<&'static str>,
     ) -> Self {
-        let mut error = Self::new(StatusCode::METHOD_NOT_ALLOWED, "methodNotAllowed", message);
-        error.allow = allow;
-        error
+        Self {
+            allow,
+            ..Self::new(StatusCode::METHOD_NOT_ALLOWED, "methodNotAllowed", message)
+        }
     }
 
     pub(crate) fn service_unavailable(message: impl Into<String>) -> Self {
@@ -529,9 +527,7 @@ impl JsonError {
     /// (checksums, headers, preconditions) keep their JSON envelope, because SDKs read the
     /// `reason` from it.
     pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
-        let mut error = Self::invalid_parameter(message);
-        error.plain = Some(&SESSION_MESSAGE_TEXT);
-        error
+        Self::invalid_parameter(message).with_plain(&SESSION_MESSAGE_TEXT)
     }
 
     /// An upload that names no object.
@@ -750,17 +746,14 @@ impl From<AuthFailure> for JsonError {
         match failure {
             // Documented status-code example for a missing credential.
             AuthFailure::LoginRequired => {
-                let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required")
-                    .with_kind(ErrorKind::Required);
-                error.location = Some(&AUTHORIZATION_HEADER);
-                error
+                Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required")
+                    .with_kind(ErrorKind::Required)
+                    .at(&AUTHORIZATION_HEADER)
             }
             // The reason is documented; message and location are a local choice.
             AuthFailure::InvalidCredentials => {
-                let mut error =
-                    Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials");
-                error.location = Some(&AUTHORIZATION_HEADER);
-                error
+                Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials")
+                    .at(&AUTHORIZATION_HEADER)
             }
             AuthFailure::Denied(denied) => denied.into(),
             AuthFailure::Forbidden => Self::forbidden(),
@@ -848,31 +841,24 @@ impl From<crate::storage::ResumableError> for JsonError {
     fn from(error: crate::storage::ResumableError) -> Self {
         use crate::storage::ResumableError;
         match error {
-            ResumableError::NotFound => {
-                let mut error = Self::new(
-                    StatusCode::NOT_FOUND,
-                    "notFound",
-                    "Upload session not found",
-                );
-                error.plain = Some(&NOT_FOUND_TEXT);
-                error
-            }
+            ResumableError::NotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                "Upload session not found",
+            )
+            .with_plain(&NOT_FOUND_TEXT),
             // Unrecorded terminal validation failures keep the existing local 410 response.
-            ResumableError::Gone => {
-                let mut error = Self::new(
-                    StatusCode::GONE,
-                    "gone",
-                    "Upload session is no longer active",
-                );
-                error.plain = Some(&SESSION_MESSAGE_TEXT);
-                error
-            }
+            ResumableError::Gone => Self::new(
+                StatusCode::GONE,
+                "gone",
+                "Upload session is no longer active",
+            )
+            .with_plain(&SESSION_MESSAGE_TEXT),
             ResumableError::Invalid(message) => Self::invalid_parameter(message),
             ResumableError::Cancelled => Self::cancelled_upload(),
             ResumableError::InvalidContentRange => {
-                let mut error = Self::invalid_parameter("Failed to parse Content-Range header.");
-                error.plain = Some(&CONTENT_RANGE_TEXT);
-                error
+                Self::invalid_parameter("Failed to parse Content-Range header.")
+                    .with_plain(&CONTENT_RANGE_TEXT)
             }
             ResumableError::Object(error) => error.into(),
         }
@@ -1029,12 +1015,36 @@ impl From<ObjectError> for JsonError {
                 "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
             )),
             ObjectError::Corrupt(cause) => {
-                let mut error = Self::backend(&cause);
-                error.message = "Object storage is unavailable: stored data is corrupt; restore a valid data directory".into();
-                error
-            },
+                let kind = classify(&cause)
+                    .map_or(ErrorKind::Other, |(failure, _)| ErrorKind::Backend(failure));
+                Self::service_unavailable(
+                    "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+                )
+                .with_kind(kind)
+            }
         }
     }
+}
+
+/// A failure with fixed guidance keeps its kind for classification and returns its remedy.
+/// Any other cause is logged with only the allowlisted text and has no remedy to show: arbitrary
+/// backend text can contain paths or secrets, so only fixed diagnostics cross the HTTP boundary.
+fn classify(backend: &BackendCause) -> Option<(BackendFailure, &'static str)> {
+    if let Some(failure) = backend.failure()
+        && let Some(remedy) = failure.remedy()
+    {
+        return Some((failure, remedy));
+    }
+    let cause = backend
+        .message()
+        .strip_prefix("catalog unavailable: ")
+        .unwrap_or(backend.message());
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        "object_backend_failure",
+        json!({"cause": safe_backend_cause(cause)}),
+    );
+    None
 }
 
 pub(crate) fn safe_backend_cause(cause: &str) -> &'static str {
@@ -1485,6 +1495,60 @@ mod tests {
             assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(error.reason, "backendError");
             assert_eq!(error.message, expected);
+        }
+    }
+
+    /// Each fixed failure keeps its remedy word for word, after the object or the bucket subject.
+    #[test]
+    fn backend_remedies_keep_their_object_and_bucket_wording() {
+        for (failure, remedy) in [
+            (
+                BackendFailure::CatalogClosed,
+                "catalog is closed; wait for the server to restart before retrying",
+            ),
+            (
+                BackendFailure::UploadWaitTimeout,
+                "upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 300000; 0 disables it); a completed upload may still commit",
+            ),
+            (
+                BackendFailure::RetainedSessionLimit,
+                "retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads",
+            ),
+            (
+                BackendFailure::RewriteSessionLimit,
+                "rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire",
+            ),
+            (
+                BackendFailure::FinalizationTimeout,
+                "upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
+            ),
+            (
+                BackendFailure::CopyDeadline,
+                "copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)",
+            ),
+            (
+                BackendFailure::SessionBusy,
+                "upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)",
+            ),
+        ] {
+            let object = JsonError::from(ObjectError::Unavailable(failure.into()));
+            assert_eq!(
+                object.message,
+                format!("Object storage is unavailable: {remedy}")
+            );
+            assert_eq!(object.kind, ErrorKind::Backend(failure));
+            let bucket = JsonError::from(CatalogError::Unavailable(failure.into()));
+            assert_eq!(
+                bucket.message,
+                format!("Bucket catalog is unavailable: {remedy}")
+            );
+            assert_eq!(bucket.kind, ErrorKind::Backend(failure));
+            let corrupt = JsonError::from(ObjectError::Corrupt(failure.into()));
+            assert_eq!(
+                corrupt.message,
+                "Object storage is unavailable: stored data is corrupt; restore a valid data directory"
+            );
+            assert_eq!(corrupt.kind, ErrorKind::Backend(failure));
         }
     }
 

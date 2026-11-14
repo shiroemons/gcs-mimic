@@ -50,12 +50,9 @@ impl Fields {
             .get("schemas")
             .and_then(|schemas| schemas.get(schema))
             .unwrap_or(&Value::Null);
-        fields.validate(schema, value).map_err(|mut error| {
-            // Cloud Storage named only the rejected field, at the `fields` parameter
-            // (observed 2026-10-31 for retentionExpireTime).
-            error.location = Some(&super::error::FIELDS_PARAMETER);
-            error
-        })?;
+        // Cloud Storage named only the rejected field, at the `fields` parameter (observed
+        // 2026-10-31 for retentionExpireTime); every `validate` error carries that location.
+        fields.validate(schema, value)?;
         Ok(fields)
     }
 
@@ -70,22 +67,8 @@ impl Fields {
         if value.is_empty() {
             return Ok(Self::default());
         }
-        Self::syntax(value).map_err(|mut error| {
-            // The FieldMask wording already quotes the whole expression, and Cloud Storage
-            // follows the selection wording with the expression without a colon ("Invalid field
-            // selection metadata/", case obj-fields-selectors).
-            if error.message == INVALID_SELECTION {
-                error.message = format!("{INVALID_SELECTION} {value}");
-            } else if error.kind != super::ErrorKind::FieldMaskSyntax {
-                error.message = format!("{}: {value}", error.message);
-            }
-            error
-        })
-    }
-
-    fn syntax(value: &str) -> Result<Self, JsonError> {
         if value.len() > MAX_LENGTH {
-            return Err(invalid("fields exceeds 16 KiB"));
+            return Err(invalid(format!("fields exceeds 16 KiB: {value}")));
         }
         let mut parser = Parser {
             source: value,
@@ -93,7 +76,7 @@ impl Fields {
         };
         let fields = parser.list(0)?;
         if !parser.rest.is_empty() {
-            return Err(invalid("Unbalanced fields parentheses"));
+            return Err(parser.rejected("Unbalanced fields parentheses"));
         }
         Ok(fields)
     }
@@ -188,6 +171,18 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
+    /// Cloud Storage follows the selection wording with the expression, without a colon
+    /// ("Invalid field selection metadata/", case obj-fields-selectors).
+    fn invalid_selection(&self) -> JsonError {
+        invalid(format!("{INVALID_SELECTION} {}", self.source))
+    }
+
+    /// Any other syntax problem, followed by `: ` and the expression. The FieldMask wording
+    /// quotes the expression itself and does not use this.
+    fn rejected(&self, problem: &str) -> JsonError {
+        invalid(format!("{problem}: {}", self.source))
+    }
+
     fn skip_whitespace(&mut self) {
         self.rest = self.rest.trim_start();
     }
@@ -213,7 +208,7 @@ impl Parser<'_> {
 
     fn path(&mut self, depth: usize) -> Result<Fields, JsonError> {
         if depth >= MAX_DEPTH {
-            return Err(invalid("fields exceeds depth 32"));
+            return Err(self.rejected("fields exceeds depth 32"));
         }
         let end = self
             .rest
@@ -222,7 +217,7 @@ impl Parser<'_> {
         let (name, rest) = self
             .rest
             .split_at_checked(end)
-            .ok_or_else(|| invalid(INVALID_SELECTION))?;
+            .ok_or_else(|| self.invalid_selection())?;
         // Whitespace is ignored only around a name: Cloud Storage rejected `na me` as an
         // invalid selection (case bkt-edges-fields).
         let name = name.trim();
@@ -230,7 +225,7 @@ impl Parser<'_> {
             || name.contains(char::is_whitespace)
             || (name.contains('*') && name != "*")
         {
-            return Err(invalid(INVALID_SELECTION));
+            return Err(self.invalid_selection());
         }
         self.rest = rest;
         let child = if let Some(rest) = self.rest.strip_prefix('/') {
@@ -331,7 +326,7 @@ mod tests {
             // Syntax errors quote the selector; a rejected name is reported alone, at `fields`.
             assert!(
                 error.message.contains(selector)
-                    || error.location == Some(&crate::json::error::FIELDS_PARAMETER),
+                    || error.location == crate::json::error::ErrorLocation::parameter("fields"),
                 "{}",
                 error.message
             );
@@ -355,7 +350,10 @@ mod tests {
                     "Leading and nested wildcards are unsupported in field selection: {selector}"
                 )
             );
-            assert_eq!(error.location, Some(&crate::json::error::FIELDS_PARAMETER));
+            assert_eq!(
+                error.location,
+                crate::json::error::ErrorLocation::parameter("fields")
+            );
         }
         // Whitespace inside a name is an invalid selection where whitespace around one is
         // ignored (case bkt-edges-fields).
@@ -365,7 +363,10 @@ mod tests {
                 (error.status.as_u16(), error.reason, error.message.as_str()),
                 (400, "invalidParameter", "Invalid field selection na me")
             );
-            assert_eq!(error.location, Some(&crate::json::error::FIELDS_PARAMETER));
+            assert_eq!(
+                error.location,
+                crate::json::error::ErrorLocation::parameter("fields")
+            );
         }
         assert_eq!(
             Fields::parse("metadata/", "Object").unwrap_err().message,

@@ -160,9 +160,12 @@ pub(crate) fn route_object_with_profile(
     if !allowed {
         // Cloud Storage answered `POST` to an object resource with its bare not-found page.
         if !upload && !download && object.is_some() && *method == Method::POST {
-            let mut error = JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
-            error.plain = Some(&super::error::NOT_FOUND_HTML);
-            return Some(Err(error));
+            return Some(Err(JsonError::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                "Not Found",
+            )
+            .with_plain(&super::error::NOT_FOUND_HTML)));
         }
         let error = JsonError::method_not_allowed(
             "HTTP method is not supported for this object endpoint",
@@ -338,10 +341,8 @@ struct UploadQuery {
 
 /// The upload front end's answer to an upload type it does not serve: a bare text page.
 pub(crate) fn unsupported_upload_type() -> JsonError {
-    let mut error =
-        JsonError::invalid_parameter("uploadType must be media, multipart or resumable");
-    error.plain = Some(&super::error::BAD_REQUEST_TEXT);
-    error
+    JsonError::invalid_parameter("uploadType must be media, multipart or resumable")
+        .with_plain(&super::error::BAD_REQUEST_TEXT)
 }
 
 fn parse_upload_query(

@@ -27,28 +27,30 @@ impl BackendFailure {
         }
     }
 
-    pub(crate) fn guidance(self) -> Option<&'static str> {
+    /// What an operator can do about the failure, or `None` when there is nothing to advise.
+    /// Each adapter puts its own subject ("Object storage is unavailable: ") in front.
+    pub(crate) fn remedy(self) -> Option<&'static str> {
         Some(match self {
             Self::CatalogClosed => {
-                "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
+                "catalog is closed; wait for the server to restart before retrying"
             }
             Self::UploadWaitTimeout => {
-                "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 300000; 0 disables it); a completed upload may still commit"
+                "upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 300000; 0 disables it); a completed upload may still commit"
             }
             Self::RetainedSessionLimit => {
-                "Object storage is unavailable: retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads"
+                "retained upload session limit reached; raise max_resumable_sessions (0 is unlimited), wait for expired sessions to be reclaimed or use single-request media uploads"
             }
             Self::RewriteSessionLimit => {
-                "Object storage is unavailable: rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire"
+                "rewrite session limit reached; raise max_rewrite_sessions (0 is unlimited) or wait for unfinished rewrites to expire"
             }
             Self::FinalizationTimeout => {
-                "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)"
+                "upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)"
             }
             Self::CopyDeadline => {
-                "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)"
+                "copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000; 0 disables it)"
             }
             Self::SessionBusy => {
-                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)"
+                "upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)"
             }
             Self::MissingCompletion => return None,
         })

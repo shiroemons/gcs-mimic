@@ -343,9 +343,8 @@ pub(crate) enum Range {
 /// A `Content-Range` Cloud Storage refused: every malformed or inconsistent one got the same
 /// bare text page.
 pub(crate) fn unusable_content_range() -> JsonError {
-    let mut error = JsonError::invalid_parameter("Failed to parse Content-Range header.");
-    error.plain = Some(&super::error::CONTENT_RANGE_TEXT);
-    error
+    JsonError::invalid_parameter("Failed to parse Content-Range header.")
+        .with_plain(&super::error::CONTENT_RANGE_TEXT)
 }
 
 pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {

@@ -431,17 +431,16 @@ async fn write(
     }
     .map_err(|error| {
         let failed = matches!(error, CatalogError::PreconditionFailed);
-        let mut error = bucket_catalog_error(error, profile, None);
-        if failed && profile == CompatProfile::Native {
-            // Observed 2026-10-31 for PATCH (empty or with labels) and PUT
-            // whose ifMetagenerationMatch failed. The wording is reused for a failed
-            // ifMetagenerationNotMatch (unobserved), but `If-Match` is named only when
-            // ifMetagenerationMatch failed.
-            if match_failed {
-                error.location = Some(&crate::json::IF_MATCH_HEADER);
-            }
+        let error = bucket_catalog_error(error, profile, None);
+        // Observed 2026-10-31 for PATCH (empty or with labels) and PUT whose
+        // ifMetagenerationMatch failed. The wording is reused for a failed
+        // ifMetagenerationNotMatch (unobserved), but `If-Match` is named only when
+        // ifMetagenerationMatch failed.
+        if failed && profile == CompatProfile::Native && match_failed {
+            error.at_if_match()
+        } else {
+            error
         }
-        error
     })?;
     json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
 }

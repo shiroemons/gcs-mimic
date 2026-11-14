@@ -25,9 +25,8 @@ fn invalid() -> JsonError {
 /// A JSON upload body that ended before its closing delimiter: the upload front end answers
 /// with a bare text page.
 fn missing_end_boundary() -> JsonError {
-    let mut error = JsonError::invalid_parameter("Missing end boundary in multipart body.");
-    error.plain = Some(&super::error::MISSING_END_BOUNDARY_TEXT);
-    error
+    JsonError::invalid_parameter("Missing end boundary in multipart body.")
+        .with_plain(&super::error::MISSING_END_BOUNDARY_TEXT)
 }
 
 /// A part's trimmed `Content-Type`, if it has one.
@@ -171,10 +170,8 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
         return Err(invalid());
     }
     // A multipart type without a boundary got the front end's bare text page.
-    let boundary = boundary(&params).map_err(|mut error| {
-        error.plain = Some(&super::error::BAD_CONTENT_TYPE_TEXT);
-        error
-    })?;
+    let boundary = boundary(&params)
+        .map_err(|error| error.with_plain(&super::error::BAD_CONTENT_TYPE_TEXT))?;
     // RFC 2387 permits type and start; reordered roots are outside this ordered subset.
     for (key, value) in &params {
         if key != "boundary" && !(key == "type" && value.eq_ignore_ascii_case("application/json")) {

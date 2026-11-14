@@ -213,9 +213,7 @@ fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
         crate::base64::Padding::OptionalUncheckedBits,
     )
     .ok_or_else(|| {
-        let mut error = invalid(format!("Invalid value for ByteString: {raw}"));
-        error.location = Some(&super::error::POLICY_ETAG_FIELD);
-        error
+        invalid(format!("Invalid value for ByteString: {raw}")).at(&super::error::POLICY_ETAG_FIELD)
     })?;
     Ok(Some(base64(&decoded)))
 }
