@@ -335,3 +335,45 @@ async fn conflict_restore_transaction_failure_keeps_winner_and_retry_publishes_o
     assert_eq!(fixture.api_bytes().await, b"external\0\xff");
     fixture.close().await;
 }
+
+#[tokio::test]
+async fn conflict_restore_reports_an_unreadable_original_as_corrupt_rather_than_stale() {
+    let fixture = Fixture::new().await;
+    let captured = fixture.capture().await;
+    // Stop after the restore is accepted so the retry checks the original only while publishing.
+    fixture.catalog.inject(
+        Step::ConflictAccepted,
+        0,
+        Fault::Io(io::ErrorKind::StorageFull),
+    );
+    assert!(
+        fixture
+            .resolve(&captured, Action::Restore, "unreadable")
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.catalog.pending_faults(), 0);
+    // A blob cannot decode as the owning project's name, so reading the original row fails.
+    fixture
+        .catalog
+        .run_admin(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE buckets SET project=X'ff' WHERE name='test-bucket'",
+                [],
+            )
+            .map(|_| ())
+            .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    let result = fixture
+        .resolve(&captured, Action::Restore, "unreadable")
+        .await;
+    assert!(
+        matches!(result, Err(Error::Admin(AdminError::Corrupt(_)))),
+        "{result:?}"
+    );
+    assert_eq!(fixture.page().await.usage.entries, 1);
+    fixture.close().await;
+}

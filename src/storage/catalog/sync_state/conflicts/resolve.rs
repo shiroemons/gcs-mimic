@@ -4,6 +4,8 @@ use crate::storage::catalog::sql;
 
 #[cfg(test)]
 mod codec_tests;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,15 +77,23 @@ pub(crate) fn validate_restore(
         &binding.name,
         binding.expected_generation,
     )
-    .map_err(|error| match error {
-        Error::Admin(AdminError::Forbidden) => ObjectError::Forbidden,
-        Error::Admin(AdminError::Backend(cause)) => ObjectError::Unavailable(cause),
-        _ => ObjectError::PreconditionFailed,
-    })?;
+    .map_err(restore_check_error)?;
     if owner != binding.owner {
         return Err(ObjectError::PreconditionFailed);
     }
     active_restore(tx, binding)
+}
+
+/// A storage failure while checking the original stays a storage failure, so the batch stops
+/// with 503 instead of reporting a changed target and moving on to the next element.
+fn restore_check_error(error: Error) -> ObjectError {
+    match error {
+        Error::Admin(AdminError::Forbidden) => ObjectError::Forbidden,
+        Error::Admin(AdminError::Backend(cause)) => ObjectError::Unavailable(cause),
+        Error::Admin(AdminError::Io(cause) | AdminError::DiskFull(cause)) => ObjectError::Io(cause),
+        Error::Admin(AdminError::Corrupt(cause)) => ObjectError::Corrupt(cause),
+        _ => ObjectError::PreconditionFailed,
+    }
 }
 
 fn active_restore(tx: &Transaction<'_>, binding: &ResolutionBinding) -> Result<(), ObjectError> {
