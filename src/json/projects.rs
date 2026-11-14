@@ -71,70 +71,112 @@ pub(crate) fn route_project(
     if segments.next().is_some() || item.is_some_and(str::is_empty) {
         return None;
     }
-    let (allowed, kind) = match (collection, item) {
-        ("hmacKeys", None) => ("GET, POST", Kind::HmacKeys),
-        ("hmacKeys", Some(_)) => ("GET, DELETE, PUT", Kind::HmacKey),
-        ("serviceAccount", None) => ("GET", Kind::ServiceAccount),
-        _ => return None,
-    };
-    if !allowed.split(", ").any(|name| name == method.as_str()) {
-        let error = JsonError::method_not_allowed(
-            "HTTP method is not supported for this project endpoint",
-            Some(allowed),
-        );
-        return Some(Err(error));
-    }
-    Some(parse(
-        method,
-        kind,
-        project,
-        item,
-        uri.query().unwrap_or_default(),
-    ))
+    let call = ProjectCall::select(collection, item, method)?;
+    Some(call.and_then(|call| parse(call, project, uri.query().unwrap_or_default())))
 }
 
-#[derive(Clone, Copy)]
-enum Kind {
-    HmacKeys,
-    HmacKey,
+/// A project method, chosen once from the path and the HTTP method. `A` is an HMAC key's
+/// access ID: the raw path segment until the path is decoded, then the decoded ID.
+enum ProjectCall<A> {
+    CreateHmacKey,
+    ListHmacKeys,
+    HmacKey { method: HmacKeyMethod, access_id: A },
     ServiceAccount,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HmacKeyMethod {
+    Get,
+    Update,
+    Delete,
+}
+
+impl<'a> ProjectCall<&'a str> {
+    /// `None` for a path this router does not serve; a served path with another method is 405.
+    fn select(
+        collection: &str,
+        item: Option<&'a str>,
+        method: &Method,
+    ) -> Option<Result<Self, JsonError>> {
+        let not_allowed = |allow| {
+            Err(JsonError::method_not_allowed(
+                "HTTP method is not supported for this project endpoint",
+                Some(allow),
+            ))
+        };
+        let hmac_key = |method, access_id| Ok(Self::HmacKey { method, access_id });
+        Some(match (collection, item) {
+            ("hmacKeys", None) => match *method {
+                Method::GET => Ok(Self::ListHmacKeys),
+                Method::POST => Ok(Self::CreateHmacKey),
+                _ => not_allowed("GET, POST"),
+            },
+            ("hmacKeys", Some(access_id)) => match *method {
+                Method::GET => hmac_key(HmacKeyMethod::Get, access_id),
+                Method::DELETE => hmac_key(HmacKeyMethod::Delete, access_id),
+                Method::PUT => hmac_key(HmacKeyMethod::Update, access_id),
+                _ => not_allowed("GET, DELETE, PUT"),
+            },
+            ("serviceAccount", None) if *method == Method::GET => Ok(Self::ServiceAccount),
+            ("serviceAccount", None) => not_allowed("GET"),
+            _ => return None,
+        })
+    }
+
+    /// Decodes and checks the access ID an HMAC key path names.
+    fn decode_access_id(self) -> Result<ProjectCall<String>, JsonError> {
+        Ok(match self {
+            Self::CreateHmacKey => ProjectCall::CreateHmacKey,
+            Self::ListHmacKeys => ProjectCall::ListHmacKeys,
+            Self::HmacKey { method, access_id } => {
+                let access_id = decode(access_id, Decoding::Path)?;
+                if access_id.len() > 256 || access_id.chars().any(char::is_control) {
+                    return Err(JsonError::invalid_parameter(
+                        "accessId must be an HMAC key access ID",
+                    ));
+                }
+                ProjectCall::HmacKey { method, access_id }
+            }
+            Self::ServiceAccount => ProjectCall::ServiceAccount,
+        })
+    }
+}
+
+impl<A> ProjectCall<A> {
+    fn schema(&self) -> Schema {
+        match self {
+            Self::CreateHmacKey => Schema::HmacKey,
+            Self::ListHmacKeys => Schema::HmacKeysMetadata,
+            Self::HmacKey { .. } => Schema::HmacKeyMetadata,
+            Self::ServiceAccount => Schema::ServiceAccount,
+        }
+    }
+}
+
+/// `project` is the raw path segment the route matched.
 fn parse(
-    method: &Method,
-    kind: Kind,
+    call: ProjectCall<&str>,
     project: &str,
-    item: Option<&str>,
     raw: &str,
 ) -> Result<(ProjectRequest, Fields), JsonError> {
     let project = ProjectId::try_from(decode(project, Decoding::Path)?)?;
-    let access_id = item
-        .map(|segment| {
-            let access_id = decode(segment, Decoding::Path)?;
-            if access_id.len() > 256 || access_id.chars().any(char::is_control) {
-                return Err(JsonError::invalid_parameter(
-                    "accessId must be an HMAC key access ID",
-                ));
-            }
-            Ok(access_id)
-        })
-        .transpose()?;
+    let call = call.decode_access_id()?;
     let mut query = parse_query(raw)?;
-    let fields = if *method == Method::DELETE {
+    let fields = if matches!(
+        call,
+        ProjectCall::HmacKey {
+            method: HmacKeyMethod::Delete,
+            ..
+        }
+    ) {
         query.remove("fields");
         Fields::whole()
     } else {
-        let schema = match (kind, method) {
-            (Kind::HmacKeys, &Method::POST) => Schema::HmacKey,
-            (Kind::HmacKeys, _) => Schema::HmacKeysMetadata,
-            (Kind::HmacKey, _) => Schema::HmacKeyMetadata,
-            (Kind::ServiceAccount, _) => Schema::ServiceAccount,
-        };
-        Fields::take(&mut query, schema)?
+        Fields::take(&mut query, call.schema())?
     };
     common(&mut query)?;
-    let request = match (kind, method, access_id) {
-        (Kind::HmacKeys, &Method::POST, _) => {
+    let request = match call {
+        ProjectCall::CreateHmacKey => {
             let email = query.remove("serviceAccountEmail").ok_or_else(|| {
                 JsonError::required("Required parameter: serviceAccountEmail")
                     .at_parameter("serviceAccountEmail")
@@ -145,7 +187,7 @@ fn parse(
                 service_account_email: email,
             }
         }
-        (Kind::HmacKeys, _, _) => {
+        ProjectCall::ListHmacKeys => {
             let service_account_email = query.remove("serviceAccountEmail");
             if let Some(email) = &service_account_email {
                 validate_service_account_email(email)?;
@@ -170,13 +212,12 @@ fn parse(
                 .transpose()?;
             ProjectRequest::ListHmacKeys(params)
         }
-        (Kind::HmacKey, method, Some(access_id)) => match *method {
-            Method::GET => ProjectRequest::GetHmacKey { project, access_id },
-            Method::PUT => ProjectRequest::UpdateHmacKey { project, access_id },
-            _ => ProjectRequest::DeleteHmacKey { project, access_id },
+        ProjectCall::HmacKey { method, access_id } => match method {
+            HmacKeyMethod::Get => ProjectRequest::GetHmacKey { project, access_id },
+            HmacKeyMethod::Update => ProjectRequest::UpdateHmacKey { project, access_id },
+            HmacKeyMethod::Delete => ProjectRequest::DeleteHmacKey { project, access_id },
         },
-        (Kind::ServiceAccount, _, _) => ProjectRequest::GetServiceAccount { project },
-        (Kind::HmacKey, _, None) => unreachable!("item routes carry an access ID"),
+        ProjectCall::ServiceAccount => ProjectRequest::GetServiceAccount { project },
     };
     finish(&query)?;
     Ok((request, fields))
@@ -521,6 +562,47 @@ mod tests {
                 route_project(&Method::GET, &path.parse().unwrap()).is_none(),
                 "{path}"
             );
+        }
+    }
+
+    /// Each project path names its own methods in `Allow`, and refuses another method before it
+    /// decodes the project or the access ID.
+    #[test]
+    fn every_project_path_lists_its_methods_before_parsing() {
+        for (path, refused, allow) in [
+            (
+                "hmacKeys",
+                [Method::PUT, Method::DELETE, Method::HEAD],
+                "GET, POST",
+            ),
+            (
+                "hmacKeys/A%ZZ",
+                [Method::POST, Method::PATCH, Method::HEAD],
+                "GET, DELETE, PUT",
+            ),
+            (
+                "serviceAccount",
+                [Method::POST, Method::DELETE, Method::HEAD],
+                "GET",
+            ),
+        ] {
+            for method in refused {
+                // `%ZZ` is not percent-encoding, so parsing would reject the project first.
+                let uri = format!("/storage/v1/projects/p%ZZ/{path}?unknown=1");
+                let error = route_project(&method, &uri.parse().unwrap())
+                    .unwrap()
+                    .unwrap_err();
+                assert_eq!(
+                    error.status,
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "{method} {path}"
+                );
+                assert_eq!(error.allow, Some(allow), "{method} {path}");
+                assert_eq!(
+                    error.message,
+                    "HTTP method is not supported for this project endpoint"
+                );
+            }
         }
     }
 

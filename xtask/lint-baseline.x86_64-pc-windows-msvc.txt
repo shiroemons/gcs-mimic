@@ -3,8 +3,6 @@ clippy::option_option	src/storage/catalog/sync_state/writeback/live_export.rs	1
 clippy::struct_excessive_bools	src/bucket.rs	1
 clippy::struct_excessive_bools	src/xml/list.rs	1
 clippy::unreachable	src/json/acl.rs	1
-clippy::unreachable	src/json/projects.rs	1
-clippy::unreachable	src/json/query.rs	1
 clippy::unreachable	src/storage/catalog/resumable/options.rs	1
 clippy::wildcard_enum_match_arm	src/auth/mod.rs	1
 clippy::wildcard_enum_match_arm	src/bucket.rs	2

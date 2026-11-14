@@ -443,56 +443,74 @@ fn parse_bucket_route(
     let bucket = segment
         .map(|segment| path_bucket(segment, profile, BucketCheck::NativeOnly))
         .transpose()?;
-    let allowed = matches!(
-        (bucket.is_some(), method),
-        (false, &Method::GET | &Method::POST)
-            | (
-                true,
-                &Method::GET | &Method::DELETE | &Method::PATCH | &Method::PUT
-            )
-    );
-    if !allowed {
-        return Err(JsonError::method_not_allowed(
-            "HTTP method is not supported for this bucket endpoint",
-            Some(if bucket.is_some() {
-                "GET, DELETE, PATCH, PUT"
-            } else {
-                "GET, POST"
-            }),
-        ));
+    let call = BucketMethod::select(method, bucket)?;
+    parse(call, uri.query().unwrap_or_default(), profile, seed_project)
+}
+
+/// A `/storage/v1/b` or `/storage/v1/b/{bucket}` method, chosen once from the HTTP method.
+enum BucketMethod {
+    Insert,
+    List,
+    /// GET, PATCH or PUT of one bucket, which share their query parameters.
+    Item {
+        bucket: String,
+        method: ItemMethod,
+    },
+    Delete {
+        bucket: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ItemMethod {
+    Get,
+    Patch,
+    Update,
+}
+
+impl BucketMethod {
+    fn select(method: &Method, bucket: Option<String>) -> Result<Self, JsonError> {
+        let item = |bucket, method| Self::Item { bucket, method };
+        match (method, bucket) {
+            (&Method::POST, None) => Ok(Self::Insert),
+            (&Method::GET, None) => Ok(Self::List),
+            (&Method::GET, Some(bucket)) => Ok(item(bucket, ItemMethod::Get)),
+            (&Method::PATCH, Some(bucket)) => Ok(item(bucket, ItemMethod::Patch)),
+            (&Method::PUT, Some(bucket)) => Ok(item(bucket, ItemMethod::Update)),
+            (&Method::DELETE, Some(bucket)) => Ok(Self::Delete { bucket }),
+            (_, bucket) => Err(JsonError::method_not_allowed(
+                "HTTP method is not supported for this bucket endpoint",
+                Some(if bucket.is_some() {
+                    "GET, DELETE, PATCH, PUT"
+                } else {
+                    "GET, POST"
+                }),
+            )),
+        }
     }
-    parse(
-        method,
-        bucket,
-        uri.query().unwrap_or_default(),
-        profile,
-        seed_project,
-    )
 }
 
 fn parse(
-    method: &Method,
-    bucket: Option<String>,
+    call: BucketMethod,
     raw: &str,
     profile: CompatProfile,
     seed_project: &str,
 ) -> Result<BucketRequest, JsonError> {
     let mut query = parse_query(raw)?;
-    if method == Method::DELETE {
-        query.remove("fields");
-    } else {
-        super::Fields::take(
-            &mut query,
-            if bucket.is_none() && method == Method::GET {
-                super::Schema::Buckets
-            } else {
-                super::Schema::Bucket
-            },
-        )?;
+    match &call {
+        BucketMethod::Delete { .. } => {
+            query.remove("fields");
+        }
+        BucketMethod::List => {
+            super::Fields::take(&mut query, super::Schema::Buckets)?;
+        }
+        BucketMethod::Insert | BucketMethod::Item { .. } => {
+            super::Fields::take(&mut query, super::Schema::Bucket)?;
+        }
     }
     common(&mut query)?;
-    match (method, bucket) {
-        (&Method::POST, None) => {
+    match call {
+        BucketMethod::Insert => {
             let enable_object_retention = boolean(&mut query, "enableObjectRetention")?;
             if profile == CompatProfile::FakeGcsServer {
                 query
@@ -510,52 +528,60 @@ fn parse(
                 enable_object_retention,
             }))
         }
-        (&Method::GET, None) => parse_bucket_list(&mut query, profile, seed_project),
-        (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
-            let predefined = query.contains_key("predefinedAcl")
-                || query.contains_key("predefinedDefaultObjectAcl");
-            // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl
-            // and owner; PUT did so only with predefined ACL parameters. Insert/get default to
-            // noAcl. The fake-gcs-server profile retains its earlier PUT-only full default.
-            let default_projection = if (profile == CompatProfile::FakeGcsServer
-                && *method == Method::PUT)
-                || (profile == CompatProfile::Native
-                    && (*method == Method::PATCH || (*method == Method::PUT && predefined)))
-            {
-                Projection::Full
-            } else {
-                Projection::NoAcl
-            };
-            if *method == Method::GET {
-                if let Some(request) = soft_deleted_get(&mut query, &bucket)? {
-                    return Ok(request);
-                }
-            } else {
-                query.remove("predefinedAcl");
-                query.remove("predefinedDefaultObjectAcl");
-            }
-            let conditions = conditions(&mut query)?;
-            let projection = projection_or(&mut query, default_projection)?;
-            finish_bucket(&query, profile)?;
-            let params = GetParams {
-                conditions,
-                projection,
-            };
-            Ok(if *method == Method::PATCH {
-                BucketRequest::Patch { bucket, params }
-            } else if *method == Method::PUT {
-                BucketRequest::Update { bucket, params }
-            } else {
-                BucketRequest::Get { bucket, params }
-            })
+        BucketMethod::List => parse_bucket_list(&mut query, profile, seed_project),
+        BucketMethod::Item { bucket, method } => {
+            parse_bucket_item(&mut query, bucket, method, profile)
         }
-        (&Method::DELETE, Some(bucket)) => {
+        BucketMethod::Delete { bucket } => {
             let conditions = conditions(&mut query)?;
             finish_bucket(&query, profile)?;
             Ok(BucketRequest::Delete { bucket, conditions })
         }
-        _ => unreachable!("route validates supported methods"),
     }
+}
+
+/// `GET`, `PATCH` or `PUT /storage/v1/b/{bucket}`.
+fn parse_bucket_item(
+    query: &mut BTreeMap<String, String>,
+    bucket: String,
+    method: ItemMethod,
+    profile: CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    let predefined =
+        query.contains_key("predefinedAcl") || query.contains_key("predefinedDefaultObjectAcl");
+    // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl and
+    // owner; PUT did so only with predefined ACL parameters. Insert/get default to noAcl. The
+    // fake-gcs-server profile retains its earlier PUT-only full default.
+    let default_projection = match (profile, method) {
+        (CompatProfile::FakeGcsServer, ItemMethod::Update)
+        | (CompatProfile::Native, ItemMethod::Patch) => Projection::Full,
+        (CompatProfile::Native, ItemMethod::Update) if predefined => Projection::Full,
+        (CompatProfile::FakeGcsServer, ItemMethod::Get | ItemMethod::Patch)
+        | (CompatProfile::Native, ItemMethod::Get | ItemMethod::Update) => Projection::NoAcl,
+    };
+    match method {
+        ItemMethod::Get => {
+            if let Some(request) = soft_deleted_get(query, &bucket)? {
+                return Ok(request);
+            }
+        }
+        ItemMethod::Patch | ItemMethod::Update => {
+            query.remove("predefinedAcl");
+            query.remove("predefinedDefaultObjectAcl");
+        }
+    }
+    let conditions = conditions(query)?;
+    let projection = projection_or(query, default_projection)?;
+    finish_bucket(query, profile)?;
+    let params = GetParams {
+        conditions,
+        projection,
+    };
+    Ok(match method {
+        ItemMethod::Get => BucketRequest::Get { bucket, params },
+        ItemMethod::Patch => BucketRequest::Patch { bucket, params },
+        ItemMethod::Update => BucketRequest::Update { bucket, params },
+    })
 }
 
 /// `GET /storage/v1/b`: the project's buckets, or its soft-deleted ones.
