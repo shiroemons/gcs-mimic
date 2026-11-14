@@ -10,7 +10,10 @@ use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
-    storage::{admin::AdminError, failure::unavailable},
+    storage::{
+        admin::AdminError,
+        failure::{IoCause, unavailable},
+    },
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -185,7 +188,7 @@ fn read_summary(
     let writeback = if exists {
         Some(
             writeback::observation(connection, root)
-                .map_err(|error| unavailable(std::io::Error::other(error)))?,
+                .map_err(|error| CatalogError::Io(IoCause::other(error)))?,
         )
     } else {
         None
