@@ -1,5 +1,4 @@
 use crate::sync::SyncError;
-use std::error::Error;
 
 pub(super) fn paused(error: &SyncError) {
     crate::diagnostics::emit(
@@ -22,17 +21,16 @@ pub(super) fn retrying(error: &SyncError, delay: std::time::Duration) {
     );
 }
 
-pub(super) fn diagnostic(
-    error: &(dyn Error + 'static),
-    details: serde_json::Value,
-) -> serde_json::Value {
+pub(super) fn diagnostic(error: &SyncError, details: serde_json::Value) -> serde_json::Value {
     #[cfg(unix)]
     let mut details = details;
     #[cfg(unix)]
-    if crate::error::causes(error).any(|cause| {
-        cause
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|error| matches!(error.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)))
+    if error.causes().any(|cause| {
+        matches!(
+            cause,
+            crate::sync::Cause::Io(error)
+                if matches!(error.raw_os_error(), Some(libc::EMFILE | libc::ENFILE))
+        )
     }) && let Some(fields) = details.as_object_mut()
     {
         fields.insert("descriptor_limit".into(), limits());
@@ -66,7 +64,9 @@ mod tests {
     #[test]
     fn descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion() {
         for errno in [libc::EMFILE, libc::ENFILE] {
-            let error = std::io::Error::other(std::io::Error::from_raw_os_error(errno));
+            let error = SyncError::from(std::io::Error::other(std::io::Error::from_raw_os_error(
+                errno,
+            )));
             let value = diagnostic(&error, serde_json::json!({"reason":"failed"}));
             assert!(value["descriptor_limit"]["soft"].as_u64().is_some());
             assert!(value["descriptor_limit"]["hard"].as_u64().is_some());
@@ -77,7 +77,7 @@ mod tests {
             );
         }
         let ordinary = diagnostic(
-            &std::io::Error::from_raw_os_error(libc::EIO),
+            &SyncError::from(std::io::Error::from_raw_os_error(libc::EIO)),
             serde_json::json!({}),
         );
         assert!(ordinary.get("descriptor_limit").is_none());
