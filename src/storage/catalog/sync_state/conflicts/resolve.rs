@@ -93,7 +93,27 @@ fn restore_check_error(error: Error) -> ObjectError {
         Error::Admin(AdminError::Backend(cause)) => ObjectError::Unavailable(cause),
         Error::Admin(AdminError::Io(cause) | AdminError::DiskFull(cause)) => ObjectError::Io(cause),
         Error::Admin(AdminError::Corrupt(cause)) => ObjectError::Corrupt(cause),
-        _ => ObjectError::PreconditionFailed,
+        // Every other failure reports a changed target, and the batch moves on to the next element.
+        Error::Admin(
+            AdminError::Busy { .. }
+            | AdminError::Closed
+            | AdminError::Precondition
+            | AdminError::Hold
+            | AdminError::SeedProjectMismatch
+            | AdminError::SeedMetadataBudget { .. }
+            | AdminError::SourceChanged { .. }
+            | AdminError::NotFound
+            | AdminError::Invalid(_)
+            | AdminError::Checksum
+            | AdminError::TooLarge
+            | AdminError::BodyAborted(_),
+        )
+        | Error::Root(_)
+        | Error::Capacity
+        | Error::RevisionMismatch
+        | Error::TargetChanged
+        | Error::OperationIdReused
+        | Error::InvalidResolution => ObjectError::PreconditionFailed,
     }
 }
 
