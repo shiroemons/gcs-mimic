@@ -2,7 +2,7 @@
 use super::RequestBody as Incoming;
 use super::{
     RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
-    validate_bodyless_post,
+    require_empty_body, validate_bodyless_post,
 };
 use crate::auth::{AuthFailure, Caller, Permission};
 use crate::json::{self, Fields, JsonError, ProjectRequest};
@@ -57,16 +57,8 @@ pub(super) async fn respond(
             authorize_project_visibility(caller, project.as_str())?
         }
     }
-    if !operation.accepts_body()
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|value| value != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
+    if !operation.accepts_body() {
+        require_empty_body(request.headers())?;
     }
     let mut value = match operation {
         ProjectRequest::CreateHmacKey {

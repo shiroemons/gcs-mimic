@@ -1,7 +1,7 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
 use super::RequestBody as Incoming;
-use super::{State, authorize_bucket, empty_response, json_response_selected};
+use super::{State, authorize_bucket, empty_response, json_response_selected, require_empty_body};
 use crate::{
     acl::{AclKind, AclTarget},
     auth::{self, Caller},
@@ -102,16 +102,8 @@ pub(super) async fn respond(
         target.bucket(),
     )
     .await?;
-    if !operation.accepts_body()
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|value| value != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
+    if !operation.accepts_body() {
+        require_empty_body(request.headers())?;
     }
     let mut etag = None;
     let mut value = match &operation {

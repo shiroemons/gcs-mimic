@@ -5,7 +5,7 @@ use super::RequestBody as Incoming;
 use super::{
     JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
     authorize_bucket, authorize_project, empty_response, json_response_selected,
-    read_metadata_response, response_fields, validate_bodyless_post,
+    read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
     auth::{self, Caller},
@@ -238,16 +238,8 @@ fn validate_request(
     operation: &BucketRequest,
 ) -> Result<(), JsonError> {
     json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
-    if !operation.accepts_body()
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|v| v != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
+    if !operation.accepts_body() {
+        require_empty_body(request.headers())?;
     }
     Ok(())
 }

@@ -8,7 +8,8 @@ mod upload;
 use super::RequestBody as Incoming;
 use super::{
     ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody, acl, boxed, empty_response,
-    json_response_selected, response_fields, resumable, retention_access, validate_bodyless_post,
+    json_response_selected, require_empty_body, response_fields, resumable, retention_access,
+    validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -156,13 +157,8 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
     if let Some(etags) = operation.etag_conditions() {
         json::validate_read_condition_headers(headers, etags)?;
     }
-    if !operation.accepts_body()
-        && (headers.contains_key("transfer-encoding")
-            || headers.get("content-length").is_some_and(|v| v != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
+    if !operation.accepts_body() {
+        require_empty_body(headers)?;
     }
     Ok(())
 }

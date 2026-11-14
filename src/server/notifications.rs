@@ -23,16 +23,8 @@ pub(super) async fn respond(
     )
     .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
-    if !operation.accepts_body()
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|value| value != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
+    if !operation.accepts_body() {
+        require_empty_body(request.headers())?;
     }
     let mut value = match operation {
         NotificationRequest::Insert { bucket } => {
