@@ -3,6 +3,7 @@
 
 pub(crate) mod control;
 mod deletion;
+mod error;
 pub mod handshake;
 mod ingest;
 mod interrupt;
@@ -11,6 +12,7 @@ mod mirror;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod test_support;
 pub(crate) mod tree;
+pub(crate) use error::SyncError;
 pub use mirror::{Reconciliation, Task, reconcile, start};
 
 #[cfg(test)]
@@ -65,8 +67,8 @@ pub(crate) fn validate_directory(root: &Path, data: &Path, seed: Option<&Path>) 
     for (key, path) in
         std::iter::once(("data_dir", data)).chain(seed.map(|path| ("seed_dir", path)))
     {
-        if crate::source_tree::paths_overlap(root, path).map_err(|_| io::Error::other(
-            "Cannot inspect sync_dir overlap; select accessible sync_dir/data_dir/seed_dir paths"))? {
+        if crate::source_tree::paths_overlap(root, path).map_err(|error| io::Error::other(BackendCause::with_source(
+            "Cannot inspect sync_dir overlap; select accessible sync_dir/data_dir/seed_dir paths", error)))? {
             return Err(io::Error::other(format!("sync_dir must not overlap {key}; select separate directories, including resolved aliases")));
         }
     }

@@ -1,0 +1,79 @@
+use super::*;
+use crate::error::Report;
+
+fn admin() -> AdminError {
+    AdminError::from(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "denied fixture",
+    ))
+}
+
+fn root() -> RootError {
+    RootError::Admin(admin())
+}
+
+fn native() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        io::Error::from_raw_os_error(libc::EACCES),
+    )
+}
+
+/// Diagnostics print a failure through `Report`; carrying it typed must not change the text the
+/// `io::Error::other` wrapper produced.
+#[test]
+fn typed_failures_report_the_text_of_their_former_io_wrappers() {
+    for (typed, wrapped) in [
+        (SyncError::Admin(admin()), io::Error::other(admin())),
+        (SyncError::Root(root()), io::Error::other(root())),
+        (SyncError::Io(native()), io::Error::other(native())),
+    ] {
+        assert_eq!(Report(&typed).to_string(), Report(&wrapped).to_string());
+        assert_eq!(typed.to_string(), wrapped.to_string());
+    }
+    assert_eq!(
+        Report(&SyncError::Root(root())).to_string(),
+        "synchronization root: admin operation failed: administrative operation: Io(PermissionDenied): denied fixture"
+    );
+}
+
+/// The public boundary hands a native failure back unchanged, so callers still see its kind and
+/// raw OS error; a typed failure stays reachable below an `Other` wrapper.
+#[test]
+fn native_failures_keep_their_kind_and_errno_at_the_io_boundary() {
+    let error = io::Error::from(SyncError::Io(io::Error::from_raw_os_error(libc::EMFILE)));
+    assert_eq!(error.raw_os_error(), Some(libc::EMFILE));
+    let error = io::Error::from(SyncError::Io(native()));
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert_eq!(
+        error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<io::Error>())
+            .and_then(io::Error::raw_os_error),
+        Some(libc::EACCES)
+    );
+    let error = io::Error::from(SyncError::Root(root()));
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert!(matches!(
+        error.get_ref().unwrap().downcast_ref::<SyncError>(),
+        Some(SyncError::Root(RootError::Admin(AdminError::Io(_))))
+    ));
+}
+
+/// Only a precondition or a missing row reported by the root restarts a deletion pass; the same
+/// failures from elsewhere, and storage failures, still fail it.
+#[test]
+fn only_root_preconditions_and_missing_rows_are_stale_deletions() {
+    for error in [AdminError::Precondition, AdminError::NotFound] {
+        assert!(SyncError::Root(RootError::Admin(error)).is_stale_deletion());
+    }
+    for error in [
+        SyncError::Admin(AdminError::Precondition),
+        SyncError::Admin(AdminError::NotFound),
+        SyncError::Root(RootError::Admin(AdminError::Hold)),
+        SyncError::Root(root()),
+        SyncError::Root(RootError::RootChanged),
+    ] {
+        assert!(!error.is_stale_deletion(), "{error:?}");
+    }
+}

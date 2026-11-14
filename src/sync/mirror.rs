@@ -842,8 +842,8 @@ async fn observe_deletions(
             super::deletion::execute_with(catalog, root, set, interrupt).await?;
         }
         Ok(None) => {}
-        Err(error) if super::deletion::stale(&error) => {}
-        Err(error) => return Err(error),
+        Err(error) if error.is_stale_deletion() => {}
+        Err(error) => return Err(error.into()),
     }
     Ok(())
 }

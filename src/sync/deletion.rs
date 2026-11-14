@@ -1,7 +1,7 @@
 //! Missing tracked files become candidates only after an error-free complete scan.
 
 use super::interrupt::{Interrupt, Interrupted};
-use super::{Reconciliation, mapping};
+use super::{Reconciliation, SyncError, mapping};
 use crate::{
     config::Config,
     fsutil,
@@ -16,7 +16,7 @@ use crate::{
         },
     },
 };
-use std::{io, path::Path};
+use std::path::Path;
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
@@ -27,19 +27,7 @@ enum Deleted {
     Protected(SyncBinding),
 }
 
-pub(super) fn stale(error: &io::Error) -> bool {
-    error
-        .get_ref()
-        .and_then(|error| error.downcast_ref::<RootError>())
-        .is_some_and(|error| {
-            matches!(
-                error,
-                RootError::Admin(AdminError::Precondition | AdminError::NotFound)
-            )
-        })
-}
-
-pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
+pub(super) async fn absent(root: &RootLease, path: String) -> Result<bool, SyncError> {
     let limits = root.tree_limits();
     root.file_job(move |root| {
         let path = Path::new(&path);
@@ -68,7 +56,7 @@ pub(super) async fn absent(root: &RootLease, path: String) -> io::Result<bool> {
         }
     })
     .await
-    .map_err(io::Error::other)
+    .map_err(SyncError::from)
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -77,7 +65,7 @@ pub(super) async fn inventory(
     config: &Config,
     summary: &Reconciliation,
     stopping: &tokio::sync::watch::Receiver<bool>,
-) -> io::Result<Option<DeletionSet>> {
+) -> Result<Option<DeletionSet>, SyncError> {
     inventory_with(root, config, summary, Interrupt::new(stopping)).await
 }
 pub(super) async fn inventory_with(
@@ -85,13 +73,11 @@ pub(super) async fn inventory_with(
     config: &Config,
     summary: &Reconciliation,
     interrupt: Interrupt<'_>,
-) -> io::Result<Option<DeletionSet>> {
+) -> Result<Option<DeletionSet>, SyncError> {
     if interrupt.check() != Interrupted::No {
         return Ok(None);
     }
-    root.invalidate_deletions()
-        .await
-        .map_err(io::Error::other)?;
+    root.invalidate_deletions().await?;
     if !summary.baseline_complete
         || summary.deferred != 0
         || summary.unrepresentable != 0
@@ -102,8 +88,7 @@ pub(super) async fn inventory_with(
     }
     let inventory = root
         .begin_deletion_inventory(config.sync_delete_guard.into())
-        .await
-        .map_err(io::Error::other)?;
+        .await?;
     let mut after = String::new();
     loop {
         if interrupt.check() != Interrupted::No {
@@ -111,8 +96,7 @@ pub(super) async fn inventory_with(
         }
         let page = root
             .deletion_inventory_page(inventory.clone(), after.clone())
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
         if page.is_empty() {
             break;
         }
@@ -134,17 +118,12 @@ pub(super) async fn inventory_with(
             }
         }
         root.record_deletion_candidates(inventory.clone(), baseline, candidates)
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
     }
     if interrupt.check() != Interrupted::No {
         return Ok(None);
     }
-    Ok(Some(
-        root.finish_deletion_inventory(inventory)
-            .await
-            .map_err(io::Error::other)?,
-    ))
+    Ok(Some(root.finish_deletion_inventory(inventory).await?))
 }
 
 pub(super) async fn execute(
@@ -152,7 +131,7 @@ pub(super) async fn execute(
     root: &RootLease,
     set: DeletionSet,
     stopping: &tokio::sync::watch::Receiver<bool>,
-) -> io::Result<u64> {
+) -> Result<u64, SyncError> {
     execute_with(catalog, root, set, Interrupt::new(stopping)).await
 }
 pub(super) async fn execute_with(
@@ -160,7 +139,7 @@ pub(super) async fn execute_with(
     root: &RootLease,
     set: DeletionSet,
     interrupt: Interrupt<'_>,
-) -> io::Result<u64> {
+) -> Result<u64, SyncError> {
     if set.authorization != 1 {
         return Ok(0);
     }
@@ -171,19 +150,13 @@ pub(super) async fn execute_with(
         if interrupt.check() != Interrupted::No {
             return Ok(completed);
         }
-        let page = match root
-            .deletion_page(set.revision, after, 256)
-            .await
-            .map_err(io::Error::other)
-        {
+        let page = match root.deletion_page(set.revision, after, 256).await {
             Ok(page) => page,
-            Err(error) if stale(&error) => {
-                root.invalidate_deletions()
-                    .await
-                    .map_err(io::Error::other)?;
+            Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+                root.invalidate_deletions().await?;
                 return Ok(completed);
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         };
         if page.is_empty() {
             break;
@@ -194,9 +167,7 @@ pub(super) async fn execute_with(
             }
             after = candidate.ordinal;
             if !absent(root, candidate.path.clone()).await? {
-                root.invalidate_deletions()
-                    .await
-                    .map_err(io::Error::other)?;
+                root.invalidate_deletions().await?;
                 return Ok(completed);
             }
             if interrupt.check() != Interrupted::No {
@@ -211,34 +182,28 @@ pub(super) async fn execute_with(
                     ];
                     root.clear_path_stops(
                         binding,
-                        ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?,
+                        ObjectName::new(candidate.name.clone())?,
                         &reasons,
                     )
-                    .await
-                    .map_err(io::Error::other)?;
+                    .await?;
                 }
                 Deleted::Stale => {
-                    root.invalidate_deletions()
-                        .await
-                        .map_err(io::Error::other)?;
+                    root.invalidate_deletions().await?;
                     return Ok(completed);
                 }
                 Deleted::Protected(binding) => {
                     root.record_path_stop(
                         binding,
-                        ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?,
+                        ObjectName::new(candidate.name.clone())?,
                         PathStop::ProtectedDeletion,
                     )
-                    .await
-                    .map_err(io::Error::other)?;
-                    root.invalidate_deletions()
-                        .await
-                        .map_err(io::Error::other)?;
+                    .await?;
+                    root.invalidate_deletions().await?;
                     super::mirror::restore_from_catalog(
                         catalog,
                         root,
-                        &BucketName::new(candidate.bucket.clone()).map_err(io::Error::other)?,
-                        &ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?,
+                        &BucketName::new(candidate.bucket.clone())?,
+                        &ObjectName::new(candidate.name.clone())?,
                     )
                     .await?;
                     crate::diagnostics::emit(
@@ -259,13 +224,17 @@ pub(super) async fn execute_with(
     Ok(completed)
 }
 
-async fn delete(root: &RootLease, set: &DeletionSet, candidate: &Candidate) -> io::Result<Deleted> {
-    let bucket = BucketName::new(candidate.bucket.clone()).map_err(io::Error::other)?;
-    let name = ObjectName::new(candidate.name.clone()).map_err(io::Error::other)?;
+async fn delete(
+    root: &RootLease,
+    set: &DeletionSet,
+    candidate: &Candidate,
+) -> Result<Deleted, SyncError> {
+    let bucket = BucketName::new(candidate.bucket.clone())?;
+    let name = ObjectName::new(candidate.name.clone())?;
     let binding = match root.sync_binding(&bucket).await {
         Ok(binding) => binding,
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),
-        Err(error) => return Err(io::Error::other(error)),
+        Err(error) => return Err(error.into()),
     };
     let binding = root.deletion_binding(binding, set.revision, candidate.ordinal);
     match root
@@ -273,10 +242,9 @@ async fn delete(root: &RootLease, set: &DeletionSet, candidate: &Candidate) -> i
         .delete_synced_object(
             &bucket,
             &name,
-            GenerationCondition::Is(
-                crate::storage::admin::Generation::new(candidate.generation)
-                    .map_err(io::Error::other)?,
-            ),
+            GenerationCondition::Is(crate::storage::admin::Generation::new(
+                candidate.generation,
+            )?),
             binding.clone(),
         )
         .await
@@ -284,6 +252,6 @@ async fn delete(root: &RootLease, set: &DeletionSet, candidate: &Candidate) -> i
         Ok(()) => Ok(Deleted::Yes(binding)),
         Err(AdminError::Hold) => Ok(Deleted::Protected(binding)),
         Err(AdminError::Precondition | AdminError::NotFound) => Ok(Deleted::Stale),
-        Err(error) => Err(io::Error::other(error)),
+        Err(error) => Err(error.into()),
     }
 }
