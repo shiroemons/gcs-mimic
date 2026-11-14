@@ -135,7 +135,7 @@ impl Storage {
             std::mem::take(&mut resource.content_type)
         };
         let mut metadata = super::super::object_update::for_write(&resource);
-        metadata.replace = false;
+        metadata.write = crate::object::WriteMode::Patch;
         let storage_class = std::mem::take(&mut resource.storage_class);
         resource.content_encoding.clear();
         resource.content_disposition.clear();

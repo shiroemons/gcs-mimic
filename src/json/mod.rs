@@ -36,6 +36,7 @@ pub(crate) mod resumable;
 pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
+pub(crate) use crate::object::WriteMode;
 pub(crate) use body::{RESOURCE_BODY_LIMIT, RESOURCE_BODY_LIMIT_TEXT, read_body};
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
@@ -76,7 +77,7 @@ pub(crate) use multipart::{
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
-pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
+pub(crate) use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 pub(crate) use objects::revision_etag;

@@ -1,4 +1,5 @@
 use gcs_mimic::json::{self, compose};
+use gcs_mimic::object::WriteMode;
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
@@ -32,7 +33,7 @@ fn compose_body_preserves_source_order_duplicates_generations_and_metadata() {
         Some(Some("text/plain".into()))
     );
     assert_eq!(parsed.destination.event_based_hold, Some(true));
-    assert!(parsed.destination.replace);
+    assert_eq!(parsed.destination.write, WriteMode::Replace);
     assert!(!parsed.delete_sources);
     assert_eq!(
         parsed.destination.metadata.unwrap().unwrap()["key"],

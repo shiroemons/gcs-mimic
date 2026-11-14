@@ -10,8 +10,11 @@ use unix_nanos::UnixNanos;
 pub(crate) mod generation;
 pub(crate) mod name;
 pub(crate) mod owner;
+mod patch;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
+
+pub use patch::WriteMode;
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -297,7 +300,8 @@ pub struct ObjectMetadataUpdate {
     /// Replaces the bucket's default object ACL for a newly published generation. Only
     /// publication reads it; the JSON API accepts it on uploads alone.
     pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
-    pub replace: bool,
+    /// A PUT resets the content fields, custom metadata and holds it does not name.
+    pub write: WriteMode,
     pub content_type: Option<Option<String>>,
     pub content_encoding: Option<Option<String>>,
     pub content_disposition: Option<Option<String>>,
@@ -444,7 +448,7 @@ impl ObjectMetadataUpdate {
     /// Applies the update to a published generation, where a PUT also clears the holds it omits.
     /// Edits of one field at a time may not add up past what a later copy could inherit.
     pub(crate) fn apply_to_existing(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
-        if self.replace {
+        if self.write == WriteMode::Replace {
             record.clear_holds();
         }
         self.apply_with(record, EmptyContent::Stored)?;
@@ -506,7 +510,7 @@ impl ObjectMetadataUpdate {
         if let Some(sha256) = self.customer_key_sha256 {
             record.customer_key_sha256 = Some(sha256);
         }
-        if self.replace {
+        if self.write == WriteMode::Replace {
             record.content_type.clear();
             record.content_encoding = None;
             record.content_disposition = None;

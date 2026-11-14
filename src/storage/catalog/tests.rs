@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::WriteMode;
 use crate::storage::test_fixtures::PERMISSIVE;
 
 #[tokio::test]
@@ -230,15 +231,15 @@ async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {
 
 #[tokio::test]
 async fn bucket_patch_rechecks_revocation_and_bucket_recreation() {
-    bucket_metadata_rechecks_revocation(BucketWrite::Patch).await;
+    bucket_metadata_rechecks_revocation(WriteMode::Patch).await;
 }
 
 #[tokio::test]
 async fn bucket_put_rechecks_revocation_and_bucket_recreation() {
-    bucket_metadata_rechecks_revocation(BucketWrite::Replace).await;
+    bucket_metadata_rechecks_revocation(WriteMode::Replace).await;
 }
 
-async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
+async fn bucket_metadata_rechecks_revocation(mode: WriteMode) {
     use crate::auth::{BUCKETS_UPDATE, Binding};
     let directory = crate::test_support::TestDir::new();
     let catalog = Catalog::open(&directory.0).await.unwrap();

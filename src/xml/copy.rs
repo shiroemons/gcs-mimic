@@ -5,7 +5,7 @@ use crate::{
     auth,
     bucket::BucketAccess,
     json,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget, WriteMode},
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
         copy::{self, CopyBudget, CopyJob},
@@ -254,7 +254,7 @@ fn destination(
         .take()
         .or(Some(source.storage_class));
     let mut metadata = if matches!(directive, MetadataDirective::Replace) {
-        options.metadata.replace = true;
+        options.metadata.write = WriteMode::Replace;
         options.metadata.content_type = Some(Some(if options.content_type.is_empty() {
             "application/octet-stream".into()
         } else {

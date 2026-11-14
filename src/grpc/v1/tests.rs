@@ -13,7 +13,7 @@ use std::time::{Duration, UNIX_EPOCH};
 fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
     for mode in [json::WriteMode::Patch, json::WriteMode::Replace] {
         let update = metadata(pb::Object::default(), mode).unwrap();
-        assert_eq!(update.replace, mode == json::WriteMode::Replace);
+        assert_eq!(update.write, mode);
         assert_eq!(
             update.content_type,
             (mode == json::WriteMode::Replace).then_some(None)

@@ -60,7 +60,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         content_type: "application/test".into(),
         origin: Some("https://client.invalid".into()),
         metadata: gcs_mimic::object::ObjectMetadataUpdate {
-            replace: true,
+            write: gcs_mimic::object::WriteMode::Replace,
             content_type: Some(None),
             content_encoding: Some(None),
             content_disposition: Some(Some("inline".into())),

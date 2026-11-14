@@ -1,4 +1,4 @@
-use crate::object::{MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate};
+use crate::object::{MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate, WriteMode};
 use ring::digest::{Context, SHA256};
 
 /// Versioned request identity, independent of diagnostic and serialization formats.
@@ -96,7 +96,7 @@ impl Canonical {
         let ObjectMetadataUpdate {
             acl,
             predefined_acl,
-            replace,
+            write,
             content_type,
             content_encoding,
             content_disposition,
@@ -120,7 +120,10 @@ impl Canonical {
             }
         });
         self.optional(*predefined_acl, |encoded, acl| encoded.text(acl.as_str()));
-        self.flag(*replace);
+        self.0.update(&[match write {
+            WriteMode::Patch => 0,
+            WriteMode::Replace => 1,
+        }]);
         for field in [
             content_type,
             content_encoding,
@@ -202,7 +205,7 @@ mod tests {
         let mutations: [fn(&mut ObjectMetadataUpdate); 17] = [
             |value| value.acl = None,
             |value| value.predefined_acl = None,
-            |value| value.replace = false,
+            |value| value.write = WriteMode::Patch,
             |value| value.content_type = None,
             |value| value.content_encoding = None,
             |value| value.content_disposition = None,

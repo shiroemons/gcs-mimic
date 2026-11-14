@@ -178,7 +178,7 @@ fn metadata(
         ));
     }
     let mut update = ObjectMetadataUpdate {
-        replace,
+        write,
         ..Default::default()
     };
     for (field, value) in [

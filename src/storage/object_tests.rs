@@ -1637,7 +1637,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
             live("bucket", "metadata"),
             Default::default(),
             ObjectMetadataUpdate {
-                replace: true,
+                write: gcs_mimic::object::WriteMode::Replace,
                 ..Default::default()
             },
             |_| Ok(()),

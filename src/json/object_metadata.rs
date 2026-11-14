@@ -1,6 +1,6 @@
 use super::JsonError;
 use crate::config::ApiBaseSource;
-use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget};
+use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, WriteMode};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -84,13 +84,6 @@ impl ObjectMetadataRequest {
     }
 }
 
-/// Whether a metadata write merges into (PATCH) or replaces (PUT) the stored metadata.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WriteMode {
-    Patch,
-    Replace,
-}
-
 /// Which write a metadata body describes. Only a mutation of an existing generation (PATCH or
 /// PUT) may carry `acl`, keeps empty content fields and ignores output-only fields Cloud
 /// Storage ignores there; uploads and derived writes reject `acl` and an empty
@@ -161,7 +154,7 @@ fn parse_metadata(
             .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
             .transpose()?,
         predefined_acl: None,
-        replace: mode == WriteMode::Replace,
+        write: mode,
         content_type: string(body, kind, "contentType")?,
         content_encoding: string(body, kind, "contentEncoding")?,
         content_disposition: string(body, kind, "contentDisposition")?,

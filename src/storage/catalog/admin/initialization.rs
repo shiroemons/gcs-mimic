@@ -11,9 +11,10 @@ use crate::{
     auth::{Policy, PublicAccess},
     bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
     clock::Clock,
+    object::WriteMode,
     storage::catalog::{
         BucketCreation,
-        bucket_update::{self, BucketChange, BucketWrite},
+        bucket_update::{self, BucketChange},
         change_journal, create_bucket_in_transaction,
         policies::{self, Metageneration, PolicyWrite},
         principals::Profile,
@@ -296,7 +297,7 @@ impl Apply<'_> {
                     update,
                     conditions: Default::default(),
                     access: &self.access,
-                    mode: BucketWrite::Patch,
+                    mode: WriteMode::Patch,
                 };
                 bucket_update::update_in_transaction(
                     self.transaction,

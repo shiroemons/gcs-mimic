@@ -4,7 +4,7 @@ use super::{InvalidOptions, ResumableOptions};
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate},
+    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate, WriteMode},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -52,7 +52,11 @@ impl<T, C> Metadata<T, C> {
     ) -> Result<ObjectMetadataUpdate, InvalidOptions> {
         Ok(ObjectMetadataUpdate {
             acl: None,
-            replace: self.replace.unwrap_or(false),
+            write: if self.replace == Some(true) {
+                WriteMode::Replace
+            } else {
+                WriteMode::Patch
+            },
             event_based_hold: self.event_based_hold.into(),
             temporary_hold: self.temporary_hold.into(),
             custom_time: self.custom_time.map(&string),
@@ -109,7 +113,7 @@ impl StoredOptions {
         let m = &options.metadata;
         let field = |value: &Option<Option<String>>| value.clone().map(|value| Field { value });
         let metadata = Metadata {
-            replace: Some(m.replace),
+            replace: Some(m.write == WriteMode::Replace),
             event_based_hold: m.event_based_hold.into(),
             temporary_hold: m.temporary_hold.into(),
             custom_time: field(&m.custom_time),

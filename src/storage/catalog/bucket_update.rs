@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::WriteMode;
 
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, versioning_configured = ?14, default_event_based_hold = ?5,
@@ -13,7 +14,7 @@ impl Catalog {
         conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
-        self.update_bucket(name, update, conditions, access, BucketWrite::Patch)
+        self.update_bucket(name, update, conditions, access, WriteMode::Patch)
             .await
     }
 
@@ -24,7 +25,7 @@ impl Catalog {
         conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
-        self.update_bucket(name, update, conditions, access, BucketWrite::Replace)
+        self.update_bucket(name, update, conditions, access, WriteMode::Replace)
             .await
     }
 
@@ -34,7 +35,7 @@ impl Catalog {
         update: BucketMetadataUpdate,
         conditions: BucketConditions,
         access: &BucketAccess,
-        mode: BucketWrite,
+        mode: WriteMode,
     ) -> Result<BucketRecord, CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
@@ -64,7 +65,7 @@ pub(super) struct BucketChange<'a> {
     pub(super) update: BucketMetadataUpdate,
     pub(super) conditions: BucketConditions,
     pub(super) access: &'a BucketAccess,
-    pub(super) mode: BucketWrite,
+    pub(super) mode: WriteMode,
 }
 
 /// Applies `change` as a PATCH or PUT does, journal entry included, inside the caller's
@@ -108,7 +109,7 @@ pub(super) fn update_in_transaction(
     }
     // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
     // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
-    if matches!(mode, BucketWrite::Patch) && update.is_empty() {
+    if matches!(mode, WriteMode::Patch) && update.is_empty() {
         return Ok(record);
     }
     if update
@@ -221,13 +222,6 @@ fn store_bucket(
         lifecycle::rules_written();
     }
     Ok(())
-}
-
-/// Whether a bucket metadata write merges into (PATCH) or replaces (PUT) stored labels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BucketWrite {
-    Patch,
-    Replace,
 }
 
 fn apply_uniform_access(
@@ -407,10 +401,10 @@ fn apply_plain_settings(
 fn apply_labels(
     record: &mut BucketRecord,
     labels: Option<std::collections::BTreeMap<String, Option<String>>>,
-    mode: BucketWrite,
+    mode: WriteMode,
     map_mode: crate::object::MapMode,
 ) -> Result<(), CatalogError> {
-    if mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace {
+    if mode == WriteMode::Replace || map_mode == crate::object::MapMode::Replace {
         record.labels.clear();
     }
     let Some(labels) = labels else {
@@ -419,7 +413,7 @@ fn apply_labels(
     };
     for (key, value) in labels {
         // Library callers can bypass adapter validation.
-        if ((mode == BucketWrite::Replace || map_mode == crate::object::MapMode::Replace)
+        if ((mode == WriteMode::Replace || map_mode == crate::object::MapMode::Replace)
             && value.is_none())
             || !valid_label(&key, LabelPart::Key)
             || value

@@ -3,7 +3,7 @@ use crate::{
     acl::AclKind,
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     object::{
-        MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord,
+        MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord, WriteMode,
         retention::{ObjectRetention, RetentionMode},
         unix_nanos::UnixNanos,
     },
@@ -124,7 +124,7 @@ pub(super) fn retention(
 
 pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
     ObjectMetadataUpdate {
-        replace: true,
+        write: WriteMode::Replace,
         content_type: (!object.content_type.is_empty()).then(|| Some(object.content_type.clone())),
         content_encoding: (!object.content_encoding.is_empty())
             .then(|| Some(object.content_encoding.clone())),
