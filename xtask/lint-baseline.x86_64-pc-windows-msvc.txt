@@ -42,7 +42,7 @@ clippy::wildcard_enum_match_arm	src/seed/error.rs	1
 clippy::wildcard_enum_match_arm	src/server/acl.rs	2
 clippy::wildcard_enum_match_arm	src/server/admin/fixtures.rs	1
 clippy::wildcard_enum_match_arm	src/server/admin/reset.rs	1
-clippy::wildcard_enum_match_arm	src/server/admin/sync.rs	4
+clippy::wildcard_enum_match_arm	src/server/admin/sync.rs	2
 clippy::wildcard_enum_match_arm	src/server/admin/sync/conflicts.rs	1
 clippy::wildcard_enum_match_arm	src/server/buckets.rs	3
 clippy::wildcard_enum_match_arm	src/server/chunk_body.rs	1

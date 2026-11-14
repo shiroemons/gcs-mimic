@@ -51,6 +51,7 @@ pub(crate) enum Pass {
 #[derive(Clone, Copy)]
 pub(crate) enum Cause<'a> {
     Admin(&'a AdminError),
+    Root(&'a RootError),
     Writeback(&'a writeback::Error),
     Conflict(&'a conflicts::Error),
     Stop(Stop),
@@ -71,6 +72,8 @@ impl<'a> Cause<'a> {
     fn of(error: &'a (dyn Error + 'static)) -> Self {
         if let Some(error) = error.downcast_ref::<AdminError>() {
             Self::Admin(error)
+        } else if let Some(error) = error.downcast_ref::<RootError>() {
+            Self::Root(error)
         } else if let Some(error) = error.downcast_ref::<writeback::Error>() {
             Self::Writeback(error)
         } else if let Some(error) = error.downcast_ref::<conflicts::Error>() {
@@ -116,7 +119,11 @@ impl<'a> Cause<'a> {
                 Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
             ),
             Self::Io(error) => transient_io(error),
-            Self::Writeback(_) | Self::Conflict(_) | Self::Stop(_) | Self::Other => false,
+            Self::Root(_)
+            | Self::Writeback(_)
+            | Self::Conflict(_)
+            | Self::Stop(_)
+            | Self::Other => false,
         }
     }
 
@@ -165,6 +172,7 @@ impl<'a> Cause<'a> {
                 | AdminError::BodyAborted(_)
                 | AdminError::Backend(_),
             )
+            | Self::Root(_)
             | Self::Catalog(_)
             | Self::Sqlite(_)
             | Self::Io(_)

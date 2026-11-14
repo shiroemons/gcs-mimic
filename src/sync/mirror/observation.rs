@@ -197,10 +197,10 @@ impl Controls {
                     )));
                 }
                 Command::Rescan { reply, .. } => {
-                    let _ = reply.send(Err(io::ErrorKind::Interrupted.into()));
+                    let _ = reply.send(Err(ControlError::Shutdown));
                 }
                 Command::Approve { reply, .. } => {
-                    let _ = reply.send(Err(io::ErrorKind::Interrupted.into()));
+                    let _ = reply.send(Err(ControlError::Shutdown));
                 }
                 Command::Resolve { reply, .. } => {
                     let _ = reply.send(Err(AdminError::Closed.into()));
@@ -290,7 +290,7 @@ impl Controls {
                     let result = root
                         .authorize_controls(config.seed_project.clone(), identity)
                         .await
-                        .map_err(io::Error::other)
+                        .map_err(ControlError::from)
                         .map(|()| {
                             crate::sync::control::WaitResult::result(
                                 crate::sync::control::WaitReason::SourceChanging,

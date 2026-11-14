@@ -1,15 +1,66 @@
 //! Bounded live-server controls; the catalog keeps no strong root ownership cycle.
 
-use super::Reconciliation;
+use super::{Reconciliation, SyncError};
 use crate::{
     auth::Identity,
-    storage::sync_state::{deletions::DeletionSet, root::RootLease},
+    storage::sync_state::{
+        deletions::DeletionSet,
+        root::{RootError, RootLease},
+    },
 };
 use std::{
-    io,
+    error::Error,
+    fmt,
     sync::{Arc, Weak},
 };
 use tokio::sync::{mpsc, oneshot};
+
+/// Why a queued control produced no result.
+#[derive(Debug)]
+pub(crate) enum ControlError {
+    /// The rescan, approval or wait ran, or was being authorized, and failed.
+    Failed(SyncError),
+    /// Synchronization is paused; only an explicit rescan may resume it.
+    Paused,
+    /// The mirror stopped before running the control.
+    Shutdown,
+}
+
+impl From<SyncError> for ControlError {
+    fn from(error: SyncError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<RootError> for ControlError {
+    fn from(error: RootError) -> Self {
+        Self::Failed(SyncError::Root(error))
+    }
+}
+
+impl fmt::Display for ControlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Failed(error) => fmt::Display::fmt(error, f),
+            Self::Paused => {
+                f.write_str("Synchronization is paused; correct the condition and request a rescan")
+            }
+            Self::Shutdown => f.write_str("synchronization stopped before the control ran"),
+        }
+    }
+}
+
+impl Error for ControlError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Failed(error) => Some(error),
+            Self::Paused | Self::Shutdown => None,
+        }
+    }
+}
+
+/// Answers a queued rescan, approval or wait.
+pub(crate) type Reply<T> = oneshot::Sender<Result<T, ControlError>>;
 
 pub(crate) enum Command {
     Resolve {
@@ -23,18 +74,18 @@ pub(crate) enum Command {
         identity: Option<Identity>,
     },
     Rescan {
-        reply: oneshot::Sender<io::Result<Reconciliation>>,
+        reply: Reply<Reconciliation>,
         identity: Option<Identity>,
     },
     Approve {
         revision: String,
-        reply: oneshot::Sender<io::Result<DeletionSet>>,
+        reply: Reply<DeletionSet>,
         identity: Option<Identity>,
     },
     Wait {
         deadline: tokio::time::Instant,
         settling: Arc<std::sync::atomic::AtomicBool>,
-        reply: oneshot::Sender<io::Result<WaitResult>>,
+        reply: Reply<WaitResult>,
         identity: Option<Identity>,
     },
 }

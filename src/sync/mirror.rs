@@ -1,4 +1,4 @@
-use super::control::Command;
+use super::control::{Command, ControlError, Reply};
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
@@ -160,8 +160,9 @@ impl DirectoryWatch {
 }
 
 impl Task {
+    /// A closed queue or a dropped reply means the mirror stopped before it answered.
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
+    pub(crate) async fn rescan(&self) -> Result<Reconciliation, ControlError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.rescan
             .send(Command::Rescan {
@@ -169,8 +170,8 @@ impl Task {
                 identity: None,
             })
             .await
-            .map_err(io::Error::other)?;
-        receiver.await.map_err(io::Error::other)?
+            .map_err(|_| ControlError::Shutdown)?;
+        receiver.await.map_err(|_| ControlError::Shutdown)?
     }
     pub(crate) fn stop(&self) {
         self.stop.send_replace(true);
@@ -317,7 +318,7 @@ struct LiveRun<'a> {
 }
 
 struct Resume {
-    reply: tokio::sync::oneshot::Sender<io::Result<Reconciliation>>,
+    reply: Reply<Reconciliation>,
     authority: crate::storage::sync_state::authority::ControlAuthority,
 }
 
@@ -348,10 +349,10 @@ async fn await_resume(
                 Command::Rescan {reply,identity}=> {
                     match root.authorize_controls(config.seed_project.clone(),identity.clone()).await {
                         Ok(())=>return Some(Resume {reply,authority:crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity)}),
-                        Err(error)=>{let _=reply.send(Err(io::Error::other(error)));}
+                        Err(error)=>{let _=reply.send(Err(error.into()));}
                     }
                 }
-                Command::Approve {reply,..}=>{let _=reply.send(Err(io::Error::new(io::ErrorKind::WouldBlock,"Synchronization is paused; correct the condition and request a rescan")));}
+                Command::Approve {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
                 Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::result(super::control::WaitReason::Paused,None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
@@ -817,9 +818,9 @@ impl LiveControl<'_> {
                             }
                             Ok(result)
                         }
-                        Err(error) => Err(io::Error::from(error)),
+                        Err(error) => Err(ControlError::Failed(error)),
                     },
-                    Err(error) => Err(io::Error::other(error)),
+                    Err(error) => Err(error.into()),
                 };
                 let _ = reply.send(result);
             }
@@ -839,7 +840,7 @@ impl LiveControl<'_> {
                         Err(error) => Err(error),
                     },
                     Err(error) => {
-                        let _ = reply.send(Err(io::Error::other(error)));
+                        let _ = reply.send(Err(error.into()));
                         return Ok(());
                     }
                 };
@@ -853,7 +854,7 @@ impl LiveControl<'_> {
                 } else {
                     Ok(())
                 };
-                let _ = reply.send(summary.map_err(io::Error::from));
+                let _ = reply.send(summary.map_err(ControlError::Failed));
                 paused?;
                 if let Some(reason) = stop {
                     return Err(SyncError::RescanStopped(reason));
@@ -873,8 +874,8 @@ impl LiveControl<'_> {
                         .root
                         .approve_deletions(revision)
                         .await
-                        .map_err(io::Error::other),
-                    Err(error) => Err(io::Error::other(error)),
+                        .map_err(ControlError::from),
+                    Err(error) => Err(error.into()),
                 };
                 let set = approved.as_ref().ok().cloned();
                 let _ = reply.send(approved);

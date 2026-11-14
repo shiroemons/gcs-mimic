@@ -233,6 +233,7 @@ mod tests {
         failure::BackendCause,
         sync_state::{conflicts, root::RootError},
     };
+    use crate::sync::{SyncError, control::ControlError};
     use std::{io, time::Duration};
 
     #[tokio::test]
@@ -338,8 +339,10 @@ mod tests {
                 Self::Reset => reset::failure(&error),
                 Self::Reseed => reseed::admin_failure(&error),
                 Self::SyncRoot => sync::root_error(&RootError::Admin(error)),
-                // A queued control reports the failure inside an I/O error.
-                Self::SyncControl => sync::control_error(&io::Error::other(error)),
+                // A queued control reports the failure as its failed run.
+                Self::SyncControl => {
+                    sync::control_error(&ControlError::Failed(SyncError::Admin(error)))
+                }
                 Self::Resolve => sync::conflicts::error(conflicts::Error::Admin(error)),
             }
         }

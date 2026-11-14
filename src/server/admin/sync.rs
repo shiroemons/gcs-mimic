@@ -13,7 +13,8 @@ use crate::{
         writeback::Stop,
     },
     sync::{
-        control::{Command, Registration},
+        Cause,
+        control::{Command, ControlError, Registration},
         handshake,
     },
 };
@@ -21,7 +22,7 @@ use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io, sync::Arc};
+use std::sync::Arc;
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 
@@ -593,7 +594,11 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
             "notImplemented",
             "Directory synchronization is unsupported on this platform",
         ),
-        _ => JsonError::new(
+        RootError::RootChanged
+        | RootError::MissingMarker
+        | RootError::InvalidMarker
+        | RootError::ForeignMarker
+        | RootError::ReinitializeDenied => JsonError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Synchronization root cannot be verified; preserve the tree and workspace and inspect server diagnostics",
@@ -601,6 +606,7 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
     }
 }
 
+/// The response an `AdminError` decides on its own; `None` leaves the decision to the caller.
 fn admin_error(error: &AdminError) -> Option<JsonError> {
     Some(match error {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
@@ -616,26 +622,42 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
             "io_failure",
             "Restore storage access, then retry",
         ),
-        _ => return None,
+        AdminError::Busy { .. }
+        | AdminError::Closed
+        | AdminError::Hold
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::NotFound
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => return None,
     })
 }
 
-pub(super) fn control_error(error: &io::Error) -> JsonError {
-    for error in crate::error::causes(error) {
-        if let Some(root) = error.downcast_ref::<RootError>() {
-            return root_error(root);
-        }
-        if let Some(error) = error.downcast_ref::<AdminError>()
-            && let Some(response) = admin_error(error)
-        {
-            return response;
-        }
-        if matches!(
-            error.downcast_ref::<AdminError>(),
-            Some(AdminError::Hold | AdminError::NotFound)
-        ) {
-            return stale();
-        }
+/// The response to a queued control that produced no result. The first root or admin failure in
+/// the chain decides it; a control that never ran answers as a closed queue does.
+pub(super) fn control_error(error: &ControlError) -> JsonError {
+    match error {
+        ControlError::Failed(error) => error
+            .causes()
+            .find_map(|cause| match cause {
+                Cause::Root(error) => Some(root_error(error)),
+                // A queued control met a concurrent change, as a stale revision does.
+                Cause::Admin(error) => admin_error(error).or_else(|| {
+                    matches!(error, AdminError::Hold | AdminError::NotFound).then(stale)
+                }),
+                Cause::Writeback(_)
+                | Cause::Conflict(_)
+                | Cause::Stop(_)
+                | Cause::Catalog(_)
+                | Cause::Sqlite(_)
+                | Cause::Io(_)
+                | Cause::Other => None,
+            })
+            .unwrap_or_else(busy),
+        ControlError::Paused | ControlError::Shutdown => busy(),
     }
-    busy()
 }

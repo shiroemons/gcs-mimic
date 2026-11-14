@@ -421,10 +421,10 @@ async fn stopping_a_quiet_queue_answers_waiters_without_losing_their_replies() {
         waited.await.unwrap().unwrap().reason,
         crate::sync::control::WaitReason::Stopped
     );
-    assert_eq!(
-        scanned.await.unwrap().unwrap_err().kind(),
-        io::ErrorKind::Interrupted
-    );
+    assert!(matches!(
+        scanned.await.unwrap().unwrap_err(),
+        ControlError::Shutdown
+    ));
     assert!(!controls.has_waiters());
     drop(watcher);
     drop(root);
@@ -475,10 +475,10 @@ async fn stopping_after_dequeue_retains_the_request_until_its_stopped_reply() {
             .is_none()
     );
     controls.stop();
-    assert_eq!(
-        response.await.unwrap().unwrap_err().kind(),
-        io::ErrorKind::Interrupted
-    );
+    assert!(matches!(
+        response.await.unwrap().unwrap_err(),
+        ControlError::Shutdown
+    ));
     drop(watcher);
     drop(root);
     catalog.close().await.unwrap();

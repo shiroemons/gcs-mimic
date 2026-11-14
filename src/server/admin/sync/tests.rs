@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::test_fixtures::PERMISSIVE;
+use crate::sync::SyncError;
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -13,7 +14,12 @@ use crate::{
     test_support::{TestDir, eventually_async, eventually_some_async, joined},
 };
 use http_body_util::BodyExt;
-use std::{fs, time::Duration};
+use std::{fs, io, time::Duration};
+
+/// A control failure whose typed cause arrives behind a native I/O error.
+fn failed_behind_io(error: impl std::error::Error + Send + Sync + 'static) -> ControlError {
+    ControlError::Failed(SyncError::Io(io::Error::other(error)))
+}
 
 #[test]
 fn nested_io_control_errors_keep_status_and_text() {
@@ -27,9 +33,21 @@ fn nested_io_control_errors_keep_status_and_text() {
     ] {
         let label = format!("{error:?}");
         let expected = root_error(&error);
-        let actual = control_error(&io::Error::other(io::Error::other(error)));
+        let actual = control_error(&failed_behind_io(error));
         assert_eq!(actual.status, expected.status, "{label}");
         assert_eq!(actual.message, expected.message, "{label}");
+    }
+}
+
+/// A paused mirror and a stopped one never ran the control, so both answer as a closed queue.
+#[test]
+fn controls_that_never_ran_answer_busy() {
+    let expected = busy();
+    for error in [ControlError::Paused, ControlError::Shutdown] {
+        let actual = control_error(&error);
+        assert_eq!(actual.status, expected.status, "{error:?}");
+        assert_eq!(actual.reason, expected.reason, "{error:?}");
+        assert_eq!(actual.message, expected.message, "{error:?}");
     }
 }
 
@@ -51,9 +69,13 @@ fn storage_failures_require_capacity_or_access_repairs() {
             ("root", root_error(&RootError::from(io::Error::from(kind)))),
             (
                 "control",
-                control_error(&io::Error::other(io::Error::other(AdminError::from(
+                control_error(&ControlError::Failed(SyncError::Admin(AdminError::from(
                     io::Error::from(kind),
                 )))),
+            ),
+            (
+                "nested control",
+                control_error(&failed_behind_io(AdminError::from(io::Error::from(kind)))),
             ),
         ] {
             assert_eq!(
@@ -69,9 +91,9 @@ fn storage_failures_require_capacity_or_access_repairs() {
 
 #[test]
 fn corrupt_control_causes_require_restoring_the_data_directory() {
-    let actual = control_error(&io::Error::other(io::Error::other(
+    let actual = control_error(&failed_behind_io(
         crate::storage::admin::AdminError::Corrupt("corrupt".into()),
-    )));
+    ));
     assert_eq!(actual.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(
         actual.message,
@@ -88,7 +110,7 @@ fn recovered_writeback_stops_keep_the_admin_busy_response() {
         Stop::RecoveryRequired,
         Stop::ProtectedBody,
     ] {
-        let actual = control_error(&io::Error::other(stop));
+        let actual = control_error(&ControlError::Failed(SyncError::Recovery(stop)));
         assert_eq!(actual.status, expected.status);
         assert_eq!(actual.message, expected.message);
     }
@@ -233,32 +255,32 @@ pub(super) async fn authorization_checkpoint() {
 #[test]
 fn queued_native_authority_and_condition_errors_keep_their_http_status() {
     assert_eq!(
-        control_error(&io::Error::other(
+        control_error(&ControlError::Failed(SyncError::Writeback(
             crate::storage::sync_state::writeback::Error::Root(RootError::Admin(
                 crate::storage::admin::AdminError::Forbidden
             ))
-        ))
+        )))
         .status,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        control_error(&io::Error::other(
+        control_error(&ControlError::Failed(SyncError::Admin(
             crate::storage::admin::AdminError::Forbidden
-        ))
+        )))
         .status,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        control_error(&io::Error::other(
+        control_error(&ControlError::Failed(SyncError::Admin(
             crate::storage::admin::AdminError::Precondition
-        ))
+        )))
         .status,
         StatusCode::CONFLICT
     );
     assert_eq!(
-        control_error(&io::Error::other(io::Error::other(
+        control_error(&failed_behind_io(
             crate::storage::admin::AdminError::Forbidden
-        )))
+        ))
         .status,
         StatusCode::FORBIDDEN
     );
