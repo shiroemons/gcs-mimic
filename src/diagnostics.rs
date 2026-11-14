@@ -185,6 +185,41 @@ impl std::error::Error for Diagnostics {}
 
 /// Preserve the operation failure and catalog-close cause on every shutdown path.
 pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -> io::Result<()> {
+    append_shutdown_failure(result, close, |close| {
+        Diagnostic::new(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            format!(
+                "Cannot close catalog ({:?}): {close}; inspect persistence before restarting.",
+                close.kind()
+            ),
+        )
+    })
+}
+
+/// Adds a failed removal of the owned Unix socket after the operation's own failure. Only the
+/// Unix listener has cleanup that can fail, and the stale entry, not the catalog, needs care.
+pub(crate) fn combine_unix_socket_cleanup(
+    result: io::Result<()>,
+    cleanup: io::Result<()>,
+) -> io::Result<()> {
+    append_shutdown_failure(result, cleanup, |cleanup| {
+        Diagnostic::new(
+            DiagnosticSource::Listener,
+            "unix_socket",
+            format!(
+                "Cannot remove Unix socket ({:?}): {cleanup}; remove the stale entry before restarting.",
+                cleanup.kind()
+            ),
+        )
+    })
+}
+
+fn append_shutdown_failure(
+    result: io::Result<()>,
+    close: io::Result<()>,
+    describe: impl FnOnce(&io::Error) -> Diagnostic,
+) -> io::Result<()> {
     let mut result = result.map_err(|error| {
         if error.get_ref().is_some_and(|inner| inner.is::<Diagnostics>()) {
             error
@@ -196,14 +231,7 @@ pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -
         }
     });
     if let Err(close) = close {
-        let diagnostic = Diagnostic::new(
-            DiagnosticSource::Catalog,
-            "data_dir",
-            format!(
-                "Cannot close catalog ({:?}): {close}; inspect persistence before restarting.",
-                close.kind()
-            ),
-        );
+        let diagnostic = describe(&close);
         if let Err(error) = &mut result {
             if let Some(diagnostics) = error
                 .get_mut()
@@ -308,6 +336,26 @@ mod tests {
         assert_eq!(lines[2]["diagnostics"][3]["source"], "config");
         assert_eq!(lines[3]["diagnostics"].as_array().unwrap().len(), 1);
         assert!(first.is_err() && second.is_err());
+    }
+
+    #[test]
+    fn unix_socket_cleanup_failure_is_named_once_after_the_shutdown_failure() {
+        let denied = || Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        let cleanup = Diagnostic::new(
+            DiagnosticSource::Listener,
+            "unix_socket",
+            "Cannot remove Unix socket (PermissionDenied): denied; remove the stale entry before restarting.",
+        );
+        for (primary, expected) in [(Ok(()), 1), (Err(io::Error::other("drain")), 2)] {
+            let error = combine_unix_socket_cleanup(primary, denied()).unwrap_err();
+            let errors = &error
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<Diagnostics>())
+                .unwrap()
+                .errors;
+            assert_eq!(errors.len(), expected, "{errors:?}");
+            assert_eq!(errors.last(), Some(&cleanup));
+        }
     }
 
     /// The `source` values are public contract. The match has no wildcard arm, so a new variant

@@ -27,6 +27,10 @@ impl Server {
     }
 
     fn launch(directory: &Path, args: &[&str]) -> Self {
+        Self::launch_with_stderr(directory, args, Stdio::inherit())
+    }
+
+    fn launch_with_stderr(directory: &Path, args: &[&str], stderr: Stdio) -> Self {
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
         let path = directory.join("s");
         let mut child = common::server_command()
@@ -42,6 +46,7 @@ impl Server {
             .args(args)
             .args(["--max-connections", "4"])
             .stdout(Stdio::piped())
+            .stderr(stderr)
             .spawn()
             .unwrap();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
@@ -128,6 +133,58 @@ fn unix_wire_uses_shared_crud_conditions_parallel_clients_and_graceful_cleanup()
         "graceful shutdown must await socket cleanup"
     );
     assert!(UnixStream::connect(&server.path).is_err());
+}
+
+#[test]
+fn unix_socket_cleanup_failure_is_reported_once_against_the_socket() {
+    let directory = common::TestDir::new();
+    let mut server = Server::launch_with_stderr(&directory.0, &[], Stdio::piped());
+    fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o500)).unwrap();
+    // The server runs as this test's user, so the probe sees what the cleanup will.
+    let probe = directory.0.join("probe");
+    if fs::write(&probe, b"").is_ok() {
+        eprintln!(
+            "SKIP: a read-only directory permits new entries (for example when running as root)"
+        );
+        fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
+        common::stop_server(&mut server.child, &mut server.stdout);
+        return;
+    }
+    assert!(
+        std::process::Command::new("kill")
+            .args(["-TERM", &server.child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut stderr = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let status = server.child.wait().unwrap();
+    fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!status.success(), "{stderr}");
+    assert!(server.path.exists(), "the denied cleanup leaves the socket");
+    let errors: Vec<serde_json::Value> = stderr
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .filter(|event| event["event"] == "diagnostics" && event["level"] == "error")
+        .flat_map(|event| event["diagnostics"].as_array().unwrap().clone())
+        .collect();
+    assert_eq!(errors.len(), 1, "{stderr}");
+    assert_eq!(errors[0]["source"], "listener", "{stderr}");
+    assert_eq!(errors[0]["key"], "unix_socket", "{stderr}");
+    let fix = errors[0]["fix"].as_str().unwrap();
+    assert!(
+        fix.starts_with("Cannot remove Unix socket (PermissionDenied): ")
+            && fix.ends_with("; remove the stale entry before restarting."),
+        "{fix}"
+    );
+    assert_eq!(fix.matches("Cannot remove").count(), 1, "{fix}");
 }
 
 #[test]

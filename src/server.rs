@@ -1018,22 +1018,20 @@ async fn serve_transports(
         serde_json::json!({}),
     );
     state.ready.store(false, Ordering::Release);
-    let mut listener_result = Ok(());
+    let mut listener_cleanups = Vec::with_capacity(listeners.len());
     for (listener, _) in listeners {
-        listener_result =
-            crate::diagnostics::combine_shutdown_results(listener_result, listener.close().await);
+        listener_cleanups.push(listener.close().await);
     }
     stop.send_replace(true);
     let drain_result = drain_connections(&mut connections, config.shutdown_timeout).await;
     let background_result = background_drain.await;
+    let mut result = signal_result.and(drain_result);
+    for cleanup in listener_cleanups {
+        result = crate::diagnostics::combine_unix_socket_cleanup(result, cleanup);
+    }
+    result = crate::diagnostics::combine_shutdown_results(result, background_result);
     crate::diagnostics::combine_shutdown_results(
-        crate::diagnostics::combine_shutdown_results(
-            crate::diagnostics::combine_shutdown_results(
-                signal_result.and(drain_result),
-                listener_result,
-            ),
-            background_result,
-        ),
+        result,
         state.catalog.close().await.map_err(io::Error::other),
     )
 }
