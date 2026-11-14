@@ -62,11 +62,13 @@ const STATIC_STR_ERROR: &str = "text::static_str_error";
 const JSON_MACRO_VALUE: &str = "text::json_macro_value";
 const DOWNCAST: &str = "text::downcast";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
-pub const RATCHETED_TEXT_RULES: [&str; 4] = [
+const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
+pub const RATCHETED_TEXT_RULES: [&str; 5] = [
     STATIC_STR_ERROR,
     JSON_MACRO_VALUE,
     DOWNCAST,
     DIAGNOSTICS_IN_IO_ERROR,
+    IMMEDIATELY_INVOKED_CLOSURE,
 ];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
@@ -85,7 +87,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 12] = [
+pub const TEXT_RULES: [&str; 13] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -98,6 +100,7 @@ pub const TEXT_RULES: [&str; 12] = [
     JSON_MACRO_VALUE,
     DOWNCAST,
     DIAGNOSTICS_IN_IO_ERROR,
+    IMMEDIATELY_INVOKED_CLOSURE,
 ];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
@@ -805,7 +808,64 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in diagnostics_in_io_errors(masked) {
         add(DIAGNOSTICS_IN_IO_ERROR, offset);
     }
+    for offset in immediately_invoked_closures(masked) {
+        add(IMMEDIATELY_INVOKED_CLOSURE, offset);
+    }
     findings
+}
+
+/// Offsets of `(|..| ..)()` and `(move || ..)()`: a closure called where it is written,
+/// usually to scope `?` like a `try` block. A named function states what the block computes
+/// and what it borrows.
+fn immediately_invoked_closures(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for (open, _) in masked.match_indices('(') {
+        if opens_arguments(masked, open) {
+            continue;
+        }
+        let mut start = skip_space(bytes, open + 1);
+        if masked[start..].starts_with("move") && !bytes.get(start + 4).copied().is_some_and(ident)
+        {
+            start = skip_space(bytes, start + 4);
+        }
+        if bytes.get(start) != Some(&b'|') {
+            continue;
+        }
+        let Some(close) = close_expression(bytes, open) else {
+            continue;
+        };
+        let call = skip_space(bytes, close);
+        if bytes.get(call) == Some(&b'(') && bytes.get(skip_space(bytes, call + 1)) == Some(&b')') {
+            offsets.push(open);
+        }
+    }
+    offsets
+}
+
+/// Whether the `(` at `open` starts a call's or macro's argument list: it follows an identifier
+/// other than a keyword that starts an expression, or `)`, `]`, `!` or a `>` that closes
+/// generics (not `=>` or `->`).
+fn opens_arguments(masked: &str, open: usize) -> bool {
+    let bytes = masked.as_bytes();
+    let Some(end) = bytes[..open].iter().rposition(|b| !b.is_ascii_whitespace()) else {
+        return false;
+    };
+    match bytes[end] {
+        b')' | b']' | b'!' => true,
+        b'>' => !matches!(end.checked_sub(1).map(|i| bytes[i]), Some(b'=' | b'-')),
+        byte if ident(byte) => {
+            let start = bytes[..=end]
+                .iter()
+                .rposition(|b| !ident(*b))
+                .map_or(0, |i| i + 1);
+            !matches!(
+                &masked[start..=end],
+                "return" | "in" | "match" | "if" | "while" | "break"
+            )
+        }
+        _ => false,
+    }
 }
 
 /// Index just past the group opening at `i`, counting only `()`, `[]` and `{}`; unlike
@@ -1970,6 +2030,31 @@ let message = payload.downcast_ref::<String>();
         assert_eq!(scan.problems, []);
         assert!(scan.findings.is_empty());
         assert_eq!(scan.suppressed.len(), 1);
+    }
+
+    #[test]
+    fn immediately_invoked_closures_are_found_but_calls_with_closures_are_not() {
+        let text = "\
+let a = (|| { x?; Ok(()) })();
+Some((|| -> Result<u8, E> { Ok(f(a < b)?) })())
+let c = (move || { y })();
+let d = f(|| x)();
+let e = items.map(|x| x)();
+let g = (a || b);
+match v { _ => (|| { z })() }
+return (|| { w })();
+let h = (|| {
+    v
+})
+();
+// (|| x)()
+#[cfg(test)]
+fn t() { (|| x)(); }
+";
+        assert_eq!(
+            lines_of(IMMEDIATELY_INVOKED_CLOSURE, text),
+            [1, 2, 3, 7, 8, 9]
+        );
     }
 
     #[test]
