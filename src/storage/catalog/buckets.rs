@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::{Location, LocationKind};
 use std::num::NonZeroU64;
 
 const INSERT_BUCKET: &str = concat!(
@@ -253,7 +254,7 @@ fn insert_bucket_with_policy(
         });
     }
     let lifecycle = crate::bucket::lifecycle::LifecycleRule::from_input(&record.lifecycle)?;
-    crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
+    crate::bucket::lifecycle::validate_location(&lifecycle, record.location.kind())?;
     let created = unix_micros(record.time_created)?;
     // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
     let created_nanos = unix_timestamp(record.time_created, 1)
@@ -320,7 +321,7 @@ fn insert_row(
             ":name": record.name,
             ":project": record.project,
             ":location": record.location,
-            ":location_type": record.location_type,
+            ":location_type": record.location.kind(),
             ":storage_class": record.storage_class,
             ":labels": sql::Json(&record.labels),
             ":metageneration": record.metageneration,
@@ -380,7 +381,6 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         name: row.get("name")?,
         project: row.get("project")?,
         location: read_location(row)?,
-        location_type: row.get("location_type")?,
         storage_class: row.get("storage_class")?,
         autoclass: row
             .get::<_, Option<sql::Json<_>>>("autoclass")?
@@ -404,19 +404,18 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
     })
 }
 
-/// The stored location, which every release wrote as a canonical name from the official table
-/// next to the type that table gives it; anything else is corrupt.
-fn read_location(row: &Row<'_>) -> rusqlite::Result<String> {
-    let location: String = row.get("location")?;
-    let kind: String = row.get("location_type")?;
+/// The stored location. Every release wrote a canonical name from the official table next to
+/// the type that table gives it, so a type that disagrees is corrupt; the column stays for older
+/// binaries of the same schema.
+fn read_location(row: &Row<'_>) -> rusqlite::Result<Location> {
+    let location: Location = row.get("location")?;
     let index = row.as_ref().column_index("location_type")?;
-    let consistent = crate::bucket::bucket_location(&location)
-        .is_ok_and(|(canonical, expected)| canonical == location && expected == kind);
-    if !consistent {
+    let kind: LocationKind = row.get(index)?;
+    if kind != location.kind() {
         return Err(sql::conversion_error(
             index,
             Type::Text,
-            "invalid stored bucket location",
+            "bucket location type disagrees with its location",
         ));
     }
     Ok(location)

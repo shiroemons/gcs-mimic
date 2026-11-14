@@ -1,8 +1,8 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate,
-    SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD,
-    UniformAccessRequest, bucket_location, cors_from_value, cors_value, valid_label,
+    BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, RETENTION_RANGE_MESSAGE,
+    RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass,
+    UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, cors_from_value, cors_value, valid_label,
     validate_storage_class,
 };
 use crate::config::CompatProfile;
@@ -266,8 +266,7 @@ pub(crate) fn parse_insert_with_profile(
         "defaultEventBasedHold",
         profile,
     )?;
-    let location = insert_location(body, profile, default_location)?;
-    let (location, location_type) = bucket_location(&location)?;
+    let location: Location = insert_location(body, profile, default_location)?.parse()?;
     let storage_class = if profile == CompatProfile::FakeGcsServer {
         "STANDARD".into()
     } else {
@@ -306,8 +305,7 @@ pub(crate) fn parse_insert_with_profile(
         .unwrap_or(false),
         name,
         project: project.to_owned(),
-        location: location.to_owned(),
-        location_type: location_type.to_owned(),
+        location,
         storage_class,
         autoclass,
         labels,
@@ -500,16 +498,13 @@ fn parse_bucket_update(
         .or(omitted_clears.then_some(false));
     // The location of a bucket cannot change, and Cloud Storage ignored a different one in a
     // PATCH or PUT body like any other output-only member (recorded 2026-10-31).
-    let mut location = if native { None } else { string("location")? };
-    if profile == CompatProfile::FakeGcsServer {
-        if location
-            .as_ref()
+    // The fake-gcs-server profile exposes a fixed location independently of the stored
+    // placement, and refuses any other.
+    if profile == CompatProfile::FakeGcsServer
+        && string("location")?
             .is_some_and(|location| !location.eq_ignore_ascii_case(LEGACY_LOCATION))
-        {
-            return Err(JsonError::unsupported("location"));
-        }
-        // The profile exposes a fixed location independently of the stored placement.
-        location = None;
+    {
+        return Err(JsonError::unsupported("location"));
     }
     Ok(BucketMetadataUpdate {
         acl: body
@@ -557,7 +552,6 @@ fn parse_bucket_update(
             "defaultEventBasedHold",
         )?
         .or(omitted_clears.then_some(false)),
-        location,
         public_access_prevention_enforced: parse_public_access_prevention(
             body.get("iamConfiguration"),
         )?,
@@ -954,7 +948,7 @@ pub(crate) fn bucket_resource(
 /// stay absent; clients read an absent `hierarchicalNamespace` as disabled.
 pub(crate) fn storage_layout_resource(bucket: &BucketRecord, profile: CompatProfile) -> Value {
     let (location, location_type) = match profile {
-        CompatProfile::Native => (bucket.location.as_str(), bucket.location_type.as_str()),
+        CompatProfile::Native => (bucket.location.as_str(), bucket.location.kind().as_str()),
         CompatProfile::FakeGcsServer => (LEGACY_LOCATION, "region"),
     };
     json!({
@@ -998,7 +992,7 @@ pub(crate) fn bucket_resource_with_profile(
         "metageneration".into(),
         bucket.metageneration.to_string().into(),
     );
-    value.insert("location".into(), json!(bucket.location));
+    value.insert("location".into(), bucket.location.as_str().into());
     value.insert("storageClass".into(), json!(bucket.storage_class));
     value.insert("etag".into(), bucket_etag(bucket).into());
     value.insert("timeCreated".into(), timestamp(bucket.time_created)?.into());
@@ -1032,16 +1026,20 @@ pub(crate) fn bucket_resource_with_profile(
         "uniformBucketLevelAccess": uniform_access,
         "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
     }));
-    value.insert("locationType".into(), json!(bucket.location_type));
+    value.insert(
+        "locationType".into(),
+        bucket.location.kind().as_str().into(),
+    );
     // Cloud Storage returned `satisfiesPZI: true` for regional buckets (asia-northeast1 and
     // us-central1, 2026-10-31) and no such field for a multi-region bucket, which carries
     // `rpo: DEFAULT` instead. The reference emulator's bucket shape has neither field.
     if profile == CompatProfile::Native {
-        if bucket.location_type == "region" {
-            value.insert("satisfiesPZI".into(), true.into());
-        } else {
-            value.insert("rpo".into(), "DEFAULT".into());
-        }
+        match bucket.location.kind() {
+            LocationKind::Region => value.insert("satisfiesPZI".into(), true.into()),
+            LocationKind::DualRegion | LocationKind::MultiRegion => {
+                value.insert("rpo".into(), "DEFAULT".into())
+            }
+        };
     }
     add_optional_bucket_fields(&mut value, bucket, profile)?;
     if profile == CompatProfile::FakeGcsServer {

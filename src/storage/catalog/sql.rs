@@ -65,6 +65,16 @@ text_enum!(
     "invalid stored storage class",
     |value: &str| value.parse().ok()
 );
+text_enum!(
+    crate::bucket::LocationKind,
+    "invalid stored location type",
+    crate::bucket::LocationKind::from_stored
+);
+text_enum!(
+    crate::bucket::Location,
+    "invalid stored bucket location",
+    crate::bucket::Location::from_canonical
+);
 
 // Only sync_state columns decode into these types: those rows are written from them. Catalog
 // tables (`objects`, `buckets`, ...) may hold names the fake-gcs-server profile or an older
@@ -343,7 +353,7 @@ mod tests {
 
     #[test]
     fn stored_enum_values_keep_the_catalog_format() {
-        use crate::bucket::StorageClass;
+        use crate::bucket::{Location, LocationKind, StorageClass};
         use crate::storage::catalog::{
             admin::Origin,
             change_journal::ChangeKind,
@@ -365,6 +375,15 @@ mod tests {
                 "DURABLE_REDUCED_AVAILABILITY",
             ),
         ]);
+        text_values(&[
+            (LocationKind::Region, "region"),
+            (LocationKind::DualRegion, "dual-region"),
+            (LocationKind::MultiRegion, "multi-region"),
+        ]);
+        text_values(
+            &["US", "ASIA-NORTHEAST1", "NAM4"]
+                .map(|name| (name.parse::<Location>().unwrap(), name)),
+        );
         text_values(&[
             (Origin::Api, "api"),
             (Origin::Seed, "seed"),

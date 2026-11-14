@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::{
-    bucket::bucket_location,
+    bucket::Location,
     config::{Scheme, Setting, Spelled},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
 };
@@ -846,7 +846,9 @@ fn refused_advice(flag: RefusedFlag, values: &BTreeMap<ServerFlag, &str>) -> Str
         RefusedFlag::FilesystemRoot => "filesystem-root cannot use fake-gcs-server's storage format. Remove it and use --data-dir PATH (GCS_MIMIC_DATA_DIR, /var/lib/gcs-mimic in the image) for native storage; convert a stopped source snapshot with gcs-mimic import fake-gcs-server --source DIR --data-dir NEW".into(),
         RefusedFlag::CorsHeaders => "cors-headers cannot preserve fake-gcs-server's global request-header allowlist. Remove it: permissive mode already allows every origin, strict mode follows each bucket's cors rules, and JSON preflight already allows every valid requested header. Use --cors-fallback allow-all (GCS_MIMIC_CORS_FALLBACK=allow-all) explicitly to allow every origin on XML buckets without rules".into(),
         RefusedFlag::Location => {
-            let example = bucket_location(value).map_or_else(|_| "ASIA-NORTHEAST1", |(location, _)| location);
+            let example = value
+                .parse::<Location>()
+                .map_or("ASIA-NORTHEAST1", Location::as_str);
             format!("location cannot preserve fake-gcs-server's server-wide response location. Use --default-location {example} (GCS_MIMIC_DEFAULT_LOCATION={example}) with GCS_MIMIC_COMPAT_PROFILE=native for new buckets without an explicit location; existing buckets and explicit locations win, and compat_profile=fake-gcs-server keeps no server-wide default location")
         }
     }

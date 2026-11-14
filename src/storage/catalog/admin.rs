@@ -154,10 +154,7 @@ impl BucketDefinition {
         crate::json::validate_project(&record.project)
             .map_err(|error| AdminError::Invalid(error.message))?;
         crate::bucket::validate_cors(&record.cors)?;
-        let (location, location_type) = crate::bucket::bucket_location(&record.location)?;
         if record.metageneration <= 0
-            || record.location != location
-            || record.location_type != location_type
             || record.labels.len() > 64
             || record.labels.iter().any(|(key, value)| {
                 !crate::bucket::valid_label(key, crate::bucket::LabelPart::Key)
@@ -182,31 +179,25 @@ impl BucketDefinition {
     }
 }
 
+/// A record's location is a canonical table name whose type follows from it, so a definition
+/// of every location type keeps the canonical name and its type.
 #[test]
 fn bucket_definition_requires_matching_canonical_location_and_type() {
-    for location in ["US", "ASIA-NORTHEAST1", "NAM4"] {
+    use crate::bucket::LocationKind;
+    for (location, kind) in [
+        ("us", LocationKind::MultiRegion),
+        ("asia-northeast1", LocationKind::Region),
+        ("NAM4", LocationKind::DualRegion),
+    ] {
         let input = serde_json::json!({"name":"example-bucket", "location":location}).to_string();
         let record = crate::json::parse_insert(input.as_bytes(), "project", std::time::UNIX_EPOCH)
             .expect("supported location");
-        assert!(BucketDefinition::new(record.clone()).is_ok());
-        for (name, kind) in [
-            ("MARS-CENTRAL1", record.location_type.as_str()),
-            (location, "invalid-type"),
-        ] {
-            let mut invalid = record.clone();
-            invalid.location = name.into();
-            invalid.location_type = kind.into();
-            assert!(matches!(
-                BucketDefinition::new(invalid),
-                Err(AdminError::Invalid(_))
-            ));
-        }
-        let mut invalid = record;
-        invalid.location.make_ascii_lowercase();
-        assert!(matches!(
-            BucketDefinition::new(invalid),
-            Err(AdminError::Invalid(_))
-        ));
+        let definition = BucketDefinition::new(record).unwrap();
+        assert_eq!(
+            definition.record().location.as_str(),
+            location.to_ascii_uppercase()
+        );
+        assert_eq!(definition.record().location.kind(), kind);
     }
 }
 

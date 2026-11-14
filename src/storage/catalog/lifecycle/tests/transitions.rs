@@ -173,8 +173,8 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
     ] {
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
-        record.location = location.into();
-        record.location_type = kind.into();
+        record.location = location.parse().unwrap();
+        assert_eq!(record.location.kind().as_str(), kind);
         record.lifecycle = vec![transition(target, json!({"age":1}))];
         catalog.insert_bucket(record).await.unwrap();
         let original =
@@ -240,8 +240,7 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
 async fn an_unreadable_stored_location_type_quarantines_the_bucket_rules() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.location = "US-CENTRAL1".into();
-    record.location_type = "region".into();
+    record.location = "US-CENTRAL1".parse().unwrap();
     record.lifecycle = vec![
         transition(StorageClass::Coldline, json!({"age":1})),
         delete(json!({"age":1})),

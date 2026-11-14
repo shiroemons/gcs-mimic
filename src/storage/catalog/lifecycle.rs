@@ -3,9 +3,9 @@
 use super::{Catalog, CatalogError, Incarnation, Inner, objects, sql, unavailable};
 use crate::{
     bucket::{
-        BucketAccess, StorageClass,
+        BucketAccess, LocationKind, StorageClass,
         lifecycle::{
-            LifecycleAction, LifecycleLocation, LifecycleRule,
+            LifecycleAction, LifecycleRule,
             evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, wakeup_at},
         },
     },
@@ -442,7 +442,7 @@ enum BucketRules {
     Quarantined,
     Ready {
         stored: String,
-        location: LifecycleLocation,
+        location: LocationKind,
         rules: Vec<LifecycleRule>,
     },
 }
@@ -538,32 +538,34 @@ fn bucket_rules(
     if current != incarnation {
         return Ok(BucketRules::Absent);
     }
-    let location = LifecycleLocation::from(location.as_str());
+    let location = LocationKind::from_stored(&location);
     if let BucketRules::Ready {
         stored: previous,
         location: previous_location,
         ..
     } = &cached
         && *previous == stored
-        && *previous_location == location
+        && Some(*previous_location) == location
     {
         return Ok(cached);
     }
     // A type no release wrote cannot tell which transitions the bucket allows, so its rules wait
     // in quarantine like rules that no longer decode.
-    let rules = match location {
-        LifecycleLocation::Unknown => Err(CatalogError::Corrupt(
-            crate::storage::failure::BackendCause::new("invalid stored bucket location type"),
-        )),
-        LifecycleLocation::Region | LifecycleLocation::MultiRegion => {
-            serde_json::from_str::<Vec<serde_json::Value>>(&stored)
-                .map_err(unavailable)
-                .and_then(|values| LifecycleRule::from_stored(&values))
-        }
-    };
+    let rules = location
+        .ok_or_else(|| {
+            CatalogError::Corrupt(crate::storage::failure::BackendCause::new(
+                "invalid stored bucket location type",
+            ))
+        })
+        .and_then(|location| {
+            let values =
+                serde_json::from_str::<Vec<serde_json::Value>>(&stored).map_err(unavailable)?;
+            let mut rules = LifecycleRule::from_stored(&values)?;
+            rules.retain(|rule| rule.action.runs_in(location));
+            Ok((location, rules))
+        });
     match rules {
-        Ok(mut rules) => {
-            rules.retain(|rule| location.permits(rule.action));
+        Ok((location, rules)) => {
             clear_quarantine(transaction, QuarantineKey::rules(bucket, incarnation))?;
             Ok(BucketRules::Ready {
                 stored,

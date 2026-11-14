@@ -3,7 +3,7 @@
 use crate::config_input::Fix as SettingFix;
 use crate::{
     auth::{AuthMode, SignedUrls, TestSigner, signature::SignedHostPort},
-    bucket::bucket_location,
+    bucket::Location,
     config_input::{CliCommand, Input, InputError, InputKind, Inputs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     time_limit::TimeLimit,
@@ -904,11 +904,12 @@ fn seed_project(value: &str) -> Result<String, SettingFix> {
 /// An empty value selects Cloud Storage's default location.
 fn default_location(value: &str) -> Result<String, SettingFix> {
     let value = if value.is_empty() { "US" } else { value };
-    Ok(bucket_location(value)
+    Ok(value
+        .parse::<Location>()
         .map_err(
             |_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1",
         )?
-        .0
+        .as_str()
         .to_owned())
 }
 

@@ -1,6 +1,6 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
-use super::{CatalogError, StorageClass, validate_storage_class};
+use super::{CatalogError, LocationKind, StorageClass, validate_storage_class};
 use crate::metadata_error::{LifecycleExample, MetadataError};
 use serde::Deserialize;
 use serde_json::Value;
@@ -433,45 +433,27 @@ fn valid_date(value: &str) -> bool {
     year > 0 && day > 0 && day <= days
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LifecycleLocation {
-    Region,
-    MultiRegion,
-    Unknown,
-}
-
-impl From<&str> for LifecycleLocation {
-    fn from(value: &str) -> Self {
-        match value {
-            "region" => Self::Region,
-            "dual-region" | "multi-region" => Self::MultiRegion,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-impl LifecycleLocation {
-    pub(crate) fn permits(self, action: LifecycleAction) -> bool {
-        match action {
-            LifecycleAction::SetStorageClass(class) => match self {
-                Self::Region => class != StorageClass::MultiRegional,
-                Self::MultiRegion => true,
-                Self::Unknown => false,
+impl LifecycleAction {
+    /// Whether the action can run in a bucket of `location`: a regional bucket has no
+    /// multi-regional class to move objects to.
+    pub(crate) fn runs_in(self, location: LocationKind) -> bool {
+        match self {
+            Self::SetStorageClass(class) => match location {
+                LocationKind::Region => class != StorageClass::MultiRegional,
+                LocationKind::DualRegion | LocationKind::MultiRegion => true,
             },
-            LifecycleAction::Delete | LifecycleAction::AbortIncompleteMultipartUpload => true,
+            Self::Delete | Self::AbortIncompleteMultipartUpload => true,
         }
     }
 }
 
 pub(crate) fn validate_location(
     rules: &[LifecycleRule],
-    location_type: &str,
+    location: LocationKind,
 ) -> Result<(), CatalogError> {
-    let incompatible = match LifecycleLocation::from(location_type) {
-        LifecycleLocation::Region => LifecycleMatchClass::Supported(StorageClass::MultiRegional),
-        LifecycleLocation::MultiRegion | LifecycleLocation::Unknown => {
-            LifecycleMatchClass::Regional
-        }
+    let incompatible = match location {
+        LocationKind::Region => LifecycleMatchClass::Supported(StorageClass::MultiRegional),
+        LocationKind::DualRegion | LocationKind::MultiRegion => LifecycleMatchClass::Regional,
     };
     for rule in rules {
         if rule.condition.matches_storage_class.contains(&incompatible) {

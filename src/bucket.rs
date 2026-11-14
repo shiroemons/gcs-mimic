@@ -11,7 +11,10 @@ use std::{
 pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
+pub(crate) mod location;
 pub(crate) mod name;
+
+pub(crate) use location::{Location, LocationKind};
 
 // Keep exhaustive transition tests tied to the enum's declaration rather than a second variant list.
 macro_rules! storage_classes {
@@ -89,78 +92,14 @@ impl TryFrom<String> for StorageClass {
 
 pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
-// Pinned to the official locations page checked in sdk-regional-locations.md.
-const REGIONS: &[&str] = &[
-    "AFRICA-SOUTH1",
-    "ASIA-EAST1",
-    "ASIA-EAST2",
-    "ASIA-NORTHEAST1",
-    "ASIA-NORTHEAST2",
-    "ASIA-NORTHEAST3",
-    "ASIA-SOUTH1",
-    "ASIA-SOUTH2",
-    "ASIA-SOUTHEAST1",
-    "ASIA-SOUTHEAST2",
-    "ASIA-SOUTHEAST3",
-    "AUSTRALIA-SOUTHEAST1",
-    "AUSTRALIA-SOUTHEAST2",
-    "EUROPE-CENTRAL2",
-    "EUROPE-NORTH1",
-    "EUROPE-NORTH2",
-    "EUROPE-SOUTHWEST1",
-    "EUROPE-WEST1",
-    "EUROPE-WEST2",
-    "EUROPE-WEST3",
-    "EUROPE-WEST4",
-    "EUROPE-WEST6",
-    "EUROPE-WEST8",
-    "EUROPE-WEST9",
-    "EUROPE-WEST10",
-    "EUROPE-WEST12",
-    "ME-CENTRAL1",
-    "ME-CENTRAL2",
-    "ME-WEST1",
-    "NORTHAMERICA-NORTHEAST1",
-    "NORTHAMERICA-NORTHEAST2",
-    "NORTHAMERICA-SOUTH1",
-    "SOUTHAMERICA-EAST1",
-    "SOUTHAMERICA-WEST1",
-    "US-CENTRAL1",
-    "US-EAST1",
-    "US-EAST4",
-    "US-EAST5",
-    "US-SOUTH1",
-    "US-WEST1",
-    "US-WEST2",
-    "US-WEST3",
-    "US-WEST4",
-];
-const DUAL_REGIONS: &[&str] = &["ASIA1", "EUR4", "EUR5", "EUR7", "EUR8", "NAM4"];
-const MULTI_REGIONS: &[&str] = &["US", "EU", "ASIA"];
-
-pub(crate) fn bucket_location(value: &str) -> Result<(&'static str, &'static str), CatalogError> {
-    for (names, kind) in [
-        (REGIONS, "region"),
-        (DUAL_REGIONS, "dual-region"),
-        (MULTI_REGIONS, "multi-region"),
-    ] {
-        if let Some(name) = names.iter().find(|name| name.eq_ignore_ascii_case(value)) {
-            return Ok((name, kind));
-        }
-    }
-    Err(CatalogError::InvalidMetadata(
-        "The specified location constraint is not valid.".into(),
-    ))
-}
-
 /// Bucket metadata persisted by the catalog. Protocol adapters derive wire fields from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BucketRecord {
     pub name: String,
     /// Project identifier exactly as supplied by the creating request.
     pub project: String,
-    pub location: String,
-    pub location_type: String,
+    /// The location; its type (`locationType`) follows from the name.
+    pub(crate) location: Location,
     pub storage_class: StorageClass,
     pub(crate) autoclass: Option<autoclass::Autoclass>,
     pub labels: BTreeMap<String, String>,
@@ -259,7 +198,6 @@ pub(crate) struct BucketMetadataUpdate {
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,
     pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
-    pub location: Option<String>,
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
     pub touched: bool,
@@ -284,7 +222,6 @@ impl BucketMetadataUpdate {
             default_event_based_hold,
             public_access_prevention_enforced,
             uniform_bucket_level_access_enabled,
-            location,
             touched,
         } = self;
         acl.is_none()
@@ -304,7 +241,6 @@ impl BucketMetadataUpdate {
             && default_event_based_hold.is_none()
             && public_access_prevention_enforced.is_none()
             && uniform_bucket_level_access_enabled.is_none()
-            && location.is_none()
             && !touched
     }
 }
@@ -623,25 +559,6 @@ mod tests {
             ..Default::default()
         };
         assert!(validate_cors(&[invalid]).is_err());
-    }
-
-    #[test]
-    fn official_bucket_location_names_and_types() {
-        for (names, kind) in [
-            (REGIONS, "region"),
-            (DUAL_REGIONS, "dual-region"),
-            (MULTI_REGIONS, "multi-region"),
-        ] {
-            for name in names {
-                assert_eq!(
-                    bucket_location(&name.to_ascii_lowercase()).ok(),
-                    Some((*name, kind))
-                );
-            }
-        }
-        for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
-            assert!(bucket_location(invalid).is_err());
-        }
     }
 
     #[test]

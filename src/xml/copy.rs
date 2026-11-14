@@ -212,7 +212,9 @@ pub(super) async fn respond(
                 .ok_or_else(|| {
                     put::storage_error(crate::object::ObjectError::BucketNotFound, ctx.caller)
                 })?
-                .location,
+                .location
+                .as_str()
+                .to_owned(),
         )
     } else {
         None

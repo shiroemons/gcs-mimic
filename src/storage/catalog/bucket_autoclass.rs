@@ -61,7 +61,7 @@ pub(super) fn update(
 ) -> Result<(), CatalogError> {
     let lifecycle = if let Some(rules) = &update.lifecycle {
         let rules = LifecycleRule::from_input(rules)?;
-        validate_location(&rules, &record.location_type)?;
+        validate_location(&rules, record.location.kind())?;
         rules
     } else {
         LifecycleRule::from_stored(&record.lifecycle)?

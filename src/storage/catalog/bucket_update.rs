@@ -120,13 +120,6 @@ pub(super) fn update_in_transaction(
     if matches!(mode, WriteMode::Patch) && update.is_empty() {
         return Ok(record);
     }
-    if update
-        .location
-        .as_ref()
-        .is_some_and(|location| !location.eq_ignore_ascii_case(&record.location))
-    {
-        return Err(CatalogError::UnsupportedMetadata("location".into()));
-    }
     apply_uniform_access(
         &mut record,
         update.uniform_bucket_level_access_enabled,

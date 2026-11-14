@@ -888,8 +888,8 @@ fn bkt_ins_001_defaults_and_server_owned_values() {
     let now = UNIX_EPOCH + Duration::new(123, 456_789_123);
     let bucket = parse_insert(br#"{"name":"test-bucket"}"#, "p", now).unwrap();
     assert_eq!(bucket.project, "p");
-    assert_eq!(bucket.location, "US");
-    assert_eq!(bucket.location_type, "multi-region");
+    assert_eq!(bucket.location.as_str(), "US");
+    assert_eq!(bucket.location.kind().as_str(), "multi-region");
     assert_eq!(bucket.storage_class.as_str(), "STANDARD");
     assert!(bucket.labels.is_empty());
     assert_eq!(bucket.metageneration, 1);
@@ -1111,9 +1111,9 @@ fn bkt_ins_003_location_and_storage_class_subset() {
         ] {
             let body = json!({"name":"abc", "location":location, "storageClass":class});
             let bucket = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
-            assert_eq!(bucket.location, location);
+            assert_eq!(bucket.location.as_str(), location);
             assert_eq!(bucket.storage_class.as_str(), class);
-            assert_eq!(bucket.location_type, "multi-region");
+            assert_eq!(bucket.location.kind().as_str(), "multi-region");
         }
     }
     for (location, kind) in [
@@ -1130,8 +1130,8 @@ fn bkt_ins_003_location_and_storage_class_subset() {
     ] {
         let body = json!({"name":"abc", "location":location});
         let bucket = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
-        assert_eq!(bucket.location, location.to_ascii_uppercase());
-        assert_eq!(bucket.location_type, kind);
+        assert_eq!(bucket.location.as_str(), location.to_ascii_uppercase());
+        assert_eq!(bucket.location.kind().as_str(), kind);
     }
     for location in [
         "",
@@ -1203,8 +1203,8 @@ fn bucket_location_defaults_and_unsupported_placement() {
             "asia-northeast1",
         )
         .unwrap();
-        assert_eq!(bucket.location, "ASIA-NORTHEAST1");
-        assert_eq!(bucket.location_type, "region");
+        assert_eq!(bucket.location.as_str(), "ASIA-NORTHEAST1");
+        assert_eq!(bucket.location.kind().as_str(), "region");
     }
     for placement in [Value::Null, json!({}), json!({"dataLocations": []})] {
         let body = json!({"name":"abc", "customPlacementConfig":placement});

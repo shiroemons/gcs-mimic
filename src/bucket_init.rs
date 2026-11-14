@@ -2458,7 +2458,7 @@ mod tests {
         assert_eq!(records[0].time_created, FixedClock.now());
         assert_eq!(records[0].updated, FixedClock.now());
         assert_eq!(records[0].metageneration, 1);
-        assert_eq!(records[0].location, "EU");
+        assert_eq!(records[0].location.as_str(), "EU");
         assert_eq!(records[0].storage_class.as_str(), "NEARLINE");
         assert_eq!(records[0].labels["env"], "dev");
         assert_eq!(records[0].cors[0].max_age_seconds, Some(3600));
@@ -2467,7 +2467,7 @@ mod tests {
         assert!(records[0].public_access_prevention_enforced);
         let defaults = parsed(r#"{"version":1,"buckets":[{"name":"default-bucket","cors":null,"versioning":{},"iamConfiguration":{}}]}"#).unwrap();
         assert_eq!(defaults[0].project, "seed-project");
-        assert_eq!(defaults[0].location, "US");
+        assert_eq!(defaults[0].location.as_str(), "US");
         assert_eq!(defaults[0].storage_class.as_str(), "STANDARD");
         assert!(!defaults[0].versioning_enabled);
         assert!(!defaults[0].default_event_based_hold);
@@ -2478,15 +2478,16 @@ mod tests {
     #[test]
     fn initializer_location_normalizes_names_and_defaults() {
         let records = parse(br#"{"version":1,"buckets":[{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"}]}"#, "seed-project", &FixedClock, "ASIA").unwrap();
-        assert_eq!(records[0].location, "ASIA");
-        assert_eq!(records[1].location, "EU");
+        assert_eq!(records[0].location.as_str(), "ASIA");
+        assert_eq!(records[1].location.as_str(), "EU");
         for value in [json!(""), Value::Null] {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
             assert_eq!(
                 parse(document.as_bytes(), "seed-project", &FixedClock, "NAM4").unwrap()[0]
-                    .location,
+                    .location
+                    .as_str(),
                 "NAM4"
             );
         }
@@ -2495,8 +2496,8 @@ mod tests {
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
             let records = parse(document.as_bytes(), "seed-project", &FixedClock, "US").unwrap();
-            assert_eq!(records[0].location, value.to_ascii_uppercase());
-            assert_eq!(records[0].location_type, kind);
+            assert_eq!(records[0].location.as_str(), value.to_ascii_uppercase());
+            assert_eq!(records[0].location.kind().as_str(), kind);
         }
         for value in [json!("invalid"), json!("MARS-CENTRAL1"), json!(1)] {
             let document =
@@ -3239,7 +3240,7 @@ mod tests {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket",field:null}]}).to_string();
             if field == "location" {
-                assert_eq!(parsed(&document).unwrap()[0].location, "US");
+                assert_eq!(parsed(&document).unwrap()[0].location.as_str(), "US");
             } else {
                 assert!(parsed(&document).is_err(), "{field}");
             }

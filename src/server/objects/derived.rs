@@ -160,7 +160,9 @@ async fn copy_object(
                 .get_bucket(&params.source_bucket, &BucketAccess::Permissive)
                 .await?
                 .ok_or(ObjectError::BucketNotFound)?
-                .location,
+                .location
+                .as_str()
+                .to_owned(),
         )
     } else {
         None

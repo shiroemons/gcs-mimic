@@ -226,8 +226,8 @@ pub(crate) fn bucket(
         // The local registry has no project numbers, so this matches JSON `projectNumber`.
         project: format!("projects/{}", crate::acl::project_number(&record.project)),
         metageneration: record.metageneration,
-        location: record.location.clone(),
-        location_type: record.location_type.clone(),
+        location: record.location.as_str().into(),
+        location_type: record.location.kind().as_str().into(),
         storage_class: record.storage_class.as_str().into(),
         autoclass: record
             .autoclass
@@ -701,8 +701,7 @@ mod tests {
         let bucket_record = BucketRecord {
             name: "example-bucket".into(),
             project: "123".into(),
-            location: "US".into(),
-            location_type: "multi-region".into(),
+            location: "US".parse().unwrap(),
             storage_class: crate::bucket::StorageClass::Standard,
             autoclass: None,
             labels: BTreeMap::from([("team".into(), "dev".into())]),
