@@ -64,20 +64,27 @@ pub(crate) struct CheckedBody {
     failure: &'static str,
 }
 
+/// The three ends of a checked body: the producer's sender and completion mark, and the body.
+pub(crate) struct CheckedChannel {
+    pub(crate) sender: ChunkSender,
+    pub(crate) completion: Completion,
+    pub(crate) body: CheckedBody,
+}
+
 /// `failure` is the error a reader sees when the producer ends without marking completion.
-pub(crate) fn checked_channel(failure: &'static str) -> (ChunkSender, Completion, CheckedBody) {
+pub(crate) fn checked_channel(failure: &'static str) -> CheckedChannel {
     let (sender, body) = channel();
     let complete = Arc::new(AtomicBool::new(false));
-    (
+    CheckedChannel {
         sender,
-        Completion(complete.clone()),
-        CheckedBody {
+        completion: Completion(complete.clone()),
+        body: CheckedBody {
             body,
             complete,
             ended: false,
             failure,
         },
-    )
+    }
 }
 
 impl Body for CheckedBody {

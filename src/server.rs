@@ -1867,7 +1867,7 @@ pub(crate) async fn stream_upload(
     expected_sha256: Option<[u8; 32]>,
 ) -> Result<Streamed, ObjectError> {
     let mut size = 0_u64;
-    let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
+    let mut sha256 = expected_sha256.map(Sha256Check::new);
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(ObjectError::body_aborted)?;
         let mut bytes = frame
@@ -1877,8 +1877,8 @@ pub(crate) async fn stream_upload(
             .checked_add(bytes.len() as u64)
             .filter(|size| *size <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
-        if let Some(hash) = &mut sha256 {
-            hash.update(&bytes);
+        if let Some(check) = &mut sha256 {
+            check.update(&bytes);
         }
         // HTTP/1 frames stay below twice CONNECTION_READ_BUFFER, so passing them on without a
         // copy keeps what the two-slot channel retains bounded; larger frames are still split
@@ -1891,13 +1891,36 @@ pub(crate) async fn stream_upload(
             }
         }
     }
-    if sha256
-        .zip(expected_sha256)
-        .is_some_and(|(hash, expected)| hash.finish().as_ref() != expected)
-    {
-        return Err(ObjectError::ChecksumMismatch);
-    }
+    sha256.map(Sha256Check::verify).transpose()?;
     Ok(Streamed::Complete(size))
+}
+
+/// A SHA-256 the client declared for a body, checked against the bytes as they stream past.
+pub(crate) struct Sha256Check {
+    hasher: ring::digest::Context,
+    expected: [u8; 32],
+}
+
+impl Sha256Check {
+    pub(crate) fn new(expected: [u8; 32]) -> Self {
+        Self {
+            hasher: ring::digest::Context::new(&ring::digest::SHA256),
+            expected,
+        }
+    }
+
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
+        self.hasher.update(bytes);
+    }
+
+    /// `ChecksumMismatch` when the streamed bytes hash to another value.
+    pub(crate) fn verify(self) -> Result<(), ObjectError> {
+        if self.hasher.finish().as_ref() == self.expected {
+            Ok(())
+        } else {
+            Err(ObjectError::ChecksumMismatch)
+        }
+    }
 }
 
 pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(

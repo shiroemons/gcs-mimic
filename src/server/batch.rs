@@ -15,7 +15,7 @@ use crate::{
 use http_body_util::BodyExt;
 use hyper::body::{Frame, SizeHint};
 use hyper::{
-    HeaderMap, Method, Request, Response, StatusCode,
+    Method, Request, Response, StatusCode,
     body::{Body, Bytes},
     header::{CONTENT_TYPE, HeaderValue},
 };
@@ -136,8 +136,11 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
     .await
     .map_err(|_| parser_failed())??;
     // Everything above can still fail the envelope as a whole; from here each part answers alone.
-    let (sender, completion, body) =
-        chunk_body::checked_channel("Batch response ended before its closing delimiter");
+    let chunk_body::CheckedChannel {
+        sender,
+        completion,
+        body,
+    } = chunk_body::checked_channel("Batch response ended before its closing delimiter");
     let runner = PartRunner {
         state: Arc::clone(ctx.state),
         config: Arc::clone(ctx.config),
@@ -263,10 +266,11 @@ fn too_large() -> JsonError {
     )
 }
 
+/// `response` with its body read into memory, unless it would exceed `cap`.
 async fn bounded_response(
     response: Response<ResponseBody>,
     cap: usize,
-) -> Result<(StatusCode, HeaderMap, Vec<u8>), JsonError> {
+) -> Result<Response<Vec<u8>>, JsonError> {
     let (parts, mut body) = response.into_parts();
     let header_bytes: usize = parts
         .headers
@@ -296,7 +300,7 @@ async fn bounded_response(
         }
         bytes.extend_from_slice(&data);
     }
-    Ok((parts.status, parts.headers, bytes))
+    Ok(Response::from_parts(parts, bytes))
 }
 
 fn response_too_large() -> JsonError {
@@ -313,7 +317,7 @@ async fn append_response(
     response: Response<ResponseBody>,
     cap: usize,
 ) {
-    let (status, headers, body) = match bounded_response(response, cap).await {
+    let response = match bounded_response(response, cap).await {
         Ok(response) => response,
         Err(error) => {
             let (parts, body) = error.into_response().into_parts();
@@ -321,9 +325,10 @@ async fn append_response(
                 Ok(body) => body.to_bytes(),
                 Err(never) => match never {},
             };
-            (parts.status, parts.headers, body.to_vec())
+            Response::from_parts(parts, body.to_vec())
         }
     };
+    let (status, headers, body) = (response.status(), response.headers(), response.body());
     output.extend_from_slice(
         format!("--{BOUNDARY}\r\nContent-Type: application/http\r\n").as_bytes(),
     );
@@ -343,7 +348,7 @@ async fn append_response(
         )
         .as_bytes(),
     );
-    for (name, value) in &headers {
+    for (name, value) in headers {
         if !parse::hop_header(name.as_str()) && name != "content-length" {
             output.extend_from_slice(name.as_str().as_bytes());
             output.extend_from_slice(b": ");
@@ -352,7 +357,7 @@ async fn append_response(
         }
     }
     output.extend_from_slice(format!("content-length: {}\r\n\r\n", body.len()).as_bytes());
-    output.extend_from_slice(&body);
+    output.extend_from_slice(body);
     output.extend_from_slice(b"\r\n");
 }
 
@@ -887,7 +892,11 @@ mod tests {
         let pool = Arc::new(Semaphore::new(1));
         for consume in [true, false] {
             let admission = pool.clone().acquire_owned().await.unwrap();
-            let (sender, completion, body) = chunk_body::checked_channel("ended early");
+            let chunk_body::CheckedChannel {
+                sender,
+                completion,
+                body,
+            } = chunk_body::checked_channel("ended early");
             sender
                 .try_send(Ok(Bytes::from_static(b"response")))
                 .unwrap();
@@ -937,7 +946,7 @@ mod tests {
             ),
             (
                 "trailers",
-                Ok(hyper::body::Frame::trailers(HeaderMap::new())),
+                Ok(hyper::body::Frame::trailers(hyper::HeaderMap::new())),
                 "Batched response trailers are unsupported",
             ),
         ] {

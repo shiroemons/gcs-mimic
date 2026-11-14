@@ -39,8 +39,11 @@ pub(super) async fn request(
     parts.headers.remove(CONTENT_LENGTH);
     parts.headers.remove(TRANSFER_ENCODING);
     parts.headers.remove("trailer");
-    let (sender, completion, decoded) =
-        chunk_body::checked_channel("Gzip producer ended before validated EOF");
+    let chunk_body::CheckedChannel {
+        sender,
+        completion,
+        body: decoded,
+    } = chunk_body::checked_channel("Gzip producer ended before validated EOF");
     let expanded_limit = ctx
         .config
         .max_object_bytes
@@ -170,7 +173,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_panicking_producer_never_becomes_validated_eof() {
-        let (sender, _completion, mut body) = chunk_body::checked_channel("producer ended early");
+        let chunk_body::CheckedChannel {
+            sender, mut body, ..
+        } = chunk_body::checked_channel("producer ended early");
         let producer = crate::task::spawn_supervised("test-gzip-producer", async move {
             sender
                 .send(Ok(Bytes::from_static(b"complete MIME boundary")))
