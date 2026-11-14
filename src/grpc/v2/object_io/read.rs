@@ -1,6 +1,9 @@
 use super::resource::{OwnerFields, mask_object};
 use super::*;
-use crate::grpc::validate::{ByteRange, RangeError};
+use crate::grpc::{
+    v2::mask::ReadMask,
+    validate::{ByteRange, RangeError},
+};
 
 /// Cloud Storage names the object and its size when a read starts past the end;
 /// [`read_range`] keeps the generic bound check.
@@ -18,14 +21,14 @@ fn check_read_offset(record: &crate::object::ObjectRecord, offset: i64) -> Resul
 /// (recorded): a mask that selects fields must select the object bytes too. An absent or empty
 /// mask and `*` select every field. Selecting the whole `checksummed_data` message is assumed to
 /// count, since it contains `content`; only the rejection itself is recorded.
-fn require_content_in_read_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Status> {
-    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
+fn require_content_in_read_mask(mask: ReadMask<'_>) -> Result<(), Status> {
+    let Some(paths) = mask.selective_paths() else {
         return Ok(());
     };
-    if mask.paths.iter().any(|path| {
+    if paths.iter().any(|path| {
         matches!(
             path.as_str(),
-            "*" | "checksummed_data" | "checksummed_data.content"
+            "checksummed_data" | "checksummed_data.content"
         )
     }) {
         return Ok(());
@@ -33,10 +36,62 @@ fn require_content_in_read_mask(mask: Option<&prost_types::FieldMask>) -> Result
     Err(crate::grpc::v2::status::invalid_with_reason(
         format!(
             "The 'read_mask' field must include checksummed_data.content, but was '{}'.",
-            mask.paths.join(",")
+            paths.join(",")
         ),
         "GRPC_READ_MASK_MISSING_CHECKSUMMED_DATA",
     ))
+}
+
+/// Applies a ReadObject mask to the first response. Its `metadata.` paths select fields of the
+/// object (`metadata` alone selects all of it); the response's own fields are kept only when
+/// named.
+fn mask_first_response(
+    first: &mut pb::ReadObjectResponse,
+    mask: ReadMask<'_>,
+    caller: Option<Caller<'_>>,
+) -> Result<(), Status> {
+    let Some(paths) = mask.selective_paths() else {
+        return Ok(());
+    };
+    let mut object_paths = Vec::new();
+    let mut metadata = false;
+    for path in paths {
+        match path.as_str() {
+            "checksummed_data"
+            | "checksummed_data.content"
+            | "checksummed_data.crc32c"
+            | "object_checksums"
+            | "content_range" => {}
+            "metadata" => metadata = true,
+            p if let Some(field) = p.strip_prefix("metadata.") => {
+                object_paths.push(field.to_owned())
+            }
+            _ => {
+                return Err(unsupported_for(
+                    &format!("ReadObject read_mask {path}"),
+                    caller,
+                ));
+            }
+        }
+    }
+    if !metadata {
+        first.metadata = match ReadMask::from(object_paths.as_slice()) {
+            ReadMask::Default => None,
+            object_mask
+            @ (ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_)) => first
+                .metadata
+                .take()
+                .map(|metadata| mask_object(metadata, object_mask))
+                .transpose()?,
+        };
+    }
+    if !paths.iter().any(|p| p == "object_checksums") {
+        first.object_checksums = None;
+    }
+    if !paths.iter().any(|p| p == "content_range") {
+        first.content_range = None;
+    }
+    Ok(())
 }
 
 pub(super) fn read_range(size: u64, offset: i64, limit: i64) -> Result<ByteRange, Status> {
@@ -57,6 +112,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
+        let mask = ReadMask::from(r.read_mask.as_ref());
         common(r.common_object_request_params.as_ref())?;
         if r.soft_deleted == Some(true) || !r.restore_token.is_empty() {
             return Err(unsupported_for(
@@ -77,11 +133,11 @@ impl Storage {
                 caller,
                 bucket,
                 std::slice::from_mut(&mut object),
-                OwnerFields::selected(r.read_mask.as_ref(), None),
+                OwnerFields::selected(mask, None),
             )
             .await?;
         }
-        Ok(Response::new(mask_object(object, r.read_mask.as_ref())?))
+        Ok(Response::new(mask_object(object, mask)?))
     }
     pub(in crate::grpc::v2) async fn read_object(
         &self,
@@ -91,7 +147,8 @@ impl Storage {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
-        require_content_in_read_mask(r.read_mask.as_ref())?;
+        let mask = ReadMask::from(r.read_mask.as_ref());
+        require_content_in_read_mask(mask)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, mut reader, finality) = self
@@ -110,7 +167,7 @@ impl Storage {
                 caller,
                 bucket,
                 std::slice::from_mut(&mut object),
-                OwnerFields::selected(r.read_mask.as_ref(), Some("metadata")),
+                OwnerFields::selected(mask, Some("metadata")),
             )
             .await?;
         }
@@ -129,51 +186,7 @@ impl Storage {
             }),
             ..Default::default()
         };
-        if let Some(mask) = r.read_mask
-            && !mask.paths.is_empty()
-            && !mask.paths.iter().any(|p| p == "*")
-        {
-            let mut paths = Vec::new();
-            let mut metadata = false;
-            for path in &mask.paths {
-                match path.as_str() {
-                    "checksummed_data"
-                    | "checksummed_data.content"
-                    | "checksummed_data.crc32c"
-                    | "object_checksums"
-                    | "content_range" => {}
-                    "metadata" => metadata = true,
-                    p if let Some(field) = p.strip_prefix("metadata.") => {
-                        paths.push(field.to_owned())
-                    }
-                    _ => {
-                        return Err(unsupported_for(
-                            &format!("ReadObject read_mask {path}"),
-                            caller,
-                        ));
-                    }
-                }
-            }
-            if !metadata {
-                first.metadata = if paths.is_empty() {
-                    None
-                } else {
-                    first
-                        .metadata
-                        .take()
-                        .map(|metadata| {
-                            mask_object(metadata, Some(&prost_types::FieldMask { paths }))
-                        })
-                        .transpose()?
-                };
-            }
-            if !mask.paths.iter().any(|p| p == "object_checksums") {
-                first.object_checksums = None;
-            }
-            if !mask.paths.iter().any(|p| p == "content_range") {
-                first.content_range = None;
-            }
-        }
+        mask_first_response(&mut first, mask, caller)?;
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
             // Cloud Storage ends the stream after the last data message instead of appending an
@@ -207,6 +220,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListObjectsResponse>, Status> {
         let r = request.into_inner();
+        let mask = ReadMask::from(r.read_mask.as_ref());
         let bucket = self.bucket_id(&r.parent)?;
         let limit = validate::page_size(r.page_size)
             .ok_or_else(|| Status::invalid_argument("page_size must be nonnegative; use 1000"))?;
@@ -260,12 +274,12 @@ impl Storage {
             caller,
             bucket,
             &mut objects,
-            OwnerFields::selected(r.read_mask.as_ref(), None),
+            OwnerFields::selected(mask, None),
         )
         .await?;
         let objects = objects
             .into_iter()
-            .map(|object| mask_object(object, r.read_mask.as_ref()))
+            .map(|object| mask_object(object, mask))
             .collect::<Result<Vec<_>, Status>>()?;
         Ok(Response::new(pb::ListObjectsResponse {
             objects,

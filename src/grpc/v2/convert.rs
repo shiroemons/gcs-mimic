@@ -162,9 +162,17 @@ macro_rules! access_control {
 access_control!(bucket_access_control, pb::BucketAccessControl);
 access_control!(object_access_control, pb::ObjectAccessControl);
 
+/// Whether a bucket resource carries its lifecycle rules. A read whose mask leaves them out
+/// must not fail on rules Storage v2 cannot represent (size conditions).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lifecycle {
+    Include,
+    Omit,
+}
+
 pub(crate) fn bucket(
     record: &BucketRecord,
-    read_mask: Option<&prost_types::FieldMask>,
+    lifecycle: Lifecycle,
 ) -> Result<pb::Bucket, tonic::Status> {
     let retention_policy = record
         .retention_policy
@@ -205,16 +213,9 @@ pub(crate) fn bucket(
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
         etag: crate::json::bucket_etag(record),
-        lifecycle: if read_mask.is_none_or(|mask| {
-            mask.paths.is_empty()
-                || mask
-                    .paths
-                    .iter()
-                    .any(|path| matches!(path.as_str(), "*" | "lifecycle"))
-        }) {
-            lifecycle(&record.lifecycle)?
-        } else {
-            None
+        lifecycle: match lifecycle {
+            Lifecycle::Include => self::lifecycle(&record.lifecycle)?,
+            Lifecycle::Omit => None,
         },
         // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
         // The local registry has no project numbers, so this matches JSON `projectNumber`.
@@ -746,7 +747,7 @@ mod tests {
                 ..record
             },
         ] {
-            let status = bucket(&invalid, None).unwrap_err();
+            let status = bucket(&invalid, Lifecycle::Include).unwrap_err();
             assert_eq!(status.code(), tonic::Code::Unavailable);
             assert_eq!(status.message(), "Bucket catalog is unavailable");
         }
@@ -846,14 +847,17 @@ mod tests {
         };
         let value =
             json::bucket_resource(&bucket_record, "http://localhost", Projection::NoAcl).unwrap();
-        let proto = bucket(&bucket_record, None).unwrap();
+        let proto = bucket(&bucket_record, Lifecycle::Include).unwrap();
         assert_eq!(proto.project, "projects/123");
         let named = BucketRecord {
             project: "local-project".into(),
             ..bucket_record.clone()
         };
         // SDKs parse the project as a number, so an ID with no registered number renders as 0.
-        assert_eq!(bucket(&named, None).unwrap().project, "projects/0");
+        assert_eq!(
+            bucket(&named, Lifecycle::Include).unwrap().project,
+            "projects/0"
+        );
         assert_eq!(proto.bucket_id, value["name"]);
         assert_eq!(proto.storage_class, value["storageClass"]);
         assert_eq!(proto.location, value["location"]);

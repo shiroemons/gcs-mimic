@@ -1,4 +1,5 @@
 use super::*;
+use crate::grpc::v2::mask::ReadMask;
 
 /// The object fields that a default read mask omits, selected by an explicit mask.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,23 +18,22 @@ impl OwnerFields {
 
     /// `*` selects every field; other paths name top-level fields, optionally under `prefix`
     /// (ReadObject nests the object in `metadata`, where `metadata` alone selects all of it).
-    pub(super) fn selected(mask: Option<&prost_types::FieldMask>, prefix: Option<&str>) -> Self {
-        let Some(mask) = mask else {
-            return Self::default();
+    pub(super) fn selected(mask: ReadMask<'_>, prefix: Option<&str>) -> Self {
+        let paths = match mask {
+            ReadMask::Default => return Self::default(),
+            ReadMask::Wildcard | ReadMask::MixedWildcard(_) => return Self::ALL,
+            ReadMask::Paths(paths) => paths,
         };
         let path = |field: &str| {
-            mask.paths.iter().any(|path| {
-                path == "*"
-                    || match prefix {
-                        None => path == field,
-                        Some(prefix) => {
-                            path == prefix
-                                || path
-                                    .strip_prefix(prefix)
-                                    .and_then(|rest| rest.strip_prefix('.'))
-                                    .is_some_and(|rest| rest == field)
-                        }
-                    }
+            paths.iter().any(|path| match prefix {
+                None => path == field,
+                Some(prefix) => {
+                    path == prefix
+                        || path
+                            .strip_prefix(prefix)
+                            .and_then(|rest| rest.strip_prefix('.'))
+                            .is_some_and(|rest| rest == field)
+                }
             })
         };
         Self {
@@ -52,16 +52,15 @@ impl OwnerFields {
 /// ACL and owner are filled beforehand by [`Storage::add_owner_fields`].
 pub(super) fn mask_object(
     mut object: pb::Object,
-    mask: Option<&prost_types::FieldMask>,
+    mask: ReadMask<'_>,
 ) -> Result<pb::Object, Status> {
-    let Some(mask) = mask.filter(|m| !m.paths.is_empty() && !m.paths.iter().any(|p| p == "*"))
-    else {
+    let Some(paths) = mask.selective_paths() else {
         return Ok(object);
     };
     // The Java SDK lists with `checksums.crc32c` and `checksums.md5_hash`; a sub-path keeps only
     // that digest, as protobuf field-mask semantics require.
     let digest = |name: &str| {
-        mask.paths
+        paths
             .iter()
             .any(|p| p == "checksums" || p.strip_prefix("checksums.") == Some(name))
     };
@@ -75,7 +74,7 @@ pub(super) fn mask_object(
         sums
     });
     macro_rules! fields { ($($field:ident),+ $(,)?) => {{
-        for path in &mask.paths {
+        for path in paths {
             if !matches!(path.as_str(), $(stringify!($field))|+ | "checksums.crc32c" | "checksums.md5_hash") {
                 // A name that is no Object field is a client error. A sub-path of a real field
                 // (`owner.entity`) is only unsupported here: the recording cannot tell whether
@@ -88,7 +87,7 @@ pub(super) fn mask_object(
                 });
             }
         }
-        $(if !mask.paths.iter().any(|p| p == stringify!($field)) { object.$field = Default::default(); })+
+        $(if !paths.iter().any(|p| p == stringify!($field)) { object.$field = Default::default(); })+
     }} }
     fields!(
         name,

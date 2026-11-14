@@ -1,5 +1,9 @@
 use super::{Storage, access_status, pb, status::unsupported_for};
-use super::{convert, names};
+use super::{
+    convert,
+    mask::{AclDefault, BucketMask},
+    names,
+};
 use crate::auth::Caller;
 use crate::{
     bucket::{BucketConditions, CatalogError},
@@ -38,97 +42,6 @@ fn project_name(resource: &str) -> Result<&str, Status> {
         ));
     }
     Ok(project)
-}
-
-macro_rules! bucket_fields {
-    ($handler:ident) => {
-        $handler!(
-            name,
-            bucket_id,
-            etag,
-            project,
-            metageneration,
-            location,
-            location_type,
-            storage_class,
-            autoclass,
-            labels,
-            create_time,
-            update_time,
-            default_event_based_hold,
-            versioning,
-            cors,
-            lifecycle,
-            retention_policy,
-            soft_delete_policy,
-            object_retention,
-            iam_config,
-            acl,
-            default_object_acl,
-            owner
-        )
-    };
-}
-
-fn validate_bucket_mask(mask: Option<&prost_types::FieldMask>) -> Result<(), Status> {
-    let Some(mask) = mask.filter(|mask| !mask.paths.is_empty()) else {
-        return Ok(());
-    };
-    if mask.paths.iter().any(|path| path == "*") {
-        if mask.paths.len() == 1 {
-            return Ok(());
-        }
-        // Cloud Storage's wording, recorded by case grpc-unsupported-options.
-        return Err(Status::invalid_argument(format!(
-            "Field masks may either contain only a single '*' field or specify specific fields, but not both. Got: '{}'.",
-            mask.paths.join(",")
-        )));
-    }
-    for path in &mask.paths {
-        macro_rules! validate { ($($field:ident),* $(,)?) => { match path.as_str() {
-            $(stringify!($field) => (),)*
-            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
-        } }; }
-        bucket_fields!(validate);
-    }
-    Ok(())
-}
-
-fn bucket_mask(
-    bucket: pb::Bucket,
-    mask: Option<&prost_types::FieldMask>,
-) -> Result<pb::Bucket, Status> {
-    validate_bucket_mask(mask)?;
-    let Some(mask) = mask.filter(|mask| mask.paths.first().is_some_and(|path| path != "*")) else {
-        return Ok(bucket);
-    };
-    let mut selected = pb::Bucket::default();
-    for path in &mask.paths {
-        macro_rules! select { ($($field:ident),* $(,)?) => { match path.as_str() {
-            $(stringify!($field) => selected.$field = bucket.$field.to_owned(),)*
-            _ => return Err(super::status::unsupported(&format!("bucket read_mask {path}"))),
-        } }; }
-        bucket_fields!(select);
-    }
-    Ok(selected)
-}
-
-/// Whether a read without a mask includes the ACL fields: GetBucket defaults to all fields,
-/// ListBuckets to all fields except `acl`, `default_object_acl` and `owner`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum AclDefault {
-    Include,
-    Exclude,
-}
-
-pub(super) fn wants_acl(mask: Option<&prost_types::FieldMask>, default: AclDefault) -> bool {
-    match mask.filter(|mask| !mask.paths.is_empty()) {
-        None => default == AclDefault::Include,
-        Some(mask) => mask
-            .paths
-            .iter()
-            .any(|path| matches!(path.as_str(), "*" | "acl" | "default_object_acl" | "owner")),
-    }
 }
 
 /// Clears a message field that a client sent empty, which carries no supported setting.
@@ -378,7 +291,7 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let request = request.into_inner();
         let name = self.bucket_id(&request.name)?;
-        validate_bucket_mask(request.read_mask.as_ref())?;
+        let mask = BucketMask::parse(request.read_mask.as_ref())?;
         let access = self.access(caller, name, crate::auth::BUCKETS_GET).await?;
         let record = self
             .state
@@ -390,14 +303,11 @@ impl Storage {
         if !BucketConditions::from(&request).hold(record.metageneration) {
             return Err(access_status(CatalogError::PreconditionFailed, caller));
         }
-        let mut bucket = convert::bucket(&record, request.read_mask.as_ref())?;
-        if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
+        let mut bucket = convert::bucket(&record, mask.lifecycle())?;
+        if mask.includes_acl(AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;
         }
-        Ok(Response::new(bucket_mask(
-            bucket,
-            request.read_mask.as_ref(),
-        )?))
+        Ok(Response::new(mask.apply(bucket)))
     }
     pub(super) async fn create_bucket(
         &self,
@@ -458,7 +368,7 @@ impl Storage {
             .insert_bucket(record)
             .await
             .map_err(|error| access_status(error, caller))?;
-        let mut bucket = convert::bucket(&record, None)?;
+        let mut bucket = convert::bucket(&record, convert::Lifecycle::Include)?;
         self.add_bucket_acl(caller, &mut bucket).await?;
         Ok(Response::new(bucket))
     }
@@ -485,7 +395,7 @@ impl Storage {
         if request.prefix.len() > 222 {
             return Err(invalid_list());
         }
-        validate_bucket_mask(request.read_mask.as_ref())?;
+        let mask = BucketMask::parse(request.read_mask.as_ref())?;
         let start = if request.page_token.is_empty() {
             None
         } else {
@@ -508,7 +418,7 @@ impl Storage {
             }
             _ => String::new(),
         };
-        let acl = wants_acl(request.read_mask.as_ref(), AclDefault::Exclude);
+        let acl = mask.includes_acl(AclDefault::Exclude);
         let mut projections = if acl {
             let access = caller.map_or(crate::bucket::BucketAccess::Permissive, |caller| {
                 crate::bucket::BucketAccess::Policy {
@@ -536,11 +446,11 @@ impl Storage {
         .into_iter();
         let mut buckets = Vec::with_capacity(page.items.len());
         for record in &page.items {
-            let mut bucket = convert::bucket(record, request.read_mask.as_ref())?;
+            let mut bucket = convert::bucket(record, mask.lifecycle())?;
             if let Some(Some(projection)) = projections.next() {
                 self.apply_bucket_acl(&mut bucket, &projection);
             }
-            buckets.push(bucket_mask(bucket, request.read_mask.as_ref())?);
+            buckets.push(mask.apply(bucket));
         }
         Ok(Response::new(pb::ListBucketsResponse {
             buckets,

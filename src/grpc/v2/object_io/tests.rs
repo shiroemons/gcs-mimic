@@ -6,7 +6,7 @@ use super::{
     write::{EndOfStream, MessagePosition},
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, registry};
-use crate::grpc::validate::ByteRange;
+use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use serde_json::json;
@@ -385,7 +385,7 @@ fn grpc_io_range_and_masks() {
     );
     let unknown = mask_object(
         pb::Object::default(),
-        fixtures::mask(&["noSuchField"]).as_ref(),
+        ReadMask::from(fixtures::mask(&["noSuchField"]).as_ref()),
     )
     .unwrap_err();
     assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
@@ -413,7 +413,7 @@ fn grpc_io_range_and_masks() {
             size: 12,
             ..Default::default()
         },
-        fixtures::mask(&["name"]).as_ref(),
+        ReadMask::from(fixtures::mask(&["name"]).as_ref()),
     )
     .unwrap();
     assert_eq!(object.name, "a");
@@ -421,7 +421,7 @@ fn grpc_io_range_and_masks() {
     assert_code(
         mask_object(
             pb::Object::default(),
-            fixtures::mask(&["owner.entity"]).as_ref(),
+            ReadMask::from(fixtures::mask(&["owner.entity"]).as_ref()),
         ),
         tonic::Code::Unimplemented,
     );

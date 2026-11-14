@@ -514,7 +514,7 @@ impl Storage {
                 &access,
             )
             .await?;
-        let mut result = convert::bucket(&record, None)?;
+        let mut result = convert::bucket(&record, convert::Lifecycle::Include)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }
@@ -713,7 +713,7 @@ impl Storage {
         let record = self
             .patch_bucket_with_lifecycle_response(bucket, &update, conditions, &access)
             .await?;
-        let mut result = convert::bucket(&record, None)?;
+        let mut result = convert::bucket(&record, convert::Lifecycle::Include)?;
         self.add_bucket_acl(caller, &mut result).await?;
         Ok(Response::new(result))
     }

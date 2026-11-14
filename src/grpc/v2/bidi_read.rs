@@ -1,4 +1,4 @@
-use super::{ResponseStream, Storage, pb, status::unsupported};
+use super::{ResponseStream, Storage, mask::ReadMask, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -120,10 +120,10 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
             .routing_token
             .as_ref()
             .is_some_and(|token| !token.is_empty())
-        || spec
-            .read_mask
-            .as_ref()
-            .is_some_and(|mask| !mask.paths.is_empty() && mask.paths != ["*"])
+        || !matches!(
+            ReadMask::from(spec.read_mask.as_ref()),
+            ReadMask::Default | ReadMask::Wildcard
+        )
     {
         return Err(unsupported(
             "BidiReadObject encryption, routing_token or read_mask",

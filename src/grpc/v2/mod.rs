@@ -4,6 +4,7 @@ pub use bidi_read::ReadHandles;
 mod bucket_update;
 mod buckets;
 pub(crate) mod convert;
+mod mask;
 pub(crate) mod names;
 mod object_io;
 mod object_update;
