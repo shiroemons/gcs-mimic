@@ -26,6 +26,38 @@ mod transitions;
 
 const DAY: Duration = Duration::from_secs(86_400);
 
+/// A version whose stored columns no longer decode is skipped as unreadable, while a busy or
+/// failing database is retried on a later run.
+#[test]
+fn only_undecodable_stored_columns_make_a_version_unreadable() {
+    use crate::storage::failure::BackendCause;
+    let unavailable =
+        |error: rusqlite::Error| ObjectError::Unavailable(BackendCause::from_error(error));
+    for undecodable in [
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(io::Error::other("bad column")),
+        ),
+        rusqlite::Error::IntegralValueOutOfRange(0, -1),
+        rusqlite::Error::InvalidColumnType(0, "size".into(), rusqlite::types::Type::Null),
+    ] {
+        assert!(deterministic_read_error(&unavailable(undecodable)));
+    }
+    let busy =
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None);
+    for retried in [
+        unavailable(busy),
+        ObjectError::Unavailable(BackendCause::from_error(io::Error::other("disk"))),
+        ObjectError::Unavailable("offline".into()),
+    ] {
+        assert!(!deterministic_read_error(&retried), "{retried:?}");
+    }
+    assert!(deterministic_read_error(&ObjectError::Corrupt(
+        "bad row".into()
+    )));
+}
+
 async fn disk(data: &TestDir) -> (Catalog, Arc<ManualClock>) {
     let clock = Arc::new(ManualClock::new(UNIX_EPOCH + DAY));
     let catalog = Catalog::open_with_clock(&data.0, clock.clone())

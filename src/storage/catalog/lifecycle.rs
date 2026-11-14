@@ -1,6 +1,7 @@
 //! Bounded lifecycle execution on the catalog writer and injected business clock.
 
 use super::{Catalog, CatalogError, Incarnation, Inner, objects, sql, unavailable};
+use crate::storage::failure::{Link, TypedSource};
 use crate::{
     bucket::{
         BucketAccess, LocationKind, StorageClass,
@@ -682,16 +683,14 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
         | ObjectError::InvalidFixedMetadata(_)
         | ObjectError::InvalidMetadata
         | ObjectError::Metadata(_) => true,
-        ObjectError::Unavailable(cause) => cause.source().is_some_and(|source| {
-            matches!(
-                source.downcast_ref::<rusqlite::Error>(),
-                Some(
-                    rusqlite::Error::FromSqlConversionFailure(..)
-                        | rusqlite::Error::IntegralValueOutOfRange(..)
-                        | rusqlite::Error::InvalidColumnType(..)
-                )
-            )
-        }),
+        ObjectError::Unavailable(cause) => matches!(
+            cause.typed_source(),
+            Some(Link::Sqlite(
+                rusqlite::Error::FromSqlConversionFailure(..)
+                    | rusqlite::Error::IntegralValueOutOfRange(..)
+                    | rusqlite::Error::InvalidColumnType(..)
+            ))
+        ),
         ObjectError::BucketNotFound
         | ObjectError::ObjectNotFound
         | ObjectError::PreconditionFailed
