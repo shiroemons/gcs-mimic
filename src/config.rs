@@ -13,7 +13,7 @@ use serde_json::value::RawValue;
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
-    num::{NonZeroU32, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     path::{Path, PathBuf},
 };
 
@@ -298,7 +298,7 @@ pub struct Config {
     pub max_sync_depth: Option<NonZeroUsize>,
     pub default_location: String,
     /// Soft delete retention given to a new bucket that names no policy; `None` gives it none.
-    pub default_soft_delete_retention_seconds: Option<std::num::NonZeroU64>,
+    pub default_soft_delete_retention_seconds: Option<NonZeroU64>,
     /// An explicit choice overrides the synchronization-dependent execution default.
     pub lifecycle_execution: Option<LifecycleExecution>,
     /// The bucket initialization document, from `buckets_file` or `buckets`.
@@ -694,284 +694,227 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
 /// `value` is borrowed: an inline document may be 1 GiB, and only the setting that stores it
 /// needs its own copy.
 fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
-    match setting {
-        Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
-            storage::apply(config, setting, value)
-        }
-        Setting::PubsubEmulatorHost
-        | Setting::EventPubsubProjectId
-        | Setting::EventPubsubTopic
-        | Setting::EventBucket
-        | Setting::EventObjectPrefix
-        | Setting::EventList => notifications::apply(config, setting, value),
-        Setting::LogLevel
-        | Setting::Scheme
-        | Setting::Listen
-        | Setting::ListenHttp
-        | Setting::GrpcListen
-        | Setting::TrustedListen
-        | Setting::UnixSocket
-        | Setting::TlsCert
-        | Setting::TlsKey
-        | Setting::TlsHandshakeTimeoutMs => apply_network_setting(config, setting, value),
-        Setting::ApiBaseUrl | Setting::PublicBaseUrl | Setting::XmlVirtualHostDomains => {
-            apply_url_setting(config, setting, value)
-        }
-        Setting::DataDir
-        | Setting::SeedDir
-        | Setting::DefaultSeedDir
-        | Setting::SyncDir
-        | Setting::SyncDeleteGuard
-        | Setting::SyncReinitialize
-        | Setting::SeedProject
-        | Setting::SeedContentType
-        | Setting::DefaultLocation
-        | Setting::DefaultSoftDeleteRetentionSeconds
-        | Setting::LifecycleExecution
-        | Setting::BucketsMode => apply_storage_setting(config, setting, value),
-        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value),
-        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value),
-        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, value),
-        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, value),
-        Setting::AdminPrincipal
-        | Setting::AdminAllowedHosts
-        | Setting::TrustedPrincipal
-        | Setting::TrustedAllowedHosts
-        | Setting::LocalCreatorEmail
-        | Setting::AdminEnabled
-        | Setting::AuthMode
-        | Setting::CompatProfile
-        | Setting::CorsFallback
-        | Setting::SignedHostPort
-        | Setting::TestSigner
-        | Setting::SignedUrls => apply_access_setting(config, setting, value),
-        Setting::MaxConnections
-        | Setting::MaxGrpcStreams
-        | Setting::MaxObjectBytes
-        | Setting::MaxResumableSessions
-        | Setting::MaxRewriteSessions
-        | Setting::MaxSeedEntries
-        | Setting::MaxSeedDepth
-        | Setting::MaxBucketsPerBatch
-        | Setting::MaxSyncEntries
-        | Setting::MaxSyncDepth
-        | Setting::WorkerThreads
-        | Setting::MaxBlockingThreads => apply_limit_setting(config, setting, value),
-        Setting::HeaderReadTimeoutMs
-        | Setting::BodyInactivityTimeoutMs
-        | Setting::RequestTimeoutMs
-        | Setting::KeepAliveTimeoutMs
-        | Setting::ObjectRequestTimeoutMs
-        | Setting::CatalogWaitTimeoutMs
-        | Setting::ShutdownTimeoutMs => apply_timeout_setting(config, setting, value),
-        Setting::Config => Err(unknown_setting()),
-    }
-}
-
-fn unknown_setting() -> SettingFix {
-    setting::UNKNOWN_SETTING.into()
-}
-
-fn apply_network_setting(
-    config: &mut Config,
-    setting: Setting,
-    value: &str,
-) -> Result<(), SettingFix> {
     let key = setting.as_str();
     match setting {
+        // A configuration file selects where the others come from; it never holds a value.
+        Setting::Config => return Err(unknown_setting()),
+        // Listeners and transport.
         Setting::LogLevel => config.log_level = value.parse()?,
         Setting::Scheme => config.scheme = value.parse()?,
-        Setting::Listen => {
-            config.listen = value
-                .parse()
-                .map_err(|_| "listen must be an IP:port socket address")?
-        }
-        Setting::ListenHttp => {
-            config.listen_http = Some(value.parse().map_err(
-                |_| "listen_http must be an IP socket address, for example 127.0.0.1:8000",
-            )?);
-        }
-        Setting::GrpcListen => {
-            config.grpc_listen = Some(value.parse().map_err(|_| {
-                "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
-            })?);
-        }
+        Setting::Listen => config.listen = socket_address(value, LISTEN_FIX)?,
+        Setting::ListenHttp => config.listen_http = Some(socket_address(value, LISTEN_HTTP_FIX)?),
+        Setting::GrpcListen => config.grpc_listen = Some(socket_address(value, GRPC_LISTEN_FIX)?),
         Setting::TrustedListen => {
-            config.trusted_listen = Some(value.parse().map_err(|_| {
-                "trusted_listen must be an IP socket address, for example 0.0.0.0:4444 inside a container"
-            })?);
+            config.trusted_listen = Some(socket_address(value, TRUSTED_LISTEN_FIX)?);
         }
         Setting::UnixSocket => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
-        Setting::TlsCert | Setting::TlsKey => {
-            if value.is_empty() {
-                return Err(format!("{key} must not be empty").into());
-            }
-            if setting == Setting::TlsCert {
-                config.tls_cert = Some(PathBuf::from(value));
-            } else {
-                config.tls_key = Some(PathBuf::from(value));
-            }
-        }
+        Setting::TlsCert => config.tls_cert = Some(PathBuf::from(non_empty(key, value)?)),
+        Setting::TlsKey => config.tls_key = Some(PathBuf::from(non_empty(key, value)?)),
         Setting::TlsHandshakeTimeoutMs => {
             config.tls_handshake_timeout = setting.time_limit(value)?
         }
-        _ => return Err(unknown_setting()),
-    }
-    Ok(())
-}
-
-fn apply_url_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
-    match setting {
-        Setting::ApiBaseUrl => {
-            config.api_base_url = Some(
-                crate::url::normalize_base_url(value)
-                    .map_err(|error| format!("api_base_url: {error}"))?,
-            );
-        }
-        Setting::PublicBaseUrl => {
-            config.public_base_url = Some(
-                PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}"))?,
-            );
-        }
+        // Endpoints.
+        Setting::ApiBaseUrl => config.api_base_url = Some(api_base_url(value)?),
+        Setting::PublicBaseUrl => config.public_base_url = Some(public_base_url(value)?),
         Setting::XmlVirtualHostDomains => {
-            if !value.is_empty() {
-                for domain in value.split(',') {
-                    let domain = domain.trim().to_ascii_lowercase();
-                    validate_dns_name(&domain).map_err(|error| error.to_string())?;
-                    if config.xml_virtual_host_domains.contains(&domain) {
-                        return Err(
-                            "duplicate xml_virtual_host_domains entry; remove repeated DNS names"
-                                .into(),
-                        );
-                    }
-                    if config.xml_virtual_host_domains.len() == 32 {
-                        return Err(
-                            "xml_virtual_host_domains must contain at most 32 DNS names".into()
-                        );
-                    }
-                    config.xml_virtual_host_domains.push(domain);
-                }
-                // The most specific configured suffix owns overlapping domains.
-                config
-                    .xml_virtual_host_domains
-                    .sort_by_key(|d| std::cmp::Reverse(d.len()));
-            }
+            config.xml_virtual_host_domains = virtual_host_domains(value)?;
         }
-        _ => return Err(unknown_setting()),
-    }
-    Ok(())
-}
-
-fn apply_storage_setting(
-    config: &mut Config,
-    setting: Setting,
-    value: &str,
-) -> Result<(), SettingFix> {
-    let key = setting.as_str();
-    match setting {
+        // Storage and its directories.
+        Setting::Backend => config.backend = value.parse()?,
+        Setting::MemoryMaxBytes => config.memory_max_bytes = setting.integer(value)?,
+        Setting::MemoryCatalogMaxBytes => {
+            config.memory_catalog_max_bytes = setting.integer(value)?
+        }
         Setting::DataDir => config.data_dir = PathBuf::from(non_empty(key, value)?),
         Setting::SeedDir => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
         Setting::DefaultSeedDir => {
             config.default_seed_dir = Some(PathBuf::from(non_empty(key, value)?));
         }
-        Setting::SyncDir => {
-            if value.is_empty() {
-                return Err(
-                    "sync_dir must not be empty; supply an existing writable directory".into(),
-                );
-            }
-            config.sync_dir = Some(PathBuf::from(value));
-        }
+        Setting::SyncDir => config.sync_dir = Some(sync_dir(value)?),
         Setting::SyncDeleteGuard => {
             config.sync_delete_guard = value
-                .parse::<bool>()
-                .map_err(|_| "sync_delete_guard must be true or false")?
+                .parse()
+                .map_err(|_| "sync_delete_guard must be true or false")?;
         }
-        Setting::SyncReinitialize => {
-            config.sync_reinitialize =
-                Some(crate::sync::parse_catalog_id(value).map_err(|error| error.to_string())?)
-        }
-        Setting::SeedProject => {
-            crate::json::validate_project(value)
-                .map_err(|error| format!("seed_project: {}", error.message))?;
-            config.seed_project = value.to_owned();
-        }
+        Setting::SyncReinitialize => config.sync_reinitialize = Some(catalog_id(value)?),
+        Setting::SeedProject => config.seed_project = seed_project(value)?,
         Setting::SeedContentType => config.seed_content_type = value.parse()?,
-        Setting::DefaultLocation => {
-            let value = if value.is_empty() { "US" } else { value };
-            config.default_location = bucket_location(value)
-                .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
-                .0
-                .to_owned();
-        }
+        Setting::DefaultLocation => config.default_location = default_location(value)?,
         Setting::DefaultSoftDeleteRetentionSeconds => {
-            config.default_soft_delete_retention_seconds = value
-                .parse::<i64>()
-                .ok()
-                .and_then(|seconds| crate::bucket::SoftDeleteRetention::try_from(seconds).ok())
-                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=7776000 seconds (90 days); use 604800 for the Cloud Storage default of seven days")?
-                .enabled();
+            config.default_soft_delete_retention_seconds = soft_delete_retention(value)?;
         }
         Setting::LifecycleExecution => config.lifecycle_execution = Some(value.parse()?),
         Setting::BucketsMode => config.buckets_mode = value.parse()?,
-        _ => return Err(unknown_setting()),
-    }
-    Ok(())
-}
-
-fn apply_access_setting(
-    config: &mut Config,
-    setting: Setting,
-    value: &str,
-) -> Result<(), SettingFix> {
-    match setting {
+        Setting::BucketsFile => DocumentKind::Buckets.apply(config, Form::File, value)?,
+        Setting::Buckets => DocumentKind::Buckets.apply(config, Form::Inline, value)?,
+        Setting::IdentityFile => DocumentKind::Identities.apply(config, Form::File, value)?,
+        Setting::Identities => DocumentKind::Identities.apply(config, Form::Inline, value)?,
+        // Access.
+        Setting::AdminEnabled => {
+            config.admin_enabled = value
+                .parse()
+                .map_err(|_| "admin_enabled must be true or false")?;
+        }
+        Setting::AdminPrincipal => config.admin_principal = Some(principal(setting, value)?),
         Setting::AdminAllowedHosts => config.admin_allowed_hosts = allowed_hosts(setting, value)?,
+        Setting::TrustedPrincipal => config.trusted_principal = Some(principal(setting, value)?),
         Setting::TrustedAllowedHosts => {
             config.trusted_allowed_hosts = allowed_hosts(setting, value)?;
         }
-        Setting::AdminPrincipal => {
-            if !crate::auth::valid_principal_id(value) {
-                return Err(
-                    "admin_principal must be 1..=254 bytes of printable ASCII without whitespace, like identity ids"
-                        .into(),
-                );
-            }
-            config.admin_principal = Some(value.to_owned());
-        }
-        Setting::TrustedPrincipal => {
-            if !crate::auth::valid_principal_id(value) {
-                return Err(
-                    "trusted_principal must be 1..=254 bytes of printable ASCII without whitespace, like identity ids"
-                        .into(),
-                );
-            }
-            config.trusted_principal = Some(value.to_owned());
-        }
-        Setting::LocalCreatorEmail => {
-            if !value.is_empty() {
-                crate::auth::validate_local_creator_email(value).map_err(|reason| {
-                    format!(
-                        "local_creator_email {reason}; use an address such as \
-                         local-user@gcs-mimic.invalid or an empty value to disable it"
-                    )
-                })?;
-            }
-            config.local_creator_email = value.to_owned();
-        }
-        Setting::AdminEnabled => {
-            config.admin_enabled = value
-                .parse::<bool>()
-                .map_err(|_| "admin_enabled must be true or false")?;
-        }
+        Setting::LocalCreatorEmail => config.local_creator_email = local_creator_email(value)?,
         Setting::AuthMode => config.auth_mode = value.parse()?,
         Setting::CompatProfile => config.compat_profile = value.parse()?,
         Setting::CorsFallback => config.cors_fallback = Some(value.parse()?),
         Setting::SignedHostPort => config.signed_host_port = Some(value.parse()?),
         Setting::TestSigner => config.test_signer = Some(value.parse()?),
         Setting::SignedUrls => config.signed_urls = Some(value.parse()?),
-        _ => return Err(unknown_setting()),
+        // Notifications.
+        Setting::PubsubEmulatorHost => {
+            config.pubsub_emulator_host = notifications::emulator_host(value)?;
+        }
+        Setting::EventPubsubProjectId => value.clone_into(&mut config.event_pubsub_project_id),
+        Setting::EventPubsubTopic => value.clone_into(&mut config.event_pubsub_topic),
+        Setting::EventBucket => value.clone_into(&mut config.event_bucket),
+        Setting::EventObjectPrefix => value.clone_into(&mut config.event_object_prefix),
+        Setting::EventList => value.clone_into(&mut config.event_list),
+        // Limits; each checks the setting's bounds before it converts the value.
+        Setting::MaxConnections => config.max_connections = count(setting, value)?,
+        Setting::MaxGrpcStreams => config.max_grpc_streams = grpc_streams(setting, value)?,
+        Setting::MaxObjectBytes => config.max_object_bytes = setting.integer(value)?,
+        Setting::MaxResumableSessions => {
+            config.max_resumable_sessions = session_limit(setting, value)?;
+        }
+        Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit(setting, value)?,
+        Setting::MaxSeedEntries => config.max_seed_entries = tree_limit(setting, value)?,
+        Setting::MaxSeedDepth => config.max_seed_depth = tree_limit(setting, value)?,
+        Setting::MaxBucketsPerBatch => config.max_buckets_per_batch = tree_limit(setting, value)?,
+        Setting::MaxSyncEntries => config.max_sync_entries = tree_limit(setting, value)?,
+        Setting::MaxSyncDepth => config.max_sync_depth = tree_limit(setting, value)?,
+        Setting::WorkerThreads => config.worker_threads = count(setting, value)?,
+        Setting::MaxBlockingThreads => config.max_blocking_threads = count(setting, value)?,
+        // Timeouts.
+        Setting::HeaderReadTimeoutMs => config.header_read_timeout = setting.time_limit(value)?,
+        Setting::BodyInactivityTimeoutMs => {
+            config.body_inactivity_timeout = setting.time_limit(value)?;
+        }
+        Setting::RequestTimeoutMs => config.request_timeout = setting.time_limit(value)?,
+        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout = setting.time_limit(value)?,
+        Setting::ObjectRequestTimeoutMs => {
+            config.object_request_timeout = setting.time_limit(value)?;
+        }
+        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout = setting.time_limit(value)?,
+        Setting::ShutdownTimeoutMs => config.shutdown_timeout = setting.time_limit(value)?,
     }
     Ok(())
+}
+
+fn unknown_setting() -> SettingFix {
+    setting::UNKNOWN_SETTING.into()
+}
+
+const LISTEN_FIX: &str = "listen must be an IP:port socket address";
+const LISTEN_HTTP_FIX: &str =
+    "listen_http must be an IP socket address, for example 127.0.0.1:8000";
+const GRPC_LISTEN_FIX: &str = "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port";
+const TRUSTED_LISTEN_FIX: &str =
+    "trusted_listen must be an IP socket address, for example 0.0.0.0:4444 inside a container";
+
+fn socket_address(value: &str, fix: &'static str) -> Result<SocketAddr, SettingFix> {
+    value.parse().map_err(|_| fix.into())
+}
+
+fn api_base_url(value: &str) -> Result<String, SettingFix> {
+    crate::url::normalize_base_url(value).map_err(|error| format!("api_base_url: {error}").into())
+}
+
+fn public_base_url(value: &str) -> Result<PublicOrigin, SettingFix> {
+    PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}").into())
+}
+
+/// The comma-separated base domains, longest first: the most specific configured suffix owns
+/// overlapping domains.
+fn virtual_host_domains(value: &str) -> Result<Vec<String>, SettingFix> {
+    let mut domains = Vec::new();
+    if value.is_empty() {
+        return Ok(domains);
+    }
+    for domain in value.split(',') {
+        let domain = domain.trim().to_ascii_lowercase();
+        validate_dns_name(&domain).map_err(|error| error.to_string())?;
+        if domains.contains(&domain) {
+            return Err(
+                "duplicate xml_virtual_host_domains entry; remove repeated DNS names".into(),
+            );
+        }
+        if domains.len() == 32 {
+            return Err("xml_virtual_host_domains must contain at most 32 DNS names".into());
+        }
+        domains.push(domain);
+    }
+    domains.sort_by_key(|d| std::cmp::Reverse(d.len()));
+    Ok(domains)
+}
+
+fn sync_dir(value: &str) -> Result<PathBuf, SettingFix> {
+    if value.is_empty() {
+        return Err("sync_dir must not be empty; supply an existing writable directory".into());
+    }
+    Ok(PathBuf::from(value))
+}
+
+fn catalog_id(value: &str) -> Result<crate::storage::sync_state::CatalogId, SettingFix> {
+    crate::sync::parse_catalog_id(value).map_err(|error| error.to_string().into())
+}
+
+fn seed_project(value: &str) -> Result<String, SettingFix> {
+    crate::json::validate_project(value)
+        .map_err(|error| format!("seed_project: {}", error.message))?;
+    Ok(value.to_owned())
+}
+
+/// An empty value selects Cloud Storage's default location.
+fn default_location(value: &str) -> Result<String, SettingFix> {
+    let value = if value.is_empty() { "US" } else { value };
+    Ok(bucket_location(value)
+        .map_err(
+            |_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1",
+        )?
+        .0
+        .to_owned())
+}
+
+fn soft_delete_retention(value: &str) -> Result<Option<NonZeroU64>, SettingFix> {
+    Ok(value
+        .parse::<i64>()
+        .ok()
+        .and_then(|seconds| crate::bucket::SoftDeleteRetention::try_from(seconds).ok())
+        .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 1..=7776000 seconds (90 days); use 604800 for the Cloud Storage default of seven days")?
+        .enabled())
+}
+
+/// `admin_principal` and `trusted_principal` name identities, so both follow identity id rules.
+fn principal(setting: Setting, value: &str) -> Result<String, SettingFix> {
+    if !crate::auth::valid_principal_id(value) {
+        return Err(format!(
+            "{} must be 1..=254 bytes of printable ASCII without whitespace, like identity ids",
+            setting.as_str()
+        )
+        .into());
+    }
+    Ok(value.to_owned())
+}
+
+/// An empty value disables recording a creator.
+fn local_creator_email(value: &str) -> Result<String, SettingFix> {
+    if !value.is_empty() {
+        crate::auth::validate_local_creator_email(value).map_err(|reason| {
+            format!(
+                "local_creator_email {reason}; use an address such as \
+                 local-user@gcs-mimic.invalid or an empty value to disable it"
+            )
+        })?;
+    }
+    Ok(value.to_owned())
 }
 
 /// The DNS names an allow-list `setting` names, normalized as request hosts compare.
@@ -997,68 +940,31 @@ fn allowed_hosts(setting: Setting, value: &str) -> Result<Vec<String>, SettingFi
     Ok(hosts)
 }
 
-fn apply_limit_setting(
-    config: &mut Config,
-    setting: Setting,
-    value: &str,
-) -> Result<(), SettingFix> {
+fn count(setting: Setting, value: &str) -> Result<usize, SettingFix> {
     let value = setting.integer(value)?;
-    let count = || {
-        usize::try_from(value).map_err(|_| {
-            SettingFix::from(format!(
-                "{} exceeds this platform's count limit",
-                setting.as_str()
-            ))
-        })
-    };
-    // The one place 0 means unlimited: past this point the absence of a limit is `None`.
-    let session_limit = || {
-        u32::try_from(value)
-            .map(NonZeroU32::new)
-            .map_err(|_| SettingFix::from(format!("{} must fit in 32 bits", setting.as_str())))
-    };
-    let tree_limit = || count().map(NonZeroUsize::new);
-    match setting {
-        Setting::MaxConnections => config.max_connections = count()?,
-        // The setting's bounds keep this in range; the conversion records that in the type.
-        Setting::MaxGrpcStreams => {
-            config.max_grpc_streams = u32::try_from(value)
-                .ok()
-                .and_then(NonZeroU32::new)
-                .ok_or_else(unknown_setting)?;
-        }
-        Setting::MaxObjectBytes => config.max_object_bytes = value,
-        Setting::MaxResumableSessions => config.max_resumable_sessions = session_limit()?,
-        Setting::MaxRewriteSessions => config.max_rewrite_sessions = session_limit()?,
-        Setting::MaxSeedEntries => config.max_seed_entries = tree_limit()?,
-        Setting::MaxSeedDepth => config.max_seed_depth = tree_limit()?,
-        Setting::MaxBucketsPerBatch => config.max_buckets_per_batch = tree_limit()?,
-        Setting::MaxSyncEntries => config.max_sync_entries = tree_limit()?,
-        Setting::MaxSyncDepth => config.max_sync_depth = tree_limit()?,
-        Setting::WorkerThreads => config.worker_threads = count()?,
-        Setting::MaxBlockingThreads => config.max_blocking_threads = count()?,
-        _ => return Err(unknown_setting()),
-    }
-    Ok(())
+    usize::try_from(value)
+        .map_err(|_| format!("{} exceeds this platform's count limit", setting.as_str()).into())
 }
 
-fn apply_timeout_setting(
-    config: &mut Config,
-    setting: Setting,
-    value: &str,
-) -> Result<(), SettingFix> {
-    let limit = setting.time_limit(value)?;
-    match setting {
-        Setting::HeaderReadTimeoutMs => config.header_read_timeout = limit,
-        Setting::BodyInactivityTimeoutMs => config.body_inactivity_timeout = limit,
-        Setting::RequestTimeoutMs => config.request_timeout = limit,
-        Setting::KeepAliveTimeoutMs => config.keep_alive_timeout = limit,
-        Setting::ObjectRequestTimeoutMs => config.object_request_timeout = limit,
-        Setting::CatalogWaitTimeoutMs => config.catalog_wait_timeout = limit,
-        Setting::ShutdownTimeoutMs => config.shutdown_timeout = limit,
-        _ => return Err(unknown_setting()),
-    }
-    Ok(())
+/// The setting's bounds keep this in range; the conversion records that in the type.
+fn grpc_streams(setting: Setting, value: &str) -> Result<NonZeroU32, SettingFix> {
+    u32::try_from(setting.integer(value)?)
+        .ok()
+        .and_then(NonZeroU32::new)
+        .ok_or_else(unknown_setting)
+}
+
+/// The one place 0 means unlimited: past this point the absence of a limit is `None`.
+fn session_limit(setting: Setting, value: &str) -> Result<Option<NonZeroU32>, SettingFix> {
+    let value = setting.integer(value)?;
+    u32::try_from(value)
+        .map(NonZeroU32::new)
+        .map_err(|_| format!("{} must fit in 32 bits", setting.as_str()).into())
+}
+
+/// 0 means unlimited here too.
+fn tree_limit(setting: Setting, value: &str) -> Result<Option<NonZeroUsize>, SettingFix> {
+    count(setting, value).map(NonZeroUsize::new)
 }
 
 fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {

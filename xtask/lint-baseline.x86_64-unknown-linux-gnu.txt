@@ -16,11 +16,8 @@ clippy::unreachable	src/storage/catalog/resumable/options.rs	1
 clippy::wildcard_enum_match_arm	src/auth/mod.rs	1
 clippy::wildcard_enum_match_arm	src/bucket.rs	2
 clippy::wildcard_enum_match_arm	src/bucket/lifecycle.rs	1
-clippy::wildcard_enum_match_arm	src/config.rs	6
-clippy::wildcard_enum_match_arm	src/config/notifications.rs	1
 clippy::wildcard_enum_match_arm	src/config/runtime.rs	1
 clippy::wildcard_enum_match_arm	src/config/setting.rs	1
-clippy::wildcard_enum_match_arm	src/config/storage.rs	1
 clippy::wildcard_enum_match_arm	src/config_input.rs	1
 clippy::wildcard_enum_match_arm	src/config_input/options.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/bidi_read.rs	1

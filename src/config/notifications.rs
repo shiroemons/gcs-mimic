@@ -4,23 +4,14 @@ use super::{
 use crate::notification::{self, Endpoint, GlobalConfig, NotificationConfig, Runtime};
 use std::{collections::BTreeMap, io};
 
-pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
-    match setting {
-        Setting::PubsubEmulatorHost => {
-            if !value.is_empty() {
-                Endpoint::parse(value)
-                    .map_err(|_| SettingFix::from(notification::publisher::INVALID_ENDPOINT))?;
-            }
-            config.pubsub_emulator_host = (!value.is_empty()).then(|| value.to_owned());
-        }
-        Setting::EventPubsubProjectId => value.clone_into(&mut config.event_pubsub_project_id),
-        Setting::EventPubsubTopic => value.clone_into(&mut config.event_pubsub_topic),
-        Setting::EventBucket => value.clone_into(&mut config.event_bucket),
-        Setting::EventObjectPrefix => value.clone_into(&mut config.event_object_prefix),
-        Setting::EventList => value.clone_into(&mut config.event_list),
-        _ => return Err(super::unknown_setting()),
+/// An empty value disables delivery; anything else must name a local emulator.
+pub(super) fn emulator_host(value: &str) -> Result<Option<String>, SettingFix> {
+    if value.is_empty() {
+        return Ok(None);
     }
-    Ok(())
+    Endpoint::parse(value)
+        .map_err(|_| SettingFix::from(notification::publisher::INVALID_ENDPOINT))?;
+    Ok(Some(value.to_owned()))
 }
 
 impl Config {

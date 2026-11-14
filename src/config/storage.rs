@@ -1,4 +1,4 @@
-use super::{Config, ConfigurationReport, Diagnostic, Setting, SettingFix, Settings};
+use super::{ConfigurationReport, Diagnostic, Setting, Settings};
 
 super::string_enum! {
     pub enum Backend {
@@ -12,18 +12,6 @@ super::string_enum! {
     withdrawn {
         "filesystem" => "backend=filesystem is only the fake-gcs-server flag -backend filesystem; set backend=disk",
     }
-}
-
-pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
-    match setting {
-        Setting::Backend => config.backend = value.parse()?,
-        Setting::MemoryMaxBytes => config.memory_max_bytes = setting.integer(value)?,
-        Setting::MemoryCatalogMaxBytes => {
-            config.memory_catalog_max_bytes = setting.integer(value)?
-        }
-        _ => return Err(super::unknown_setting()),
-    }
-    Ok(())
 }
 
 impl ConfigurationReport {
@@ -51,6 +39,7 @@ impl ConfigurationReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use std::{collections::BTreeMap, num::NonZeroU64};
 
     /// `filesystem` is fake-gcs-server's word, so only its command-line flag translates it.
