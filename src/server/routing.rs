@@ -10,6 +10,7 @@ use super::{
     unsupported, xml_read,
 };
 use crate::{
+    auth::Caller,
     bucket::{BucketAccess, CatalogError},
     config::{CompatProfile, CorsFallback, CorsFallbackChoice},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
@@ -385,12 +386,7 @@ async fn respond_routed(
     selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
     if is_unsupported_protocol_upload(&request) {
-        return boxed(
-            ctx.authenticate(request.headers(), request.uri().query())
-                .await
-                .and_then(|_| Err(json::unsupported_upload_type()))
-                .unwrap_or_else(JsonError::into_response),
-        );
+        return refuse_authenticated(&request, ctx, json::unsupported_upload_type()).await;
     }
     let (method, uri, profile) = (request.method(), request.uri(), ctx.config.compat_profile);
     if xml::buckets::matches(method, uri, selected.as_ref()) {
@@ -464,28 +460,63 @@ async fn respond_routed(
     boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
+/// Authenticates the request, then takes its parsed operation. Authentication answers first,
+/// so a caller without credentials learns nothing about which requests would parse.
+async fn authenticated<'a, T>(
+    request: &Request<Incoming>,
+    ctx: RequestCtx<'a>,
+    parsed: Result<T, JsonError>,
+) -> Result<(T, Option<Caller<'a>>), JsonError> {
+    let caller = ctx
+        .authenticate(request.headers(), request.uri().query())
+        .await?;
+    Ok((parsed?, caller))
+}
+
+/// Runs an authenticated operation, reporting a refusal to an anonymous caller as Cloud
+/// Storage does.
+async fn dispatch<'a, T, R, F, Fut>(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'a>,
+    parsed: Result<T, JsonError>,
+    run: F,
+) -> Result<R, JsonError>
+where
+    F: FnOnce(Request<Incoming>, T, Option<Caller<'a>>) -> Fut,
+    Fut: Future<Output = Result<R, JsonError>>,
+{
+    let (operation, caller) = authenticated(&request, ctx, parsed).await?;
+    run(request, operation, caller)
+        .await
+        .map_err(|error| anonymous_error(error, caller))
+}
+
+/// Answers `refusal` once the request authenticates.
+async fn refuse_authenticated(
+    request: &Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    refusal: JsonError,
+) -> Response<ResponseBody> {
+    let error = match ctx
+        .authenticate(request.headers(), request.uri().query())
+        .await
+    {
+        Ok(_) => refusal,
+        Err(error) => error,
+    };
+    boxed(error.into_response())
+}
+
 async fn respond_acl(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
     parsed: Result<json::acl::AclRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let state = ctx.state;
-    let result = match ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)))
-    {
-        Ok((operation, caller)) => acl::respond(
-            request,
-            operation,
-            caller,
-            state,
-            ctx.endpoints.api_base_url(),
-        )
-        .await
-        .map_err(|error| anonymous_error(error, caller)),
-        Err(error) => Err(error),
-    };
+    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
+    let result = dispatch(request, ctx, parsed, |request, operation, caller| {
+        acl::respond(request, operation, caller, state, base)
+    })
+    .await;
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -494,16 +525,10 @@ async fn respond_unsupported(
     ctx: RequestCtx<'_>,
     route: &str,
 ) -> Response<ResponseBody> {
-    boxed(
-        ctx.authenticate(request.headers(), request.uri().query())
-            .await
-            .and_then(|_| {
-                Err(JsonError::unsupported_message(
-                    format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
-                ))
-            })
-            .unwrap_or_else(JsonError::into_response),
-    )
+    let refusal = JsonError::unsupported_message(format!(
+        "gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."
+    ));
+    refuse_authenticated(request, ctx, refusal).await
 }
 
 async fn respond_notifications(
@@ -511,24 +536,16 @@ async fn respond_notifications(
     ctx: RequestCtx<'_>,
     parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
-    let state = ctx.state;
-    let result = match ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)))
-    {
-        Ok(((operation, fields), caller)) => notifications::respond(
-            request,
-            operation,
-            fields,
-            caller,
-            state,
-            ctx.endpoints.api_base_url(),
-        )
-        .await
-        .map_err(|error| anonymous_error(error, caller)),
-        Err(error) => Err(error),
-    };
+    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
+    let result = dispatch(
+        request,
+        ctx,
+        parsed,
+        |request, (operation, fields), caller| {
+            notifications::respond(request, operation, fields, caller, state, base)
+        },
+    )
+    .await;
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -630,10 +647,7 @@ async fn respond_rewrite(
     ctx: RequestCtx<'_>,
     parsed: Result<json::rewrite::RewriteRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticated(&request, ctx, parsed).await;
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let result = match parsed {
         Ok((operation, caller)) => {
@@ -652,10 +666,7 @@ async fn respond_json_object(
     ctx: RequestCtx<'_>,
     parsed: Result<ObjectRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)));
+    let parsed = authenticated(&request, ctx, parsed).await;
     let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
     // The object a missing-object error names: only operations whose path selects one.
     let target = match &parsed {
@@ -714,24 +725,16 @@ async fn respond_project(
     ctx: RequestCtx<'_>,
     parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
-    let state = ctx.state;
-    let result = match ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)))
-    {
-        Ok(((operation, fields), caller)) => project_resources::respond(
-            request,
-            operation,
-            fields,
-            caller,
-            state,
-            ctx.endpoints.api_base_url(),
-        )
-        .await
-        .map_err(|error| anonymous_error(error, caller)),
-        Err(error) => Err(error),
-    };
+    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
+    let result = dispatch(
+        request,
+        ctx,
+        parsed,
+        |request, (operation, fields), caller| {
+            project_resources::respond(request, operation, fields, caller, state, base)
+        },
+    )
+    .await;
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
@@ -741,24 +744,11 @@ async fn respond_bucket(
     profile: CompatProfile,
     parsed: Result<json::BucketRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let state = ctx.state;
-    let result = match ctx
-        .authenticate(request.headers(), request.uri().query())
-        .await
-        .and_then(|caller| parsed.map(|op| (op, caller)))
-    {
-        Ok((operation, caller)) => buckets::respond(
-            request,
-            operation,
-            caller,
-            state,
-            profile,
-            ctx.endpoints.api_base_url(),
-        )
-        .await
-        .map_err(|error| anonymous_error(error, caller)),
-        Err(error) => Err(error),
-    };
+    let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
+    let result = dispatch(request, ctx, parsed, |request, operation, caller| {
+        buckets::respond(request, operation, caller, state, profile, base)
+    })
+    .await;
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
         .unwrap_or_else(JsonError::into_response);
