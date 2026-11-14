@@ -310,6 +310,12 @@ impl From<io::Error> for AdminError {
         Self::from_io(error.into())
     }
 }
+/// An exhausted RAM blob budget is a full store, as a full disk is.
+impl From<crate::storage::memory::BlobError> for AdminError {
+    fn from(error: crate::storage::memory::BlobError) -> Self {
+        Self::from_io(error.into())
+    }
+}
 impl From<FsError> for AdminError {
     fn from(error: FsError) -> Self {
         match error {

@@ -1,6 +1,9 @@
 use super::objects::{self, ReaderData, UploadSink};
 use super::transfer_io::{InputReader, Output};
-use crate::storage::{BlobId, memory::Store};
+use crate::storage::{
+    BlobId,
+    memory::{BlobError, Store},
+};
 use crate::{object::ObjectError, storage::failure::object_unavailable};
 use std::{
     fs,
@@ -116,7 +119,7 @@ impl BlobBackend {
     pub(super) fn checkpoint_draft(
         &self,
         id: &BlobId,
-    ) -> io::Result<Option<crate::storage::memory::Checkpoint>> {
+    ) -> Result<Option<crate::storage::memory::Checkpoint>, BlobError> {
         match self {
             Self::Disk(_) => Ok(None),
             Self::Memory(store) => store.create_draft_checkpoint(&id.to_hex()).map(Some),
@@ -140,7 +143,7 @@ impl BlobBackend {
         }
     }
 
-    pub(super) fn pin(&self, original: &BlobId, id: &BlobId) -> io::Result<()> {
+    pub(super) fn pin(&self, original: &BlobId, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Disk(root) => {
                 fs::hard_link(original.blob_path(root), id.staging_path(root))?;
@@ -152,9 +155,10 @@ impl BlobBackend {
         }
     }
 
+    /// RAM pins are already published; a disk pin is a staged link to rename into place.
     pub(super) fn publish_pinned(&self, id: &BlobId) -> io::Result<()> {
-        if let Self::Disk(_) = self {
-            self.publish_draft(id)?;
+        if let Self::Disk(root) = self {
+            objects::publish_blob(&id.staging_path(root), &id.blob_path(root))?;
         }
         Ok(())
     }
@@ -189,9 +193,12 @@ impl BlobBackend {
         }
     }
 
-    pub(super) fn publish_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn publish_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
-            Self::Disk(root) => objects::publish_blob(&id.staging_path(root), &id.blob_path(root)),
+            Self::Disk(root) => Ok(objects::publish_blob(
+                &id.staging_path(root),
+                &id.blob_path(root),
+            )?),
             Self::Memory(store) => store.publish_draft(&id.to_hex()),
         }
     }
@@ -309,18 +316,18 @@ impl BlobBackend {
         }
     }
 
-    pub(super) fn create_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn create_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         match self {
             Self::Memory(store) => store.create_draft(id.to_hex()),
-            Self::Disk(root) => fs::OpenOptions::new()
+            Self::Disk(root) => Ok(fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .open(id.staging_path(root))
-                .and_then(|file| file.sync_all()),
+                .and_then(|file| file.sync_all())?),
         }
     }
 
-    pub(super) fn create_resumable_draft(&self, id: &BlobId) -> io::Result<()> {
+    pub(super) fn create_resumable_draft(&self, id: &BlobId) -> Result<(), BlobError> {
         let root = match self {
             Self::Disk(root) => root,
             Self::Memory(store) => return store.create_resumable_draft(id.to_hex()),
@@ -339,7 +346,7 @@ impl BlobBackend {
         ) {
             drop(file);
             fs::remove_file(path)?;
-            return Err(error);
+            return Err(error.into());
         }
         Ok(())
     }

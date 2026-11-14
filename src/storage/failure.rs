@@ -6,6 +6,7 @@
 
 use crate::bucket::CatalogError;
 use crate::object::ObjectError;
+use crate::storage::memory::BlobError;
 use std::{
     borrow::Cow,
     cell::Cell,
@@ -157,11 +158,26 @@ impl IoCause {
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
     pub fn memory_budget(&self) -> Option<MemoryBudget> {
-        crate::error::causes(self.source()?).find_map(|cause| {
-            cause
-                .downcast_ref::<MemoryExhausted>()
-                .map(|exhausted| exhausted.budget)
-        })
+        chain(self.typed_source()?).find_map(Link::memory_budget)
+    }
+}
+
+/// An exhausted `backend=memory` budget is a full-storage failure that names that budget.
+impl From<MemoryExhausted> for IoCause {
+    fn from(exhausted: MemoryExhausted) -> Self {
+        Self {
+            kind: io::ErrorKind::StorageFull,
+            source: Some(Arc::new(Source::Exhausted(exhausted))),
+        }
+    }
+}
+
+impl From<BlobError> for IoCause {
+    fn from(error: BlobError) -> Self {
+        match error {
+            BlobError::Exhausted => MemoryExhausted::new(MemoryBudget::Blobs).into(),
+            BlobError::Io(error) => error.into(),
+        }
     }
 }
 
@@ -383,6 +399,17 @@ impl StorageCause for io::Error {
     }
 }
 
+/// An exhausted RAM blob budget is I/O, like a full disk, and keeps the budget it exhausted.
+impl StorageCause for BlobError {
+    fn into_cause(self) -> BackendCause {
+        BackendCause::from_error(self)
+    }
+
+    fn classify(self) -> Classified {
+        Classified::Io(self.into())
+    }
+}
+
 /// A storage failure keeps its own classification and cause: wrapping an unavailable failure
 /// again would repeat its "catalog unavailable" prefix and hide the cause from log allowlists.
 impl StorageCause for CatalogError {
@@ -593,6 +620,7 @@ macro_rules! classified_from {
 classified_from!(
     rusqlite::Error,
     io::Error,
+    BlobError,
     tokio::task::JoinError,
     crate::task::BlockingFailed
 );

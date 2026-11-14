@@ -5,13 +5,14 @@
 //! leaf, and the one list of leaves below is the only way to build one, so a new error type
 //! cannot travel inside a cause without the decision whether anything reads it.
 
-use super::{BackendCause, BackendFailure, MemoryExhausted};
+use super::{BackendCause, BackendFailure, MemoryBudget, MemoryExhausted};
 use crate::{
     bucket::CatalogError,
     object::ObjectError,
     storage::{
         admin::AdminError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
+        memory::BlobError,
         sync_state::{conflicts, root::RootError, writeback},
     },
 };
@@ -138,6 +139,15 @@ impl<'a> Link<'a> {
             None
         }
     }
+
+    /// The `backend=memory` budget this link reports exhausted, if it is one.
+    pub(crate) fn memory_budget(self) -> Option<MemoryBudget> {
+        if let Self::Exhausted(exhausted) = self {
+            Some(exhausted.budget)
+        } else {
+            None
+        }
+    }
 }
 
 /// An error whose `source()` is derived from this typed link, so decisions that read the chain
@@ -188,6 +198,16 @@ typed_sources!(
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
 );
+
+/// A RAM blob failure is the budget it exhausted or the I/O error it met.
+impl From<BlobError> for Source {
+    fn from(error: BlobError) -> Self {
+        match error {
+            BlobError::Exhausted => Self::Exhausted(MemoryExhausted::new(MemoryBudget::Blobs)),
+            BlobError::Io(error) => Self::Io(error),
+        }
+    }
+}
 
 macro_rules! leaf_sources {
     ($($error:ty),* $(,)?) => {

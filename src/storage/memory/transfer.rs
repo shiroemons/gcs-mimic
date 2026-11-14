@@ -1,21 +1,21 @@
 use super::*;
 
 impl Store {
-    pub(in crate::storage) fn pin(&self, original: &str, id: String) -> io::Result<()> {
+    pub(in crate::storage) fn pin(&self, original: &str, id: String) -> Result<(), BlobError> {
         let mut blobs = self.blobs.lock().map_err(|_| poisoned())?;
         let original = blobs
             .get(original)
             .ok_or_else(|| io::Error::other("missing RAM source"))?;
         let blob = self.snapshot(&original.chunks, original.size)?;
         if blobs.contains_key(&id) {
-            return Err(io::ErrorKind::AlreadyExists.into());
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
         blobs.try_reserve(1).map_err(io::Error::other)?;
         blobs.insert(id, blob);
         Ok(())
     }
 
-    fn snapshot(&self, chunks: &[Bytes], size: u64) -> io::Result<Arc<Blob>> {
+    fn snapshot(&self, chunks: &[Bytes], size: u64) -> Result<Arc<Blob>, BlobError> {
         let mut reservation = Reservation {
             budget: self.budget.clone(),
             charge: 0,
@@ -39,14 +39,14 @@ impl Store {
         }))
     }
 
-    pub(in crate::storage) fn create_draft(self: &Arc<Self>, id: String) -> io::Result<()> {
+    pub(in crate::storage) fn create_draft(self: &Arc<Self>, id: String) -> Result<(), BlobError> {
         self.create_draft_state(id, None)
     }
 
     pub(in crate::storage) fn create_resumable_draft(
         self: &Arc<Self>,
         id: String,
-    ) -> io::Result<()> {
+    ) -> Result<(), BlobError> {
         self.create_draft_state(id, Some(crate::hashing::Hasher::default()))
     }
 
@@ -54,7 +54,7 @@ impl Store {
         self: &Arc<Self>,
         id: String,
         hasher: Option<crate::hashing::Hasher>,
-    ) -> io::Result<()> {
+    ) -> Result<(), BlobError> {
         let mut stage = self.stage()?;
         if hasher.is_some() {
             stage.fixed_charge += std::mem::size_of::<crate::hashing::Hasher>() as u64;
@@ -63,14 +63,18 @@ impl Store {
         stage.hasher = hasher;
         let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
         if drafts.contains_key(&id) {
-            return Err(io::ErrorKind::AlreadyExists.into());
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
         drafts.try_reserve(1).map_err(io::Error::other)?;
         drafts.insert(id, Box::new(stage));
         Ok(())
     }
 
-    pub(in crate::storage) fn draft(self: &Arc<Self>, id: &str, offset: u64) -> io::Result<Draft> {
+    pub(in crate::storage) fn draft(
+        self: &Arc<Self>,
+        id: &str,
+        offset: u64,
+    ) -> Result<Draft, BlobError> {
         let stage = self
             .drafts
             .lock()
@@ -97,7 +101,7 @@ impl Store {
         Ok(())
     }
 
-    pub(in crate::storage) fn publish_draft(&self, id: &str) -> io::Result<()> {
+    pub(in crate::storage) fn publish_draft(&self, id: &str) -> Result<(), BlobError> {
         let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
@@ -116,7 +120,7 @@ impl Store {
     pub(in crate::storage) fn checkpoint_draft(
         self: &Arc<Self>,
         id: &str,
-    ) -> io::Result<Checkpoint> {
+    ) -> Result<Checkpoint, BlobError> {
         let mut drafts = self.drafts.lock().map_err(|_| poisoned())?;
         let stage = drafts
             .get_mut(id)
@@ -139,7 +143,7 @@ impl Store {
     pub(in crate::storage) fn create_draft_checkpoint(
         self: &Arc<Self>,
         id: &str,
-    ) -> io::Result<Checkpoint> {
+    ) -> Result<Checkpoint, BlobError> {
         self.create_draft(id.into())?;
         match self.checkpoint_draft(id) {
             Ok(mut checkpoint) => {
@@ -221,7 +225,7 @@ pub(in crate::storage) struct Draft {
 }
 
 impl Draft {
-    pub(in crate::storage) fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
+    pub(in crate::storage) fn write(&mut self, bytes: &[u8]) -> Result<(), BlobError> {
         let stage = self.stage.as_mut().ok_or_else(poisoned)?;
         let before = stage.size;
         let result = stage.write(bytes);
@@ -327,10 +331,7 @@ mod tests {
         store.create_resumable_draft("draft".into()).unwrap();
         let mut draft = store.draft("draft", 0).unwrap();
         let input = vec![3; 4 * BLOCK_SIZE as usize];
-        assert_eq!(
-            draft.write(&input).unwrap_err().kind(),
-            io::ErrorKind::StorageFull
-        );
+        assert!(matches!(draft.write(&input), Err(BlobError::Exhausted)));
         let (hashes, size) = draft.hashes().unwrap();
         assert!(size > 0 && size < input.len() as u64);
         let mut expected = crate::hashing::Hasher::default();

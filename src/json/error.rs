@@ -1127,12 +1127,7 @@ mod tests {
     #[test]
     fn storage_capacity_names_only_the_remedy_of_the_storage_that_ran_out() {
         use crate::storage::failure::MemoryExhausted;
-        let memory = |budget| {
-            IoCause::from(std::io::Error::new(
-                std::io::ErrorKind::StorageFull,
-                MemoryExhausted::new(budget),
-            ))
-        };
+        let memory = |budget| IoCause::from(MemoryExhausted::new(budget));
         let disk = || IoCause::from(std::io::ErrorKind::StorageFull);
         for (cause, names, omits) in [
             (

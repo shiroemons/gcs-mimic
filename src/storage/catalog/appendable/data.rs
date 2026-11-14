@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::memory::BlobError;
 
 #[derive(Clone)]
 pub(super) enum Data {
@@ -81,12 +82,14 @@ impl Data {
         })
     }
 
-    pub(super) fn write(&self, start: u64, bytes: &[u8]) -> io::Result<()> {
+    pub(super) fn write(&self, start: u64, bytes: &[u8]) -> Result<(), BlobError> {
         match self {
             Self::Disk { file, .. } => {
                 #[cfg(unix)]
                 {
-                    std::os::unix::fs::FileExt::write_all_at(&**file, bytes, start)
+                    Ok(std::os::unix::fs::FileExt::write_all_at(
+                        &**file, bytes, start,
+                    )?)
                 }
                 #[cfg(windows)]
                 {
@@ -96,7 +99,7 @@ impl Data {
                     while !bytes.is_empty() {
                         let written = file.seek_write(bytes, offset)?;
                         if written == 0 {
-                            return Err(io::ErrorKind::WriteZero.into());
+                            return Err(io::Error::from(io::ErrorKind::WriteZero).into());
                         }
                         bytes = bytes
                             .get(written..)
@@ -115,7 +118,7 @@ impl Data {
         }
     }
 
-    pub(super) fn sync(&self) -> io::Result<Option<crate::storage::memory::Checkpoint>> {
+    pub(super) fn sync(&self) -> Result<Option<crate::storage::memory::Checkpoint>, BlobError> {
         match self {
             Self::Disk {
                 file,

@@ -18,6 +18,20 @@ static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct StoreId(u64);
 
+/// Why a RAM blob operation that allocates failed.
+#[derive(Debug)]
+pub(super) enum BlobError {
+    /// The `memory_max_bytes` budget ran out.
+    Exhausted,
+    Io(io::Error),
+}
+
+impl From<io::Error> for BlobError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
 struct Budget {
     limit: u64,
     used: AtomicU64,
@@ -34,7 +48,7 @@ struct Reservation {
 }
 
 impl Reservation {
-    fn resize(&mut self, charge: u64) -> io::Result<()> {
+    fn resize(&mut self, charge: u64) -> Result<(), BlobError> {
         if charge > self.charge {
             let additional = charge - self.charge;
             self.budget
@@ -161,7 +175,7 @@ impl Store {
             .map_err(|_| io::Error::other("RAM draft store lock poisoned"))
     }
 
-    pub(super) fn stage(self: &Arc<Self>) -> io::Result<Stage> {
+    pub(super) fn stage(self: &Arc<Self>) -> Result<Stage, BlobError> {
         let mut reservation = Reservation {
             budget: self.budget.clone(),
             charge: 0,
@@ -216,13 +230,13 @@ impl Store {
 }
 
 impl Stage {
-    pub(super) fn write(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+    pub(super) fn write(&mut self, mut bytes: &[u8]) -> Result<(), BlobError> {
         while !bytes.is_empty() {
             if self.pending.is_none() {
                 self.pending = Some(self.allocate((bytes.len() as u64).min(BLOCK_SIZE))?);
             }
             let Some(chunk) = &mut self.pending else {
-                return Err(io::Error::other("missing RAM staging block"));
+                return Err(io::Error::other("missing RAM staging block").into());
             };
             let length = bytes.len().min(chunk.bytes.capacity() - chunk.bytes.len());
             let (written, rest) = bytes
@@ -238,7 +252,7 @@ impl Stage {
         Ok(())
     }
 
-    fn allocate(&self, required: u64) -> io::Result<Chunk> {
+    fn allocate(&self, required: u64) -> Result<Chunk, BlobError> {
         let budget = &self.reservation.budget;
         let mut capacity = 0;
         budget
@@ -273,7 +287,7 @@ impl Stage {
         Ok(chunk)
     }
 
-    fn flush_pending(&mut self) -> io::Result<()> {
+    fn flush_pending(&mut self) -> Result<(), BlobError> {
         if self.pending.is_some() {
             self.reserve_chunk()?;
         }
@@ -285,7 +299,7 @@ impl Stage {
         Ok(())
     }
 
-    fn reserve_chunk(&mut self) -> io::Result<()> {
+    fn reserve_chunk(&mut self) -> Result<(), BlobError> {
         if self.chunks.len() < self.chunks.capacity() {
             return Ok(());
         }
@@ -325,7 +339,7 @@ impl Stage {
         Ok(())
     }
 
-    pub(super) fn publish(mut self, id: String) -> io::Result<()> {
+    pub(super) fn publish(mut self, id: String) -> Result<(), BlobError> {
         self.flush_pending()?;
         let store = self
             .store
@@ -333,7 +347,7 @@ impl Stage {
             .ok_or_else(|| io::Error::other("RAM store is closed"))?;
         let mut blobs = store.blobs()?;
         if blobs.contains_key(&id) {
-            return Err(io::ErrorKind::AlreadyExists.into());
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
         }
         blobs.try_reserve(1).map_err(io::Error::other)?;
         blobs.insert(
@@ -351,11 +365,8 @@ impl Stage {
 mod transfer;
 pub(super) use transfer::{Checkpoint, Draft};
 
-fn exhausted() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::StorageFull,
-        super::failure::MemoryExhausted::new(super::failure::MemoryBudget::Blobs),
-    )
+fn exhausted() -> BlobError {
+    BlobError::Exhausted
 }
 
 /// Cloning shares the blob's immutable chunks and copies only the read position.
@@ -471,9 +482,11 @@ mod tests {
         store.remove("blob").unwrap();
         drop(reader);
         let full = store.stage().unwrap().write(b"new").unwrap_err();
-        assert_eq!(full.kind(), io::ErrorKind::StorageFull);
+        assert!(matches!(full, BlobError::Exhausted), "{full:?}");
+        let cause = crate::storage::failure::IoCause::from(full);
+        assert_eq!(cause.kind(), io::ErrorKind::StorageFull);
         assert_eq!(
-            crate::storage::failure::IoCause::from(full).memory_budget(),
+            cause.memory_budget(),
             Some(crate::storage::failure::MemoryBudget::Blobs)
         );
         drop(bytes);
@@ -533,10 +546,7 @@ mod tests {
             stage.write(b"b").unwrap();
         }
         assert_eq!(stage.chunks.len(), 1);
-        assert_eq!(
-            stage.write(b"c").unwrap_err().kind(),
-            io::ErrorKind::StorageFull
-        );
+        assert!(matches!(stage.write(b"c"), Err(BlobError::Exhausted)));
         stage.publish("tiny".into()).unwrap();
         store.remove("tiny").unwrap();
         store.stage().unwrap().write(b"reclaimed").unwrap();

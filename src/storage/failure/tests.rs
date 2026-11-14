@@ -76,17 +76,14 @@ fn a_full_database_names_the_memory_catalog_budget_only_inside_its_job() {
 
 #[test]
 fn an_exhausted_blob_budget_survives_io_and_recovery_context_wrappers() {
-    let blobs = || {
-        io::Error::new(
-            io::ErrorKind::StorageFull,
-            MemoryExhausted::new(MemoryBudget::Blobs),
-        )
-    };
     assert_eq!(
-        IoCause::from(blobs()).memory_budget(),
+        IoCause::from(MemoryExhausted::new(MemoryBudget::Blobs)).memory_budget(),
         Some(MemoryBudget::Blobs)
     );
-    let ObjectError::Io(cause) = object_context("staging cleanup", blobs()) else {
+    let full = IoCause::from(BlobError::Exhausted);
+    assert_eq!(full.kind(), io::ErrorKind::StorageFull);
+    assert_eq!(full.memory_budget(), Some(MemoryBudget::Blobs));
+    let ObjectError::Io(cause) = object_context("staging cleanup", BlobError::Exhausted) else {
         panic!("a full blob budget is I/O");
     };
     assert_eq!(cause.memory_budget(), Some(MemoryBudget::Blobs));

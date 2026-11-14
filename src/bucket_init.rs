@@ -3129,18 +3129,11 @@ mod tests {
     fn a_full_store_names_only_the_running_backends_remedy() {
         use crate::storage::failure::{IoCause, MemoryExhausted};
         let full = |budget: Option<MemoryBudget>| {
-            let error = match budget {
-                None => std::io::Error::from(std::io::ErrorKind::StorageFull),
-                Some(budget) => std::io::Error::new(
-                    std::io::ErrorKind::StorageFull,
-                    MemoryExhausted::new(budget),
-                ),
+            let cause = match budget {
+                None => IoCause::from(std::io::Error::from(std::io::ErrorKind::StorageFull)),
+                Some(budget) => IoCause::from(MemoryExhausted::new(budget)),
             };
-            initialization_failure(
-                &AdminError::DiskFull(IoCause::from(error)),
-                Setting::Buckets,
-            )
-            .to_string()
+            initialization_failure(&AdminError::DiskFull(cause), Setting::Buckets).to_string()
         };
         let disk = full(None);
         assert!(
