@@ -1,6 +1,6 @@
 //! XML multipart protocol adapter; storage owns session transitions and durable bytes.
 
-use super::{Error, ReadRequest, XmlCode, accepted_parameter, element, put};
+use super::{Error, ReadRequest, XmlCode, accepted_parameter, put};
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };

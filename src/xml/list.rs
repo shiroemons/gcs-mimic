@@ -1,6 +1,6 @@
 //! Bounded XML bucket listing over the shared authorized catalog cursor.
 
-use super::{Error, MinValue, ReadRequest, accepted_parameter, element, number};
+use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
@@ -218,15 +218,14 @@ pub(crate) async fn respond(
     Ok(boxed(response))
 }
 
-fn name_element(body: &mut String, name: &str, value: &str, params: &Params) {
+fn name_element(w: &mut XmlWriter, name: &str, value: &str, params: &Params) {
     if params.encoded {
-        element(
-            body,
+        w.element(
             name,
             &crate::url::encode_object_name(value).replace('/', "%2F"),
         );
     } else {
-        element(body, name, value);
+        w.element(name, value);
     }
 }
 
@@ -236,97 +235,74 @@ pub(super) fn render(params: &Params, page: &ObjectListPage) -> Result<String, E
     } else {
         "ListBucketResult"
     };
-    let mut body = format!(
-        "{}<{root} xmlns='http://doc.s3.amazonaws.com/2006-03-01'>",
-        super::DECLARATION
-    );
-    element(&mut body, "Name", &params.query.bucket);
-    name_element(&mut body, "Prefix", &params.query.prefix, params);
+    let mut w = XmlWriter::new(root, Namespace::Listing);
+    w.element("Name", &params.query.bucket);
+    name_element(&mut w, "Prefix", &params.query.prefix, params);
     if params.v2 {
-        render_header_v2(&mut body, params, page);
+        render_header_v2(&mut w, params, page);
     } else {
-        render_header_v1(&mut body, params, page);
+        render_header_v1(&mut w, params, page);
     }
     for object in &page.items {
-        render_item(&mut body, params, object)?;
+        render_item(&mut w, params, object)?;
     }
     for prefix in &page.prefixes {
-        body.push_str("<CommonPrefixes>");
-        name_element(&mut body, "Prefix", prefix, params);
-        body.push_str("</CommonPrefixes>");
+        w.group("CommonPrefixes", |w| {
+            name_element(w, "Prefix", prefix, params);
+        });
     }
-    body.push_str("</");
-    body.push_str(root);
-    body.push('>');
-    Ok(body)
+    Ok(w.finish())
 }
 
 /// Recorded version 1 order: Marker, GenerationMarker (versions only, empty when absent),
 /// Delimiter, NextMarker, MaxKeys (only when requested), IsTruncated.
-fn render_header_v1(body: &mut String, params: &Params, page: &ObjectListPage) {
+fn render_header_v1(w: &mut XmlWriter, params: &Params, page: &ObjectListPage) {
     let (marker_tag, generation_tag) = marker_tags(params);
-    name_element(body, marker_tag, &params.marker, params);
+    name_element(w, marker_tag, &params.marker, params);
     if params.query.versions {
         let generation = params
             .generation_marker
             .map(|generation| generation.to_string())
             .unwrap_or_default();
-        element(body, generation_tag, &generation);
+        w.element(generation_tag, &generation);
     }
     if !params.query.delimiter.is_empty() {
-        name_element(body, "Delimiter", &params.query.delimiter, params);
+        name_element(w, "Delimiter", &params.query.delimiter, params);
     }
     if let Some(cursor) = &page.next {
-        name_element(body, &format!("Next{marker_tag}"), &cursor.name, params);
+        name_element(w, &format!("Next{marker_tag}"), &cursor.name, params);
         if let Some(generation) = cursor.generation {
-            element(
-                body,
-                &format!("Next{generation_tag}"),
-                &generation.to_string(),
-            );
+            w.value(&format!("Next{generation_tag}"), generation);
         }
     }
     if params.max_keys_given {
-        element(body, "MaxKeys", &params.limit.to_string());
+        w.value("MaxKeys", params.limit);
     }
-    element(
-        body,
-        "IsTruncated",
-        if page.next.is_some() { "true" } else { "false" },
-    );
+    w.value("IsTruncated", page.next.is_some());
     if params.encoded {
-        element(body, "EncodingType", "url");
+        w.element("EncodingType", "url");
     }
 }
 
 /// Version 2 listings were not recorded; they keep MaxKeys always and the S3 field order.
-fn render_header_v2(body: &mut String, params: &Params, page: &ObjectListPage) {
+fn render_header_v2(w: &mut XmlWriter, params: &Params, page: &ObjectListPage) {
     if !params.query.delimiter.is_empty() {
-        name_element(body, "Delimiter", &params.query.delimiter, params);
+        name_element(w, "Delimiter", &params.query.delimiter, params);
     }
-    element(body, "MaxKeys", &params.limit.to_string());
-    element(
-        body,
-        "IsTruncated",
-        if page.next.is_some() { "true" } else { "false" },
-    );
+    w.value("MaxKeys", params.limit);
+    w.value("IsTruncated", page.next.is_some());
     if params.encoded {
-        element(body, "EncodingType", "url");
+        w.element("EncodingType", "url");
     }
-    element(
-        body,
-        "KeyCount",
-        &(page.items.len() + page.prefixes.len()).to_string(),
-    );
+    w.value("KeyCount", page.items.len() + page.prefixes.len());
     if let Some(token) = &params.continuation {
-        element(body, "ContinuationToken", token);
+        w.element("ContinuationToken", token);
     }
     if let Some(start) = &params.start_after {
-        name_element(body, "StartAfter", start, params);
+        name_element(w, "StartAfter", start, params);
     }
     if let Some(cursor) = &page.next {
-        element(
-            body,
+        w.element(
             "NextContinuationToken",
             &format!("xml2.{}", json::encode_object_page_token(cursor)),
         );
@@ -338,55 +314,40 @@ fn render_header_v2(body: &mut String, params: &Params, page: &ObjectListPage) {
 /// deleted DeletedTime after LastModified. Neither carries a StorageClass; the version 2 and
 /// interoperable forms were not recorded and keep one after Size.
 fn render_item(
-    body: &mut String,
+    w: &mut XmlWriter,
     params: &Params,
     object: &crate::object::ObjectRecord,
 ) -> Result<(), Error> {
     let versions = params.query.versions;
     let tag = if versions { "Version" } else { "Contents" };
-    body.push('<');
-    body.push_str(tag);
-    body.push('>');
-    name_element(body, "Key", &object.name, params);
-    element(
-        body,
-        if params.interop && versions {
+    w.try_group(tag, |w| {
+        name_element(w, "Key", &object.name, params);
+        let generation = if params.interop && versions {
             "VersionId"
         } else {
             "Generation"
-        },
-        &object.generation.to_string(),
-    );
-    element(body, "MetaGeneration", &object.metageneration.to_string());
-    if versions {
-        element(
-            body,
-            "IsLatest",
-            if object.time_deleted.is_none() {
-                "true"
-            } else {
-                "false"
-            },
-        );
-    }
-    element(body, "LastModified", &json::timestamp(object.updated)?);
-    if versions {
-        let deleted = object
-            .time_deleted
-            .map(json::timestamp)
-            .transpose()?
-            .unwrap_or_default();
-        element(body, "DeletedTime", &deleted);
-    }
-    element(body, "ETag", &super::object_etag(object));
-    element(body, "Size", &object.size.to_string());
-    if params.v2 || params.interop {
-        element(body, "StorageClass", object.storage_class.as_str());
-    }
-    body.push_str("</");
-    body.push_str(tag);
-    body.push('>');
-    Ok(())
+        };
+        w.value(generation, object.generation);
+        w.value("MetaGeneration", object.metageneration);
+        if versions {
+            w.value("IsLatest", object.time_deleted.is_none());
+        }
+        w.element("LastModified", &json::timestamp(object.updated)?);
+        if versions {
+            let deleted = object
+                .time_deleted
+                .map(json::timestamp)
+                .transpose()?
+                .unwrap_or_default();
+            w.element("DeletedTime", &deleted);
+        }
+        w.element("ETag", &super::object_etag(object));
+        w.value("Size", object.size);
+        if params.v2 || params.interop {
+            w.element("StorageClass", object.storage_class.as_str());
+        }
+        Ok(())
+    })
 }
 
 /// Version 1 marker element names: the interoperable versions listing uses S3's names.

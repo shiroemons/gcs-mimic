@@ -1,6 +1,6 @@
 //! XML bucket operations reuse the shared project and bucket authorization decisions.
 
-use super::{Error, ErrorBody, ObjectPath, XmlCode, accepted_parameter, element};
+use super::{Error, ErrorBody, Namespace, ObjectPath, XmlCode, XmlWriter, accepted_parameter};
 use crate::{
     auth, json,
     object::ObjectConditions,
@@ -185,9 +185,9 @@ fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
 }
 
 async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBody>, Error> {
-    let mut body = String::from(
-        "<?xml version='1.0' encoding='UTF-8'?><ListAllMyBucketsResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Buckets>",
-    );
+    let mut document = XmlWriter::new("ListAllMyBucketsResult", Namespace::Listing);
+    // Each page is read across an `.await`, so the list's tags are written apart.
+    document.open("Buckets");
     let mut count = 0;
     let mut after = None;
     while count < 1000 {
@@ -199,14 +199,11 @@ async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBod
             .await
             .map_err(json::JsonError::from)?;
         for bucket in &page.items {
-            body.push_str("<Bucket>");
-            element(&mut body, "Name", &bucket.name);
-            element(
-                &mut body,
-                "CreationDate",
-                &json::timestamp(bucket.time_created)?,
-            );
-            body.push_str("</Bucket>");
+            document.try_group("Bucket", |w| {
+                w.element("Name", &bucket.name);
+                w.element("CreationDate", &json::timestamp(bucket.time_created)?);
+                Ok::<_, Error>(())
+            })?;
         }
         count += page.items.len();
         after = page.items.last().map(|bucket| bucket.name.clone());
@@ -214,6 +211,6 @@ async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBod
             break;
         }
     }
-    body.push_str("</Buckets></ListAllMyBucketsResult>");
-    Ok(boxed(super::document_response(body)))
+    document.close("Buckets");
+    Ok(boxed(super::document_response(document.finish())))
 }

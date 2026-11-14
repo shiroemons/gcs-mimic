@@ -1,3 +1,4 @@
+use super::writer::DECLARATION;
 use super::*;
 use crate::{
     auth::AuthFailure, bucket::CatalogError, config::VirtualHostDomains, csek::CsekError,

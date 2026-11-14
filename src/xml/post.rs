@@ -4,7 +4,7 @@
 //! through the shared object write path, so generations, checksums and catalog
 //! admission are the same as for an XML PUT.
 
-use super::{Error, ObjectPath, XmlCode, put::storage_error};
+use super::{Error, Namespace, ObjectPath, XmlCode, XmlWriter, put::storage_error, writer::Quotes};
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
@@ -558,15 +558,6 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
     Ok(metadata)
 }
 
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
 pub(crate) async fn respond(
     request: Request<Incoming>,
     object: &ObjectPath,
@@ -772,6 +763,24 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
         })
 }
 
+/// The `PostResponse` that `success_action_status=201` answers, which escapes quotes.
+fn post_response_document(record: &ObjectRecord, etag: &str, api_base_url: &str) -> String {
+    let mut document = XmlWriter::with_quotes("PostResponse", Namespace::None, Quotes::Escaped);
+    document.element(
+        "Location",
+        &format!(
+            "{}/{}/{}",
+            api_base_url.trim_end_matches('/'),
+            record.bucket,
+            crate::url::encode_object_name(&record.name)
+        ),
+    );
+    document.element("Bucket", &record.bucket);
+    document.element("Key", &record.name);
+    document.element("ETag", etag);
+    document.finish()
+}
+
 pub(super) fn success_response(
     success: Success,
     record: &ObjectRecord,
@@ -787,18 +796,7 @@ pub(super) fn success_response(
         Success::Redirect(_) => (StatusCode::SEE_OTHER, String::new(), None),
         Success::Status(StatusCode::CREATED) => (
             StatusCode::CREATED,
-            format!(
-                "<?xml version='1.0' encoding='UTF-8'?><PostResponse><Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>{}</ETag></PostResponse>",
-                escape(&format!(
-                    "{}/{}/{}",
-                    api_base_url.trim_end_matches('/'),
-                    record.bucket,
-                    crate::url::encode_object_name(&record.name)
-                )),
-                escape(&record.bucket),
-                escape(&record.name),
-                escape(&etag)
-            ),
+            post_response_document(record, &etag, api_base_url),
             Some("application/xml; charset=UTF-8"),
         ),
         Success::Status(status) => (status, String::new(), None),

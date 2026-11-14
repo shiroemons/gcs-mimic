@@ -1,32 +1,25 @@
+use super::super::{Namespace, XmlWriter};
 use super::*;
 use crate::bucket::BucketAccess;
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn start(root: &str) -> String {
-    format!(
-        "<?xml version='1.0' encoding='UTF-8'?><{root} xmlns='http://s3.amazonaws.com/doc/2006-03-01/'>"
-    )
-}
-
-pub(super) fn target(body: &mut String, target: &storage::Target) {
-    element(body, "Bucket", &target.bucket);
-    element(body, "Key", &target.name);
-    element(body, "UploadId", &target.id);
+fn target(w: &mut XmlWriter, target: &storage::Target) {
+    w.element("Bucket", &target.bucket);
+    w.element("Key", &target.name);
+    w.element("UploadId", &target.id);
 }
 
 pub(super) fn initiate_body(target: &storage::Target) -> String {
-    let mut body = start("InitiateMultipartUploadResult");
-    self::target(&mut body, target);
-    body.push_str("</InitiateMultipartUploadResult>");
-    body
+    let mut w = XmlWriter::new("InitiateMultipartUploadResult", Namespace::Multipart);
+    self::target(&mut w, target);
+    w.finish()
 }
 
 pub(super) fn complete_body(api_base_url: &str, record: &crate::object::ObjectRecord) -> String {
-    let mut body = start("CompleteMultipartUploadResult");
-    element(
-        &mut body,
+    let mut w = XmlWriter::new("CompleteMultipartUploadResult", Namespace::Multipart);
+    w.element(
         "Location",
         &format!(
             "{}/{}/{}",
@@ -35,11 +28,10 @@ pub(super) fn complete_body(api_base_url: &str, record: &crate::object::ObjectRe
             crate::url::encode_object_name(&record.name)
         ),
     );
-    element(&mut body, "Bucket", &record.bucket);
-    element(&mut body, "Key", &record.name);
-    element(&mut body, "ETag", &super::super::object_etag(record));
-    body.push_str("</CompleteMultipartUploadResult>");
-    body
+    w.element("Bucket", &record.bucket);
+    w.element("Key", &record.name);
+    w.element("ETag", &super::super::object_etag(record));
+    w.finish()
 }
 
 fn class(upload: &storage::Upload) -> &str {
@@ -151,43 +143,35 @@ pub(super) fn uploads_body(
     query: &storage::UploadQuery,
     page: storage::UploadPage,
 ) -> Result<String, Error> {
-    let mut body = start("ListMultipartUploadsResult");
-    let limit = query.limit.to_string();
-    let more = page.more.to_string();
-    for (name, value) in [
-        ("Bucket", query.bucket.as_str()),
-        ("KeyMarker", query.key_marker.as_str()),
-        (
-            "UploadIdMarker",
-            query.upload_marker.as_deref().unwrap_or(""),
-        ),
-        ("Prefix", query.prefix.as_str()),
-        ("Delimiter", query.delimiter.as_str()),
-        ("MaxUploads", limit.as_str()),
-        ("IsTruncated", more.as_str()),
-    ] {
-        element(&mut body, name, value);
-    }
+    let mut w = XmlWriter::new("ListMultipartUploadsResult", Namespace::Multipart);
+    w.element("Bucket", &query.bucket);
+    w.element("KeyMarker", &query.key_marker);
+    w.element(
+        "UploadIdMarker",
+        query.upload_marker.as_deref().unwrap_or(""),
+    );
+    w.element("Prefix", &query.prefix);
+    w.element("Delimiter", &query.delimiter);
+    w.value("MaxUploads", query.limit);
+    w.value("IsTruncated", page.more);
     if page.more {
-        element(&mut body, "NextKeyMarker", &page.next_key);
-        element(&mut body, "NextUploadIdMarker", &page.next_upload);
+        w.element("NextKeyMarker", &page.next_key);
+        w.element("NextUploadIdMarker", &page.next_upload);
     }
     for upload in page.uploads {
         xml_text(&upload.target.name)?;
-        body.push_str("<Upload>");
-        element(&mut body, "Key", &upload.target.name);
-        element(&mut body, "UploadId", &upload.target.id);
-        element(&mut body, "StorageClass", class(&upload));
-        element(&mut body, "Initiated", &json::timestamp(upload.created)?);
-        body.push_str("</Upload>");
+        w.try_group("Upload", |w| {
+            w.element("Key", &upload.target.name);
+            w.element("UploadId", &upload.target.id);
+            w.element("StorageClass", class(&upload));
+            w.element("Initiated", &json::timestamp(upload.created)?);
+            Ok::<_, Error>(())
+        })?;
     }
     for prefix in page.prefixes {
-        body.push_str("<CommonPrefixes>");
-        element(&mut body, "Prefix", &prefix);
-        body.push_str("</CommonPrefixes>");
+        w.group("CommonPrefixes", |w| w.element("Prefix", &prefix));
     }
-    body.push_str("</ListMultipartUploadsResult>");
-    Ok(body)
+    Ok(w.finish())
 }
 
 #[expect(
@@ -201,23 +185,23 @@ pub(super) fn parts_body(
     limit: usize,
     more: bool,
 ) -> Result<String, Error> {
-    let mut body = start("ListPartsResult");
-    target(&mut body, &upload.target);
-    element(&mut body, "StorageClass", class(upload));
-    element(&mut body, "PartNumberMarker", &marker.to_string());
-    element(&mut body, "MaxParts", &limit.to_string());
-    element(&mut body, "IsTruncated", &more.to_string());
+    let mut w = XmlWriter::new("ListPartsResult", Namespace::Multipart);
+    target(&mut w, &upload.target);
+    w.element("StorageClass", class(upload));
+    w.value("PartNumberMarker", marker);
+    w.value("MaxParts", limit);
+    w.value("IsTruncated", more);
     if more && let Some(part) = parts.last() {
-        element(&mut body, "NextPartNumberMarker", &part.number.to_string());
+        w.value("NextPartNumberMarker", part.number);
     }
     for part in parts {
-        body.push_str("<Part>");
-        element(&mut body, "PartNumber", &part.number.to_string());
-        element(&mut body, "LastModified", &json::timestamp(part.updated)?);
-        element(&mut body, "ETag", &part.etag);
-        element(&mut body, "Size", &part.size.to_string());
-        body.push_str("</Part>");
+        w.try_group("Part", |w| {
+            w.value("PartNumber", part.number);
+            w.element("LastModified", &json::timestamp(part.updated)?);
+            w.element("ETag", &part.etag);
+            w.value("Size", part.size);
+            Ok::<_, Error>(())
+        })?;
     }
-    body.push_str("</ListPartsResult>");
-    Ok(body)
+    Ok(w.finish())
 }

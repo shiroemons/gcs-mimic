@@ -34,6 +34,8 @@ pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;
+mod writer;
+use writer::{Namespace, XmlWriter};
 
 /// Inputs to XML authentication. The returned Caller borrows only auth, so the request
 /// can be mutated or consumed afterwards.
@@ -217,8 +219,6 @@ pub(crate) struct Error {
     denied: Option<Box<crate::auth::Denied>>,
 }
 
-/// The XML declaration Cloud Storage writes, with single-quoted pseudo-attributes.
-pub(crate) const DECLARATION: &str = "<?xml version='1.0' encoding='UTF-8'?>";
 /// The fixed message of a missing object; `Details` names the object.
 const NO_SUCH_KEY: &str = "The specified key does not exist.";
 /// The fixed message of a failed precondition, whichever precondition failed.
@@ -335,13 +335,13 @@ impl Error {
         if let Some(denied) = &self.denied {
             denied.log();
         }
-        let mut body = format!("{DECLARATION}<Error>");
-        element(&mut body, "Code", self.code.as_str());
-        element(&mut body, "Message", &self.message);
+        let mut document = XmlWriter::new("Error", Namespace::None);
+        document.element("Code", self.code.as_str());
+        document.element("Message", &self.message);
         if let Some(details) = &self.details {
-            element(&mut body, "Details", details);
+            document.element("Details", details);
         }
-        body.push_str("</Error>");
+        let body = document.finish();
         let content_length = HeaderValue::from(body.len());
         let mut response = document_response(match body_mode {
             ErrorBody::Omit => Bytes::new(),
@@ -1029,24 +1029,6 @@ pub(crate) fn object_etag(record: &ObjectRecord) -> String {
     } else {
         format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
     }
-}
-
-fn element(body: &mut String, name: &str, value: &str) {
-    body.push('<');
-    body.push_str(name);
-    body.push('>');
-    for ch in value.chars() {
-        match ch {
-            '&' => body.push_str("&amp;"),
-            '<' => body.push_str("&lt;"),
-            '>' => body.push_str("&gt;"),
-            // Character data needs no quote escapes; Cloud Storage writes `<ETag>"..."</ETag>`.
-            _ => body.push(ch),
-        }
-    }
-    body.push_str("</");
-    body.push_str(name);
-    body.push('>');
 }
 
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {

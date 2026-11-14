@@ -1,6 +1,6 @@
 //! XML copy parsing; byte transfer, integrity and atomic publication use the shared engine.
 
-use super::{Error, MinValue, ReadRequest, XmlCode, element, number, put};
+use super::{Error, MinValue, Namespace, ReadRequest, XmlCode, XmlWriter, number, put};
 use crate::{
     auth,
     bucket::BucketAccess,
@@ -283,11 +283,10 @@ pub(super) fn response(
     record: &ObjectRecord,
     modified: std::time::SystemTime,
 ) -> Result<Response<ResponseBody>, Error> {
-    let mut body = String::from("<?xml version='1.0' encoding='UTF-8'?><CopyObjectResult>");
-    element(&mut body, "LastModified", &json::timestamp(modified)?);
-    element(&mut body, "ETag", &super::object_etag(record));
-    body.push_str("</CopyObjectResult>");
-    let mut response = super::document_response(body);
+    let mut document = XmlWriter::new("CopyObjectResult", Namespace::None);
+    document.element("LastModified", &json::timestamp(modified)?);
+    document.element("ETag", &super::object_etag(record));
+    let mut response = super::document_response(document.finish());
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;
     super::move_headers(
         &mut headers,
