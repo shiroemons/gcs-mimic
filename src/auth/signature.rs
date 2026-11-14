@@ -7,7 +7,7 @@ use crate::{
     json,
     url::{is_unreserved, push_percent_encoded},
 };
-use hyper::{HeaderMap, Method, Uri};
+use hyper::{HeaderMap, Method, Uri, header::HeaderValue};
 use ring::{digest, rand::SystemRandom, signature};
 use std::{
     collections::BTreeMap,
@@ -49,11 +49,10 @@ mod v2;
 mod v4;
 mod verify;
 pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming};
-pub(crate) use v2::{legacy_aws, xml_query};
+pub(crate) use v2::xml_query;
 pub use v4::{NotV4Parameter, V4Parameter};
 pub(crate) use verify::VerificationError;
 pub(crate) use verify::Verifiers;
-pub(crate) use verify::has_header;
 
 pub(crate) fn authentication_header(name: &str) -> bool {
     matches!(
@@ -421,6 +420,110 @@ pub(crate) fn is_signed(query: Option<&str>) -> bool {
     decoded_query_names(query).any(|key| signing_param(&key).is_some())
 }
 
+/// The signature scheme an `Authorization` value names by its leading bytes. Dispatch reads
+/// only this prefix, as it always has: a malformed value of a signature scheme still reaches
+/// that scheme's parser and fails there instead of falling back to OAuth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthorizationScheme {
+    /// `GOOG4…`.
+    GoogleV4,
+    /// `AWS4-HMAC-SHA256…`: V4 that also selects the AWS extension dialect.
+    AwsV4,
+    /// `AWS4…` without the AWS algorithm name. V4 parsing rejects it; it selects no dialect.
+    OtherV4,
+    /// `GOOG1…`.
+    GoogleLegacy,
+    /// `AWS ` and credentials: legacy HMAC that also selects the AWS extension dialect.
+    AwsLegacy,
+    /// `AWS` alone. Legacy parsing rejects it; it selects no dialect.
+    BareAws,
+}
+
+impl AuthorizationScheme {
+    fn of(value: &HeaderValue) -> Option<Self> {
+        let raw = value.as_bytes();
+        // `AWS4-HMAC-SHA256` also starts with `AWS4`, so it is tried first.
+        [
+            (&b"GOOG4"[..], Self::GoogleV4),
+            (b"AWS4-HMAC-SHA256", Self::AwsV4),
+            (b"AWS4", Self::OtherV4),
+            (b"GOOG1", Self::GoogleLegacy),
+            (b"AWS ", Self::AwsLegacy),
+        ]
+        .into_iter()
+        .find_map(|(prefix, scheme)| raw.starts_with(prefix).then_some(scheme))
+        .or_else(|| (raw == b"AWS").then_some(Self::BareAws))
+    }
+
+    fn is_v4(self) -> bool {
+        matches!(self, Self::GoogleV4 | Self::AwsV4 | Self::OtherV4)
+    }
+
+    fn is_legacy(self) -> bool {
+        matches!(self, Self::GoogleLegacy | Self::AwsLegacy | Self::BareAws)
+    }
+}
+
+/// The scheme of every `Authorization` value that names one.
+fn authorization_schemes(headers: &HeaderMap) -> impl Iterator<Item = AuthorizationScheme> + '_ {
+    headers
+        .get_all("authorization")
+        .iter()
+        .filter_map(AuthorizationScheme::of)
+}
+
+/// The scheme the first `Authorization` value names.
+fn first_authorization_scheme(headers: &HeaderMap) -> Option<AuthorizationScheme> {
+    headers
+        .get("authorization")
+        .and_then(AuthorizationScheme::of)
+}
+
+fn has_v4_header(headers: &HeaderMap) -> bool {
+    authorization_schemes(headers).any(AuthorizationScheme::is_v4)
+}
+
+fn has_legacy_header(headers: &HeaderMap) -> bool {
+    authorization_schemes(headers).any(AuthorizationScheme::is_legacy)
+}
+
+/// How a request presents a signature, judged by its form before any verification. V2 query
+/// parameters win over headers, and a legacy `Authorization` value wins over V4.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SignatureKind {
+    /// `GoogleAccessId`, `Expires` or `Signature` in the query.
+    V2Query,
+    /// A `GOOG1` or `AWS` `Authorization` value.
+    LegacyHeader,
+    /// V4 query parameters or a `GOOG4`/`AWS4` `Authorization` value.
+    V4,
+}
+
+impl SignatureKind {
+    /// `None` when the request carries no signing query parameter and no signature
+    /// `Authorization` value, so it authenticates with OAuth or anonymously.
+    pub(crate) fn of(query: Option<&str>, headers: &HeaderMap) -> Option<Self> {
+        if v2::is_v2(query) {
+            Some(Self::V2Query)
+        } else if has_legacy_header(headers) {
+            Some(Self::LegacyHeader)
+        } else if is_signed(query) || has_v4_header(headers) {
+            Some(Self::V4)
+        } else {
+            None
+        }
+    }
+}
+
+/// A signed XML request as verification reads it.
+pub(crate) struct SignedRequest<'r> {
+    pub(crate) kind: SignatureKind,
+    pub(crate) method: &'r Method,
+    pub(crate) uri: &'r Uri,
+    pub(crate) headers: &'r HeaderMap,
+    pub(crate) resource: &'r Resource,
+}
+
 /// Whose extension headers a request speaks, judged by the form of its signature rather than by
 /// verifying it: where signatures are ignored, a client's AWS headers still mean the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -433,17 +536,19 @@ pub(crate) enum ExtensionDialect {
 
 impl ExtensionDialect {
     pub(crate) fn of(query: Option<&str>, headers: &HeaderMap) -> Self {
-        let aws4_header = headers
-            .get_all("authorization")
-            .iter()
-            .any(|value| value.as_bytes().starts_with(b"AWS4-HMAC-SHA256"));
+        // The legacy AWS form is read from the first value only and V4 from every value, as the
+        // dialect always has been; permissive mode never parses either to settle the difference.
+        let legacy_aws =
+            first_authorization_scheme(headers) == Some(AuthorizationScheme::AwsLegacy);
+        let aws4_header =
+            authorization_schemes(headers).any(|scheme| scheme == AuthorizationScheme::AwsV4);
         let aws4_query = decoded_query_names(query).any(|key| {
             std::str::from_utf8(&key)
                 .ok()
                 .and_then(|name| name.parse::<V4Parameter>().ok())
                 .is_some_and(V4Parameter::is_aws)
         });
-        if legacy_aws(headers) || aws4_header || aws4_query {
+        if legacy_aws || aws4_header || aws4_query {
             Self::Aws
         } else {
             Self::Google

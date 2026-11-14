@@ -53,6 +53,7 @@ pub(crate) struct Authentication<'auth, 'request> {
 pub(crate) async fn authenticate_target<'a>(
     authentication: Authentication<'a, '_>,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {
+    use crate::auth::signature::{Failure, SignatureKind, SignedRequest, VerificationError};
     let Authentication {
         auth,
         catalog,
@@ -63,37 +64,37 @@ pub(crate) async fn authenticate_target<'a>(
         resource,
         listener,
     } = authentication;
-    if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
-    {
-        auth.authenticate_xml_resource(catalog, method, uri, headers, clock, resource)
+    let Some(kind) = SignatureKind::of(uri.query(), headers) else {
+        return auth
+            .authenticate_request(headers, uri.query(), clock, listener)
             .await
-            .map_err(|error| {
-                if crate::auth::signature::has_header(headers)
-                    && !headers.get("authorization").is_some_and(|value| {
-                        value.as_bytes().starts_with(b"GOOG4")
-                            || value.as_bytes().starts_with(b"AWS4")
-                    })
-                    && matches!(
-                        error,
-                        crate::auth::signature::VerificationError::Signature(
-                            crate::auth::signature::Failure::Expired
-                                | crate::auth::signature::Failure::NotYetValid
-                        )
-                    )
-                {
-                    Error::new(
-                        XmlCode::RequestTimeTooSkewed,
-                        "The legacy signature timestamp is outside the allowed time window.",
-                    )
-                } else {
-                    signature_error(error)
-                }
-            })
-    } else {
-        auth.authenticate_request(headers, uri.query(), clock, listener)
-            .await
-            .map_err(|e| Error::from(JsonError::from(e)))
-    }
+            .map_err(|e| Error::from(JsonError::from(e)));
+    };
+    let request = SignedRequest {
+        kind,
+        method,
+        uri,
+        headers,
+        resource,
+    };
+    auth.authenticate_xml_resource(catalog, request, clock)
+        .await
+        .map_err(|error| {
+            // A legacy header carries its own Date, so a skewed one is a clock problem.
+            if kind == SignatureKind::LegacyHeader
+                && matches!(
+                    error,
+                    VerificationError::Signature(Failure::Expired | Failure::NotYetValid)
+                )
+            {
+                Error::new(
+                    XmlCode::RequestTimeTooSkewed,
+                    "The legacy signature timestamp is outside the allowed time window.",
+                )
+            } else {
+                signature_error(error)
+            }
+        })
 }
 
 /// The InvalidAccessKeyId answer, naming where the profile looks for `key`s so that the client

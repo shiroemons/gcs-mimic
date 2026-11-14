@@ -170,14 +170,7 @@ pub(super) async fn respond(
             "self-copy metadata updates; use the JSON object metadata update API",
         ));
     }
-    let signing = if auth::signature::is_signed(request.uri().query())
-        || auth::signature::has_header(request.headers())
-    {
-        put::Signing::SignedUrl
-    } else {
-        put::Signing::Header
-    };
-    let options = options(request.headers(), signing)?;
+    let options = options(request.headers(), put::Signing::of(&request))?;
     super::canned_acl::check(
         options.metadata.predefined_acl,
         &operation.target.bucket,

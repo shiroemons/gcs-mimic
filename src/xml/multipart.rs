@@ -5,7 +5,7 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };
 use crate::{
-    auth, json,
+    json,
     object::ObjectError,
     server::{ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, stream_upload},
     storage::xml_multipart as storage,
@@ -153,13 +153,7 @@ fn request_headers(
             return Err(Error::unsupported("multipart metadata outside initiation"));
         }
     }
-    let signing = if auth::signature::is_signed(request.uri().query())
-        || auth::signature::has_header(request.headers())
-    {
-        put::Signing::SignedUrl
-    } else {
-        put::Signing::Header
-    };
+    let signing = put::Signing::of(request);
     let framing = match operation {
         Operation::Parts | Operation::Uploads | Operation::Abort => put::Framing::OptionalEmpty,
         Operation::Begin | Operation::Put(_) | Operation::Complete => put::Framing::Required,

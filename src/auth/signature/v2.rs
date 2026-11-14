@@ -5,7 +5,7 @@
 use super::*;
 
 mod legacy;
-pub(crate) use legacy::{has_header, legacy_aws, xml_query};
+pub(crate) use legacy::xml_query;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Profile {
@@ -51,7 +51,7 @@ pub(super) fn prepare_resource(
     now: SystemTime,
     resource: &Resource,
 ) -> Result<v4::Prepared, Failure> {
-    if has_header(headers) {
+    if has_legacy_header(headers) {
         return legacy::prepare(method, uri, headers, now, resource);
     }
     let (query, deadline) = query_fields(uri)?;

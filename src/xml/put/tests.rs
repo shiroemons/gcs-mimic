@@ -120,10 +120,10 @@ fn header_acceptance_matches_each_operation() {
         let read = |policy| verdict(super::super::headers(&headers, policy).is_ok());
         let table = format!(
             "put {}/{} resumable {}/{} read {} strict {}",
-            verdict(reject_unsupported_headers(&headers, Signing::Header).is_ok()),
-            verdict(reject_unsupported_headers(&headers, Signing::SignedUrl).is_ok()),
-            resumable(super::super::resumable::Signing::Unsigned),
-            resumable(super::super::resumable::Signing::Signed),
+            verdict(reject_unsupported_headers(&headers, Signing::Unsigned).is_ok()),
+            verdict(reject_unsupported_headers(&headers, Signing::Signed).is_ok()),
+            resumable(Signing::Unsigned),
+            resumable(Signing::Signed),
             read(super::super::HeaderPolicy::Read),
             read(super::super::HeaderPolicy::Strict),
         );

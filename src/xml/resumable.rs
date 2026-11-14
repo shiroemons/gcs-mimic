@@ -50,31 +50,25 @@ fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     Ok(name)
 }
 
-/// Whether the initiation authenticated through a signature, which admits its signing headers.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Signing {
-    Signed,
-    Unsigned,
-}
-
 /// Rejects initiation headers outside the supported subset instead of ignoring their effect.
 /// Whole-object checksums are not documented for initiation, so they stay unsupported here.
 pub(super) fn reject_unsupported_headers(
     headers: &HeaderMap,
-    signing: Signing,
+    signing: put::Signing,
 ) -> Result<(), Error> {
     for key in headers.keys() {
         let name = key.as_str();
+        let signing_header =
+            signing.accepts_signing_headers() && auth::signature::authentication_header(name);
         let goog = name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
             && !super::is_common_object_header(name)
-            && !(signing == Signing::Signed && auth::signature::authentication_header(name))
+            && !signing_header
             && !matches!(
                 name,
                 "x-goog-resumable" | "x-goog-storage-class" | super::canned_acl::HEADER
             );
-        let amz = name.starts_with("x-amz-")
-            && !(signing == Signing::Signed && auth::signature::authentication_header(name));
+        let amz = name.starts_with("x-amz-") && !signing_header;
         if goog
             || amz
             || super::HTTP_PRECONDITION_HEADERS.contains(&name)
@@ -93,7 +87,7 @@ pub(super) fn reject_unsupported_headers(
 /// and preconditions the XML API accepts on `POST Object`.
 fn options(
     headers: &HeaderMap,
-    signing: Signing,
+    signing: put::Signing,
     access: crate::bucket::BucketAccess,
 ) -> Result<ResumableOptions, Error> {
     reject_unsupported_headers(headers, signing)?;
@@ -128,14 +122,7 @@ pub(crate) async fn start(
         .authorize(auth::OBJECTS_CREATE, &object.bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
-    let signing = if auth::signature::is_signed(request.uri().query())
-        || auth::signature::has_header(request.headers())
-    {
-        Signing::Signed
-    } else {
-        Signing::Unsigned
-    };
-    let options = options(request.headers(), signing, access)?;
+    let options = options(request.headers(), put::Signing::of(&request), access)?;
     super::canned_acl::check(
         options.metadata.predefined_acl,
         &object.bucket,

@@ -73,12 +73,35 @@ pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
         .map_err(|_| Error::invalid("Header must be representable as ASCII."))
 }
 
+/// How an XML write authenticated, which decides whether its signing headers are accepted.
 /// Signature-specific headers are validated before the operation adapter sees them.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Signing {
-    SignedUrl,
-    Header,
+    /// OAuth or anonymous: signing headers have no purpose and are refused.
+    Unsigned,
+    /// A signed URL or a signature `Authorization` value.
+    Signed,
+    /// An aws-chunked upload: signed, with chunk signatures instead of one payload hash.
     Streaming,
+}
+
+impl Signing {
+    /// `Signed` or `Unsigned` from the request's form; `respond` selects `Streaming`. Extension
+    /// header normalization after authentication leaves `Authorization` and the query as sent,
+    /// so this matches the form authentication saw.
+    pub(super) fn of<B>(request: &Request<B>) -> Self {
+        match auth::signature::SignatureKind::of(request.uri().query(), request.headers()) {
+            Some(_) => Self::Signed,
+            None => Self::Unsigned,
+        }
+    }
+
+    pub(super) fn accepts_signing_headers(self) -> bool {
+        match self {
+            Self::Unsigned => false,
+            Self::Signed | Self::Streaming => true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,7 +154,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
             && !super::is_common_object_header(name)
-            && !(signing != Signing::Header && auth::signature::authentication_header(name))
+            && !(signing.accepts_signing_headers() && auth::signature::authentication_header(name))
             && !matches!(
                 name,
                 "x-goog-hash"
@@ -141,7 +164,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
                     | length_range::HEADER
             ))
             || (name.starts_with("x-amz-")
-                && !(signing != Signing::Header
+                && !(signing.accepts_signing_headers()
                     && (auth::signature::authentication_header(name)
                         || name == "x-amz-decoded-content-length")))
             || super::HTTP_PRECONDITION_HEADERS.contains(&name)
@@ -454,12 +477,8 @@ pub(crate) async fn respond(
         .map_err(|error| anonymous_error(error, caller))?;
     let signing = if streaming.is_some() {
         Signing::Streaming
-    } else if auth::signature::is_signed(request.uri().query())
-        || auth::signature::has_header(request.headers())
-    {
-        Signing::SignedUrl
     } else {
-        Signing::Header
+        Signing::of(&request)
     };
     let Headers {
         content_type,

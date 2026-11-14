@@ -5,24 +5,11 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn has_header(headers: &HeaderMap) -> bool {
-    headers.get_all("authorization").iter().any(|value| {
-        let raw = value.as_bytes();
-        raw.starts_with(b"GOOG1") || raw == b"AWS" || raw.starts_with(b"AWS ")
-    })
-}
-
-pub(crate) fn legacy_aws(headers: &HeaderMap) -> bool {
-    headers
-        .get("authorization")
-        .is_some_and(|value| value.as_bytes().starts_with(b"AWS "))
-}
-
 pub(crate) fn xml_query(
     raw: &str,
     headers: &HeaderMap,
 ) -> Result<BTreeMap<String, String>, json::JsonError> {
-    if !has_header(headers) {
+    if !has_legacy_header(headers) {
         return json::parse_query(raw);
     }
     if raw.len() > 16 * 1024 {

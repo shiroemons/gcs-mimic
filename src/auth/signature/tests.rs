@@ -79,15 +79,16 @@ async fn verify_with_auth(
 ) -> Result<Option<String>, Failure> {
     let dir = crate::test_support::TestDir::new();
     let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+    // The verifier used to treat a request without any signature as V4, which the default keeps.
+    let request = SignedRequest {
+        kind: SignatureKind::of(uri.query(), headers).unwrap_or(SignatureKind::V4),
+        method,
+        uri,
+        headers,
+        resource: &Resource::PathStyle,
+    };
     let result = match auth
-        .authenticate_xml_resource(
-            &catalog,
-            method,
-            uri,
-            headers,
-            &Fixed(now),
-            &Resource::PathStyle,
-        )
+        .authenticate_xml_resource(&catalog, request, &Fixed(now))
         .await
     {
         Ok(caller) => Ok(caller.map(|caller| caller.principal().unwrap().id().to_owned())),
@@ -1342,10 +1343,10 @@ fn authorization_prefixes_select_dispatch_and_dialect() {
         };
         let classified = format!(
             "signed={} v4={} legacy={} legacy_aws={} dialect={dialect}",
-            has_header(&headers),
-            v4::has_header(&headers),
-            v2::has_header(&headers),
-            legacy_aws(&headers),
+            SignatureKind::of(None, &headers).is_some(),
+            has_v4_header(&headers),
+            has_legacy_header(&headers),
+            first_authorization_scheme(&headers) == Some(AuthorizationScheme::AwsLegacy),
         );
         assert_eq!(classified, expected, "{values:?}");
     }

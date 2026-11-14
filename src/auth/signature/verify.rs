@@ -151,10 +151,6 @@ impl<'a> Signers<'a> {
     }
 }
 
-pub(crate) fn has_header(headers: &HeaderMap) -> bool {
-    v4::has_header(headers) || v2::has_header(headers)
-}
-
 impl Auth {
     /// `None` when XML signing credentials are ignored, as in default permissive mode.
     pub(super) fn signers(&self) -> Option<Signers<'_>> {
@@ -168,24 +164,16 @@ impl Auth {
     pub(crate) async fn authenticate_xml_resource<'a>(
         &'a self,
         catalog: &Catalog,
-        method: &Method,
-        uri: &Uri,
-        headers: &HeaderMap,
+        request: SignedRequest<'_>,
         clock: &dyn Clock,
-        resource: &Resource,
     ) -> Result<Option<Caller<'a>>, VerificationError> {
-        enum SignatureKind {
-            V4,
-            V2Query,
-            V2Header,
-        }
-        let kind = if v2::is_v2(uri.query()) {
-            SignatureKind::V2Query
-        } else if v2::has_header(headers) {
-            SignatureKind::V2Header
-        } else {
-            SignatureKind::V4
-        };
+        let SignedRequest {
+            kind,
+            method,
+            uri,
+            headers,
+            resource,
+        } = request;
         if headers
             .get("x-amz-content-sha256")
             .is_some_and(|value| value == STREAMING_PAYLOAD)
@@ -201,18 +189,20 @@ impl Auth {
             return Ok(None);
         };
         v4::bounded(uri, headers)?;
-        let prepared = if matches!(kind, SignatureKind::V2Query | SignatureKind::V2Header) {
-            let mut prepared = v2::prepare_resource(method, uri, headers, clock.now(), resource)?;
-            prepared.algorithm = if matches!(kind, SignatureKind::V2Query)
-                && signers.keys().contains(&prepared.signer)
-            {
-                Algorithm::Rsa
-            } else {
-                Algorithm::LegacyHmacSha1
-            };
-            prepared
-        } else {
-            v4::prepare(method, uri, headers, clock.now())?
+        let prepared = match kind {
+            SignatureKind::V2Query | SignatureKind::LegacyHeader => {
+                let mut prepared =
+                    v2::prepare_resource(method, uri, headers, clock.now(), resource)?;
+                prepared.algorithm = if kind == SignatureKind::V2Query
+                    && signers.keys().contains(&prepared.signer)
+                {
+                    Algorithm::Rsa
+                } else {
+                    Algorithm::LegacyHmacSha1
+                };
+                prepared
+            }
+            SignatureKind::V4 => v4::prepare(method, uri, headers, clock.now())?,
         };
         self.verify_prepared(catalog, prepared).await
     }
@@ -447,15 +437,15 @@ mod tests {
                 );
                 "/bucket/object".parse().unwrap()
             };
+            let request = SignedRequest {
+                kind: SignatureKind::of(uri.query(), &headers).unwrap(),
+                method: &Method::GET,
+                uri: &uri,
+                headers: &headers,
+                resource: &Resource::PathStyle,
+            };
             let failure = auth
-                .authenticate_xml_resource(
-                    &catalog,
-                    &Method::GET,
-                    &uri,
-                    &headers,
-                    &clock,
-                    &Resource::PathStyle,
-                )
+                .authenticate_xml_resource(&catalog, request, &clock)
                 .await
                 .unwrap_err();
             assert!(matches!(failure, VerificationError::Catalog(_)));
@@ -696,15 +686,15 @@ mod tests {
         let uri: Uri = format!("/bucket/object?X-Goog-Algorithm=GOOG4-HMAC-SHA256&X-Goog-Credential=key%2F{}%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date={date}&X-Goog-Expires=60&X-Goog-SignedHeaders=host&X-Goog-Signature=00",&date[..8]).parse().unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("host", "localhost".parse().unwrap());
+        let request = SignedRequest {
+            kind: SignatureKind::of(uri.query(), &headers).unwrap(),
+            method: &Method::GET,
+            uri: &uri,
+            headers: &headers,
+            resource: &Resource::PathStyle,
+        };
         let error = auth
-            .authenticate_xml_resource(
-                &catalog,
-                &Method::GET,
-                &uri,
-                &headers,
-                &clock,
-                &Resource::PathStyle,
-            )
+            .authenticate_xml_resource(&catalog, request, &clock)
             .await
             .unwrap_err();
         assert!(matches!(error, VerificationError::Catalog(_)));

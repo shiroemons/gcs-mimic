@@ -178,12 +178,6 @@ impl Algorithm {
     }
 }
 
-pub(crate) fn has_header(headers: &HeaderMap) -> bool {
-    headers.get_all("authorization").iter().any(|value| {
-        value.as_bytes().starts_with(b"GOOG4") || value.as_bytes().starts_with(b"AWS4")
-    })
-}
-
 /// Connection admission bounds waiters; these caps also bound direct adapter callers.
 pub(super) fn bounded(uri: &Uri, headers: &HeaderMap) -> Result<(), Failure> {
     if uri
@@ -235,7 +229,7 @@ pub(super) fn prepare(
     bounded(uri, headers)?;
     let query =
         json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
-    let header = has_header(headers);
+    let header = has_v4_header(headers);
     if query
         .keys()
         .any(|name| signing_param(name.as_bytes()) == Some(SigningParams::V2))
