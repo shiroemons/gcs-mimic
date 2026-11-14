@@ -19,7 +19,7 @@ type Job = Box<dyn FnOnce() -> Flow + Send>;
 
 /// Why a job produced no result.
 #[derive(Debug)]
-pub(super) enum ExecutorError {
+pub(crate) enum ExecutorError {
     /// The thread has stopped after closing the catalog.
     Closed,
     /// The job panicked; the thread keeps serving later jobs.

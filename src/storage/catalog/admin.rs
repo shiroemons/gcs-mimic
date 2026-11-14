@@ -207,6 +207,7 @@ pub enum PublishMode {
 
 mod publication;
 pub(super) use publication::FileWorkers;
+pub(in crate::storage) use publication::NestedFileJob;
 pub(super) use publication::apply_acl;
 pub(crate) use publication::{BatchPublication, ImportedPublication, StagedObject};
 pub(crate) use publication::{SeedBatch, SeedMode};
@@ -325,7 +326,7 @@ impl AdminError {
     }
 
     /// Wraps a failure outside the catalog's own classification, keeping it as the source.
-    pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub(crate) fn backend(error: impl Into<crate::storage::failure::Source>) -> Self {
         Self::Backend(BackendCause::from_error(error))
     }
 

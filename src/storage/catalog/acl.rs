@@ -306,7 +306,7 @@ pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, Cata
 }
 
 /// A stored ACL row that does not decode, or holds a role its kind cannot grant.
-fn invalid_stored(error: impl std::error::Error + Send + Sync + 'static) -> CatalogError {
+fn invalid_stored(error: impl Into<crate::storage::failure::Source>) -> CatalogError {
     CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
         "invalid stored ACL",
         error,

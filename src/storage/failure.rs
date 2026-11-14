@@ -15,10 +15,10 @@ use std::{
     sync::{Arc, PoisonError},
 };
 
-type Source = Arc<dyn Error + Send + Sync + 'static>;
-
 mod kind;
 pub(crate) use kind::BackendFailure;
+mod source;
+pub(crate) use source::Source;
 
 /// The message and optional underlying error of an unavailable or corrupt backend.
 ///
@@ -29,7 +29,7 @@ pub(crate) use kind::BackendFailure;
 #[derive(Clone)]
 pub struct BackendCause {
     message: Cow<'static, str>,
-    source: Option<Source>,
+    source: Option<Arc<Source>>,
 }
 
 impl BackendCause {
@@ -42,21 +42,22 @@ impl BackendCause {
     }
 
     /// A cause whose message is the error's `Display` text.
-    pub(crate) fn from_error(error: impl Error + Send + Sync + 'static) -> Self {
+    pub(crate) fn from_error(error: impl Into<Source>) -> Self {
+        let source = error.into();
         Self {
-            message: error.to_string().into(),
-            source: Some(Arc::new(error)),
+            message: source.to_string().into(),
+            source: Some(Arc::new(source)),
         }
     }
 
     /// A cause with a contextual message that already describes `error`.
     pub(crate) fn with_source(
         message: impl Into<Cow<'static, str>>,
-        error: impl Error + Send + Sync + 'static,
+        error: impl Into<Source>,
     ) -> Self {
         Self {
             message: message.into(),
-            source: Some(Arc::new(error)),
+            source: Some(Arc::new(error.into())),
         }
     }
 
@@ -69,9 +70,7 @@ impl BackendCause {
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source
-            .as_deref()
-            .map(|error| error as &(dyn Error + 'static))
+        self.source.as_deref().map(Source::as_error)
     }
 }
 
@@ -130,38 +129,14 @@ impl From<BackendFailure> for BackendCause {
 }
 
 /// An I/O failure: the kind callers classify by, and the error that produced it.
+///
+/// The source is the error that produced the failure, or, when [`object_context`] added a
+/// message naming the entry the failure hit, a [`Source::Context`] whose own source is that
+/// error.
 #[derive(Clone)]
 pub struct IoCause {
     kind: io::ErrorKind,
-    source: Option<IoSource>,
-}
-
-/// What an [`IoCause`] keeps besides its kind.
-#[derive(Clone)]
-enum IoSource {
-    /// The error that produced the failure.
-    Error(Source),
-    /// A message naming the entry the failure hit, added by [`object_context`]; its source is
-    /// the error that produced the failure.
-    Context(Arc<BackendCause>),
-}
-
-impl IoSource {
-    fn as_error(&self) -> &(dyn Error + 'static) {
-        match self {
-            Self::Error(error) => error.as_ref(),
-            Self::Context(context) => context.as_ref(),
-        }
-    }
-}
-
-impl From<IoSource> for Source {
-    fn from(source: IoSource) -> Self {
-        match source {
-            IoSource::Error(error) => error,
-            IoSource::Context(context) => context,
-        }
-    }
+    source: Option<Arc<Source>>,
 }
 
 impl IoCause {
@@ -170,7 +145,7 @@ impl IoCause {
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.as_ref().map(IoSource::as_error)
+        self.source.as_deref().map(Source::as_error)
     }
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
@@ -197,8 +172,8 @@ pub enum MemoryBudget {
 #[derive(Debug)]
 pub(crate) struct MemoryExhausted {
     budget: MemoryBudget,
-    /// The failure that reported it, such as SQLite's full database.
-    source: Option<Source>,
+    /// SQLite's full database, when the catalog page budget ran out.
+    source: Option<rusqlite::Error>,
 }
 
 impl MemoryExhausted {
@@ -226,7 +201,7 @@ impl fmt::Display for MemoryExhausted {
 impl Error for MemoryExhausted {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source
-            .as_deref()
+            .as_ref()
             .map(|error| error as &(dyn Error + 'static))
     }
 }
@@ -267,24 +242,23 @@ impl Drop for MemoryCatalogJob {
 
 /// A full SQLite database: the disk, or on a memory catalog its page budget.
 fn full_database(error: rusqlite::Error) -> IoCause {
-    let error: Source = Arc::new(error);
-    let source: Source = match CATALOG_PAGES.get() {
-        CatalogPages::Disk => error,
-        CatalogPages::Memory => Arc::new(MemoryExhausted {
+    let source = match CATALOG_PAGES.get() {
+        CatalogPages::Disk => Source::Sqlite(error),
+        CatalogPages::Memory => Source::Exhausted(MemoryExhausted {
             budget: MemoryBudget::Catalog,
             source: Some(error),
         }),
     };
     IoCause {
         kind: io::ErrorKind::StorageFull,
-        source: Some(IoSource::Error(source)),
+        source: Some(Arc::new(source)),
     }
 }
 
 /// Plain failures retain the kind-only message; contextual failures also identify their entry.
 impl fmt::Display for IoCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(IoSource::Context(context)) = &self.source {
+        if let Some(Source::Context(context)) = self.source.as_deref() {
             return context.fmt(formatter);
         }
         fmt::Display::fmt(&self.kind, formatter)
@@ -323,7 +297,7 @@ impl From<io::Error> for IoCause {
     fn from(error: io::Error) -> Self {
         Self {
             kind: error.kind(),
-            source: Some(IoSource::Error(Arc::new(error))),
+            source: Some(Arc::new(Source::Io(error))),
         }
     }
 }
@@ -572,9 +546,9 @@ pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCaus
             );
             ObjectError::Io(IoCause {
                 kind: cause.kind(),
-                source: Some(IoSource::Context(Arc::new(BackendCause {
+                source: Some(Arc::new(Source::Context(BackendCause {
                     message: message.into(),
-                    source: cause.source.map(Source::from),
+                    source: cause.source,
                 }))),
             })
         }

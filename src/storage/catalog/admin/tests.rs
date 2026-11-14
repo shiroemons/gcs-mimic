@@ -107,7 +107,7 @@ fn administrative_failures_retain_io_and_corruption_causes() {
         assert_eq!(cause.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(cause.to_string(), "denied fixture");
     }
-    let invalid = || "bad".parse::<u64>().unwrap_err();
+    let invalid = || u8::try_from(256_u16).unwrap_err();
     for error in [
         AdminError::from(CatalogError::Corrupt(BackendCause::from_error(invalid()))),
         AdminError::from(ObjectError::Corrupt(BackendCause::from_error(invalid()))),
@@ -115,7 +115,7 @@ fn administrative_failures_retain_io_and_corruption_causes() {
         assert!(
             std::error::Error::source(&error)
                 .unwrap()
-                .is::<std::num::ParseIntError>()
+                .is::<std::num::TryFromIntError>()
         );
     }
 }

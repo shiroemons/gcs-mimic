@@ -1063,12 +1063,12 @@ impl std::error::Error for ObjectError {
 
 impl ObjectError {
     /// Wraps an adapter-side failure as unavailable, keeping it as the source.
-    pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub(crate) fn backend(error: impl Into<crate::storage::failure::Source>) -> Self {
         Self::Unavailable(BackendCause::from_error(error))
     }
 
     /// The request body stream failed; the transport error stays the source.
-    pub(crate) fn body_aborted(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub(crate) fn body_aborted(error: impl Into<crate::storage::failure::Source>) -> Self {
         Self::BodyAborted(BackendCause::from_error(error))
     }
 

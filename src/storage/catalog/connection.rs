@@ -2,7 +2,7 @@ use super::*;
 
 /// Why an operation could not run on the shared catalog connection.
 #[derive(Debug)]
-pub(super) enum ConnectionUnavailable {
+pub(crate) enum ConnectionUnavailable {
     Closed,
     /// The operation panicked; its changes were rolled back.
     Panicked,
@@ -65,7 +65,7 @@ impl From<ConnectionUnavailable> for crate::object::ObjectError {
 
 /// Why a transaction abandoned by a panic could not be confirmed as rolled back.
 #[derive(Debug)]
-pub(super) enum RollbackError {
+pub(crate) enum RollbackError {
     Rollback(rusqlite::Error),
     StillOpen,
     #[cfg(test)]

@@ -638,13 +638,13 @@ impl InvalidOptions {
     }
 
     /// Options whose embedded value failed to decode; the decoding error stays the source.
-    fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+    fn from_error(error: impl Into<crate::storage::failure::Source>) -> Self {
         Self(BackendCause::from_error(error))
     }
 
     pub(in crate::storage) fn with_source(
         reason: &'static str,
-        error: impl std::error::Error + Send + Sync + 'static,
+        error: impl Into<crate::storage::failure::Source>,
     ) -> Self {
         Self(BackendCause::with_source(reason, error))
     }

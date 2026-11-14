@@ -29,7 +29,7 @@ type FileJob = Box<dyn FnOnce() + Send>;
 thread_local! { static IN_FILE_JOB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
 #[derive(Debug)]
-struct NestedFileJob;
+pub(in crate::storage) struct NestedFileJob;
 impl std::fmt::Display for NestedFileJob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("file worker job started another file worker job")
