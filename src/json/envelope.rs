@@ -17,6 +17,17 @@ use std::time::SystemTime;
 /// The `Cache-Control` of a successful JSON API read.
 pub(crate) const RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
 
+/// The cache headers of a `200 OK` JSON API resource response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResponseCache {
+    /// Not recorded for this operation, so no cache header is sent.
+    Unrecorded,
+    /// Reads of object and bucket metadata and lists.
+    Resource,
+    /// Cloud Storage forbids every cache, HTTP/1.0 ones included, for recorded object inserts.
+    NoStore,
+}
+
 /// An `Expires` in the past, sent with every response that must not be cached.
 const EXPIRED: &str = "Mon, 01 Jan 1990 00:00:00 GMT";
 

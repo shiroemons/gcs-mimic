@@ -60,14 +60,14 @@ pub(crate) use derived_metadata::{
     derived_metadata_of, derived_resource,
 };
 pub(crate) use envelope::{
-    Call as EnvelopeCall, apply as apply_envelope, etag_header, forbid_caching,
+    Call as EnvelopeCall, ResponseCache, apply as apply_envelope, etag_header, forbid_caching,
 };
 pub use error::JsonError;
 pub(crate) use error::{
     ErrorKind, MEDIA_ERROR_CACHE_CONTROL, NO_STORE_CACHE_CONTROL, PRECONDITION_NOT_HELD,
     safe_backend_cause,
 };
-pub(crate) use fields::{Fields, Schema};
+pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;
 pub(crate) use iam::{

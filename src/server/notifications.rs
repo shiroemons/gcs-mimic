@@ -15,16 +15,15 @@ pub(super) async fn respond(
     state: &State,
     base: &str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    // Official IAM mapping: insert/delete change bucket configuration, get/list read it.
-    let permission = match operation {
-        NotificationRequest::Insert { .. } | NotificationRequest::Delete { .. } => {
-            auth::BUCKETS_UPDATE
-        }
-        NotificationRequest::List { .. } | NotificationRequest::Get { .. } => auth::BUCKETS_GET,
-    };
-    let access = authorize_bucket(state, caller, permission, operation.bucket()).await?;
+    let access = authorize_bucket(
+        state,
+        caller,
+        operation.required_permission(),
+        operation.bucket(),
+    )
+    .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
-    if !matches!(operation, NotificationRequest::Insert { .. })
+    if !operation.accepts_body()
         && (request.headers().contains_key("transfer-encoding")
             || request
                 .headers()

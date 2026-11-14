@@ -1,7 +1,7 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
 use super::RequestBody as Incoming;
-use super::{JsonCache, State, authorize_bucket, empty_response, json_response_selected};
+use super::{State, authorize_bucket, empty_response, json_response_selected};
 use crate::{
     acl::{AclKind, AclTarget},
     auth::{self, Caller},
@@ -20,8 +20,8 @@ fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
     match (kind, access) {
         (AclKind::Object, AclAccess::Read) => auth::OBJECTS_GET_IAM,
         (AclKind::Object, AclAccess::Write) => auth::OBJECTS_SET_IAM,
-        (_, AclAccess::Read) => auth::BUCKETS_GET_IAM,
-        (_, AclAccess::Write) => auth::BUCKETS_SET_IAM,
+        (AclKind::Bucket | AclKind::DefaultObject, AclAccess::Read) => auth::BUCKETS_GET_IAM,
+        (AclKind::Bucket | AclKind::DefaultObject, AclAccess::Write) => auth::BUCKETS_SET_IAM,
     }
 }
 
@@ -183,7 +183,7 @@ pub(super) async fn respond(
             )
         }
     };
-    let mut response = json_response_selected(&mut value, &fields, JsonCache::Unrecorded);
+    let mut response = json_response_selected(&mut value, &fields, json::ResponseCache::Unrecorded);
     if let Some(etag) = etag.and_then(|etag| etag.parse().ok()) {
         response.headers_mut().insert("etag", etag);
     }
@@ -356,6 +356,6 @@ async fn add_objects(
 fn naming_object(error: JsonError, target: &AclTarget) -> JsonError {
     match target {
         AclTarget::Object { bucket, name, .. } => error.naming_object(bucket, name),
-        _ => error,
+        AclTarget::Bucket(_) | AclTarget::DefaultObject(_) => error,
     }
 }

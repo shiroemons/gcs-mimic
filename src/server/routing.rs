@@ -744,29 +744,12 @@ async fn respond_json_object(
     parsed: Result<ObjectRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let parsed = authenticated(&request, ctx, parsed).await;
-    let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
-    // The object a missing-object error names: only operations whose path selects one.
-    let target = match &parsed {
-        Ok((
-            ObjectRequest::Get { target, .. }
-            | ObjectRequest::Update(json::ObjectUpdateParams { target, .. })
-            | ObjectRequest::Delete { target, .. },
-            _,
-        )) => Some((target.bucket.clone(), target.name.clone())),
-        _ => None,
-    };
-    let transfer = media
-        || matches!(
-            &parsed,
-            Ok((
-                ObjectRequest::Insert(_)
-                    | ObjectRequest::Copy(_)
-                    | ObjectRequest::Compose { .. }
-                    | ObjectRequest::Multipart(_)
-                    | ObjectRequest::Resumable(_),
-                _
-            ))
-        );
+    let operation = parsed.as_ref().ok().map(|(operation, _)| operation);
+    let media = operation.is_some_and(ObjectRequest::is_media_read);
+    let target = operation
+        .and_then(ObjectRequest::named_object)
+        .map(|target| (target.bucket.clone(), target.name.clone()));
+    let transfer = operation.is_some_and(ObjectRequest::transfers_data);
     let deadline = ctx.start_object_deadline(if transfer {
         DeadlineWatch::Enforced
     } else {

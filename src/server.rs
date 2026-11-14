@@ -1980,30 +1980,35 @@ fn read_metadata_response(
     Ok(response)
 }
 
-/// The cache headers of a `200 OK` JSON API resource response.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum JsonCache {
-    /// Not recorded for this operation, so no cache header is sent.
-    Unrecorded,
-    /// Reads of object and bucket metadata and lists.
-    Resource,
-    /// Cloud Storage forbids every cache, HTTP/1.0 ones included, for recorded object inserts.
-    NoStore,
+/// The `fields` selection a response applies, read from the request query as the operation
+/// says.
+fn response_fields(
+    query: Option<&str>,
+    selection: json::FieldSelection,
+) -> Result<json::Fields, JsonError> {
+    match selection {
+        json::FieldSelection::Ignored => Ok(json::Fields::whole()),
+        json::FieldSelection::Query(schema) => json::Fields::from_query(query, schema),
+        json::FieldSelection::TestPermissions => Ok(json::test_permissions_query(query)?.1),
+    }
 }
 
 /// A `200 OK` JSON API resource with the cache headers its operation records.
-fn json_response_cached(value: &serde_json::Value, cache: JsonCache) -> Response<Full<Bytes>> {
+fn json_response_cached(
+    value: &serde_json::Value,
+    cache: json::ResponseCache,
+) -> Response<Full<Bytes>> {
     let mut response = json_response(value);
     let headers = response.headers_mut();
     match cache {
-        JsonCache::Unrecorded => {}
-        JsonCache::Resource => {
+        json::ResponseCache::Unrecorded => {}
+        json::ResponseCache::Resource => {
             headers.insert(
                 "cache-control",
                 hyper::header::HeaderValue::from_static(JSON_RESOURCE_CACHE_CONTROL),
             );
         }
-        JsonCache::NoStore => {
+        json::ResponseCache::NoStore => {
             headers.insert(
                 "cache-control",
                 hyper::header::HeaderValue::from_static(json::NO_STORE_CACHE_CONTROL),
@@ -2022,7 +2027,7 @@ fn json_response_cached(value: &serde_json::Value, cache: JsonCache) -> Response
 fn json_response_selected(
     value: &mut serde_json::Value,
     fields: &json::Fields,
-    cache: JsonCache,
+    cache: json::ResponseCache,
 ) -> Response<Full<Bytes>> {
     let etag = json::etag_header(value);
     fields.apply(value);

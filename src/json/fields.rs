@@ -63,6 +63,17 @@ fn definition(name: &str) -> &'static Value {
     SCHEMAS.get(name).unwrap_or(&Value::Null)
 }
 
+/// Where a method's response takes its `fields` selection from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FieldSelection {
+    /// The method answers without a resource body and does not read `fields`.
+    Ignored,
+    /// The `fields` query parameter selects from this Discovery schema.
+    Query(Schema),
+    /// `testIamPermissions` reads `fields` together with its repeated `permissions`.
+    TestPermissions,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Fields {
     whole: bool,

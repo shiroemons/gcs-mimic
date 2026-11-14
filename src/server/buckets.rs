@@ -3,9 +3,9 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
+    JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
     authorize_bucket, authorize_project, empty_response, json_response_selected,
-    read_metadata_response, validate_bodyless_post,
+    read_metadata_response, response_fields, validate_bodyless_post,
 };
 use crate::{
     auth::{self, Caller},
@@ -48,26 +48,14 @@ pub(super) async fn respond<'a>(
     };
     let access = authorize(ctx, &operation).await?;
     validate_request(&request, &operation)?;
-    let fields = response_fields(&request, &operation)?;
-    // ACL entries of a soft-deleted version are kept for restore but not rendered.
-    let acl_full = operation.projection() == json::Projection::Full
-        && !matches!(
-            operation,
-            BucketRequest::GetSoftDeleted { .. }
-                | BucketRequest::ListSoftDeleted(_)
-                | BucketRequest::GetStorageLayout { .. }
-        );
+    let fields = response_fields(request.uri().query(), operation.fields())?;
+    let acl_full = operation.projection() == json::Projection::Full && operation.renders_acl();
     // A write that turns uniform bucket-level access off answers without ACL fields, as one that
     // turns it on does (recorded 2026-10-31), so the state before the write matters too.
     let acl_full = acl_full
         && !(profile == CompatProfile::Native
             && leaves_uniform_access(state, &access, &operation).await?);
-    // Only the recorded bucket list carries a cache header; other bucket operations keep none.
-    let cache = if matches!(operation, BucketRequest::List(_)) {
-        JsonCache::Resource
-    } else {
-        JsonCache::Unrecorded
-    };
+    let cache = operation.response_cache();
     let mut value = match operation {
         BucketRequest::LockRetentionPolicy {
             bucket,
@@ -249,56 +237,19 @@ fn validate_request(
     request: &Request<Incoming>,
     operation: &BucketRequest,
 ) -> Result<(), JsonError> {
-    let etags = match operation {
-        BucketRequest::Get { .. } | BucketRequest::GetIam { .. } => json::EtagConditions::Supported,
-        // Google's .NET client sends the fetched resource's etag as If-Match on these writes.
-        // Cloud Storage was observed to ignore both entity-tag headers on bucket updates, so
-        // a stale tag still applies; setIamPolicy evaluates If-Match.
-        BucketRequest::Patch { .. } | BucketRequest::Update { .. } => json::EtagConditions::Ignored,
-        BucketRequest::SetIam { .. } => json::EtagConditions::MatchOnly,
-        // A listing has no entity tag. Cloud Storage ignored both headers on the object
-        // listing (case obj-collection-validators); bucket listings are treated the same way.
-        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => json::EtagConditions::Ignored,
-        _ => json::EtagConditions::Unsupported,
-    };
-    json::validate_read_condition_headers(request.headers(), etags)?;
-    if !matches!(
-        operation,
-        BucketRequest::Insert(_)
-            | BucketRequest::SetIam { .. }
-            | BucketRequest::Patch { .. }
-            | BucketRequest::Update { .. }
-            | BucketRequest::LockRetentionPolicy { .. }
-    ) && (request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|v| v != "0"))
+    json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
+    if !operation.accepts_body()
+        && (request.headers().contains_key("transfer-encoding")
+            || request
+                .headers()
+                .get("content-length")
+                .is_some_and(|v| v != "0"))
     {
         return Err(JsonError::invalid_argument(
             "This method requires an empty body",
         ));
     }
     Ok(())
-}
-
-fn response_fields(
-    request: &Request<Incoming>,
-    operation: &BucketRequest,
-) -> Result<json::Fields, JsonError> {
-    if matches!(operation, BucketRequest::TestIam { .. }) {
-        return Ok(json::test_permissions_query(request.uri().query())?.1);
-    }
-    if matches!(operation, BucketRequest::Delete { .. }) {
-        return Ok(json::Fields::whole());
-    }
-    let schema = match operation {
-        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => json::Schema::Buckets,
-        BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => json::Schema::Policy,
-        BucketRequest::GetStorageLayout { .. } => json::Schema::BucketStorageLayout,
-        _ => json::Schema::Bucket,
-    };
-    json::Fields::from_query(request.uri().query(), schema)
 }
 
 async fn lock_retention_policy(

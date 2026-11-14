@@ -19,12 +19,11 @@ clippy::wildcard_enum_match_arm	src/json/fields.rs	1
 clippy::wildcard_enum_match_arm	src/json/notifications.rs	1
 clippy::wildcard_enum_match_arm	src/json/object_metadata.rs	1
 clippy::wildcard_enum_match_arm	src/object.rs	3
-clippy::wildcard_enum_match_arm	src/server/acl.rs	1
 clippy::wildcard_enum_match_arm	src/server/admin/sync.rs	2
 clippy::wildcard_enum_match_arm	src/server/admin/sync/conflicts.rs	1
-clippy::wildcard_enum_match_arm	src/server/buckets.rs	3
+clippy::wildcard_enum_match_arm	src/server/buckets.rs	1
 clippy::wildcard_enum_match_arm	src/server/chunk_body.rs	1
-clippy::wildcard_enum_match_arm	src/server/objects.rs	4
+clippy::wildcard_enum_match_arm	src/server/objects.rs	1
 clippy::wildcard_enum_match_arm	src/server/routing.rs	1
 clippy::wildcard_enum_match_arm	src/source_tree.rs	1
 clippy::wildcard_enum_match_arm	src/startup.rs	2

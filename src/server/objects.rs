@@ -7,8 +7,8 @@ mod upload;
 
 use super::RequestBody as Incoming;
 use super::{
-    JsonCache, ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody, acl, boxed, empty_response,
-    json_response_selected, resumable, retention_access, validate_bodyless_post,
+    ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody, acl, boxed, empty_response,
+    json_response_selected, response_fields, resumable, retention_access, validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -42,8 +42,8 @@ pub(super) async fn respond(
     operation: ObjectRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let fields = response_fields(request.uri(), &operation)?;
-    let (permission, bucket) = required_permission(&operation);
+    let fields = response_fields(request.uri().query(), operation.fields())?;
+    let (permission, bucket) = operation.required_permission();
     // Authorization precedes header/body validation, conditions and existence checks.
     // Replacing a live object additionally needs storage.objects.delete. The access carries
     // that decision, and publication enforces it inside the catalog transaction if the name is
@@ -55,15 +55,8 @@ pub(super) async fn respond(
         check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;
     }
     validate_request(request.headers(), &operation)?;
-    // Only recorded operations carry a cache header: lists are cacheable-but-revalidated
-    // resources and an object insert forbids every cache. Other writes were not recorded.
-    let cache = match &operation {
-        ObjectRequest::List(_) => JsonCache::Resource,
-        ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. } => JsonCache::NoStore,
-        _ => JsonCache::Unrecorded,
-    };
-    // Cloud Storage sends no ETag header with a move response, though the body has an etag.
-    let validator_header = !matches!(operation, ObjectRequest::Move(_));
+    let cache = operation.response_cache();
+    let validator_header = operation.sends_etag_header();
     let written = match operation {
         ObjectRequest::Restore { target, conditions } => {
             restore(request, ctx, &access, &query, target, conditions)
@@ -125,31 +118,6 @@ pub(super) async fn respond(
     Ok(boxed(response))
 }
 
-fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {
-    match operation {
-        ObjectRequest::Delete { .. } => Ok(json::Fields::whole()),
-        ObjectRequest::List(_) => json::Fields::from_query(uri.query(), json::Schema::Objects),
-        _ => json::Fields::from_query(uri.query(), json::Schema::Object),
-    }
-}
-
-/// The permission an operation needs on the bucket its request names.
-fn required_permission(operation: &ObjectRequest) -> (auth::Permission, &str) {
-    match operation {
-        ObjectRequest::Restore { target, .. } => (auth::OBJECTS_RESTORE, &target.bucket),
-        ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
-        ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
-        ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
-        ObjectRequest::Update(params) => (auth::OBJECTS_UPDATE, &params.target.bucket),
-        ObjectRequest::Compose { bucket, .. }
-        | ObjectRequest::Insert(UploadRequest { bucket, .. })
-        | ObjectRequest::Multipart(UploadRequest { bucket, .. })
-        | ObjectRequest::Resumable(UploadRequest { bucket, .. }) => (auth::OBJECTS_CREATE, bucket),
-        ObjectRequest::Get { target, .. } => (auth::OBJECTS_GET, &target.bucket),
-        ObjectRequest::Delete { target, .. } => (auth::OBJECTS_DELETE, &target.bucket),
-    }
-}
-
 /// Uploads apply `predefinedAcl` outside uniform access; every other operation, and any
 /// predefined ACL under uniform access, keeps its explicit 400. Publication rechecks uniform
 /// access and public access prevention atomically.
@@ -160,21 +128,16 @@ async fn check_predefined_acl(
     operation: &ObjectRequest,
     access: &BucketAccess,
 ) -> Result<(), JsonError> {
-    let target = if matches!(
-        operation,
-        ObjectRequest::Insert(_) | ObjectRequest::Multipart(_) | ObjectRequest::Resumable(_)
-    ) {
-        // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
-        // project owners team, so an anonymous caller could otherwise choose its object's ACL.
-        if matches!(access, BucketAccess::Policy { identity: None, .. }) {
-            return Err(JsonError::invalid_argument(
-                "Anonymous callers cannot specify predefinedAcl on upload; authenticate or omit predefinedAcl",
-            ));
-        }
-        json::PredefinedAclTarget::ObjectUpload
-    } else {
-        json::PredefinedAclTarget::Object
-    };
+    let target = operation.predefined_acl_target();
+    // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
+    // project owners team, so an anonymous caller could otherwise choose its object's ACL.
+    if target == json::PredefinedAclTarget::ObjectUpload
+        && matches!(access, BucketAccess::Policy { identity: None, .. })
+    {
+        return Err(JsonError::invalid_argument(
+            "Anonymous callers cannot specify predefinedAcl on upload; authenticate or omit predefinedAcl",
+        ));
+    }
     let record = ctx
         .state
         .catalog
@@ -190,28 +153,10 @@ async fn check_predefined_acl(
 
 /// Header and body checks that precede every operation's own validation.
 fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), JsonError> {
-    if !matches!(operation, ObjectRequest::Get { .. }) {
-        let etags = match operation {
-            ObjectRequest::Update(_) => json::EtagConditions::MatchOnly,
-            // A listing has no entity tag: Cloud Storage listed the objects with
-            // `If-None-Match: *` and with a bogus `If-Match` (case obj-collection-validators).
-            ObjectRequest::List(_) => json::EtagConditions::Ignored,
-            _ => json::EtagConditions::Unsupported,
-        };
+    if let Some(etags) = operation.etag_conditions() {
         json::validate_read_condition_headers(headers, etags)?;
     }
-    let accepts_body = matches!(
-        operation,
-        ObjectRequest::Insert(_)
-            | ObjectRequest::Compose { .. }
-            | ObjectRequest::Multipart(_)
-            | ObjectRequest::Resumable(_)
-            | ObjectRequest::Update(_)
-            | ObjectRequest::Copy(_)
-            | ObjectRequest::Restore { .. }
-            | ObjectRequest::Move(_)
-    );
-    if !accepts_body
+    if !operation.accepts_body()
         && (headers.contains_key("transfer-encoding")
             || headers.get("content-length").is_some_and(|v| v != "0"))
     {

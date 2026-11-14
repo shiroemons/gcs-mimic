@@ -57,14 +57,12 @@ pub(super) async fn respond(
             authorize_project_visibility(caller, project.as_str())?
         }
     }
-    if !matches!(
-        operation,
-        ProjectRequest::UpdateHmacKey { .. } | ProjectRequest::CreateHmacKey { .. }
-    ) && (request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|value| value != "0"))
+    if !operation.accepts_body()
+        && (request.headers().contains_key("transfer-encoding")
+            || request
+                .headers()
+                .get("content-length")
+                .is_some_and(|value| value != "0"))
     {
         return Err(JsonError::invalid_argument(
             "This method requires an empty body",

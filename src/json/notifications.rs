@@ -41,6 +41,22 @@ impl NotificationRequest {
             | Self::Delete { bucket, .. } => bucket,
         }
     }
+
+    /// Official IAM mapping: insert and delete change bucket configuration, get and list read it.
+    pub(crate) fn required_permission(&self) -> crate::auth::Permission {
+        match self {
+            Self::Insert { .. } | Self::Delete { .. } => crate::auth::BUCKETS_UPDATE,
+            Self::List { .. } | Self::Get { .. } => crate::auth::BUCKETS_GET,
+        }
+    }
+
+    /// Whether the method takes a request body.
+    pub(crate) fn accepts_body(&self) -> bool {
+        match self {
+            Self::Insert { .. } => true,
+            Self::List { .. } | Self::Get { .. } | Self::Delete { .. } => false,
+        }
+    }
 }
 
 /// Match `b/{bucket}/notificationConfigs[/{notification}]` before any other bucket route.

@@ -1,6 +1,6 @@
 use super::{
-    JsonError, Projection, WriteMode,
-    buckets::{encode_segment, timestamp},
+    FieldSelection, JsonError, Projection, ResponseCache, Schema, WriteMode,
+    buckets::{PredefinedAclTarget, encode_segment, timestamp},
     checksum::{self, each_declared_hash},
     integer::take_long,
     query::{
@@ -10,6 +10,7 @@ use super::{
 };
 use crate::decimal::Grammar;
 use crate::{
+    auth,
     config::CompatProfile,
     object::{
         ExpectedHashes, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
@@ -94,6 +95,180 @@ impl ObjectRequest {
             Self::Get { params, .. } => params.projection,
             // Restore validates projection but deliberately omits ACLs, as observed on the wire.
             Self::Restore { .. } | Self::Compose { .. } | Self::Delete { .. } => Projection::NoAcl,
+        }
+    }
+
+    /// The permission an operation needs on the bucket its request names.
+    pub(crate) fn required_permission(&self) -> (auth::Permission, &str) {
+        match self {
+            Self::Restore { target, .. } => (auth::OBJECTS_RESTORE, &target.bucket),
+            Self::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
+            Self::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
+            Self::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
+            Self::Update(params) => (auth::OBJECTS_UPDATE, &params.target.bucket),
+            Self::Compose { bucket, .. }
+            | Self::Insert(UploadRequest { bucket, .. })
+            | Self::Multipart(UploadRequest { bucket, .. })
+            | Self::Resumable(UploadRequest { bucket, .. }) => (auth::OBJECTS_CREATE, bucket),
+            Self::Get { target, .. } => (auth::OBJECTS_GET, &target.bucket),
+            Self::Delete { target, .. } => (auth::OBJECTS_DELETE, &target.bucket),
+        }
+    }
+
+    /// Where the response takes its `fields` selection from; a delete answers without a body.
+    pub(crate) fn fields(&self) -> FieldSelection {
+        match self {
+            Self::Delete { .. } => FieldSelection::Ignored,
+            Self::List(_) => FieldSelection::Query(Schema::Objects),
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::Update(_)
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_)
+            | Self::Get { .. } => FieldSelection::Query(Schema::Object),
+        }
+    }
+
+    /// Only recorded operations carry a cache header: lists are cacheable-but-revalidated
+    /// resources and an object insert forbids every cache. Other writes were not recorded.
+    /// A get, a delete and a resumable initiation answer outside the shared resource response.
+    pub(crate) fn response_cache(&self) -> ResponseCache {
+        match self {
+            Self::List(_) => ResponseCache::Resource,
+            Self::Insert(_) | Self::Multipart(_) => ResponseCache::NoStore,
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::Update(_)
+            | Self::Resumable(_)
+            | Self::Get { .. }
+            | Self::Delete { .. } => ResponseCache::Unrecorded,
+        }
+    }
+
+    /// Cloud Storage sends no ETag header with a move response, though the body has an etag.
+    pub(crate) fn sends_etag_header(&self) -> bool {
+        match self {
+            Self::Move(_) => false,
+            Self::Restore { .. }
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::List(_)
+            | Self::Update(_)
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_)
+            | Self::Get { .. }
+            | Self::Delete { .. } => true,
+        }
+    }
+
+    /// What a `predefinedAcl` query parameter would apply to: an upload applies it outside
+    /// uniform bucket-level access.
+    pub(crate) fn predefined_acl_target(&self) -> PredefinedAclTarget {
+        match self {
+            Self::Insert(_) | Self::Multipart(_) | Self::Resumable(_) => {
+                PredefinedAclTarget::ObjectUpload
+            }
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::List(_)
+            | Self::Update(_)
+            | Self::Get { .. }
+            | Self::Delete { .. } => PredefinedAclTarget::Object,
+        }
+    }
+
+    /// How the checks shared by every operation treat entity-tag conditions. `None` for a get,
+    /// which evaluates them itself after its own validation.
+    pub(crate) fn etag_conditions(&self) -> Option<EtagConditions> {
+        match self {
+            Self::Get { .. } => None,
+            Self::Update(_) => Some(EtagConditions::MatchOnly),
+            // A listing has no entity tag: Cloud Storage listed the objects with
+            // `If-None-Match: *` and with a bogus `If-Match` (case obj-collection-validators).
+            Self::List(_) => Some(EtagConditions::Ignored),
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_)
+            | Self::Delete { .. } => Some(EtagConditions::Unsupported),
+        }
+    }
+
+    /// Whether the method takes a request body.
+    pub(crate) fn accepts_body(&self) -> bool {
+        match self {
+            Self::List(_) | Self::Get { .. } | Self::Delete { .. } => false,
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::Update(_)
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_) => true,
+        }
+    }
+
+    /// The object a missing-object error names: only operations whose path selects one.
+    pub(crate) fn named_object(&self) -> Option<&ObjectTarget> {
+        match self {
+            Self::Get { target, .. }
+            | Self::Update(ObjectUpdateParams { target, .. })
+            | Self::Delete { target, .. } => Some(target),
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::List(_)
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_) => None,
+        }
+    }
+
+    /// Whether the request downloads object media.
+    pub(crate) fn is_media_read(&self) -> bool {
+        match self {
+            Self::Get { params, .. } => params.media,
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::List(_)
+            | Self::Update(_)
+            | Self::Insert(_)
+            | Self::Multipart(_)
+            | Self::Resumable(_)
+            | Self::Delete { .. } => false,
+        }
+    }
+
+    /// Whether the operation moves object data, so that its request deadline bounds the
+    /// transfer and not only its catalog waits.
+    pub(crate) fn transfers_data(&self) -> bool {
+        match self {
+            Self::Get { params, .. } => params.media,
+            Self::Insert(_)
+            | Self::Copy(_)
+            | Self::Compose { .. }
+            | Self::Multipart(_)
+            | Self::Resumable(_) => true,
+            Self::Restore { .. }
+            | Self::Move(_)
+            | Self::List(_)
+            | Self::Update(_)
+            | Self::Delete { .. } => false,
         }
     }
 }

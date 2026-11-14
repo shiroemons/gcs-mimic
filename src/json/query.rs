@@ -1,5 +1,8 @@
 use super::buckets::validate_bucket_name_for_profile;
-use super::{JsonError, decode_page_token, integer::take_int64};
+use super::{
+    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, decode_page_token,
+    integer::take_int64,
+};
 use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
     config::CompatProfile,
@@ -178,6 +181,107 @@ impl BucketRequest {
             | Self::SetIam { .. }
             | Self::TestIam { .. }
             | Self::GetStorageLayout { .. } => Projection::NoAcl,
+        }
+    }
+
+    /// Whether a full projection renders ACL fields. The ACL entries of a soft-deleted version
+    /// are kept for restore but not rendered, and a storage layout has none.
+    pub(crate) fn renders_acl(&self) -> bool {
+        match self {
+            Self::GetSoftDeleted { .. }
+            | Self::ListSoftDeleted(_)
+            | Self::GetStorageLayout { .. } => false,
+            Self::Restore { .. }
+            | Self::LockRetentionPolicy { .. }
+            | Self::Insert(_)
+            | Self::Get { .. }
+            | Self::Patch { .. }
+            | Self::Update { .. }
+            | Self::List(_)
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::SetIam { .. }
+            | Self::TestIam { .. } => true,
+        }
+    }
+
+    /// Only the recorded bucket list carries a cache header; other bucket operations keep none.
+    pub(crate) fn response_cache(&self) -> ResponseCache {
+        match self {
+            Self::List(_) => ResponseCache::Resource,
+            Self::GetSoftDeleted { .. }
+            | Self::ListSoftDeleted(_)
+            | Self::Restore { .. }
+            | Self::LockRetentionPolicy { .. }
+            | Self::Insert(_)
+            | Self::Get { .. }
+            | Self::Patch { .. }
+            | Self::Update { .. }
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::SetIam { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => ResponseCache::Unrecorded,
+        }
+    }
+
+    /// How the request's entity-tag condition headers are treated.
+    pub(crate) fn etag_conditions(&self) -> EtagConditions {
+        match self {
+            Self::Get { .. } | Self::GetIam { .. } => EtagConditions::Supported,
+            // Google's .NET client sends the fetched resource's etag as If-Match on these writes.
+            // Cloud Storage was observed to ignore both entity-tag headers on bucket updates, so
+            // a stale tag still applies; setIamPolicy evaluates If-Match.
+            Self::Patch { .. } | Self::Update { .. } => EtagConditions::Ignored,
+            Self::SetIam { .. } => EtagConditions::MatchOnly,
+            // A listing has no entity tag. Cloud Storage ignored both headers on the object
+            // listing (case obj-collection-validators); bucket listings are treated the same way.
+            Self::List(_) | Self::ListSoftDeleted(_) => EtagConditions::Ignored,
+            Self::GetSoftDeleted { .. }
+            | Self::Restore { .. }
+            | Self::LockRetentionPolicy { .. }
+            | Self::Insert(_)
+            | Self::Delete { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => EtagConditions::Unsupported,
+        }
+    }
+
+    /// Whether the method takes a request body.
+    pub(crate) fn accepts_body(&self) -> bool {
+        match self {
+            Self::Insert(_)
+            | Self::SetIam { .. }
+            | Self::Patch { .. }
+            | Self::Update { .. }
+            | Self::LockRetentionPolicy { .. } => true,
+            Self::GetSoftDeleted { .. }
+            | Self::ListSoftDeleted(_)
+            | Self::Restore { .. }
+            | Self::Get { .. }
+            | Self::List(_)
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => false,
+        }
+    }
+
+    /// Where the response takes its `fields` selection from; a delete answers without a body.
+    pub(crate) fn fields(&self) -> FieldSelection {
+        match self {
+            Self::TestIam { .. } => FieldSelection::TestPermissions,
+            Self::Delete { .. } => FieldSelection::Ignored,
+            Self::List(_) | Self::ListSoftDeleted(_) => FieldSelection::Query(Schema::Buckets),
+            Self::GetIam { .. } | Self::SetIam { .. } => FieldSelection::Query(Schema::Policy),
+            Self::GetStorageLayout { .. } => FieldSelection::Query(Schema::BucketStorageLayout),
+            Self::GetSoftDeleted { .. }
+            | Self::Restore { .. }
+            | Self::LockRetentionPolicy { .. }
+            | Self::Insert(_)
+            | Self::Get { .. }
+            | Self::Patch { .. }
+            | Self::Update { .. } => FieldSelection::Query(Schema::Bucket),
         }
     }
 }

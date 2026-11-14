@@ -52,6 +52,19 @@ pub(crate) enum ProjectRequest {
     },
 }
 
+impl ProjectRequest {
+    /// Whether the method takes a request body.
+    pub(crate) fn accepts_body(&self) -> bool {
+        match self {
+            Self::CreateHmacKey { .. } | Self::UpdateHmacKey { .. } => true,
+            Self::GetHmacKey { .. }
+            | Self::ListHmacKeys(_)
+            | Self::DeleteHmacKey { .. }
+            | Self::GetServiceAccount { .. } => false,
+        }
+    }
+}
+
 /// The writable subset of an `HmacKeyMetadata` update body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyUpdate {
