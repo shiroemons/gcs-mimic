@@ -117,7 +117,7 @@ pub(super) fn bucket_update(
             .map(|config| VersioningUpdate::Set(Versioning::from(Some(config.enabled))))
             .or(native.then_some(VersioningUpdate::Set(Versioning::Unset))),
         cors: native.then(Vec::new),
-        lifecycle: native.then(Vec::new),
+        lifecycle: native.then(crate::bucket::lifecycle::LifecycleRules::default),
         retention_policy: if native {
             RetentionPolicyUpdate::RemoveUnlocked
         } else {

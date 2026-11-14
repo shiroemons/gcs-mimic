@@ -4,13 +4,15 @@ use crate::{
     bucket::{
         BucketRecord, CatalogError,
         autoclass::AutoclassState,
-        lifecycle::{LifecycleAction, LifecycleDate, LifecycleRule},
+        lifecycle::{
+            BucketLifecycle, LifecycleAction, LifecycleDate, LifecycleRule, LifecycleRules,
+        },
     },
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
 use prost_types::{Duration, Timestamp};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// A retention time as a protobuf timestamp, straight from its seconds and nanoseconds so no
 /// platform clock resolution is involved.
@@ -21,26 +23,36 @@ fn unix_nanos_timestamp(time: UnixNanos) -> Timestamp {
     }
 }
 
-pub(super) fn lifecycle(rules: &[Value]) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
-    let rules = LifecycleRule::from_stored(rules)?;
+/// A bucket's rules as Storage v2 reports them; stored rules the contract refuses are corrupt.
+pub(super) fn lifecycle(
+    lifecycle: &BucketLifecycle,
+) -> Result<Option<pb::bucket::Lifecycle>, tonic::Status> {
+    let rules = lifecycle.rules()?;
     if rules.is_empty() {
         return Ok(None);
     }
     Ok(Some(pb::bucket::Lifecycle {
-        rule: rules.iter().map(proto_rule).collect::<Result<_, _>>()?,
+        rule: rules
+            .into_iter()
+            .map(proto_rule)
+            .collect::<Result<_, _>>()?,
     }))
 }
 
+/// Requested rules, validated by the JSON contract so both APIs report the same errors.
 pub(super) fn lifecycle_rules(
     value: Option<&pb::bucket::Lifecycle>,
-) -> Result<Vec<Value>, tonic::Status> {
+) -> Result<LifecycleRules, tonic::Status> {
     let rules = value
         .into_iter()
         .flat_map(|value| &value.rule)
         .map(lifecycle_rule)
-        .collect::<Vec<_>>();
-    crate::bucket::lifecycle::parse(&json!({"rule":rules}))
-        .map_err(super::bucket_update::input_error)
+        .collect();
+    LifecycleRules::from_json(&Value::Object(Map::from_iter([(
+        "rule".into(),
+        Value::Array(rules),
+    )])))
+    .map_err(super::bucket_update::input_error)
 }
 
 /// The JSON spelling of a proto date, which the lifecycle contract then validates like any
@@ -442,9 +454,10 @@ mod tests {
         let stored = vec![
             serde_json::json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":30,"createdBefore":"2026-01-01","customTimeBefore":"2026-02-01","daysSinceCustomTime":2,"daysSinceNoncurrentTime":3,"isLive":false,"matchesPrefix":["a/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".txt"],"noncurrentTimeBefore":"2026-03-01","numNewerVersions":4}}),
         ];
-        let proto = lifecycle(&stored).unwrap().unwrap();
-        assert_eq!(lifecycle_rules(Some(&proto)).unwrap(), stored);
-        let typed = LifecycleRule::from_stored(&stored).unwrap();
+        let read = BucketLifecycle::from_stored(stored.clone());
+        let proto = lifecycle(&read).unwrap().unwrap();
+        assert_eq!(lifecycle_rules(Some(&proto)).unwrap().to_values(), stored);
+        let typed = LifecycleRules::from_stored(&stored).unwrap().into_vec();
         assert_eq!(proto_rule(&typed[0]).unwrap(), proto.rule[0]);
         for (mut rule, field) in [
             (proto.rule[0].clone(), "age_days"),
@@ -483,7 +496,8 @@ mod tests {
         for field in ["sizeAboveBytes", "sizeBelowBytes"] {
             let stored =
                 vec![serde_json::json!({"action":{"type":"Delete"},"condition":{field:"1"}})];
-            let error = lifecycle(&stored).expect_err("protobuf has no size condition fields");
+            let error = lifecycle(&BucketLifecycle::from_stored(stored))
+                .expect_err("protobuf has no size condition fields");
             assert_eq!(error.code(), tonic::Code::Unimplemented);
             assert!(error.message().contains(field));
             assert!(error.message().contains("JSON API"));
@@ -493,14 +507,21 @@ mod tests {
     #[test]
     fn grpc_lifecycle_rejects_integer_overflow_without_truncation() {
         let rule = |age: i64| json!({"action":{"type":"Delete"},"condition":{"age":age}});
-        let converted = lifecycle(&[rule(i64::from(i32::MAX))]).unwrap().unwrap();
+        let converted = lifecycle(&BucketLifecycle::from_stored(vec![rule(i64::from(
+            i32::MAX,
+        ))]))
+        .unwrap()
+        .unwrap();
         assert_eq!(
             converted.rule[0].condition.as_ref().unwrap().age_days,
             Some(i32::MAX)
         );
         // A stored count past int32 cannot become a typed rule, so it reads as corrupt rather
         // than wrapping.
-        let error = lifecycle(&[rule(i64::from(i32::MAX) + 1)]).unwrap_err();
+        let error = lifecycle(&BucketLifecycle::from_stored(vec![rule(
+            i64::from(i32::MAX) + 1,
+        )]))
+        .unwrap_err();
         assert_eq!(error.code(), tonic::Code::Unavailable);
     }
 
@@ -682,7 +703,7 @@ mod tests {
                 response_header: vec!["Content-Type".into()],
                 max_age_seconds: Some(300),
             }],
-            lifecycle: vec![],
+            lifecycle: Default::default(),
             retention_policy: Some(crate::bucket::RetentionPolicy {
                 retention_period: 60,
                 effective_time: now,

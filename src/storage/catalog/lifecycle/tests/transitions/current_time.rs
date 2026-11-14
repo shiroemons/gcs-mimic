@@ -212,10 +212,11 @@ async fn protected_class_deletes_schedule_a_future_transition_before_retention_e
         if gated {
             condition["matchesStorageClass"] = json!(["STANDARD"]);
         }
-        record.lifecycle = vec![
+        record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
             delete(condition),
             transition(StorageClass::Nearline, json!({"age":2})),
-        ];
+        ])
+        .into();
         catalog.insert_bucket(record).await.unwrap();
         let original = put(&catalog, "object").await;
         clock.advance(DAY);

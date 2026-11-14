@@ -1,5 +1,8 @@
 use super::*;
-use crate::bucket::{Location, LocationKind, Versioning};
+use crate::bucket::{
+    Location, LocationKind, Versioning,
+    lifecycle::{BucketLifecycle, LifecycleRules},
+};
 use std::num::NonZeroU64;
 
 const INSERT_BUCKET: &str = concat!(
@@ -254,7 +257,12 @@ fn insert_bucket_with_policy(
             effective_time: record.time_created,
         });
     }
-    let lifecycle = crate::bucket::lifecycle::LifecycleRule::from_input(&record.lifecycle)?;
+    // A library caller can pass back unreadable stored rules; they fail as input, as any
+    // request's rules would.
+    let lifecycle = match &record.lifecycle {
+        BucketLifecycle::Rules(rules) => rules.clone(),
+        BucketLifecycle::Unreadable { values, .. } => LifecycleRules::from_values(values)?,
+    };
     crate::bucket::lifecycle::validate_location(&lifecycle, record.location.kind())?;
     let created = unix_micros(record.time_created)?;
     // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
@@ -388,7 +396,7 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             .get::<_, Option<sql::Json<_>>>("autoclass")?
             .map(|json| json.0),
         labels: row.get::<_, sql::Json<_>>("labels")?.0,
-        lifecycle: row.get::<_, sql::Json<_>>("lifecycle")?.0,
+        lifecycle: BucketLifecycle::from_stored(row.get::<_, sql::Json<_>>("lifecycle")?.0),
         metageneration: row.get("metageneration")?,
         generation: row.get("generation")?,
         time_created: bucket_timestamps::read(row, "time_created", "time_created_nanos")?,

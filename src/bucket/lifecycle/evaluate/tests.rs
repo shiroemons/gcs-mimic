@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::lifecycle::LifecycleRules;
 use serde_json::{Value, json};
 use std::time::UNIX_EPOCH;
 
@@ -39,7 +40,9 @@ fn version() -> VersionFacts<'static> {
 }
 
 fn rules(values: &[Value]) -> Vec<LifecycleRule> {
-    LifecycleRule::from_stored(values).expect("valid test rules")
+    LifecycleRules::from_stored(values)
+        .expect("valid test rules")
+        .into_vec()
 }
 
 fn delete(condition: Value) -> LifecycleRule {

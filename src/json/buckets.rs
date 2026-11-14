@@ -1,11 +1,11 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
-use crate::bucket::autoclass::AutoclassState;
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket,
     StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning, VersioningUpdate,
     cors_from_value, cors_value, valid_label, validate_storage_class,
 };
+use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
 use crate::config::CompatProfile;
 use crate::object::{MapPatch, Patch, unix_nanos::UnixNanos};
 use serde_json::{Map, Value, json};
@@ -315,7 +315,9 @@ pub(crate) fn parse_insert_with_profile(
         autoclass,
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
-        lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?.unwrap_or_default(),
+        lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?
+            .unwrap_or_default()
+            .into(),
         versioning,
         default_event_based_hold,
         public_access_prevention: parse_public_access_prevention(body.get("iamConfiguration"))?
@@ -537,7 +539,7 @@ fn parse_bucket_update(
         )?,
         cors: parse_cors(body.get("cors"))?.or_else(|| omitted_clears.then(Vec::new)),
         lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?
-            .or_else(|| omitted_clears.then(Vec::new)),
+            .or_else(|| omitted_clears.then(LifecycleRules::default)),
         labels,
         touched: update_touches_bucket(body),
         storage_class,
@@ -642,10 +644,10 @@ fn update_touches_bucket(body: &serde_json::Map<String, Value>) -> bool {
 fn parse_lifecycle(
     value: Option<&Value>,
     profile: CompatProfile,
-) -> Result<Option<Vec<Value>>, JsonError> {
+) -> Result<Option<LifecycleRules>, JsonError> {
     match value {
         Some(Value::Array(_)) if profile == CompatProfile::Native => Ok(None),
-        Some(value) => Ok(Some(crate::bucket::lifecycle::parse(value)?)),
+        Some(value) => Ok(Some(LifecycleRules::from_json(value)?)),
         None => Ok(None),
     }
 }
@@ -1092,8 +1094,14 @@ fn add_optional_bucket_fields(
     if !bucket.cors.is_empty() {
         value.insert("cors".into(), cors_value(&bucket.cors));
     }
+    // Unreadable stored rules are returned as stored, so the bucket stays repairable.
     if !bucket.lifecycle.is_empty() {
-        value.insert("lifecycle".into(), json!({"rule": bucket.lifecycle}));
+        let rules = serde_json::to_value(&bucket.lifecycle)
+            .map_err(|error| JsonError::from(crate::storage::failure::unavailable(error)))?;
+        value.insert(
+            "lifecycle".into(),
+            Value::Object(Map::from_iter([("rule".into(), rules)])),
+        );
     }
     if bucket.versioning != Versioning::Unset || profile == CompatProfile::FakeGcsServer {
         value.insert(

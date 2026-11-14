@@ -86,7 +86,7 @@ pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
         default_event_based_hold: false,
         public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
         uniform_bucket_level_access_locked_time: None,
-        lifecycle: Vec::new(),
+        lifecycle: Default::default(),
         retention_policy: None,
         soft_delete_policy: None,
         object_retention_enabled: false,
@@ -206,9 +206,9 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
     .unwrap();
     catalog.configure_lifecycle(&Default::default());
     let mut record = bucket("bucket", "project");
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         serde_json::json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),
-    ];
+    ]).into();
     catalog.insert_bucket(record).await.unwrap();
     let original = catalog
         .put_object(

@@ -6,7 +6,7 @@
 
 use super::{
     CatalogError, StorageClass,
-    lifecycle::{LifecycleAction, LifecycleRule},
+    lifecycle::{LifecycleAction, LifecycleRules},
 };
 use crate::metadata_error::MetadataError;
 use serde_json::Value;
@@ -319,7 +319,7 @@ pub(crate) fn apply(
 pub(crate) fn validate_bucket(
     autoclass: Option<&Autoclass>,
     storage_class: StorageClass,
-    lifecycle: &[LifecycleRule],
+    lifecycle: &LifecycleRules,
 ) -> Result<(), CatalogError> {
     if !autoclass.is_some_and(Autoclass::is_enabled) {
         return Ok(());
@@ -327,7 +327,7 @@ pub(crate) fn validate_bucket(
     if storage_class != AUTOCLASS_STORAGE_CLASS {
         return Err(CatalogError::Metadata(MetadataError::AutoclassStorageClass));
     }
-    if lifecycle.iter().any(|rule| {
+    if lifecycle.into_iter().any(|rule| {
         matches!(rule.action, LifecycleAction::SetStorageClass(_))
             || !rule.condition.matches_storage_class.is_empty()
     }) {
@@ -500,21 +500,24 @@ mod tests {
         validate_bucket(
             config,
             StorageClass::Standard,
-            &LifecycleRule::from_input(&[
+            &LifecycleRules::from_values(&[
                 json!({"action":{"type":"Delete"},"condition":{"age":1}}),
             ])
             .unwrap(),
         )
         .unwrap();
         for class in ["NEARLINE", "COLDLINE", "ARCHIVE"] {
-            assert!(validate_bucket(config, class.parse().unwrap(), &[]).is_err());
-            validate_bucket(None, class.parse().unwrap(), &[]).unwrap();
+            assert!(
+                validate_bucket(config, class.parse().unwrap(), &LifecycleRules::default())
+                    .is_err()
+            );
+            validate_bucket(None, class.parse().unwrap(), &LifecycleRules::default()).unwrap();
         }
         for rule in [
             json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":1}}),
             json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["STANDARD"]}}),
         ] {
-            let rules = LifecycleRule::from_input(&[rule]).unwrap();
+            let rules = LifecycleRules::from_values(&[rule]).unwrap();
             assert!(validate_bucket(config, StorageClass::Standard, &rules).is_err());
             validate_bucket(None, StorageClass::Standard, &rules).unwrap();
         }

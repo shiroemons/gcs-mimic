@@ -104,7 +104,7 @@ pub struct BucketRecord {
     pub(crate) autoclass: Option<autoclass::Autoclass>,
     pub labels: BTreeMap<String, String>,
     pub(crate) cors: Vec<CorsRule>,
-    pub lifecycle: Vec<serde_json::Value>,
+    pub(crate) lifecycle: lifecycle::BucketLifecycle,
     pub(crate) retention_policy: Option<RetentionPolicy>,
     pub(crate) soft_delete_policy: Option<SoftDeletePolicy>,
     /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
@@ -254,7 +254,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
     pub default_object_acl: Option<Vec<crate::acl::AclEntry>>,
     pub cors: Option<Vec<CorsRule>>,
-    pub lifecycle: Option<Vec<serde_json::Value>>,
+    pub(crate) lifecycle: Option<lifecycle::LifecycleRules>,
     pub(crate) retention_policy: RetentionPolicyUpdate,
     pub(crate) soft_delete_retention: Option<SoftDeleteRetention>,
     /// An echoed `objectRetention` value; it must match the stored state.

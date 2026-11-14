@@ -13,7 +13,7 @@ async fn versioned(configured: Vec<Value>) -> (Catalog, Arc<ManualClock>) {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
-    record.lifecycle = configured;
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(configured).into();
     catalog.insert_bucket(record).await.unwrap();
     (catalog, clock)
 }
@@ -175,7 +175,11 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
         let mut record = bucket("bucket", "project");
         record.location = location.parse().unwrap();
         assert_eq!(record.location.kind().as_str(), kind);
-        record.lifecycle = vec![transition(target, json!({"age":1}))];
+        record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
+            target,
+            json!({"age":1}),
+        )])
+        .into();
         catalog.insert_bucket(record).await.unwrap();
         let original =
             put_class(&catalog, "object", StorageClass::DurableReducedAvailability).await;
@@ -186,7 +190,10 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
                 .unwrap()
                 .unwrap()
                 .lifecycle
-                .len(),
+                .rules()
+                .unwrap()
+                .into_iter()
+                .count(),
             1
         );
         clock.advance(DAY);
@@ -241,10 +248,11 @@ async fn an_unreadable_stored_location_type_quarantines_the_bucket_rules() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.location = "US-CENTRAL1".parse().unwrap();
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         transition(StorageClass::Coldline, json!({"age":1})),
         delete(json!({"age":1})),
-    ];
+    ])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let original = put_class(&catalog, "object", StorageClass::Standard).await;
     catalog
@@ -291,7 +299,8 @@ async fn autoclass_rejects_transition_configuration_without_changing_objects_or_
                 terminal_storage_class_update_time: clock.now(),
             },
         });
-        record.lifecycle = vec![incompatible.clone()];
+        record.lifecycle =
+            crate::bucket::lifecycle::LifecycleRules::for_test(vec![incompatible.clone()]).into();
         assert!(catalog.insert_bucket(record.clone()).await.is_err());
         assert!(
             catalog
@@ -300,7 +309,7 @@ async fn autoclass_rejects_transition_configuration_without_changing_objects_or_
                 .unwrap()
                 .is_none()
         );
-        record.lifecycle.clear();
+        record.lifecycle = Default::default();
         catalog.insert_bucket(record).await.unwrap();
         let original = put(&catalog, "object").await;
         assert!(
@@ -308,7 +317,9 @@ async fn autoclass_rejects_transition_configuration_without_changing_objects_or_
                 .patch_bucket(
                     "bucket",
                     BucketMetadataUpdate {
-                        lifecycle: Some(vec![incompatible]),
+                        lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![
+                            incompatible
+                        ])),
                         ..Default::default()
                     },
                     Default::default(),
@@ -531,10 +542,12 @@ async fn retention_allows_transitions_and_delays_a_matching_delete_to_exact_expi
                     is_locked: true,
                 });
             }
-            record.lifecycle = vec![transition(StorageClass::Coldline, json!({"age":1}))];
+            let mut configured = vec![transition(StorageClass::Coldline, json!({"age":1}))];
             if deleting {
-                record.lifecycle.push(delete(json!({"age":1})));
+                configured.push(delete(json!({"age":1})));
             }
+            record.lifecycle =
+                crate::bucket::lifecycle::LifecycleRules::for_test(configured).into();
             catalog.insert_bucket(record).await.unwrap();
             let mut upload = permissive_upload("bucket", "object", 100);
             if object_retention {
@@ -602,7 +615,7 @@ async fn a_class_dependent_delete_yields_to_further_transitions_during_retention
         effective_time: clock.now(),
         is_locked: true,
     });
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         transition(
             StorageClass::Nearline,
             json!({"age":1,"matchesStorageClass":["STANDARD"]}),
@@ -612,7 +625,8 @@ async fn a_class_dependent_delete_yields_to_further_transitions_during_retention
             json!({"age":1,"matchesStorageClass":["NEARLINE"]}),
         ),
         delete(json!({"age":1,"matchesStorageClass":["NEARLINE"]})),
-    ];
+    ])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let original = put(&catalog, "object").await;
     clock.advance(DAY);
@@ -643,10 +657,11 @@ async fn retention_blocks_delete_matching_a_transitioned_class_until_expiry() {
         effective_time: clock.now(),
         is_locked: true,
     });
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         delete(json!({"age":1,"matchesStorageClass":["STANDARD","NEARLINE"]})),
         transition(StorageClass::Nearline, json!({"age":2})),
-    ];
+    ])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let original = put(&catalog, "object").await;
     clock.advance(2 * DAY);
@@ -723,7 +738,11 @@ async fn transitions_update_live_and_noncurrent_generations_but_exclude_soft_del
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
     });
-    record.lifecycle = vec![transition(StorageClass::Coldline, json!({"age":1}))];
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
+        StorageClass::Coldline,
+        json!({"age":1}),
+    )])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let removed = put(&catalog, "object").await;
     let old = put(&catalog, "object").await;
@@ -790,10 +809,11 @@ async fn transition_then_versioned_delete_archives_once_and_deletes_on_the_next_
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         transition(StorageClass::Coldline, json!({"age":1})),
         delete(json!({"age":1,"matchesStorageClass":["COLDLINE"]})),
-    ];
+    ])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let original = put(&catalog, "object").await;
     clock.advance(DAY);

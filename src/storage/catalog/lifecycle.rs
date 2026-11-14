@@ -5,7 +5,7 @@ use crate::{
     bucket::{
         BucketAccess, LocationKind, StorageClass,
         lifecycle::{
-            LifecycleAction, LifecycleRule,
+            LifecycleAction, LifecycleRule, LifecycleRules,
             evaluate::{Evaluation, PlannedAction, VersionFacts, evaluate, wakeup_at},
         },
     },
@@ -560,7 +560,7 @@ fn bucket_rules(
         .and_then(|location| {
             let values =
                 serde_json::from_str::<Vec<serde_json::Value>>(&stored).map_err(unavailable)?;
-            let mut rules = LifecycleRule::from_stored(&values)?;
+            let mut rules = LifecycleRules::from_stored(&values)?.into_vec();
             rules.retain(|rule| rule.action.runs_in(location));
             Ok((location, rules))
         });

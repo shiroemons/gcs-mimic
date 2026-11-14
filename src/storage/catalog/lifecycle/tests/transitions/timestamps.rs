@@ -75,7 +75,11 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
     });
-    bucket.lifecycle = vec![transition(StorageClass::Nearline, json!({"age":1}))];
+    bucket.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
+        StorageClass::Nearline,
+        json!({"age":1}),
+    )])
+    .into();
     catalog.insert_bucket(bucket).await.unwrap();
     put(&catalog, "source").await;
     put(&catalog, "restore-source").await;
@@ -245,7 +249,11 @@ async fn enabling_autoclass_updates_the_class_time_only_for_changed_live_and_non
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
     });
-    bucket.lifecycle = vec![transition(StorageClass::Nearline, json!({"age":1}))];
+    bucket.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
+        StorageClass::Nearline,
+        json!({"age":1}),
+    )])
+    .into();
     catalog.insert_bucket(bucket).await.unwrap();
     let noncurrent = put(&catalog, "versions").await;
     put(&catalog, "versions").await;
@@ -266,7 +274,7 @@ async fn enabling_autoclass_updates_the_class_time_only_for_changed_live_and_non
         .patch_bucket(
             "bucket",
             BucketMetadataUpdate {
-                lifecycle: Some(vec![]),
+                lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![])),
                 autoclass: Some(AutoclassUpdate {
                     enabled: Some(true),
                     ..Default::default()

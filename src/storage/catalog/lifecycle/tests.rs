@@ -65,7 +65,7 @@ async fn rules(catalog: &Catalog, rules: Vec<Value>) {
         .patch_bucket(
             "bucket",
             BucketMetadataUpdate {
-                lifecycle: Some(rules),
+                lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(rules)),
                 ..Default::default()
             },
             Default::default(),
@@ -77,7 +77,7 @@ async fn rules(catalog: &Catalog, rules: Vec<Value>) {
 
 async fn create(catalog: &Catalog, rules: Vec<Value>) {
     let mut record = bucket("bucket", "project");
-    record.lifecycle = rules;
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(rules).into();
     catalog.insert_bucket(record).await.unwrap();
 }
 
@@ -136,7 +136,8 @@ async fn unversioned_delete_reclaims_the_body_on_the_shared_maintenance_pass() {
 async fn lifecycle_soft_delete_preserves_bytes_and_does_not_touch_retired_versions() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     record.soft_delete_policy = Some(SoftDeletePolicy {
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
@@ -164,7 +165,8 @@ async fn versioned_live_archives_and_the_next_pass_removes_the_noncurrent_genera
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object").await;
     clock.advance(DAY);
@@ -257,7 +259,8 @@ async fn releasing_each_hold_allows_a_matching_delete() {
 async fn bucket_and_object_retention_delay_delete_until_the_later_exact_expiry() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     record.object_retention_enabled = true;
     record.retention_policy = Some(crate::bucket::RetentionPolicy {
         retention_period: 86_410,
@@ -301,7 +304,8 @@ async fn bucket_and_object_retention_delay_delete_until_the_later_exact_expiry()
 async fn restored_objects_restart_lifecycle_age_at_their_new_creation_time() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     record.soft_delete_policy = Some(SoftDeletePolicy {
         retention_duration_seconds: 604800,
         effective_time: clock.now(),
@@ -909,7 +913,8 @@ async fn a_broken_stored_rule_is_quarantined_once_and_api_repair_resumes_executi
     create(&catalog, vec![delete(json!({"age":1}))]).await;
     put(&catalog, "good").await;
     let mut broken = bucket("aaa-broken", "project");
-    broken.lifecycle = vec![delete(json!({"age":1}))];
+    broken.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     catalog.insert_bucket(broken).await.unwrap();
     catalog
         .put_object(
@@ -949,7 +954,9 @@ async fn a_broken_stored_rule_is_quarantined_once_and_api_repair_resumes_executi
         .patch_bucket(
             "aaa-broken",
             BucketMetadataUpdate {
-                lifecycle: Some(vec![delete(json!({"age":1}))]),
+                lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![
+                    delete(json!({"age":1})),
+                ])),
                 ..Default::default()
             },
             Default::default(),
@@ -1029,7 +1036,8 @@ async fn lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     catalog.insert_bucket(record).await.unwrap();
     notifications(&catalog).await;
     put(&catalog, "object").await;
@@ -1186,7 +1194,9 @@ async fn a_low_level_bucket_publication_rearms_without_any_caller_specific_wakeu
         .run::<_, CatalogError>(|connection| {
             let transaction = sql::immediate(connection)?;
             let mut record = bucket("bucket", "project");
-            record.lifecycle = vec![delete(json!({"age":1}))];
+            record.lifecycle =
+                crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))])
+                    .into();
             super::super::insert_bucket_in_transaction(&transaction, &mut record, None)?;
             transaction.commit()?;
             Ok(())
@@ -1214,7 +1224,9 @@ async fn administrative_ensure_import_seed_and_initialization_all_arm_the_shared
     for path in ["ensure", "import", "seed", "initialize"] {
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
-        record.lifecycle = vec![delete(json!({"age":1}))];
+        record.lifecycle =
+            crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))])
+                .into();
         let definition = BucketDefinition::new(record).unwrap();
         match path {
             "ensure" => {
@@ -1297,7 +1309,8 @@ async fn retention_deadlines_replace_an_earlier_future_age_deadline_and_block_li
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
     record.object_retention_enabled = true;
-    record.lifecycle = vec![delete(json!({"age":1}))];
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
     catalog.insert_bucket(record).await.unwrap();
     let until = clock.now() + DAY + DAY;
     catalog

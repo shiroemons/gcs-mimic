@@ -401,7 +401,9 @@ async fn lifecycle_schema_migration_and_restart() {
         .patch_bucket(
             "lifecycle-bucket",
             BucketMetadataUpdate {
-                lifecycle: Some(rules.clone()),
+                lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(
+                    rules.clone(),
+                )),
                 ..Default::default()
             },
             BucketConditions {
@@ -412,7 +414,10 @@ async fn lifecycle_schema_migration_and_restart() {
         )
         .await
         .unwrap();
-    assert_eq!(updated.lifecycle, rules);
+    assert_eq!(
+        updated.lifecycle,
+        crate::bucket::lifecycle::LifecycleRules::for_test(rules).into()
+    );
     assert_eq!(updated.metageneration, original.metageneration + 1);
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();

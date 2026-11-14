@@ -352,10 +352,11 @@ async fn zero_noncurrent_days_delete_on_the_pass_after_archiving() {
     let (catalog, clock) = memory().await;
     let mut record = bucket("bucket", "project");
     record.versioning = crate::bucket::Versioning::Enabled;
-    record.lifecycle = vec![
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
         delete(json!({"age":1,"isLive":true})),
         delete(json!({"daysSinceNoncurrentTime":0})),
-    ];
+    ])
+    .into();
     catalog.insert_bucket(record).await.unwrap();
     let object = put(&catalog, "object").await;
     let due = clock.now() + DAY;

@@ -69,10 +69,10 @@ async fn live_only_rules_never_match_existing_noncurrent_versions_even_after_ver
                 "bucket",
                 BucketMetadataUpdate {
                     versioning: suspended.then_some(crate::bucket::VersioningUpdate::Disable),
-                    lifecycle: Some(vec![
+                    lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![
                         delete(json!({"isLive":true,"age":30})),
                         transition(StorageClass::Nearline, json!({"isLive":true,"age":30})),
-                    ]),
+                    ])),
                     ..Default::default()
                 },
                 Default::default(),
@@ -118,15 +118,14 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
         let mut record = bucket("bucket", "project");
         record.versioning = crate::bucket::Versioning::Enabled;
         record.object_retention_enabled = true;
-        record.lifecycle = vec![
+        let mut rules = vec![
             delete(json!({"isLive":true})),
             transition(StorageClass::Nearline, json!({"age":10})),
         ];
         if with_class_delete {
-            record
-                .lifecycle
-                .push(delete(json!({"age":20,"matchesStorageClass":["STANDARD"]})));
+            rules.push(delete(json!({"age":20,"matchesStorageClass":["STANDARD"]})));
         }
+        record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(rules).into();
         catalog.insert_bucket(record).await.unwrap();
         let mut upload = permissive_upload("bucket", "object", 100);
         upload.metadata.retention = Patch::Set(ObjectRetention {

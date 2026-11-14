@@ -30,8 +30,13 @@ impl Serialize for LifecycleSize {
 
 #[cfg(test)]
 mod tests {
-    use crate::bucket::lifecycle::{LifecycleRule, parse};
-    use serde_json::json;
+    use crate::bucket::{CatalogError, lifecycle::LifecycleRules};
+    use serde_json::{Value, json};
+
+    /// The values a bucket stores for the JSON `lifecycle` member `value`.
+    fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
+        LifecycleRules::from_json(value).map(|rules| rules.to_values())
+    }
 
     #[test]
     fn lifecycle_size_accepts_int64_strings_and_numbers_through_five_tebibytes() {
@@ -44,7 +49,9 @@ mod tests {
                     )
                     .expect("valid size configuration");
                     assert_eq!(stored[0]["condition"][field], bytes.to_string());
-                    let typed = LifecycleRule::from_stored(&stored).expect("valid stored rule");
+                    let typed = LifecycleRules::from_stored(&stored)
+                        .expect("valid stored rule")
+                        .into_vec();
                     let size = typed[0]
                         .condition
                         .size_above_bytes
@@ -54,7 +61,9 @@ mod tests {
                         size.bytes(),
                         u64::try_from(bytes).expect("nonnegative test size")
                     );
-                    let encoded = LifecycleRule::to_stored(&typed).expect("valid typed rule");
+                    let encoded = LifecycleRules::from_stored(&stored)
+                        .expect("valid typed rule")
+                        .to_values();
                     assert_eq!(encoded[0]["condition"][field], bytes.to_string());
                     assert_eq!(
                         serde_json::to_string(&encoded).unwrap(),
@@ -73,10 +82,9 @@ mod tests {
                 stored[0]["condition"],
                 json!({"sizeAboveBytes":expected,"sizeBelowBytes":expected})
             );
-            let typed = LifecycleRule::from_stored(&stored).expect("canonical rule");
+            let typed = LifecycleRules::from_stored(&stored).expect("canonical rule");
             assert_eq!(
-                serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("roundtrip"))
-                    .unwrap(),
+                serde_json::to_string(&typed).unwrap(),
                 serde_json::to_string(&stored).unwrap()
             );
         }

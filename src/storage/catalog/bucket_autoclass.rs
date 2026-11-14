@@ -4,7 +4,7 @@ use super::unavailable;
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CatalogError, StorageClass,
     autoclass::{self, AUTOCLASS_STORAGE_CLASS, Autoclass},
-    lifecycle::{LifecycleRule, validate_location},
+    lifecycle::{LifecycleRules, validate_location},
 };
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Transaction};
@@ -31,7 +31,7 @@ fn store(
 pub(super) fn insert(
     transaction: &Transaction<'_>,
     record: &mut BucketRecord,
-    lifecycle: &[LifecycleRule],
+    lifecycle: &LifecycleRules,
 ) -> Result<(), CatalogError> {
     // Creation-time Autoclass reports the bucket create time as its toggle time.
     record.autoclass = record
@@ -49,12 +49,13 @@ pub(super) fn update(
     update: &BucketMetadataUpdate,
     now: SystemTime,
 ) -> Result<(), CatalogError> {
+    // Replacing the rules is how a bucket whose stored rules no longer decode is repaired, so
+    // only the stored rules that stay need to be readable.
     let lifecycle = if let Some(rules) = &update.lifecycle {
-        let rules = LifecycleRule::from_input(rules)?;
-        validate_location(&rules, record.location.kind())?;
+        validate_location(rules, record.location.kind())?;
         rules
     } else {
-        LifecycleRule::from_stored(&record.lifecycle)?
+        record.lifecycle.rules()?
     };
     if let Some(requested) = &update.autoclass {
         let was_enabled = record.autoclass.is_some_and(|config| config.is_enabled());
@@ -82,7 +83,7 @@ pub(super) fn update(
     autoclass::validate_bucket(
         record.autoclass.as_ref(),
         update.storage_class.unwrap_or(record.storage_class),
-        &lifecycle,
+        lifecycle,
     )
 }
 
@@ -113,7 +114,7 @@ pub(crate) fn object_storage_class(
 mod tests {
     use super::*;
     use crate::{
-        bucket::BucketConditions,
+        bucket::{BucketConditions, lifecycle::BucketLifecycle},
         json::JsonError,
         storage::{
             Catalog,
@@ -129,8 +130,21 @@ mod tests {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let invalid = vec![json!({"action":{"type":"Delete"},"condition":{"age":-1}})];
+        // Requested rules are validated where they are parsed.
+        let error = LifecycleRules::from_values(&invalid).unwrap_err();
+        assert!(matches!(error, CatalogError::Metadata(_)));
+        assert_eq!(JsonError::from(error).status, StatusCode::BAD_REQUEST);
+        let error = crate::json::parse_bucket_patch(
+            json!({"lifecycle":{"rule":invalid}, "defaultEventBasedHold":true})
+                .to_string()
+                .as_bytes(),
+            crate::config::CompatProfile::Native,
+        )
+        .unwrap_err();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        // A library caller passing back unreadable stored rules gets the same input error.
         let mut record = bucket("lifecycle-bucket", "project");
-        record.lifecycle = invalid.clone();
+        record.lifecycle = BucketLifecycle::from_stored(invalid.clone());
         let error = catalog.insert_bucket(record.clone()).await.unwrap_err();
         assert!(matches!(error, CatalogError::Metadata(_)));
         assert_eq!(JsonError::from(error).status, StatusCode::BAD_REQUEST);
@@ -141,23 +155,8 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        record.lifecycle.clear();
+        record.lifecycle = BucketLifecycle::default();
         let before = catalog.insert_bucket(record).await.unwrap();
-        let error = catalog
-            .patch_bucket(
-                &before.name,
-                BucketMetadataUpdate {
-                    lifecycle: Some(invalid.clone()),
-                    default_event_based_hold: Some(true),
-                    ..Default::default()
-                },
-                BucketConditions::default(),
-                PERMISSIVE,
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(error, CatalogError::Metadata(_)));
-        assert_eq!(JsonError::from(error).status, StatusCode::BAD_REQUEST);
         assert_eq!(
             catalog.get_bucket(&before.name, PERMISSIVE).await.unwrap(),
             Some(before.clone())
@@ -191,8 +190,13 @@ mod tests {
             JsonError::from(error).status,
             StatusCode::SERVICE_UNAVAILABLE
         );
+        // The bucket stays readable, with its rules as stored.
         let mut expected = before;
-        expected.lifecycle = invalid;
+        expected.lifecycle = BucketLifecycle::from_stored(invalid);
+        assert!(matches!(
+            expected.lifecycle,
+            BucketLifecycle::Unreadable { .. }
+        ));
         assert_eq!(
             catalog
                 .get_bucket(&expected.name, PERMISSIVE)

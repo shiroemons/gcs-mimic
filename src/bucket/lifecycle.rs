@@ -2,6 +2,7 @@
 
 use super::{CatalogError, LocationKind, StorageClass, validate_storage_class};
 use crate::metadata_error::{LifecycleExample, MetadataError};
+use crate::storage::failure::BackendCause;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{collections::BTreeSet, str::FromStr};
@@ -230,40 +231,174 @@ impl<'de> serde::Deserialize<'de> for LifecycleDate {
     }
 }
 
-impl LifecycleRule {
-    #[cfg(test)]
-    pub(crate) fn to_stored(rules: &[Self]) -> Result<Vec<Value>, CatalogError> {
-        let values = serialize_rules(rules).map_err(|error| invalid_rule(&error))?;
-        validate(&values)?;
-        Ok(values)
+/// Lifecycle rules the lifecycle contract accepted. Built only by `from_json` (adapter input),
+/// `from_values` (a JSON rule list) and `from_stored` (a catalog row), so a holder never
+/// validates again.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub(crate) struct LifecycleRules(Vec<LifecycleRule>);
+
+impl LifecycleRules {
+    /// Parses a JSON `lifecycle` member; null or a missing `rule` is no rules. Ruby's nulls and
+    /// empty lists are dropped and unknown condition members are dropped, while
+    /// `matchesPattern` stays for validation to refuse.
+    pub(crate) fn from_json(value: &Value) -> Result<Self, CatalogError> {
+        if value.is_null() {
+            return Ok(Self::default());
+        }
+        let config = value
+            .as_object()
+            .ok_or_else(|| invalid("configuration", "{\"rule\":[]}"))?;
+        let Some(rules) = config.get("rule").filter(|value| !value.is_null()) else {
+            return Ok(Self::default());
+        };
+        let rules = rules
+            .as_array()
+            .ok_or_else(|| invalid("rule", "an array, for example []"))?;
+        let mut rules = rules.clone();
+        // Ruby serializes unused optional conditions as null and lists as empty arrays.
+        for rule in &mut rules {
+            if let Some(action) = rule.get_mut("action").and_then(Value::as_object_mut)
+                && action.get("storageClass").is_some_and(Value::is_null)
+            {
+                action.remove("storageClass");
+            }
+            if let Some(condition) = rule.get_mut("condition").and_then(Value::as_object_mut) {
+                // Cloud Storage dropped an unknown condition field and kept the rest of the rule
+                // (recorded 2026-11). `matchesPattern` is documented but unsupported, so it stays
+                // for `validate` to refuse rather than vanish.
+                condition.retain(|field, value| {
+                    if !CONDITIONS.contains(&field.as_str()) {
+                        return field == "matchesPattern";
+                    }
+                    !(value.is_null()
+                        || (matches!(
+                            field.as_str(),
+                            "matchesPrefix" | "matchesSuffix" | "matchesStorageClass"
+                        ) && value.as_array().is_some_and(Vec::is_empty)))
+                });
+            }
+        }
+        // The typed rules ignore unknown action fields and canonicalize int64 strings.
+        Self::from_values(&rules)
     }
 
-    pub(crate) fn from_input(values: &[Value]) -> Result<Vec<Self>, CatalogError> {
+    /// Validates a JSON rule list as input.
+    pub(crate) fn from_values(values: &[Value]) -> Result<Self, CatalogError> {
         validate(values)?;
-        deserialize_rules(values).map_err(|error| invalid_rule(&error))
+        deserialize_rules(values)
+            .map(Self)
+            .map_err(|error| invalid_rule(&error))
     }
 
-    pub(crate) fn from_stored(values: &[Value]) -> Result<Vec<Self>, CatalogError> {
-        // Stored values must satisfy the same contract before conversions narrow integers.
-        validate(values).map_err(|error| {
-            crate::storage::failure::unavailable(CatalogError::Corrupt(
-                crate::storage::failure::BackendCause::from_error(error),
-            ))
-        })?;
-        deserialize_rules(values).map_err(|error| {
-            crate::storage::failure::unavailable(CatalogError::Corrupt(
-                crate::storage::failure::BackendCause::from_error(error),
-            ))
-        })
+    /// Decodes stored values with the input contract; a refusal is corrupt catalog metadata.
+    pub(crate) fn from_stored(values: &[Value]) -> Result<Self, CatalogError> {
+        decode_stored(values)
+            .map(Self)
+            .map_err(CatalogError::Corrupt)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn into_vec(self) -> Vec<LifecycleRule> {
+        self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a LifecycleRules {
+    type Item = &'a LifecycleRule;
+    type IntoIter = std::slice::Iter<'a, LifecycleRule>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+#[cfg(test)]
+impl LifecycleRules {
+    /// Rules a test writes as JSON, which must satisfy the input contract.
+    #[track_caller]
+    pub(crate) fn for_test(values: Vec<Value>) -> Self {
+        Self::from_values(&values).expect("valid test rules")
+    }
+
+    /// The JSON values these rules store, one per rule.
+    pub(crate) fn to_values(&self) -> Vec<Value> {
+        self.0
+            .iter()
+            .map(|rule| serde_json::to_value(rule).expect("typed rules serialize"))
+            .collect()
+    }
+}
+
+/// Stored values must satisfy the input contract before conversions narrow integers.
+fn decode_stored(values: &[Value]) -> Result<Vec<LifecycleRule>, BackendCause> {
+    validate(values).map_err(BackendCause::from_error)?;
+    deserialize_rules(values).map_err(BackendCause::from_error)
+}
+
+/// Lifecycle rules as a bucket record carries them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum BucketLifecycle {
+    Rules(LifecycleRules),
+    /// A stored value the current contract refuses: hand-edited, or written before a rule
+    /// tightened. The bucket stays readable and a PATCH can replace it, while the scheduler
+    /// quarantines it; JSON returns it as stored.
+    Unreadable {
+        values: Vec<Value>,
+        cause: BackendCause,
+    },
+}
+
+impl Default for BucketLifecycle {
+    fn default() -> Self {
+        Self::Rules(LifecycleRules::default())
+    }
+}
+
+impl From<LifecycleRules> for BucketLifecycle {
+    fn from(rules: LifecycleRules) -> Self {
+        Self::Rules(rules)
+    }
+}
+
+impl BucketLifecycle {
+    pub(crate) fn from_stored(values: Vec<Value>) -> Self {
+        match decode_stored(&values) {
+            Ok(rules) => Self::Rules(LifecycleRules(rules)),
+            Err(cause) => Self::Unreadable { values, cause },
+        }
+    }
+
+    /// The rules, or the corrupt-metadata error a stored refusal reports.
+    pub(crate) fn rules(&self) -> Result<&LifecycleRules, CatalogError> {
+        match self {
+            Self::Rules(rules) => Ok(rules),
+            Self::Unreadable { cause, .. } => Err(CatalogError::Corrupt(cause.clone())),
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Self::Rules(rules) => rules.is_empty(),
+            Self::Unreadable { values, .. } => values.is_empty(),
+        }
+    }
+}
+
+impl serde::Serialize for BucketLifecycle {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Rules(rules) => rules.serialize(serializer),
+            Self::Unreadable { values, .. } => values.serialize(serializer),
+        }
     }
 }
 
 fn deserialize_rules(values: &[Value]) -> Result<Vec<LifecycleRule>, serde_json::Error> {
     values.iter().map(LifecycleRule::deserialize).collect()
-}
-
-fn serialize_rules(rules: &[LifecycleRule]) -> Result<Vec<Value>, serde_json::Error> {
-    rules.iter().map(serde_json::to_value).collect()
 }
 
 fn invalid_rule(error: &serde_json::Error) -> CatalogError {
@@ -292,47 +427,6 @@ fn validate_class(value: &str, field: &str) -> Result<(), CatalogError> {
             }
             error => error,
         })
-}
-
-pub(crate) fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
-    if value.is_null() {
-        return Ok(Vec::new());
-    }
-    let config = value
-        .as_object()
-        .ok_or_else(|| invalid("configuration", "{\"rule\":[]}"))?;
-    let Some(rules) = config.get("rule").filter(|value| !value.is_null()) else {
-        return Ok(Vec::new());
-    };
-    let rules = rules
-        .as_array()
-        .ok_or_else(|| invalid("rule", "an array, for example []"))?;
-    let mut rules = rules.clone();
-    // Ruby serializes unused optional conditions as null and lists as empty arrays.
-    for rule in &mut rules {
-        if let Some(action) = rule.get_mut("action").and_then(Value::as_object_mut)
-            && action.get("storageClass").is_some_and(Value::is_null)
-        {
-            action.remove("storageClass");
-        }
-        if let Some(condition) = rule.get_mut("condition").and_then(Value::as_object_mut) {
-            // Cloud Storage dropped an unknown condition field and kept the rest of the rule
-            // (recorded 2026-11). `matchesPattern` is documented but unsupported, so it stays for
-            // `validate` to refuse rather than vanish.
-            condition.retain(|field, value| {
-                if !CONDITIONS.contains(&field.as_str()) {
-                    return field == "matchesPattern";
-                }
-                !(value.is_null()
-                    || (matches!(
-                        field.as_str(),
-                        "matchesPrefix" | "matchesSuffix" | "matchesStorageClass"
-                    ) && value.as_array().is_some_and(Vec::is_empty)))
-            });
-        }
-    }
-    // The typed round trip ignores unknown action fields and canonicalizes int64 strings.
-    serialize_rules(&LifecycleRule::from_input(&rules)?).map_err(|error| invalid_rule(&error))
 }
 
 const CONDITIONS: &[&str] = &[
@@ -520,7 +614,7 @@ impl LifecycleAction {
 }
 
 pub(crate) fn validate_location(
-    rules: &[LifecycleRule],
+    rules: &LifecycleRules,
     location: LocationKind,
 ) -> Result<(), CatalogError> {
     let incompatible = match location {
@@ -543,6 +637,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// The values a bucket stores for the JSON `lifecycle` member `value`.
+    fn parse(value: &Value) -> Result<Vec<Value>, CatalogError> {
+        LifecycleRules::from_json(value).map(|rules| rules.to_values())
+    }
+
     #[test]
     fn typed_lifecycle_preserves_all_actions_and_legacy_class_conditions() {
         for action in [
@@ -551,20 +650,18 @@ mod tests {
             json!({"type":"SetStorageClass","storageClass":"NEARLINE"}),
         ] {
             let stored = vec![json!({"action":action,"condition":{"age":1}})];
-            let typed = LifecycleRule::from_stored(&stored).expect("existing action");
+            let typed = LifecycleRules::from_stored(&stored).expect("existing action");
             assert_eq!(
-                serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("stored action"))
-                    .unwrap(),
+                serde_json::to_string(&typed.to_values()).unwrap(),
                 serde_json::to_string(&stored).unwrap()
             );
         }
         let stored = vec![
             json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["REGIONAL","DURABLE_REDUCED_AVAILABILITY","MULTI_REGIONAL"]}}),
         ];
-        let typed = LifecycleRule::from_stored(&stored).expect("legacy class matches");
+        let typed = LifecycleRules::from_stored(&stored).expect("legacy class matches");
         assert_eq!(
-            serde_json::to_string(&LifecycleRule::to_stored(&typed).expect("stored class matches"))
-                .unwrap(),
+            serde_json::to_string(&typed.to_values()).unwrap(),
             serde_json::to_string(&stored).unwrap()
         );
     }
@@ -574,9 +671,9 @@ mod tests {
         let values = vec![
             json!({"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"age":30,"createdBefore":"2026-01-01","customTimeBefore":"2026-02-01","daysSinceCustomTime":2,"daysSinceNoncurrentTime":3,"isLive":false,"matchesPrefix":["a/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".txt"],"noncurrentTimeBefore":"2026-03-01","numNewerVersions":4}}),
         ];
-        let typed = LifecycleRule::from_stored(&values).unwrap();
+        let typed = LifecycleRules::from_stored(&values).unwrap();
         assert_eq!(
-            serde_json::to_string(&LifecycleRule::to_stored(&typed).unwrap()).unwrap(),
+            serde_json::to_string(&typed.to_values()).unwrap(),
             serde_json::to_string(&values).unwrap()
         );
         // A typed rule cannot hold a count or date the contract refuses; parsing refuses them.
@@ -588,8 +685,10 @@ mod tests {
         ] {
             assert_eq!(ConditionInt::try_from(age).is_ok(), accepted, "{age}");
             let rule = json!({"action":{"type":"Delete"},"condition":{"age":age}});
-            match LifecycleRule::from_input(&[rule]) {
-                Ok(rules) => assert_eq!(rules[0].condition.age.map(i64::from), Some(age)),
+            match LifecycleRules::from_values(&[rule]) {
+                Ok(rules) => {
+                    assert_eq!(rules.into_vec()[0].condition.age.map(i64::from), Some(age))
+                }
                 Err(error) => {
                     assert!(!accepted, "{age}");
                     assert!(error.to_string().contains("nonnegative int32"), "{error}");
@@ -599,7 +698,7 @@ mod tests {
         assert!("2025-02-29".parse::<LifecycleDate>().is_err());
         assert!(serde_json::from_value::<LifecycleDate>(json!("2025-02-29")).is_err());
         assert!(
-            LifecycleRule::from_input(&[
+            LifecycleRules::from_values(&[
                 json!({"action":{"type":"Delete"},"condition":{"createdBefore":"2025-02-29"}})
             ])
             .unwrap_err()
@@ -607,7 +706,7 @@ mod tests {
             .contains("valid YYYY-MM-DD")
         );
         assert!(matches!(
-            LifecycleRule::from_stored(&[json!({})]),
+            LifecycleRules::from_stored(&[json!({})]),
             Err(CatalogError::Corrupt(_))
         ));
     }
@@ -616,15 +715,24 @@ mod tests {
     fn lifecycle_reads_preserve_stored_key_order_and_new_writes_are_canonical() {
         let original = r#"[{"condition":{"isLive":true,"age":1},"action":{"type":"Delete"}}]"#;
         let stored: Vec<Value> = serde_json::from_str(original).unwrap();
-        let typed = LifecycleRule::from_stored(&stored).unwrap();
         assert_eq!(serde_json::to_string(&stored).unwrap(), original);
-        let canonical = LifecycleRule::to_stored(&typed).unwrap();
-        assert_eq!(canonical, stored);
+        // A row in another key order still reads as rules, and rules serialize canonically.
+        let read = BucketLifecycle::from_stored(stored.clone());
+        let BucketLifecycle::Rules(typed) = &read else {
+            panic!("a valid stored rule reads as rules: {read:?}");
+        };
+        assert_eq!(typed.to_values(), stored);
         let canonical_json =
             r#"[{"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}}]"#;
-        assert_eq!(serde_json::to_string(&canonical).unwrap(), canonical_json);
+        assert_eq!(serde_json::to_string(&read).unwrap(), canonical_json);
         let parsed = parse(&json!({"rule":stored})).unwrap();
         assert_eq!(serde_json::to_string(&parsed).unwrap(), canonical_json);
+        // A value the contract refuses stays as stored, and asking for its rules is corruption.
+        let unreadable = vec![json!({"condition":{"age":-1},"action":{"type":"Delete"}})];
+        let read = BucketLifecycle::from_stored(unreadable.clone());
+        assert_eq!(serde_json::to_value(&read).unwrap(), json!(unreadable));
+        assert!(matches!(read.rules(), Err(CatalogError::Corrupt(_))));
+        assert!(!read.is_empty());
     }
 
     #[test]
@@ -645,7 +753,7 @@ mod tests {
         }
         let invalid = [json!({"action":{"type":"unknown"},"condition":{"age":1}})];
         assert!(matches!(
-            LifecycleRule::from_input(&invalid),
+            LifecycleRules::from_values(&invalid),
             Err(CatalogError::Metadata(_))
         ));
         assert!(matches!(
@@ -653,7 +761,7 @@ mod tests {
             Err(CatalogError::Metadata(_))
         ));
         assert!(matches!(
-            LifecycleRule::from_stored(&invalid),
+            LifecycleRules::from_stored(&invalid),
             Err(CatalogError::Corrupt(_))
         ));
     }
@@ -687,7 +795,7 @@ mod tests {
         // Stored rules are not normalized, so an unknown field there is still corrupt.
         let stored = [json!({"action":{"type":"Delete"},"condition":{"age":1,"unknown":1}})];
         assert!(matches!(
-            LifecycleRule::from_stored(&stored),
+            LifecycleRules::from_stored(&stored),
             Err(CatalogError::Corrupt(_))
         ));
         assert!(matches!(

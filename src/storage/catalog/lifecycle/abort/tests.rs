@@ -54,7 +54,7 @@ fn abort(condition: Value) -> Value {
 
 async fn create(catalog: &Catalog, rules: Vec<Value>) {
     let mut record = bucket("bucket", "project");
-    record.lifecycle = rules;
+    record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(rules).into();
     catalog.insert_bucket(record).await.unwrap();
 }
 
@@ -63,7 +63,7 @@ async fn rules(catalog: &Catalog, rules: Vec<Value>) {
         .patch_bucket(
             "bucket",
             BucketMetadataUpdate {
-                lifecycle: Some(rules),
+                lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(rules)),
                 ..Default::default()
             },
             Default::default(),
@@ -786,8 +786,10 @@ async fn multipart_aborts_transitions_deletes_and_archives_share_one_strict_acti
     ]).await;
     let mut versioned = bucket("versions", "project");
     versioned.versioning = crate::bucket::Versioning::Enabled;
-    versioned.lifecycle =
-        vec![json!({"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}})];
+    versioned.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![
+        json!({"action":{"type":"Delete"},"condition":{"age":1,"isLive":true}}),
+    ])
+    .into();
     catalog.insert_bucket(versioned).await.unwrap();
     for _ in 0..ACTION_LIMIT - 4 {
         begin(&catalog, "abort/value").await;

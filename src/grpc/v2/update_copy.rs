@@ -2283,9 +2283,9 @@ mod tests {
             .patch_bucket(
                 bucket,
                 BucketMetadataUpdate {
-                    lifecycle: Some(vec![
+                    lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![
                         json!({"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}),
-                    ]),
+                    ])),
                     retention_policy: RetentionPolicyUpdate::Set(3600),
                     ..Default::default()
                 },
@@ -2372,7 +2372,10 @@ mod tests {
             .unwrap();
         assert_eq!(after.metageneration, before.metageneration + 1);
         assert_eq!(after.labels, before.labels);
-        assert_eq!(after.lifecycle, [rule]);
+        assert_eq!(
+            after.lifecycle,
+            crate::bucket::lifecycle::LifecycleRules::for_test(vec![rule]).into()
+        );
         storage.state.catalog.close().await.unwrap();
     }
 

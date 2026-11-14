@@ -390,7 +390,7 @@ fn apply_plain_settings(
     let Some(lifecycle) = update.lifecycle.take() else {
         return Ok(LifecycleColumn::Keep);
     };
-    record.lifecycle = lifecycle;
+    record.lifecycle = lifecycle.into();
     Ok(LifecycleColumn::Replace)
 }
 
