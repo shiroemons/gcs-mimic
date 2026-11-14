@@ -53736,7 +53736,7 @@
           "id": "shared-sync-writeback-handoff",
           "description": "The production begin_live_export/advance_live_export/recover_pending handoff retains baseline and API/seed state, verifies durable output before atomic tracking/completion, and protects retained workspace bodies. No separate receipt state machine or writeback journal cursor is exposed. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_a_complete_baseline_and_the_tracked_generation","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_the_tracked_generation_but_not_a_complete_baseline","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "id": "shared-sync-owner-inventory",
@@ -54014,7 +54014,7 @@
         "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
         "initial_export_preserves_external_conflicts_and_records_mapping_findings",
         "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
-        "live_export_removal_requires_a_complete_baseline_and_the_tracked_generation",
+        "live_export_removal_requires_the_tracked_generation_but_not_a_complete_baseline",
         "live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
         "sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation",
@@ -54143,7 +54143,7 @@
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_a_complete_baseline_and_the_tracked_generation","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_removal_requires_the_tracked_generation_but_not_a_complete_baseline","live_export_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

@@ -505,8 +505,10 @@ async fn live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generat
     fixture.close().await;
 }
 
+/// An API deletion reaches the tree before the baseline completes, but only for the generation
+/// the tree is tracked at.
 #[tokio::test]
-async fn live_export_removal_requires_a_complete_baseline_and_the_tracked_generation() {
+async fn live_export_removal_requires_the_tracked_generation_but_not_a_complete_baseline() {
     let fixture = Fixture::new().await;
     let record = fixture.publish("object", b"api").await;
     let operation = fixture.begin("object").await;
@@ -543,13 +545,14 @@ async fn live_export_removal_requires_a_complete_baseline_and_the_tracked_genera
         .await
         .unwrap();
     let fence = fixture.catalog.current_fence().await.unwrap();
+    assert!(!fixture.root.observation().await.unwrap().baseline_complete);
     assert!(matches!(
         fixture
             .writeback
             .begin_live_export(
                 binding.clone(),
                 name.clone(),
-                generation,
+                Generation::new(record.generation + 1).unwrap(),
                 tracked.clone(),
                 fence,
                 LiveSource::Observe
@@ -558,7 +561,6 @@ async fn live_export_removal_requires_a_complete_baseline_and_the_tracked_genera
         Err(Error::Admin(AdminError::Precondition))
     ));
     assert!(fixture.tree.0.join("test-bucket/object").exists());
-    fixture.root.complete_baseline().await.unwrap();
     let operation = fixture
         .writeback
         .begin_live_export(

@@ -260,12 +260,10 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
     if matches!(purpose, Purpose::RestoreAbsent | Purpose::ObserveProtected) {
         return Err(stale());
     }
-    let complete: bool = c
-        .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
-        .query_row([item.token.root], |row| row.get(0))?;
-    if !complete {
-        return Err(stale());
-    }
+    // An API deletion does not wait for a complete baseline. That guard keeps external
+    // deletions from reaching the API; this removal follows the API and touches only a file
+    // tracked at the deleted generation, and a locally edited file is kept as a conflict. Waiting
+    // here also deadlocked: the pending removal kept the baseline from ever completing.
     let binding = SyncBinding::new(item.token.catalog, item.bucket.clone(), item.incarnation);
     super::super::matching(c, &binding, item.bucket.as_str())?;
     if objects::lookup(c, item.bucket.as_str(), item.name.as_str())?.is_some() {

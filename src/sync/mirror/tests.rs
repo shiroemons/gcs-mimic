@@ -48,6 +48,16 @@ async fn publish_origin(
     body: &[u8],
     origin: Origin,
 ) -> ObjectRecord {
+    publish_named(catalog, bucket, "object", body, origin).await
+}
+
+async fn publish_named(
+    catalog: &Catalog,
+    bucket: &BucketName,
+    name: &str,
+    body: &[u8],
+    origin: Origin,
+) -> ObjectRecord {
     let (tx, rx) = tokio::sync::mpsc::channel(2);
     tx.try_send(Ok(UploadChunk::Data(Bytes::copy_from_slice(body))))
         .unwrap();
@@ -56,7 +66,7 @@ async fn publish_origin(
         .admin(origin)
         .publish_object(
             bucket,
-            &ObjectName::new("object").unwrap(),
+            &ObjectName::new(name).unwrap(),
             Publication {
                 content_type: "application/octet-stream".into(),
                 metadata: Default::default(),
@@ -496,6 +506,82 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
     assert_eq!(record.size, b"retained external bytes".len() as u64);
     assert_eq!(record.crc32c, crc32c::crc32c(b"retained external bytes"));
     assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// An API write that commits while the initial reconciliation runs leaves the baseline
+/// incomplete. API deletions still reach the tree: the unchanged file goes, the locally edited
+/// one is kept as a conflict, and the baseline then completes. Before, both deletions waited for
+/// a baseline that their own pending removals kept from completing, through rescans and restarts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn api_deletions_reach_the_tree_while_the_initial_baseline_is_incomplete() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    // An existing object makes the initial reconciliation stop at its export checkpoint.
+    publish_named(&catalog, &bucket, "seed", b"seed", Origin::Api).await;
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let worker_catalog = catalog.clone();
+    let worker_root = root.clone();
+    let (hook, worker) = hooked_worker(&EXPORT_HOOK, "before-binding", async move {
+        run_live(&worker_catalog, &worker_root, &mut stopping).await
+    })
+    .await;
+    // Committed after the reconciliation took its start fence, so its end fence differs.
+    let clean = publish_named(&catalog, &bucket, "clean", b"clean", Origin::Api).await;
+    let edited = publish_named(&catalog, &bucket, "edited", b"api", Origin::Api).await;
+    let releaser = tokio::spawn(async move {
+        loop {
+            hook.release.notify_one();
+            hook.entered.notified().await;
+        }
+    });
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    for (path, generation) in [
+        ("test-bucket/clean", clean.generation),
+        ("test-bucket/edited", edited.generation),
+    ] {
+        eventually_async("the export to record the generation", || async {
+            catalog
+                .sync_state()
+                .get_path(binding.clone(), path.into())
+                .await
+                .unwrap()
+                .is_some_and(|record| record.generation.get() == generation)
+        })
+        .await;
+    }
+    assert!(!root.observation().await.unwrap().baseline_complete);
+    let edited_path = tree.0.join("test-bucket/edited");
+    fs::write(&edited_path, b"local edit").unwrap();
+    for (name, record) in [("clean", &clean), ("edited", &edited)] {
+        catalog
+            .admin(Origin::Api)
+            .delete_object(
+                &bucket,
+                &ObjectName::new(name).unwrap(),
+                GenerationCondition::Is(Generation::new(record.generation).unwrap()),
+            )
+            .await
+            .unwrap();
+    }
+    for path in [tree.0.join("test-bucket/clean"), edited_path] {
+        eventually_async("the API deletion to reach the tree", || {
+            std::future::ready(!path.exists())
+        })
+        .await;
+    }
+    let retained = fs::read_dir(data.0.join("sync-conflicts"))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(retained, [b"local edit".to_vec()]);
+    eventually_async("the baseline to complete", || async {
+        root.observation().await.unwrap().baseline_complete
+    })
+    .await;
+    stop.send_replace(true);
+    worker.await.unwrap().unwrap();
+    releaser.abort();
     drop(root);
     catalog.close().await.unwrap();
 }

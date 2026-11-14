@@ -15,7 +15,9 @@ deletion or recreation.
 
 1. Begin records a Prepared intent and its reservation. The selected generation,
    tracked fingerprint, binding, authority and quota must still match. Removal
-   requires a complete baseline and an absent API winner.
+   requires the tracked generation and an absent API winner. It does not wait
+   for a complete baseline, which gates external deletions: a removal pending
+   on it would itself keep the baseline from completing.
 2. A copy step streams or clones an already opened immutable API descriptor into
    the private workspace, verifies its hashes and syncs the file and workspace.
    An identical observation needs no object-body handle or workspace copy.
@@ -80,7 +82,7 @@ the preceding intent and bytes remain until recovery succeeds after repair.
 
 Production-path tests cover unpublished cancellation, installed external edits,
 0-byte/binary copies, failed acknowledgement transactions, stale API generations,
-foreign handles, baseline-gated removal, workspace replacement and cancelled
+foreign handles, removal before a complete baseline, workspace replacement and cancelled
 jobs across separate handles. Recovery and conflict-transfer tests cover sparse
 quota overflow, original-owner retention, multiple keyset pages, failed writes
 and syncs, restart, and paired crash/power-loss snapshots. Schema tests retain
