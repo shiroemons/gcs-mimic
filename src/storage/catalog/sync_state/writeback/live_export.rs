@@ -228,7 +228,7 @@ fn install_target(
         _ => stale(),
     })?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
-    let retained = entry(workspace, &selected.token.id)?;
+    let retained = entry(workspace, selected.token.id)?;
     let already_installed = match staged {
         Some(staged) => current
             .as_ref()
@@ -266,7 +266,7 @@ fn install_target(
         } else if selected.kind == Kind::Publish {
             fsutil::durable_replace_between(
                 workspace,
-                selected.token.id.as_ref(),
+                selected.token.id.to_hex().as_ref(),
                 &directory,
                 name.as_ref(),
                 identity.as_ref(),
@@ -276,7 +276,7 @@ fn install_target(
                 &directory,
                 name.as_ref(),
                 workspace,
-                selected.token.id.as_ref(),
+                selected.token.id.to_hex().as_ref(),
                 None,
             )?
         };
@@ -286,7 +286,7 @@ fn install_target(
     }
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
-    if let Some(file) = entry(workspace, &selected.token.id)? {
+    if let Some(file) = entry(workspace, selected.token.id)? {
         let matches = match expected {
             Some(expected) => {
                 matches_source(&file, expected, source_device, IdentityStage::Displaced)?
@@ -298,7 +298,7 @@ fn install_target(
         }
         #[cfg(test)]
         failure(selected.token.root, "displaced-unlink")?;
-        fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+        fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
     }
     #[cfg(test)]
     failure(selected.token.root, "displaced-parent-sync")?;
@@ -362,12 +362,12 @@ impl Writeback {
                 let reservation = if proof.is_some() { 0 } else { selected.as_ref().map_or(0,|s|s.fingerprint.size) };
                 let captured_snapshot=proof_token.as_ref().map(|token|token.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
-                let id = BlobId::generate().map_err(AdminError::backend)?.to_hex();
+                let id = OpaqueId::generate().map_err(AdminError::backend)?;
                 tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
                 if let Some(snapshot)=captured_snapshot {
                     tx.prepare_cached("UPDATE sync_writeback_ops SET snapshot=?2 WHERE id=?1")?.execute(params![id,snapshot])?;
                 }
-                let item = load(&tx,catalog,root,&id)?;
+                let item = load(&tx,catalog,root,id)?;
                 api_original(&tx,&item,purpose,proof_token.as_ref())?;
                 usage.entries += 1;
                 usage.reserved_bytes += u128::from(reservation);
@@ -440,13 +440,17 @@ impl Writeback {
                     #[cfg(test)]
                     failure(selected.token.root, "copy")?;
                     // Only this unarmed operation can own this private, possibly partial API copy.
-                    if entry(workspace, &selected.token.id)?.is_some() {
-                        fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+                    if entry(workspace, selected.token.id)?.is_some() {
+                        fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
                     }
                     #[cfg(test)]
                     faults.hit(Step::SyncCopyWrite)?;
-                    fsutil::clone_or_copy_into(&source, workspace, selected.token.id.as_ref())?;
-                    let file = entry(workspace, &selected.token.id)?.ok_or_else(stale)?;
+                    fsutil::clone_or_copy_into(
+                        &source,
+                        workspace,
+                        selected.token.id.to_hex().as_ref(),
+                    )?;
+                    let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
                     if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
                         return Err(AdminError::Checksum.into());
                     }
@@ -497,7 +501,7 @@ impl Writeback {
                         &tx,
                         selected.token.catalog,
                         selected.token.root,
-                        &selected.token.id,
+                        selected.token.id,
                     )?;
                     tx.commit()?;
                     Ok(armed)
@@ -588,7 +592,7 @@ impl Writeback {
     ) -> Result<bool, Error> {
         self.fs(move |root, workspace| {
             if let Some(staged) = staged {
-                let retained = entry(workspace, &item.token.id)?
+                let retained = entry(workspace, item.token.id)?
                     .as_ref()
                     .map(fsutil::stat_identity)
                     .transpose()?;
@@ -605,7 +609,7 @@ impl Writeback {
                     current.device == staged.device && current.inode == staged.inode
                 }))
             } else {
-                Ok(item.kind == Kind::Remove && entry(workspace, &item.token.id)?.is_some())
+                Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())
             }
         })
         .await
@@ -660,7 +664,7 @@ impl Writeback {
             validate_capture(&tx,&selected,purpose,captured.as_ref())?;
             let snapshot=if let Some(proof)=&captured {Some(proof.durable_fingerprint(&tx,durable_fingerprint).map_err(AdminError::backend)?)} else {snapshot};
             tx.prepare_cached("UPDATE sync_writeback_ops SET phase=3,revision=revision+1,snapshot=?2 WHERE id=?1")?.execute(params![selected.token.id,snapshot])?;
-            let durable = load(&tx,selected.token.catalog,selected.token.root,&selected.token.id)?;
+            let durable = load(&tx,selected.token.catalog,selected.token.root,selected.token.id)?;
             tx.commit()?;
             Ok(durable)
         }).await?;
@@ -759,13 +763,13 @@ impl Writeback {
                 {
                     return Err(Error::Protected);
                 }
-                if let Some(file) = entry(workspace, &selected.token.id)? {
+                if let Some(file) = entry(workspace, selected.token.id)? {
                     if selected.kind != Kind::Publish
                         || staged != Some(fsutil::stat_identity(&file)?)
                     {
                         return Err(Error::Protected);
                     }
-                    fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+                    fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
                     workspace.sync_all()?;
                 }
                 Ok(())

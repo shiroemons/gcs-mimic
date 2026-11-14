@@ -19,17 +19,17 @@ impl Writeback {
                     if item.phase != Phase::Protected {
                         continue;
                     }
-                    let result = this.lease.transfer_protected(&item.token.id).await;
+                    let result = this.lease.transfer_protected(item.token.id).await;
                     if result.is_err() {
-                        let id = item.token.id.clone();
+                        let id = item.token.id;
                         let current = this
                             .db(move |connection| {
-                                load(connection, item.token.catalog, item.token.root, &id)
+                                load(connection, item.token.catalog, item.token.root, id)
                             })
                             .await?;
                         if current.phase == Phase::Protected {
                             this.lease
-                                .refresh_transfer_charge(&current.token.id)
+                                .refresh_transfer_charge(current.token.id)
                                 .await
                                 .map_err(AdminError::backend)?;
                         }

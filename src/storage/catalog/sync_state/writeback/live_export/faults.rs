@@ -32,7 +32,7 @@ impl Paths {
         if item.kind == Kind::Publish {
             let workspace = self.tree.join(mapping::WORKSPACE);
             let target = self.tree.join(&item.path);
-            fault::renamed(&workspace.join(&item.token.id), &target);
+            fault::renamed(&workspace.join(item.token.id.to_string()), &target);
             fault::dir_synced(&workspace);
             if let Some(parent) = target.parent() {
                 fault::dir_synced(parent);

@@ -467,7 +467,7 @@ impl Fixture {
             fence,
         )
         .await;
-        let id = pending.token.id().to_owned();
+        let id = pending.token.id().to_string();
         let path = self.tree.0.join(crate::sync::mapping::WORKSPACE).join(&id);
         fs::write(&path, bytes).unwrap();
         writeback.recover_pending().await.unwrap();
@@ -932,7 +932,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
     )
     .await;
     let conflict = &page["items"][0];
-    assert_eq!(conflict["conflict_id"], captured.id());
+    assert_eq!(conflict["conflict_id"], captured.id().to_string());
     assert_eq!(conflict["generation"], winner.generation);
     assert!(page["next_cursor"].is_null());
     let mut payload = json!({"conflict_id":conflict["conflict_id"],"revision":conflict["revision"],"action":"restore","expected_generation":winner.generation,"operation_id":"http-restore"});

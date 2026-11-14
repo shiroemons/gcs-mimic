@@ -3,7 +3,7 @@
 
 use super::super::unavailable;
 use super::{
-    SyncBinding,
+    OpaqueId, SyncBinding,
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
@@ -60,8 +60,8 @@ PRAGMA user_version=40;";
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct DeletionSet {
-    pub revision: String,
-    pub scan_revision: String,
+    pub revision: OpaqueId,
+    pub scan_revision: OpaqueId,
     pub baseline_count: u64,
     pub candidate_count: u64,
     pub guard_enabled: bool,
@@ -95,7 +95,7 @@ pub(crate) struct Candidate {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Permit {
     root: RootId,
-    revision: String,
+    revision: OpaqueId,
     ordinal: i64,
 }
 
@@ -120,12 +120,6 @@ pub(crate) fn guarded(guard: Guard, baseline: u64, candidates: u64) -> bool {
         && u128::from(candidates) * 100 > u128::from(baseline) * 50
 }
 
-fn new_revision() -> Result<String, CatalogError> {
-    let mut value = [0; 16];
-    getrandom::fill(&mut value).map_err(unavailable)?;
-    Ok(crate::hashing::encode_lower(&value))
-}
-
 fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
     sql::row(
         connection,
@@ -141,7 +135,7 @@ fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
     .map_err(unavailable)
 }
 
-fn matching(connection: &Connection, root: RootId, revision: &str) -> Result<(), CatalogError> {
+fn matching(connection: &Connection, root: RootId, revision: OpaqueId) -> Result<(), CatalogError> {
     let valid: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)",
@@ -215,7 +209,7 @@ impl RootLease {
 
     pub(crate) async fn deletion_page(
         &self,
-        revision: String,
+        revision: OpaqueId,
         after: i64,
         limit: usize,
     ) -> Result<Vec<Candidate>, RootError> {
@@ -225,7 +219,7 @@ impl RootLease {
 
     pub(crate) async fn deletion_page_for(
         &self,
-        revision: String,
+        revision: OpaqueId,
         after: i64,
         limit: usize,
         authority: super::authority::ControlAuthority,
@@ -237,7 +231,7 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            matching(&tx,root,&revision)?;
+            matching(&tx,root,revision)?;
             tx.prepare_cached("SELECT bucket,name,owner_project,incarnation,generation,path,ordinal FROM sync_deletion_members WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")
                 .and_then(|mut statement|statement.query_map(params![root,after,limit],read_candidate)?.collect()).map_err(unavailable)
         }).await?)
@@ -253,7 +247,9 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
-            matching(&transaction,root,&revision)?;
+            // Text that is not a revision names no deletion set, like a superseded revision.
+            let revision:OpaqueId=revision.parse().map_err(|_|CatalogError::PreconditionFailed)?;
+            matching(&transaction,root,revision)?;
             let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             sql::exec(&transaction,"UPDATE sync_deletion_history SET automatic_count=0 WHERE root_id=?1",[root])?;
@@ -266,7 +262,7 @@ impl RootLease {
     pub(crate) fn deletion_binding(
         &self,
         mut binding: SyncBinding,
-        revision: String,
+        revision: OpaqueId,
         ordinal: i64,
     ) -> SyncBinding {
         binding.deletion = Some(Permit {
@@ -283,7 +279,7 @@ pub(super) fn consume(
     permit: &Permit,
     record: &ObjectRecord,
 ) -> Result<(), ObjectError> {
-    matching(transaction, permit.root, &permit.revision).map_err(|error| match error {
+    matching(transaction, permit.root, permit.revision).map_err(|error| match error {
         CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
         error => error.into(),
     })?;

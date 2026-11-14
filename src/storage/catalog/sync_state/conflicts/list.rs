@@ -58,8 +58,8 @@ pub(super) fn total_usage(connection: &Connection, root: RootId) -> Result<Usage
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Conflict {
-    pub conflict_id: String,
-    pub revision: String,
+    pub conflict_id: OpaqueId,
+    pub revision: OpaqueId,
     pub owner_project: String,
     pub bucket: String,
     pub bucket_incarnation: Incarnation,
@@ -97,7 +97,7 @@ impl RootLease {
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            tx.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO NOTHING")?.execute(params![root,opaque_id()?])?;
+            tx.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO NOTHING")?.execute(params![root,OpaqueId::generate().map_err(AdminError::backend)?])?;
             let current:String=tx.prepare_cached("SELECT revision FROM sync_conflict_roots WHERE root_id=?1")?.query_row([root],|row|row.get(0))?;
             if revision.is_some_and(|revision|revision!=current) {return Err(Error::RevisionMismatch)}
             let usage=total_usage(&tx,root)?;

@@ -17,7 +17,11 @@ async fn live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_
             .fence,
     )
     .await;
-    let path = fixture.tree.0.join(mapping::WORKSPACE).join(&item.token.id);
+    let path = fixture
+        .tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(item.token.id.to_string());
     fs::write(&path, b"recover after full disk").unwrap();
     fixture.writeback.db(|connection| {
         connection.execute_batch("CREATE TABLE writeback_fill(value BLOB)")?;

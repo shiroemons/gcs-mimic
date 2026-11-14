@@ -3,7 +3,7 @@ use crate::storage::catalog::sql;
 
 #[derive(Clone)]
 pub(crate) struct Inventory {
-    pub revision: String,
+    pub revision: OpaqueId,
     root: RootId,
     fence: JournalFence,
 }
@@ -30,8 +30,8 @@ impl RootLease {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 let current = fence(&transaction)?;
-                let revision = new_revision()?;
-                let scan_revision = new_revision()?;
+                let revision = OpaqueId::generate().map_err(unavailable)?;
+                let scan_revision = OpaqueId::generate().map_err(unavailable)?;
                 sql::exec(
                     &transaction,
                     "DELETE FROM sync_deletion_sets WHERE root_id=?1",

@@ -355,7 +355,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
             fs::read(
                 data.0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
             )
             .unwrap(),
             b"external saved body"
@@ -380,8 +380,8 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
                 action: crate::storage::sync_state::conflicts::Action::Discard,
                 target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
                     ConflictTarget {
-                        conflict_id: page.items[0].conflict_id.clone(),
-                        revision: page.items[0].revision.clone(),
+                        conflict_id: page.items[0].conflict_id.to_string(),
+                        revision: page.items[0].revision.to_string(),
                         expected_generation: winner.generation,
                     },
                 ),
@@ -457,7 +457,7 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
         fs::read(
             data.0
                 .join("sync-conflicts")
-                .join(&page.items[0].conflict_id)
+                .join(page.items[0].conflict_id.to_string())
         )
         .unwrap(),
         b"retained external bytes"
@@ -469,8 +469,8 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
                 action: crate::storage::sync_state::conflicts::Action::Restore,
                 target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
                     ConflictTarget {
-                        conflict_id: page.items[0].conflict_id.clone(),
-                        revision: page.items[0].revision.clone(),
+                        conflict_id: page.items[0].conflict_id.to_string(),
+                        revision: page.items[0].revision.to_string(),
                         expected_generation: 0,
                     },
                 ),
@@ -1035,7 +1035,12 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             let pending = recovering.page(0, 256).await.unwrap();
             assert_eq!(pending.len(), 1);
             assert_eq!(
-                fs::read(tree.0.join(mapping::WORKSPACE).join(pending[0].token.id())).unwrap(),
+                fs::read(
+                    tree.0
+                        .join(mapping::WORKSPACE)
+                        .join(pending[0].token.id().to_string())
+                )
+                .unwrap(),
                 b"before"
             );
             recovering.recover_pending().await.unwrap();
@@ -1063,7 +1068,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
                 fs::read(
                     data.0
                         .join("sync-conflicts")
-                        .join(&copies.items[0].conflict_id)
+                        .join(copies.items[0].conflict_id.to_string())
                 )
                 .unwrap(),
                 b"before"
@@ -1115,7 +1120,12 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             assert_eq!(conflict.bucket, bucket.as_str());
             assert_eq!(conflict.bucket_incarnation.to_hex().len(), 32);
             assert_eq!(
-                fs::read(data.0.join("sync-conflicts").join(&conflict.conflict_id)).unwrap(),
+                fs::read(
+                    data.0
+                        .join("sync-conflicts")
+                        .join(conflict.conflict_id.to_string())
+                )
+                .unwrap(),
                 b"external"
             );
         }
@@ -1272,7 +1282,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
                 std::fs::read(
                     data.0
                         .join("sync-conflicts")
-                        .join(&conflicts.items[0].conflict_id)
+                        .join(conflicts.items[0].conflict_id.to_string())
                 )
                 .unwrap(),
                 b"external"

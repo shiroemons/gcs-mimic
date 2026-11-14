@@ -60,7 +60,7 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
                         .tree
                         .0
                         .join(mapping::WORKSPACE)
-                        .join(pending.token.id())
+                        .join(pending.token.id().to_string())
                 )
                 .unwrap(),
                 BODY
@@ -110,7 +110,7 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
                     .tree
                     .0
                     .join(mapping::WORKSPACE)
-                    .join(pending.token.id()),
+                    .join(pending.token.id().to_string()),
                 b"new larger actual displaced body",
             )
             .unwrap();

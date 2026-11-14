@@ -27,8 +27,8 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
             action: Action::Discard,
             target: ResolveTarget::Recovery(RecoveryTarget {
                 recovery_id: id.clone(),
-                revision: inspected.recovery_revision,
-                target_identity: inspected.target_identity,
+                revision: inspected.recovery_revision.to_string(),
+                target_identity: inspected.target_identity.to_string(),
                 confirmation: Confirmation::BackupVerified,
             }),
         };
@@ -87,8 +87,8 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
                 ..
             }) = &mut fresh_request.target
             {
-                *revision = fresh.recovery_revision;
-                *target_identity = fresh.target_identity;
+                *revision = fresh.recovery_revision.to_string();
+                *target_identity = fresh.target_identity.to_string();
             }
             assert!(
                 fixture
@@ -152,8 +152,8 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
             recovery_id: id.clone(),
-            revision: item.recovery_revision,
-            target_identity: item.target_identity,
+            revision: item.recovery_revision.to_string(),
+            target_identity: item.target_identity.to_string(),
             confirmation: Confirmation::BackupVerified,
         }),
     };
@@ -198,9 +198,9 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
         operation_id: "reinspected".into(),
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
-            recovery_id: fresh.recovery_id,
-            revision: fresh.recovery_revision,
-            target_identity: fresh.target_identity,
+            recovery_id: fresh.recovery_id.to_string(),
+            revision: fresh.recovery_revision.to_string(),
+            target_identity: fresh.target_identity.to_string(),
             confirmation: Confirmation::BackupVerified,
         }),
     };
@@ -228,7 +228,7 @@ async fn conflict_exact_entry_capacity_counts_zero_length_reservations() {
         .await
         .unwrap();
     let captured = fixture.capture().await;
-    let id = captured.id.clone();
+    let id = captured.id;
     fixture.lease.conflict_db(move|connection| {
         connection.prepare_cached("WITH RECURSIVE copies(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM copies WHERE n<999) INSERT INTO sync_conflicts(id,root_id,revision,owner,bucket,incarnation,name,generation,state,size,source) SELECT lower(hex(randomblob(16))),c.root_id,c.revision,c.owner,c.bucket,c.incarnation,c.name,c.generation,0,0,c.source FROM copies JOIN sync_conflicts c ON c.id=?1")?.execute([id])?;Ok(())
     }).await.unwrap();
@@ -271,8 +271,8 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
                 action: Action::Discard,
                 target: ResolveTarget::Recovery(RecoveryTarget {
                     recovery_id: id.clone(),
-                    revision: item.recovery_revision,
-                    target_identity: item.target_identity,
+                    revision: item.recovery_revision.to_string(),
+                    target_identity: item.target_identity.to_string(),
                     confirmation: Confirmation::BackupVerified,
                 }),
             };

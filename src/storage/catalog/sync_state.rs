@@ -65,6 +65,19 @@ impl CatalogId {
     }
 }
 
+crate::storage::opaque_id::opaque_id! {
+    /// A synchronization operation, conflict, recovery workspace or revision identifier:
+    /// 16 random bytes the admin API shows and accepts as 32 lowercase hexadecimal digits.
+    pub(crate) struct OpaqueId([u8; 16]);
+    invalid = "invalid synchronization identifier";
+    column = text;
+}
+impl OpaqueId {
+    pub(crate) fn generate() -> Result<Self, getrandom::Error> {
+        crate::storage::opaque_id::random().map(Self)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SyncFingerprint {
     pub size: u64,

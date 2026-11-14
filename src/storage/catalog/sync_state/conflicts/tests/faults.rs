@@ -39,7 +39,7 @@ async fn conflict_capture_write_flush_sync_failures_preserve_input_and_winner() 
                     .data
                     .0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
                     .exists()
             );
         } else {
@@ -260,8 +260,8 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     operation_id: "snapshot".into(),
                     action: Action::Discard,
                     target: ResolveTarget::Conflict(ConflictTarget {
-                        conflict_id: captured.id.clone(),
-                        revision: captured.revision.clone(),
+                        conflict_id: captured.id.to_string(),
+                        revision: captured.revision.to_string(),
                         expected_generation: record.generation,
                     }),
                 }
@@ -271,7 +271,7 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     action: Action::Discard,
                     target: ResolveTarget::Conflict(ConflictTarget {
                         conflict_id: state.0.0,
-                        revision: page.items[0].revision.clone(),
+                        revision: page.items[0].revision.to_string(),
                         expected_generation: 0,
                     }),
                 }

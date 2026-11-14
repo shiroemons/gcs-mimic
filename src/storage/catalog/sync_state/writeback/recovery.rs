@@ -38,7 +38,7 @@ impl Writeback {
                     Phase::Protected => {
                         if !self
                             .lease
-                            .accepted_transfer(&item.token.id)
+                            .accepted_transfer(item.token.id)
                             .await
                             .map_err(AdminError::backend)?
                         {
@@ -70,7 +70,7 @@ impl Writeback {
         let faults = self.fault_paths();
         let result = self
             .fs(move |root, workspace| {
-                let body = entry(workspace, &selected.token.id)?;
+                let body = entry(workspace, selected.token.id)?;
                 if body.is_some()
                     && (selected.phase != Phase::Prepared || selected.kind != Kind::Publish)
                 {
@@ -85,10 +85,10 @@ impl Writeback {
                         &faults
                             .tree
                             .join(mapping::WORKSPACE)
-                            .join(&selected.token.id),
+                            .join(selected.token.id.to_hex()),
                         &body,
                     )?;
-                    fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+                    fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
                     #[cfg(test)]
                     faults.hit(Step::SyncRecoveryUnlinked)?;
                     #[cfg(not(all(test, unix)))]

@@ -7,10 +7,9 @@ use super::super::{
     objects, unavailable,
 };
 use super::{
-    CatalogId, SyncBinding, SyncFingerprint, SyncUpdate,
+    CatalogId, OpaqueId, SyncBinding, SyncFingerprint, SyncUpdate,
     root::{RootError, RootId, RootLease},
 };
-use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
@@ -189,7 +188,7 @@ sql::integer_enum!(Phase, {
 pub(crate) struct Token {
     catalog: CatalogId,
     root: RootId,
-    id: String,
+    id: OpaqueId,
     revision: i64,
 }
 #[derive(Clone, Debug)]
@@ -397,14 +396,7 @@ const SELECT_PENDING: &str = concat!(
     " FROM sync_writeback_ops WHERE root_id=?1 AND id=?2"
 );
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
-    let id: String = row.get(0)?;
-    if id.parse::<BlobId>().is_err() {
-        return Err(sql::conversion_error(
-            0,
-            rusqlite::types::Type::Text,
-            "invalid write-back operation ID",
-        ));
-    }
+    let id: OpaqueId = row.get(0)?;
     let generation = Generation::new(row.get(7)?)
         .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Integer, error))?;
     Ok(Pending {
@@ -565,8 +557,8 @@ fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
         Err(e) => Err(e.into()),
     }
 }
-fn entry(workspace: &File, id: &str) -> Result<Option<File>, Error> {
-    match fsutil::open_regular_at(workspace, id.as_ref()) {
+fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
+    match fsutil::open_regular_at(workspace, id.to_hex().as_ref()) {
         Ok(f) => Ok(Some(f)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
@@ -623,7 +615,7 @@ fn fingerprint(
     item: &Pending,
     observed_ns: i128,
 ) -> Result<Option<SyncFingerprint>, Error> {
-    if entry(workspace, &item.token.id)?.is_some() {
+    if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
     let file = target(root, &item.path)?;
@@ -662,7 +654,7 @@ fn verify_fingerprint(
     item: &Pending,
     expected: Option<&SyncFingerprint>,
 ) -> Result<(), Error> {
-    if entry(workspace, &item.token.id)?.is_some() {
+    if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
     match (item.kind, expected, target(root, &item.path)?) {
@@ -799,10 +791,10 @@ impl Writeback {
         if item.phase == Phase::Complete {
             return Err(stale());
         }
-        let id = token.id.clone();
+        let id = token.id;
         let observed = self
             .fs(move |root, workspace| {
-                let Some(file) = entry(workspace, &id)? else {
+                let Some(file) = entry(workspace, id)? else {
                     workspace.sync_all()?;
                     root.sync_all()?;
                     return Ok(None);
@@ -831,7 +823,7 @@ impl Writeback {
                 let tx=c.transaction()?;checked(&tx,&token)?;
                 tx.prepare_cached("UPDATE sync_writeback_ops SET io_failure=io_failure & 2,revision=revision+1 WHERE id=?1 AND (io_failure & 1)!=0")?.execute([&token.id])?;
                 tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root])?;
-                let item=load(&tx,token.catalog,token.root,&token.id)?;tx.commit()?;Ok(item)
+                let item=load(&tx,token.catalog,token.root,token.id)?;tx.commit()?;Ok(item)
             }).await;
         };
         let next=self.db(move|c| {let tx=c.transaction()?;let old=checked(&tx,&token)?;let mut usage=status(&tx,token.root)?;
@@ -840,7 +832,7 @@ impl Writeback {
             usage.retained_bytes+=u128::from(size);usage.recovery=true;
             save_status(&tx,token.root,&usage)?;tx.prepare_cached("UPDATE sync_writeback_ops SET phase=2,revision=revision+1,retained=?2,io_failure=(io_failure & 2) | ?3 WHERE id=?1")?.execute(params![token.id,size.to_be_bytes(),i64::from(failure.is_some())])?;
             tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root])?;
-            let value=load(&tx,token.catalog,token.root,&token.id)?;tx.commit()?;Ok(value)
+            let value=load(&tx,token.catalog,token.root,token.id)?;tx.commit()?;Ok(value)
         }).await?;
         if let Some(kind) = failure {
             return Err(Error::Admin(io::Error::from(kind).into()));
@@ -868,14 +860,14 @@ impl Writeback {
         .await
     }
 }
-fn load(c: &Connection, catalog: CatalogId, root: RootId, id: &str) -> Result<Pending, Error> {
+fn load(c: &Connection, catalog: CatalogId, root: RootId, id: OpaqueId) -> Result<Pending, Error> {
     c.prepare_cached(SELECT_PENDING)?
         .query_row(params![root, id], |r| pending(r, catalog, root))
         .optional()?
         .ok_or_else(stale)
 }
 fn checked(c: &Connection, token: &Token) -> Result<Pending, Error> {
-    let item = load(c, token.catalog, token.root, &token.id)?;
+    let item = load(c, token.catalog, token.root, token.id)?;
     if item.token.revision != token.revision {
         return Err(stale());
     }

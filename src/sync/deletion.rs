@@ -172,7 +172,7 @@ pub(super) async fn execute_with(
             return Ok(completed);
         }
         let page = match root
-            .deletion_page(set.revision.clone(), after, 256)
+            .deletion_page(set.revision, after, 256)
             .await
             .map_err(io::Error::other)
         {
@@ -267,7 +267,7 @@ async fn delete(root: &RootLease, set: &DeletionSet, candidate: &Candidate) -> i
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),
         Err(error) => return Err(io::Error::other(error)),
     };
-    let binding = root.deletion_binding(binding, set.revision.clone(), candidate.ordinal);
+    let binding = root.deletion_binding(binding, set.revision, candidate.ordinal);
     match root
         .sync_admin()
         .delete_synced_object(

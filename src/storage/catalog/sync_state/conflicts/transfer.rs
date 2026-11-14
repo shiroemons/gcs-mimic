@@ -17,8 +17,8 @@ type StoredWorkspace = (
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OwnedProof {
-    id: String,
-    revision: String,
+    id: OpaqueId,
+    revision: OpaqueId,
     source: Observation,
     retained: Observation,
 }
@@ -43,7 +43,7 @@ fn snapshot(bytes: &[u8]) -> Result<Option<Snapshot>, Error> {
 
 #[derive(Clone)]
 struct Transfer {
-    id: String,
+    id: OpaqueId,
     owner: String,
     request: CaptureRequest,
     accepted: Option<OwnedProof>,
@@ -79,7 +79,7 @@ fn validate(
 
 fn verify_copy(data: &std::path::Path, proof: &OwnedProof) -> Result<(), Error> {
     let store = capture::open_store(data)?;
-    let file = fsutil::open_regular_at(&store, proof.id.as_ref())?;
+    let file = fsutil::open_regular_at(&store, proof.id.to_hex().as_ref())?;
     if !file.metadata()?.permissions().readonly()
         || !proof.retained.matches(fsutil::stat_identity(&file)?)
         || observe(&file, HashMode::Body)? != proof.retained
@@ -97,7 +97,7 @@ impl CapturedConflict {
         &self,
         connection: &Connection,
     ) -> Result<Vec<u8>, Error> {
-        let proof = owned_proof(connection, &self.id)?;
+        let proof = owned_proof(connection, self.id)?;
         if proof.revision != self.revision {
             return Err(Error::TargetChanged);
         }
@@ -110,9 +110,9 @@ impl CapturedConflict {
     }
 
     pub(in crate::storage) async fn verify_owned(&self, lease: &RootLease) -> Result<(), Error> {
-        let id = self.id.clone();
+        let id = self.id;
         let proof = lease
-            .conflict_db(move |connection| owned_proof(connection, &id))
+            .conflict_db(move |connection| owned_proof(connection, id))
             .await?;
         if proof.revision != self.revision {
             return Err(Error::TargetChanged);
@@ -128,7 +128,7 @@ impl CapturedConflict {
         connection: &Connection,
         fingerprint: Option<SyncFingerprint>,
     ) -> Result<Vec<u8>, Error> {
-        let proof = owned_proof(connection, &self.id)?;
+        let proof = owned_proof(connection, self.id)?;
         serde_json::to_vec(&Snapshot {
             transfer: None,
             captured: Some(proof),
@@ -138,14 +138,14 @@ impl CapturedConflict {
     }
 }
 
-fn owned_proof(connection: &Connection, id: &str) -> Result<OwnedProof, Error> {
-    let (revision, source, retained): (String, Vec<u8>, Vec<u8>) = connection
+fn owned_proof(connection: &Connection, id: OpaqueId) -> Result<OwnedProof, Error> {
+    let (revision, source, retained): (OpaqueId, Vec<u8>, Vec<u8>) = connection
         .prepare_cached(
             "SELECT revision,source,retained FROM sync_conflicts WHERE id=?1 AND state=1",
         )?
         .query_row([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
     Ok(OwnedProof {
-        id: id.to_owned(),
+        id,
         revision,
         source: Observation::decode(&source)?,
         retained: Observation::decode(&retained)?,
@@ -179,14 +179,14 @@ pub(in crate::storage) fn captured_entries(
 impl RootLease {
     pub(in crate::storage::catalog::sync_state) async fn accepted_transfer(
         &self,
-        id: &str,
+        id: OpaqueId,
     ) -> Result<bool, Error> {
-        let item = self.transfer_context(id.to_owned()).await?;
+        let item = self.transfer_context(id).await?;
         let selected = item.clone();
         let absent = self
             .conflict_files(move |root| {
                 let workspace = directory(root, &selected)?;
-                match fsutil::open_regular_at(&workspace, selected.id.as_ref()) {
+                match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
                     Ok(_) => Ok(false),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
                     Err(error) => Err(error.into()),
@@ -215,10 +215,10 @@ impl RootLease {
         source: &File,
     ) -> Result<Option<CapturedConflict>, Error> {
         let root = self.status().root_id;
-        let op = request.source_op.clone().ok_or(Error::InvalidResolution)?;
+        let op = request.source_op.ok_or(Error::InvalidResolution)?;
         let row = self.conflict_db(move |connection| {
             connection.prepare_cached("SELECT id,state,source FROM sync_conflicts WHERE root_id=?1 AND source_op=?2 AND state!=2")?
-                .query_row(params![root,op], |row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?))).optional().map_err(Error::from)
+                .query_row(params![root,op], |row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?))).optional().map_err(Error::from)
         }).await?;
         let Some((id, state, original)) = row else {
             return Ok(None);
@@ -256,19 +256,15 @@ impl RootLease {
             .await?;
             return Ok(None);
         }
-        if state == 0
-            && !self
-                .resume_workspace_copy(id.clone(), observed.clone())
-                .await?
-        {
+        if state == 0 && !self.resume_workspace_copy(id, observed.clone()).await? {
             self.cleanup_capture(id).await?;
             return Ok(None);
         }
         let proof = self
-            .conflict_db(move |connection| owned_proof(connection, &id))
+            .conflict_db(move |connection| owned_proof(connection, id))
             .await?;
         let context = self
-            .transfer_context(request.source_op.clone().ok_or(Error::InvalidResolution)?)
+            .transfer_context(request.source_op.ok_or(Error::InvalidResolution)?)
             .await?;
         let copy = proof.clone();
         self.conflict_db(move |connection| validate(connection, root, &context, &copy))
@@ -300,11 +296,10 @@ impl RootLease {
 
     async fn resume_workspace_copy(
         &self,
-        id: String,
+        id: OpaqueId,
         observed: Observation,
     ) -> Result<bool, Error> {
         let data = data_path(self);
-        let copy_id = id.clone();
         let expected = observed.clone();
         let retained = self
             .conflict_files(move |_| {
@@ -317,7 +312,7 @@ impl RootLease {
                     }
                     Err(error) => return Err(error),
                 };
-                let file = match fsutil::open_regular_at(&store, copy_id.as_ref()) {
+                let file = match fsutil::open_regular_at(&store, id.to_hex().as_ref()) {
                     Ok(file) => file,
                     Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
                     Err(error) => return Err(error.into()),
@@ -347,13 +342,12 @@ impl RootLease {
         let Some(retained) = retained else {
             return Ok(false);
         };
-        let selected = id.clone();
         let source_blob = observed.encode()?;
         let retained_blob = retained.encode()?;
         self.conflict_db(move |connection| {
                 #[cfg(test)]
                 fault::hit(&super::super::super::fault::database_dir(connection),fault::Step::ConflictRegister)?;
-                connection.prepare_cached("UPDATE sync_conflicts SET state=1,source=?2,retained=?3 WHERE id=?1 AND state=0")?.execute(params![selected,source_blob,retained_blob])?;
+                connection.prepare_cached("UPDATE sync_conflicts SET state=1,source=?2,retained=?3 WHERE id=?1 AND state=0")?.execute(params![id,source_blob,retained_blob])?;
                 Ok(())
             }).await?;
         #[cfg(test)]
@@ -365,14 +359,14 @@ impl RootLease {
     /// The caller holds the shared execution permit through this entire owned transition.
     pub(in crate::storage::catalog::sync_state) async fn transfer_protected(
         &self,
-        id: &str,
+        id: OpaqueId,
     ) -> Result<(), Error> {
-        let selected = self.transfer_context(id.to_owned()).await?;
-        let probe = self.transfer_context(id.to_owned()).await?;
+        let selected = self.transfer_context(id).await?;
+        let probe = self.transfer_context(id).await?;
         let source = self
             .conflict_files(move |root| {
                 let workspace = directory(root, &probe)?;
-                match fsutil::open_regular_at(&workspace, probe.id.as_ref()) {
+                match fsutil::open_regular_at(&workspace, probe.id.to_hex().as_ref()) {
                     Ok(file) => Ok(Some(file)),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
                     Err(error) => Err(error.into()),
@@ -389,14 +383,14 @@ impl RootLease {
 
     pub(in crate::storage::catalog::sync_state) async fn refresh_transfer_charge(
         &self,
-        id: &str,
+        id: OpaqueId,
     ) -> Result<(), Error> {
-        let selected = self.transfer_context(id.to_owned()).await?;
-        let id = selected.id.clone();
+        let selected = self.transfer_context(id).await?;
+        let id = selected.id;
         let size = self
             .conflict_files(move |root| {
                 let workspace = directory(root, &selected)?;
-                match fsutil::open_regular_at(&workspace, selected.id.as_ref()) {
+                match fsutil::open_regular_at(&workspace, selected.id.to_hex().as_ref()) {
                     Ok(file) => Ok(Some(fsutil::stat_identity(&file)?.size)),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
                     Err(error) => Err(error.into()),
@@ -407,7 +401,7 @@ impl RootLease {
             let root = self.status().root_id;
             self.conflict_db(move |connection| {
                 let tx = connection.transaction()?;
-                recovery::account_workspace(&tx, root, &id, size)?;
+                recovery::account_workspace(&tx, root, id, size)?;
                 tx.commit()?;
                 Ok(())
             })
@@ -416,14 +410,14 @@ impl RootLease {
         Ok(())
     }
 
-    async fn transfer_context(&self, id: String) -> Result<Transfer, Error> {
+    async fn transfer_context(&self, id: OpaqueId) -> Result<Transfer, Error> {
         let root = self.status().root_id;
         let catalog = self.catalog().sync_state().catalog_id().await?;
         self.conflict_db(move |connection| {
             let (owner,bucket,incarnation,name,generation,device,inode,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
                 .query_row(params![root,id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)))?;
             let accepted = snapshot.as_deref().map(self::snapshot).transpose()?.flatten().and_then(|snapshot|snapshot.transfer);
-            Ok(Transfer { id:id.clone(),owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(Generation::new(generation)?),source_op:Some(id)},accepted,device,inode })
+            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(Generation::new(generation)?),source_op:Some(id)},accepted,device,inode })
         }).await
     }
 
@@ -433,11 +427,11 @@ impl RootLease {
             .conflict_files(move |_| observe(&selected, HashMode::Metadata))
             .await?;
         let root = self.status().root_id;
-        let id = item.id.clone();
+        let id = item.id;
         let size = before.size;
         self.conflict_db(move |connection| {
             let tx = connection.transaction()?;
-            recovery::account_workspace(&tx, root, &id, size)?;
+            recovery::account_workspace(&tx, root, id, size)?;
             tx.commit()?;
             Ok(())
         })
@@ -446,8 +440,8 @@ impl RootLease {
             return Err(Error::Capacity);
         }
         let captured = self.capture_inner(item.request.clone(), source).await?;
-        let id = captured.id.clone();
-        self.conflict_db(move |connection| owned_proof(connection, &id))
+        let id = captured.id;
+        self.conflict_db(move |connection| owned_proof(connection, id))
             .await
     }
 
@@ -463,7 +457,7 @@ impl RootLease {
             durable: None,
         })
         .map_err(AdminError::backend)?;
-        let selected = self.transfer_context(item.id.clone()).await?;
+        let selected = self.transfer_context(item.id).await?;
         let copy = proof.clone();
         let encoded = proof_blob.clone();
         self.conflict_db(move |connection| {
@@ -477,7 +471,7 @@ impl RootLease {
         #[cfg(test)]
         self.transfer_boundary(super::super::super::fault::Step::TransferAccepted)
             .await?;
-        let selected = self.transfer_context(item.id.clone()).await?;
+        let selected = self.transfer_context(item.id).await?;
         let data = data_path(self);
         #[cfg(test)]
         let parent = self.fault_tree().join(WORKSPACE);
@@ -486,7 +480,7 @@ impl RootLease {
         let expected = proof.source.clone();
         self.conflict_files(move |root| {
             let workspace = directory(root, &selected)?;
-            resolve::checked_unlink(&workspace, &selected.id, Some(&expected), &data, &parent)?;
+            resolve::checked_unlink(&workspace, selected.id, Some(&expected), &data, &parent)?;
             root.sync_all()?;
             Ok(())
         })
@@ -499,7 +493,7 @@ impl RootLease {
             validate(&tx,root,&item,&proof)?;
             let current:Option<Vec<u8>> = tx.prepare_cached("SELECT snapshot FROM sync_writeback_ops WHERE root_id=?1 AND id=?2 AND phase=2")?.query_row(params![root,item.id],|row|row.get(0))?;
             if current.as_ref() != Some(&proof_blob) { return Err(Error::TargetChanged); }
-            recovery::release_workspace(&tx,root,&item.id)?;
+            recovery::release_workspace(&tx,root,item.id)?;
             changed(&tx,root)?;
             tx.commit()?;
             Ok(())

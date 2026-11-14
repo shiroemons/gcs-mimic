@@ -3,9 +3,9 @@ use crate::sync::mapping::WORKSPACE;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Recovery {
-    pub recovery_id: String,
-    pub recovery_revision: String,
-    pub target_identity: String,
+    pub recovery_id: OpaqueId,
+    pub recovery_revision: OpaqueId,
+    pub target_identity: OpaqueId,
     pub owner_project: String,
     pub bucket: String,
     pub bucket_incarnation: Incarnation,
@@ -23,7 +23,7 @@ pub(crate) struct Recovery {
 
 #[derive(Clone)]
 struct Workspace {
-    id: String,
+    id: OpaqueId,
     owner: String,
     bucket: String,
     incarnation: Incarnation,
@@ -45,7 +45,7 @@ fn directory(root: &File, selected: &Workspace) -> Result<File, Error> {
     Ok(directory)
 }
 
-fn workspace(connection: &Connection, root: RootId, id: &str) -> Result<Workspace, Error> {
+fn workspace(connection: &Connection, root: RootId, id: OpaqueId) -> Result<Workspace, Error> {
     connection.prepare_cached("SELECT w.id,w.owner,w.bucket,w.incarnation,w.name,w.ordinal,r.workspace_device,r.workspace_inode FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
         .query_row(params![root,id],|row|Ok(Workspace {id:row.get(0)?,owner:row.get(1)?,bucket:row.get(2)?,incarnation:row.get(3)?,name:row.get(4)?,ordinal:row.get(5)?,device:row.get(6)?,inode:row.get(7)?})).optional()?.ok_or(Error::RevisionMismatch)
 }
@@ -93,8 +93,8 @@ impl RootLease {
         let pending=self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             let ids=tx.prepare_cached("SELECT id FROM sync_writeback_ops WHERE root_id=?1 AND phase=2 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
-                .query_map(params![root,after,limit],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            ids.iter().map(|id|workspace(&tx,root,id)).collect::<Result<Vec<_>,Error>>()
+                .query_map(params![root,after,limit],|row|row.get::<_,OpaqueId>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            ids.into_iter().map(|id|workspace(&tx,root,id)).collect::<Result<Vec<_>,Error>>()
         }).await?;
         let mut results = Vec::with_capacity(pending.len());
         let mut page_bytes = 0;
@@ -103,7 +103,7 @@ impl RootLease {
             let observation = self
                 .conflict_files(move |root| {
                     let workspace = directory(root, &item)?;
-                    match fsutil::open_regular_at(&workspace, item.id.as_ref()) {
+                    match fsutil::open_regular_at(&workspace, item.id.to_hex().as_ref()) {
                         Ok(file) => observe(&file, HashMode::Metadata).map(Some),
                         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
                         Err(error) => Err(error.into()),
@@ -112,23 +112,23 @@ impl RootLease {
                 .await?;
             let auth = authority.clone();
             let item=self.conflict_db(move|connection| {
-                let tx=connection.transaction()?;auth.authorize(&tx,root)?;workspace(&tx,root,&selected.id)?;
+                let tx=connection.transaction()?;auth.authorize(&tx,root)?;workspace(&tx,root,selected.id)?;
                 let stored=tx.prepare_cached("SELECT revision,target_identity,observation,phase FROM sync_recovery_workspaces WHERE root_id=?1 AND id=?2")?
-                    .query_row(params![root,selected.id],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,i64>(3)?))).optional()?;
+                    .query_row(params![root,selected.id],|row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,OpaqueId>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,i64>(3)?))).optional()?;
                 let accepted:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_operations WHERE root_id=?1 AND target_id=?2 AND target_kind=1 AND done=0)")?.query_row(params![root,selected.id],|row|row.get(0))?;
                 let (revision,target_identity,observed,phase)=match (observation,stored) {
                     (None,Some((revision,identity,bytes,phase))) if accepted=>(revision,identity,Observation::decode(&bytes)?,phase),
                     (None,_)=>return Err(Error::TargetChanged),
                     (Some(observed),Some((revision,identity,bytes,phase))) if Observation::decode(&bytes)?==observed=>(revision,identity,observed,phase),
                     (Some(observed),_)=>{
-                        let revision=opaque_id()?;let identity=opaque_id()?;
+                        let revision=OpaqueId::generate().map_err(AdminError::backend)?;let identity=OpaqueId::generate().map_err(AdminError::backend)?;
                         tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1,error_code='target_changed' WHERE root_id=?1 AND target_kind=1 AND target_id=?2 AND done=0")?.execute(params![root,selected.id])?;
                         tx.prepare_cached("INSERT INTO sync_recovery_workspaces(id,root_id,revision,target_identity,observation,phase) VALUES(?1,?2,?3,?4,?5,0) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,target_identity=excluded.target_identity,observation=excluded.observation,phase=0")?
                             .execute(params![selected.id,root,revision,identity,observed.encode()?])?;
                         (revision,identity,observed,0)
                     }
                 };
-                account_workspace(&tx,root,&selected.id,observed.size)?;
+                account_workspace(&tx,root,selected.id,observed.size)?;
                 let usage=list::total_usage(&tx,root)?;
                 tx.commit()?;
                 Ok(Recovery {recovery_id:selected.id,recovery_revision:revision,target_identity,owner_project:selected.owner,bucket:selected.bucket,bucket_incarnation:selected.incarnation,name:selected.name,
@@ -161,30 +161,28 @@ impl RootLease {
         else {
             return Err(Error::InvalidResolution);
         };
-        if request.action != Action::Discard
-            || !valid_id(recovery_id)
-            || !valid_id(revision)
-            || !valid_id(target_identity)
-        {
+        let (Action::Discard, Ok(id), Ok(rev), Ok(target)) = (
+            request.action,
+            recovery_id.parse::<OpaqueId>(),
+            revision.parse::<OpaqueId>(),
+            target_identity.parse::<OpaqueId>(),
+        ) else {
             return Err(Error::InvalidResolution);
-        }
+        };
         let root = self.status().root_id;
         let req = request.clone();
         let auth = authority.clone();
-        let id = recovery_id.clone();
-        let rev = revision.clone();
-        let target = target_identity.clone();
         let admitted=self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             let prior=resolve::recorded_operation(&tx,root,&req,&auth)?;
             if prior.is_some_and(|(done,reclaimed,_)|done && reclaimed) {return Ok(None)}
-            let selected=workspace(&tx,root,&id)?;
+            let selected=workspace(&tx,root,id)?;
             let row=tx.prepare_cached("SELECT revision,target_identity,observation FROM sync_recovery_workspaces WHERE root_id=?1 AND id=?2")?
-                .query_row(params![root,id],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,Vec<u8>>(2)?))).optional()?.ok_or(Error::RevisionMismatch)?;
+                .query_row(params![root,id],|row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,OpaqueId>(1)?,row.get::<_,Vec<u8>>(2)?))).optional()?.ok_or(Error::RevisionMismatch)?;
             if row.1!=target {return Err(Error::TargetChanged)}
             if prior.is_none() {
                 if row.0!=rev {return Err(Error::RevisionMismatch)}
-                resolve::accept_recovery(&tx,root,&req,&id,&selected.owner)?;
+                resolve::accept_recovery(&tx,root,&req,id,&selected.owner)?;
                 tx.prepare_cached("UPDATE sync_recovery_workspaces SET phase=1 WHERE root_id=?1 AND id=?2")?.execute(params![root,id])?;
             }
             let observation=Observation::decode(&row.2)?;
@@ -217,7 +215,7 @@ impl RootLease {
         let parent = data.join(WORKSPACE);
         self.conflict_files(move |root| {
             let workspace = directory(root, &entry)?;
-            resolve::checked_unlink(&workspace, &entry.id, Some(&observation), &data, &parent)
+            resolve::checked_unlink(&workspace, entry.id, Some(&observation), &data, &parent)
         })
         .await?;
         #[cfg(test)]
@@ -228,10 +226,10 @@ impl RootLease {
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             resolve::recorded_operation(&tx,root,&req,&auth)?.ok_or(Error::OperationIdReused)?;
-            release_workspace(&tx,root,&selected.id)?;
+            release_workspace(&tx,root,selected.id)?;
             tx.prepare_cached("UPDATE sync_recovery_workspaces SET phase=2 WHERE root_id=?1 AND id=?2")?.execute(params![root,selected.id])?;
             tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1 WHERE root_id=?1 AND operation_id=?2")?.execute(params![root,req.operation_id])?;
-            resolve::settle_other_operations(&tx,root,&req,&selected.id,1)?;
+            resolve::settle_other_operations(&tx,root,&req,selected.id,1)?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]
@@ -248,7 +246,7 @@ impl RootLease {
 pub(super) fn account_workspace(
     connection: &Connection,
     root: RootId,
-    id: &str,
+    id: OpaqueId,
     size: u64,
 ) -> Result<(), Error> {
     let old: Option<[u8; 8]> = connection
@@ -278,7 +276,7 @@ pub(super) fn account_workspace(
 pub(super) fn release_workspace(
     connection: &Connection,
     root: RootId,
-    id: &str,
+    id: OpaqueId,
 ) -> Result<(), Error> {
     let retained: Option<[u8; 8]> = connection
         .prepare_cached(

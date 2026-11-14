@@ -462,7 +462,7 @@ async fn status(
     let ids = root.status();
     if let Some(revision) = &page.revision {
         let set = set
-            .filter(|set| set.revision == *revision)
+            .filter(|set| revision.parse() == Ok(set.revision))
             .ok_or_else(stale)?;
         return deletion_page(&root, page, set, authority).await;
     }
@@ -474,7 +474,7 @@ async fn status(
         &json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"auth_mode":state.auth.mode().as_str(),
         "state":if let Some(reason)=paused {reason} else if !state.is_ready() {"Unhealthy"} else if observation.writeback.as_ref().is_some_and(|value|value.state!=Stop::Ready) {observation.writeback.as_ref().map(|value|value.state.as_str()).unwrap_or("Observing")} else if observation.scan_stop.is_some() {observation.scan_stop.map(PauseReason::as_str).unwrap_or("Observing")} else if !observation.baseline_complete {"Observing"} else if set.as_ref().is_some_and(|set|set.guarded && set.authorization==0) {"DeletionApproval"} else if observation.path_stops+observation.mapping_findings+observation.pending_writeback+observation.unresolved_conflicts>0 {"FindingsPending"} else {"Ready"},
         "session_id":session,"findings_revision":findings_revision,"observation":observation,
-        "pending_deletion_revision":set.as_ref().filter(|_|pending>0).map(|set|set.revision.clone()),"pending_deletion_count":pending,
+        "pending_deletion_revision":set.as_ref().filter(|_|pending>0).map(|set|set.revision),"pending_deletion_count":pending,
             "deletion_set":set,"writeback_safety":"preserve-pending-work","conflict_resolution_available":true,"stable_wait_available":true}),
     )
 }
@@ -539,7 +539,7 @@ async fn deletion_page(
         },
     };
     let mut items = root
-        .deletion_page_for(set.revision.clone(), after, page.limit, authority)
+        .deletion_page_for(set.revision, after, page.limit, authority)
         .await
         .map_err(|error| root_error(&error))?;
     loop {

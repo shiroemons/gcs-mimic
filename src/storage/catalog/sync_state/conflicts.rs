@@ -2,7 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    SyncBinding, SyncFingerprint,
+    OpaqueId, SyncBinding, SyncFingerprint,
     authority::ControlAuthority,
     root::{RootError, RootId, RootLease},
 };
@@ -131,14 +131,14 @@ pub(crate) struct CaptureRequest {
     pub binding: SyncBinding,
     pub name: ObjectName,
     pub expected_generation: Option<Generation>,
-    pub source_op: Option<String>,
+    pub source_op: Option<OpaqueId>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct CapturedConflict {
     root: RootId,
-    id: String,
-    revision: String,
+    id: OpaqueId,
+    revision: OpaqueId,
     binding: SyncBinding,
     name: ObjectName,
     expected_generation: Option<Generation>,
@@ -152,8 +152,8 @@ pub(crate) struct CaptureProof {
 }
 
 impl CapturedConflict {
-    pub(crate) fn id(&self) -> &str {
-        &self.id
+    pub(crate) fn id(&self) -> OpaqueId {
+        self.id
     }
     pub(in crate::storage) fn validate(
         &self,
@@ -232,16 +232,9 @@ impl Observation {
     }
 }
 
-fn opaque_id() -> Result<String, Error> {
-    let mut bytes = [0; 16];
-    getrandom::fill(&mut bytes).map_err(AdminError::backend)?;
-    Ok(crate::hashing::encode_lower(&bytes))
-}
-fn valid_id(id: &str) -> bool {
-    crate::hex::is_lower(id, 32)
-}
 fn changed(connection: &Connection, root: RootId) -> Result<(), Error> {
-    connection.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO UPDATE SET revision=excluded.revision")?.execute(params![root,opaque_id()?])?;
+    let revision = OpaqueId::generate().map_err(AdminError::backend)?;
+    connection.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO UPDATE SET revision=excluded.revision")?.execute(params![root,revision])?;
     Ok(())
 }
 fn data_path(lease: &RootLease) -> PathBuf {

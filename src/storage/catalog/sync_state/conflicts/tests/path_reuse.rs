@@ -28,7 +28,14 @@ async fn capture_path_rejects_case_aliases_in_parents_and_the_selected_leaf() {
         .await
         .unwrap();
     assert_eq!(
-        fs::read(fixture.data.0.join("sync-conflicts").join(copy.id())).unwrap(),
+        fs::read(
+            fixture
+                .data
+                .0
+                .join("sync-conflicts")
+                .join(copy.id().to_string())
+        )
+        .unwrap(),
         b"external bytes"
     );
     assert_eq!(
@@ -81,7 +88,7 @@ async fn capture_path_reuses_verified_bytes_after_only_the_api_generation_change
     assert_eq!(fixture.page().await.usage.retained_bytes, 10);
     assert_eq!(fs::read(path).unwrap(), b"external\0\xff");
     assert_eq!(reused.expected_generation, request.expected_generation);
-    let id = first.id.clone();
+    let id = first.id;
     fixture
         .lease
         .conflict_db(move |connection| {
@@ -129,7 +136,14 @@ async fn capture_path_never_reuses_changed_sources_or_missing_owned_copies() {
         .await
         .unwrap();
     assert_ne!(first.id(), changed.id());
-    fs::remove_file(fixture.data.0.join("sync-conflicts").join(changed.id())).unwrap();
+    fs::remove_file(
+        fixture
+            .data
+            .0
+            .join("sync-conflicts")
+            .join(changed.id().to_string()),
+    )
+    .unwrap();
     let repaired = fixture
         .lease
         .capture_path(fixture.request().await)

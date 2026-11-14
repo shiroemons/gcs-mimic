@@ -202,7 +202,7 @@ async fn live_export_observed_external_change_cancels_the_unpublished_copy_and_r
             .tree
             .0
             .join(mapping::WORKSPACE)
-            .join(&item.token.id)
+            .join(item.token.id.to_string())
             .exists()
     );
     let usage = fixture.writeback.status().await.unwrap();
@@ -359,7 +359,10 @@ async fn live_export_workspace_replacement_preserves_owned_bytes_and_requires_re
             .await,
         Err(Error::WorkspaceChanged)
     ));
-    assert_eq!(fs::read(retained.join(&item.token.id)).unwrap(), b"api");
+    assert_eq!(
+        fs::read(retained.join(item.token.id.to_string())).unwrap(),
+        b"api"
+    );
     drop(operation);
     fixture.close().await;
 }
@@ -375,7 +378,11 @@ async fn live_export_obsolete_copy_never_cancels_a_modified_workspace_body() {
         .await
         .unwrap();
     let item = pending(&operation).await;
-    let owned = fixture.tree.0.join(mapping::WORKSPACE).join(&item.token.id);
+    let owned = fixture
+        .tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(item.token.id.to_string());
     fs::write(&owned, b"retained external body").unwrap();
     let winner = fixture.publish("object", b"later api").await;
     assert!(matches!(
@@ -893,7 +900,11 @@ async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_
     started.await.unwrap();
     work.abort();
     fs::write(
-        fixture.tree.0.join(mapping::WORKSPACE).join(&item.token.id),
+        fixture
+            .tree
+            .0
+            .join(mapping::WORKSPACE)
+            .join(item.token.id.to_string()),
         b"late displaced body",
     )
     .unwrap();
@@ -920,7 +931,14 @@ async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_
         (1, 19, Stop::ProtectedBody)
     );
     assert_eq!(
-        fs::read(fixture.tree.0.join(mapping::WORKSPACE).join(&item.token.id)).unwrap(),
+        fs::read(
+            fixture
+                .tree
+                .0
+                .join(mapping::WORKSPACE)
+                .join(item.token.id.to_string())
+        )
+        .unwrap(),
         b"late displaced body"
     );
     assert!(

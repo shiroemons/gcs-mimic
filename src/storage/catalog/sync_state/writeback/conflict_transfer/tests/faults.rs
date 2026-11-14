@@ -107,7 +107,7 @@ async fn protected_transfer_restarts_each_copy_and_unlink_failure_without_losing
                     .data
                     .0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
             )
             .unwrap(),
             BODY
@@ -161,7 +161,7 @@ async fn protected_transfer_retains_original_owner_incarnation_and_generation_af
                     .data
                     .0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
             )
             .unwrap(),
             BODY
@@ -181,14 +181,14 @@ async fn protected_transfer_refuses_missing_proof_or_changed_owned_copy() {
                 .inject(Step::TransferAccepted, 0, Fault::Io(io::ErrorKind::Other));
             assert!(fixture.writeback.preserve_protected().await.is_err());
             let id = &fixture.page().await.items[0].conflict_id;
-            fs::remove_file(fixture.data.0.join("sync-conflicts").join(id)).unwrap();
+            fs::remove_file(fixture.data.0.join("sync-conflicts").join(id.to_string())).unwrap();
         } else {
             fs::remove_file(
                 fixture
                     .tree
                     .0
                     .join(mapping::WORKSPACE)
-                    .join(item.token.id()),
+                    .join(item.token.id().to_string()),
             )
             .unwrap();
         }
@@ -201,7 +201,7 @@ async fn protected_transfer_refuses_missing_proof_or_changed_owned_copy() {
                         .tree
                         .0
                         .join(mapping::WORKSPACE)
-                        .join(item.token.id())
+                        .join(item.token.id().to_string())
                 )
                 .unwrap(),
                 BODY

@@ -36,15 +36,15 @@ pub(super) fn open_store(data: &std::path::Path) -> Result<File, Error> {
 
 fn copy(
     data: &std::path::Path,
-    id: &str,
+    id: OpaqueId,
     source: &File,
     before: &Observation,
     #[cfg(test)] tree: &std::path::Path,
 ) -> Result<(Observation, Observation), Error> {
     let directory = store(data)?;
-    let mut target = fsutil::create_regular_at(&directory, id.as_ref())?;
+    let mut target = fsutil::create_regular_at(&directory, id.to_hex().as_ref())?;
     #[cfg(all(test, unix))]
-    super::super::super::fault::file_created(&data.join("sync-conflicts").join(id));
+    super::super::super::fault::file_created(&data.join("sync-conflicts").join(id.to_hex()));
     let outcome = fsutil::hash_exact(source, before.size, |bytes| {
         #[cfg(test)]
         boundary(data, tree, fault::Step::ConflictWrite)?;
@@ -161,7 +161,7 @@ impl RootLease {
         let candidate = self.conflict_db(move |connection| {
             let owner = check_original(connection, &selected.binding, &selected.name, selected.expected_generation)?;
             connection.prepare_cached("SELECT id,revision,retained FROM sync_conflicts WHERE root_id=?1 AND bucket=?2 AND incarnation=?3 AND name=?4 AND owner=?5 AND state=1 AND source_op IS NULL AND source=?6 ORDER BY ordinal DESC LIMIT 1")?
-                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),owner,source_blob], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,Vec<u8>>(2)?)))
+                .query_row(params![root,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),owner,source_blob], |row| Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,OpaqueId>(1)?,row.get::<_,Vec<u8>>(2)?)))
                 .optional().map_err(Error::from)
         }).await?;
         let Some((id, revision, retained_blob)) = candidate else {
@@ -172,14 +172,13 @@ impl RootLease {
             return Ok(None);
         }
         let data = data_path(self);
-        let selected_id = id.clone();
         let expected = retained.clone();
         let selected = source.try_clone()?;
         let expected_source = original.clone();
         let valid = self
             .conflict_files(move |_| {
                 let store = open_store(&data)?;
-                let file = match fsutil::open_regular_at(&store, selected_id.as_ref()) {
+                let file = match fsutil::open_regular_at(&store, id.to_hex().as_ref()) {
                     Ok(file) => file,
                     Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
                     Err(error) => return Err(error.into()),
@@ -197,14 +196,12 @@ impl RootLease {
             return Ok(None);
         }
         let selected = request.clone();
-        let selected_id = id.clone();
-        let selected_revision = revision.clone();
         let source_blob = original.encode()?;
         self.conflict_db(move |connection| {
             let tx = connection.transaction()?;
             let owner = check_original(&tx, &selected.binding, &selected.name, selected.expected_generation)?;
             let valid:bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND id=?2 AND revision=?3 AND owner=?4 AND state=1 AND source=?5 AND retained=?6)")?
-                .query_row(params![root,selected_id,selected_revision,owner,source_blob,retained_blob], |row| row.get(0))?;
+                .query_row(params![root,id,revision,owner,source_blob,retained_blob], |row| row.get(0))?;
             if !valid { return Err(Error::TargetChanged); }
             Ok(())
         }).await?;
@@ -248,16 +245,14 @@ impl RootLease {
             return Err(Error::Capacity);
         }
         let root = self.status().root_id;
-        let id = opaque_id()?;
-        let revision = opaque_id()?;
+        let id = OpaqueId::generate().map_err(AdminError::backend)?;
+        let revision = OpaqueId::generate().map_err(AdminError::backend)?;
         let selected = request.clone();
-        let reserved_id = id.clone();
-        let reserved_revision = revision.clone();
         let observed = before.encode()?;
         let size = before.size;
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;
-            let owner=if let Some(op)=&selected.source_op {
+            let owner=if let Some(op)=selected.source_op {
                 recovery::account_workspace(&tx,root,op,size)?;
                 tx.prepare_cached("SELECT owner FROM sync_writeback_ops WHERE root_id=?1 AND id=?2 AND bucket=?3 AND incarnation=?4 AND name=?5 AND generation=?6 AND phase=2")?
                     .query_row(params![root,op,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get)],|row|row.get::<_,String>(0)).optional()?.ok_or(Error::TargetChanged)?
@@ -267,7 +262,7 @@ impl RootLease {
             let (max_bytes,max_entries)=limits.unwrap_or((MAX_BYTES,MAX_ENTRIES));
             if usage.over_limit || usage.reserved_bytes+usage.retained_bytes+u128::from(size)>u128::from(max_bytes.min(MAX_BYTES)) || usage.entries>=max_entries.min(MAX_ENTRIES) {return Err(Error::Capacity)}
             tx.prepare_cached("INSERT INTO sync_conflicts(id,root_id,revision,owner,bucket,incarnation,name,generation,state,size,source_op,source) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9,?10,?11)")?
-                .execute(params![reserved_id,root,reserved_revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get),size,selected.source_op,observed])?;
+                .execute(params![id,root,revision,owner,selected.binding.bucket,selected.binding.incarnation,selected.name.as_str(),selected.expected_generation.map(Generation::get),size,selected.source_op,observed])?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]
@@ -278,12 +273,11 @@ impl RootLease {
         let data = data_path(self);
         #[cfg(test)]
         let tree = self.fault_tree();
-        let copy_id = id.clone();
         let result = self
             .conflict_files(move |_| {
                 copy(
                     &data,
-                    &copy_id,
+                    id,
                     &source,
                     &before,
                     #[cfg(test)]
@@ -307,7 +301,6 @@ impl RootLease {
             crc32c: original.hashes.as_ref().ok_or(Error::TargetChanged)?.crc32c,
             racy: true,
         };
-        let registered = id.clone();
         let source_blob = original.encode()?;
         let retained_blob = retained.encode()?;
         #[cfg(test)]
@@ -324,7 +317,7 @@ impl RootLease {
             tx.prepare_cached(
                 "UPDATE sync_conflicts SET state=1,source=?2,retained=?3 WHERE id=?1 AND state=0",
             )?
-            .execute(params![registered, source_blob, retained_blob])?;
+            .execute(params![id, source_blob, retained_blob])?;
             changed(&tx, root)?;
             tx.commit()?;
             Ok(())
@@ -346,9 +339,8 @@ impl RootLease {
             device: original.device,
         })
     }
-    pub(super) async fn cleanup_capture(&self, id: String) -> Result<(), Error> {
+    pub(super) async fn cleanup_capture(&self, id: OpaqueId) -> Result<(), Error> {
         let data = data_path(self);
-        let selected = id.clone();
         self.conflict_files(move |_| {
             let store = match open_store(&data) {
                 Ok(store) => store,
@@ -359,7 +351,7 @@ impl RootLease {
                 }
                 Err(error) => return Err(error),
             };
-            match fsutil::unlink_file_at(&store, selected.as_ref()) {
+            match fsutil::unlink_file_at(&store, id.to_hex().as_ref()) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),

@@ -87,7 +87,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .unwrap();
     let set = root.finish_deletion_inventory(inventory).await.unwrap();
     let binding = catalog.sync_state().binding(&bucket).await.unwrap();
-    let binding = root.deletion_binding(binding, set.revision.clone(), 1);
+    let binding = root.deletion_binding(binding, set.revision, 1);
     catalog.run_admin(|connection|connection.execute_batch("CREATE TEMP TRIGGER fail_delete BEFORE DELETE ON objects BEGIN SELECT RAISE(ABORT,'injected delete failure'); END;").map_err(unavailable)).await.unwrap();
     assert!(
         catalog

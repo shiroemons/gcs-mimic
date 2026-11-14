@@ -56,7 +56,7 @@ pub(crate) struct ResolutionBinding {
     root: RootId,
     operation_id: String,
     authority: ControlAuthority,
-    target_id: String,
+    target_id: OpaqueId,
     binding: SyncBinding,
     name: ObjectName,
     expected_generation: Option<Generation>,
@@ -137,7 +137,7 @@ pub(crate) fn complete_restore(
 }
 
 struct Selected {
-    id: String,
+    id: OpaqueId,
     owner: String,
     bucket: String,
     incarnation: Incarnation,
@@ -176,7 +176,7 @@ fn accept(
     connection: &Connection,
     root: RootId,
     request: &ResolveRequest,
-    id: &str,
+    id: OpaqueId,
     kind: i64,
     owner: &str,
 ) -> Result<(), Error> {
@@ -234,19 +234,21 @@ impl RootLease {
         else {
             return Err(Error::InvalidResolution);
         };
-        if !valid_id(conflict_id) || !valid_id(revision) || *expected_generation < 0 {
+        let (Ok(target), Ok(inspected)) = (conflict_id.parse::<OpaqueId>(), revision.parse())
+        else {
+            return Err(Error::InvalidResolution);
+        };
+        if *expected_generation < 0 {
             return Err(Error::InvalidResolution);
         }
         let root = self.status().root_id;
-        let target = conflict_id.clone();
-        let inspected = revision.clone();
         let req = request.clone();
         let auth = authority.clone();
         let selected=self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             let prior=operation(&tx,root,&req,&auth)?;
             let row=tx.prepare_cached("SELECT revision,owner,bucket,incarnation,name,retained,state FROM sync_conflicts WHERE root_id=?1 AND id=?2")?
-                .query_row(params![root,target],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Incarnation>(3)?,row.get::<_,String>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,i64>(6)?))).optional()?.ok_or(Error::RevisionMismatch)?;
+                .query_row(params![root,target],|row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Incarnation>(3)?,row.get::<_,String>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,i64>(6)?))).optional()?.ok_or(Error::RevisionMismatch)?;
             if prior.is_none() {
                 if row.0!=inspected || row.6==2 || (req.action==Action::Restore && row.6!=1) {return Err(Error::RevisionMismatch)}
                 if req.action==Action::Restore {
@@ -255,7 +257,7 @@ impl RootLease {
                     let binding=SyncBinding {catalog:super::super::catalog_id(&tx)?,bucket:row.2.clone(),incarnation:row.3,deletion:None,control:None};
                     if check_original(&tx,&binding,&ObjectName::new(row.4.clone())?,expected)?!=row.1 {return Err(Error::TargetChanged)}
                 }
-                accept(&tx,root,&req,&target,0,&row.1)?;
+                accept(&tx,root,&req,target,0,&row.1)?;
             }
             let (done,reclaimed,generation)=prior.unwrap_or((false,false,None));
             let observation=row.5.as_deref().map(Observation::decode).transpose()?;
@@ -297,11 +299,11 @@ impl RootLease {
             crc32c: Some(hashes.crc32c),
         };
         let data = data_path(self);
-        let id = selected.id.clone();
+        let id = selected.id;
         let source = self
             .conflict_files(move |_| {
                 let directory = capture::open_store(&data)?;
-                let file = fsutil::open_regular_at(&directory, id.as_ref())?;
+                let file = fsutil::open_regular_at(&directory, id.to_hex().as_ref())?;
                 if observe(&file, HashMode::Body)? != observation {
                     return Err(Error::TargetChanged);
                 }
@@ -324,7 +326,7 @@ impl RootLease {
             root: self.status().root_id,
             operation_id: request.operation_id.clone(),
             authority: authority.clone(),
-            target_id: selected.id.clone(),
+            target_id: selected.id,
             binding: SyncBinding {
                 catalog: self.status().catalog_id,
                 bucket: selected.bucket.clone(),
@@ -387,11 +389,10 @@ impl RootLease {
         })
         .await?;
         let data = data_path(self);
-        let id = selected.id.clone();
+        let id = selected.id;
         let mut observation = selected.observation.clone();
         if observation.is_none() {
             let selected_data = data.clone();
-            let selected_id = id.clone();
             observation = self
                 .conflict_files(move |_| {
                     let directory = match capture::open_store(&selected_data) {
@@ -403,7 +404,7 @@ impl RootLease {
                         }
                         Err(error) => return Err(error),
                     };
-                    match fsutil::open_regular_at(&directory, selected_id.as_ref()) {
+                    match fsutil::open_regular_at(&directory, id.to_hex().as_ref()) {
                         Ok(file) => observe(&file, HashMode::Body).map(Some),
                         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
                         Err(error) => Err(error.into()),
@@ -412,8 +413,7 @@ impl RootLease {
                 .await?;
             if let Some(observation) = &observation {
                 let blob = observation.encode()?;
-                let selected_id = id.clone();
-                self.conflict_db(move|connection| {connection.prepare_cached("UPDATE sync_conflicts SET retained=?2 WHERE id=?1 AND state=0 AND retained IS NULL")?.execute(params![selected_id,blob])?;Ok(())}).await?;
+                self.conflict_db(move|connection| {connection.prepare_cached("UPDATE sync_conflicts SET retained=?2 WHERE id=?1 AND state=0 AND retained IS NULL")?.execute(params![id,blob])?;Ok(())}).await?;
             }
         }
         self.conflict_files(move |_| {
@@ -428,7 +428,7 @@ impl RootLease {
             };
             checked_unlink(
                 &directory,
-                &id,
+                id,
                 observation.as_ref(),
                 &data,
                 &data.join("sync-conflicts"),
@@ -440,13 +440,13 @@ impl RootLease {
             .await?;
         let req = request.clone();
         let auth = authority.clone();
-        let target = selected.id.clone();
+        let target = selected.id;
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             operation(&tx,root,&req,&auth)?.ok_or(Error::OperationIdReused)?;
             tx.prepare_cached("UPDATE sync_conflicts SET state=2 WHERE root_id=?1 AND id=?2")?.execute(params![root,target])?;
             tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1 WHERE root_id=?1 AND operation_id=?2")?.execute(params![root,req.operation_id])?;
-            settle_other_operations(&tx,root,&req,&target,0)?;
+            settle_other_operations(&tx,root,&req,target,0)?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]
@@ -458,12 +458,13 @@ impl RootLease {
 
 pub(super) fn checked_unlink(
     directory: &File,
-    id: &str,
+    id: OpaqueId,
     expected: Option<&Observation>,
     _data: &std::path::Path,
     _parent: &std::path::Path,
 ) -> Result<(), Error> {
-    match fsutil::open_regular_at(directory, id.as_ref()) {
+    let name = id.to_hex();
+    match fsutil::open_regular_at(directory, name.as_ref()) {
         Ok(file) => {
             if let Some(expected) = expected {
                 if observe(
@@ -480,7 +481,7 @@ pub(super) fn checked_unlink(
             } else {
                 return Err(Error::TargetChanged);
             }
-            let again = fsutil::open_regular_at(directory, id.as_ref())?;
+            let again = fsutil::open_regular_at(directory, name.as_ref())?;
             if fsutil::stat_identity(&again)? != fsutil::stat_identity(&file)? {
                 return Err(Error::TargetChanged);
             }
@@ -493,8 +494,8 @@ pub(super) fn checked_unlink(
                 fault::hit(_data, fault::Step::ConflictUnlink)?;
             }
             #[cfg(all(test, unix))]
-            super::super::super::fault::unlinked(&_parent.join(id), &file)?;
-            fsutil::unlink_file_at(directory, id.as_ref())?;
+            super::super::super::fault::unlinked(&_parent.join(&name), &file)?;
+            fsutil::unlink_file_at(directory, name.as_ref())?;
             #[cfg(test)]
             {
                 fault::hit(
@@ -533,7 +534,7 @@ pub(super) fn accept_recovery(
     connection: &Connection,
     root: RootId,
     request: &ResolveRequest,
-    id: &str,
+    id: OpaqueId,
     owner: &str,
 ) -> Result<(), Error> {
     accept(connection, root, request, id, 1, owner)
@@ -543,7 +544,7 @@ pub(super) fn settle_other_operations(
     connection: &Connection,
     root: RootId,
     request: &ResolveRequest,
-    id: &str,
+    id: OpaqueId,
     kind: i64,
 ) -> Result<(), Error> {
     connection.prepare_cached("UPDATE sync_conflict_operations SET error_code=CASE WHEN done=0 THEN 'target_resolved' ELSE error_code END,done=1,reclaimed=1 WHERE root_id=?1 AND target_id=?2 AND target_kind=?3 AND operation_id!=?4 AND reclaimed=0")?

@@ -243,7 +243,13 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
             let (original_data, original_tree, bucket, record) = fixture.shut_down().await;
             restore_tree(&tree, &original_tree.0);
             let catalog = Catalog::open(&data).await.unwrap();
-            translate_snapshot(&catalog, &data, &original_tree.0, item.token.id()).await;
+            translate_snapshot(
+                &catalog,
+                &data,
+                &original_tree.0,
+                &item.token.id().to_string(),
+            )
+            .await;
             let lease = catalog
                 .sync_state()
                 .activate_root(&original_tree.0, Activation::Open)
@@ -281,7 +287,11 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
                 "{step:?} {crash:?}"
             );
             assert_eq!(
-                fs::read(data.join("sync-conflicts").join(&page.items[0].conflict_id)).unwrap(),
+                fs::read(
+                    data.join("sync-conflicts")
+                        .join(page.items[0].conflict_id.to_string())
+                )
+                .unwrap(),
                 BODY
             );
             recovered.assert_api().await;

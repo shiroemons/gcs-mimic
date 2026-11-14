@@ -218,7 +218,7 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
         let item = fixture.prepare().await;
         let workspace = fixture.tree.0.join(mapping::WORKSPACE);
         if let Some(body) = body {
-            fs::write(workspace.join(item.token.id()), body).unwrap();
+            fs::write(workspace.join(item.token.id().to_string()), body).unwrap();
         }
         fs::write(workspace.join("unrelated"), b"keep workspace").unwrap();
         fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
@@ -233,7 +233,7 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
             (status.entries, status.reserved_bytes, status.stop),
             (0, 0, Stop::Ready)
         );
-        assert!(!workspace.join(item.token.id()).exists());
+        assert!(!workspace.join(item.token.id().to_string()).exists());
         assert_eq!(
             fs::read(workspace.join("unrelated")).unwrap(),
             b"keep workspace"
@@ -293,7 +293,7 @@ async fn restart_protects_actual_armed_and_durable_bodies_without_quota_eviction
             .tree
             .0
             .join(mapping::WORKSPACE)
-            .join(item.token.id());
+            .join(item.token.id().to_string());
         File::create(&path).unwrap().set_len(size).unwrap();
         let fixture = fixture.restart(Journal::Disabled).await;
         let usage = fixture.writeback.recover_pending().await.unwrap();
@@ -392,7 +392,7 @@ async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_re
         .tree
         .0
         .join(mapping::WORKSPACE)
-        .join(item.token.id());
+        .join(item.token.id().to_string());
     fs::write(&owned, b"external").unwrap();
     let name = ObjectName::new("object").unwrap();
     let updated = fixture
@@ -458,7 +458,7 @@ async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_re
 async fn recovery_protects_unexpected_unarmed_remove_bodies_and_rejects_workspace_replacement() {
     let fixture = Fixture::new().await;
     let item = fixture.prepare().await;
-    let selected = item.token.id.clone();
+    let selected = item.token.id;
     fixture
         .writeback
         .db(move |connection| {
@@ -470,14 +470,14 @@ async fn recovery_protects_unexpected_unarmed_remove_bodies_and_rejects_workspac
         .await
         .unwrap();
     let workspace = fixture.tree.0.join(mapping::WORKSPACE);
-    fs::write(workspace.join(item.token.id()), b"unexplained").unwrap();
+    fs::write(workspace.join(item.token.id().to_string()), b"unexplained").unwrap();
     assert!(matches!(
         fixture.writeback.recover_pending().await,
         Err(Error::Protected)
     ));
     assert_eq!(fixture.writeback.status().await.unwrap().retained_bytes, 11);
     assert_eq!(
-        fs::read(workspace.join(item.token.id())).unwrap(),
+        fs::read(workspace.join(item.token.id().to_string())).unwrap(),
         b"unexplained"
     );
     let displaced = fixture.tree.0.join("retained-workspace");
@@ -488,7 +488,7 @@ async fn recovery_protects_unexpected_unarmed_remove_bodies_and_rejects_workspac
         Err(Error::WorkspaceChanged)
     ));
     assert_eq!(
-        fs::read(displaced.join(item.token.id())).unwrap(),
+        fs::read(displaced.join(item.token.id().to_string())).unwrap(),
         b"unexplained"
     );
     fixture.close().await;

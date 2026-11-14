@@ -83,7 +83,10 @@ async fn cumulative_deletions_require_approval_after_split_scans_rescan_and_rest
         .unwrap();
     assert!(set.guarded);
     assert_eq!(root.automatic_deletion_count().await.unwrap(), 12);
-    let approved = root.approve_deletions(set.revision).await.unwrap();
+    let approved = root
+        .approve_deletions(set.revision.to_string())
+        .await
+        .unwrap();
     assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
     assert_eq!(
         execute(&catalog, &root, approved, &stopping).await.unwrap(),
@@ -337,19 +340,23 @@ async fn frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members
             .unwrap(),
         0
     );
-    let first = root
-        .deletion_page(set.revision.clone(), 0, 256)
-        .await
-        .unwrap();
+    let first = root.deletion_page(set.revision, 0, 256).await.unwrap();
     let second = root
-        .deletion_page(set.revision.clone(), first.last().unwrap().ordinal, 256)
+        .deletion_page(set.revision, first.last().unwrap().ordinal, 256)
         .await
         .unwrap();
     assert_eq!((first.len(), second.len()), (256, 44));
     assert_eq!(first[0].name, "0000");
     assert_eq!(second.last().unwrap().name, "0299");
-    let approved = root.approve_deletions(set.revision.clone()).await.unwrap();
-    assert!(root.approve_deletions(set.revision.clone()).await.is_err());
+    let approved = root
+        .approve_deletions(set.revision.to_string())
+        .await
+        .unwrap();
+    assert!(
+        root.approve_deletions(set.revision.to_string())
+            .await
+            .is_err()
+    );
     assert_eq!(
         execute(&catalog, &root, approved, &stopping).await.unwrap(),
         300

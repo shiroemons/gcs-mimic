@@ -113,8 +113,8 @@ impl Fixture {
                     operation_id: operation.into(),
                     action,
                     target: ResolveTarget::Conflict(ConflictTarget {
-                        conflict_id: captured.id.clone(),
-                        revision: captured.revision.clone(),
+                        conflict_id: captured.id.to_string(),
+                        revision: captured.revision.to_string(),
                         expected_generation: self.winner.generation,
                     }),
                 },
@@ -207,12 +207,19 @@ async fn conflict_capture_owns_binary_bytes_and_discard_is_exact_and_idempotent(
         .await
         .unwrap();
     assert_eq!(
-        fs::read(fixture.data.0.join("sync-conflicts").join(captured.id())).unwrap(),
+        fs::read(
+            fixture
+                .data
+                .0
+                .join("sync-conflicts")
+                .join(captured.id().to_string())
+        )
+        .unwrap(),
         b"external\0\xff"
     );
     fs::write(fixture.tree.0.join("external"), b"later external edit").unwrap();
     let mut stale = captured.clone();
-    stale.revision = "00000000000000000000000000000000".into();
+    stale.revision = "00000000000000000000000000000000".parse().unwrap();
     assert!(matches!(
         fixture.resolve(&stale, Action::Discard, "stale").await,
         Err(Error::RevisionMismatch)
@@ -318,7 +325,14 @@ async fn conflict_path_capture_rejects_symlink_redirects_and_owns_the_descriptor
         .await
         .unwrap();
     assert_eq!(
-        fs::read(fixture.data.0.join("sync-conflicts").join(captured.id())).unwrap(),
+        fs::read(
+            fixture
+                .data
+                .0
+                .join("sync-conflicts")
+                .join(captured.id().to_string())
+        )
+        .unwrap(),
         b"path bytes"
     );
     fs::remove_file(&target).unwrap();
@@ -354,8 +368,8 @@ async fn conflict_restore_stale_generation_and_holds_preserve_quota_and_bytes() 
         operation_id: "stale-generation".into(),
         action: Action::Restore,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: captured.id.clone(),
-            revision: captured.revision.clone(),
+            conflict_id: captured.id.to_string(),
+            revision: captured.revision.to_string(),
             expected_generation: 0,
         }),
     };
@@ -452,8 +466,8 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
         operation_id: "original-owner".into(),
         action: Action::Restore,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: captured.id.clone(),
-            revision: captured.revision.clone(),
+            conflict_id: captured.id.to_string(),
+            revision: captured.revision.to_string(),
             expected_generation: 0,
         }),
     };
@@ -502,7 +516,7 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
             .data
             .0
             .join("sync-conflicts")
-            .join(captured.id())
+            .join(captured.id().to_string())
             .try_exists()
             .unwrap()
     );
@@ -514,7 +528,7 @@ async fn conflict_workspace_copy_charges_both_bodies_and_refuses_overflow() {
     let fixture = Fixture::new().await;
     let (writeback, id) = protected_workspace(&fixture, 16).await;
     let mut request = fixture.request().await;
-    request.source_op = Some(id.clone());
+    request.source_op = Some(id.parse().unwrap());
     fixture
         .lease
         .capture_conflict(
@@ -627,8 +641,8 @@ async fn conflict_capturing_copy_without_registration_has_an_explicit_discard_re
         operation_id: "partial-discard".into(),
         action: Action::Discard,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: page.items[0].conflict_id.clone(),
-            revision: page.items[0].revision.clone(),
+            conflict_id: page.items[0].conflict_id.to_string(),
+            revision: page.items[0].revision.to_string(),
             expected_generation: 0,
         }),
     };
@@ -694,7 +708,7 @@ async fn conflict_quota_includes_reservations_zero_entries_and_sparse_overflow()
             .data
             .0
             .join("sync-conflicts")
-            .join(first.id())
+            .join(first.id().to_string())
             .exists()
     );
     assert_eq!(fixture.api_bytes().await, b"api winner");
@@ -746,7 +760,7 @@ async fn protected_workspace(fixture: &Fixture, size: u64) -> (writeback::Writeb
         fence,
     )
     .await;
-    let id = pending.token.id().to_owned();
+    let id = pending.token.id().to_string();
     File::create(
         fixture
             .tree
@@ -780,8 +794,8 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
             recovery_id: id.clone(),
-            revision: recovery.recovery_revision.clone(),
-            target_identity: recovery.target_identity.clone(),
+            revision: recovery.recovery_revision.to_string(),
+            target_identity: recovery.target_identity.to_string(),
             confirmation: Confirmation::DiscardWithoutBackup,
         }),
     };
@@ -814,7 +828,7 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         target_identity, ..
     }) = &mut request.target
     {
-        *target_identity = recovery.target_identity;
+        *target_identity = recovery.target_identity.to_string();
     }
     assert!(
         fixture

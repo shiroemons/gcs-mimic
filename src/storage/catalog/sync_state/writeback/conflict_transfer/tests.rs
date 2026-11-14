@@ -104,7 +104,10 @@ impl Fixture {
         )
         .await;
         fs::write(
-            self.tree.0.join(mapping::WORKSPACE).join(item.token.id()),
+            self.tree
+                .0
+                .join(mapping::WORKSPACE)
+                .join(item.token.id().to_string()),
             body,
         )
         .unwrap();
@@ -192,7 +195,7 @@ impl Fixture {
             })
             .await
             .unwrap();
-        let id = captured.id().to_owned();
+        let id = captured.id().to_string();
         let (_, reader) = self
             .catalog
             .admin(Origin::Api)
@@ -244,7 +247,7 @@ async fn protected_transfer_preserves_binary_and_empty_without_changing_api() {
                     .data
                     .0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
             )
             .unwrap(),
             body
@@ -254,7 +257,7 @@ async fn protected_transfer_preserves_binary_and_empty_without_changing_api() {
                 .tree
                 .0
                 .join(mapping::WORKSPACE)
-                .join(item.token.id())
+                .join(item.token.id().to_string())
                 .exists()
         );
         assert_eq!(
@@ -287,7 +290,7 @@ async fn protected_transfer_requires_temporary_capacity_for_both_actual_copies()
                 .tree
                 .0
                 .join(mapping::WORKSPACE)
-                .join(item.token.id())
+                .join(item.token.id().to_string())
         )
         .unwrap(),
         BODY
@@ -324,7 +327,7 @@ async fn protected_transfer_reuses_registered_copy_and_retains_changed_body_copy
                     .tree
                     .0
                     .join(mapping::WORKSPACE)
-                    .join(item.token.id()),
+                    .join(item.token.id().to_string()),
                 b"changed\0body",
             )
             .unwrap();
@@ -339,7 +342,7 @@ async fn protected_transfer_reuses_registered_copy_and_retains_changed_body_copy
                     .data
                     .0
                     .join("sync-conflicts")
-                    .join(&page.items[0].conflict_id)
+                    .join(page.items[0].conflict_id.to_string())
             )
             .unwrap(),
             BODY

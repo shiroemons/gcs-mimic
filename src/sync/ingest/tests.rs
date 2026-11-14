@@ -252,7 +252,10 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
         fence,
     )
     .await;
-    let path = tree.0.join(mapping::WORKSPACE).join(pending.token.id());
+    let path = tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(pending.token.id().to_string());
     fs::write(&path, b"retained original").unwrap();
     writeback.recover_pending().await.unwrap();
     let authority = control_authority(&[&config.seed_project]).await;
