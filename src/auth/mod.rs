@@ -696,7 +696,12 @@ impl fmt::Display for IdentityError {
         let setting = self.setting().as_str();
         match &self.source {
             RegistryError::TooLarge => write!(f, "{setting} exceeds {MAX_REGISTRY_MIB} MiB"),
-            source => write!(f, "{setting}: {source}"),
+            source @ (RegistryError::Io(_)
+            | RegistryError::Syntax(_)
+            | RegistryError::Invalid(_)
+            | RegistryError::InvalidEntry { .. }
+            | RegistryError::PublicKey { .. }
+            | RegistryError::Project { .. }) => write!(f, "{setting}: {source}"),
         }
     }
 }
