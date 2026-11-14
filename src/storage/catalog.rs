@@ -450,11 +450,15 @@ fn unix_micros(time: SystemTime) -> Result<i64, CatalogError> {
 }
 
 fn unix_timestamp(time: SystemTime, nanos_per_unit: i128) -> Result<i64, CatalogError> {
-    let nanos = match time.duration_since(UNIX_EPOCH) {
+    i64::try_from(signed_nanos(time).div_euclid(nanos_per_unit)).map_err(unavailable)
+}
+
+/// `time` as signed nanoseconds since the Unix epoch.
+fn signed_nanos(time: SystemTime) -> i128 {
+    match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos() as i128,
         Err(error) => -(error.duration().as_nanos() as i128),
-    };
-    i64::try_from(nanos.div_euclid(nanos_per_unit)).map_err(unavailable)
+    }
 }
 
 fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {
