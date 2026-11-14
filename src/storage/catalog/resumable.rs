@@ -56,6 +56,14 @@ macro_rules! session_columns {
     () => { "id, blob_id, bucket, name, incarnation, options, total, offset, created, deadline, state, completion" };
 }
 
+/// One session by ID, with the columns [`read_session`] reads, for sibling modules that cannot
+/// name `session_columns!`.
+pub(super) const SELECT_SESSION: &str = concat!(
+    "SELECT ",
+    session_columns!(),
+    " FROM resumable_sessions WHERE id = ?1"
+);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SessionState {
     Active,
@@ -276,17 +284,8 @@ fn insert_session(
         #[cfg(test)]
         super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated)
             .map_err(unavailable)?;
-        sql::row(
-            connection,
-            concat!(
-                "SELECT ",
-                session_columns!(),
-                " FROM resumable_sessions WHERE id=?1"
-            ),
-            [&request.id],
-            read_session,
-        )
-        .map_err(|error| unavailable(error).into())
+        sql::row(connection, SELECT_SESSION, [&request.id], read_session)
+            .map_err(|error| unavailable(error).into())
     })();
     result.map_err(|error| {
         if ambiguous {
@@ -617,8 +616,7 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
     use rusqlite::types::Type;
     let id: SessionId = row.get(0)?;
     let blob_id: BlobId = row.get(1)?;
-    let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
-        .map_err(|error| sql::conversion_error(5, Type::Text, error))?;
+    let options = row.get::<_, sql::Json<Value>>(5)?.0;
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
     let state = match (
         row.get::<_, String>(10)?.as_str(),

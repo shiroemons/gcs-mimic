@@ -222,8 +222,7 @@ fn encode(start: &RewriteStart, source: Incarnation, destination: Incarnation) -
 }
 
 fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
-    let request: StoredRequest = serde_json::from_str(&row.get::<_, String>(3)?)
-        .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
+    let request: StoredRequest = row.get::<_, sql::Json<_>>(3)?.0;
     let options = resumable::decode_options(&request.options)
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
     if request.budget == 0 {
@@ -284,12 +283,8 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         total: row.get(5)?,
         deadline: row.get(6)?,
         response: row
-            .get::<_, Option<String>>(7)?
-            .map(|value| {
-                serde_json::from_str(&value)
-                    .map_err(|error| sql::conversion_error(7, rusqlite::types::Type::Text, error))
-            })
-            .transpose()?,
+            .get::<_, Option<sql::Json<Value>>>(7)?
+            .map(|response| response.0),
     };
     let transfer_id: Option<BlobId> = row.get(8)?;
     if !session_consistent(&session, transfer_id) {

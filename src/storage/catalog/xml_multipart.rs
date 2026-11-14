@@ -155,21 +155,25 @@ fn claim_failure(error: ClaimError) -> Error {
     }
 }
 
+/// Decodes an upload row by column name. SQLite names a `u.id` column `id`, so the joined
+/// selects need no aliases.
 fn read_upload(row: &rusqlite::Row<'_>) -> rusqlite::Result<Upload> {
-    let options: String = row.get(4)?;
-    let value = serde_json::from_str(&options)
-        .map_err(|error| sql::conversion_error(4, rusqlite::types::Type::Text, error))?;
-    let options = resumable::decode_options(&value)
-        .map_err(|error| sql::conversion_error(4, rusqlite::types::Type::Text, error))?;
+    let options_column = row.as_ref().column_index("options")?;
+    let value = row
+        .get::<_, sql::Json<serde_json::Value>>(options_column)?
+        .0;
+    let options = resumable::decode_options(&value).map_err(|error| {
+        sql::conversion_error(options_column, rusqlite::types::Type::Text, error)
+    })?;
     Ok(Upload {
         target: Target {
-            id: row.get(0)?,
-            bucket: row.get(1)?,
-            name: row.get(2)?,
+            id: row.get("id")?,
+            bucket: row.get("bucket")?,
+            name: row.get("name")?,
         },
-        incarnation: row.get(3)?,
+        incarnation: row.get("incarnation")?,
         options,
-        created: row.get::<_, UnixMillis>(5)?.system_time()?,
+        created: row.get::<_, UnixMillis>("created")?.system_time()?,
     })
 }
 

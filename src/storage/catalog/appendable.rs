@@ -364,15 +364,15 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
     const SELECT: &str = "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2";
     let row = sql::row(connection, SELECT, params![bucket, name], |row| {
         Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, Incarnation>(1)?,
-            row.get::<_, BlobId>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, i64>(4)?,
-            row.get::<_, u32>(5)?,
-            row.get::<_, i64>(6)?,
-            row.get::<_, i64>(7)?,
-            row.get::<_, String>(8)?,
+            row.get::<_, i64>("generation")?,
+            row.get::<_, Incarnation>("incarnation")?,
+            row.get::<_, BlobId>("blob_id")?,
+            row.get::<_, String>("options")?,
+            row.get::<_, i64>("size")?,
+            row.get::<_, u32>("crc32c")?,
+            row.get::<_, i64>("time_created")?,
+            row.get::<_, i64>("updated")?,
+            row.get::<_, String>("write_handle")?,
         ))
     })
     .optional()?;

@@ -115,7 +115,7 @@ fn check_session_publishable(
 ) -> Result<(), ResumableError> {
     let stored = sql::row(
         transaction,
-        "SELECT * FROM resumable_sessions WHERE id = ?1",
+        super::resumable::SELECT_SESSION,
         [&session.id],
         read_session,
     )
@@ -222,7 +222,7 @@ impl Catalog {
             .run_upload(move |connection| {
                 sql::row(
                     connection,
-                    "SELECT * FROM resumable_sessions WHERE id = ?1",
+                    super::resumable::SELECT_SESSION,
                     [id],
                     read_session,
                 )
