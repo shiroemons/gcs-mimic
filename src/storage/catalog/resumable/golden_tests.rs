@@ -5,7 +5,7 @@ use crate::object::{MapPatch, Patch};
 fn unknown_stored_storage_class_is_catalog_corruption() {
     let connection = Connection::open_in_memory().unwrap();
     for class in ["unknown", "REGIONAL", "RAPID"] {
-        let mut options = encode_options(&populated_options());
+        let mut options = encode_options(&populated_options()).unwrap();
         options["metadata"]["storageClass"] = json!(class);
         let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();
         assert!(
@@ -28,7 +28,7 @@ fn hold_update_states_keep_their_stored_json_presence() {
         let mut options = populated_options();
         options.metadata.event_based_hold = hold;
         options.metadata.temporary_hold = hold;
-        let encoded = encode_options(&options);
+        let encoded = encode_options(&options).unwrap();
         assert_eq!(
             encoded["metadata"].get("eventBasedHold"),
             Some(&expected),
@@ -108,7 +108,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
 #[test]
 fn populated_options_keep_their_json_bytes() {
     let options = populated_options();
-    let encoded = encode_options(&options).to_string();
+    let encoded = encode_options(&options).unwrap().to_string();
     assert_eq!(
         encoded,
         r#"{"version":2,"content_type":"text/plain","metadata":{"replace":true,"eventBasedHold":false,"temporaryHold":true,"customTime":{"value":"2026-01-02T03:04:05Z"},"contentType":{"value":"text/custom"},"contentEncoding":{"value":"gzip"},"contentDisposition":{"value":"inline"},"contentLanguage":{"value":"en"},"cacheControl":{"value":"private"},"metadata":{"value":{"alpha":"one","removed":null}},"retention":{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456,"retainUntilSubMicroNanos":789}},"customerKeySha256":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],"storageClass":"NEARLINE","predefinedAcl":"publicRead"},"md5":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"crc32c":123,"conditions":[7,8,9,10],"access":{"identity":{"id":"uploader","projects":{"project":["storage.objects.create","storage.objects.delete"]}},"permission":"storage.objects.create","project":"project"},"origin":"https://example.test","full":true,"response_fields":"id,name"}"#
@@ -127,19 +127,22 @@ fn custom_metadata_replacement_is_stored_as_a_merge_of_its_values() {
     replace.metadata.metadata = MapPatch::Replace([("alpha".into(), "one".into())].into());
     let mut merge = populated_options();
     merge.metadata.metadata = MapPatch::Merge([("alpha".into(), Some("one".into()))].into());
-    let encoded = encode_options(&replace);
+    let encoded = encode_options(&replace).unwrap();
     assert_eq!(
         encoded["metadata"]["metadata"].to_string(),
         r#"{"value":{"alpha":"one"}}"#
     );
-    assert_eq!(encoded.to_string(), encode_options(&merge).to_string());
+    assert_eq!(
+        encoded.to_string(),
+        encode_options(&merge).unwrap().to_string()
+    );
     assert_eq!(decode_options(&encoded).unwrap(), merge);
 }
 
 #[test]
 fn invalid_predefined_acl_keeps_its_corruption_reason() {
     for predefined in [json!(5), json!("bogus")] {
-        let mut encoded = encode_options(&populated_options());
+        let mut encoded = encode_options(&populated_options()).unwrap();
         encoded["metadata"]["predefinedAcl"] = predefined;
         assert_eq!(
             decode_options(&encoded).unwrap_err().to_string(),
@@ -151,7 +154,7 @@ fn invalid_predefined_acl_keeps_its_corruption_reason() {
 #[test]
 fn invalid_session_identifiers_report_their_own_columns() {
     let connection = Connection::open_in_memory().unwrap();
-    let options = encode_options(&populated_options()).to_string();
+    let options = encode_options(&populated_options()).unwrap().to_string();
     for (id, blob, column) in [
         ("invalid".into(), "0".repeat(32), 0),
         ("0".repeat(64), "invalid".into(), 1),

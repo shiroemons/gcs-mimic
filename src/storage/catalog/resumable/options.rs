@@ -1,15 +1,16 @@
 //! The persisted session document keeps its field order and nullable update wrappers.
 
 use super::{InvalidOptions, ResumableOptions};
+use crate::storage::failure::unavailable;
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
-    bucket::BucketAccess,
+    bucket::{BucketAccess, CatalogError},
     object::{
         ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode,
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 type CustomMetadata = BTreeMap<String, Option<String>>;
@@ -149,7 +150,10 @@ pub(super) struct StoredOptions {
 impl StoredOptions {
     /// `bucket_project` narrows the principal's stored grants to the one project that can
     /// authorize a new upload; without it they are stored as they are.
-    pub(super) fn from_options(options: &ResumableOptions, bucket_project: Option<&str>) -> Self {
+    pub(super) fn from_options(
+        options: &ResumableOptions,
+        bucket_project: Option<&str>,
+    ) -> Result<Self, CatalogError> {
         let m = &options.metadata;
         let metadata = Metadata {
             replace: Some(m.write == WriteMode::Replace),
@@ -162,15 +166,19 @@ impl StoredOptions {
             content_language: stored(&m.content_language),
             cache_control: stored(&m.cache_control),
             metadata: stored_metadata(&m.metadata),
-            retention: super::super::objects::retention::session_value(&m.retention),
+            retention: super::super::objects::retention::session_value(&m.retention)
+                .map_err(unavailable)?,
             customer_key_sha256: m.customer_key_sha256,
             storage_class: m.storage_class,
             predefined_acl: m.predefined_acl.map(|value| value.as_str().into()),
         };
         let access = match &options.access {
             BucketAccess::Permissive => None,
+            // Administrative calls never start a resumable session.
             BucketAccess::Admin(_) => {
-                unreachable!("administrative grants cannot be persisted as resumable credentials")
+                return Err(unavailable(
+                    "administrative grants cannot be persisted as resumable credentials",
+                ));
             }
             BucketAccess::Policy {
                 identity,
@@ -186,10 +194,10 @@ impl StoredOptions {
             }),
         };
         let c = options.conditions;
-        Self {
+        Ok(Self {
             version: 2.into(),
             content_type: options.content_type.clone(),
-            metadata: json!(metadata),
+            metadata: serde_json::to_value(metadata).map_err(unavailable)?,
             md5: options.expected.md5,
             crc32c: options.expected.crc32c,
             conditions: [
@@ -202,7 +210,7 @@ impl StoredOptions {
             origin: options.origin.clone(),
             full: options.projection_full,
             response_fields: options.response_fields.clone(),
-        }
+        })
     }
 
     fn into_options(self) -> Result<ResumableOptions, InvalidOptions> {

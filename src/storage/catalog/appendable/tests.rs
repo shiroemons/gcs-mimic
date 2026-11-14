@@ -733,7 +733,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     catalog
         .run_upload(move |connection| {
             let incarnation = bucket_incarnation(connection, "append").optional()?.unwrap();
-            let encoded = encode_options(&options()).to_string();
+            let encoded = encode_options(&options()).unwrap().to_string();
             connection
                 .execute(
                     "INSERT INTO appendable_objects VALUES ('append', 'crash', ?1, ?2, ?3, ?4, 3, 0, 1, 1, ?5, 1)",

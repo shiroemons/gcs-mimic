@@ -184,7 +184,11 @@ struct StoredRequest {
     source_key_sha256: Option<[u8; 32]>,
 }
 
-fn encode(start: &RewriteStart, source: Incarnation, destination: Incarnation) -> Value {
+fn encode(
+    start: &RewriteStart,
+    source: Incarnation,
+    destination: Incarnation,
+) -> Result<String, ObjectError> {
     let binding = &start.binding;
     let options = resumable::ResumableOptions {
         content_type: start.destination.content_type.clone(),
@@ -194,12 +198,12 @@ fn encode(start: &RewriteStart, source: Incarnation, destination: Incarnation) -
         ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
     };
     let conditions = start.source_conditions;
-    json!(StoredRequest {
+    serde_json::to_string(&StoredRequest {
         path: [
             binding.source_bucket.clone(),
             binding.source_object.clone(),
             binding.destination_bucket.clone(),
-            binding.destination_object.clone()
+            binding.destination_object.clone(),
         ],
         generation: binding.source_generation,
         metageneration: start.source_metageneration,
@@ -207,18 +211,19 @@ fn encode(start: &RewriteStart, source: Incarnation, destination: Incarnation) -
         body: binding.metadata.clone(),
         source_incarnation: source,
         destination_incarnation: destination,
-        options: resumable::encode_options(&options),
+        options: resumable::encode_options(&options)?,
         class: start.destination.storage_class,
         components: start.destination.component_count,
         source_conditions: [
             conditions.if_generation_match,
             conditions.if_generation_not_match,
             conditions.if_metageneration_match,
-            conditions.if_metageneration_not_match
+            conditions.if_metageneration_not_match,
         ],
         budget: start.budget,
         source_key_sha256: start.source_key_sha256,
     })
+    .map_err(object_unavailable)
 }
 
 fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
@@ -505,18 +510,12 @@ impl Catalog {
                     &start,
                     incarnation(connection, &start.binding.source_bucket)?,
                     incarnation(connection, &start.binding.destination_bucket)?,
-                );
+                )?;
                 let deadline = UnixMillis::try_from(transfer.deadline)?;
                 sql::exec(
                     connection,
                     "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
-                    params![
-                        transfer.id,
-                        token,
-                        request.to_string(),
-                        transfer.total,
-                        deadline
-                    ],
+                    params![transfer.id, token, request, transfer.total, deadline],
                 )?;
                 let session = sql::row(
                     connection,
@@ -786,7 +785,7 @@ mod tests {
             "00000000000000000000000000000001".parse().unwrap(),
             "00000000000000000000000000000002".parse().unwrap(),
         )
-        .to_string();
+        .unwrap();
         let expected = concat!(
             r#"{"path":["bucket","source","bucket","destination"],"generation":7,"metageneration":1,"parameters":{},"body":null,"source_incarnation":"00000000000000000000000000000001","destination_incarnation":"00000000000000000000000000000002","options":"#,
             r#"{"version":2,"content_type":"text/plain","metadata":{"replace":false,"eventBasedHold":null,"temporaryHold":null,"customTime":null,"contentType":null,"contentEncoding":null,"contentDisposition":null,"contentLanguage":null,"cacheControl":null,"metadata":null,"retention":null,"customerKeySha256":null},"md5":null,"crc32c":null,"conditions":[null,null,null,null],"access":null,"origin":null,"full":false,"response_fields":null}"#,

@@ -92,9 +92,11 @@ pub(super) fn columns(
 }
 
 /// Encodes upload metadata retention for a persisted resumable session.
-pub(in crate::storage) fn session_value(retention: &Patch<ObjectRetention>) -> serde_json::Value {
+pub(in crate::storage) fn session_value(
+    retention: &Patch<ObjectRetention>,
+) -> Result<serde_json::Value, serde_json::Error> {
     let value = match retention {
-        Patch::Keep => return serde_json::Value::Null,
+        Patch::Keep => return Ok(serde_json::Value::Null),
         Patch::Clear => None,
         Patch::Set(retention) => {
             // Parsed RFC 3339 times end at year 9999, far inside the i64 microsecond range.
@@ -109,7 +111,7 @@ pub(in crate::storage) fn session_value(retention: &Patch<ObjectRetention>) -> s
             })
         }
     };
-    serde_json::json!(SessionRetention { value })
+    serde_json::to_value(SessionRetention { value })
 }
 
 /// Decodes [`session_value`]; sessions written before retention support have no key.
@@ -303,7 +305,7 @@ mod tests {
             mode: RetentionMode::Unlocked,
             retain_until: at(4_000_000_000, 123_456_000 + REMAINDER),
         };
-        let value = session_value(&Patch::Set(retention));
+        let value = session_value(&Patch::Set(retention)).unwrap();
         assert_eq!(
             value.to_string(),
             r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456,"retainUntilSubMicroNanos":789}}"#
@@ -315,14 +317,14 @@ mod tests {
             retain_until: at(4_000_000_000, 123_456_000),
             ..retention
         };
-        let value = session_value(&Patch::Set(whole));
+        let value = session_value(&Patch::Set(whole)).unwrap();
         assert_eq!(
             value.to_string(),
             r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456}}"#
         );
         assert!(value["value"].get("retainUntilSubMicroNanos").is_none());
         assert_eq!(from_session(&value).unwrap(), Patch::Set(whole));
-        let mut invalid = session_value(&Patch::Set(retention));
+        let mut invalid = session_value(&Patch::Set(retention)).unwrap();
         invalid["value"]["retainUntilSubMicroNanos"] = 1000.into();
         assert!(from_session(&invalid).is_err());
     }

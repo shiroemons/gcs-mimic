@@ -31,8 +31,4 @@ text::json_macro_value	src/notification/event.rs	1
 text::json_macro_value	src/server/admin/sync.rs	1
 text::json_macro_value	src/server/admin/sync/conflicts.rs	1
 text::json_macro_value	src/server/admin/sync/findings.rs	7
-text::json_macro_value	src/storage/catalog/objects/retention.rs	1
-text::json_macro_value	src/storage/catalog/resumable.rs	2
-text::json_macro_value	src/storage/catalog/resumable/options.rs	1
-text::json_macro_value	src/storage/catalog/rewrite.rs	1
 text::json_macro_value	src/xml/buckets/create.rs	1

@@ -43,7 +43,7 @@ fn populated_request_keeps_its_json_bytes() {
         "00000000000000000000000000000001".parse().unwrap(),
         "00000000000000000000000000000002".parse().unwrap(),
     )
-    .to_string();
+    .unwrap();
     assert_eq!(
         encoded,
         r#"{"path":["source-bucket","source","destination-bucket","destination"],"generation":7,"metageneration":3,"parameters":{"fields":"name","ifSourceGenerationMatch":"7"},"body":{"contentType":"text/plain","metadata":{"key":"value"}},"source_incarnation":"00000000000000000000000000000001","destination_incarnation":"00000000000000000000000000000002","options":{"version":2,"content_type":"text/plain","metadata":{"replace":true,"eventBasedHold":false,"temporaryHold":true,"customTime":{"value":"2026-01-02T03:04:05Z"},"contentType":{"value":"text/custom"},"contentEncoding":{"value":"gzip"},"contentDisposition":{"value":"inline"},"contentLanguage":{"value":"en"},"cacheControl":{"value":"private"},"metadata":{"value":{"alpha":"one","removed":null}},"retention":{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456,"retainUntilSubMicroNanos":789}},"customerKeySha256":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],"storageClass":"NEARLINE","predefinedAcl":"publicRead"},"md5":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"crc32c":123,"conditions":[7,8,9,10],"access":null,"origin":null,"full":false,"response_fields":null},"class":"COLDLINE","components":2,"source_conditions":[7,8,9,10],"budget":1048576,"source_key_sha256":[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3]}"#

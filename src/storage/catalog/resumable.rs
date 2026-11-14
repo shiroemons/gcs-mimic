@@ -244,8 +244,7 @@ fn insert_session(
         let deadline = created
             .checked_add_millis(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
             .ok_or_else(|| unavailable("upload deadline overflow"))?;
-        let encoded = encode_new_options(&transaction, &request.bucket, &request.options)
-            .map_err(unavailable)?;
+        let encoded = encode_new_options(&transaction, &request.bucket, &request.options)?;
         let total = request
             .total
             .map(i64::try_from)
@@ -523,7 +522,10 @@ impl Catalog {
         let id = lease.session.id;
         let old = lease.session.offset;
         let now = UnixMillis::try_from(self.0.clock.now())?;
-        let encoded = options.map(|o| encode_options(o).to_string());
+        let encoded = options
+            .map(encode_options)
+            .transpose()?
+            .map(|options| options.to_string());
         if encoded.as_ref().is_some_and(|v| v.len() > 65536) {
             return Err(ResumableError::Invalid(
                 "Upload options exceed 64 KiB".into(),
@@ -548,8 +550,8 @@ impl Catalog {
     }
 }
 
-pub(super) fn encode_options(o: &ResumableOptions) -> Value {
-    json!(options::StoredOptions::from_options(o, None))
+pub(super) fn encode_options(o: &ResumableOptions) -> Result<Value, CatalogError> {
+    serde_json::to_value(options::StoredOptions::from_options(o, None)?).map_err(unavailable)
 }
 
 /// Encodes the options of a new upload into `bucket`, whose project cannot change while the
@@ -558,7 +560,7 @@ pub(super) fn encode_new_options(
     connection: &Connection,
     bucket: &str,
     o: &ResumableOptions,
-) -> rusqlite::Result<String> {
+) -> Result<String, CatalogError> {
     let project: Option<String> = match &o.access {
         crate::bucket::BucketAccess::Policy {
             identity: Some(_), ..
@@ -571,7 +573,11 @@ pub(super) fn encode_new_options(
         | crate::bucket::BucketAccess::Admin(_)
         | crate::bucket::BucketAccess::Policy { identity: None, .. } => None,
     };
-    Ok(json!(options::StoredOptions::from_options(o, project.as_deref())).to_string())
+    serde_json::to_string(&options::StoredOptions::from_options(
+        o,
+        project.as_deref(),
+    )?)
+    .map_err(unavailable)
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
@@ -763,7 +769,7 @@ mod tests {
     fn persisted_options_keep_their_json_bytes() {
         let mut options = ResumableOptions::new(BucketAccess::Permissive);
         options.content_type = "text/plain".into();
-        let encoded = encode_options(&options).to_string();
+        let encoded = encode_options(&options).unwrap().to_string();
         assert_eq!(encoded, OPTIONS_JSON);
         assert_eq!(
             decode_options(&serde_json::from_str(&encoded).unwrap()).unwrap(),
@@ -796,7 +802,7 @@ mod tests {
         options.metadata.content_type = Patch::Clear;
         options.metadata.metadata = MapPatch::Clear;
         options.metadata.retention = Patch::Clear;
-        let encoded = encode_options(&options);
+        let encoded = encode_options(&options).unwrap();
         assert_eq!(
             encoded["metadata"]["contentType"].to_string(),
             r#"{"value":null}"#
