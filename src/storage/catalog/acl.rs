@@ -555,15 +555,24 @@ fn target_access(
             name,
             generation,
         } => super::objects::authorize_generation(connection, bucket, name, generation, access)
-            .map_err(|error| match error {
-                ObjectError::Denied(denied) => CatalogError::Denied(denied),
-                ObjectError::Forbidden => CatalogError::Forbidden,
-                ObjectError::BucketNotFound => CatalogError::NotFound,
-                error => unavailable(error),
-            }),
+            .map_err(object_access_error),
         ResolvedAclTarget::Bucket { bucket, .. } => {
             check_access(connection, bucket, project, access).map(|_| ())
         }
+    }
+}
+
+/// An object target's refusal in the bucket ACL's terms.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other object error keeps the shared storage classification"
+)]
+fn object_access_error(error: ObjectError) -> CatalogError {
+    match error {
+        ObjectError::Denied(denied) => CatalogError::Denied(denied),
+        ObjectError::Forbidden => CatalogError::Forbidden,
+        ObjectError::BucketNotFound => CatalogError::NotFound,
+        error => unavailable(error),
     }
 }
 

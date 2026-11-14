@@ -36,7 +36,9 @@ impl From<crate::acl::AclError> for JsonError {
             AclError::InvalidRole { role, .. } => {
                 Self::invalid(format!("Invalid value for: {role} is not a valid value"))
             }
-            error => Self::invalid(error.to_string()),
+            error @ (AclError::TooManyEntries
+            | AclError::DuplicateEntity(_)
+            | AclError::EntityTooLong) => Self::invalid(error.to_string()),
         }
     }
 }

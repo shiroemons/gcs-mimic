@@ -671,42 +671,39 @@ async fn delete(
     })
 }
 
+/// The fake-gcs-server profile words four bucket failures its own way.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared JSON mapping"
+)]
 fn bucket_catalog_error(
     error: CatalogError,
     profile: CompatProfile,
     name: Option<&str>,
 ) -> JsonError {
-    if profile == CompatProfile::FakeGcsServer {
-        match error {
-            CatalogError::NotFound => {
-                return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
-            }
-            CatalogError::PreconditionFailed => {
-                return JsonError::new(
-                    StatusCode::PRECONDITION_FAILED,
-                    "conditionNotMet",
-                    "Precondition failed",
-                );
-            }
-            CatalogError::NotEmpty => {
-                return JsonError::new(
-                    StatusCode::PRECONDITION_FAILED,
-                    "conditionNotMet",
-                    "bucket must be empty prior to deletion",
-                );
-            }
-            CatalogError::AlreadyExists => {
-                return JsonError::new(
-                    StatusCode::CONFLICT,
-                    "conflict",
-                    format!(
-                        "A Cloud Storage bucket named '{}' already exists. Try another name. Bucket names must be globally unique across all Google Cloud projects, including those outside of your organization.",
-                        name.unwrap_or_default()
-                    ),
-                );
-            }
-            _ => {}
-        }
+    if profile != CompatProfile::FakeGcsServer {
+        return error.into();
     }
-    error.into()
+    match error {
+        CatalogError::NotFound => JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found"),
+        CatalogError::PreconditionFailed => JsonError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            "Precondition failed",
+        ),
+        CatalogError::NotEmpty => JsonError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            "bucket must be empty prior to deletion",
+        ),
+        CatalogError::AlreadyExists => JsonError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            format!(
+                "A Cloud Storage bucket named '{}' already exists. Try another name. Bucket names must be globally unique across all Google Cloud projects, including those outside of your organization.",
+                name.unwrap_or_default()
+            ),
+        ),
+        error => error.into(),
+    }
 }

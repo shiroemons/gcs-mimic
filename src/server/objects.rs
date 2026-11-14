@@ -308,6 +308,10 @@ async fn move_object(
     let source_read = ctx.authorize(auth::OBJECTS_GET, &names.bucket).await?;
     let source_delete = ctx.authorize(auth::OBJECTS_DELETE, &names.bucket).await?;
     let (bucket, source) = (names.bucket.clone(), names.source.clone());
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every other object error keeps the shared JSON mapping"
+    )]
     let record = ctx
         .state
         .catalog
