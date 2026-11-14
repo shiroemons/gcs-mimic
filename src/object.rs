@@ -326,13 +326,14 @@ pub struct ObjectMetadataUpdate {
 }
 
 pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass, ObjectError> {
-    crate::bucket::validate_storage_class(class).map_err(|error| match error {
-        crate::bucket::CatalogError::Metadata(error) if error.unsupported() => {
-            ObjectError::Metadata(
-                crate::metadata_error::MetadataError::UnsupportedObjectStorageClass(class.into()),
-            )
-        }
-        _ => ObjectError::Metadata(crate::metadata_error::MetadataError::ObjectStorageClass),
+    use crate::{bucket::InvalidStorageClass, metadata_error::MetadataError};
+    StorageClass::from_name(class).map_err(|error| {
+        ObjectError::Metadata(match error {
+            InvalidStorageClass::RequiresLocation => {
+                MetadataError::UnsupportedObjectStorageClass(class.into())
+            }
+            InvalidStorageClass::Unknown => MetadataError::ObjectStorageClass,
+        })
     })
 }
 

@@ -1,6 +1,6 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
-use super::{CatalogError, LocationKind, StorageClass, validate_storage_class};
+use super::{CatalogError, InvalidStorageClass, LocationKind, StorageClass};
 use crate::metadata_error::{LifecycleExample, MetadataError};
 use crate::storage::failure::BackendCause;
 use serde::Deserialize;
@@ -413,19 +413,18 @@ fn invalid(field: &str, example: impl Into<LifecycleExample>) -> CatalogError {
 }
 
 fn validate_class(value: &str, field: &str) -> Result<(), CatalogError> {
-    validate_storage_class(value)
+    StorageClass::from_name(value)
         .map(|_| ())
         .map_err(|error| match error {
-            CatalogError::Metadata(error) if error.unsupported() => {
+            InvalidStorageClass::RequiresLocation => {
                 CatalogError::Metadata(MetadataError::LifecycleClass {
                     field: field.into(),
                     value: value.into(),
                 })
             }
-            CatalogError::InvalidMetadata(_) => {
+            InvalidStorageClass::Unknown => {
                 invalid(field, "a supported bucket class, for example COLDLINE")
             }
-            error => error,
         })
 }
 

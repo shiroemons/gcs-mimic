@@ -61,10 +61,31 @@ impl fmt::Debug for StorageClass {
     }
 }
 
-impl FromStr for StorageClass {
-    type Err = CatalogError;
+/// Why a name is not a storage class the emulator stores; each caller words its own refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InvalidStorageClass {
+    /// `REGIONAL` and `RAPID` are real classes, but they need a region or zone.
+    RequiresLocation,
+    Unknown,
+}
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
+impl From<InvalidStorageClass> for CatalogError {
+    fn from(error: InvalidStorageClass) -> Self {
+        match error {
+            InvalidStorageClass::RequiresLocation => {
+                Self::Metadata(crate::metadata_error::MetadataError::StorageClassRequiresLocation)
+            }
+            InvalidStorageClass::Unknown => {
+                Self::InvalidMetadata("The storage class you specified is not valid.".into())
+            }
+        }
+    }
+}
+
+impl StorageClass {
+    /// Parses a wire name, keeping why it was refused. [`FromStr`] reports the same refusal as
+    /// the [`CatalogError`] that bucket requests return.
+    pub(crate) fn from_name(value: &str) -> Result<Self, InvalidStorageClass> {
         match value {
             "STANDARD" => Ok(Self::Standard),
             "NEARLINE" => Ok(Self::Nearline),
@@ -72,13 +93,17 @@ impl FromStr for StorageClass {
             "ARCHIVE" => Ok(Self::Archive),
             "MULTI_REGIONAL" => Ok(Self::MultiRegional),
             "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" | "RAPID" => Err(CatalogError::Metadata(
-                crate::metadata_error::MetadataError::StorageClassRequiresLocation,
-            )),
-            _ => Err(CatalogError::InvalidMetadata(
-                "The storage class you specified is not valid.".into(),
-            )),
+            "REGIONAL" | "RAPID" => Err(InvalidStorageClass::RequiresLocation),
+            _ => Err(InvalidStorageClass::Unknown),
         }
+    }
+}
+
+impl FromStr for StorageClass {
+    type Err = CatalogError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_name(value)?)
     }
 }
 
@@ -447,11 +472,11 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<StorageClass
 }
 
 pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass, CatalogError> {
-    validate_storage_class(class).map_err(|error| match error {
-        CatalogError::InvalidMetadata(_) => CatalogError::Metadata(
+    StorageClass::from_name(class).map_err(|error| match error {
+        InvalidStorageClass::Unknown => CatalogError::Metadata(
             crate::metadata_error::MetadataError::InvalidUpdateStorageClass(class.into()),
         ),
-        error => error,
+        InvalidStorageClass::RequiresLocation => error.into(),
     })
 }
 
