@@ -1,39 +1,8 @@
-use crate::object::{ExpectedHashes, ObjectConditions};
+use crate::{
+    bucket::BucketConditions,
+    object::{ExpectedHashes, ObjectConditions},
+};
 use tonic::Status;
-
-macro_rules! request_conditions {
-    ($validate:path, $request:ident) => {
-        $validate($crate::grpc::validate::request_conditions!($request))
-    };
-    ($request:ident) => {
-        $crate::object::ObjectConditions {
-            if_generation_match: $request.if_generation_match,
-            if_generation_not_match: $request.if_generation_not_match,
-            if_metageneration_match: $request.if_metageneration_match,
-            if_metageneration_not_match: $request.if_metageneration_not_match,
-        }
-    };
-    ($validate:path, source $request:ident) => {
-        $validate($crate::object::ObjectConditions {
-            if_generation_match: $request.if_source_generation_match,
-            if_generation_not_match: $request.if_source_generation_not_match,
-            if_metageneration_match: $request.if_source_metageneration_match,
-            if_metageneration_not_match: $request.if_source_metageneration_not_match,
-        })
-    };
-}
-pub(super) use request_conditions;
-
-/// Read bucket fields by name so the two metageneration conditions cannot trade places.
-macro_rules! bucket_conditions {
-    ($request:ident) => {
-        $crate::bucket::BucketConditions {
-            if_metageneration_match: $request.if_metageneration_match,
-            if_metageneration_not_match: $request.if_metageneration_not_match,
-        }
-    };
-}
-pub(super) use bucket_conditions;
 
 pub(super) fn lenient_conditions(
     conditions: ObjectConditions,
@@ -68,6 +37,33 @@ pub(super) fn strict_conditions(conditions: ObjectConditions) -> Result<ObjectCo
         return Err(Status::invalid_argument(MESSAGE));
     }
     Ok(conditions)
+}
+
+/// Bucket metageneration conditions under the object rule, whose wording they share today.
+pub(super) fn lenient_bucket_conditions(
+    conditions: BucketConditions,
+    message: &str,
+) -> Result<BucketConditions, Status> {
+    lenient_conditions(metageneration_only(conditions), message).map(|_| conditions)
+}
+
+/// Bucket metageneration conditions under [`strict_conditions`].
+pub(super) fn strict_bucket_conditions(
+    conditions: BucketConditions,
+) -> Result<BucketConditions, Status> {
+    strict_conditions(metageneration_only(conditions)).map(|_| conditions)
+}
+
+fn metageneration_only(conditions: BucketConditions) -> ObjectConditions {
+    let BucketConditions {
+        if_metageneration_match,
+        if_metageneration_not_match,
+    } = conditions;
+    ObjectConditions {
+        if_metageneration_match,
+        if_metageneration_not_match,
+        ..ObjectConditions::default()
+    }
 }
 
 pub(super) fn generation(value: i64, message: &str) -> Result<Option<i64>, Status> {
@@ -148,6 +144,52 @@ mod tests {
             lenient_conditions(
                 ObjectConditions {
                     if_generation_match: Some(-1),
+                    ..Default::default()
+                },
+                "lenient"
+            )
+            .unwrap_err()
+            .message(),
+            "lenient"
+        );
+    }
+
+    #[test]
+    fn bucket_conditions_keep_the_strict_and_lenient_subsets() {
+        let both = BucketConditions {
+            if_metageneration_match: Some(1),
+            if_metageneration_not_match: Some(2),
+        };
+        assert_eq!(lenient_bucket_conditions(both, "lenient").unwrap(), both);
+        for rejected in [
+            both,
+            BucketConditions {
+                if_metageneration_match: Some(0),
+                ..Default::default()
+            },
+            BucketConditions {
+                if_metageneration_not_match: Some(0),
+                ..Default::default()
+            },
+            BucketConditions {
+                if_metageneration_match: Some(-1),
+                ..Default::default()
+            },
+        ] {
+            assert_code(
+                strict_bucket_conditions(rejected),
+                tonic::Code::InvalidArgument,
+            );
+        }
+        let one = BucketConditions {
+            if_metageneration_match: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(strict_bucket_conditions(one).unwrap(), one);
+        assert_eq!(
+            lenient_bucket_conditions(
+                BucketConditions {
+                    if_metageneration_not_match: Some(-1),
                     ..Default::default()
                 },
                 "lenient"

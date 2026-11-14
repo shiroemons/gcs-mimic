@@ -67,7 +67,7 @@ impl Storage {
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, finality) = self
-            .get_readable(target, request_conditions!(conditions, r)?, &access)
+            .get_readable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         let mut object = super::super::append::object(&record, finality)?;
@@ -94,7 +94,7 @@ impl Storage {
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, mut reader, finality) = self
-            .open_readable(target, request_conditions!(conditions, r)?, &access)
+            .open_readable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;

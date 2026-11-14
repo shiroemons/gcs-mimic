@@ -1,8 +1,10 @@
 use super::{Storage, access_status, pb, status::unsupported_for};
 use super::{convert, names};
 use crate::auth::Caller;
-use crate::grpc::validate::bucket_conditions;
-use crate::{bucket::CatalogError, json};
+use crate::{
+    bucket::{BucketConditions, CatalogError},
+    json,
+};
 use serde_json::{Map, Value, json};
 use tonic::{Request, Response, Status};
 
@@ -364,7 +366,7 @@ impl Storage {
             .await?;
         self.state
             .catalog
-            .delete_bucket(name, bucket_conditions!(request), &access)
+            .delete_bucket(name, BucketConditions::from(&request), &access)
             .await
             .map_err(|error| access_status(error, caller))?;
         Ok(Response::new(()))
@@ -385,7 +387,7 @@ impl Storage {
             .await
             .map_err(|error| access_status(error, caller))?
             .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
-        if !bucket_conditions!(request).hold(record.metageneration) {
+        if !BucketConditions::from(&request).hold(record.metageneration) {
             return Err(access_status(CatalogError::PreconditionFailed, caller));
         }
         let mut bucket = convert::bucket(&record, request.read_mask.as_ref())?;

@@ -23,10 +23,7 @@ pub mod pb {
 use crate::{
     auth::{BUCKETS_LIST, Caller, ListenerRole},
     bucket::{BucketAccess, BucketConditions, CatalogError},
-    grpc::{
-        v2::status::unsupported,
-        validate::{self, bucket_conditions, request_conditions},
-    },
+    grpc::{v2::status::unsupported, validate},
     json,
     object::{MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch},
     server::State,
@@ -108,11 +105,15 @@ fn projection(value: i32) -> Result<(), Status> {
     }
 }
 
+const NEGATIVE_PRECONDITION: &str =
+    "Preconditions must be nonnegative; use if_generation_match=0 for create only";
+
 fn conditions(conditions: ObjectConditions) -> Result<ObjectConditions, Status> {
-    validate::lenient_conditions(
-        conditions,
-        "Preconditions must be nonnegative; use if_generation_match=0 for create only",
-    )
+    validate::lenient_conditions(conditions, NEGATIVE_PRECONDITION)
+}
+
+fn bucket_conditions(conditions: BucketConditions) -> Result<BucketConditions, Status> {
+    validate::lenient_bucket_conditions(conditions, NEGATIVE_PRECONDITION)
 }
 
 fn generation(value: i64) -> Result<Option<i64>, Status> {
@@ -343,11 +344,7 @@ impl pb::storage_server::Storage for Storage {
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
-        conditions(ObjectConditions {
-            if_metageneration_match: r.if_metageneration_match,
-            if_metageneration_not_match: r.if_metageneration_not_match,
-            ..Default::default()
-        })?;
+        let requested = bucket_conditions(BucketConditions::from(&r))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::BUCKETS_GET)
             .await?;
@@ -359,7 +356,7 @@ impl pb::storage_server::Storage for Storage {
             .ok_or_else(|| {
                 Status::not_found("Bucket not found; create it with InsertBucket or JSON")
             })?;
-        if !bucket_conditions!(r).hold(record.metageneration) {
+        if !requested.hold(record.metageneration) {
             return Err(Status::failed_precondition(
                 "Bucket metageneration condition failed; read current metadata",
             ));
@@ -374,17 +371,13 @@ impl pb::storage_server::Storage for Storage {
         let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
-        conditions(ObjectConditions {
-            if_metageneration_match: r.if_metageneration_match,
-            if_metageneration_not_match: r.if_metageneration_not_match,
-            ..Default::default()
-        })?;
+        let requested = bucket_conditions(BucketConditions::from(&r))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::BUCKETS_DELETE)
             .await?;
         self.state
             .catalog
-            .delete_bucket(&r.bucket, bucket_conditions!(r), &access)
+            .delete_bucket(&r.bucket, requested, &access)
             .await?;
         Ok(Response::new(()))
     }
@@ -427,12 +420,7 @@ impl pb::storage_server::Storage for Storage {
         if r.predefined_acl != 0 || r.predefined_default_object_acl != 0 {
             return Err(unsupported("legacy bucket predefined ACLs; omit them"));
         }
-        conditions(ObjectConditions {
-            if_metageneration_match: r.if_metageneration_match,
-            if_metageneration_not_match: r.if_metageneration_not_match,
-            ..Default::default()
-        })?;
-        let requested = bucket_conditions!(r);
+        let requested = bucket_conditions(BucketConditions::from(&r))?;
         let access = self
             .access(caller, &r.bucket, crate::auth::BUCKETS_UPDATE)
             .await?;
@@ -561,7 +549,7 @@ impl pb::storage_server::Storage for Storage {
         let record = self
             .state
             .catalog
-            .get_object(target, request_conditions!(conditions, r)?, &access)
+            .get_object(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(convert::object(&record)?))
@@ -585,7 +573,7 @@ impl pb::storage_server::Storage for Storage {
         let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
         self.state
             .catalog
-            .delete_object(target, request_conditions!(conditions, r)?, &access)
+            .delete_object(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(()))
@@ -609,7 +597,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: request_conditions!(conditions, r)?,
+            conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Replace,
         };
@@ -636,7 +624,7 @@ impl pb::storage_server::Storage for Storage {
             bucket: &r.bucket,
             name: &r.object,
             selected: r.generation,
-            conditions: request_conditions!(conditions, r)?,
+            conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
             write: json::WriteMode::Patch,
         };
@@ -711,6 +699,8 @@ impl pb::storage_server::Storage for Storage {
         let access = self
             .access(caller, &r.destination_bucket, crate::auth::OBJECTS_CREATE)
             .await?;
+        // Validated after the sources, as before; the request's fields move below.
+        let destination_conditions = ObjectConditions::from(&r);
         let object = r.destination.unwrap_or_default();
         if (!object.name.is_empty() && object.name != r.destination_object)
             || (!object.bucket.is_empty() && object.bucket != r.destination_bucket)
@@ -727,15 +717,16 @@ impl pb::storage_server::Storage for Storage {
             .map(|s| {
                 crate::object::name::validate(&s.name)
                     .map_err(|_| Status::invalid_argument("Invalid object name"))?;
-                let condition = s.object_preconditions.and_then(|p| p.if_generation_match);
-                conditions(ObjectConditions {
-                    if_generation_match: condition,
-                    ..Default::default()
-                })?;
+                let preconditions = conditions(
+                    s.object_preconditions
+                        .as_ref()
+                        .map(ObjectConditions::from)
+                        .unwrap_or_default(),
+                )?;
                 Ok(crate::object::ComposeSource {
                     name: s.name,
                     generation: generation(s.generation)?,
-                    if_generation_match: condition,
+                    if_generation_match: preconditions.if_generation_match,
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
@@ -750,11 +741,7 @@ impl pb::storage_server::Storage for Storage {
                     metadata,
                     storage_class: None,
                     expected: Default::default(),
-                    conditions: conditions(ObjectConditions {
-                        if_generation_match: r.if_generation_match,
-                        if_metageneration_match: r.if_metageneration_match,
-                        ..Default::default()
-                    })?,
+                    conditions: conditions(destination_conditions)?,
                     access,
                     component_count: None,
                 },

@@ -1,11 +1,8 @@
 use super::{Storage, common, conditions, convert, metadata, pb, projection, unsupported};
 use crate::{
     auth::Caller,
-    grpc::{
-        upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
-        validate::request_conditions,
-    },
-    object::{ExpectedHashes, UploadChunk},
+    grpc::upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
+    object::{ExpectedHashes, ObjectConditions, UploadChunk},
     storage::ObjectUpload,
 };
 use tokio::sync::mpsc;
@@ -42,7 +39,7 @@ impl Storage {
         let mut first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("InsertObject needs insert_object_spec in its first message")
         })?;
-        let Some(pb::insert_object_request::FirstMessage::InsertObjectSpec(spec)) =
+        let Some(pb::insert_object_request::FirstMessage::InsertObjectSpec(mut spec)) =
             first.first_message.take()
         else {
             return Err(unsupported(
@@ -57,6 +54,7 @@ impl Storage {
         }
         let object = spec
             .resource
+            .take()
             .ok_or_else(|| Status::invalid_argument("insert_object_spec.resource is required"))?;
         let bucket = object.bucket.clone();
         let name = object.name.clone();
@@ -64,7 +62,7 @@ impl Storage {
         crate::object::name::validate(&name)
             .map_err(|_| Status::invalid_argument("Invalid object name"))?;
         let metadata = metadata(object, crate::json::WriteMode::Patch)?;
-        let conditions = request_conditions!(conditions, spec)?;
+        let conditions = conditions(ObjectConditions::from(&spec))?;
         let access = self
             .access(caller, &bucket, crate::auth::OBJECTS_CREATE)
             .await?;

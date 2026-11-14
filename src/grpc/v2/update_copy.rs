@@ -5,7 +5,7 @@ use crate::{
         BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError,
         RetentionPolicyUpdate,
     },
-    grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
+    grpc::validate::{self, strict_bucket_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
     server::authorize_bucket,
@@ -281,8 +281,8 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let (metadata, _, r) = request.into_parts();
         check_rewrite_request(&r)?;
-        let sc = request_conditions!(strict_conditions, source r)?;
-        let dc = request_conditions!(strict_conditions, r)?;
+        let sc = strict_conditions(r.source_conditions())?;
+        let dc = strict_conditions(ObjectConditions::from(&r))?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()
@@ -501,15 +501,8 @@ impl Storage {
     ) -> Result<Response<pb::Bucket>, Status> {
         let r = request.into_inner();
         let bucket = self.bucket_id(&r.bucket)?;
-        strict_conditions(ObjectConditions {
-            if_metageneration_match: Some(r.if_metageneration_match),
-            ..Default::default()
-        })?;
+        let conditions = strict_bucket_conditions(BucketConditions::from(&r))?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let conditions = BucketConditions {
-            if_metageneration_match: Some(r.if_metageneration_match),
-            ..Default::default()
-        };
         let record = self
             .patch_bucket_with_lifecycle_response(
                 bucket,
@@ -704,23 +697,19 @@ impl Storage {
         request: Request<pb::UpdateBucketRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let r = request.into_inner();
+        let mut r = request.into_inner();
         let b = r
             .bucket
+            .take()
             .ok_or_else(|| Status::invalid_argument("bucket is required; supply bucket.name"))?;
         let bucket = self.bucket_id(&b.name)?;
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
-        strict_conditions(ObjectConditions {
-            if_metageneration_match: r.if_metageneration_match,
-            if_metageneration_not_match: r.if_metageneration_not_match,
-            ..Default::default()
-        })?;
+        let conditions = strict_bucket_conditions(BucketConditions::from(&r))?;
         let paths = mask(r.update_mask.as_ref())?;
         let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let conditions = bucket_conditions!(r);
         let record = self
             .patch_bucket_with_lifecycle_response(bucket, &update, conditions, &access)
             .await?;
@@ -733,7 +722,7 @@ impl Storage {
         request: Request<pb::UpdateObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let r = request.into_inner();
+        let mut r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         if !r.predefined_acl.is_empty() {
             return Err(unsupported(
@@ -745,7 +734,7 @@ impl Storage {
         } else {
             crate::object::retention::UnlockedOverride::NotRequested
         };
-        let o = r.object.ok_or_else(|| {
+        let o = r.object.take().ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
@@ -757,7 +746,7 @@ impl Storage {
         let paths = mask(r.update_mask.as_ref())?;
         let mut update = super::object_update::from_proto(&o, paths)?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
-        let c = request_conditions!(strict_conditions, r)?;
+        let c = strict_conditions(ObjectConditions::from(&r))?;
         crate::server::authorize_retention_update(
             &self.state,
             &access,
@@ -786,7 +775,7 @@ impl Storage {
         request: Request<pb::ComposeObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let r = request.into_inner();
+        let mut r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
         if !r.destination_predefined_acl.is_empty()
             || !r.kms_key.is_empty()
@@ -798,7 +787,7 @@ impl Storage {
                 "ComposeObject encryption/ACL/checksums; omit these options",
             ));
         }
-        let o = r.destination.ok_or_else(|| {
+        let o = r.destination.take().ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
@@ -815,18 +804,16 @@ impl Storage {
                         "source generation must be positive or omitted",
                     ));
                 }
-                let gm = s
-                    .object_preconditions
-                    .as_ref()
-                    .and_then(|p| p.if_generation_match);
-                strict_conditions(ObjectConditions {
-                    if_generation_match: gm,
-                    ..Default::default()
-                })?;
+                let preconditions = strict_conditions(
+                    s.object_preconditions
+                        .as_ref()
+                        .map(ObjectConditions::from)
+                        .unwrap_or_default(),
+                )?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
                     generation: (s.generation != 0).then_some(s.generation),
-                    if_generation_match: gm,
+                    if_generation_match: preconditions.if_generation_match,
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
@@ -847,11 +834,7 @@ impl Storage {
             metadata,
             storage_class: None,
             expected: ExpectedHashes::default(),
-            conditions: strict_conditions(ObjectConditions {
-                if_generation_match: r.if_generation_match,
-                if_metageneration_match: r.if_metageneration_match,
-                ..Default::default()
-            })?,
+            conditions: strict_conditions(ObjectConditions::from(&r))?,
             access,
             component_count: None,
         };
@@ -884,8 +867,8 @@ impl Storage {
         let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let sc = request_conditions!(strict_conditions, source r)?;
-        let dc = request_conditions!(strict_conditions, r)?;
+        let sc = strict_conditions(r.source_conditions())?;
+        let dc = strict_conditions(ObjectConditions::from(&r))?;
         let object_names = MoveNames {
             bucket: bucket.into(),
             source: source.into(),
@@ -932,7 +915,7 @@ impl Storage {
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let c = request_conditions!(strict_conditions, r)?;
+        let c = strict_conditions(ObjectConditions::from(&r))?;
         let target = ObjectTarget::new(bucket, name, r.generation);
         let access = RestoreAccess {
             restore: &restore,

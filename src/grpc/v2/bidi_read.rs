@@ -2,9 +2,9 @@ use super::{ResponseStream, Storage, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    grpc::validate::{self, request_conditions},
+    grpc::validate,
     json::JsonError,
-    object::{ObjectError, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{Finality, ObjectReader},
 };
 use prost::Message;
@@ -111,7 +111,7 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
     const MESSAGE: &str =
         "Generation conditions must be nonnegative; use generation 0 for the live object";
     validate::generation(spec.generation, MESSAGE)?;
-    validate::lenient_conditions(request_conditions!(spec), MESSAGE)?;
+    validate::lenient_conditions(ObjectConditions::from(spec), MESSAGE)?;
     if spec
         .common_object_request_params
         .as_ref()
@@ -231,7 +231,7 @@ impl Storage {
         let (mut selected, token) = if resumed {
             self.resume_read_handle(&spec, &access, caller).await?
         } else {
-            let conditions = request_conditions!(spec);
+            let conditions = ObjectConditions::from(&spec);
             let target = ObjectTarget::new(
                 bucket,
                 object,

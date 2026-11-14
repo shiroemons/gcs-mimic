@@ -6,7 +6,7 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::{
         upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
-        validate::{self, request_conditions},
+        validate,
     },
     json,
     object::{
@@ -150,7 +150,7 @@ impl Storage {
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
-        self.delete_including_appendable(target, request_conditions!(conditions, r)?, &access)
+        self.delete_including_appendable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         Ok(Response::new(()))

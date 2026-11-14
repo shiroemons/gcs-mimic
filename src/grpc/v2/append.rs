@@ -227,11 +227,7 @@ impl Storage {
                     ));
                 }
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
-                let conditions = conditions(ObjectConditions {
-                    if_metageneration_match: spec.if_metageneration_match,
-                    if_metageneration_not_match: spec.if_metageneration_not_match,
-                    ..Default::default()
-                })?;
+                let conditions = conditions(ObjectConditions::from(&spec))?;
                 let target = ObjectTarget::new(bucket, name, spec.generation);
                 let writer = self
                     .state
