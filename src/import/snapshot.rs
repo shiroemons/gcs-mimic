@@ -4,7 +4,7 @@ use super::{
     BodyStream, BucketRecord, CorruptField, Fingerprint, ImportFailure, ObjectRecord, Options,
     Record, Reporter, ScanPurpose,
     codec::{self, BucketAttrs, ObjectAttrs},
-    reader,
+    reader::{self, PinnedSource},
     spec::BucketSpec,
 };
 use crate::{
@@ -86,7 +86,7 @@ fn corrupt(reason: impl Into<BackendCause>) -> ImportFailure {
     )
 }
 
-fn line(input: &mut BufReader<File>) -> Result<Vec<u8>, ImportFailure> {
+fn line(input: &mut impl BufRead) -> Result<Vec<u8>, ImportFailure> {
     let mut bytes = Vec::new();
     input
         .by_ref()
@@ -394,15 +394,15 @@ fn check_attribute_cap(bytes: &[u8]) -> Result<(), ImportFailure> {
     Ok(())
 }
 
+/// An opened capture: its root and body directories, and its row file, pinned until the scan
+/// rechecks it.
 struct Snapshot {
     root: File,
-    input: BufReader<File>,
-    before: Fingerprint,
-    hash: Context,
+    rows: PinnedSource,
     blobs: File,
 }
 
-fn open(options: &Options, report: &mut Reporter) -> Result<Snapshot, ImportFailure> {
+fn open(options: &Options) -> Result<Snapshot, ImportFailure> {
     let root = fsutil::open_directory_nofollow(&options.source)?;
     let names = fsutil::directory_names_after(&root, None, 256)?;
     if names
@@ -415,11 +415,14 @@ fn open(options: &Options, report: &mut Reporter) -> Result<Snapshot, ImportFail
             "snapshot root must contain exactly blobs/ and snapshot.jsonl",
         ));
     }
-    let file = fsutil::open_regular_at(&root, "snapshot.jsonl".as_ref())?;
-    let before = Fingerprint::of_file(&file)?;
+    let rows = PinnedSource::pin(fsutil::open_regular_at(&root, "snapshot.jsonl".as_ref())?)?;
     let blobs = fsutil::directory_at(&root, "blobs".as_ref(), fsutil::DirectoryOpen::Existing)?;
-    let mut input = BufReader::new(file);
-    let header = line(&mut input)?;
+    Ok(Snapshot { root, rows, blobs })
+}
+
+/// Reads and checks the header row, which starts the capture digest.
+fn header(input: &mut impl BufRead, report: &mut Reporter) -> Result<Context, ImportFailure> {
+    let header = line(input)?;
     match serde_json::from_slice::<Row>(&header)? {
         Row::Snapshot {
             version: 1,
@@ -436,23 +439,13 @@ fn open(options: &Options, report: &mut Reporter) -> Result<Snapshot, ImportFail
     report.manifest("snapshot_header", "snapshot.jsonl", &[&header]);
     let mut hash = Context::new(&SHA256);
     hash.update(&header);
-    Ok(Snapshot {
-        root,
-        input,
-        before,
-        hash,
-        blobs,
-    })
+    Ok(hash)
 }
 
 pub(super) fn scan(options: &Options, report: &mut Reporter) -> Result<(), ImportFailure> {
-    let Snapshot {
-        root,
-        mut input,
-        before,
-        mut hash,
-        blobs,
-    } = open(options, report)?;
+    let Snapshot { root, rows, blobs } = open(options)?;
+    let mut input = BufReader::new(rows.file());
+    let mut hash = header(&mut input, report)?;
     let mut capture = Capture {
         options,
         report,
@@ -501,11 +494,9 @@ pub(super) fn scan(options: &Options, report: &mut Reporter) -> Result<(), Impor
         }
     }
     capture.check_blobs()?;
-    before.check(&Fingerprint::of_file(input.get_ref())?)?;
-    before.check(&Fingerprint::of_file(&fsutil::open_regular_at(
-        &root,
-        "snapshot.jsonl".as_ref(),
-    )?)?)?;
+    rows.verify_unchanged(|| {
+        Fingerprint::of_file(&fsutil::open_regular_at(&root, "snapshot.jsonl".as_ref())?)
+    })?;
     capture.report.summary.original_names_verified = true;
     Ok(())
 }

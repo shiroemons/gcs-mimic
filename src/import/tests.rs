@@ -529,6 +529,122 @@ fn dry_run_records_keep_their_report_encoding() {
     );
 }
 
+/// Writes `bytes` to `path` with a modification time long past, so a later write always moves it.
+fn write_aged(path: &std::path::Path, bytes: &[u8]) {
+    fs::write(path, bytes).unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000))
+        .unwrap();
+}
+
+fn append(path: &std::path::Path) {
+    use std::io::Write as _;
+    fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(b" world")
+        .unwrap();
+}
+
+fn changed_fields(result: Result<(), ImportFailure>) -> Vec<ChangedField> {
+    match result {
+        Err(ImportFailure::SourceChanged { fields }) => fields,
+        other => panic!("expected a source change: {other:?}"),
+    }
+}
+
+/// A metadata read reports the first side that moved: its handle when that changed, or else the
+/// entry its name denotes now. A body read reports both sides together, in `ChangedField` order.
+#[test]
+fn pinned_sources_report_changes_by_their_read_policy() {
+    use reader::PinnedSource;
+    let directory = TestDir::new();
+    let path = directory.0.join("source");
+    let replacement = directory.0.join("replacement");
+    let named = || Fingerprint::of_path(&path);
+
+    write_aged(&path, b"hello");
+    let source = PinnedSource::open(&path).unwrap();
+    assert!(source.verify_unchanged(named).is_ok());
+    assert!(source.verify_body_unchanged(&path).is_ok());
+
+    // Replaced under its name with the same bytes and times. Unlinking the original can move
+    // its change time too, so a metadata read reports whichever side moved first; a body read
+    // always sees the new file.
+    write_aged(&replacement, b"hello");
+    fs::rename(&replacement, &path).unwrap();
+    let metadata = changed_fields(source.verify_unchanged(named));
+    assert!(!metadata.contains(&ChangedField::Size), "{metadata:?}");
+    let body = changed_fields(source.verify_body_unchanged(&path));
+    assert!(
+        body.contains(&ChangedField::Inode)
+            && body.is_sorted_by(|before, after| before < after)
+            && metadata.iter().all(|field| body.contains(field)),
+        "{metadata:?} {body:?}"
+    );
+
+    // Appended in place: the handle moved, and the name still denotes the same file.
+    write_aged(&path, b"hello");
+    let source = PinnedSource::open(&path).unwrap();
+    append(&path);
+    let mut metadata = changed_fields(source.verify_unchanged(named));
+    assert!(
+        metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime])
+            && !metadata.contains(&ChangedField::Inode),
+        "{metadata:?}"
+    );
+    metadata.sort();
+    assert_eq!(
+        changed_fields(source.verify_body_unchanged(&path)),
+        metadata
+    );
+
+    // Appended, then replaced: a metadata read reports the handle, a body read both sides.
+    write_aged(&path, b"hello");
+    let source = PinnedSource::open(&path).unwrap();
+    append(&path);
+    write_aged(&replacement, b"hello world!");
+    fs::rename(&replacement, &path).unwrap();
+    let metadata = changed_fields(source.verify_unchanged(named));
+    assert!(
+        metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime])
+            && !metadata.contains(&ChangedField::Inode),
+        "{metadata:?}"
+    );
+    let body = changed_fields(source.verify_body_unchanged(&path));
+    assert!(
+        body.starts_with(&[ChangedField::Size, ChangedField::Mtime, ChangedField::Inode])
+            && body.is_sorted_by(|before, after| before < after),
+        "{body:?}"
+    );
+
+    // Appended, then removed: a metadata read still reports the change its handle saw, while a
+    // body read fails to find its name.
+    #[cfg(unix)]
+    {
+        write_aged(&path, b"hello");
+        let source = PinnedSource::open(&path).unwrap();
+        append(&path);
+        fs::remove_file(&path).unwrap();
+        let metadata = changed_fields(source.verify_unchanged(named));
+        assert!(
+            metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime]),
+            "{metadata:?}"
+        );
+        assert!(
+            matches!(
+                source.verify_body_unchanged(&path),
+                Err(ImportFailure::Io(error)) if error.kind() == io::ErrorKind::NotFound
+            ),
+            "a body read needs its name"
+        );
+    }
+}
+
 /// Report keys are `{path}:{field}`, and operators and tests match them, so each named field and
 /// each other failure keeps the key it had when the names were strings.
 #[test]

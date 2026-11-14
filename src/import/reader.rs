@@ -230,7 +230,9 @@ impl Fingerprint {
         #[cfg(not(windows))]
         Self::of(&fs::symlink_metadata(path)?)
     }
-    pub(crate) fn check(&self, other: &Self) -> Result<(), ImportFailure> {
+    /// The fields that differ from `other`: size, modification time, change time, then file
+    /// identity. A metadata read reports them in this order.
+    fn changes(&self, other: &Self) -> Vec<ChangedField> {
         let mut fields = Vec::new();
         if self.size != other.size {
             fields.push(ChangedField::Size);
@@ -244,11 +246,77 @@ impl Fingerprint {
         if self.inode != other.inode || self.device != other.device {
             fields.push(ChangedField::Inode);
         }
-        if fields.is_empty() {
-            Ok(())
-        } else {
-            Err(ImportFailure::SourceChanged { fields })
-        }
+        fields
+    }
+
+    fn check(&self, other: &Self) -> Result<(), ImportFailure> {
+        changed(self.changes(other))
+    }
+}
+
+fn changed(fields: Vec<ChangedField>) -> Result<(), ImportFailure> {
+    if fields.is_empty() {
+        Ok(())
+    } else {
+        Err(ImportFailure::SourceChanged { fields })
+    }
+}
+
+/// A source file opened once, with the fingerprint its handle had then. Every source read goes
+/// through one, so a file rewritten, truncated or replaced while it was read is reported, whether
+/// its handle or its name moved.
+pub(super) struct PinnedSource {
+    file: File,
+    opened: Fingerprint,
+}
+
+impl PinnedSource {
+    /// Opens a regular file without following a symlink and pins it.
+    pub(super) fn open(path: &Path) -> Result<Self, ImportFailure> {
+        Self::pin(open_regular(path)?)
+    }
+
+    /// Pins a file opened elsewhere, such as one opened relative to a directory descriptor.
+    pub(super) fn pin(file: File) -> Result<Self, ImportFailure> {
+        let opened = Fingerprint::of_file(&file)?;
+        Ok(Self { file, opened })
+    }
+
+    pub(super) fn file(&self) -> &File {
+        &self.file
+    }
+
+    pub(super) fn opened(&self) -> &Fingerprint {
+        &self.opened
+    }
+
+    pub(super) fn into_file(self) -> File {
+        self.file
+    }
+
+    /// The second half of reading a metadata document. It checks the handle first, then the
+    /// entry the source's name denotes now, which `named` takes only once the handle held still,
+    /// and reports the fields of the first side that changed. A handle that changed describes
+    /// the bytes that were parsed, so its change is reported even when the name is gone too.
+    pub(super) fn verify_unchanged(
+        &self,
+        named: impl FnOnce() -> io::Result<Fingerprint>,
+    ) -> Result<(), ImportFailure> {
+        self.opened.check(&Fingerprint::of_file(&self.file)?)?;
+        self.opened.check(&named()?)
+    }
+
+    /// The second half of reading a body. It takes the handle and the entry at `path` together
+    /// and reports every changed field of both, in `ChangedField` order, so a body replaced while
+    /// its handle also drifted is not mistaken for stat drift that a retry resolves.
+    pub(super) fn verify_body_unchanged(&self, path: &Path) -> Result<(), ImportFailure> {
+        let handle = Fingerprint::of_file(&self.file)?;
+        let named = Fingerprint::of_path(path)?;
+        let mut fields = self.opened.changes(&handle);
+        fields.extend(self.opened.changes(&named));
+        fields.sort();
+        fields.dedup();
+        changed(fields)
     }
 }
 
@@ -279,24 +347,24 @@ fn open_regular(path: &Path) -> Result<File, ImportFailure> {
 }
 
 pub struct BodyStream {
-    file: File,
+    source: PinnedSource,
     path: PathBuf,
-    before: Fingerprint,
     read: u64,
     max_bytes: u64,
 }
 impl BodyStream {
     pub fn open(path: &Path, max_bytes: u64) -> Result<Self, ImportFailure> {
-        let file = open_regular(path)?;
-        Self::from_file(file, path, max_bytes)
+        Self::pinned(PinnedSource::open(path)?, path, max_bytes)
     }
     pub(super) fn from_file(
         file: File,
         path: &Path,
         max_bytes: u64,
     ) -> Result<Self, ImportFailure> {
-        let before = Fingerprint::of_file(&file)?;
-        if before.size > max_bytes {
+        Self::pinned(PinnedSource::pin(file)?, path, max_bytes)
+    }
+    fn pinned(source: PinnedSource, path: &Path, max_bytes: u64) -> Result<Self, ImportFailure> {
+        if source.opened().size > max_bytes {
             return Err(ImportFailure::corrupt(
                 CorruptField::Size,
                 "body exceeds max_object_bytes",
@@ -304,18 +372,17 @@ impl BodyStream {
             ));
         }
         Ok(Self {
-            file,
+            source,
             path: path.into(),
-            before,
             read: 0,
             max_bytes,
         })
     }
     pub(super) fn fingerprint(&self) -> &Fingerprint {
-        &self.before
+        self.source.opened()
     }
     pub(super) fn into_file(self) -> File {
-        self.file
+        self.source.into_file()
     }
     pub fn next_chunk<'a>(
         &mut self,
@@ -328,7 +395,7 @@ impl BodyStream {
                 .min(buffer.len() as u64),
         )
         .map_err(io::Error::other)?;
-        let length = self.file.read(
+        let length = self.source.file().read(
             buffer
                 .get_mut(..limit)
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
@@ -350,30 +417,15 @@ impl BodyStream {
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?)
     }
     pub fn check_unchanged(&self) -> Result<(), ImportFailure> {
-        let mut changed = Vec::new();
-        for after in [
-            Fingerprint::of_file(&self.file)?,
-            Fingerprint::of_path(&self.path)?,
-        ] {
-            if let Err(ImportFailure::SourceChanged { fields }) = self.before.check(&after) {
-                changed.extend(fields);
-            }
-        }
-        changed.sort();
-        changed.dedup();
-        if changed.is_empty() {
-            Ok(())
-        } else {
-            Err(ImportFailure::SourceChanged { fields: changed })
-        }
+        self.source.verify_body_unchanged(&self.path)
     }
 }
 
 fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
-    let mut file = open_regular(path)?;
-    let before = Fingerprint::of_file(&file)?;
+    let source = PinnedSource::open(path)?;
     let mut bytes = Vec::new();
-    (&mut file)
+    source
+        .file()
         .take((SOURCE_METADATA_CAP + 1) as u64)
         .read_to_end(&mut bytes)?;
     if bytes.len() > SOURCE_METADATA_CAP {
@@ -383,14 +435,13 @@ fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
             "Restore a metadata record of at most 16 MiB from the original export; do not truncate JSON.",
         ));
     }
-    before.check(&Fingerprint::of_file(&file)?)?;
-    before.check(&Fingerprint::of_path(path)?)?;
+    source.verify_unchanged(|| Fingerprint::of_path(path))?;
     Ok(bytes)
 }
 
 fn compare_json_file(path: &Path, expected: &[u8]) -> Result<(), ImportFailure> {
-    let mut file = open_regular(path)?;
-    let before = Fingerprint::of_file(&file)?;
+    let source = PinnedSource::open(path)?;
+    let mut file = source.file();
     let mut buffer = [0; 4096];
     let mut offset = 0;
     loop {
@@ -410,9 +461,7 @@ fn compare_json_file(path: &Path, expected: &[u8]) -> Result<(), ImportFailure> 
             fields: vec![ChangedField::Metadata],
         });
     }
-    before.check(&Fingerprint::of_file(&file)?)?;
-    before.check(&Fingerprint::of_path(path)?)?;
-    Ok(())
+    source.verify_unchanged(|| Fingerprint::of_path(path))
 }
 
 fn sidecar(path: &Path) -> PathBuf {
@@ -445,7 +494,7 @@ fn metadata_bytes(
     relative: &str,
     xattr: XattrReader,
 ) -> Result<Vec<u8>, ImportFailure> {
-    match (options.metadata_mode, xattr(&body.file, buffer)) {
+    match (options.metadata_mode, xattr(body.source.file(), buffer)) {
         (MetadataMode::Xattr, Ok(Some(bytes))) => Ok(bytes.to_vec()),
         (MetadataMode::Xattr, Ok(None)) => Err(ImportFailure::corrupt(
             CorruptField::UserMetadata,
@@ -868,7 +917,7 @@ pub(super) fn verify_body(
         }
         hasher.update(chunk);
     }
-    if body.read != body.before.size {
+    if body.read != body.fingerprint().size {
         return Err(ImportFailure::SourceChanged {
             fields: vec![ChangedField::Size],
         });
@@ -945,7 +994,8 @@ fn object(
     }
     match options.metadata_mode {
         MetadataMode::Xattr => {
-            if xattr(&body.file, metadata_buffer).map_err(xattr_failure)? != Some(bytes.as_slice())
+            if xattr(body.source.file(), metadata_buffer).map_err(xattr_failure)?
+                != Some(bytes.as_slice())
             {
                 return Err(ImportFailure::SourceChanged {
                     fields: vec![ChangedField::Metadata],
@@ -962,11 +1012,11 @@ fn object(
             bucket.as_bytes(),
             name.as_str().as_bytes(),
             &bytes,
-            &body.before.size.to_be_bytes(),
-            &body.before.mtime_ns.to_be_bytes(),
+            &body.fingerprint().size.to_be_bytes(),
+            &body.fingerprint().mtime_ns.to_be_bytes(),
         ],
     );
-    report.observations(relative, &body.before);
+    report.observations(relative, body.fingerprint());
     let body_matches = verified
         .as_ref()
         .map_or(Ok(()), |verified| verified.matches);
@@ -983,10 +1033,10 @@ fn object(
             created_micros: accepted.created_micros,
             updated_micros: accepted.updated_micros,
             deleted_micros: None,
-            fingerprint: body.before.clone(),
+            fingerprint: body.fingerprint().clone(),
             verified_hashes: verified.map(|verified| verified.hashes),
             generated: &["native_etag", "metageneration_1"],
-            source_file: (report.purpose == ScanPurpose::Publish).then_some(body.file),
+            source_file: (report.purpose == ScanPurpose::Publish).then(|| body.into_file()),
             attributes_digest: super::filesystem::sha(&bytes),
             spec: accepted.spec,
         })))?;
