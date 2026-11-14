@@ -46,7 +46,8 @@ pub(super) async fn respond(
     let period = super::super::put::single(request.headers(), "x-goog-bucket-retention-period")?
         .map(|raw| super::super::number(raw, super::super::MinValue::One))
         .transpose()?;
-    let sha = auth::signature::payload_hash(request.headers())
+    let sha = auth::signature::PayloadHash::of(request.headers())
+        .map(auth::signature::PayloadHash::digest)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration"))?;
     let md5 = super::super::put::single(request.headers(), "content-md5")?
         .map(json::decode_hash::<16>)

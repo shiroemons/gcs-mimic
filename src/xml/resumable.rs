@@ -91,7 +91,10 @@ fn options(
     access: crate::bucket::BucketAccess,
 ) -> Result<ResumableOptions, Error> {
     reject_unsupported_headers(headers, signing)?;
-    if auth::signature::resumable_start(headers) != Ok(true) {
+    if !matches!(
+        auth::signature::Resumable::of(headers),
+        Ok(auth::signature::Resumable::Start)
+    ) {
         return Err(Error::invalid("x-goog-resumable must be start."));
     }
     let conditions = put::conditions(headers)?;

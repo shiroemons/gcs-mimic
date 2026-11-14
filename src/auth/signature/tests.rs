@@ -1077,6 +1077,28 @@ async fn raw_paths_query_sorting_and_header_normalization_preserve_signed_distin
     assert!(canonical_path("/bad%2").is_err());
 }
 
+/// The canonical request a signed URL signs, which declares `UNSIGNED-PAYLOAD`.
+fn unsigned_canonical(
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    query: &BTreeMap<String, String>,
+    signed: &str,
+    host: CanonicalHost,
+) -> String {
+    let signed = SignedHeaders::try_from(signed).unwrap();
+    CanonicalRequest {
+        method,
+        uri,
+        headers,
+        query,
+        signed: &signed,
+        payload: CanonicalPayload::Unsigned,
+    }
+    .render(host)
+    .unwrap()
+}
+
 #[test]
 fn canonical_headers_match_the_official_published_example() {
     let mut headers = HeaderMap::new();
@@ -1084,16 +1106,14 @@ fn canonical_headers_match_the_official_published_example() {
     headers.insert("content-type", "text/plain".parse().unwrap());
     headers.append("x-goog-meta-reviewer", "jane".parse().unwrap());
     headers.append("x-goog-meta-reviewer", "john".parse().unwrap());
-    let canonical = canonical_with_payload(
+    let canonical = unsigned_canonical(
         &Method::GET,
         &"/example-bucket/tabby.jpeg".parse().unwrap(),
         &headers,
         &BTreeMap::new(),
         "content-type;host;x-goog-meta-reviewer",
-        "UNSIGNED-PAYLOAD",
         CanonicalHost::AsSent,
-    )
-    .unwrap();
+    );
     assert_eq!(
         canonical,
         "GET\n/example-bucket/tabby.jpeg\n\ncontent-type:text/plain\nhost:storage.googleapis.com\nx-goog-meta-reviewer:jane,john\n\ncontent-type;host;x-goog-meta-reviewer\nUNSIGNED-PAYLOAD"
@@ -1110,16 +1130,14 @@ fn canonical_query_sorts_decoded_names_before_encoding() {
         ("é".into(), "日".into()),
     ]);
     let canonical = |host| {
-        canonical_with_payload(
+        unsigned_canonical(
             &Method::GET,
             &"/bucket/o?a=a+b&%2B=%2B&%C3%A9=%E6%97%A5".parse().unwrap(),
             &headers,
             &query,
             "host",
-            "UNSIGNED-PAYLOAD",
             host,
         )
-        .unwrap()
     };
     assert_eq!(
         canonical(CanonicalHost::AsSent),
@@ -1203,16 +1221,14 @@ async fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_sig
         headers.insert("x-goog-content-sha256", payload.parse().unwrap());
         let mut canonical_headers = headers.clone();
         canonical_headers.insert("host", "localhost".parse().unwrap());
-        let canonical = canonical_with_payload(
+        let canonical = unsigned_canonical(
             &Method::PUT,
             &"http://localhost/bucket/o".parse().unwrap(),
             &canonical_headers,
             &BTreeMap::new(),
             "host;x-goog-content-sha256",
-            "UNSIGNED-PAYLOAD",
             CanonicalHost::AsSent,
-        )
-        .unwrap();
+        );
         assert_eq!(
             canonical,
             format!(

@@ -6,20 +6,32 @@ use ring::hmac;
 
 pub(crate) const STREAMING_PAYLOAD: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
 
+/// Whether the body arrives in aws-chunked framing with a signature per chunk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PayloadFraming {
+    Plain,
+    AwsChunked,
+}
+
+/// Whether the request declares the aws-chunked streaming payload.
+pub(crate) fn is_streaming_payload(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-amz-content-sha256")
+        .is_some_and(|value| value == STREAMING_PAYLOAD)
+}
+
 pub(super) fn validate(
     method: &Method,
     headers: &HeaderMap,
     algorithm: v4::Algorithm,
     signing: v4::Signing,
-) -> Result<bool, Failure> {
+) -> Result<PayloadFraming, Failure> {
     let header = matches!(signing, v4::Signing::Header);
     let encoding = headers
         .get("content-encoding")
         .map(|value| value.to_str().map_err(|_| Failure::Malformed))
         .transpose()?;
-    let framed = headers
-        .get("x-amz-content-sha256")
-        .is_some_and(|value| value == STREAMING_PAYLOAD);
+    let framed = is_streaming_payload(headers);
     let aws_encoding = encoding.is_some_and(|value| {
         value
             .split(',')
@@ -31,7 +43,7 @@ pub(super) fn validate(
         && !transfer
         && !headers.contains_key("x-amz-decoded-content-length")
     {
-        return Ok(false);
+        return Ok(PayloadFraming::Plain);
     }
     let length = headers
         .get("x-amz-decoded-content-length")
@@ -58,7 +70,11 @@ pub(super) fn validate(
     {
         return Err(Failure::Malformed);
     }
-    Ok(framed)
+    Ok(if framed {
+        PayloadFraming::AwsChunked
+    } else {
+        PayloadFraming::Plain
+    })
 }
 
 pub(crate) struct Streaming {
@@ -109,11 +125,7 @@ impl Auth {
         let verify::Scheme::HmacV4(scope) = &prepared.scheme else {
             return Err(Failure::Malformed.into());
         };
-        if scope.family != v4::Family::Aws
-            || headers
-                .get("x-amz-content-sha256")
-                .is_none_or(|value| value != STREAMING_PAYLOAD)
-        {
+        if scope.family != v4::Family::Aws || !is_streaming_payload(headers) {
             return Err(Failure::Malformed.into());
         }
         // Only a signed aws-chunked upload asks for a key while signatures are ignored.

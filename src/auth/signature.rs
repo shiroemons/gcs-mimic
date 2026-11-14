@@ -17,6 +17,10 @@ use std::{
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer, pem::PemObject};
 
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
+const UNSIGNED_PAYLOAD: &str = "UNSIGNED-PAYLOAD";
+/// How far a signature's date may be from the verifier's clock, and how long a header
+/// signature lives: Cloud Storage's 15 minutes.
+pub(crate) const CLOCK_SKEW: Duration = Duration::from_mins(15);
 pub(crate) const MAX_EXPIRES: u64 = 604800;
 pub(crate) const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
@@ -48,7 +52,7 @@ mod streaming;
 mod v2;
 mod v4;
 mod verify;
-pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming};
+pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming, is_streaming_payload};
 pub(crate) use v2::xml_query;
 pub use v4::{NotV4Parameter, V4Parameter};
 pub(crate) use verify::VerificationError;
@@ -286,43 +290,41 @@ pub(super) struct PublicKey {
     e: Vec<u8>,
 }
 
+/// The DER `AlgorithmIdentifier` content of an RSA key: the rsaEncryption OID
+/// 1.2.840.113549.1.1.1 followed by its NULL parameters.
+const RSA_ENCRYPTION_ALGORITHM: &[u8] = &[
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+];
+
 impl PublicKey {
     pub(super) fn parse(pem: &str) -> Result<Self, InvalidPublicKey> {
-        let invalid = || InvalidPublicKey;
         if pem.len() > 4096
             || !pem.trim().starts_with("-----BEGIN PUBLIC KEY-----")
             || !pem.trim().ends_with("-----END PUBLIC KEY-----")
             || pem.matches("-----BEGIN").count() != 1
         {
-            return Err(invalid());
+            return Err(InvalidPublicKey);
         }
-        let der = SubjectPublicKeyInfoDer::from_pem_slice(pem.as_bytes()).map_err(|_| invalid())?;
+        let der = SubjectPublicKeyInfoDer::from_pem_slice(pem.as_bytes())
+            .map_err(|_| InvalidPublicKey)?;
         let mut outer = der.as_ref();
-        let mut spki = element(&mut outer, 0x30).ok_or_else(invalid)?;
-        if !outer.is_empty()
-            || element(&mut spki, 0x30)
-                != Some(
-                    &[
-                        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05,
-                        0x00,
-                    ][..],
-                )
-        {
-            return Err(invalid());
+        let mut spki = element(&mut outer, 0x30).ok_or(InvalidPublicKey)?;
+        if !outer.is_empty() || element(&mut spki, 0x30) != Some(RSA_ENCRYPTION_ALGORITHM) {
+            return Err(InvalidPublicKey);
         }
-        let bits = element(&mut spki, 0x03).ok_or_else(invalid)?;
+        let bits = element(&mut spki, 0x03).ok_or(InvalidPublicKey)?;
         if !spki.is_empty() || bits.first() != Some(&0) {
-            return Err(invalid());
+            return Err(InvalidPublicKey);
         }
-        let mut bits = bits.strip_prefix(&[0]).ok_or_else(invalid)?;
-        let mut rsa = element(&mut bits, 0x30).ok_or_else(invalid)?;
-        let n = integer(&mut rsa).ok_or_else(invalid)?;
-        let e = integer(&mut rsa).ok_or_else(invalid)?;
+        let mut bits = bits.strip_prefix(&[0]).ok_or(InvalidPublicKey)?;
+        let mut rsa = element(&mut bits, 0x30).ok_or(InvalidPublicKey)?;
+        let n = integer(&mut rsa).ok_or(InvalidPublicKey)?;
+        let e = integer(&mut rsa).ok_or(InvalidPublicKey)?;
         let exponent = e
             .iter()
             .try_fold(0u64, |v, b| v.checked_mul(256)?.checked_add(u64::from(*b)))
-            .ok_or_else(invalid)?;
-        let bit_len = n.len() * 8 - n.first().ok_or_else(invalid)?.leading_zeros() as usize;
+            .ok_or(InvalidPublicKey)?;
+        let bit_len = n.len() * 8 - n.first().ok_or(InvalidPublicKey)?.leading_zeros() as usize;
         if !bits.is_empty()
             || !rsa.is_empty()
             || !(2048..=8192).contains(&bit_len)
@@ -330,7 +332,7 @@ impl PublicKey {
             || !(3..=(1u64 << 33) - 1).contains(&exponent)
             || exponent & 1 == 0
         {
-            return Err(invalid());
+            return Err(InvalidPublicKey);
         }
         Ok(Self {
             n: n.to_vec(),
@@ -384,17 +386,26 @@ fn integer<'a>(input: &mut &'a [u8]) -> Option<&'a [u8]> {
     }
 }
 
-/// Whether a request starts an XML resumable upload. `start` is the only documented value, and
-/// one header value keeps the signed canonical form unambiguous.
-pub(crate) fn resumable_start(headers: &HeaderMap) -> Result<bool, Failure> {
-    let mut values = headers.get_all("x-goog-resumable").iter();
-    let Some(value) = values.next() else {
-        return Ok(false);
-    };
-    if values.next().is_some() || value != "start" {
-        return Err(Failure::Malformed);
+/// What `x-goog-resumable` asks for. `start` is the only documented value, and one header
+/// value keeps the signed canonical form unambiguous.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Resumable {
+    Absent,
+    /// The request starts an XML resumable upload.
+    Start,
+}
+
+impl Resumable {
+    pub(crate) fn of(headers: &HeaderMap) -> Result<Self, Failure> {
+        let mut values = headers.get_all("x-goog-resumable").iter();
+        let Some(value) = values.next() else {
+            return Ok(Self::Absent);
+        };
+        if values.next().is_some() || value != "start" {
+            return Err(Failure::Malformed);
+        }
+        Ok(Self::Start)
     }
-    Ok(true)
 }
 
 /// One header's only value, refusing a repeated header or a value that is not visible text.
@@ -556,99 +567,170 @@ impl ExtensionDialect {
     }
 }
 
-fn canonical_with_payload(
-    method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
-    query: &BTreeMap<String, String>,
-    signed: &str,
-    payload: &str,
-    host: CanonicalHost,
-) -> Result<String, Failure> {
-    let names: Vec<_> = signed.split(';').collect();
-    if !names.contains(&"host")
-        || !names.is_sorted_by(|a, b| a < b)
-        || names.iter().any(|name| {
-            name.is_empty()
-                || *name != name.to_ascii_lowercase()
-                || hyper::header::HeaderName::from_bytes(name.as_bytes()).is_err()
-        })
-    {
-        return Err(Failure::Malformed);
-    }
-    for key in headers.keys().map(|key| key.as_str()) {
-        if (key.starts_with("x-goog-") || key.starts_with("x-amz-"))
-            && !matches!(key, "x-goog-content-sha256" | "x-amz-content-sha256")
-            && !names.contains(&key)
-        {
-            return Err(Failure::Malformed);
-        }
-    }
-    let mut canonical_headers = String::new();
-    for name in names {
-        let values = headers
-            .get_all(name)
-            .iter()
-            .map(|value| {
-                value
-                    .to_str()
-                    .map(|v| v.split_ascii_whitespace().collect::<Vec<_>>().join(" "))
-                    .map_err(|_| Failure::Malformed)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let Some(first) = values.first() else {
-            return Err(Failure::Mismatch);
-        };
-        if name == "host" && (values.len() != 1 || first.is_empty()) {
-            return Err(Failure::Mismatch);
-        }
-        // The authority check binds the request as sent, whichever host form is signed.
-        if name == "host"
-            && uri
-                .authority()
-                .is_some_and(|authority| authority.as_str() != first)
-        {
-            return Err(Failure::Mismatch);
-        }
-        canonical_headers.push_str(name);
-        canonical_headers.push(':');
-        if name == "host" {
-            canonical_headers.push_str(host.value(first));
-        } else {
-            canonical_headers.push_str(&values.join(","));
-        }
-        canonical_headers.push('\n');
-    }
-    let path = canonical_path(uri.path())?;
-    Ok(format!(
-        "{method}\n{path}\n{}\n{canonical_headers}\n{signed}\n{payload}",
-        canonical_query(query)
-    ))
+/// The `SignedHeaders` list of a V4 signature: lowercase, strictly ascending, valid header
+/// names that include `host`, kept in the spelling the signer sent.
+struct SignedHeaders<'a> {
+    raw: &'a str,
+    names: Vec<&'a str>,
 }
 
-pub(crate) fn payload_hash(headers: &HeaderMap) -> Result<Option<[u8; 32]>, Failure> {
-    let name = if headers.contains_key("x-amz-content-sha256") {
-        if headers.contains_key("x-goog-content-sha256") {
+impl<'a> TryFrom<&'a str> for SignedHeaders<'a> {
+    type Error = Failure;
+
+    fn try_from(raw: &'a str) -> Result<Self, Failure> {
+        let names: Vec<_> = raw.split(';').collect();
+        if !names.contains(&"host")
+            || !names.is_sorted_by(|a, b| a < b)
+            || names.iter().any(|name| {
+                name.is_empty()
+                    || *name != name.to_ascii_lowercase()
+                    || hyper::header::HeaderName::from_bytes(name.as_bytes()).is_err()
+            })
+        {
             return Err(Failure::Malformed);
         }
-        "x-amz-content-sha256"
-    } else {
-        "x-goog-content-sha256"
-    };
-    match headers.get(name) {
-        None => Ok(None),
-        Some(value) => {
-            let value = value.to_str().map_err(|_| Failure::Malformed)?;
-            if headers.get_all(name).iter().count() != 1 {
+        Ok(Self { raw, names })
+    }
+}
+
+impl SignedHeaders<'_> {
+    fn contains(&self, name: &str) -> bool {
+        self.names.contains(&name)
+    }
+}
+
+/// The payload line of a V4 canonical request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CanonicalPayload {
+    Unsigned,
+    /// An aws-chunked body, whose chunks carry their own signatures.
+    Streaming,
+    Sha256([u8; 32]),
+}
+
+impl fmt::Display for CanonicalPayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsigned => f.write_str(UNSIGNED_PAYLOAD),
+            Self::Streaming => f.write_str(STREAMING_PAYLOAD),
+            Self::Sha256(hash) => f.write_str(&encode_lower(hash)),
+        }
+    }
+}
+
+/// The request parts a V4 canonical request binds.
+struct CanonicalRequest<'a> {
+    method: &'a Method,
+    uri: &'a Uri,
+    headers: &'a HeaderMap,
+    query: &'a BTreeMap<String, String>,
+    signed: &'a SignedHeaders<'a>,
+    payload: CanonicalPayload,
+}
+
+impl CanonicalRequest<'_> {
+    fn render(&self, host: CanonicalHost) -> Result<String, Failure> {
+        let Self {
+            method,
+            uri,
+            headers,
+            query,
+            signed,
+            payload,
+        } = self;
+        for key in headers.keys().map(|key| key.as_str()) {
+            if (key.starts_with("x-goog-") || key.starts_with("x-amz-"))
+                && !matches!(key, "x-goog-content-sha256" | "x-amz-content-sha256")
+                && !signed.contains(key)
+            {
                 return Err(Failure::Malformed);
             }
-            if value == "UNSIGNED-PAYLOAD" {
-                Ok(None)
-            } else {
-                crate::hex::decode_lower::<32>(value)
-                    .map(Some)
-                    .ok_or(Failure::Malformed)
+        }
+        let mut canonical_headers = String::new();
+        for &name in &signed.names {
+            let values = headers
+                .get_all(name)
+                .iter()
+                .map(|value| {
+                    value
+                        .to_str()
+                        .map(|v| v.split_ascii_whitespace().collect::<Vec<_>>().join(" "))
+                        .map_err(|_| Failure::Malformed)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let Some(first) = values.first() else {
+                return Err(Failure::Mismatch);
+            };
+            if name == "host" && (values.len() != 1 || first.is_empty()) {
+                return Err(Failure::Mismatch);
             }
+            // The authority check binds the request as sent, whichever host form is signed.
+            if name == "host"
+                && uri
+                    .authority()
+                    .is_some_and(|authority| authority.as_str() != first)
+            {
+                return Err(Failure::Mismatch);
+            }
+            canonical_headers.push_str(name);
+            canonical_headers.push(':');
+            if name == "host" {
+                canonical_headers.push_str(host.value(first));
+            } else {
+                canonical_headers.push_str(&values.join(","));
+            }
+            canonical_headers.push('\n');
+        }
+        let path = canonical_path(uri.path())?;
+        Ok(format!(
+            "{method}\n{path}\n{}\n{canonical_headers}\n{}\n{payload}",
+            canonical_query(query),
+            signed.raw
+        ))
+    }
+}
+
+/// The `x-goog-content-sha256` or `x-amz-content-sha256` declaration of a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PayloadHash {
+    Absent,
+    /// `UNSIGNED-PAYLOAD`.
+    Unsigned,
+    Sha256([u8; 32]),
+}
+
+impl PayloadHash {
+    /// The one declaration a request may make, in either spelling but not both.
+    pub(crate) fn of(headers: &HeaderMap) -> Result<Self, Failure> {
+        let name = if headers.contains_key("x-amz-content-sha256") {
+            if headers.contains_key("x-goog-content-sha256") {
+                return Err(Failure::Malformed);
+            }
+            "x-amz-content-sha256"
+        } else {
+            "x-goog-content-sha256"
+        };
+        let Some(value) = headers.get(name) else {
+            return Ok(Self::Absent);
+        };
+        let value = value.to_str().map_err(|_| Failure::Malformed)?;
+        if headers.get_all(name).iter().count() != 1 {
+            return Err(Failure::Malformed);
+        }
+        if value == UNSIGNED_PAYLOAD {
+            Ok(Self::Unsigned)
+        } else {
+            crate::hex::decode_lower::<32>(value)
+                .map(Self::Sha256)
+                .ok_or(Failure::Malformed)
+        }
+    }
+
+    /// The digest a body must match. An absent or unsigned declaration binds none.
+    pub(crate) fn digest(self) -> Option<[u8; 32]> {
+        match self {
+            Self::Sha256(hash) => Some(hash),
+            Self::Absent | Self::Unsigned => None,
         }
     }
 }
@@ -808,7 +890,8 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
         || !(matches!(
             *method,
             Method::GET | Method::HEAD | Method::PUT | Method::DELETE
-        ) || (*method == Method::POST && resumable_start(&headers) == Ok(true)))
+        ) || (*method == Method::POST
+            && matches!(Resumable::of(&headers), Ok(Resumable::Start))))
         || !super::visible_ascii(signer, 254)
         || signer.contains('/')
         || !(1..=MAX_EXPIRES).contains(&expires)
@@ -862,16 +945,18 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
     ] {
         query.insert(k.into(), v);
     }
-    payload_hash(&headers).map_err(|_| SigningError::InvalidRequest)?;
-    let canonical = canonical_with_payload(
+    PayloadHash::of(&headers).map_err(|_| SigningError::InvalidRequest)?;
+    let signed_headers =
+        SignedHeaders::try_from(signed.as_str()).map_err(|_| SigningError::InvalidRequest)?;
+    let canonical = CanonicalRequest {
         method,
-        &uri,
-        &headers,
-        &query,
-        &signed,
-        "UNSIGNED-PAYLOAD",
-        CanonicalHost::AsSent,
-    )
+        uri: &uri,
+        headers: &headers,
+        query: &query,
+        signed: &signed_headers,
+        payload: CanonicalPayload::Unsigned,
+    }
+    .render(CanonicalHost::AsSent)
     .map_err(|_| SigningError::InvalidRequest)?;
     let message = string_to_sign(ALGORITHM, &date, &scope, &canonical);
     let bytes = rsa_sign(private_key, &message)?;

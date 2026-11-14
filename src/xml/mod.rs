@@ -187,10 +187,7 @@ pub(crate) async fn authenticate_upload_target<'a>(
         clock,
         ..
     } = authentication;
-    if headers
-        .get("x-amz-content-sha256")
-        .is_some_and(|value| value == crate::auth::signature::STREAMING_PAYLOAD)
-    {
+    if crate::auth::signature::is_streaming_payload(headers) {
         let (caller, streaming) = auth
             .authenticate_streaming(catalog, method, uri, headers, clock)
             .await
@@ -907,7 +904,9 @@ pub(crate) fn headers(
     headers: &HeaderMap,
     policy: HeaderPolicy,
 ) -> Result<ObjectConditions, Error> {
-    if let Some(hash) = crate::auth::signature::payload_hash(headers)
+    use crate::auth::signature::PayloadHash;
+    if let Some(hash) = PayloadHash::of(headers)
+        .map(PayloadHash::digest)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?
         && hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
     {

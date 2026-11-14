@@ -129,7 +129,7 @@ pub(super) fn headers(
     let sha256 = if signing == Signing::Streaming {
         Ok(None)
     } else {
-        auth::signature::payload_hash(headers)
+        auth::signature::PayloadHash::of(headers).map(auth::signature::PayloadHash::digest)
     }
     .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?;
     Ok(Headers {

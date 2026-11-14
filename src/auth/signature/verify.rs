@@ -245,10 +245,7 @@ impl Auth {
             headers,
             resource,
         } = request;
-        if headers
-            .get("x-amz-content-sha256")
-            .is_some_and(|value| value == STREAMING_PAYLOAD)
-        {
+        if is_streaming_payload(headers) {
             // Only the ordinary PUT adapter carries the authenticated chunk-verifier state.
             return Err(Failure::Malformed.into());
         }

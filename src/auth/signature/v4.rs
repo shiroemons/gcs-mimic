@@ -1,5 +1,6 @@
 //! V4 wire parsing shared by Google RSA, Google HMAC and interoperable AWS HMAC.
 
+use super::streaming::PayloadFraming;
 pub(super) use super::verify::Prepared;
 use super::verify::{Scheme, V4Scope};
 use super::*;
@@ -273,9 +274,9 @@ pub(super) fn prepare(
         algorithm,
         credential,
         date,
-        signed_headers: signed,
+        signed_headers,
         signature,
-        expires,
+        signing,
     } = if header {
         Fields::try_from(headers)?
     } else {
@@ -287,38 +288,12 @@ pub(super) fn prepare(
     let active = parse_timestamp(date).map_err(|_| Failure::Malformed)?;
     let family = algorithm.family();
     let credential = CredentialScope::parse(credential, date, family.credential_service())?;
-    if now
-        .checked_add(Duration::from_secs(900))
-        .is_none_or(|now| now < active)
-    {
-        return Err(Failure::NotYetValid);
-    }
-    let end = active
-        .checked_add(Duration::from_secs(expires))
-        .ok_or(Failure::Malformed)?;
-    if now > end || (!header && now == end) {
-        return Err(Failure::Expired);
-    }
-    supported_request(
-        method,
-        headers,
-        if header {
-            Signing::Header
-        } else {
-            Signing::Query
-        },
-        signed,
-    )?;
-    let streaming = super::streaming::validate(
-        method,
-        headers,
-        algorithm,
-        if header {
-            Signing::Header
-        } else {
-            Signing::Query
-        },
-    )?;
+    check_window(active, now, signing)?;
+    // Everything from here fails as Malformed until the canonical request is rendered, so the
+    // order of these checks never changes the answer; the time window above stays first.
+    let signed = SignedHeaders::try_from(signed_headers)?;
+    supported_request(method, headers, signing, &signed)?;
+    let framing = super::streaming::validate(method, headers, algorithm, signing)?;
     let other = family.other();
     if [other.date_header(), other.content_sha256_header()]
         .iter()
@@ -326,30 +301,35 @@ pub(super) fn prepare(
     {
         return Err(Failure::Malformed);
     }
-    let hash = if streaming {
-        None
-    } else {
-        payload_hash(headers)?
-    };
-    if header && !headers.contains_key(family.content_sha256_header()) {
-        return Err(Failure::Malformed);
-    }
-    let payload = if streaming {
-        STREAMING_PAYLOAD.into()
-    } else if header {
-        hash.map(|hash| encode_lower(&hash))
-            .unwrap_or_else(|| "UNSIGNED-PAYLOAD".into())
-    } else {
-        "UNSIGNED-PAYLOAD".into()
+    let payload = match (framing, signing) {
+        (PayloadFraming::AwsChunked, _) => CanonicalPayload::Streaming,
+        (PayloadFraming::Plain, Signing::Query { .. }) => {
+            // A signed URL signs UNSIGNED-PAYLOAD, but a malformed declaration still fails.
+            PayloadHash::of(headers)?;
+            CanonicalPayload::Unsigned
+        }
+        // The other family's header was refused above, so an absent declaration means this
+        // family's header is missing, which a header signature must send.
+        (PayloadFraming::Plain, Signing::Header) => match PayloadHash::of(headers)? {
+            PayloadHash::Sha256(hash) => CanonicalPayload::Sha256(hash),
+            PayloadHash::Unsigned => CanonicalPayload::Unsigned,
+            PayloadHash::Absent => return Err(Failure::Malformed),
+        },
     };
     let name = algorithm.name();
     let scope = credential.scope;
-    let canonical =
-        |host| canonical_with_payload(method, uri, headers, &query, signed, &payload, host);
-    let as_sent = canonical(CanonicalHost::AsSent)?;
+    let request = CanonicalRequest {
+        method,
+        uri,
+        headers,
+        query: &query,
+        signed: &signed,
+        payload,
+    };
+    let as_sent = request.render(CanonicalHost::AsSent)?;
     // Go storage drops an explicit port from the canonical host. A signature that fails as sent
     // is checked against this form too: exact names the port as the cause, lenient accepts.
-    let without_port = canonical(CanonicalHost::WithoutPort)?;
+    let without_port = request.render(CanonicalHost::WithoutPort)?;
     Ok(Prepared {
         signer: credential.signer.into(),
         scheme: algorithm.scheme(date, scope),
@@ -360,28 +340,62 @@ pub(super) fn prepare(
     })
 }
 
-#[derive(Clone, Copy)]
+/// The signature lives from its date: `NotYetValid` beyond the clock skew ahead, `Expired` once
+/// its lifetime ends.
+fn check_window(active: SystemTime, now: SystemTime, signing: Signing) -> Result<(), Failure> {
+    if now.checked_add(CLOCK_SKEW).is_none_or(|now| now < active) {
+        return Err(Failure::NotYetValid);
+    }
+    let end = active
+        .checked_add(signing.lifetime())
+        .ok_or(Failure::Malformed)?;
+    if signing.expired(now, end) {
+        return Err(Failure::Expired);
+    }
+    Ok(())
+}
+
+/// Where a V4 signature travels, which sets how long it lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Signing {
-    Query,
+    /// Query parameters: the signature lives `expires` seconds, excluding the last instant.
+    Query { expires: u64 },
+    /// An `Authorization` value: it lives for the clock skew, including the last instant.
     Header,
+}
+
+impl Signing {
+    fn lifetime(self) -> Duration {
+        match self {
+            Self::Query { expires } => Duration::from_secs(expires),
+            Self::Header => CLOCK_SKEW,
+        }
+    }
+
+    fn expired(self, now: SystemTime, end: SystemTime) -> bool {
+        match self {
+            Self::Query { .. } => now >= end,
+            Self::Header => now > end,
+        }
+    }
 }
 
 fn supported_request(
     method: &Method,
     headers: &HeaderMap,
     signing: Signing,
-    signed: &str,
+    signed: &SignedHeaders<'_>,
 ) -> Result<(), Failure> {
-    let resumable = resumable_start(headers)?;
+    let resumable = Resumable::of(headers)?;
     // Google accepts a signed URL POST only to start a resumable upload. A URL signed for
     // that purpose but sent without the header reaches canonicalization and fails as a
     // signature mismatch, because the signed header is missing.
-    let query_post = matches!(signing, Signing::Query) && *method == Method::POST;
+    let query_post = matches!(signing, Signing::Query { .. }) && *method == Method::POST;
     if !matches!(
         *method,
         Method::GET | Method::HEAD | Method::PUT | Method::DELETE | Method::POST
-    ) || (query_post && !resumable && !signed.split(';').any(|name| name == "x-goog-resumable"))
-        || (resumable && *method != Method::POST)
+    ) || (query_post && resumable == Resumable::Absent && !signed.contains("x-goog-resumable"))
+        || (resumable == Resumable::Start && *method != Method::POST)
         || headers.contains_key("x-amz-trailer")
         || headers.contains_key("trailer")
     {
@@ -397,7 +411,7 @@ struct Fields<'a> {
     date: &'a str,
     signed_headers: &'a str,
     signature: &'a str,
-    expires: u64,
+    signing: Signing,
 }
 
 /// One value per field while a query is parsed; the parser's result is a complete `Fields`.
@@ -481,7 +495,7 @@ impl<'a> TryFrom<&'a BTreeMap<String, String>> for Fields<'a> {
             date: non_empty(date)?,
             signed_headers: non_empty(signed_headers)?,
             signature: non_empty(signature)?,
-            expires,
+            signing: Signing::Query { expires },
         })
     }
 }
@@ -511,7 +525,7 @@ impl<'a> TryFrom<&'a HeaderMap> for Fields<'a> {
             date,
             signed_headers: required("SignedHeaders")?,
             signature: required("Signature")?,
-            expires: 900,
+            signing: Signing::Header,
         })
     }
 }

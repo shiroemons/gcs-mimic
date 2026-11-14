@@ -249,7 +249,7 @@ fn check_policy_window(
     // verified policy gets the same validity window as a V4 signed URL.
     if let Some(active) = signed_at {
         if now
-            .checked_add(Duration::from_secs(900))
+            .checked_add(crate::auth::signature::CLOCK_SKEW)
             .is_none_or(|now| now < active)
         {
             return Err(policy_error(

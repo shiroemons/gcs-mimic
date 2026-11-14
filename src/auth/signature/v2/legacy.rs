@@ -65,26 +65,14 @@ pub(in crate::auth::signature) fn prepare(
         || signer
             .bytes()
             .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
-        || headers.keys().any(|name| {
-            name.as_str()
-                .starts_with(if profile == Profile::GoogleHeader {
-                    "x-amz-"
-                } else {
-                    "x-goog-"
-                })
-        })
+        || headers
+            .keys()
+            .any(|name| name.as_str().starts_with(profile.foreign_prefix()))
     {
         return Err(Failure::Malformed);
     }
     let date = single(headers, "date")?;
-    let alternate = single(
-        headers,
-        if profile == Profile::GoogleHeader {
-            "x-goog-date"
-        } else {
-            "x-amz-date"
-        },
-    )?;
+    let alternate = single(headers, profile.date_header())?;
     let effective = alternate.or(date).ok_or(Failure::Malformed)?;
     // AWS's published legacy vector uses +0000; retain its original bytes in the signature.
     let normalized = effective
@@ -94,16 +82,19 @@ pub(in crate::auth::signature) fn prepare(
         .map_err(|_| Failure::Malformed)?;
     if active
         .duration_since(now)
-        .is_ok_and(|offset| offset > Duration::from_secs(900))
+        .is_ok_and(|offset| offset > CLOCK_SKEW)
     {
         return Err(Failure::NotYetValid);
     }
     if now
         .duration_since(active)
-        .is_ok_and(|offset| offset > Duration::from_secs(900))
+        .is_ok_and(|offset| offset > CLOCK_SKEW)
     {
         return Err(Failure::Expired);
     }
+    // `x-goog-date` and `x-amz-date` are signed as extension headers, so their date line is
+    // empty: the empty string is the string to sign's own line.
+    let date_line = if alternate.is_some() { "" } else { effective };
     Ok(v4::Prepared {
         signer: signer.into(),
         scheme: verify::Scheme::HmacSha1,
@@ -113,7 +104,7 @@ pub(in crate::auth::signature) fn prepare(
             headers,
             &query,
             Canonical {
-                date: if alternate.is_some() { "" } else { effective },
+                date: date_line,
                 profile,
                 resource,
             },

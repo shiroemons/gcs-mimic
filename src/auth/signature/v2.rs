@@ -22,6 +22,22 @@ impl Profile {
             Self::Aws => "x-amz-",
         }
     }
+
+    /// The extension prefix of the other provider, which a legacy header signature refuses.
+    fn foreign_prefix(self) -> &'static str {
+        match self {
+            Self::GoogleQuery | Self::GoogleHeader => "x-amz-",
+            Self::Aws => "x-goog-",
+        }
+    }
+
+    /// The extension header that replaces `Date` in a legacy header signature.
+    fn date_header(self) -> &'static str {
+        match self {
+            Self::GoogleQuery | Self::GoogleHeader => "x-goog-date",
+            Self::Aws => "x-amz-date",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -62,31 +78,31 @@ pub(super) fn prepare_query(
     resource: &Resource,
     keys: &SigningKeys,
 ) -> Result<v4::Prepared, Failure> {
-    let (query, deadline) = query_fields(uri)?;
+    let query = parse_query(uri)?;
+    let fields = QueryFields::parse(&query)?;
     if headers.contains_key("authorization") {
         return Err(Failure::Malformed);
     }
-    if now >= deadline {
+    if now >= fields.deadline {
         return Err(Failure::Expired);
     }
-    let signer = required(&query, "GoogleAccessId")?;
     Ok(v4::Prepared {
-        signer: signer.into(),
-        scheme: verify::v2_scheme(keys, signer),
+        signer: fields.access_id.into(),
+        scheme: verify::v2_scheme(keys, fields.access_id),
         message: string_to_sign(
             method,
             uri,
             headers,
             &query,
             Canonical {
-                date: required(&query, "Expires")?,
+                date: fields.expires,
                 profile: Profile::GoogleQuery,
                 resource,
             },
         )?,
         // V2 does not sign Host.
         portless: None,
-        signature: decode_signature(required(&query, "Signature")?)?,
+        signature: decode_signature(fields.signature)?,
     })
 }
 
@@ -98,30 +114,49 @@ fn required<'a>(query: &'a BTreeMap<String, String>, name: &str) -> Result<&'a s
         .ok_or(Failure::Malformed)
 }
 
-fn query_fields(uri: &Uri) -> Result<(BTreeMap<String, String>, SystemTime), Failure> {
-    let query =
-        json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
-    if query
-        .keys()
-        .any(|key| signing_param(key.as_bytes()).is_some_and(|family| family != SigningParams::V2))
-    {
-        return Err(Failure::Malformed);
+fn parse_query(uri: &Uri) -> Result<BTreeMap<String, String>, Failure> {
+    json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)
+}
+
+/// The required fields of a V2 query signature.
+struct QueryFields<'q> {
+    access_id: &'q str,
+    /// `Expires` as sent, which the string to sign repeats.
+    expires: &'q str,
+    signature: &'q str,
+    deadline: SystemTime,
+}
+
+impl<'q> QueryFields<'q> {
+    /// Refuses V4 parameters beside V2 ones, then reads the fields in the order a missing one
+    /// is reported: `GoogleAccessId`, `Signature`, `Expires`.
+    fn parse(query: &'q BTreeMap<String, String>) -> Result<Self, Failure> {
+        if query.keys().any(|key| {
+            signing_param(key.as_bytes()).is_some_and(|family| family != SigningParams::V2)
+        }) {
+            return Err(Failure::Malformed);
+        }
+        let access_id = required(query, "GoogleAccessId")?;
+        let signature = required(query, "Signature")?;
+        let expires = required(query, "Expires")?;
+        let seconds = crate::decimal::Grammar::Digits
+            .parse::<u64>(expires)
+            .ok_or(Failure::Malformed)?;
+        let deadline = UNIX_EPOCH
+            .checked_add(Duration::from_secs(seconds))
+            .ok_or(Failure::Malformed)?;
+        Ok(Self {
+            access_id,
+            expires,
+            signature,
+            deadline,
+        })
     }
-    required(&query, "GoogleAccessId")?;
-    required(&query, "Signature")?;
-    let expires = required(&query, "Expires")?;
-    let seconds = crate::decimal::Grammar::Digits
-        .parse::<u64>(expires)
-        .ok_or(Failure::Malformed)?;
-    let deadline = UNIX_EPOCH
-        .checked_add(Duration::from_secs(seconds))
-        .ok_or(Failure::Malformed)?;
-    Ok((query, deadline))
 }
 
 /// Historical permissive V2 checks only shape; unlike V4 it rejects malformed credential fields.
 pub(super) fn validate_query_shape(uri: &Uri) -> Result<(), Failure> {
-    query_fields(uri).map(|_| ())
+    QueryFields::parse(&parse_query(uri)?).map(drop)
 }
 
 fn string_to_sign(
@@ -136,20 +171,10 @@ fn string_to_sign(
         profile,
         resource,
     } = canonical;
-    let single = |name| {
-        if headers.get_all(name).iter().count() > 1 {
-            return Err(Failure::Malformed);
-        }
-        headers
-            .get(name)
-            .map(|value| value.to_str().map_err(|_| Failure::Malformed))
-            .transpose()
-            .map(|value| value.unwrap_or_default())
-    };
     let mut message = format!(
         "{method}\n{}\n{}\n{date}\n",
-        single("content-md5")?,
-        single("content-type")?
+        single(headers, "content-md5")?.unwrap_or_default(),
+        single(headers, "content-type")?.unwrap_or_default()
     );
     let mut names: Vec<_> = headers
         .keys()
