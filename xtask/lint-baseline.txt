@@ -23,4 +23,3 @@ text::json_macro_value	src/json/objects.rs	28
 text::json_macro_value	src/json/rewrite.rs	4
 text::json_macro_value	src/notification/event.rs	1
 text::json_macro_value	src/server/admin/sync/findings.rs	7
-text::json_macro_value	src/xml/buckets/create.rs	1

@@ -48,7 +48,7 @@ pub(crate) use buckets::{
 #[cfg(test)]
 pub(crate) use buckets::{BucketPredefinedAcls, bucket_resource};
 pub(crate) use buckets::{
-    bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
+    bucket_list_with_profile, bucket_resource_with_profile, insert_from_object, parse_bucket_patch,
     parse_bucket_replacement, parse_insert_with_profile, require_matching_bucket_name,
     soft_deleted_bucket_list, soft_deleted_bucket_resource, storage_layout_resource,
     validate_bucket_name,

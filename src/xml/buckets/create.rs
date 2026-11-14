@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::xml::document::{self, malformed};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 pub(super) async fn respond(
     request: Request<RequestBody>,
@@ -69,17 +69,16 @@ pub(super) async fn respond(
             ));
         }
     }
-    let mut value = parse(&bytes, bucket, ctx.config.compat_profile)?;
-    if let Some(period) = period
-        && let Some(value) = value.as_object_mut()
+    let configuration = BucketConfiguration::parse(&bytes)?;
+    if ctx.config.compat_profile == crate::config::CompatProfile::FakeGcsServer
+        && (configuration.location.is_some() || configuration.storage_class.is_some())
     {
-        value.insert(
-            "retentionPolicy".into(),
-            json!({"retentionPeriod": period.to_string()}),
-        );
+        return Err(Error::unsupported(
+            "legacy bucket creation settings; use the native compatibility profile",
+        ));
     }
-    let mut record = json::parse_insert_with_profile(
-        value.to_string().as_bytes(),
+    let mut record = json::insert_from_object(
+        &configuration.into_insert_body(bucket, period),
         &project,
         ctx.state.clock.now(),
         ctx.config.compat_profile,
@@ -94,46 +93,83 @@ pub(super) async fn respond(
     Ok(boxed(empty_response(StatusCode::OK)))
 }
 
-fn parse(
-    bytes: &[u8],
-    bucket: &str,
-    profile: crate::config::CompatProfile,
-) -> Result<Value, Error> {
-    let mut value = Map::from_iter([("name".into(), json!(bucket))]);
-    if !bytes.is_empty() {
+/// The settings a `CreateBucketConfiguration` body may carry.
+#[derive(Default)]
+struct BucketConfiguration {
+    location: Option<LocationConstraint>,
+    /// `StorageClass` as sent; the shared bucket validation checks it.
+    storage_class: Option<String>,
+}
+
+/// A `LocationConstraint` element.
+enum LocationConstraint {
+    /// Empty: the configured default location. Only the JSON API has provider evidence that
+    /// an empty location is rejected.
+    Default,
+    Named(String),
+}
+
+impl BucketConfiguration {
+    /// An empty body sets nothing. A repeated, nested or unknown element is malformed, and the
+    /// placement and encryption settings are unsupported.
+    fn parse(bytes: &[u8]) -> Result<Self, Error> {
+        let mut configuration = Self::default();
+        if bytes.is_empty() {
+            return Ok(configuration);
+        }
         let root = document::read(bytes)?;
         if root.name != "CreateBucketConfiguration" || !root.text.trim().is_empty() {
             return Err(malformed());
         }
         for child in root.children {
-            let field = match child.name.as_str() {
-                "LocationConstraint" => "location",
-                "StorageClass" => "storageClass",
+            let text = child.text.trim();
+            match child.name.as_str() {
+                "LocationConstraint" => {
+                    if configuration.location.is_some() || !child.children.is_empty() {
+                        return Err(malformed());
+                    }
+                    configuration.location = Some(if text.is_empty() {
+                        LocationConstraint::Default
+                    } else {
+                        LocationConstraint::Named(text.to_owned())
+                    });
+                }
+                "StorageClass" => {
+                    if configuration.storage_class.is_some() || !child.children.is_empty() {
+                        return Err(malformed());
+                    }
+                    configuration.storage_class = Some(text.to_owned());
+                }
                 "CustomPlacementConfig" | "EncryptionConfiguration" => {
                     return Err(Error::unsupported(&child.name));
                 }
                 _ => return Err(malformed()),
-            };
-            if value.get(field).is_some() || !child.children.is_empty() {
-                return Err(malformed());
             }
-            let text = child.text.trim();
-            // An empty LocationConstraint keeps meaning the configured default here; only the
-            // JSON API has provider evidence that an empty location is rejected.
-            let setting = if field == "location" && text.is_empty() {
-                Value::Null
-            } else {
-                Value::String(text.into())
-            };
-            value.insert(field.into(), setting);
         }
+        Ok(configuration)
     }
-    if profile == crate::config::CompatProfile::FakeGcsServer
-        && (value.get("location").is_some() || value.get("storageClass").is_some())
-    {
-        return Err(Error::unsupported(
-            "legacy bucket creation settings; use the native compatibility profile",
-        ));
+
+    /// The JSON insert members the shared bucket validation reads: the name, the settings that
+    /// were sent, with a default location as `null`, and the retention period header.
+    fn into_insert_body(self, bucket: &str, retention_period: Option<i64>) -> Map<String, Value> {
+        let mut body = Map::from_iter([("name".to_owned(), Value::from(bucket))]);
+        if let Some(location) = self.location {
+            let location = match location {
+                LocationConstraint::Default => Value::Null,
+                LocationConstraint::Named(name) => Value::String(name),
+            };
+            body.insert("location".to_owned(), location);
+        }
+        if let Some(class) = self.storage_class {
+            body.insert("storageClass".to_owned(), Value::String(class));
+        }
+        if let Some(period) = retention_period {
+            let policy = Map::from_iter([(
+                "retentionPeriod".to_owned(),
+                Value::String(period.to_string()),
+            )]);
+            body.insert("retentionPolicy".to_owned(), Value::Object(policy));
+        }
+        body
     }
-    Ok(Value::Object(value))
 }
