@@ -324,8 +324,8 @@ pub struct ObjectMetadataUpdate {
     pub temporary_hold: Option<bool>,
     /// Only a time changes the stored custom time; `Clear` keeps it (see `apply_with`).
     pub custom_time: Patch<String>,
-    /// `Some(None)` removes the configuration; transitions are checked by the catalog.
-    pub(crate) retention: Option<Option<retention::ObjectRetention>>,
+    /// `Clear` removes the configuration; transitions are checked by the catalog.
+    pub(crate) retention: Patch<retention::ObjectRetention>,
     pub(crate) override_unlocked_retention: retention::UnlockedOverride,
     /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
     pub customer_key_sha256: Option<[u8; 32]>,
@@ -443,7 +443,7 @@ impl ObjectMetadataUpdate {
     /// newly requested value is checked: an object whose retention has expired stays valid and
     /// must remain restorable and movable.
     pub(crate) fn reject_past_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
-        if let Some(Some(retention)) = &self.retention
+        if let Some(retention) = self.retention.value()
             && retention.retain_until <= UnixNanos::from(now)
         {
             return Err(ObjectError::InvalidFixedMetadata(
@@ -514,8 +514,10 @@ impl ObjectMetadataUpdate {
         if let Some(hold) = self.temporary_hold {
             record.temporary_hold = Hold::from(Some(hold));
         }
-        if let Some(retention) = self.retention {
-            record.retention = retention;
+        match self.retention {
+            Patch::Keep => {}
+            Patch::Clear => record.retention = None,
+            Patch::Set(retention) => record.retention = Some(retention),
         }
         if let Some(sha256) = self.customer_key_sha256 {
             record.customer_key_sha256 = Some(sha256);

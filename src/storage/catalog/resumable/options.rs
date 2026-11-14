@@ -139,7 +139,7 @@ impl StoredOptions {
             content_language: stored(&m.content_language),
             cache_control: stored(&m.cache_control),
             metadata: m.metadata.clone().map(|value| Field { value }),
-            retention: super::super::objects::retention::session_value(m.retention.as_ref()),
+            retention: super::super::objects::retention::session_value(&m.retention),
             customer_key_sha256: m.customer_key_sha256,
             storage_class: m.storage_class,
             predefined_acl: m.predefined_acl.map(|value| value.as_str().into()),

@@ -495,10 +495,10 @@ async fn retention_allows_transitions_and_delays_a_matching_delete_to_exact_expi
             catalog.insert_bucket(record).await.unwrap();
             let mut upload = permissive_upload("bucket", "object", 100);
             if object_retention {
-                upload.metadata.retention = Some(Some(ObjectRetention {
+                upload.metadata.retention = Patch::Set(ObjectRetention {
                     mode: RetentionMode::Locked,
                     retain_until: until.into(),
-                }));
+                });
             }
             let original = catalog
                 .put_object(upload, body(vec![Bytes::from_static(b"data")]))

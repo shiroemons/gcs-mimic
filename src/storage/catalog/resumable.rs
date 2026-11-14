@@ -795,7 +795,7 @@ mod tests {
         let mut options = ResumableOptions::new(BucketAccess::Permissive);
         options.metadata.content_type = Patch::Clear;
         options.metadata.metadata = Some(None);
-        options.metadata.retention = Some(None);
+        options.metadata.retention = Patch::Clear;
         let encoded = encode_options(&options);
         assert_eq!(
             encoded["metadata"]["contentType"].to_string(),

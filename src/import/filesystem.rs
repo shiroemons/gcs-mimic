@@ -281,7 +281,7 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
     Ok(Publication {
         content_type: attrs.content_type.clone(),
         metadata: ObjectMetadataUpdate {
-            retention: Some(codec::retention(attrs)?),
+            retention: Patch::nullable(codec::retention(attrs)?),
             acl: codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object)?,
             storage_class: Some(
                 crate::bucket::validate_storage_class(&attrs.storage_class)
@@ -905,7 +905,7 @@ async fn verify_committed(
                 || target.time_created != time(*created_micros)?
                 || target.updated != time(*updated_micros)?
                 || target.time_deleted != deleted_micros.map(time).transpose()?
-                || target.retention != request.metadata.retention.flatten()
+                || target.retention.as_ref() != request.metadata.retention.value()
                 || Some(target.md5) != request.expected.md5
                 || Some(target.crc32c) != request.expected.crc32c
                 || target.size != fingerprint.size

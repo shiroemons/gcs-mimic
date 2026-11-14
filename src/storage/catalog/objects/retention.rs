@@ -5,7 +5,7 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{
-        ObjectError, ObjectRecord,
+        ObjectError, ObjectRecord, Patch,
         retention::{BucketRetention, ObjectRetention, RetentionMode},
         unix_nanos::UnixNanos,
     },
@@ -97,49 +97,48 @@ pub(super) fn columns(
 }
 
 /// Encodes upload metadata retention for a persisted resumable session.
-pub(in crate::storage) fn session_value(
-    retention: Option<&Option<ObjectRetention>>,
-) -> serde_json::Value {
-    let Some(retention) = retention else {
-        return serde_json::Value::Null;
-    };
-    let value = retention.map(|retention| {
-        // Parsed RFC 3339 times end at year 9999, far inside the i64 microsecond range.
-        let (micros, remainder) = retention
-            .retain_until
-            .micros_and_remainder()
-            .unwrap_or((i64::MAX, 0));
-        StoredRetention {
-            mode: retention.mode,
-            retain_until_micros: micros,
-            retain_until_sub_micro_nanos: remainder,
+pub(in crate::storage) fn session_value(retention: &Patch<ObjectRetention>) -> serde_json::Value {
+    let value = match retention {
+        Patch::Keep => return serde_json::Value::Null,
+        Patch::Clear => None,
+        Patch::Set(retention) => {
+            // Parsed RFC 3339 times end at year 9999, far inside the i64 microsecond range.
+            let (micros, remainder) = retention
+                .retain_until
+                .micros_and_remainder()
+                .unwrap_or((i64::MAX, 0));
+            Some(StoredRetention {
+                mode: retention.mode,
+                retain_until_micros: micros,
+                retain_until_sub_micro_nanos: remainder,
+            })
         }
-    });
+    };
     serde_json::json!(SessionRetention { value })
 }
 
 /// Decodes [`session_value`]; sessions written before retention support have no key.
 pub(in crate::storage) fn from_session(
     value: &serde_json::Value,
-) -> Result<Option<Option<ObjectRetention>>, InvalidOptions> {
+) -> Result<Patch<ObjectRetention>, InvalidOptions> {
     let invalid = || InvalidOptions::new("invalid resumable retention");
     if value.is_null() {
-        return Ok(None);
+        return Ok(Patch::Keep);
     }
     let snapshot = SessionRetention::deserialize(value)
         .map_err(|error| InvalidOptions::with_source("invalid resumable retention", error))?;
     let Some(inner) = snapshot.value else {
-        return Ok(Some(None));
+        return Ok(Patch::Clear);
     };
     let retain_until = UnixNanos::from_micros_and_remainder(
         inner.retain_until_micros,
         inner.retain_until_sub_micro_nanos,
     )
     .ok_or_else(invalid)?;
-    Ok(Some(Some(ObjectRetention {
+    Ok(Patch::Set(ObjectRetention {
         mode: inner.mode,
         retain_until,
-    })))
+    }))
 }
 
 /// Reads the bucket flag inside the caller's mutation transaction.
@@ -292,26 +291,26 @@ mod tests {
             mode: RetentionMode::Unlocked,
             retain_until: at(4_000_000_000, 123_456_000 + REMAINDER),
         };
-        let value = session_value(Some(&Some(retention)));
+        let value = session_value(&Patch::Set(retention));
         assert_eq!(
             value.to_string(),
             r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456,"retainUntilSubMicroNanos":789}}"#
         );
         assert_eq!(value["value"]["retainUntilSubMicroNanos"], REMAINDER);
-        assert_eq!(from_session(&value).unwrap(), Some(Some(retention)));
+        assert_eq!(from_session(&value).unwrap(), Patch::Set(retention));
         // Without a remainder the key is absent, which is also how older sessions look.
         let whole = ObjectRetention {
             retain_until: at(4_000_000_000, 123_456_000),
             ..retention
         };
-        let value = session_value(Some(&Some(whole)));
+        let value = session_value(&Patch::Set(whole));
         assert_eq!(
             value.to_string(),
             r#"{"value":{"mode":"Unlocked","retainUntilMicros":4000000000123456}}"#
         );
         assert!(value["value"].get("retainUntilSubMicroNanos").is_none());
-        assert_eq!(from_session(&value).unwrap(), Some(Some(whole)));
-        let mut invalid = session_value(Some(&Some(retention)));
+        assert_eq!(from_session(&value).unwrap(), Patch::Set(whole));
+        let mut invalid = session_value(&Patch::Set(retention));
         invalid["value"]["retainUntilSubMicroNanos"] = 1000.into();
         assert!(from_session(&invalid).is_err());
     }

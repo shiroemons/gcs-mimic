@@ -76,11 +76,11 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             event_based_hold: Some(false),
             temporary_hold: Some(true),
             custom_time: Patch::Set("2026-01-02T03:04:05Z".into()),
-            retention: Some(Some(crate::object::retention::ObjectRetention {
+            retention: Patch::Set(crate::object::retention::ObjectRetention {
                 mode: crate::object::retention::RetentionMode::Unlocked,
                 retain_until: crate::object::unix_nanos::UnixNanos::new(4_000_000_000, 123_456_789)
                     .unwrap(),
-            })),
+            }),
             override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
             customer_key_sha256: Some([2; 32]),
             storage_class: Some(crate::bucket::StorageClass::Nearline),

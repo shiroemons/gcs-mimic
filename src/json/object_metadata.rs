@@ -170,7 +170,8 @@ fn parse_metadata(
         retention: body
             .get("retention")
             .map(super::object_retention::parse)
-            .transpose()?,
+            .transpose()?
+            .map_or(Patch::Keep, Patch::nullable),
         override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
         customer_key_sha256: None,
         storage_class: None,

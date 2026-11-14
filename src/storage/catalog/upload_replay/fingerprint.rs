@@ -159,12 +159,10 @@ impl Canonical {
         });
         self.optional(*event_based_hold, Self::flag);
         self.optional(*temporary_hold, Self::flag);
-        self.optional(retention.as_ref(), |encoded, value| {
-            encoded.optional(*value, |encoded, value| {
-                encoded.text(value.mode.as_str());
-                encoded.i64(value.retain_until.secs());
-                encoded.u64(u64::from(value.retain_until.subsec_nanos()));
-            })
+        self.patch(retention, |encoded, value| {
+            encoded.text(value.mode.as_str());
+            encoded.i64(value.retain_until.secs());
+            encoded.u64(u64::from(value.retain_until.subsec_nanos()));
         });
         self.0.update(&[match override_unlocked_retention {
             crate::object::retention::UnlockedOverride::NotRequested => 0,
@@ -228,7 +226,7 @@ mod tests {
             |value| value.event_based_hold = None,
             |value| value.temporary_hold = None,
             |value| value.custom_time = Patch::Keep,
-            |value| value.retention = None,
+            |value| value.retention = Patch::Keep,
             |value| {
                 value.override_unlocked_retention =
                     crate::object::retention::UnlockedOverride::NotRequested
@@ -288,7 +286,7 @@ mod tests {
             cache_control: Patch::Clear,
             metadata: Some(None),
             custom_time: Patch::Clear,
-            retention: Some(None),
+            retention: Patch::Clear,
             ..Default::default()
         };
         let digest = request(&metadata).digest().unwrap();

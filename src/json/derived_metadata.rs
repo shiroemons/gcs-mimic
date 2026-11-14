@@ -1,5 +1,5 @@
 use super::JsonError;
-use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
+use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord, Patch};
 use serde_json::{Map, Value};
 
 /// Rewrite preserves composite identity in the same location/class and collapses its component
@@ -102,7 +102,7 @@ pub(crate) fn derived_metadata(
     if parsed.update.custom_time.value().is_some() {
         return Err(JsonError::unsupported_object("customTime on copy/rewrite"));
     }
-    if parsed.update.retention.is_some() {
+    if parsed.update.retention != Patch::Keep {
         return Err(JsonError::unsupported_object("retention on copy/rewrite"));
     }
     for key in ["name", "bucket"] {
@@ -154,7 +154,6 @@ pub(crate) fn derived_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::Patch;
 
     #[test]
     fn bucket_class_patch_keeps_error_contracts() {

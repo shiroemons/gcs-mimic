@@ -70,7 +70,9 @@ pub(super) fn from_proto(
                     object.acl.iter().map(|entry| (&entry.entity, &entry.role)),
                 )?)
             }
-            "retention" => update.retention = Some(retention(object.retention.as_ref())?),
+            "retention" => {
+                update.retention = Patch::nullable(retention(object.retention.as_ref())?)
+            }
             // The pinned Go SDK includes this output-only path in an ordinary empty update.
             "create_time" => {}
             _ => {
@@ -204,7 +206,7 @@ mod tests {
         assert_eq!(update.metadata_mode, MapMode::Replace);
         assert_eq!(update.metadata.unwrap().unwrap().len(), 1);
         assert_eq!(update.content_language, Patch::Clear);
-        assert_eq!(update.retention, Some(None));
+        assert_eq!(update.retention, Patch::Clear);
         let update = from_proto(&object, &["metadata.missing".into()]).unwrap();
         assert_eq!(update.metadata_mode, MapMode::Merge);
         assert_eq!(update.metadata.unwrap().unwrap()["missing"], None);

@@ -1,7 +1,7 @@
 use crate::{
     bucket::StorageClass,
     json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
-    object::{ComposeSource, ObjectMetadataUpdate},
+    object::{ComposeSource, ObjectMetadataUpdate, Patch},
 };
 use serde_json::{Map, Value};
 
@@ -230,7 +230,7 @@ fn destination_metadata(
     if metadata.update.custom_time.value().is_some() {
         return Err(JsonError::unsupported_object("customTime on compose"));
     }
-    if metadata.update.retention.is_some() {
+    if metadata.update.retention != Patch::Keep {
         return Err(JsonError::unsupported_object("retention on compose"));
     }
     if let Some(key) = metadata.unchanged.keys().next() {

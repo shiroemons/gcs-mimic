@@ -270,10 +270,10 @@ async fn bucket_and_object_retention_delay_delete_until_the_later_exact_expiry()
         .put_object(
             crate::storage::ObjectUpload {
                 metadata: ObjectMetadataUpdate {
-                    retention: Some(Some(ObjectRetention {
+                    retention: Patch::Set(ObjectRetention {
                         mode: RetentionMode::Locked,
                         retain_until: until.into(),
-                    })),
+                    }),
                     ..Default::default()
                 },
                 ..permissive_upload("bucket", "object", 100)
@@ -1304,10 +1304,10 @@ async fn retention_deadlines_replace_an_earlier_future_age_deadline_and_block_li
         .put_object(
             crate::storage::ObjectUpload {
                 metadata: ObjectMetadataUpdate {
-                    retention: Some(Some(ObjectRetention {
+                    retention: Patch::Set(ObjectRetention {
                         mode: RetentionMode::Locked,
                         retain_until: until.into(),
-                    })),
+                    }),
                     ..Default::default()
                 },
                 ..permissive_upload("bucket", "object", 100)

@@ -129,10 +129,10 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
         }
         catalog.insert_bucket(record).await.unwrap();
         let mut upload = permissive_upload("bucket", "object", 100);
-        upload.metadata.retention = Some(Some(ObjectRetention {
+        upload.metadata.retention = Patch::Set(ObjectRetention {
             mode: RetentionMode::Unlocked,
             retain_until: (clock.now() + DAY * 20).into(),
-        }));
+        });
         let original = catalog
             .put_object(upload, body(vec![Bytes::from_static(b"data")]))
             .await

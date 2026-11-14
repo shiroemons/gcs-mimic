@@ -23,7 +23,7 @@ use super::{
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, Patch, UploadChunk},
     storage::blob_id::BlobId,
 };
 use bytes::Bytes;
@@ -836,7 +836,9 @@ impl Catalog {
                 .map_err(ObjectError::from)?,
         );
         // Rapid buckets support neither; finalization would otherwise publish them silently.
-        if options.metadata.retention.is_some() || options.metadata.customer_key_sha256.is_some() {
+        if options.metadata.retention != Patch::Keep
+            || options.metadata.customer_key_sha256.is_some()
+        {
             return Err(ObjectError::UnsupportedMetadata(
                 "object retention or customer-supplied encryption on appendable objects".into(),
             )
