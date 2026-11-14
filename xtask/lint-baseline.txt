@@ -18,7 +18,7 @@ text::json_macro_value	src/grpc/v1/convert.rs	5
 text::json_macro_value	src/grpc/v2/buckets.rs	6
 text::json_macro_value	src/grpc/v2/update_copy.rs	2
 text::json_macro_value	src/import/filesystem.rs	2
-text::json_macro_value	src/json/buckets.rs	5
+text::json_macro_value	src/json/buckets.rs	4
 text::json_macro_value	src/json/csek.rs	2
 text::json_macro_value	src/json/error.rs	1
 text::json_macro_value	src/json/notifications.rs	3

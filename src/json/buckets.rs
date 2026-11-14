@@ -947,15 +947,85 @@ pub(crate) fn bucket_resource(
 /// (insert accepts only an empty one) and hierarchical namespace is not supported, so both
 /// stay absent; clients read an absent `hierarchicalNamespace` as disabled.
 pub(crate) fn storage_layout_resource(bucket: &BucketRecord, profile: CompatProfile) -> Value {
-    let (location, location_type) = match profile {
-        CompatProfile::Native => (bucket.location.as_str(), bucket.location.kind().as_str()),
-        CompatProfile::FakeGcsServer => (LEGACY_LOCATION, "region"),
-    };
+    let reported = ReportedLocation::new(bucket, profile);
     json!({
         "kind": "storage#storageLayout",
         "bucket": bucket.name,
-        "location": location,
-        "locationType": location_type,
+        "location": reported.location,
+        "locationType": reported.location_type,
+    })
+}
+
+/// The location fields a profile reports for a bucket: the stored location, or for the
+/// fake-gcs-server profile the one region that server always answers with.
+#[derive(Clone, Copy)]
+struct ReportedLocation {
+    location: &'static str,
+    location_type: &'static str,
+}
+
+impl ReportedLocation {
+    fn new(bucket: &BucketRecord, profile: CompatProfile) -> Self {
+        match profile {
+            CompatProfile::Native => Self {
+                location: bucket.location.as_str(),
+                location_type: bucket.location.kind().as_str(),
+            },
+            CompatProfile::FakeGcsServer => Self {
+                location: LEGACY_LOCATION,
+                location_type: LocationKind::Region.as_str(),
+            },
+        }
+    }
+}
+
+/// The bucket fields whose reported value depends on the compatibility profile. The
+/// fake-gcs-server profile reports a fixed location and project number, and a bucket it never
+/// updated (metageneration 1) as that server created it: `STANDARD`, its own ETag, the creation
+/// time as the update time, and no labels.
+struct ProfileFields<'a> {
+    project_number: String,
+    location: ReportedLocation,
+    storage_class: StorageClass,
+    etag: String,
+    updated: String,
+    /// `None` when the profile reports no labels, whatever the bucket stores.
+    labels: Option<&'a BTreeMap<String, String>>,
+}
+
+fn profile_fields(
+    bucket: &BucketRecord,
+    profile: CompatProfile,
+) -> Result<ProfileFields<'_>, JsonError> {
+    // Both profiles render the stored update time, so one outside the RFC 3339 range fails the
+    // fake-gcs-server profile too even when it reports the creation time instead.
+    let updated = timestamp(bucket.updated)?;
+    let location = ReportedLocation::new(bucket, profile);
+    Ok(match profile {
+        CompatProfile::Native => ProfileFields {
+            project_number: crate::acl::project_number(&bucket.project),
+            location,
+            storage_class: bucket.storage_class,
+            etag: bucket_etag(bucket),
+            updated,
+            labels: Some(&bucket.labels),
+        },
+        CompatProfile::FakeGcsServer if bucket.metageneration == 1 => ProfileFields {
+            project_number: "0".into(),
+            location,
+            storage_class: StorageClass::Standard,
+            etag: "RVRhZw==".into(),
+            updated: timestamp(bucket.time_created)?,
+            labels: None,
+        },
+        CompatProfile::FakeGcsServer => ProfileFields {
+            project_number: "0".into(),
+            location,
+            storage_class: bucket.storage_class,
+            etag: bucket_etag(bucket),
+            updated,
+            labels: Some(&bucket.labels),
+        },
     })
 }
 
@@ -967,7 +1037,8 @@ pub(crate) fn bucket_resource_with_profile(
 ) -> Result<Value, JsonError> {
     // ACL and owner fields are not modeled, so both projections expose the same local subset.
     let (Projection::NoAcl | Projection::Full) = projection;
-    let project_number = crate::acl::project_number(&bucket.project);
+    let time_created = timestamp(bucket.time_created)?;
+    let fields = profile_fields(bucket, profile)?;
     // Fields follow the order of a recorded Cloud Storage response. Fields it did not contain
     // follow `locationType`, in an order that has not been verified.
     let mut value = Map::from_iter([
@@ -982,7 +1053,7 @@ pub(crate) fn bucket_resource_with_profile(
         ),
         ("id".into(), json!(bucket.name)),
         ("name".into(), json!(bucket.name)),
-        ("projectNumber".into(), project_number.into()),
+        ("projectNumber".into(), fields.project_number.into()),
     ]);
     // The reference emulator's bucket shape has no generation; keep that profile unchanged.
     if profile == CompatProfile::Native {
@@ -992,11 +1063,11 @@ pub(crate) fn bucket_resource_with_profile(
         "metageneration".into(),
         bucket.metageneration.to_string().into(),
     );
-    value.insert("location".into(), bucket.location.as_str().into());
-    value.insert("storageClass".into(), json!(bucket.storage_class));
-    value.insert("etag".into(), bucket_etag(bucket).into());
-    value.insert("timeCreated".into(), timestamp(bucket.time_created)?.into());
-    value.insert("updated".into(), timestamp(bucket.updated)?.into());
+    value.insert("location".into(), fields.location.location.into());
+    value.insert("storageClass".into(), fields.storage_class.as_str().into());
+    value.insert("etag".into(), fields.etag.into());
+    value.insert("timeCreated".into(), time_created.into());
+    value.insert("updated".into(), fields.updated.into());
     if let Some(policy) = &bucket.soft_delete_policy {
         let mut soft_delete = Map::from_iter([(
             "retentionDurationSeconds".into(),
@@ -1029,10 +1100,7 @@ pub(crate) fn bucket_resource_with_profile(
             "publicAccessPrevention": bucket.public_access_prevention.as_str(),
         }),
     );
-    value.insert(
-        "locationType".into(),
-        bucket.location.kind().as_str().into(),
-    );
+    value.insert("locationType".into(), fields.location.location_type.into());
     // Cloud Storage returned `satisfiesPZI: true` for regional buckets (asia-northeast1 and
     // us-central1, 2026-10-31) and no such field for a multi-region bucket, which carries
     // `rpo: DEFAULT` instead. The reference emulator's bucket shape has neither field.
@@ -1044,24 +1112,14 @@ pub(crate) fn bucket_resource_with_profile(
             }
         };
     }
-    add_optional_bucket_fields(&mut value, bucket, profile)?;
-    if profile == CompatProfile::FakeGcsServer {
-        value.insert("location".into(), LEGACY_LOCATION.into());
-        value.insert("locationType".into(), "region".into());
-        value.insert("projectNumber".into(), "0".into());
-        if bucket.metageneration == 1 {
-            value.insert("storageClass".into(), "STANDARD".into());
-            value.insert("etag".into(), "RVRhZw==".into());
-            value.insert("updated".into(), timestamp(bucket.time_created)?.into());
-            value.shift_remove("labels");
-        }
-    }
+    add_optional_bucket_fields(&mut value, bucket, fields.labels, profile)?;
     Ok(Value::Object(value))
 }
 
 fn add_optional_bucket_fields(
     value: &mut Map<String, Value>,
     bucket: &BucketRecord,
+    labels: Option<&BTreeMap<String, String>>,
     profile: CompatProfile,
 ) -> Result<(), JsonError> {
     if let Some(config) = &bucket.autoclass {
@@ -1087,8 +1145,8 @@ fn add_optional_bucket_fields(
         }
         value.insert("autoclass".into(), autoclass.into());
     }
-    if !bucket.labels.is_empty() {
-        value.insert("labels".into(), json!(bucket.labels));
+    if let Some(labels) = labels.filter(|labels| !labels.is_empty()) {
+        value.insert("labels".into(), json!(labels));
     }
     if !bucket.cors.is_empty() {
         value.insert("cors".into(), cors_value(&bucket.cors));
@@ -1222,41 +1280,77 @@ fn timestamp_error() -> JsonError {
     JsonError::service_unavailable("Bucket timestamp is outside the supported RFC 3339 range")
 }
 
-/// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it. The weekday and month
-/// come from the validated RFC 3339 rendering so no platform calendar is involved.
+/// Weekday names from 1970-01-01, a Thursday.
+const WEEKDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// A UTC instant broken into the calendar fields that both RFC 3339 and HTTP dates render.
+struct CivilTime {
+    year: i64,
+    /// 1 to 12.
+    month: i64,
+    day: i64,
+    /// Seconds into the day.
+    daytime: i64,
+    millis: i64,
+    /// Days since 1970-01-01, which fixes the weekday.
+    days: i64,
+}
+
+/// The calendar fields of `time`, computed without a platform calendar. Fails outside the
+/// RFC 3339 range that every rendered timestamp shares.
+fn civil_time(time: UnixNanos) -> Result<CivilTime, JsonError> {
+    let micros = i128::from(time.secs()) * 1_000_000 + i128::from(time.subsec_nanos() / 1000);
+    if !crate::clock::rfc3339_micros(micros) {
+        return Err(timestamp_error());
+    }
+    let micros = i64::try_from(micros).map_err(|_| timestamp_error())?;
+    let seconds = micros.div_euclid(1_000_000);
+    let days = seconds.div_euclid(86400);
+    // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.
+    let shifted = days + 719468;
+    let era = shifted.div_euclid(146097);
+    let day_of_era = shifted.rem_euclid(146097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_from_march = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
+    let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
+    Ok(CivilTime {
+        year: year_of_era + era * 400 + i64::from(month <= 2),
+        month,
+        day,
+        daytime: seconds.rem_euclid(86400),
+        millis: micros.div_euclid(1000).rem_euclid(1000),
+        days,
+    })
+}
+
+/// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it.
 pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
-    let timestamp = timestamp(time)?;
-    let days = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| timestamp_error())?
-        .as_secs()
-        / 86400;
-    let weekday = match days % 7 {
-        0 => "Thu",
-        1 => "Fri",
-        2 => "Sat",
-        3 => "Sun",
-        4 => "Mon",
-        5 => "Tue",
-        _ => "Wed",
-    };
-    // RFC 3339 timestamps always carry a two-digit month at bytes 5..7.
-    let month = timestamp
-        .get(5..7)
-        .and_then(|month| month.parse::<usize>().ok())
-        .and_then(|month| {
-            [
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-            ]
-            .get(month.checked_sub(1)?)
-            .copied()
-        })
+    let CivilTime {
+        year,
+        month,
+        day,
+        daytime,
+        days,
+        ..
+    } = civil_time(UnixNanos::from(time))?;
+    // A negative day count is an instant before the epoch, which is never rendered as a date.
+    let days = usize::try_from(days).map_err(|_| timestamp_error())?;
+    let weekday = WEEKDAYS.get(days % 7).ok_or_else(timestamp_error)?;
+    let month = usize::try_from(month - 1)
+        .ok()
+        .and_then(|index| MONTHS.get(index))
         .ok_or_else(timestamp_error)?;
     Ok(format!(
-        "{weekday}, {} {month} {} {} GMT",
-        timestamp.get(8..10).ok_or_else(timestamp_error)?,
-        timestamp.get(..4).ok_or_else(timestamp_error)?,
-        timestamp.get(11..19).ok_or_else(timestamp_error)?
+        "{weekday}, {day:02} {month} {year:04} {:02}:{:02}:{:02} GMT",
+        daytime / 3600,
+        daytime / 60 % 60,
+        daytime % 60,
     ))
 }
 
@@ -1269,26 +1363,16 @@ pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
 
 /// [`timestamp`] for a time that is already seconds and nanoseconds, such as a retention time.
 pub(crate) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
-    let micros = i128::from(time.secs()) * 1_000_000 + i128::from(time.subsec_nanos() / 1000);
-    if !crate::clock::rfc3339_micros(micros) {
-        return Err(timestamp_error());
-    }
-    let seconds = i64::try_from(micros.div_euclid(1_000_000)).map_err(|_| timestamp_error())?;
-    let fraction = format!("{:03}", micros.div_euclid(1000).rem_euclid(1000));
-    let daytime = seconds.rem_euclid(86400);
-    // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.
-    let days = seconds.div_euclid(86400) + 719468;
-    let era = days.div_euclid(146097);
-    let day_of_era = days.rem_euclid(146097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_from_march = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
-    let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    let CivilTime {
+        year,
+        month,
+        day,
+        daytime,
+        millis,
+        ..
+    } = civil_time(time)?;
     Ok(format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{fraction}Z",
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
         daytime / 3600,
         daytime / 60 % 60,
         daytime % 60,

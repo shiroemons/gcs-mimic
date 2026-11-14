@@ -1511,6 +1511,37 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
     }
 }
 
+/// `Last-Modified` carries an RFC 9110 date: the epoch, a leap day and the last second
+/// RFC 3339 can name render with their weekday, while instants before the epoch or past
+/// 9999 are refused rather than rendered.
+#[test]
+fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
+    for (seconds, expected) in [
+        (0_u64, "Thu, 01 Jan 1970 00:00:00 GMT"),
+        (1_709_210_096, "Thu, 29 Feb 2024 12:34:56 GMT"),
+        (253_402_300_799, "Fri, 31 Dec 9999 23:59:59 GMT"),
+    ] {
+        let time = UNIX_EPOCH + Duration::from_secs(seconds);
+        assert_eq!(httpdate::fmt_http_date(time), expected);
+        assert_eq!(http_date(time).unwrap(), expected);
+        assert_eq!(
+            http_date(time + Duration::from_millis(999)).unwrap(),
+            expected
+        );
+    }
+    for time in [
+        UNIX_EPOCH - Duration::from_nanos(100),
+        UNIX_EPOCH - Duration::from_secs(86_400),
+        UNIX_EPOCH + Duration::from_secs(253_402_300_800),
+    ] {
+        assert_eq!(
+            http_date(time).unwrap_err().status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{time:?}"
+        );
+    }
+}
+
 #[test]
 fn utc_timestamps_floor_to_milliseconds() {
     // Cloud Storage renders three fractional digits (observed 2026-10-31); the stored
