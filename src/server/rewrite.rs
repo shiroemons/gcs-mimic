@@ -318,8 +318,11 @@ fn destination(
     request: &RewriteRequest,
     body: Option<&Value>,
 ) -> Result<DerivedDestination, JsonError> {
-    let bytes = body.map(Value::to_string).unwrap_or_default();
-    let (metadata, class, supplied) = json::derived_metadata(bytes.as_bytes(), source)?;
+    let json::DerivedMetadata {
+        update: metadata,
+        storage_class: class,
+        expected: supplied,
+    } = json::derived_metadata_of(body, source)?;
     // Rewrite ignores a supplied md5Hash: Cloud Storage completed one with a wrong md5Hash using
     // the source's hash (recorded 2026-11-13). A crc32c mismatch still fails.
     if supplied.crc32c.is_some_and(|hash| hash != source.crc32c) {

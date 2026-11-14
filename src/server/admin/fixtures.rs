@@ -176,8 +176,11 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
     check_fixture_members(fields)?;
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
-    let (name, mut metadata, expected) =
-        json::multipart_metadata(&bytes, None, ExpectedHashes::default())?;
+    let json::MultipartMetadata {
+        name,
+        update: mut metadata,
+        expected,
+    } = json::multipart_metadata(&bytes, None, ExpectedHashes::default())?;
     metadata.acl = acl;
     let name = ObjectName::new(name).map_err(failure)?;
     let content_type = metadata

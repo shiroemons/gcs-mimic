@@ -239,8 +239,11 @@ mod tests {
     }
 
     fn destination(source: &DerivedSource, name: &str, body: &[u8]) -> DerivedDestination {
-        let (metadata, storage_class, expected) =
-            json::derived_metadata(body, &source.object).unwrap();
+        let json::DerivedMetadata {
+            update: metadata,
+            storage_class,
+            expected,
+        } = json::derived_metadata(body, &source.object).unwrap();
         DerivedDestination {
             bucket: "bucket".into(),
             name: name.into(),

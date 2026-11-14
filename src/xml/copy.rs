@@ -262,7 +262,7 @@ fn destination(
         });
         options.metadata
     } else {
-        let mut inherited = json::derived_metadata(b"", source)?.0;
+        let mut inherited = json::derived_metadata_of(None, source)?.update;
         inherited.custom_time = Patch::nullable(source.custom_time.clone());
         inherited
     };

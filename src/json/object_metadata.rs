@@ -103,7 +103,9 @@ enum BodyKind {
 /// another resource was answered with 200 and `storage#object` (case obj-unsupported-inputs).
 const IGNORED_ON_MUTATION: [&str; 6] = ["id", "selfLink", "timeCreated", "size", "md5Hash", "kind"];
 
-/// Parse metadata mutations separately from upload bodies and server-managed fields.
+/// [`object_metadata_from_map`] for a body that is still JSON text. Every production caller
+/// already holds the resource as members.
+#[cfg(test)]
 pub(crate) fn parse_object_metadata(
     bytes: &[u8],
     mode: WriteMode,
@@ -111,11 +113,28 @@ pub(crate) fn parse_object_metadata(
     parse_metadata(bytes, mode, BodyKind::Creation)
 }
 
+/// Parse a PATCH or PUT body, which may carry `acl` and keeps empty content fields.
 pub(crate) fn parse_object_metadata_mutation(
     bytes: &[u8],
     mode: WriteMode,
 ) -> Result<ObjectMetadataRequest, JsonError> {
     parse_metadata(bytes, mode, BodyKind::Mutation)
+}
+
+/// Parse the metadata of a new object (an upload or a derived write) separately from upload
+/// bodies and server-managed fields.
+pub(crate) fn object_metadata_from_map(
+    body: &Map<String, Value>,
+    mode: WriteMode,
+) -> Result<ObjectMetadataRequest, JsonError> {
+    metadata_from_map(body, mode, BodyKind::Creation)
+}
+
+/// The members of a body that must be an object resource.
+pub(crate) fn resource_object(value: &Value) -> Result<&Map<String, Value>, JsonError> {
+    value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))
 }
 
 fn parse_metadata(
@@ -125,9 +144,14 @@ fn parse_metadata(
 ) -> Result<ObjectMetadataRequest, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
-    let body = value
-        .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))?;
+    metadata_from_map(resource_object(&value)?, mode, kind)
+}
+
+fn metadata_from_map(
+    body: &Map<String, Value>,
+    mode: WriteMode,
+    kind: BodyKind,
+) -> Result<ObjectMetadataRequest, JsonError> {
     for field in ["acl", "predefinedAcl", "contexts", "kmsKeyName"] {
         if field == "acl" && kind == BodyKind::Mutation {
             continue;
@@ -180,8 +204,9 @@ fn parse_metadata(
     Ok(ObjectMetadataRequest { unchanged, update })
 }
 
-/// Collects server-managed fields, which a write may repeat only unchanged, and rejects
-/// fields that are neither writable nor server-managed.
+/// Collects server-managed fields, which a write may repeat only unchanged. Cloud Storage
+/// ignored a member that is not part of the object resource, so the writable fields and any
+/// unknown member pass through.
 fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, JsonError> {
     let mut unchanged = Map::new();
     // shortcut: changed output-only and unknown inputs need legacy service evidence; accept only identical resource values.
@@ -215,24 +240,6 @@ fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, Jso
                 | "customerEncryption"
         ) {
             unchanged.insert(key.clone(), value.clone());
-            continue;
-        }
-        if !matches!(
-            key.as_str(),
-            "contentType"
-                | "acl"
-                | "contentEncoding"
-                | "contentDisposition"
-                | "contentLanguage"
-                | "cacheControl"
-                | "metadata"
-                | "eventBasedHold"
-                | "temporaryHold"
-                | "customTime"
-                | "retention"
-        ) {
-            // Cloud Storage ignored a member that is not part of the object resource.
-            continue;
         }
     }
     Ok(unchanged)

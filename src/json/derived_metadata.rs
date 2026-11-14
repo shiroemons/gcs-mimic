@@ -1,4 +1,5 @@
 use super::JsonError;
+use crate::bucket::StorageClass;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord, Patch};
 use serde_json::{Map, Value};
 
@@ -58,31 +59,43 @@ pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, JsonError>
     Ok((!inherits).then_some(value))
 }
 
+/// The metadata a copy or rewrite gives its destination.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct DerivedMetadata {
+    pub(crate) update: ObjectMetadataUpdate,
+    /// The class the resource names; the source's class when the destination inherits.
+    pub(crate) storage_class: Option<StorageClass>,
+    pub(crate) expected: ExpectedHashes,
+}
+
 /// Empty bodies inherit editable source metadata except holds. A supplied resource replaces
 /// that metadata; path bucket/name always win over resource values.
 pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
-) -> Result<
-    (
-        ObjectMetadataUpdate,
-        Option<crate::bucket::StorageClass>,
-        ExpectedHashes,
-    ),
-    JsonError,
-> {
-    let Some(resource) = derived_resource(bytes)? else {
+) -> Result<DerivedMetadata, JsonError> {
+    derived_metadata_of(derived_resource(bytes)?.as_ref(), source)
+}
+
+/// [`derived_metadata`] for a body already reduced by [`derived_resource`].
+pub(crate) fn derived_metadata_of(
+    resource: Option<&Value>,
+    source: &ObjectRecord,
+) -> Result<DerivedMetadata, JsonError> {
+    let Some(resource) = resource else {
         let update = ObjectMetadataUpdate::inheriting(source);
         // Publishing checks this as well, but only after the whole body has been copied.
         update.check_encoded_size().map_err(JsonError::from)?;
-        return Ok((
+        return Ok(DerivedMetadata {
             update,
-            Some(source.storage_class),
-            ExpectedHashes::default(),
-        ));
+            storage_class: Some(source.storage_class),
+            expected: ExpectedHashes::default(),
+        });
     };
-    let mut parsed =
-        super::parse_object_metadata(resource.to_string().as_bytes(), super::WriteMode::Replace)?;
+    let mut parsed = super::object_metadata_from_map(
+        super::resource_object(resource)?,
+        super::WriteMode::Replace,
+    )?;
     // Cloud Storage answers a resource naming a generation but no name this way, before it
     // looks at any other field (recorded 2026-11-13 for a copy body with output-only fields).
     if parsed
@@ -119,7 +132,7 @@ pub(crate) fn derived_metadata(
     {
         return Err(JsonError::unsupported_object("kind"));
     }
-    let class = parsed
+    let storage_class = parsed
         .unchanged
         .remove("storageClass")
         .map(|value| {
@@ -148,7 +161,11 @@ pub(crate) fn derived_metadata(
     if let Some((key, _)) = parsed.unchanged.iter().next() {
         return Err(JsonError::unsupported_object(key));
     }
-    Ok((parsed.update, class, expected))
+    Ok(DerivedMetadata {
+        update: parsed.update,
+        storage_class,
+        expected,
+    })
 }
 
 #[cfg(test)]
@@ -353,7 +370,11 @@ mod tests {
         let mut source = crate::json::object_tests::record();
         source.metadata.insert("source".into(), "value".into());
         source.event_based_hold = crate::object::Hold::Held;
-        let (inherit, class, _) = derived_metadata(b"", &source).unwrap();
+        let DerivedMetadata {
+            update: inherit,
+            storage_class: class,
+            ..
+        } = derived_metadata(b"", &source).unwrap();
         assert_eq!(
             derived_metadata(b" \nnull\t", &source).unwrap(),
             derived_metadata(b"", &source).unwrap()
@@ -381,7 +402,11 @@ mod tests {
         );
         assert_eq!(class, Some(source.storage_class));
         assert_eq!(inherit.event_based_hold, None);
-        let (replace, class, _) = derived_metadata(
+        let DerivedMetadata {
+            update: replace,
+            storage_class: class,
+            ..
+        } = derived_metadata(
             br#"{"metadata":{"destination":"value"},"name":"overridden"}"#,
             &source,
         )
@@ -419,8 +444,9 @@ mod tests {
             );
         }
         // Any other field still replaces the editable metadata.
-        let (replaced, ..) =
-            derived_metadata(br#"{"metadata":{},"contentType":""}"#, &source).unwrap();
+        let replaced = derived_metadata(br#"{"metadata":{},"contentType":""}"#, &source)
+            .unwrap()
+            .update;
         let mut destination = source.clone();
         replaced.apply(&mut destination).unwrap();
         assert!(destination.metadata.is_empty());
@@ -432,12 +458,39 @@ mod tests {
         );
     }
 
+    /// A rewrite body that the server already holds as a value reads the same as its text
+    /// would, which the rewrite route once serialized again and parsed.
+    #[test]
+    fn a_held_resource_reads_like_its_serialized_text() {
+        let source = crate::json::object_tests::record();
+        for text in [
+            r#"{"contentType":"a/b","metadata":{"a":0.1,"b":-0.0,"c":1E7,"d":1.0E-4,"e":18446744073709551615,"g":"é\u0001\"","h":[1],"i":{"x":1},"j":null}}"#,
+            r#"{"md5Hash":"AAAAAAAAAAAAAAAAAAAAAA==","crc32c":"AAAAAA==","storageClass":"NEARLINE"}"#,
+            r#"{"name":"n","bucket":"b","kind":"storage#object","size":"9"}"#,
+            r#"{"generation":"1"}"#,
+            r#"{"storageClass":"standard"}"#,
+            r#"{"metadata":{"":"empty key"}}"#,
+            r#"[1]"#,
+            r#""text""#,
+        ] {
+            let value: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(
+                derived_metadata_of(Some(&value), &source),
+                derived_metadata(value.to_string().as_bytes(), &source),
+                "{text}"
+            );
+        }
+    }
+
     #[test]
     fn output_only_size_is_ignored_and_a_generation_needs_a_name() {
         let source = crate::json::object_tests::record();
-        let (sized, ..) =
-            derived_metadata(br#"{"size":"999","contentType":"a/b"}"#, &source).unwrap();
-        let (plain, ..) = derived_metadata(br#"{"contentType":"a/b"}"#, &source).unwrap();
+        let sized = derived_metadata(br#"{"size":"999","contentType":"a/b"}"#, &source)
+            .unwrap()
+            .update;
+        let plain = derived_metadata(br#"{"contentType":"a/b"}"#, &source)
+            .unwrap()
+            .update;
         assert_eq!(sized, plain);
         let error = derived_metadata(
             br#"{"size":"999","generation":"1","md5Hash":"AAAAAAAAAAAAAAAAAAAAAA==","timeCreated":"2000-01-01T00:00:00Z"}"#,

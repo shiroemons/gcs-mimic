@@ -175,7 +175,11 @@ pub(super) async fn multipart(
     let mut multipart = json::Multipart::related(request.into_body(), &boundary);
     let bytes = multipart.metadata().await?;
     let name_known = name.is_some();
-    let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
+    let json::MultipartMetadata {
+        name,
+        update: mut metadata,
+        expected,
+    } = json::multipart_metadata(&bytes, name, expected)?;
     json::declare_content_encoding(&mut metadata, content_encoding)?;
     crate::server::retention_access::authorize_upload(ctx.state, &access, &bucket, &metadata)
         .await?;

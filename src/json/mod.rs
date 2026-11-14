@@ -54,7 +54,8 @@ pub(crate) use buckets::{
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{
-    DestinationLocation, derived_component_count, derived_metadata, derived_resource,
+    DerivedMetadata, DestinationLocation, derived_component_count, derived_metadata,
+    derived_metadata_of, derived_resource,
 };
 pub(crate) use envelope::{
     Call as EnvelopeCall, apply as apply_envelope, etag_header, forbid_caching,
@@ -71,14 +72,18 @@ pub(crate) use iam::{
     check_testable_permission, parse_policy, policy_resource, test_permissions_query,
 };
 pub(crate) use multipart::{
-    FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, Multipart, PartKind, batch_boundary,
-    check_declared_content_type, form_data_boundary, is_multipart_content_type, multipart_boundary,
-    multipart_metadata,
+    FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, Multipart, MultipartMetadata, PartKind,
+    batch_boundary, check_declared_content_type, form_data_boundary, is_multipart_content_type,
+    multipart_boundary, multipart_metadata, multipart_metadata_of,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
+#[cfg(test)]
+pub(crate) use object_metadata::parse_object_metadata;
 pub(crate) use object_metadata::parse_object_metadata_mutation;
-pub(crate) use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
+pub(crate) use object_metadata::{
+    ObjectMetadataRequest, object_metadata_from_map, resource_object,
+};
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 pub(crate) use objects::revision_etag;

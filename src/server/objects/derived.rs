@@ -148,7 +148,11 @@ async fn copy_object(
         .map_err(|failure| {
             JsonError::from(failure).naming_object(&params.source_bucket, &params.source_name)
         })?;
-    let (mut metadata, storage_class, expected) = json::derived_metadata(body, &source.object)?;
+    let json::DerivedMetadata {
+        update: mut metadata,
+        storage_class,
+        expected,
+    } = json::derived_metadata(body, &source.object)?;
     metadata.customer_key_sha256 = destination_key.map(CustomerKey::sha256);
     let source_location = if source.object.component_count.is_some() {
         Some(

@@ -1,4 +1,4 @@
-use super::{JsonError, ObjectMetadataRequest, parse_object_metadata};
+use super::{JsonError, ObjectMetadataRequest, object_metadata_from_map};
 use crate::object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
@@ -710,22 +710,36 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 }
 
+/// What a multipart or resumable upload's metadata declares.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MultipartMetadata {
+    pub(crate) name: String,
+    pub(crate) update: ObjectMetadataUpdate,
+    pub(crate) expected: ExpectedHashes,
+}
+
 pub(crate) fn multipart_metadata(
     bytes: &[u8],
     query_name: Option<String>,
     expected: ExpectedHashes,
-) -> Result<(String, ObjectMetadataUpdate, ExpectedHashes), JsonError> {
+) -> Result<MultipartMetadata, JsonError> {
+    // The upload front end labelled a metadata part that is not JSON as `text/html`.
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|cause| JsonError::parse_error(bytes, &cause).html_typed())?;
+    multipart_metadata_of(super::resource_object(&value)?, query_name, expected)
+}
+
+/// [`multipart_metadata`] for metadata the caller already holds as members, such as the
+/// resumable initiation after its duplicate-key scan.
+pub(crate) fn multipart_metadata_of(
+    fields: &serde_json::Map<String, serde_json::Value>,
+    query_name: Option<String>,
+    expected: ExpectedHashes,
+) -> Result<MultipartMetadata, JsonError> {
     let ObjectMetadataRequest {
         mut update,
         mut unchanged,
-    } = parse_object_metadata(bytes, super::WriteMode::Patch).map_err(|error| {
-        // The upload front end labelled a metadata part that is not JSON as `text/html`.
-        if error.kind == super::ErrorKind::MalformedJson {
-            error.html_typed()
-        } else {
-            error
-        }
-    })?;
+    } = object_metadata_from_map(fields, super::WriteMode::Patch)?;
     update.content_type = match update.content_type {
         Patch::Set(value) if !value.is_empty() => Patch::Set(value),
         Patch::Keep | Patch::Clear | Patch::Set(_) => Patch::Keep,
@@ -778,7 +792,11 @@ pub(crate) fn multipart_metadata(
     if let Some((key, _)) = unchanged.into_iter().next() {
         return Err(JsonError::unsupported_object(&key));
     }
-    Ok((name, update, expected))
+    Ok(MultipartMetadata {
+        name,
+        update,
+        expected,
+    })
 }
 
 fn merge_hashes(
@@ -822,6 +840,33 @@ mod tests {
         body.extend_from_slice(media);
         body.extend_from_slice(b"\r\n--boundary--\r\n");
         body
+    }
+
+    /// Metadata that was serialized again and parsed from its text, as the resumable
+    /// initiation once did, reads the same as the members it came from: numbers, escapes and
+    /// nested values keep their meaning through the round trip.
+    #[test]
+    fn metadata_members_read_like_their_serialized_text() {
+        for text in [
+            r#"{"name":"o","contentType":"text/plain","metadata":{"a":0.1,"b":-0.0,"c":1E7,"d":1.0E-4,"e":18446744073709551615,"f":-9223372036854775808,"g":"é\u0001\"","h":[1],"i":{"x":1},"j":null,"k":true}}"#,
+            r#"{"name":"o","md5Hash":"AAAAAAAAAAAAAAAAAAAAAA==","crc32c":"AAAAAA==","storageClass":"COLDLINE"}"#,
+            r#"{"name":"o","metadata":{"":"empty key"}}"#,
+            r#"{"name":"o","cacheControl":12}"#,
+            r#"{"name":7}"#,
+            r#"{"unknownMember":[1,2]}"#,
+            r#"[]"#,
+            r#""o""#,
+        ] {
+            let value: serde_json::Value = serde_json::from_str(text).unwrap();
+            let reparsed = multipart_metadata(
+                value.to_string().as_bytes(),
+                None,
+                ExpectedHashes::default(),
+            );
+            let members = super::super::resource_object(&value)
+                .and_then(|fields| multipart_metadata_of(fields, None, ExpectedHashes::default()));
+            assert_eq!(members, reparsed, "{text}");
+        }
     }
 
     const FRAMINGS: [Framing; 2] = [Framing::Crlf, Framing::Detect];

@@ -1,5 +1,6 @@
 use super::{
-    JsonError, ObjectInsertParams, Projection, multipart_metadata, parse_object_upload_headers,
+    JsonError, ObjectInsertParams, Projection, multipart::MultipartMetadata, multipart_metadata_of,
+    parse_object_upload_headers,
 };
 use crate::{
     bucket::BucketAccess,
@@ -165,8 +166,11 @@ pub(crate) fn options(
     {
         object.remove("bucket");
     }
-    let bytes = value.to_string().into_bytes();
-    let (name, mut metadata, expected) = multipart_metadata(&bytes, name, expected)?;
+    let MultipartMetadata {
+        name,
+        update: mut metadata,
+        expected,
+    } = multipart_metadata_of(super::resource_object(&value)?, name, expected)?;
     super::declare_content_encoding(&mut metadata, encoding)?;
     let content_type = metadata.content_type.value().cloned().unwrap_or(mime);
     // Persisted with the session so completion applies the ACL the initiation requested.
@@ -314,13 +318,11 @@ pub(crate) fn final_options(
         }
     }
     if !custom.is_empty() {
-        let update = super::parse_object_metadata(
-            serde_json::json!({"metadata":custom})
-                .to_string()
-                .as_bytes(),
-            super::WriteMode::Patch,
-        )?
-        .update;
+        let resource = serde_json::Map::from_iter([(
+            "metadata".to_owned(),
+            serde_json::Value::Object(custom),
+        )]);
+        let update = super::object_metadata_from_map(&resource, super::WriteMode::Patch)?.update;
         // Header values are strings, so the parsed headers always merge at least one key.
         if let MapPatch::Merge(incoming) = update.metadata {
             for (key, value) in incoming {

@@ -1,7 +1,7 @@
 use crate::{
     bucket::StorageClass,
     decimal::Grammar,
-    json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
+    json::{JsonError, WriteMode, object_metadata_from_map, validate_object_name},
     object::{ComposeSource, MapPatch, ObjectMetadataUpdate, Patch},
 };
 use serde_json::{Map, Value};
@@ -225,10 +225,7 @@ fn destination_metadata(
             crate::object::validate_object_storage_class(class).map_err(JsonError::from)
         })
         .transpose()?;
-    let metadata = parse_object_metadata(
-        &Value::Object(destination).to_string().into_bytes(),
-        WriteMode::Replace,
-    )?;
+    let metadata = object_metadata_from_map(&destination, WriteMode::Replace)?;
     metadata.update.validate().map_err(JsonError::from)?;
     if metadata.update.temporary_hold == Some(true) {
         return Err(JsonError::unsupported_object("temporaryHold on compose"));
