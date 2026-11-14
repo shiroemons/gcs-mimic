@@ -7,6 +7,7 @@
 //! it inside the mutating transaction.
 //! Successful deletion bounds retained tombstones to the newest 128 per project.
 use super::{Catalog, CatalogError, UnixMillis, unavailable};
+use crate::auth::ProjectId;
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::time::SystemTime;
@@ -85,7 +86,7 @@ impl std::fmt::Debug for CreatedHmacKey {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyListQuery {
-    pub project: String,
+    pub project: ProjectId,
     pub service_account_email: Option<String>,
     pub show_deleted: bool,
     pub after: Option<String>,
@@ -181,7 +182,7 @@ fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
 
 fn select(
     connection: &Connection,
-    project: &str,
+    project: &ProjectId,
     access_id: &str,
 ) -> Result<Option<HmacKeyRecord>, CatalogError> {
     sql::row(connection, SELECT_KEY, params![access_id, project], record)
@@ -231,10 +232,10 @@ impl Catalog {
     }
     pub(crate) async fn create_hmac_key(
         &self,
-        project: &str,
+        project: &ProjectId,
         service_account_email: &str,
     ) -> Result<CreatedHmacKey, HmacKeyError> {
-        let project = project.to_owned();
+        let project = project.clone();
         let email = service_account_email.to_owned();
         let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
@@ -242,7 +243,7 @@ impl Catalog {
             let live: i64 = sql::scalar(
                 &transaction,
                 "SELECT count(*) FROM hmac_keys WHERE project = ?1 AND service_account_email = ?2 AND state != 'DELETED'",
-                [&project, &email],
+                params![project, email],
             )?;
             if live >= MAX_KEYS_PER_SERVICE_ACCOUNT {
                 return Err(HmacKeyError::LimitReached);
@@ -266,10 +267,10 @@ impl Catalog {
 
     pub(crate) async fn get_hmac_key(
         &self,
-        project: &str,
+        project: &ProjectId,
         access_id: &str,
     ) -> Result<HmacKeyRecord, HmacKeyError> {
-        let project = project.to_owned();
+        let project = project.clone();
         let access_id = access_id.to_owned();
         self.run::<_, CatalogError>(move |connection| select(connection, &project, &access_id))
             .await?
@@ -309,7 +310,7 @@ impl Catalog {
     /// the etag the caller last observed.
     pub(crate) async fn update_hmac_key_state(
         &self,
-        project: &str,
+        project: &ProjectId,
         access_id: &str,
         state: HmacKeyState,
         etag: Option<String>,
@@ -321,7 +322,7 @@ impl Catalog {
             )
             .into());
         }
-        let project = project.to_owned();
+        let project = project.clone();
         let access_id = access_id.to_owned();
         let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
@@ -346,10 +347,10 @@ impl Catalog {
     /// Mark an INACTIVE key DELETED and erase its secret.
     pub(crate) async fn delete_hmac_key(
         &self,
-        project: &str,
+        project: &ProjectId,
         access_id: &str,
     ) -> Result<(), HmacKeyError> {
-        let project = project.to_owned();
+        let project = project.clone();
         let access_id = access_id.to_owned();
         let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
@@ -394,12 +395,12 @@ mod tests {
         .await
         .unwrap();
         let other = catalog
-            .create_hmac_key("other", "signer@example.invalid")
+            .create_hmac_key(&"other".parse().unwrap(), "signer@example.invalid")
             .await
             .unwrap();
         catalog
             .update_hmac_key_state(
-                "other",
+                &"other".parse().unwrap(),
                 &other.record.access_id,
                 HmacKeyState::Inactive,
                 None,
@@ -407,20 +408,20 @@ mod tests {
             .await
             .unwrap();
         catalog
-            .delete_hmac_key("other", &other.record.access_id)
+            .delete_hmac_key(&"other".parse().unwrap(), &other.record.access_id)
             .await
             .unwrap();
         let mut oldest = None;
         for index in 0..=MAX_DELETED_KEYS_PER_PROJECT {
             clock.set(UNIX_EPOCH + Duration::from_secs(index as u64));
             let key = catalog
-                .create_hmac_key("project", "signer@example.invalid")
+                .create_hmac_key(&"project".parse().unwrap(), "signer@example.invalid")
                 .await
                 .unwrap();
             oldest.get_or_insert_with(|| key.record.access_id.clone());
             catalog
                 .update_hmac_key_state(
-                    "project",
+                    &"project".parse().unwrap(),
                     &key.record.access_id,
                     HmacKeyState::Inactive,
                     None,
@@ -428,25 +429,25 @@ mod tests {
                 .await
                 .unwrap();
             catalog
-                .delete_hmac_key("project", &key.record.access_id)
+                .delete_hmac_key(&"project".parse().unwrap(), &key.record.access_id)
                 .await
                 .unwrap();
         }
         for _ in 0..MAX_KEYS_PER_SERVICE_ACCOUNT {
             catalog
-                .create_hmac_key("project", "signer@example.invalid")
+                .create_hmac_key(&"project".parse().unwrap(), "signer@example.invalid")
                 .await
                 .unwrap();
         }
         assert!(matches!(
             catalog
-                .create_hmac_key("project", "signer@example.invalid")
+                .create_hmac_key(&"project".parse().unwrap(), "signer@example.invalid")
                 .await,
             Err(HmacKeyError::LimitReached)
         ));
         let page = catalog
             .list_hmac_keys(HmacKeyListQuery {
-                project: "project".into(),
+                project: "project".parse().unwrap(),
                 service_account_email: None,
                 show_deleted: true,
                 after: None,
@@ -470,13 +471,13 @@ mod tests {
         );
         assert!(matches!(
             catalog
-                .get_hmac_key("project", oldest.as_deref().unwrap())
+                .get_hmac_key(&"project".parse().unwrap(), oldest.as_deref().unwrap())
                 .await,
             Err(HmacKeyError::NotFound)
         ));
         assert_eq!(
             catalog
-                .get_hmac_key("other", &other.record.access_id)
+                .get_hmac_key(&"other".parse().unwrap(), &other.record.access_id)
                 .await
                 .unwrap()
                 .state,
@@ -502,7 +503,7 @@ mod tests {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let created = catalog
-            .create_hmac_key("project", "signer@example.invalid")
+            .create_hmac_key(&"project".parse().unwrap(), "signer@example.invalid")
             .await
             .unwrap();
         assert!(!format!("{created:?}").contains(&created.secret));
@@ -515,7 +516,7 @@ mod tests {
         assert!(secret == created.secret);
         catalog
             .update_hmac_key_state(
-                "project",
+                &"project".parse().unwrap(),
                 &created.record.access_id,
                 HmacKeyState::Inactive,
                 None,
@@ -530,7 +531,7 @@ mod tests {
                 .is_none()
         );
         catalog
-            .delete_hmac_key("project", &created.record.access_id)
+            .delete_hmac_key(&"project".parse().unwrap(), &created.record.access_id)
             .await
             .unwrap();
         assert!(
@@ -557,14 +558,14 @@ mod tests {
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let created = catalog
-            .create_hmac_key("project", "sa@example.invalid")
+            .create_hmac_key(&"project".parse().unwrap(), "sa@example.invalid")
             .await
             .unwrap();
         catalog.close().await.unwrap();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(
             catalog
-                .get_hmac_key("project", &created.record.access_id)
+                .get_hmac_key(&"project".parse().unwrap(), &created.record.access_id)
                 .await
                 .unwrap(),
             created.record
@@ -588,7 +589,7 @@ mod tests {
             let catalog = catalog.clone();
             tasks.spawn(async move {
                 catalog
-                    .create_hmac_key("project", "sa@example.invalid")
+                    .create_hmac_key(&"project".parse().unwrap(), "sa@example.invalid")
                     .await
             });
         }
@@ -603,13 +604,13 @@ mod tests {
         assert_eq!((created, limited), (10, 6));
         // Another project's keys for the same account do not consume this project's quota.
         catalog
-            .create_hmac_key("other-project", "sa@example.invalid")
+            .create_hmac_key(&"other-project".parse().unwrap(), "sa@example.invalid")
             .await
             .unwrap();
         // Concurrent conditional updates with the same etag admit exactly one writer.
         let page = catalog
             .list_hmac_keys(HmacKeyListQuery {
-                project: "project".into(),
+                project: "project".parse().unwrap(),
                 service_account_email: None,
                 show_deleted: false,
                 after: None,
@@ -625,7 +626,7 @@ mod tests {
             tasks.spawn(async move {
                 catalog
                     .update_hmac_key_state(
-                        &key.project,
+                        &key.project.parse().unwrap(),
                         &key.access_id,
                         HmacKeyState::Inactive,
                         Some(key.etag()),

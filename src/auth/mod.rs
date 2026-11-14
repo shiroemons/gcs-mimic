@@ -18,14 +18,8 @@ pub use denied::Denied;
 mod jwt;
 mod policy;
 pub(crate) mod policy_input;
-/// Shared identifier rules; adapters supply their own field names and error messages.
-pub(crate) fn valid_project_id(project: &str) -> bool {
-    !project.is_empty()
-        && project.len() <= 256
-        && !project
-            .chars()
-            .any(|character| character.is_control() || character.is_whitespace())
-}
+mod project;
+pub(crate) use project::{InvalidProjectId, ProjectId, valid_project_id};
 pub(crate) mod roles;
 pub mod signature;
 mod signing_keys;

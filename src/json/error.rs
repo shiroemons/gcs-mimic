@@ -714,6 +714,13 @@ impl JsonError {
     }
 }
 
+/// A project path segment outside the identifier rules is a malformed parameter.
+impl From<crate::auth::InvalidProjectId> for JsonError {
+    fn from(error: crate::auth::InvalidProjectId) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
 /// A refused `matchGlob` pattern is a malformed request; the pattern defect is the message.
 impl From<crate::match_glob::GlobError> for JsonError {
     fn from(error: crate::match_glob::GlobError) -> Self {

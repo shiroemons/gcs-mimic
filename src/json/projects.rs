@@ -4,8 +4,9 @@
 //! project and performs catalog operations. The supported subset is recorded in
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
-use super::query::{Decoding, common, decode, finish, parse_query, validate_project};
+use super::query::{Decoding, common, decode, finish, parse_query};
 use super::{Fields, JsonError};
+use crate::auth::ProjectId;
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyPage, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
@@ -18,7 +19,7 @@ const MAX_TOKEN_BYTES: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyListParams {
-    pub project: String,
+    pub project: ProjectId,
     pub service_account_email: Option<String>,
     pub show_deleted_keys: bool,
     pub max_results: u32,
@@ -29,24 +30,24 @@ pub(crate) struct HmacKeyListParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProjectRequest {
     CreateHmacKey {
-        project: String,
+        project: ProjectId,
         service_account_email: String,
     },
     GetHmacKey {
-        project: String,
+        project: ProjectId,
         access_id: String,
     },
     ListHmacKeys(HmacKeyListParams),
     UpdateHmacKey {
-        project: String,
+        project: ProjectId,
         access_id: String,
     },
     DeleteHmacKey {
-        project: String,
+        project: ProjectId,
         access_id: String,
     },
     GetServiceAccount {
-        project: String,
+        project: ProjectId,
     },
 }
 
@@ -106,8 +107,7 @@ fn parse(
     item: Option<&str>,
     raw: &str,
 ) -> Result<(ProjectRequest, Fields), JsonError> {
-    let project = decode(project, Decoding::Path)?;
-    validate_project(&project)?;
+    let project = ProjectId::try_from(decode(project, Decoding::Path)?)?;
     let access_id = item
         .map(|segment| {
             let access_id = decode(segment, Decoding::Path)?;
@@ -382,7 +382,7 @@ impl From<HmacKeyError> for JsonError {
 fn token_scope(params: &HmacKeyListParams) -> Value {
     json!([
         "h1",
-        params.project,
+        params.project.as_str(),
         params.service_account_email,
         params.show_deleted_keys
     ])
@@ -490,14 +490,14 @@ mod tests {
             )
             .unwrap(),
             ProjectRequest::CreateHmacKey {
-                project: "p".into(),
+                project: "p".parse().unwrap(),
                 service_account_email: "sa@example.invalid".into()
             }
         );
         assert_eq!(
             route(Method::GET, "/storage/v1/projects/p/hmacKeys/GOOG1EX").unwrap(),
             ProjectRequest::GetHmacKey {
-                project: "p".into(),
+                project: "p".parse().unwrap(),
                 access_id: "GOOG1EX".into()
             }
         );
@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(
             route(Method::GET, "/storage/v1/projects/123/serviceAccount").unwrap(),
             ProjectRequest::GetServiceAccount {
-                project: "123".into()
+                project: "123".parse().unwrap()
             }
         );
         let ProjectRequest::ListHmacKeys(params) = route(
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn page_tokens_are_bound_to_the_listing_filters() {
         let params = HmacKeyListParams {
-            project: "p".into(),
+            project: "p".parse().unwrap(),
             service_account_email: Some("a@b".into()),
             show_deleted_keys: false,
             max_results: 1,
@@ -619,7 +619,7 @@ mod tests {
         assert_eq!(decode_list_token(&token, &params).unwrap(), "GOOG1EA");
         for other in [
             HmacKeyListParams {
-                project: "q".into(),
+                project: "q".parse().unwrap(),
                 ..params.clone()
             },
             HmacKeyListParams {
@@ -701,7 +701,7 @@ mod tests {
             ),
         ] {
             let params = HmacKeyListParams {
-                project: "project-1".into(),
+                project: "project-1".parse().unwrap(),
                 service_account_email: email.map(str::to_owned),
                 show_deleted_keys,
                 max_results: 10,

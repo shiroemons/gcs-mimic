@@ -43,7 +43,7 @@ impl SignedUploadFixture {
             .await
             .unwrap();
         let key = catalog
-            .create_hmac_key("local", "signer@example.invalid")
+            .create_hmac_key(&"local".parse().unwrap(), "signer@example.invalid")
             .await
             .unwrap();
         let endpoints = RequestEndpoints::explicit("http://localhost");

@@ -39,22 +39,22 @@ pub(super) async fn respond(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     match &operation {
         ProjectRequest::CreateHmacKey { project, .. } => {
-            authorize_project(caller, HMAC_KEYS_CREATE, project)?
+            authorize_project(caller, HMAC_KEYS_CREATE, project.as_str())?
         }
         ProjectRequest::GetHmacKey { project, .. } => {
-            authorize_project(caller, HMAC_KEYS_GET, project)?
+            authorize_project(caller, HMAC_KEYS_GET, project.as_str())?
         }
         ProjectRequest::ListHmacKeys(params) => {
-            authorize_project(caller, HMAC_KEYS_LIST, &params.project)?
+            authorize_project(caller, HMAC_KEYS_LIST, params.project.as_str())?
         }
         ProjectRequest::UpdateHmacKey { project, .. } => {
-            authorize_project(caller, HMAC_KEYS_UPDATE, project)?
+            authorize_project(caller, HMAC_KEYS_UPDATE, project.as_str())?
         }
         ProjectRequest::DeleteHmacKey { project, .. } => {
-            authorize_project(caller, HMAC_KEYS_DELETE, project)?
+            authorize_project(caller, HMAC_KEYS_DELETE, project.as_str())?
         }
         ProjectRequest::GetServiceAccount { project } => {
-            authorize_project_visibility(caller, project)?
+            authorize_project_visibility(caller, project.as_str())?
         }
     }
     if !matches!(
@@ -117,7 +117,7 @@ pub(super) async fn respond(
             state.catalog.delete_hmac_key(&project, &access_id).await?;
             return Ok(empty_response(StatusCode::NO_CONTENT));
         }
-        ProjectRequest::GetServiceAccount { project } => json::service_account(&project),
+        ProjectRequest::GetServiceAccount { project } => json::service_account(project.as_str()),
     };
     fields.apply(&mut value);
     Ok(json_response(&value))

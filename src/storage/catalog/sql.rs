@@ -93,6 +93,16 @@ macro_rules! name_column {
 name_column!(crate::bucket::name::BucketName);
 name_column!(crate::object::name::ObjectName);
 
+// Binding only: stored project columns may predate the identifier rules, so rows decode as
+// `String`.
+impl rusqlite::ToSql for crate::auth::ProjectId {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(
+            rusqlite::types::ValueRef::Text(self.as_str().as_bytes()),
+        ))
+    }
+}
+
 impl rusqlite::ToSql for crate::object::generation::Generation {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         Ok(rusqlite::types::ToSqlOutput::Owned(self.get().into()))
