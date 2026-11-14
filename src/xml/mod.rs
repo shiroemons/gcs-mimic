@@ -378,6 +378,10 @@ impl From<JsonError> for Error {
             return Self::uniform_access_acl();
         }
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "every other error kind keeps the shared status mapping"
+        )]
         let code = match error.status {
             StatusCode::UNAUTHORIZED if error.kind == json::ErrorKind::Required => {
                 XmlCode::AuthenticationRequired

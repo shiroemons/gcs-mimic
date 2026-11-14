@@ -20,6 +20,3 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/deletions.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/root.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4
-clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1
-clippy::wildcard_enum_match_arm	src/xml/mod.rs	1
-clippy::wildcard_enum_match_arm	src/xml/put.rs	2

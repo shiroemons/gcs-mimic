@@ -131,6 +131,10 @@ fn authorize_project(
     Ok(())
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared JSON error mapping"
+)]
 fn catalog_error(error: crate::bucket::CatalogError, caller: Option<auth::Caller<'_>>) -> Error {
     match error {
         crate::bucket::CatalogError::NotEmpty => {

@@ -330,6 +330,10 @@ fn upload_error(
     expected: &ExpectedHashes,
 ) -> Error {
     let object = format!("{}/{}", operation.target.bucket, operation.target.name);
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every other object error keeps the shared XML object mapping"
+    )]
     let crc_failed = match &error {
         ObjectError::HashMismatch(mismatch) => mismatch.algorithm == HashAlgorithm::Crc32c,
         ObjectError::ChecksumMismatch => expected.md5.is_none() && expected.crc32c.is_some(),
@@ -364,6 +368,10 @@ fn crc_detail(digest: &[u8]) -> String {
     format!("0x{value:x} ({})", json::base64(digest))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other object error keeps the shared JSON error mapping"
+)]
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {
         ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Error::new(
