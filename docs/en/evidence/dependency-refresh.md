@@ -1034,3 +1034,28 @@ A probe also ran the SDK itself against Cloud Storage with both lines, in its ow
 | `node scenario.mjs` in `sdk-tests/testcontainers/node` with the arm64 image `just pre-push` built | PASS with 9.0.0: start, health, mapped Location, resumable upload, bytes and cleanup |
 
 Three integration tests asserted the old 400 for an undeclared name on objects.delete or objects.list. They now expect the recorded success for those methods and keep the 400 for object GET and PATCH; the unsupported-request case that deleted with `projection=noAcl` now deletes with `userProject`, which is still rejected with `badRequest` and leaves the object unchanged.
+
+## Refresh: 2026-11-14
+
+The scheduled freshness check on 2026-11-14 ([run 43585836427](https://github.com/shiroemons/gcs-mimic/actions/runs/43585836427)) exited 1 with two development-only updates. Both are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.314.0 | v0.315.0 (published 2026-11-13, revision `e57561c6cb4ee7f6f9ec9a9008bf4c7a0c1ef2e4`, Go 1.26.0, 52,768,719-byte module zip) | `go`, `sdk-scorecard/go`, `sdk-tests/go` |
+| com.google.auth:google-auth-library-oauth2-http | 1.57.0 | 1.58.0 (published 2026-11-13, jar of **397,393 bytes**) | `sdk-scorecard/java` only |
+
+[API v0.315.0](https://github.com/googleapis/google-api-go-client/releases/tag/v0.315.0) lists regenerated Discovery clients and one fix, an ES256 signature length check in the `idtoken` package, which none of the three modules imports. Its go.mod and BSD-3-Clause LICENSE are byte-identical to v0.314.0, and `go mod tidy` changes no other requirement.
+
+The Java scorecard pins google-auth-library-oauth2-http for offline RSA signing. 1.58.0 is one release ahead of the 1.57.0 that google-cloud-storage 2.78.0 resolves. The regenerated `dependencies.lock` changes only that line: google-auth-library-credentials stays at the SDK's 1.57.0, and the newer Guava, api-common and jspecify that the 1.58.0 parent POM names do not replace the versions the SDK graph selects. The Java SDK suite does not pin the library and still resolves 1.57.0 through the SDK.
+
+### Validation performed on 2026-11-14
+
+| Command or check | Result |
+| --- | --- |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh` | Go suite PASS with API v0.315.0: 92 tests passed; `TestV2RSASignedTransfers` skipped because it needs HTTPS |
+| `go test -race -count=1 ./fakestorage` in `go`; `go vet`, `go build` and `go test` in `sdk-scorecard/go`; `go vet` in `sdk-tests/go` | PASS |
+| `bash sdk-scorecard/java/run.sh build` | PASS: the resolved graph matches `dependencies.lock`, and the classpath holds google-auth-library-oauth2-http 1.58.0 and google-auth-library-credentials 1.57.0 |
+| Go and Java scorecard probes against a local permissive debug build behind the scorecard TLS front | Go 57 of 57 and Java 70 of 70 PASS, the same as the 2026-11-12 results |
+| `cargo test -p xtask --locked` | PASS: 234, 13, 3 and 1 tests, including the check of the actual pins against the snapshot |
+| `cargo xtask dependencies check` at `2026-11-14T14:01:53Z` | Exit 0 with 132 `CURRENT` lines; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Composer `latest` and Rust `slim-trixie` differ only on linux/riscv64 |
+| `cargo xtask dependencies check --scope release` at `2026-11-14T14:01:26Z` | Exit 0 with 41 `CURRENT` lines |

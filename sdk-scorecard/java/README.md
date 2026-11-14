@@ -30,6 +30,7 @@ None. Every shared case is expressible with the public Java API.
 ## Dependencies
 
 `pom.xml` pins `google-auth-library-oauth2-http` only for offline RSA signing
-of signed URLs and POST policies, at the version the SDK already resolves. It
-carries no comments because the daily dependency check accepts only literal
-elements.
+of signed URLs and POST policies, at its newest release. That can be ahead of
+the version the SDK resolves; `google-auth-library-credentials` then stays at
+the SDK's version. `pom.xml` carries no comments because the daily dependency
+check accepts only literal elements.

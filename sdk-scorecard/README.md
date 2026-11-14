@@ -93,7 +93,7 @@ differing shared case IDs across SDKs. The SDKs with unsupported cases are
 | Node.js SDK | `@google-cloud/storage` 9.0.0 and `google-auth-library` 11.3.4 for its anonymous `PassThroughClient` (`node/package-lock.json`); requires Node.js 24+. The probe signs with a separate client, because 9.x would exchange a signing key at Google OAuth before every request |
 | PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.1 / PHP 8.5.12 image, digest pinned in `run.sh` |
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
-| Java SDK | `com.google.cloud:google-cloud-storage` 2.78.0 and `google-auth-library-oauth2-http` 1.57.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
+| Java SDK | `com.google.cloud:google-cloud-storage` 2.78.0 and `google-auth-library-oauth2-http` 1.58.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
 | .NET SDK | `Google.Cloud.Storage.V1` 5.0.0 (`dotnet/Probe.csproj`, hashes in `dotnet/packages.lock.json`); exact .NET SDK in `dotnet/global.json` |
 | Rust SDK | `google-cloud-storage` 1.22.0 with `google-cloud-auth` 1.19.0 (`rust/Cargo.toml`, `rust/Cargo.lock`); built and run in the official `rust:1.100.0-slim-trixie` image, digest pinned in `run.sh`; socat for its loopback forwarder is installed by `install-socat.sh` from a fixed snapshot.debian.org archive (version and snapshot recorded in the dependency snapshot) |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
