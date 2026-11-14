@@ -8,4 +8,3 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts/resolve
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/deletions.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/root.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror.rs	1
-clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4

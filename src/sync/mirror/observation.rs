@@ -279,7 +279,9 @@ impl Controls {
     pub(super) fn ready(&mut self, watcher: &DirectoryWatch, quiet: Quiet) -> Option<Command> {
         let index = self.0.iter().position(|request| match request {
             Command::Wait { .. } => watcher.pending.is_none() && quiet == Quiet::Established,
-            _ => watcher.pending.is_none() || quiet == Quiet::Capped,
+            Command::Rescan { .. } | Command::Approve { .. } | Command::Resolve { .. } => {
+                watcher.pending.is_none() || quiet == Quiet::Capped
+            }
         })?;
         self.0.remove(index)
     }
@@ -292,7 +294,7 @@ impl Controls {
         let waits = match &request {
             Command::Wait { .. } => true,
             Command::Rescan { .. } => quiet != Quiet::Capped,
-            _ => false,
+            Command::Approve { .. } | Command::Resolve { .. } => false,
         };
         if watcher.pending.is_some() && waits {
             if let Command::Wait { settling, .. } = &request {
@@ -310,7 +312,7 @@ impl Controls {
             .iter()
             .filter_map(|request| match request {
                 Command::Wait { deadline, .. } => Some(*deadline),
-                _ => None,
+                Command::Rescan { .. } | Command::Approve { .. } | Command::Resolve { .. } => None,
             })
             .min();
         let Some(deadline) = deadline else {
@@ -345,7 +347,10 @@ impl Controls {
                         });
                     let _ = reply.send(result);
                 }
-                request => retained.push_back(request),
+                request @ (Command::Wait { .. }
+                | Command::Rescan { .. }
+                | Command::Approve { .. }
+                | Command::Resolve { .. }) => retained.push_back(request),
             }
         }
         self.0 = retained;
