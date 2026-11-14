@@ -28,10 +28,12 @@ use ring::digest::{Context, SHA256};
 use serde::Serialize;
 use spec::{BucketSpec, ObjectSpec};
 use std::{
-    fs,
+    collections::BTreeMap,
+    fmt, fs,
     io::{self, Write},
     num::NonZeroUsize,
     path::PathBuf,
+    str::FromStr,
 };
 use tokio::sync::mpsc;
 
@@ -39,6 +41,10 @@ pub(crate) const SOURCE_REVISION: &str = "896ece51e49eed0946089f3089f6343855c0d1
 pub(crate) const PAGE_SIZE: usize = 256;
 const PUBLICATION_PAGE_SIZE: usize = 8;
 pub(crate) const FINGERPRINT_FORMAT: u8 = 1;
+/// The limits an earlier release recorded in the identity of an import that named none.
+const FORMER_DEFAULT_OBJECT_BYTES: u64 = 1_073_741_824;
+const FORMER_DEFAULT_ENTRIES: Option<NonZeroUsize> = NonZeroUsize::new(10_000);
+const FORMER_DEFAULT_DEPTH: Option<NonZeroUsize> = NonZeroUsize::new(32);
 pub(crate) const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
        --metadata-mode xattr|sidecar --source-platform unix|windows [--dry-run [--verify-bodies]]
        [--max-object-bytes N] [--max-entries N] [--max-depth N]
@@ -166,9 +172,9 @@ impl Options {
             && self.max_entries.is_none()
             && self.max_depth.is_none())
         .then(|| Self {
-            max_object_bytes: 1_073_741_824,
-            max_entries: NonZeroUsize::new(10_000),
-            max_depth: NonZeroUsize::new(32),
+            max_object_bytes: FORMER_DEFAULT_OBJECT_BYTES,
+            max_entries: FORMER_DEFAULT_ENTRIES,
+            max_depth: FORMER_DEFAULT_DEPTH,
             ..self.clone()
         })
     }
@@ -611,18 +617,7 @@ fn inspect_with_xattr(
         None,
         ScanPurpose::Inspect,
     )?;
-    let write_result = (|| -> io::Result<()> {
-        for page in &receive {
-            let batch = Diagnostics::from(&page);
-            serde_json::to_writer(
-                &mut output,
-                &serde_json::json!({"event":"import_page", "page": page}),
-            )?;
-            writeln!(output)?;
-            batch.write(&mut diagnostics)?;
-        }
-        Ok(())
-    })();
+    let write_result = write_pages(&receive, &mut output, &mut diagnostics);
     drop(receive);
     let joined = worker.blocking_recv().map_err(io::Error::other)?;
     write_result?;
@@ -633,6 +628,24 @@ fn inspect_with_xattr(
     )?;
     writeln!(output)?;
     Ok(summary)
+}
+
+/// Writes each page and its diagnostics as the scanner sends them.
+fn write_pages(
+    pages: &std::sync::mpsc::Receiver<Page>,
+    output: &mut impl Write,
+    diagnostics: &mut impl Write,
+) -> io::Result<()> {
+    for page in pages {
+        let batch = Diagnostics::from(&page);
+        serde_json::to_writer(
+            &mut *output,
+            &serde_json::json!({"event":"import_page", "page": page}),
+        )?;
+        writeln!(output)?;
+        batch.write(&mut *diagnostics)?;
+    }
+    Ok(())
 }
 
 type ScanWorker = tokio::sync::oneshot::Receiver<Result<Summary, ImportFailure>>;
@@ -751,23 +764,157 @@ fn identity_limit(limit: Option<NonZeroUsize>) -> u64 {
     limit.map_or(0, |limit| limit.get() as u64)
 }
 
-/// Applies the limit options; 0 means no limit, which for a body is Cloud Storage's own.
-fn apply_limits(
-    options: &mut Options,
-    values: &std::collections::BTreeMap<&str, &str>,
-) -> Result<(), ImportError> {
-    let limit = |key: &str, maximum: u64| {
-        values
-            .get(key)
+/// A value option of `import fake-gcs-server`; the flag and its value are separate arguments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ValueFlag {
+    Source,
+    DataDir,
+    MetadataMode,
+    SourcePlatform,
+    SourceFormat,
+    MaxObjectBytes,
+    MaxEntries,
+    MaxDepth,
+}
+
+impl ValueFlag {
+    const ALL: [Self; 8] = [
+        Self::Source,
+        Self::DataDir,
+        Self::MetadataMode,
+        Self::SourcePlatform,
+        Self::SourceFormat,
+        Self::MaxObjectBytes,
+        Self::MaxEntries,
+        Self::MaxDepth,
+    ];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "--source",
+            Self::DataDir => "--data-dir",
+            Self::MetadataMode => "--metadata-mode",
+            Self::SourcePlatform => "--source-platform",
+            Self::SourceFormat => "--source-format",
+            Self::MaxObjectBytes => "--max-object-bytes",
+            Self::MaxEntries => "--max-entries",
+            Self::MaxDepth => "--max-depth",
+        }
+    }
+
+    fn from_flag(flag: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|known| known.as_str() == flag)
+    }
+}
+
+/// A refusal of the command line, named by the argument it blames.
+fn refusal(key: &str, fix: impl Into<String>) -> Diagnostics {
+    Diagnostics::error(DiagnosticSource::Cli, key, fix)
+}
+
+fn parse<T>(flag: ValueFlag, value: &str) -> Result<T, Diagnostics>
+where
+    T: FromStr,
+    T::Err: fmt::Display,
+{
+    value
+        .parse()
+        .map_err(|fix: T::Err| refusal(flag.as_str(), fix.to_string()))
+}
+
+/// The command line once its flags were read. Values stay text until the option that owns them
+/// parses them, so each failure names its own option.
+struct Arguments<'a> {
+    values: BTreeMap<ValueFlag, &'a str>,
+    dry_run: bool,
+    verify_bodies: bool,
+}
+
+impl<'a> Arguments<'a> {
+    fn read(args: &'a [String]) -> Result<Self, Diagnostics> {
+        let mut arguments = Self {
+            values: BTreeMap::new(),
+            dry_run: false,
+            verify_bodies: false,
+        };
+        let mut args = args.iter().map(String::as_str);
+        while let Some(key) = args.next() {
+            match (key, ValueFlag::from_flag(key)) {
+                ("--dry-run", _) if !arguments.dry_run => arguments.dry_run = true,
+                ("--verify-bodies", _) if !arguments.verify_bodies => {
+                    arguments.verify_bodies = true;
+                }
+                (_, Some(flag)) => {
+                    let value = args
+                        .next()
+                        .filter(|value| !value.is_empty() && !value.starts_with("--"))
+                        .ok_or_else(|| {
+                            refusal(
+                                key,
+                                "Supply exactly one nonempty value; see import fake-gcs-server --help.",
+                            )
+                        })?;
+                    if arguments.values.insert(flag, value).is_some() {
+                        return Err(refusal(key, "Remove the duplicate option."));
+                    }
+                }
+                (_, None) => {
+                    return Err(refusal(
+                        key,
+                        "Remove the unknown or duplicate option; see import fake-gcs-server --help.",
+                    ));
+                }
+            }
+        }
+        Ok(arguments)
+    }
+
+    fn value(&self, flag: ValueFlag) -> Option<&'a str> {
+        self.values.get(&flag).copied()
+    }
+
+    fn contains(&self, flag: ValueFlag) -> bool {
+        self.values.contains_key(&flag)
+    }
+
+    fn required(&self, flag: ValueFlag) -> Result<&'a str, Diagnostics> {
+        self.value(flag).ok_or_else(|| {
+            refusal(
+                flag.as_str(),
+                "Supply the required option; see import fake-gcs-server --help.",
+            )
+        })
+    }
+
+    /// Parses an option's value, if it has one; the error text of its `string_enum!` type is the
+    /// fix.
+    fn parsed<T>(&self, flag: ValueFlag) -> Result<Option<T>, Diagnostics>
+    where
+        T: FromStr,
+        T::Err: fmt::Display,
+    {
+        self.value(flag).map(|value| parse(flag, value)).transpose()
+    }
+
+    fn parsed_required<T>(&self, flag: ValueFlag) -> Result<T, Diagnostics>
+    where
+        T: FromStr,
+        T::Err: fmt::Display,
+    {
+        parse(flag, self.required(flag)?)
+    }
+
+    /// The limit an option names, at most `maximum`.
+    fn limit(&self, flag: ValueFlag, maximum: u64) -> Result<Option<u64>, Diagnostics> {
+        self.value(flag)
             .map(|value| {
                 value
                     .parse::<u64>()
                     .ok()
                     .filter(|limit| *limit <= maximum)
                     .ok_or_else(|| {
-                        Diagnostics::error(
-                            DiagnosticSource::Cli,
-                            key,
+                        refusal(
+                            flag.as_str(),
                             format!(
                                 "Use an integer in 0..={maximum}; see import fake-gcs-server --help."
                             ),
@@ -775,17 +922,51 @@ fn apply_limits(
                     })
             })
             .transpose()
-    };
-    if let Some(bytes) = limit("--max-object-bytes", MAX_OBJECT_BYTES)? {
+    }
+}
+
+/// Applies the limit options; 0 means no limit, which for a body is Cloud Storage's own.
+fn apply_limits(options: &mut Options, arguments: &Arguments<'_>) -> Result<(), ImportError> {
+    if let Some(bytes) = arguments.limit(ValueFlag::MaxObjectBytes, MAX_OBJECT_BYTES)? {
         options.max_object_bytes = if bytes == 0 { MAX_OBJECT_BYTES } else { bytes };
     }
-    if let Some(entries) = limit("--max-entries", u64::MAX)? {
+    if let Some(entries) = arguments.limit(ValueFlag::MaxEntries, u64::MAX)? {
         options.max_entries = NonZeroUsize::new(usize::try_from(entries)?);
     }
-    if let Some(depth) = limit("--max-depth", MAX_TREE_DEPTH as u64)? {
+    if let Some(depth) = arguments.limit(ValueFlag::MaxDepth, MAX_TREE_DEPTH as u64)? {
         options.max_depth = NonZeroUsize::new(usize::try_from(depth)?);
     }
     Ok(())
+}
+
+/// The metadata mode and source platform a filesystem source names; a snapshot names neither.
+fn source_layout(
+    arguments: &Arguments<'_>,
+    source_format: SourceFormat,
+) -> Result<(MetadataMode, SourcePlatform), Diagnostics> {
+    match source_format {
+        SourceFormat::Snapshot => {
+            if arguments.contains(ValueFlag::MetadataMode)
+                || arguments.contains(ValueFlag::SourcePlatform)
+            {
+                return Err(refusal(
+                    ValueFlag::SourceFormat.as_str(),
+                    "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.",
+                ));
+            }
+            if arguments.contains(ValueFlag::MaxDepth) {
+                return Err(refusal(
+                    ValueFlag::MaxDepth.as_str(),
+                    "A snapshot holds rows, not directories; remove --max-depth.",
+                ));
+            }
+            Ok((MetadataMode::Sidecar, SourcePlatform::Unix))
+        }
+        SourceFormat::Filesystem => Ok((
+            arguments.parsed_required(ValueFlag::MetadataMode)?,
+            arguments.parsed_required(ValueFlag::SourcePlatform)?,
+        )),
+    }
 }
 
 pub fn cli(args: &[String]) -> Result<(), ImportError> {
@@ -793,98 +974,28 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
         println!("{HELP}");
         return Ok(());
     }
-    let invalid = |key: &str, fix: &str| Diagnostics::error(DiagnosticSource::Cli, key, fix);
-    let mut values = std::collections::BTreeMap::new();
-    let (mut dry_run, mut verify) = (false, false);
-    let mut index = 0;
-    while let Some(key) = args.get(index) {
-        match key.as_str() {
-            "--dry-run" if !dry_run => dry_run = true,
-            "--verify-bodies" if !verify => verify = true,
-            "--source" | "--data-dir" | "--metadata-mode" | "--source-platform"
-            | "--source-format" | "--max-object-bytes" | "--max-entries" | "--max-depth" => {
-                let value = args
-                    .get(index + 1)
-                    .map(String::as_str)
-                    .filter(|v| !v.is_empty() && !v.starts_with("--"))
-                    .ok_or_else(|| {
-                        invalid(
-                            key,
-                            "Supply exactly one nonempty value; see import fake-gcs-server --help.",
-                        )
-                    })?;
-                if values.insert(key.as_str(), value).is_some() {
-                    return Err(invalid(key, "Remove the duplicate option.").into());
-                }
-                index += 1;
-            }
-            _ => {
-                return Err(invalid(
-                    key,
-                    "Remove the unknown or duplicate option; see import fake-gcs-server --help.",
-                )
-                .into());
-            }
-        }
-        index += 1;
-    }
-    if verify && !dry_run {
-        return Err(invalid(
+    let arguments = Arguments::read(args)?;
+    if arguments.verify_bodies && !arguments.dry_run {
+        return Err(refusal(
             "--verify-bodies",
             "Use --dry-run --verify-bodies for inspection; actual import always verifies bodies.",
         )
         .into());
     }
-    let required = |key| {
-        values.get(key).copied().ok_or_else(|| {
-            invalid(
-                key,
-                "Supply the required option; see import fake-gcs-server --help.",
-            )
-        })
-    };
-    let source_format = values
-        .get("--source-format")
-        .copied()
-        .unwrap_or("filesystem")
-        .parse::<SourceFormat>()
-        .map_err(|fix| invalid("--source-format", &fix.to_string()))?;
-    if source_format == SourceFormat::Snapshot
-        && (values.contains_key("--metadata-mode") || values.contains_key("--source-platform"))
-    {
-        return Err(invalid("--source-format", "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.").into());
-    }
-    if source_format == SourceFormat::Snapshot && values.contains_key("--max-depth") {
-        return Err(invalid(
-            "--max-depth",
-            "A snapshot holds rows, not directories; remove --max-depth.",
-        )
-        .into());
-    }
-    let mode = if source_format == SourceFormat::Snapshot {
-        "sidecar"
-    } else {
-        required("--metadata-mode")?
-    }
-    .parse::<MetadataMode>()
-    .map_err(|fix| invalid("--metadata-mode", &fix.to_string()))?;
-    let platform = if source_format == SourceFormat::Snapshot {
-        "unix"
-    } else {
-        required("--source-platform")?
-    }
-    .parse::<SourcePlatform>()
-    .map_err(|fix| invalid("--source-platform", &fix.to_string()))?;
+    let source_format: SourceFormat = arguments
+        .parsed(ValueFlag::SourceFormat)?
+        .unwrap_or_default();
+    let (metadata_mode, source_platform) = source_layout(&arguments, source_format)?;
     let mut options = Options::new(
-        required("--source")?.into(),
-        required("--data-dir")?.into(),
-        mode,
-        platform,
+        arguments.required(ValueFlag::Source)?.into(),
+        arguments.required(ValueFlag::DataDir)?.into(),
+        metadata_mode,
+        source_platform,
     );
     options.source_format = source_format;
-    options.verify_bodies = verify;
-    apply_limits(&mut options, &values)?;
-    let summary = if dry_run {
+    options.verify_bodies = arguments.verify_bodies;
+    apply_limits(&mut options, &arguments)?;
+    let summary = if arguments.dry_run {
         inspect(options, io::stdout().lock(), io::stderr().lock())?
     } else {
         execute(options, io::stdout().lock(), io::stderr().lock()).map_err(|error| {
@@ -896,7 +1007,7 @@ pub fn cli(args: &[String]) -> Result<(), ImportError> {
         })?
     };
     if !summary.eligible {
-        return Err(invalid("import", "Inspection found blocking findings; apply the reported remedies and inspect a stable snapshot again.").into());
+        return Err(refusal("import", "Inspection found blocking findings; apply the reported remedies and inspect a stable snapshot again.").into());
     }
     Ok(())
 }

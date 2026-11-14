@@ -645,6 +645,169 @@ fn pinned_sources_report_changes_by_their_read_policy() {
     }
 }
 
+/// Each refused command line names one option and its remedy. When a line has several mistakes,
+/// the first one reported is fixed: operators fix them in that order.
+#[test]
+fn command_line_refusals_name_their_option_and_remedy() {
+    const VALUE: &str = "Supply exactly one nonempty value; see import fake-gcs-server --help.";
+    const UNKNOWN: &str =
+        "Remove the unknown or duplicate option; see import fake-gcs-server --help.";
+    const REQUIRED: &str = "Supply the required option; see import fake-gcs-server --help.";
+    const SNAPSHOT_NAMES: &str =
+        "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.";
+    let filesystem = [
+        "--metadata-mode",
+        "sidecar",
+        "--source-platform",
+        "unix",
+        "--source",
+        "source",
+        "--data-dir",
+        "data",
+    ];
+    let with = |extra: &[&'static str]| [&filesystem[..], extra].concat();
+    for (args, key, fix) in [
+        (vec!["--source"], "--source", VALUE),
+        (vec!["--source", ""], "--source", VALUE),
+        (vec!["--source", "--dry-run"], "--source", VALUE),
+        (vec!["--max-depth"], "--max-depth", VALUE),
+        (
+            vec!["--source", "a", "--source", "b"],
+            "--source",
+            "Remove the duplicate option.",
+        ),
+        (vec!["--unknown"], "--unknown", UNKNOWN),
+        (vec!["--dry-run", "--dry-run"], "--dry-run", UNKNOWN),
+        (
+            vec!["--dry-run", "--verify-bodies", "--verify-bodies"],
+            "--verify-bodies",
+            UNKNOWN,
+        ),
+        (
+            vec!["--verify-bodies", "--source-format", "bad"],
+            "--verify-bodies",
+            "Use --dry-run --verify-bodies for inspection; actual import always verifies bodies.",
+        ),
+        (
+            vec!["--source-format", "bad", "--metadata-mode", "bad"],
+            "--source-format",
+            "Use filesystem or snapshot.",
+        ),
+        (
+            vec![
+                "--source-format",
+                "snapshot",
+                "--metadata-mode",
+                "sidecar",
+                "--max-depth",
+                "1",
+            ],
+            "--source-format",
+            SNAPSHOT_NAMES,
+        ),
+        (
+            vec!["--source-format", "snapshot", "--source-platform", "unix"],
+            "--source-format",
+            SNAPSHOT_NAMES,
+        ),
+        (
+            vec!["--source-format", "snapshot", "--max-depth", "1"],
+            "--max-depth",
+            "A snapshot holds rows, not directories; remove --max-depth.",
+        ),
+        (
+            vec!["--source-format", "snapshot", "--data-dir", "data"],
+            "--source",
+            REQUIRED,
+        ),
+        (
+            vec!["--source-platform", "bad"],
+            "--metadata-mode",
+            REQUIRED,
+        ),
+        (
+            vec!["--metadata-mode", "bad", "--source-platform", "bad"],
+            "--metadata-mode",
+            "Use xattr or sidecar, matching the entire source root.",
+        ),
+        (
+            vec!["--metadata-mode", "xattr", "--source", "source"],
+            "--source-platform",
+            REQUIRED,
+        ),
+        (
+            vec!["--metadata-mode", "xattr", "--source-platform", "bad"],
+            "--source-platform",
+            "Use unix or windows, matching the source path platform.",
+        ),
+        (
+            vec![
+                "--metadata-mode",
+                "xattr",
+                "--source-platform",
+                "windows",
+                "--data-dir",
+                "data",
+            ],
+            "--source",
+            REQUIRED,
+        ),
+        (
+            vec![
+                "--metadata-mode",
+                "xattr",
+                "--source-platform",
+                "windows",
+                "--source",
+                "source",
+                "--max-depth",
+                "bad",
+            ],
+            "--data-dir",
+            REQUIRED,
+        ),
+        (
+            with(&["--max-depth", "1025", "--max-object-bytes", "5497558138881"]),
+            "--max-object-bytes",
+            "Use an integer in 0..=5497558138880; see import fake-gcs-server --help.",
+        ),
+        (
+            with(&["--max-object-bytes", "-1"]),
+            "--max-object-bytes",
+            "Use an integer in 0..=5497558138880; see import fake-gcs-server --help.",
+        ),
+        (
+            with(&[
+                "--max-depth",
+                "1025",
+                "--max-entries",
+                "18446744073709551616",
+            ]),
+            "--max-entries",
+            "Use an integer in 0..=18446744073709551615; see import fake-gcs-server --help.",
+        ),
+        (
+            with(&["--max-depth", "1025"]),
+            "--max-depth",
+            "Use an integer in 0..=1024; see import fake-gcs-server --help.",
+        ),
+    ] {
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        let Err(ImportError::Diagnostics(refused)) = cli(&args) else {
+            panic!("{args:?} was not refused by its options")
+        };
+        let [error] = refused.errors.as_slice() else {
+            panic!("{args:?}: {refused:?}")
+        };
+        assert_eq!(
+            (error.source, error.key.as_str(), error.fix.as_str()),
+            (DiagnosticSource::Cli, key, fix),
+            "{args:?}"
+        );
+        assert!(refused.warnings.is_empty() && refused.info.is_empty());
+    }
+}
+
 /// Report keys are `{path}:{field}`, and operators and tests match them, so each named field and
 /// each other failure keeps the key it had when the names were strings.
 #[test]
