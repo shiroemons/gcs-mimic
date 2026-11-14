@@ -199,11 +199,8 @@ fn bucket_record(name: &str, created_timestamp: Option<&str>, digest: [u8; 32]) 
 /// import they started.
 #[test]
 fn element_digests_keep_the_bytes_earlier_journals_hold() {
-    let bucket = bucket_record(
-        "bucket-one",
-        Some("2026-01-01T00:00:00.123456789Z"),
-        [1; 32],
-    );
+    // The bucket digest leaves the creation time out; a 100 ns value parses on Windows too.
+    let bucket = bucket_record("bucket-one", Some("2026-01-01T00:00:00.1234567Z"), [1; 32]);
     let object = Record::Object(Box::new(ObjectRecord {
         path: "bucket-one/folder/body".into(),
         bucket: "bucket-one".parse().unwrap(),
