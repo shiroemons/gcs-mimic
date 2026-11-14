@@ -257,7 +257,7 @@ async fn wait(
         }
         Err(_) => crate::sync::control::WaitResult::timeout(),
     };
-    let mut response = bounded(&json!(result))?;
+    let mut response = bounded(&super::encode(&result)?)?;
     if result.timed_out {
         *response.status_mut() = StatusCode::REQUEST_TIMEOUT
     } else if !result.completed {

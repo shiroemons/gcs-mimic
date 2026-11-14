@@ -170,15 +170,23 @@ async fn run_lifecycle(
         ));
     }
     let outcome = ctx.state.catalog.run_lifecycle_now().await?;
-    Ok(super::json_response(
-        &serde_json::to_value(outcome).map_err(|error| {
-            JsonError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                error.to_string(),
-            )
-        })?,
-    ))
+    Ok(super::json_response(&encode(&outcome)?))
+}
+
+/// Renders a management result. The outcome types hold only integers, booleans and fixed
+/// strings, so this cannot fail today; if a future field makes it fail, the server is at fault,
+/// and the client gets a server-side failure instead of a rejected request.
+fn encode(value: &impl serde::Serialize) -> Result<serde_json::Value, JsonError> {
+    serde_json::to_value(value).map_err(|error| {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Error,
+            "admin_result_unencodable",
+            serde_json::json!({"reason": error.to_string()}),
+        );
+        JsonError::service_unavailable(
+            "Cannot encode the management result; inspect server diagnostics",
+        )
+    })
 }
 
 async fn update(
@@ -609,6 +617,25 @@ mod tests {
                 RESOLVE_IO_FAILURE,
             ],
         }
+    }
+
+    #[test]
+    fn an_unencodable_management_result_answers_as_a_server_failure() {
+        struct Unencodable;
+        impl serde::Serialize for Unencodable {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("serializer internals"))
+            }
+        }
+        let error = encode(&Unencodable).unwrap_err();
+        assert_eq!(
+            (error.status, error.reason, error.message.as_str()),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Cannot encode the management result; inspect server diagnostics",
+            )
+        );
     }
 
     #[test]

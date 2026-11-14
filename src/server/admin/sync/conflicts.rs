@@ -185,7 +185,7 @@ pub(super) async fn resolve(
     let outcome = observe(ctx, &registration, command, receive)
         .await?
         .map_err(error)?;
-    let mut response = bounded(&json!(outcome))?;
+    let mut response = bounded(&super::super::encode(&outcome)?)?;
     *response.status_mut() = StatusCode::ACCEPTED;
     Ok(response)
 }

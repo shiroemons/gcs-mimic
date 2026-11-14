@@ -71,9 +71,7 @@ async fn reseed(
                 .map_err(|error| failure(&error))
         })
         .await?;
-    Ok(json_response(&serde_json::to_value(outcome).map_err(
-        |_| JsonError::invalid_argument("Cannot encode reseed result"),
-    )?))
+    Ok(json_response(&super::encode(&outcome)?))
 }
 
 /// Classifies a reseed failure by whether another attempt can succeed. A tree that breaks a

@@ -91,9 +91,7 @@ async fn reset(
         .await_session_writer(admin.reset_until(wait_deadline))
         .await
         .map_err(|error| failure(&error))?;
-    Ok(json_response(&serde_json::to_value(result).map_err(
-        |_| JsonError::invalid_argument("Cannot encode reset result"),
-    )?))
+    Ok(json_response(&super::encode(&result)?))
 }
 
 pub(super) fn failure(error: &AdminError) -> JsonError {
