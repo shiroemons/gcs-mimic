@@ -25,15 +25,11 @@ pub(super) async fn respond(
     authorized: super::Authorized,
     form: Form,
 ) -> Response<Full<Bytes>> {
-    let mut response = reset(request, ctx, authorized, form)
-        .await
-        .unwrap_or_else(JsonError::into_response);
-    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
-        response
-            .headers_mut()
-            .insert("retry-after", hyper::header::HeaderValue::from_static("1"));
-    }
-    response
+    super::retry_soon(
+        reset(request, ctx, authorized, form)
+            .await
+            .unwrap_or_else(JsonError::into_response),
+    )
 }
 
 async fn reset(

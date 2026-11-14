@@ -11,18 +11,11 @@ use crate::{
     server::{
         ObjectCtx, RESOURCE_BODY_LIMIT,
         copy::{self, CopyBudget, CopyJob},
+        reject_headers,
     },
     storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
 };
-use hyper::{HeaderMap, Request};
-
-/// Rejects headers that do not apply to a derived write.
-fn reject_headers(headers: &HeaderMap, names: &[&str]) -> Result<(), JsonError> {
-    match names.iter().find(|name| headers.contains_key(**name)) {
-        Some(name) => Err(JsonError::unsupported_object(name)),
-        None => Ok(()),
-    }
-}
+use hyper::Request;
 
 pub(super) async fn copy(
     request: Request<Incoming>,

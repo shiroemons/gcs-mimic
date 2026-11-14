@@ -6,7 +6,8 @@ use crate::{
     config::EndpointError,
     json::{self, JsonError},
 };
-use hyper::{Method, Request, StatusCode};
+use http_body_util::Full;
+use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;
 
 mod fixtures;
@@ -50,6 +51,16 @@ impl Authorized {
     fn into_admin(self) -> crate::storage::admin::Admin {
         self.0
     }
+}
+
+/// Tells a client to retry a reset or reseed that answered 503 after one second.
+fn retry_soon(mut response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
+    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+        response
+            .headers_mut()
+            .insert("retry-after", hyper::header::HeaderValue::from_static("1"));
+    }
+    response
 }
 
 enum LocalRoute {

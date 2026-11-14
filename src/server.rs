@@ -1763,6 +1763,17 @@ pub(crate) async fn authorize_bucket(
     permission: auth::Permission,
     bucket: &str,
 ) -> Result<BucketAccess, JsonError> {
+    Ok(bucket_access(state, caller, permission, bucket).await?)
+}
+
+/// The access `caller` holds for `permission` on `bucket`. The error stays a `CatalogError`,
+/// so a caller that hides a refusal tells it apart with `CatalogError::is_refusal`.
+async fn bucket_access(
+    state: &State,
+    caller: Option<Caller<'_>>,
+    permission: auth::Permission,
+    bucket: &str,
+) -> Result<BucketAccess, CatalogError> {
     let Some(caller) = caller else {
         return Ok(BucketAccess::Permissive);
     };
@@ -1770,10 +1781,10 @@ pub(crate) async fn authorize_bucket(
         Caller::Anonymous => None,
         Caller::Principal(identity) => Some(identity),
     };
-    Ok(state
+    state
         .catalog
         .bucket_access(bucket, identity, permission)
-        .await?)
+        .await
 }
 
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
@@ -1838,8 +1849,7 @@ async fn validate_bodyless_post(
         };
         if params.as_ref() != Some(expected) {
             let example = expected
-                .iter()
-                .next()
+                .first_key_value()
                 .map(|(key, value)| format!("{key}={value}"))
                 .unwrap_or_default();
             return Err(JsonError::invalid_argument(format!(
@@ -1859,6 +1869,9 @@ pub(crate) enum Streamed {
     /// counted so far say nothing about the body's size.
     Stopped,
 }
+
+/// The largest chunk a body producer hands on at once.
+const CHUNK_BYTES: usize = 64 * 1024;
 
 pub(crate) async fn stream_upload(
     mut body: RequestBody,
@@ -1884,7 +1897,7 @@ pub(crate) async fn stream_upload(
         // copy keeps what the two-slot channel retains bounded; larger frames are still split
         // into 64 KiB chunks.
         while !bytes.is_empty() {
-            let part = bytes.split_to(bytes.len().min(64 * 1024));
+            let part = bytes.split_to(bytes.len().min(CHUNK_BYTES));
             if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
                 // Preserve the catalog's original failure when it stops accepting the body.
                 return Ok(Streamed::Stopped);
@@ -1936,16 +1949,18 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
         .unwrap_or_else(|_| Err(object_unavailable(BackendFailure::UploadWaitTimeout).into()))
 }
 
-fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool, JsonError> {
-    etag_not_modified(headers, etag).map_err(|error| match error {
-        EtagError::Invalid => JsonError::invalid_parameter("Invalid ETag precondition header"),
-        // The header form of the failure carries a shorter message than the query form.
-        EtagError::PreconditionFailed => JsonError::new(
-            StatusCode::PRECONDITION_FAILED,
-            "conditionNotMet",
-            "Precondition Failed",
-        ),
-    })
+/// Rejects headers that do not apply to a derived write (copy, compose or rewrite), naming the
+/// first of `names` the request carries.
+fn reject_headers(headers: &hyper::HeaderMap, names: &[&str]) -> Result<(), JsonError> {
+    match names.iter().find(|name| headers.contains_key(**name)) {
+        Some(name) => Err(JsonError::unsupported_object(name)),
+        None => Ok(()),
+    }
+}
+
+/// An `If-Match` or `If-None-Match` header that does not parse as entity tags.
+fn invalid_etag_header() -> JsonError {
+    JsonError::invalid_parameter("Invalid ETag precondition header")
 }
 
 fn not_modified_response(
@@ -1988,19 +2003,25 @@ fn read_metadata_response(
     query: QueryPrecondition,
     cache_control: &'static str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let not_modified = match read_etag_not_modified(headers, etag) {
-        Err(error)
-            if error.status == StatusCode::PRECONDITION_FAILED
-                && value.get("kind").and_then(serde_json::Value::as_str)
-                    == Some("storage#object") =>
-        {
+    let not_modified = match etag_not_modified(headers, etag) {
+        Ok(not_modified) => not_modified || query == QueryPrecondition::NotModified,
+        Err(EtagError::Invalid) => return Err(invalid_etag_header()),
+        Err(EtagError::PreconditionFailed) => {
+            // The header form of the failure carries a shorter message than the query form.
+            let error = JsonError::new(
+                StatusCode::PRECONDITION_FAILED,
+                "conditionNotMet",
+                "Precondition Failed",
+            );
+            if value.get("kind").and_then(serde_json::Value::as_str) != Some("storage#object") {
+                return Err(error);
+            }
             let mut response = error.at_if_match().into_response();
             if let Ok(etag) = etag.parse() {
                 response.headers_mut().insert("etag", etag);
             }
             return Ok(response);
         }
-        result => result? || query == QueryPrecondition::NotModified,
     };
     // ETags are rendered locally from base64 (JSON) or a quoted policy revision, so the
     // conversion always succeeds; omitting the validator is safer than panicking if that ever

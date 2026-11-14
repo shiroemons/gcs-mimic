@@ -26,18 +26,38 @@ fn content_length(headers: &HeaderMap) -> Option<u64> {
         .and_then(|v| v.parse::<u64>().ok())
 }
 
-/// What a replayed upload must repeat to return the first upload's response.
-fn replay_binding(
-    request: &Request<Incoming>,
-    ctx: ObjectCtx<'_>,
-    key: Option<CustomerKey>,
-) -> String {
-    format!(
-        "{}|{}|{:?}",
-        request.uri(),
-        ctx.state.api_base_url,
-        key.map(CustomerKey::sha256)
-    )
+/// The replay identity of one upload: the client's idempotency token and the exact request a
+/// retry must repeat to get the first response back.
+struct Replay {
+    token: Option<String>,
+    request: String,
+}
+
+impl Replay {
+    /// Reads the token and binds the request. The binding is stored hashed in
+    /// `upload_replays.request`, so its format must not change.
+    fn of(
+        request: &Request<Incoming>,
+        ctx: ObjectCtx<'_>,
+        key: Option<CustomerKey>,
+    ) -> Result<Self, JsonError> {
+        Ok(Self {
+            token: idempotency_token(request.headers())?,
+            request: format!(
+                "{}|{}|{:?}",
+                request.uri(),
+                ctx.state.api_base_url,
+                key.map(CustomerKey::sha256)
+            ),
+        })
+    }
+
+    fn invocation(&self) -> ReplayInvocation<'_> {
+        ReplayInvocation {
+            token: self.token.as_deref(),
+            request: &self.request,
+        }
+    }
 }
 
 pub(super) async fn insert(
@@ -59,8 +79,7 @@ pub(super) async fn insert(
     // A media upload verifies no declared hash; see `upload_content_type`.
     let expected = ExpectedHashes::default();
     let key = json::request_key(request.headers())?;
-    let token = idempotency_token(request.headers())?;
-    let replay_request = replay_binding(&request, ctx, key);
+    let replay = Replay::of(&request, ctx, key)?;
     if content_length(request.headers()).is_some_and(|length| length > max_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
@@ -75,10 +94,7 @@ pub(super) async fn insert(
             conditions: params.conditions,
         },
         &access,
-        ReplayInvocation {
-            token: token.as_deref(),
-            request: &replay_request,
-        },
+        replay.invocation(),
         &mut permit,
     ))
     .await?;
@@ -150,8 +166,7 @@ pub(super) async fn multipart(
     json::upload_content_type(request.headers())?;
     let key = json::request_key(request.headers())?;
     let boundary = json::multipart_boundary(request.headers())?;
-    let token = idempotency_token(request.headers())?;
-    let replay_request = replay_binding(&request, ctx, key);
+    let replay = Replay::of(&request, ctx, key)?;
     if content_length(request.headers())
         .is_some_and(|length| length > max_bytes.saturating_add(json::MULTIPART_FRAMING_LIMIT))
     {
@@ -168,10 +183,7 @@ pub(super) async fn multipart(
                     conditions: params.conditions,
                 }),
             &access,
-            ReplayInvocation {
-                token: token.as_deref(),
-                request: &replay_request,
-            },
+            replay.invocation(),
             &mut permit,
         ),
     )
@@ -197,10 +209,7 @@ pub(super) async fn multipart(
                 conditions: params.conditions,
             },
             &access,
-            ReplayInvocation {
-                token: token.as_deref(),
-                request: &replay_request,
-            },
+            replay.invocation(),
             &mut permit,
         ))
         .await?;

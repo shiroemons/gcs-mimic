@@ -850,8 +850,8 @@ async fn respond_bucket(
 
 /// fake-gcs-server reports these bucket errors with its own reasons and messages.
 fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonError {
+    // Only 400 errors carry these kinds.
     if profile == CompatProfile::FakeGcsServer
-        && error.status == StatusCode::BAD_REQUEST
         && matches!(
             error.kind,
             json::ErrorKind::InvalidArgument | json::ErrorKind::LegacyParseError

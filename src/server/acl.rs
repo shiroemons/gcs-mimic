@@ -1,7 +1,10 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
 use super::RequestBody as Incoming;
-use super::{State, authorize_bucket, empty_response, json_response_selected, require_empty_body};
+use super::{
+    State, authorize_bucket, bucket_access, empty_response, json_response_selected,
+    require_empty_body,
+};
 use crate::{
     acl::{AclKind, AclTarget},
     auth::{self, Caller},
@@ -238,14 +241,14 @@ pub(crate) async fn may_read(
     kind: AclKind,
     bucket: &str,
 ) -> Result<bool, JsonError> {
-    match authorize_bucket(state, caller, permission(kind, AclAccess::Read), bucket).await {
+    match bucket_access(state, caller, permission(kind, AclAccess::Read), bucket).await {
         Ok(access) => state
             .catalog
             .has_bucket_permission(bucket, &access)
             .await
             .map_err(Into::into),
-        Err(error) if error.status == StatusCode::FORBIDDEN => Ok(false),
-        Err(error) => Err(error),
+        Err(error) if error.is_refusal() => Ok(false),
+        Err(error) => Err(error.into()),
     }
 }
 

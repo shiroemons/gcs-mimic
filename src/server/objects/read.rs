@@ -9,7 +9,7 @@ use crate::{
     server::{
         ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
         ResponseBody, acl, body_read_ahead, boxed, empty_response, gzip, insert_content_range,
-        insert_unsatisfied_content_range, not_modified_response, object_body,
+        insert_unsatisfied_content_range, invalid_etag_header, not_modified_response, object_body,
         read_metadata_response,
     },
 };
@@ -108,17 +108,10 @@ async fn media(
         Err(crate::http_conditions::EtagError::PreconditionFailed) => {
             return Ok(boxed(precondition_failed(&headers)));
         }
-        Err(crate::http_conditions::EtagError::Invalid) => {
-            return Err(JsonError::invalid_parameter(
-                "Invalid ETag precondition header",
-            ));
-        }
+        Err(crate::http_conditions::EtagError::Invalid) => return Err(invalid_etag_header()),
         Ok(not_modified) => not_modified,
     };
-    if conditional
-        || requested.if_generation_not_match == Some(record.generation)
-        || requested.if_metageneration_not_match == Some(record.metageneration)
-    {
+    if conditional || not_modified_by(&requested, &record) {
         let mut response = not_modified_response(headers.get("etag"), headers.get("cache-control"));
         copy_representation_headers(&headers, response.headers_mut());
         return Ok(boxed(response));
@@ -424,9 +417,7 @@ async fn metadata(
         )
         .await?;
     }
-    let query = if requested.if_generation_not_match == Some(record.generation)
-        || requested.if_metageneration_not_match == Some(record.metageneration)
-    {
+    let query = if not_modified_by(&requested, &record) {
         QueryPrecondition::NotModified
     } else {
         QueryPrecondition::Unmatched
@@ -439,4 +430,11 @@ async fn metadata(
         query,
         JSON_RESOURCE_CACHE_CONTROL,
     )?))
+}
+
+/// Whether the query's `ifGenerationNotMatch` or `ifMetagenerationNotMatch` names `record`, so
+/// a read answers `304 Not Modified`.
+fn not_modified_by(conditions: &ObjectConditions, record: &ObjectRecord) -> bool {
+    conditions.if_generation_not_match == Some(record.generation)
+        || conditions.if_metageneration_not_match == Some(record.metageneration)
 }

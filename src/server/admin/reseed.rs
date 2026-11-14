@@ -14,15 +14,11 @@ pub(super) async fn respond(
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
 ) -> Response<Full<Bytes>> {
-    let mut response = reseed(request, ctx, authorized)
-        .await
-        .unwrap_or_else(JsonError::into_response);
-    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
-        response
-            .headers_mut()
-            .insert("retry-after", hyper::header::HeaderValue::from_static("1"));
-    }
-    response
+    super::retry_soon(
+        reseed(request, ctx, authorized)
+            .await
+            .unwrap_or_else(JsonError::into_response),
+    )
 }
 
 async fn reseed(

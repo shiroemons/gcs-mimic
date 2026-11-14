@@ -1,6 +1,8 @@
 use super::RequestBody as Incoming;
 use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel};
-use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
+use super::{
+    ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, json_response, stream_upload,
+};
 use crate::{
     bucket::BucketAccess,
     json::{
@@ -14,8 +16,6 @@ use crate::{
     },
     time_limit::TimeLimit,
 };
-use bytes::Bytes;
-use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, header::HeaderValue};
 use tokio::sync::watch;
 
@@ -159,19 +159,6 @@ pub(super) fn incomplete(
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
-}
-
-fn completed(value: &serde_json::Value) -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::from(crate::json::render_body(value))));
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/json; charset=UTF-8"),
-    );
-    if let Some(etag) = crate::json::etag_header(value) {
-        response.headers_mut().insert("etag", etag);
-    }
-    // The cache fields of a stored-object response come from the JSON API envelope.
-    boxed(response)
 }
 
 /// What a chunk request's body is, derived from its Content-Range.
@@ -445,7 +432,8 @@ pub(super) async fn session_response(
             response.headers_mut().remove("cache-control");
             response
         }
-        Transfer::Complete(value) => completed(&value),
+        // The cache fields of a stored-object response come from the JSON API envelope.
+        Transfer::Complete(value) => boxed(json_response(&value)),
     })
 }
 

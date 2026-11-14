@@ -1,4 +1,4 @@
-use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
+use super::{CHUNK_BYTES, ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response};
 use crate::{
     object::{ObjectError, ObjectRecord},
     storage::{ObjectReader, failure::object_unavailable},
@@ -9,8 +9,6 @@ use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Method, Response, StatusCode, header::HeaderValue};
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
-
-const CHUNK_BYTES: usize = 64 * 1024;
 
 // Bound compressed input too: many empty members must not monopolize a worker.
 struct Input<R> {

@@ -126,17 +126,16 @@ pub(super) async fn respond(
         destination: json::request_key(request.headers())?,
         source: json::source_key(request.headers())?,
     };
-    for name in [
-        "x-goog-hash",
-        "content-md5",
-        "x-goog-upload-command",
-        "x-upload-content-type",
-        "x-upload-content-length",
-    ] {
-        if request.headers().contains_key(name) {
-            return Err(JsonError::unsupported_object(name));
-        }
-    }
+    reject_headers(
+        request.headers(),
+        &[
+            "x-goog-hash",
+            "content-md5",
+            "x-goog-upload-command",
+            "x-upload-content-type",
+            "x-upload-content-length",
+        ],
+    )?;
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let body = json::derived_resource(&bytes)?;
     let wait = begin_catalog_wait(activity).await;
@@ -165,12 +164,8 @@ pub(super) async fn respond(
     if let Some(resource) = value.get_mut("resource") {
         super::context::rebase_stored_links(ctx.endpoints, resource);
     }
-    let mut response = Response::new(Full::new(Bytes::from(json::render_body(&value))));
-    response.headers_mut().insert(
-        "content-type",
-        hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
-    );
-    let response = boxed(response);
+    // A rewrite response has no `etag` of its own, so it answers without an ETag header.
+    let response = boxed(json_response(&value));
     if let Some(owner) = &mut owner {
         owner.disarm();
     }

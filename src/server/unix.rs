@@ -1,5 +1,6 @@
 //! Private local HTTP transport. Advertised HTTP origins never identify this socket.
 
+use crate::fsutil::NodeId;
 use std::{
     fs, io,
     os::unix::{
@@ -34,7 +35,7 @@ impl Listener {
         crate::task::spawn_blocking_on(&runtime, "unix_socket_bind", move || {
             let result = crate::task::catch_job("unix_socket_bind", || bind(path, bind_runtime))
                 .map_err(io::Error::other)
-                .and_then(|result| result);
+                .flatten();
             if let Err(Ok((socket, mut owner))) = send.send(result) {
                 drop(socket);
                 // The runtime may already be stopping. Stay in this worker
@@ -108,7 +109,7 @@ fn bind(path: PathBuf, runtime: Handle) -> io::Result<(StdListener, Owner)> {
     }
     let owner = Owner {
         path: Some(path.clone()),
-        identity: (metadata.dev(), metadata.ino()),
+        identity: node(&metadata),
         runtime,
     };
     if directory.uid() != metadata.uid() {
@@ -124,17 +125,22 @@ fn bind(path: PathBuf, runtime: Handle) -> io::Result<(StdListener, Owner)> {
 
 struct Owner {
     path: Option<PathBuf>,
-    identity: (u64, u64),
+    /// The socket file this server bound; cleanup removes the path only while it names it.
+    identity: NodeId,
     runtime: Handle,
 }
 
-fn cleanup(path: PathBuf, identity: (u64, u64)) -> io::Result<()> {
+fn node(metadata: &fs::Metadata) -> NodeId {
+    NodeId {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    }
+}
+
+fn cleanup(path: PathBuf, identity: NodeId) -> io::Result<()> {
     let result = crate::task::catch_job("unix_socket_cleanup", || {
         match fs::symlink_metadata(&path) {
-            Ok(metadata)
-                if metadata.file_type().is_socket()
-                    && (metadata.dev(), metadata.ino()) == identity =>
-            {
+            Ok(metadata) if metadata.file_type().is_socket() && node(&metadata) == identity => {
                 fs::remove_file(path)
             }
             Ok(_) => Ok(()),
@@ -143,7 +149,7 @@ fn cleanup(path: PathBuf, identity: (u64, u64)) -> io::Result<()> {
         }
     })
     .map_err(io::Error::other)
-    .and_then(|result| result);
+    .flatten();
     if let Err(error) = &result {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Error,

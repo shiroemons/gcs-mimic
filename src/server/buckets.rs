@@ -4,7 +4,7 @@
 use super::RequestBody as Incoming;
 use super::{
     JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
-    authorize_bucket, authorize_project, empty_response, json_response_selected,
+    authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
@@ -287,7 +287,7 @@ async fn test_iam_permissions(
         .await?;
     let mut granted = Vec::new();
     for permission in permissions {
-        match authorize_bucket(ctx.state, ctx.caller, permission, bucket).await {
+        match bucket_access(ctx.state, ctx.caller, permission, bucket).await {
             Ok(access)
                 if ctx
                     .state
@@ -298,8 +298,8 @@ async fn test_iam_permissions(
                 granted.push(permission.as_str())
             }
             Ok(_) => {}
-            Err(error) if error.status == StatusCode::FORBIDDEN => {}
-            Err(error) => return Err(error),
+            Err(error) if error.is_refusal() => {}
+            Err(error) => return Err(error.into()),
         }
     }
     Ok(serde_json::json!({"kind": "storage#testIamPermissionsResponse", "permissions": granted}))
@@ -565,14 +565,12 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, Jso
         )
         .await?;
     // A page with more results always holds the bucket the next page continues after.
-    let token = match page.items.last().filter(|_| page.has_more) {
-        Some(last) => Some(json::encode_page_token(
-            &params.project,
-            &params.prefix,
-            &last.name,
-        )?),
-        None => None,
-    };
+    let token = page
+        .items
+        .last()
+        .filter(|_| page.has_more)
+        .map(|last| json::encode_page_token(&params.project, &params.prefix, &last.name))
+        .transpose()?;
     json::bucket_list_with_profile(
         &page.items,
         token.as_deref(),
@@ -596,15 +594,19 @@ async fn list_soft_deleted(
             params.max_results as usize,
         )
         .await?;
-    let token = match page.items.last().filter(|_| page.has_more) {
-        Some(last) => Some(json::encode_soft_deleted_page_token(
-            &params.project,
-            &params.prefix,
-            &last.record.name,
-            last.record.generation,
-        )?),
-        None => None,
-    };
+    let token = page
+        .items
+        .last()
+        .filter(|_| page.has_more)
+        .map(|last| {
+            json::encode_soft_deleted_page_token(
+                &params.project,
+                &params.prefix,
+                &last.record.name,
+                last.record.generation,
+            )
+        })
+        .transpose()?;
     json::soft_deleted_bucket_list(
         &page.items,
         token.as_deref(),

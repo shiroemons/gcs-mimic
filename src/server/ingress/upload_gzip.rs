@@ -3,7 +3,10 @@
 //! storing it (observed 2026-10-31). The stored bytes are the decoded body in both cases.
 
 use super::{RequestBody, RequestCtx, bad_request};
-use crate::{json::JsonError, server::chunk_body};
+use crate::{
+    json::JsonError,
+    server::{CHUNK_BYTES, chunk_body},
+};
 use bytes::{Buf, Bytes};
 use flate2::bufread::MultiGzDecoder;
 use http_body_util::BodyExt;
@@ -15,8 +18,6 @@ use std::{
     io::{self, BufRead, Read},
     sync::Arc,
 };
-
-const CHUNK_BYTES: usize = 64 * 1024;
 
 pub(super) async fn request(
     request: Request<RequestBody>,
