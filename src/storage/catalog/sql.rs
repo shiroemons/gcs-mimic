@@ -347,6 +347,16 @@ pub(super) fn immediate(connection: &mut Connection) -> rusqlite::Result<Transac
     connection.transaction_with_behavior(TransactionBehavior::Immediate)
 }
 
+/// Why a transaction's changes are not known to be in place, which decides the cleanup its
+/// caller may do.
+#[derive(Debug)]
+pub(super) enum CommitFailure<E> {
+    /// Nothing was committed: the caller may remove what it staged for the transaction.
+    Rejected(E),
+    /// The commit may have reached the catalog: whatever it references stays for recovery.
+    Ambiguous(E),
+}
+
 /// One consistent view across a read's statements. `Connection::transaction` parses `BEGIN` and
 /// `ROLLBACK` again on every call, which is a real share of a point read; these stay prepared.
 pub(super) struct ReadSnapshot<'a>(&'a Connection);

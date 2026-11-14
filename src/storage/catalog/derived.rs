@@ -9,7 +9,7 @@ use super::{
     unix_micros,
 };
 use crate::storage::blob_id::BlobId;
-use crate::storage::catalog::sql;
+use crate::storage::catalog::sql::{self, CommitFailure};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     hashing::{Hasher, Hashes},
@@ -86,6 +86,19 @@ fn deferred_cleanup(error: &dyn std::fmt::Display) {
 pub(crate) enum TransferKind {
     Continuable,
     Ephemeral,
+}
+
+// The `ephemeral` column: `CHECK(ephemeral IN (0, 1))`.
+sql::integer_enum!(TransferKind, { Continuable => 0, Ephemeral => 1 });
+
+impl TransferKind {
+    /// How long a new transfer of this kind lives before maintenance reclaims it.
+    fn lifetime_millis(self) -> i64 {
+        match self {
+            Self::Continuable => LIFETIME_MILLIS,
+            Self::Ephemeral => EPHEMERAL_LIFETIME_MILLIS,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

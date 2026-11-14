@@ -10,8 +10,6 @@ text::immediately_invoked_closure	src/import/mod.rs	1
 text::immediately_invoked_closure	src/source_tree.rs	1
 text::immediately_invoked_closure	src/storage/catalog/admin/publication.rs	1
 text::immediately_invoked_closure	src/storage/catalog/blob_backend.rs	1
-text::immediately_invoked_closure	src/storage/catalog/derived/begin.rs	1
-text::immediately_invoked_closure	src/storage/catalog/resumable.rs	1
 text::immediately_invoked_closure	src/storage/catalog/sync_state/writeback.rs	2
 text::immediately_invoked_closure	src/xml/mod.rs	1
 text::json_macro_value	src/bucket.rs	1

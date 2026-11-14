@@ -1,7 +1,10 @@
 use super::{Catalog, CatalogError, Incarnation, UnixMillis, Work, unavailable};
 use crate::storage::{
     blob_id::BlobId,
-    catalog::{bucket_incarnation, sql},
+    catalog::{
+        bucket_incarnation,
+        sql::{self, CommitFailure},
+    },
 };
 
 use crate::{
@@ -227,11 +230,6 @@ fn remove_session_stage(catalog: &Catalog, blob_id: &BlobId) -> Result<(), Catal
         .map_err(unavailable)
 }
 
-enum CreateFailure {
-    Rejected(ResumableError),
-    Ambiguous(ResumableError),
-}
-
 struct CreateSession {
     id: SessionId,
     blob_id: BlobId,
@@ -245,81 +243,98 @@ fn insert_session(
     connection: &mut Connection,
     catalog: &Catalog,
     request: &CreateSession,
-) -> Result<ResumableSession, CreateFailure> {
-    let mut ambiguous = false;
-    let result = (|| -> Result<_, ResumableError> {
-        let transaction = sql::immediate(connection).map_err(unavailable)?;
-        let (_, delete_permission) = super::objects::authorized_bucket(
-            &transaction,
-            &request.bucket,
-            &request.options.access,
-        )?;
-        let previous = super::objects::lookup(&transaction, &request.bucket, &request.name)?;
-        let now = catalog.0.clock.now();
-        super::objects::check_publication(
-            previous.as_ref(),
-            ObjectConditions::default(),
-            delete_permission,
-            now,
-        )?;
-        let _trimmed = admit_session(&transaction, catalog)?;
-        let incarnation = bucket_incarnation(&transaction, &request.bucket)
-            .optional()
-            .map_err(unavailable)?
-            .ok_or(ObjectError::BucketNotFound)?;
-        let created = UnixMillis::try_from(now)?;
-        let deadline = created
-            .checked_add_millis(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
-            .ok_or_else(|| unavailable("upload deadline overflow"))?;
-        let encoded = encode_new_options(&transaction, &request.bucket, &request.options)?;
-        let total = request
-            .total
-            .map(i64::try_from)
-            .transpose()
-            .map_err(unavailable)?;
-        sql::exec(
-            &transaction,
-            "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)",
-            params![
-                request.id,
-                request.blob_id,
-                request.bucket,
-                request.name,
-                incarnation,
-                encoded,
-                total,
-                created,
-                deadline
-            ],
-        )
+) -> Result<ResumableSession, CommitFailure<ResumableError>> {
+    let transaction = sql::immediate(connection)
+        .map_err(|error| CommitFailure::Rejected(unavailable(error).into()))?;
+    stage_session(&transaction, catalog, request).map_err(CommitFailure::Rejected)?;
+    // Once commit starts, only a successful reference probe can authorize removing the draft.
+    if let Err(error) = transaction.commit() {
+        return Err(failed_commit(
+            connection,
+            catalog.0.backend.kind(),
+            &request.blob_id,
+            error,
+        ));
+    }
+    // After the commit every failure leaves the session in place.
+    #[cfg(test)]
+    super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated)
+        .map_err(|error| CommitFailure::Ambiguous(unavailable(error).into()))?;
+    sql::row(connection, SELECT_SESSION, [&request.id], read_session)
+        .map_err(|error| CommitFailure::Ambiguous(unavailable(error).into()))
+}
+
+/// Inserts the session row; nothing is committed yet.
+fn stage_session(
+    transaction: &rusqlite::Transaction<'_>,
+    catalog: &Catalog,
+    request: &CreateSession,
+) -> Result<(), ResumableError> {
+    let (_, delete_permission) =
+        super::objects::authorized_bucket(transaction, &request.bucket, &request.options.access)?;
+    let previous = super::objects::lookup(transaction, &request.bucket, &request.name)?;
+    let now = catalog.0.clock.now();
+    super::objects::check_publication(
+        previous.as_ref(),
+        ObjectConditions::default(),
+        delete_permission,
+        now,
+    )?;
+    let _trimmed = admit_session(transaction, catalog)?;
+    let incarnation = bucket_incarnation(transaction, &request.bucket)
+        .optional()
+        .map_err(unavailable)?
+        .ok_or(ObjectError::BucketNotFound)?;
+    let created = UnixMillis::try_from(now)?;
+    let deadline = created
+        .checked_add_millis(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
+        .ok_or_else(|| unavailable("upload deadline overflow"))?;
+    let encoded = encode_new_options(transaction, &request.bucket, &request.options)?;
+    let total = request
+        .total
+        .map(i64::try_from)
+        .transpose()
         .map_err(unavailable)?;
-        // Once commit starts, only a successful reference probe can authorize removing the draft.
-        ambiguous = true;
-        if let Err(error) = transaction.commit() {
-            if catalog.0.backend.is_memory() {
-                let retained: bool = sql::scalar(
-                    connection,
-                    "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id=?1)",
-                    [&request.blob_id],
-                )
-                .map_err(unavailable)?;
-                ambiguous = retained;
-            }
-            return Err(unavailable(error).into());
-        }
-        #[cfg(test)]
-        super::fault::hit(&catalog.0.data_dir, super::fault::Step::SessionCreated)
-            .map_err(unavailable)?;
-        sql::row(connection, SELECT_SESSION, [&request.id], read_session)
-            .map_err(|error| unavailable(error).into())
-    })();
-    result.map_err(|error| {
-        if ambiguous {
-            CreateFailure::Ambiguous(error)
-        } else {
-            CreateFailure::Rejected(error)
-        }
-    })
+    sql::exec(
+        transaction,
+        "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)",
+        params![
+            request.id,
+            request.blob_id,
+            request.bucket,
+            request.name,
+            incarnation,
+            encoded,
+            total,
+            created,
+            deadline
+        ],
+    )
+    .map_err(unavailable)?;
+    Ok(())
+}
+
+/// A memory catalog can confirm that a failed commit left nothing behind; a disk catalog cannot,
+/// and neither can a failed probe.
+fn failed_commit(
+    connection: &Connection,
+    backend: crate::config::Backend,
+    blob_id: &BlobId,
+    error: rusqlite::Error,
+) -> CommitFailure<ResumableError> {
+    let error = ResumableError::from(unavailable(error));
+    match backend {
+        crate::config::Backend::Disk => CommitFailure::Ambiguous(error),
+        crate::config::Backend::Memory => match sql::scalar::<bool>(
+            connection,
+            "SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id=?1)",
+            [blob_id],
+        ) {
+            Ok(false) => CommitFailure::Rejected(error),
+            Ok(true) => CommitFailure::Ambiguous(error),
+            Err(probe) => CommitFailure::Ambiguous(unavailable(probe).into()),
+        },
+    }
 }
 
 #[expect(
@@ -393,12 +408,12 @@ impl Catalog {
             crate::task::run_blocking("session-create", move || create_session_bytes(&files, &blob_id)).await.map_err(unavailable)??;
             let metadata = catalog.clone();
             let result = catalog.run(move |connection| Ok::<_, ResumableError>(insert_session(connection, &metadata, &request))).await;
-            let result = result.unwrap_or_else(|error| Err(CreateFailure::Ambiguous(error)));
+            let result = result.unwrap_or_else(|error| Err(CommitFailure::Ambiguous(error)));
             catalog.0.maintenance_wake.notify_one();
             match result {
                 Ok(session) => Ok(session),
-                Err(CreateFailure::Ambiguous(error)) => Err(error),
-                Err(CreateFailure::Rejected(error)) => {
+                Err(CommitFailure::Ambiguous(error)) => Err(error),
+                Err(CommitFailure::Rejected(error)) => {
                     let files = catalog.clone();
                     let cleanup = crate::task::run_blocking("session-reject-cleanup", move || remove_session_stage(&files, &blob_id)).await;
                     let cleanup = cleanup.map_err(unavailable).and_then(|result| result);
@@ -697,6 +712,61 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 mod tests {
     use super::*;
     use crate::object::{MapPatch, Patch};
+
+    /// Only a memory catalog's probe can show that a failed commit left nothing; a failed probe
+    /// reports its own error and keeps the draft.
+    #[test]
+    fn a_failed_session_commit_is_rejected_only_when_a_memory_probe_finds_nothing() {
+        use crate::config::Backend;
+        let busy = || {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )
+        };
+        let blob_id: BlobId = "00000000000000000000000000000001".parse().unwrap();
+        let sessions = |rows: &str| {
+            let connection = Connection::open_in_memory().unwrap();
+            connection
+                .execute_batch(&format!(
+                    "CREATE TABLE resumable_sessions (blob_id TEXT); {rows}"
+                ))
+                .unwrap();
+            connection
+        };
+        let empty = sessions("");
+        let committed =
+            sessions("INSERT INTO resumable_sessions VALUES ('00000000000000000000000000000001');");
+        let unprobed = Connection::open_in_memory().unwrap();
+        let commit_error = busy().to_string();
+        for (connection, backend, rejected) in [
+            (&empty, Backend::Disk, false),
+            (&committed, Backend::Disk, false),
+            (&empty, Backend::Memory, true),
+            (&committed, Backend::Memory, false),
+        ] {
+            let (CommitFailure::Rejected(error) | CommitFailure::Ambiguous(error)) =
+                failed_commit(connection, backend, &blob_id, busy());
+            assert!(error.to_string().ends_with(&commit_error), "{error}");
+            assert_eq!(
+                matches!(
+                    failed_commit(connection, backend, &blob_id, busy()),
+                    CommitFailure::Rejected(_)
+                ),
+                rejected,
+                "{backend:?}"
+            );
+        }
+        let CommitFailure::Ambiguous(error) =
+            failed_commit(&unprobed, Backend::Memory, &blob_id, busy())
+        else {
+            panic!("a failed probe keeps the draft");
+        };
+        assert!(
+            error.to_string().contains("no such table"),
+            "the probe's own error: {error}"
+        );
+    }
 
     #[tokio::test]
     async fn rejected_creation_releases_the_draft_but_post_commit_failure_retains_it() {

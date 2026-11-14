@@ -62,7 +62,7 @@ pub(in crate::storage::catalog) fn recover(
             .query_map(params![after, PAGE_SIZE], |row| {
                 Ok((
                     row.get::<_, BlobId>(0)?,
-                    row.get::<_, bool>(1)?,
+                    row.get::<_, TransferKind>(1)?,
                     row.get::<_, UnixMillis>(2)?,
                 ))
             })?
@@ -71,8 +71,12 @@ pub(in crate::storage::catalog) fn recover(
             return Ok(());
         };
         after = After::Key(*last);
-        for (id, ephemeral, deadline) in page {
-            if ephemeral || deadline <= now {
+        for (id, kind, deadline) in page {
+            let expired = match kind {
+                TransferKind::Ephemeral => true,
+                TransferKind::Continuable => deadline <= now,
+            };
+            if expired {
                 discard_record(connection, &id)?;
             } else if let Err(error) = validate_retained(connection, data_dir, &id, now) {
                 crate::diagnostics::emit(

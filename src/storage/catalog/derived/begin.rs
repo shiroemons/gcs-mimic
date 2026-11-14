@@ -37,16 +37,10 @@ fn insert_inputs(
     Ok(())
 }
 
-enum BeginOutcome {
-    Committed(DerivedTransfer),
-    Rejected(ObjectError),
-    Ambiguous(ObjectError),
-}
-
 struct BeginTransfer {
     id: BlobId,
     total: u64,
-    ephemeral: bool,
+    kind: TransferKind,
     created: UnixMillis,
     deadline: UnixMillis,
 }
@@ -56,54 +50,58 @@ fn begin_transfer(
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
     bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError>,
-) -> BeginOutcome {
-    let mut ambiguous = false;
-    let result = (|| {
-        let transaction = sql::immediate(connection)?;
-        sql::exec(
-            &transaction,
-            "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
-            params![
-                draft.id,
-                draft.total,
-                Hasher::default().md5_state().0.as_slice(),
-                draft.ephemeral,
-                draft.created,
-                draft.deadline
-            ],
-        )?;
-        insert_inputs(&transaction, &draft.id, segments)?;
-        let transfer = DerivedTransfer {
-            id: draft.id,
-            total: draft.total,
-            offset: 0,
-            created: draft.created.system_time()?,
-            deadline: draft.deadline.system_time()?,
+) -> Result<DerivedTransfer, CommitFailure<ObjectError>> {
+    let transaction =
+        sql::immediate(connection).map_err(|error| CommitFailure::Rejected(error.into()))?;
+    let transfer =
+        stage_transfer(&transaction, draft, segments, bind).map_err(CommitFailure::Rejected)?;
+    if let Err(error) = transaction.commit() {
+        // Failed probes retain every possibly committed reference for recovery.
+        return match sql::scalar::<bool>(
+            connection,
+            "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
+            [&draft.id],
+        ) {
+            Err(probe) => Err(CommitFailure::Ambiguous(object_unavailable(probe))),
+            Ok(true) => Ok(transfer),
+            Ok(false) => Err(CommitFailure::Rejected(object_unavailable(error))),
         };
-        bind(&transaction, &transfer)?;
-        #[cfg(test)]
-        fault::hit(&fault::database_dir(&transaction), Step::DerivedBeginCommit)
-            .map_err(object_unavailable)?;
-        if let Err(error) = transaction.commit() {
-            // Failed probes retain every possibly committed reference for recovery.
-            ambiguous = true;
-            let committed: bool = sql::scalar(
-                connection,
-                "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
-                [&draft.id],
-            )?;
-            ambiguous = false;
-            if !committed {
-                return Err(object_unavailable(error));
-            }
-        }
-        Ok(transfer)
-    })();
-    match result {
-        Ok(transfer) => BeginOutcome::Committed(transfer),
-        Err(error) if ambiguous => BeginOutcome::Ambiguous(error),
-        Err(error) => BeginOutcome::Rejected(error),
     }
+    Ok(transfer)
+}
+
+/// Inserts the transfer and its inputs and binds them; nothing is committed yet.
+fn stage_transfer(
+    transaction: &rusqlite::Transaction<'_>,
+    draft: &BeginTransfer,
+    segments: &[DerivedSegment],
+    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError>,
+) -> Result<DerivedTransfer, ObjectError> {
+    sql::exec(
+        transaction,
+        "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
+        params![
+            draft.id,
+            draft.total,
+            Hasher::default().md5_state().0.as_slice(),
+            draft.kind,
+            draft.created,
+            draft.deadline
+        ],
+    )?;
+    insert_inputs(transaction, &draft.id, segments)?;
+    let transfer = DerivedTransfer {
+        id: draft.id,
+        total: draft.total,
+        offset: 0,
+        created: draft.created.system_time()?,
+        deadline: draft.deadline.system_time()?,
+    };
+    bind(transaction, &transfer)?;
+    #[cfg(test)]
+    fault::hit(&fault::database_dir(transaction), Step::DerivedBeginCommit)
+        .map_err(object_unavailable)?;
+    Ok(transfer)
 }
 
 impl Catalog {
@@ -147,7 +145,6 @@ impl Catalog {
         kind: TransferKind,
         bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<DerivedTransfer, ObjectError> {
-        let ephemeral = kind == TransferKind::Ephemeral;
         if segments.is_empty() || segments.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
                 "derived transfer requires 1 to 32 sources".into(),
@@ -159,15 +156,14 @@ impl Catalog {
         let backend = self.0.backend.clone();
         let created = UnixMillis::try_from(self.0.clock.now())?;
         let deadline = created
-            .checked_add_millis(if ephemeral {
-                EPHEMERAL_LIFETIME_MILLIS
-            } else {
-                LIFETIME_MILLIS
-            })
+            .checked_add_millis(kind.lifetime_millis())
             .ok_or_else(|| object_unavailable("derived deadline overflow"))?;
         let id = random_id()?;
         let writer = self.derived_guard(&id)?;
-        let mut owner = ephemeral.then(|| self.guard_derived_request(&id));
+        let mut owner = match kind {
+            TransferKind::Ephemeral => Some(self.guard_derived_request(&id)),
+            TransferKind::Continuable => None,
+        };
         let catalog = self.clone();
         let result = crate::task::spawn_supervised("derived-begin", async move {
             let (_permit, _writer) = (permit, writer);
@@ -199,14 +195,14 @@ impl Catalog {
                                 &BeginTransfer {
                                     id,
                                     total,
-                                    ephemeral,
+                                    kind,
                                     created,
                                     deadline,
                                 },
                                 &segments,
                                 bind,
                             );
-                            if !matches!(outcome, BeginOutcome::Rejected(_)) {
+                            if !matches!(outcome, Err(CommitFailure::Rejected(_))) {
                                 for segment in &mut segments {
                                     segment.source.backend = None;
                                 }
@@ -215,12 +211,12 @@ impl Catalog {
                         })
                         .await?
                 }
-                Err(error) => (BeginOutcome::Rejected(error), segments),
+                Err(error) => (Err(CommitFailure::Rejected(error)), segments),
             };
             let result = match outcome {
-                BeginOutcome::Committed(transfer) => Ok(transfer),
-                BeginOutcome::Ambiguous(error) => Err(error),
-                BeginOutcome::Rejected(error) => {
+                Ok(transfer) => Ok(transfer),
+                Err(CommitFailure::Ambiguous(error)) => Err(error),
+                Err(CommitFailure::Rejected(error)) => {
                     let cleanup = crate::task::run_blocking("derived-begin-cleanup", move || {
                         drop(returned);
                         backend.remove_draft(&id)
