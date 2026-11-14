@@ -79,12 +79,12 @@ pub(super) async fn respond(
         } => derived::compose(request, ctx, access, bucket, name, conditions)
             .await?
             .into(),
-        ObjectRequest::Resumable {
+        ObjectRequest::Resumable(UploadRequest {
             bucket,
             name,
             params,
             content_encoding,
-        } => {
+        }) => {
             return resumable::initiate(
                 request,
                 &bucket,
@@ -144,7 +144,7 @@ fn required_permission(operation: &ObjectRequest) -> (auth::Permission, &str) {
         ObjectRequest::Compose { bucket, .. }
         | ObjectRequest::Insert(UploadRequest { bucket, .. })
         | ObjectRequest::Multipart(UploadRequest { bucket, .. })
-        | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
+        | ObjectRequest::Resumable(UploadRequest { bucket, .. }) => (auth::OBJECTS_CREATE, bucket),
         ObjectRequest::Get { target, .. } => (auth::OBJECTS_GET, &target.bucket),
         ObjectRequest::Delete { target, .. } => (auth::OBJECTS_DELETE, &target.bucket),
     }
@@ -162,7 +162,7 @@ async fn check_predefined_acl(
 ) -> Result<(), JsonError> {
     let target = if matches!(
         operation,
-        ObjectRequest::Insert(_) | ObjectRequest::Multipart(_) | ObjectRequest::Resumable { .. }
+        ObjectRequest::Insert(_) | ObjectRequest::Multipart(_) | ObjectRequest::Resumable(_)
     ) {
         // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
         // project owners team, so an anonymous caller could otherwise choose its object's ACL.
@@ -205,7 +205,7 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
         ObjectRequest::Insert(_)
             | ObjectRequest::Compose { .. }
             | ObjectRequest::Multipart(_)
-            | ObjectRequest::Resumable { .. }
+            | ObjectRequest::Resumable(_)
             | ObjectRequest::Update(_)
             | ObjectRequest::Copy(_)
             | ObjectRequest::Restore { .. }

@@ -41,8 +41,9 @@ pub(crate) struct ObjectUpdateParams {
     pub retention_override: UnlockedOverride,
 }
 
-/// A media or multipart upload: the object it names and the options its query declares. A
-/// multipart upload can leave the name to its metadata part, so `N` is `Option<String>` there.
+/// A media, multipart or resumable upload: the object it names and the options its query
+/// declares. A multipart or resumable upload can leave the name to its metadata, so `N` is
+/// `Option<String>` there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UploadRequest<N> {
     pub bucket: String,
@@ -68,12 +69,7 @@ pub(crate) enum ObjectRequest {
     Update(ObjectUpdateParams),
     Insert(UploadRequest<String>),
     Multipart(UploadRequest<Option<String>>),
-    Resumable {
-        bucket: String,
-        name: Option<String>,
-        params: ObjectInsertParams,
-        content_encoding: Option<String>,
-    },
+    Resumable(UploadRequest<Option<String>>),
     Get {
         target: ObjectTarget,
         conditions: ObjectConditions,
@@ -93,8 +89,7 @@ impl ObjectRequest {
             Self::List(params) => params.projection,
             Self::Update(params) => params.projection,
             Self::Insert(request) => request.params.projection,
-            Self::Multipart(request) => request.params.projection,
-            Self::Resumable { params, .. } => params.projection,
+            Self::Multipart(request) | Self::Resumable(request) => request.params.projection,
             Self::Get { params, .. } => params.projection,
             // Restore validates projection but deliberately omits ACLs, as observed on the wire.
             Self::Restore { .. } | Self::Compose { .. } | Self::Delete { .. } => Projection::NoAcl,
@@ -113,105 +108,144 @@ pub(crate) fn route_object_with_profile(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
-    if let Some(operation) = super::object_restore::route(method, uri, profile) {
-        return Some(operation);
-    }
-    if let Some(operation) = super::object_move::route(method, uri, profile) {
-        return Some(operation);
-    }
-    if let Some(operation) = super::object_copy::route(method, uri, profile) {
-        return Some(operation);
-    }
-    if let Some(operation) = super::compose::route(method, uri, profile) {
-        return Some(operation);
-    }
-    let (path, upload, download) =
-        if let Some(path) = uri.path().strip_prefix("/upload/storage/v1/b/") {
-            (path, true, false)
-        } else if let Some(path) = uri.path().strip_prefix("/download/storage/v1/b/") {
-            // Discovery uses useMediaDownloadService; the JSON status reference specifies /download.
-            (path, false, true)
-        } else {
-            (uri.path().strip_prefix(BUCKET_PATH)?, false, false)
-        };
-    let (bucket, rest) = path.split_once('/')?;
-    let object = if upload {
-        if rest != "o" {
-            return None;
+    super::object_restore::route(method, uri, profile)
+        .or_else(|| super::object_move::route(method, uri, profile))
+        .or_else(|| super::object_copy::route(method, uri, profile))
+        .or_else(|| super::compose::route(method, uri, profile))
+        .or_else(|| {
+            let path = ObjectPath::of(method, uri.path())?;
+            Some(path.parse(method, uri, profile))
+        })
+}
+
+/// What an object path names, matched on the raw path before any segment is decoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObjectPath<'a> {
+    /// `/upload/storage/v1/b/{bucket}/o`: media, multipart and resumable uploads.
+    Upload { bucket: &'a str },
+    /// `/storage/v1/b/{bucket}/o`: objects.list. Metadata-only objects.insert (`POST`) is not
+    /// routed here.
+    Collection { bucket: &'a str },
+    /// `/storage/v1/b/{bucket}/o/{object}`.
+    Object { bucket: &'a str, object: &'a str },
+    /// `/download/storage/v1/b/{bucket}/o/{object}`. Discovery uses useMediaDownloadService;
+    /// the JSON status reference specifies `/download`.
+    Download { bucket: &'a str, object: &'a str },
+}
+
+impl<'a> ObjectPath<'a> {
+    fn of(method: &Method, path: &'a str) -> Option<Self> {
+        if let Some(rest) = path.strip_prefix("/upload/storage/v1/b/") {
+            let Some((bucket, "o")) = rest.split_once('/') else {
+                return None;
+            };
+            return Some(Self::Upload { bucket });
         }
-        None
-    } else if !download && rest == "o" {
-        // Metadata-only objects.insert remains an unimplemented route.
-        if method == Method::POST {
-            return None;
+        if let Some(rest) = path.strip_prefix("/download/storage/v1/b/") {
+            let (bucket, rest) = rest.split_once('/')?;
+            let object = single_segment(rest.strip_prefix("o/")?)?;
+            return Some(Self::Download { bucket, object });
         }
-        None
-    } else {
-        let segment = rest.strip_prefix("o/")?;
-        if segment.contains('/') {
-            return None;
+        let (bucket, rest) = path.strip_prefix(BUCKET_PATH)?.split_once('/')?;
+        if rest == "o" {
+            // Metadata-only objects.insert remains an unimplemented route.
+            return (*method != Method::POST).then_some(Self::Collection { bucket });
         }
-        Some(segment)
-    };
-    let allowed = if upload {
-        method == Method::POST
-    } else {
-        method == Method::GET
-            || (method == Method::HEAD && object.is_some())
-            || (!download
-                && object.is_some()
-                && matches!(*method, Method::DELETE | Method::PATCH | Method::PUT))
-    };
-    if !allowed {
-        // Cloud Storage answered `POST` to an object resource with its bare not-found page.
-        if !upload && !download && object.is_some() && *method == Method::POST {
-            return Some(Err(JsonError::new(
-                StatusCode::NOT_FOUND,
-                "notFound",
-                "Not Found",
-            )
-            .with_plain(&super::error::NOT_FOUND_HTML)));
-        }
-        let error = JsonError::method_not_allowed(
-            "HTTP method is not supported for this object endpoint",
-            Some(if upload {
-                "POST"
-            } else if object.is_none() {
-                "GET"
-            } else if download {
-                "GET, HEAD"
-            } else {
-                "GET, HEAD, DELETE, PATCH, PUT"
-            }),
-        );
-        return Some(Err(error));
+        let object = single_segment(rest.strip_prefix("o/")?)?;
+        Some(Self::Object { bucket, object })
     }
-    Some((|| {
-        let bucket = path_bucket(bucket, profile, BucketCheck::ForProfile)?;
-        if !upload && object.is_none() {
-            return super::object_list::parse_list(bucket, uri.query().unwrap_or_default())
-                .map(ObjectRequest::List);
+
+    fn bucket(self) -> &'a str {
+        match self {
+            Self::Upload { bucket }
+            | Self::Collection { bucket }
+            | Self::Object { bucket, .. }
+            | Self::Download { bucket, .. } => bucket,
         }
-        let name = object
-            .map(|segment| {
-                if segment.len() > MAX_OBJECT_SEGMENT_BYTES {
-                    return Err(JsonError::invalid_parameter("Invalid object name"));
-                }
-                let name = decode(segment, Decoding::Path)?;
-                validate_object_name(&name)?;
-                Ok(name)
-            })
-            .transpose()?;
-        let operation = parse_object_query(method, bucket, name, uri.query().unwrap_or_default())?;
-        if download && matches!(&operation, ObjectRequest::Get { params, .. } if !params.media) {
-            return Err(JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "notDownload",
-                "Download endpoints require alt=media",
+    }
+
+    fn allows(self, method: &Method) -> bool {
+        match self {
+            Self::Upload { .. } => *method == Method::POST,
+            Self::Collection { .. } => *method == Method::GET,
+            Self::Object { .. } => matches!(
+                *method,
+                Method::GET | Method::HEAD | Method::DELETE | Method::PATCH | Method::PUT
+            ),
+            Self::Download { .. } => matches!(*method, Method::GET | Method::HEAD),
+        }
+    }
+
+    /// The `Allow` list of a method this path does not serve.
+    const fn allow(self) -> &'static str {
+        match self {
+            Self::Upload { .. } => "POST",
+            Self::Collection { .. } => "GET",
+            Self::Object { .. } => "GET, HEAD, DELETE, PATCH, PUT",
+            Self::Download { .. } => "GET, HEAD",
+        }
+    }
+
+    fn parse(
+        self,
+        method: &Method,
+        uri: &Uri,
+        profile: CompatProfile,
+    ) -> Result<ObjectRequest, JsonError> {
+        if !self.allows(method) {
+            // Cloud Storage answered `POST` to an object resource with its bare not-found page.
+            if matches!(self, Self::Object { .. }) && *method == Method::POST {
+                return Err(
+                    JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found")
+                        .with_plain(&super::error::NOT_FOUND_HTML),
+                );
+            }
+            return Err(JsonError::method_not_allowed(
+                "HTTP method is not supported for this object endpoint",
+                Some(self.allow()),
             ));
         }
-        Ok(operation)
-    })())
+        let bucket = path_bucket(self.bucket(), profile, BucketCheck::ForProfile)?;
+        let raw = uri.query().unwrap_or_default();
+        match self {
+            Self::Collection { .. } => {
+                super::object_list::parse_list(bucket, raw).map(ObjectRequest::List)
+            }
+            Self::Upload { .. } => parse_object_query(method, bucket, QueryObject::Upload, raw),
+            Self::Object { object, .. } => {
+                let name = path_object(object)?;
+                parse_object_query(method, bucket, QueryObject::Named(name), raw)
+            }
+            Self::Download { object, .. } => {
+                let name = path_object(object)?;
+                let request = parse_object_query(method, bucket, QueryObject::Named(name), raw)?;
+                if matches!(&request, ObjectRequest::Get { params, .. } if !params.media) {
+                    return Err(JsonError::new(
+                        StatusCode::BAD_REQUEST,
+                        "notDownload",
+                        "Download endpoints require alt=media",
+                    ));
+                }
+                Ok(request)
+            }
+        }
+    }
+}
+
+/// `segment` if it holds no further `/`.
+fn single_segment(segment: &str) -> Option<&str> {
+    (!segment.contains('/')).then_some(segment)
+}
+
+/// The decoded object of a raw path segment: at most [`MAX_OBJECT_SEGMENT_BYTES`] encoded
+/// bytes, then decoded, then checked.
+fn path_object(segment: &str) -> Result<String, JsonError> {
+    if segment.len() > MAX_OBJECT_SEGMENT_BYTES {
+        return Err(JsonError::invalid_parameter("Invalid object name"));
+    }
+    let name = decode(segment, Decoding::Path)?;
+    validate_object_name(&name)?;
+    Ok(name)
 }
 
 /// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
@@ -220,8 +254,14 @@ pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
         .map_err(|_| JsonError::invalid_parameter("Invalid object name"))
 }
 
-/// Parse an object request's query. `name` is `None` exactly for uploads: the router accepts
-/// only POST on the upload endpoint, which names the object in the query or metadata.
+/// The object a query applies to. An upload names its object in the query or its metadata;
+/// every other method names it in the path.
+enum QueryObject {
+    Upload,
+    Named(String),
+}
+
+/// Parse an object request's query. The router accepts only POST on the upload endpoint.
 ///
 /// Object insert, get, patch, update and delete ignore a query parameter they do not declare.
 /// Cloud Storage served each of them with an arbitrary `gcsmimicUnknown=1` (case
@@ -234,15 +274,14 @@ pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
 fn parse_object_query(
     method: &Method,
     bucket: String,
-    name: Option<String>,
+    object: QueryObject,
     raw: &str,
 ) -> Result<ObjectRequest, JsonError> {
     let mut query = parse_query(raw)?;
     // Uploads apply predefinedAcl; other methods keep the server's explicit rejection.
-    let predefined_acl = if name.is_none() {
-        query.remove("predefinedAcl")
-    } else {
-        None
+    let predefined_acl = match object {
+        QueryObject::Upload => query.remove("predefinedAcl"),
+        QueryObject::Named(_) => None,
     };
     let content_encoding = take_common_parameters(method, &mut query)?;
     let media = match query.remove("alt").as_deref() {
@@ -262,12 +301,14 @@ fn parse_object_query(
             .at_parameter("alt"));
         }
     };
-    let upload = name.is_none();
-    let conditions = take_conditions(&mut query, ConditionKeys::Plain)
-        // The upload front end labelled its query problems `text/html`.
-        .map_err(|error| if upload { error.html_typed() } else { error })?;
-    match name {
-        None => {
+    let conditions =
+        take_conditions(&mut query, ConditionKeys::Plain).map_err(|error| match object {
+            // The upload front end labelled its query problems `text/html`.
+            QueryObject::Upload => error.html_typed(),
+            QueryObject::Named(_) => error,
+        })?;
+    match object {
+        QueryObject::Upload => {
             let upload = UploadQuery {
                 conditions,
                 content_encoding,
@@ -275,7 +316,7 @@ fn parse_object_query(
             };
             parse_upload_query(bucket, query, upload)
         }
-        Some(name) => {
+        QueryObject::Named(name) => {
             let target = QueryTarget {
                 bucket,
                 name,
@@ -362,22 +403,7 @@ fn parse_upload_query(
             })
         })
         .transpose()?;
-    let missing_name = JsonError::missing_object_name;
-    let (multipart, resumable) = match query.remove("uploadType").as_deref() {
-        Some("media") => (false, false),
-        Some("multipart") => (true, false),
-        Some("resumable") => (true, true),
-        // An upload that names no type was stored as a media upload (recorded 200).
-        None => (false, false),
-        Some(_) => return Err(unsupported_upload_type()),
-    };
-    let name = query.remove("name");
-    if let Some(name) = &name {
-        validate_object_name(name)?;
-    }
-    if !multipart && name.is_none() {
-        return Err(missing_name());
-    }
+    let upload_name = UploadName::take(&mut query)?;
     let projection = projection(&mut query)?;
     // Undeclared parameters left in `query` are ignored; see `parse_object_query`.
     let params = ObjectInsertParams {
@@ -385,38 +411,75 @@ fn parse_upload_query(
         projection,
         predefined_acl,
     };
-    if resumable {
-        if conditions.if_generation_match.is_some_and(|n| n < 0)
-            || conditions.if_generation_not_match.is_some_and(|n| n < 0)
-            || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
-            || conditions
-                .if_metageneration_not_match
-                .is_some_and(|n| n <= 0)
-        {
-            return Err(JsonError::invalid_parameter("Invalid upload precondition"));
+    Ok(match upload_name {
+        UploadName::Media(name) => ObjectRequest::Insert(UploadRequest {
+            bucket,
+            name,
+            params,
+            content_encoding,
+        }),
+        UploadName::Multipart(name) => ObjectRequest::Multipart(UploadRequest {
+            bucket,
+            name,
+            params,
+            content_encoding,
+        }),
+        UploadName::Resumable(name) => {
+            validate_session_preconditions(&conditions)?;
+            ObjectRequest::Resumable(UploadRequest {
+                bucket,
+                name,
+                params,
+                content_encoding,
+            })
         }
-        return Ok(ObjectRequest::Resumable {
-            bucket,
-            name,
-            params,
-            content_encoding,
-        });
+    })
+}
+
+/// The name an upload gives, by its `uploadType`. Only a media upload must name its object in
+/// the query; multipart and resumable uploads may name it in their metadata.
+enum UploadName {
+    Media(String),
+    Multipart(Option<String>),
+    Resumable(Option<String>),
+}
+
+impl UploadName {
+    /// Reads `uploadType` and `name` in Cloud Storage's order: an unknown type, then an invalid
+    /// name, then a media upload without one.
+    fn take(query: &mut BTreeMap<String, String>) -> Result<Self, JsonError> {
+        let named: fn(Option<String>) -> Result<Self, JsonError> =
+            match query.remove("uploadType").as_deref() {
+                // An upload that names no type was stored as a media upload (recorded 200).
+                None | Some("media") => |name| {
+                    name.map(Self::Media)
+                        .ok_or_else(JsonError::missing_object_name)
+                },
+                Some("multipart") => |name| Ok(Self::Multipart(name)),
+                Some("resumable") => |name| Ok(Self::Resumable(name)),
+                Some(_) => return Err(unsupported_upload_type()),
+            };
+        let name = query.remove("name");
+        if let Some(name) = &name {
+            validate_object_name(name)?;
+        }
+        named(name)
     }
-    if multipart {
-        return Ok(ObjectRequest::Multipart(UploadRequest {
-            bucket,
-            name,
-            params,
-            content_encoding,
-        }));
+}
+
+/// A resumable session cannot start under a generation below zero or a metageneration below
+/// one, which no object can have.
+fn validate_session_preconditions(conditions: &ObjectConditions) -> Result<(), JsonError> {
+    if conditions.if_generation_match.is_some_and(|n| n < 0)
+        || conditions.if_generation_not_match.is_some_and(|n| n < 0)
+        || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
+        || conditions
+            .if_metageneration_not_match
+            .is_some_and(|n| n <= 0)
+    {
+        return Err(JsonError::invalid_parameter("Invalid upload precondition"));
     }
-    let name = name.ok_or_else(missing_name)?;
-    Ok(ObjectRequest::Insert(UploadRequest {
-        bucket,
-        name,
-        params,
-        content_encoding,
-    }))
+    Ok(())
 }
 
 /// The object a non-upload request names, with the options already parsed from its query.
@@ -842,13 +905,18 @@ pub(crate) fn add_derived_owner(value: &mut Value, object: &ObjectRecord) {
 /// Point the links of a stored object response at `base`, which must have no path prefix. A
 /// field selection may have dropped either link, and other fields never change.
 pub(crate) fn rebase_object_links(resource: &mut Value, base: &str) {
-    resource
-        .as_object_mut()
-        .into_iter()
-        .flatten()
-        .filter(|(key, _)| matches!(key.as_str(), "selfLink" | "mediaLink"))
-        .filter_map(|(_, link)| Some((crate::url::with_origin(link.as_str()?, base)?, link)))
-        .for_each(|(rebased, link)| *link = Value::String(rebased));
+    let Some(resource) = resource.as_object_mut() else {
+        return;
+    };
+    for (key, link) in resource {
+        if matches!(key.as_str(), "selfLink" | "mediaLink")
+            && let Some(rebased) = link
+                .as_str()
+                .and_then(|link| crate::url::with_origin(link, base))
+        {
+            *link = Value::String(rebased);
+        }
+    }
 }
 
 /// Render the selected immutable generation using the advertised endpoint of this request.
@@ -995,8 +1063,9 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
             "x-goog-stored-content-encoding",
             object
                 .content_encoding
-                .clone()
-                .unwrap_or_else(|| "identity".into()),
+                .as_deref()
+                .unwrap_or("identity")
+                .to_owned(),
         ),
         ("etag", object_etag(object)),
     ] {

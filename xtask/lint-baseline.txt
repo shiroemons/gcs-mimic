@@ -7,7 +7,6 @@ text::downcast	src/storage/lock.rs	1
 text::downcast	src/sync/error.rs	8
 text::downcast	src/sync/mirror/descriptor.rs	1
 text::immediately_invoked_closure	src/import/mod.rs	1
-text::immediately_invoked_closure	src/json/objects.rs	1
 text::immediately_invoked_closure	src/source_tree.rs	1
 text::immediately_invoked_closure	src/storage/catalog/admin/publication.rs	1
 text::immediately_invoked_closure	src/storage/catalog/blob_backend.rs	1

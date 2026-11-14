@@ -709,7 +709,7 @@ async fn respond_json_object(
                     | ObjectRequest::Copy(_)
                     | ObjectRequest::Compose { .. }
                     | ObjectRequest::Multipart(_)
-                    | ObjectRequest::Resumable { .. },
+                    | ObjectRequest::Resumable(_),
                 _
             ))
         );

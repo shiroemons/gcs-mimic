@@ -184,7 +184,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
         .unwrap();
         let (ObjectRequest::Insert(UploadRequest { params, .. })
         | ObjectRequest::Multipart(UploadRequest { params, .. })
-        | ObjectRequest::Resumable { params, .. }) = parsed
+        | ObjectRequest::Resumable(UploadRequest { params, .. })) = parsed
         else {
             panic!("{upload_type} parsed as {parsed:?}");
         };
@@ -308,6 +308,46 @@ fn obj_route_002_namespace_and_method_boundaries() {
             .unwrap(),
         BucketRequest::Get { .. }
     ));
+}
+
+/// The object router claims a path from its raw segments alone; an empty segment it claims is
+/// refused later as an invalid name.
+#[test]
+fn object_paths_are_claimed_from_raw_segments_before_decoding() {
+    for (method, path, message) in [
+        (Method::GET, "/storage/v1/b//o", "Invalid bucket name"),
+        (Method::GET, "/storage/v1/b/abc/o/", "Invalid object name"),
+        (
+            Method::GET,
+            "/download/storage/v1/b/abc/o/",
+            "Invalid object name",
+        ),
+        (
+            Method::POST,
+            "/upload/storage/v1/b//o",
+            "Invalid bucket name",
+        ),
+    ] {
+        let error = request(method, path).unwrap_err();
+        assert_eq!(
+            (error.reason, error.message.as_str()),
+            ("invalidParameter", message),
+            "{path}"
+        );
+    }
+    for (method, path) in [
+        (Method::GET, "/storage/v1/b/abc/o/a/b"),
+        (Method::GET, "/download/storage/v1/b/abc/o"),
+        (Method::GET, "/download/storage/v1/b/abc/o/a/b"),
+        (Method::POST, "/storage/v1/b/abc/o"),
+        (Method::POST, "/storage/v1/b//o"),
+        (Method::POST, "/upload/storage/v1/b/abc/o/"),
+    ] {
+        assert!(
+            route_object(&method, &path.parse().unwrap()).is_none(),
+            "{method} {path}"
+        );
+    }
 }
 
 #[test]
