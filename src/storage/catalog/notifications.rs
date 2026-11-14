@@ -240,9 +240,11 @@ mod tests {
 
     fn config(prefix: &str) -> NotificationConfig {
         NotificationConfig {
-            topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-            payload_format: "NONE".into(),
-            event_types: vec!["OBJECT_FINALIZE".into()],
+            topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                .parse()
+                .unwrap(),
+            payload_format: crate::notification::PayloadFormat::None,
+            event_types: [crate::notification::Event::Finalize].into_iter().collect(),
             custom_attributes: BTreeMap::from([("k".into(), "v".into())]),
             object_name_prefix: prefix.into(),
         }

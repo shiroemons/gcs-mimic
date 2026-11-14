@@ -6,7 +6,9 @@
 use super::{Fields, JsonError, buckets::encode_segment, query};
 use crate::{
     config::CompatProfile,
-    notification::{self, NotificationConfig, NotificationRecord},
+    notification::{
+        self, EventTypes, NotificationConfig, NotificationRecord, PayloadFormat, Topic,
+    },
 };
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
@@ -135,12 +137,12 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
 /// unchecked.
 pub(crate) struct PendingNotification {
     body: Map<String, Value>,
-    topic: String,
-    payload_format: String,
+    topic: Topic,
+    payload_format: PayloadFormat,
 }
 
 impl PendingNotification {
-    pub(crate) fn topic(&self) -> &str {
+    pub(crate) fn topic(&self) -> &Topic {
         &self.topic
     }
 
@@ -178,14 +180,13 @@ pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotificatio
     {
         return Err(invalid("kind must be storage#notification"));
     }
-    let topic = string("topic")?.ok_or_else(|| {
-        JsonError::required("You must specify a Cloud Pub/Sub topic in the 'topic' field.")
-    })?;
-    let topic = notification::normalize_topic(topic)?;
+    let topic: Topic = string("topic")?
+        .ok_or_else(|| {
+            JsonError::required("You must specify a Cloud Pub/Sub topic in the 'topic' field.")
+        })?
+        .parse()?;
     let payload_format = string("payload_format")?
-        .unwrap_or("JSON_API_V1")
-        .to_owned();
-    notification::validate_payload_format(&payload_format)?;
+        .map_or(Ok(PayloadFormat::JsonApiV1), str::parse::<PayloadFormat>)?;
     Ok(PendingNotification {
         body,
         topic,
@@ -209,7 +210,8 @@ fn parse_notification_tail(pending: PendingNotification) -> Result<NotificationC
             })
             .transpose()
     };
-    let event_types = match field("event_types") {
+    // Every element must be a string before any of them is checked as an event type.
+    let event_names = match field("event_types") {
         None => Vec::new(),
         Some(value) => value
             .as_array()
@@ -218,12 +220,11 @@ fn parse_notification_tail(pending: PendingNotification) -> Result<NotificationC
             .map(|event| {
                 event
                     .as_str()
-                    .map(str::to_owned)
                     .ok_or_else(|| invalid("event_types must be an array of strings"))
             })
             .collect::<Result<Vec<_>, _>>()?,
     };
-    notification::validate_event_types(&event_types)?;
+    let event_types = EventTypes::parse(event_names)?;
     let custom_attributes = match field("custom_attributes") {
         None => BTreeMap::new(),
         Some(value) => value
@@ -269,12 +270,15 @@ pub(crate) fn notification_resource(
                 encode_segment(bucket)
             )),
         ),
-        ("topic".into(), json!(config.topic)),
-        ("payload_format".into(), json!(config.payload_format)),
+        ("topic".into(), Value::from(config.topic.as_str())),
+        (
+            "payload_format".into(),
+            Value::from(config.payload_format.as_str()),
+        ),
         ("etag".into(), json!(id)),
     ]);
     if !config.event_types.is_empty() {
-        value.insert("event_types".into(), json!(config.event_types));
+        value.insert("event_types".into(), Value::from(&config.event_types));
     }
     if !config.custom_attributes.is_empty() {
         value.insert(
@@ -500,9 +504,11 @@ mod tests {
         assert_eq!(
             config,
             NotificationConfig {
-                topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-                payload_format: "JSON_API_V1".into(),
-                event_types: Vec::new(),
+                topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                    .parse()
+                    .unwrap(),
+                payload_format: PayloadFormat::JsonApiV1,
+                event_types: EventTypes::default(),
                 custom_attributes: BTreeMap::new(),
                 object_name_prefix: String::new(),
             }
@@ -511,8 +517,11 @@ mod tests {
             br#"{"topic":"//pubsub.googleapis.com/projects/p/topics/topic","payload_format":"NONE","event_types":["OBJECT_DELETE","OBJECT_FINALIZE"],"custom_attributes":{"a":"1"},"object_name_prefix":"logs/","id":null}"#,
         )
         .unwrap();
-        assert_eq!(config.payload_format, "NONE");
-        assert_eq!(config.event_types, ["OBJECT_DELETE", "OBJECT_FINALIZE"]);
+        assert_eq!(config.payload_format, PayloadFormat::None);
+        assert_eq!(
+            config.event_types.iter().collect::<Vec<_>>(),
+            [notification::Event::Delete, notification::Event::Finalize]
+        );
         assert_eq!(config.custom_attributes["a"], "1");
         assert_eq!(config.object_name_prefix, "logs/");
     }
@@ -592,7 +601,7 @@ mod tests {
                 "etag": "3"
             })
         );
-        config.event_types = vec!["OBJECT_ARCHIVE".into()];
+        config.event_types = [notification::Event::Archive].into_iter().collect();
         config.custom_attributes.insert("k".into(), "v".into());
         config.object_name_prefix = "p/".into();
         let full = NotificationRecord { id: 4, config };

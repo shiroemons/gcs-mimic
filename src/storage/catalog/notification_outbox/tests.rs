@@ -45,9 +45,11 @@ async fn setup_with_clock(
         .insert_notification(
             "test-bucket",
             NotificationConfig {
-                topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-                payload_format: "JSON_API_V1".into(),
-                event_types: vec![],
+                topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                    .parse()
+                    .unwrap(),
+                payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                event_types: crate::notification::EventTypes::default(),
                 custom_attributes: BTreeMap::from([("team".into(), "test".into())]),
                 object_name_prefix: "prefix/".into(),
             },
@@ -142,9 +144,11 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                     .insert_notification(
                         "test-bucket",
                         NotificationConfig {
-                            topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-                            payload_format: "JSON_API_V1".into(),
-                            event_types: vec![],
+                            topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                                .parse()
+                                .unwrap(),
+                            payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                            event_types: crate::notification::EventTypes::default(),
                             custom_attributes: BTreeMap::new(),
                             object_name_prefix: "prefix/".into(),
                         },
@@ -162,9 +166,11 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
                     global: Some(GlobalConfig {
                         bucket: "test-bucket".into(),
                         notification: NotificationConfig {
-                            topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-                            payload_format: "JSON_API_V1".into(),
-                            event_types: vec![],
+                            topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                                .parse()
+                                .unwrap(),
+                            payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                            event_types: crate::notification::EventTypes::default(),
                             custom_attributes: BTreeMap::new(),
                             object_name_prefix: "prefix/".into(),
                         },
@@ -538,9 +544,13 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
         .unwrap();
     drain(&catalog).await;
     let config = NotificationConfig {
-        topic: "//pubsub.googleapis.com/projects/p/topics/metadata".into(),
-        payload_format: "NONE".into(),
-        event_types: vec!["OBJECT_METADATA_UPDATE".into()],
+        topic: "//pubsub.googleapis.com/projects/p/topics/metadata"
+            .parse()
+            .unwrap(),
+        payload_format: crate::notification::PayloadFormat::None,
+        event_types: [crate::notification::Event::MetadataUpdate]
+            .into_iter()
+            .collect(),
         custom_attributes: BTreeMap::from([
             ("eventType".into(), "forged".into()),
             ("payloadFormat".into(), "forged".into()),

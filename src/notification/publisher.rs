@@ -112,7 +112,7 @@ impl Endpoint {
 
     /// The encoded `projects/P/topics/T` path of a canonical topic name.
     fn topic_path(&self, topic: &str) -> io::Result<String> {
-        if super::normalize_topic(topic).is_err() {
+        if topic.parse::<super::Topic>().is_err() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "invalid Pub/Sub topic",

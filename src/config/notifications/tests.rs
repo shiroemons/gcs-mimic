@@ -23,7 +23,8 @@ fn no_selected_source_events_disables_the_global_rule_without_enabling_all_event
             .unwrap()
             .notification
             .event_types
-            .len(),
+            .iter()
+            .count(),
         4
     );
 }
@@ -51,9 +52,9 @@ fn alias_events_and_emulator_host_apply_with_native_precedence() {
     let global = runtime.global.unwrap();
     assert_eq!(global.bucket, "selected");
     assert_eq!(global.notification.object_name_prefix, "in/");
-    assert_eq!(global.notification.event_types.len(), 4);
+    assert_eq!(global.notification.event_types.iter().count(), 4);
     assert_eq!(
-        global.notification.topic,
+        global.notification.topic.as_str(),
         "//pubsub.googleapis.com/projects/local-project/topics/uploads"
     );
 }

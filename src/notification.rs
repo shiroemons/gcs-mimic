@@ -2,10 +2,12 @@
 //!
 //! Configurations feed a durable outbox; delivery requires an explicit local Pub/Sub endpoint.
 
+use serde_json::{Map, Value};
 use std::{collections::BTreeMap, fmt};
 
 mod event;
 pub(crate) mod publisher;
+mod topic;
 
 #[derive(Debug)]
 pub(crate) enum NotificationDecodeError {
@@ -52,8 +54,9 @@ impl NotificationMode {
     }
 }
 
-pub(crate) use event::{Event, Message};
+pub(crate) use event::{Event, EventTypes, Message};
 pub(crate) use publisher::{Endpoint, TopicCheckError};
+pub(crate) use topic::Topic;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Runtime {
@@ -67,27 +70,48 @@ pub(crate) struct GlobalConfig {
     pub(crate) notification: NotificationConfig,
 }
 
-/// Event types listed in the Cloud Storage Pub/Sub notification documentation.
-pub(crate) const EVENT_TYPES: [&str; 4] = [
-    "OBJECT_FINALIZE",
-    "OBJECT_METADATA_UPDATE",
-    "OBJECT_DELETE",
-    "OBJECT_ARCHIVE",
-];
-pub(crate) const PAYLOAD_FORMATS: [&str; 2] = ["JSON_API_V1", "NONE"];
 /// Documented per-bucket total, per-event-type and custom-attribute limits.
 pub(crate) const MAX_PER_BUCKET: usize = 100;
 pub(crate) const MAX_PER_EVENT_TYPE: usize = 10;
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 10;
-const TOPIC_PREFIX: &str = "//pubsub.googleapis.com/";
+
+/// What a notification message carries besides its attributes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PayloadFormat {
+    /// The object's JSON API resource, which the API defaults to.
+    #[default]
+    JsonApiV1,
+    None,
+}
+
+impl PayloadFormat {
+    const ALL: [Self; 2] = [Self::JsonApiV1, Self::None];
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::JsonApiV1 => "JSON_API_V1",
+            Self::None => "NONE",
+        }
+    }
+}
+
+/// Not a `string_enum!`, whose error names no input: a rejected format names the one given.
+impl std::str::FromStr for PayloadFormat {
+    type Err = NotificationError;
+
+    fn from_str(format: &str) -> Result<Self, NotificationError> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.as_str() == format)
+            .ok_or_else(|| NotificationError::InvalidPayloadFormat(format.to_owned()))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NotificationConfig {
-    /// Canonical `//pubsub.googleapis.com/projects/{project}/topics/{topic}` form.
-    pub topic: String,
-    pub payload_format: String,
-    /// Empty means every event type, matching the documented default.
-    pub event_types: Vec<String>,
+    pub topic: Topic,
+    pub payload_format: PayloadFormat,
+    pub event_types: EventTypes,
     pub custom_attributes: BTreeMap<String, String>,
     /// Empty means every object name.
     pub object_name_prefix: String,
@@ -99,13 +123,13 @@ pub(crate) enum NotificationError {
     InvalidTopic(String),
     InvalidPayloadFormat(String),
     InvalidEventType(String),
-    DuplicateEventType(String),
+    DuplicateEventType(Event),
     TooManyCustomAttributes(usize),
     InvalidCustomAttributeKey(String),
     CustomAttributeTooLong(String),
     ObjectNamePrefixTooLong,
     BucketLimit,
-    EventTypeLimit(String),
+    EventTypeLimit(Event),
 }
 
 impl fmt::Display for NotificationError {
@@ -159,45 +183,42 @@ pub(crate) struct NotificationRecord {
 }
 
 impl NotificationConfig {
-    /// Event types this configuration triggers on, used for the per-event-type limit.
-    pub(crate) fn effective_event_types(&self) -> impl Iterator<Item = &str> {
-        let all = self.event_types.is_empty();
-        EVENT_TYPES
-            .into_iter()
-            .filter(move |event| all || self.event_types.iter().any(|value| value == event))
-    }
-
     pub(crate) fn to_stored(&self) -> String {
-        serde_json::json!({
-            "topic": self.topic,
-            "payload_format": self.payload_format,
-            "event_types": self.event_types,
-            "custom_attributes": self.custom_attributes,
-            "object_name_prefix": self.object_name_prefix,
-        })
+        let custom_attributes = self
+            .custom_attributes
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+            .collect::<Map<_, _>>();
+        // serde_json's preserve_order keeps this member order, which stored rows have always had.
+        Value::Object(Map::from_iter([
+            ("topic".into(), Value::from(self.topic.as_str())),
+            (
+                "payload_format".into(),
+                Value::from(self.payload_format.as_str()),
+            ),
+            ("event_types".into(), Value::from(&self.event_types)),
+            ("custom_attributes".into(), Value::Object(custom_attributes)),
+            (
+                "object_name_prefix".into(),
+                Value::from(self.object_name_prefix.as_str()),
+            ),
+        ]))
         .to_string()
     }
 
     /// Re-validate stored rows so a corrupt catalog cannot render configurations the API rejects.
     pub(crate) fn from_stored(stored: &str) -> Result<Self, NotificationDecodeError> {
         use NotificationDecodeError::Shape;
-        let value: serde_json::Value =
-            serde_json::from_str(stored).map_err(NotificationDecodeError::Json)?;
+        let value: Value = serde_json::from_str(stored).map_err(NotificationDecodeError::Json)?;
         let value = value.as_object().ok_or(Shape)?;
-        let string = |key: &str| {
-            value
-                .get(key)
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .ok_or(Shape)
-        };
+        let string = |key: &str| value.get(key).and_then(Value::as_str).ok_or(Shape);
         let event_types = value
             .get("event_types")
             .ok_or(Shape)?
             .as_array()
             .ok_or(Shape)?
             .iter()
-            .map(|event| event.as_str().map(str::to_owned).ok_or(Shape))
+            .map(|event| event.as_str().ok_or(Shape))
             .collect::<Result<Vec<_>, _>>()?;
         let custom_attributes = value
             .get("custom_attributes")
@@ -212,83 +233,27 @@ impl NotificationConfig {
                     .ok_or(Shape)
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let config = Self {
-            topic: string("topic")?,
-            payload_format: string("payload_format")?,
-            event_types,
-            custom_attributes,
-            object_name_prefix: string("object_name_prefix")?,
-        };
-        let canonical = normalize_topic(&config.topic).map_err(NotificationDecodeError::Invalid)?;
-        if canonical != config.topic {
+        let topic = string("topic")?;
+        let payload_format = string("payload_format")?;
+        let object_name_prefix = string("object_name_prefix")?;
+        // Only the shape is checked above; the values must also be ones the API accepts.
+        let invalid = NotificationDecodeError::Invalid;
+        let parsed = topic.parse::<Topic>().map_err(invalid)?;
+        // This server stores only the full form, so a relative topic was not written by it.
+        if parsed.as_str() != topic {
             return Err(Shape);
         }
-        validate_payload_format(&config.payload_format)
-            .map_err(NotificationDecodeError::Invalid)?;
-        validate_event_types(&config.event_types).map_err(NotificationDecodeError::Invalid)?;
-        validate_custom_attributes(&config.custom_attributes)
-            .map_err(NotificationDecodeError::Invalid)?;
-        validate_object_name_prefix(&config.object_name_prefix)
-            .map_err(NotificationDecodeError::Invalid)?;
+        let config = Self {
+            topic: parsed,
+            payload_format: payload_format.parse().map_err(invalid)?,
+            event_types: EventTypes::parse(event_types).map_err(invalid)?,
+            custom_attributes,
+            object_name_prefix: object_name_prefix.to_owned(),
+        };
+        validate_custom_attributes(&config.custom_attributes).map_err(invalid)?;
+        validate_object_name_prefix(&config.object_name_prefix).map_err(invalid)?;
         Ok(config)
     }
-}
-
-/// Accept the documented full resource name and the relative `projects/.../topics/...` name
-/// that official SDKs send, and store only the full form.
-pub(crate) fn normalize_topic(topic: &str) -> Result<String, NotificationError> {
-    let relative = topic.strip_prefix(TOPIC_PREFIX).unwrap_or(topic);
-    let invalid = || NotificationError::InvalidTopic(topic.to_owned());
-    let mut parts = relative.split('/');
-    let (Some("projects"), Some(project), Some("topics"), Some(name), None) = (
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-    ) else {
-        return Err(invalid());
-    };
-    // Project IDs may be domain-scoped (example.com:project); reject only unusable path text.
-    if project.is_empty()
-        || project.len() > 256
-        || !project
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-.:_".contains(&byte))
-    {
-        return Err(invalid());
-    }
-    // Pub/Sub resource-name rules for topic IDs.
-    if !(3..=255).contains(&name.len())
-        || !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
-        || name.starts_with("goog")
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.~+%".contains(&byte))
-    {
-        return Err(invalid());
-    }
-    Ok(format!("{TOPIC_PREFIX}projects/{project}/topics/{name}"))
-}
-
-pub(crate) fn validate_payload_format(format: &str) -> Result<(), NotificationError> {
-    if PAYLOAD_FORMATS.contains(&format) {
-        Ok(())
-    } else {
-        Err(NotificationError::InvalidPayloadFormat(format.to_owned()))
-    }
-}
-
-pub(crate) fn validate_event_types(events: &[String]) -> Result<(), NotificationError> {
-    for (index, event) in events.iter().enumerate() {
-        if !EVENT_TYPES.contains(&event.as_str()) {
-            return Err(NotificationError::InvalidEventType(event.clone()));
-        }
-        if events.iter().take(index).any(|previous| previous == event) {
-            return Err(NotificationError::DuplicateEventType(event.clone()));
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn validate_custom_attributes(
@@ -325,13 +290,13 @@ pub(crate) fn check_limits(
     if existing.len() >= MAX_PER_BUCKET {
         return Err(NotificationError::BucketLimit);
     }
-    for event in candidate.effective_event_types() {
+    for event in candidate.event_types.effective() {
         let count = existing
             .iter()
-            .filter(|config| config.effective_event_types().any(|other| other == event))
+            .filter(|config| config.event_types.selects(event))
             .count();
         if count >= MAX_PER_EVENT_TYPE {
-            return Err(NotificationError::EventTypeLimit(event.to_owned()));
+            return Err(NotificationError::EventTypeLimit(event));
         }
     }
     Ok(())
@@ -343,9 +308,11 @@ mod tests {
 
     fn config(events: &[&str]) -> NotificationConfig {
         NotificationConfig {
-            topic: "//pubsub.googleapis.com/projects/p/topics/topic".into(),
-            payload_format: "JSON_API_V1".into(),
-            event_types: events.iter().map(|event| (*event).into()).collect(),
+            topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+                .parse()
+                .unwrap(),
+            payload_format: PayloadFormat::JsonApiV1,
+            event_types: EventTypes::parse(events.iter().copied()).unwrap(),
             custom_attributes: BTreeMap::new(),
             object_name_prefix: String::new(),
         }
@@ -358,16 +325,19 @@ mod tests {
             "//pubsub.googleapis.com/projects/local-project/topics/uploads",
         ] {
             assert_eq!(
-                normalize_topic(topic).unwrap(),
+                topic.parse::<Topic>().unwrap().as_str(),
                 "//pubsub.googleapis.com/projects/local-project/topics/uploads"
             );
         }
         assert_eq!(
-            normalize_topic("projects/example.com:p/topics/a.b~c+d%e_f-g").unwrap(),
+            "projects/example.com:p/topics/a.b~c+d%e_f-g"
+                .parse::<Topic>()
+                .unwrap()
+                .as_str(),
             "//pubsub.googleapis.com/projects/example.com:p/topics/a.b~c+d%e_f-g"
         );
         let longest = format!("projects/p/topics/t{}", "a".repeat(254));
-        assert!(normalize_topic(&longest).is_ok());
+        assert!(longest.parse::<Topic>().is_ok());
         for topic in [
             "",
             "uploads",
@@ -384,18 +354,18 @@ mod tests {
             "projects/p q/topics/abc",
             &format!("projects/p/topics/t{}", "a".repeat(255)),
         ] {
-            assert!(normalize_topic(topic).is_err(), "{topic}");
+            assert!(topic.parse::<Topic>().is_err(), "{topic}");
         }
     }
 
     #[test]
     fn fields_reject_unknown_duplicate_and_oversized_values() {
-        assert!(validate_payload_format("JSON_API_V1").is_ok());
-        assert!(validate_payload_format("NONE").is_ok());
-        assert!(validate_payload_format("json_api_v1").is_err());
-        assert!(validate_event_types(&["OBJECT_FINALIZE".into(), "OBJECT_ARCHIVE".into()]).is_ok());
-        assert!(validate_event_types(&["OBJECT_CREATE".into()]).is_err());
-        assert!(validate_event_types(&["OBJECT_DELETE".into(), "OBJECT_DELETE".into()]).is_err());
+        assert_eq!("JSON_API_V1".parse(), Ok(PayloadFormat::JsonApiV1));
+        assert_eq!("NONE".parse(), Ok(PayloadFormat::None));
+        assert!("json_api_v1".parse::<PayloadFormat>().is_err());
+        assert!(EventTypes::parse(["OBJECT_FINALIZE", "OBJECT_ARCHIVE"]).is_ok());
+        assert!(EventTypes::parse(["OBJECT_CREATE"]).is_err());
+        assert!(EventTypes::parse(["OBJECT_DELETE", "OBJECT_DELETE"]).is_err());
         let mut attributes: BTreeMap<String, String> = (0..10)
             .map(|index| (format!("k{index}"), "v".repeat(1024)))
             .collect();
@@ -422,9 +392,9 @@ mod tests {
         assert!(check_limits(&existing, &config(&["OBJECT_FINALIZE"])).is_err());
         assert!(check_limits(&existing, &config(&[])).is_err());
         assert!(check_limits(&existing, &config(&["OBJECT_DELETE"])).is_ok());
-        let full: Vec<_> = EVENT_TYPES
+        let full: Vec<_> = Event::ALL
             .iter()
-            .flat_map(|event| vec![config(&[event]); 10])
+            .flat_map(|event| vec![config(&[event.as_str()]); 10])
             .collect();
         assert!(check_limits(&full, &config(&["OBJECT_ARCHIVE"])).is_err());
         let at_total: Vec<_> = (0..MAX_PER_BUCKET)
@@ -459,7 +429,7 @@ mod tests {
     #[test]
     fn stored_configs_keep_their_bytes() {
         let mut config = config(&["OBJECT_DELETE", "OBJECT_FINALIZE"]);
-        config.payload_format = "NONE".into();
+        config.payload_format = PayloadFormat::None;
         config.custom_attributes.insert("b".into(), "2".into());
         config.custom_attributes.insert("a".into(), "1".into());
         config.object_name_prefix = "logs/".into();

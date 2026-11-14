@@ -88,18 +88,18 @@ async fn check_topic(
     state: &State,
     bucket: &str,
     access: &BucketAccess,
-    topic: &str,
+    topic: &crate::notification::Topic,
 ) -> Result<(), JsonError> {
     let record = state
         .catalog
         .get_bucket(bucket, access)
         .await?
         .ok_or(CatalogError::NotFound)?;
-    match state.catalog.check_notification_topic(topic).await {
+    match state.catalog.check_notification_topic(topic.as_str()).await {
         Ok(()) => Ok(()),
         // The service agent named in the message belongs to the bucket's project.
         Err(crate::notification::TopicCheckError::NotFound) => {
-            Err(topic_not_found(topic, &record.project))
+            Err(topic_not_found(topic.as_str(), &record.project))
         }
         Err(error) => Err(topic_unverifiable(&error)),
     }

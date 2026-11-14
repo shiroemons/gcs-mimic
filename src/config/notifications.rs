@@ -1,7 +1,10 @@
 use super::{
     Config, ConfigurationReport, Diagnostic, DiagnosticSource, Setting, SettingFix, Settings,
 };
-use crate::notification::{self, Endpoint, GlobalConfig, NotificationConfig, Runtime};
+use crate::notification::{
+    self, Endpoint, Event, EventTypes, GlobalConfig, NotificationConfig, PayloadFormat, Runtime,
+    Topic,
+};
 use std::{collections::BTreeMap, io};
 
 /// An empty value disables delivery; anything else must name a local emulator.
@@ -46,10 +49,11 @@ impl Config {
                 "Event publishing requires event_pubsub_project_id, event_pubsub_topic and an explicit pubsub_emulator_host (or PUBSUB_EMULATOR_HOST); production Google Pub/Sub is disabled",
             ));
         }
-        let topic = notification::normalize_topic(&format!(
+        let topic = format!(
             "projects/{}/topics/{}",
             self.event_pubsub_project_id, self.event_pubsub_topic
-        ))
+        )
+        .parse::<Topic>()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         notification::validate_object_name_prefix(&self.event_object_prefix)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -64,22 +68,21 @@ impl Config {
                 global: None,
             });
         }
-        let mut event_types = vec![];
+        // Repeats are dropped, not rejected.
+        let mut event_types = EventTypes::default();
         for event in self.event_list.split(',').map(str::trim) {
             let event = match event {
-                "finalize" => "OBJECT_FINALIZE",
-                "delete" => "OBJECT_DELETE",
-                "metadataUpdate" => "OBJECT_METADATA_UPDATE",
-                "archive" => "OBJECT_ARCHIVE",
+                "finalize" => Event::Finalize,
+                "delete" => Event::Delete,
+                "metadataUpdate" => Event::MetadataUpdate,
+                "archive" => Event::Archive,
                 _ => {
                     return Err(invalid(
                         "event_list requires finalize, delete, metadataUpdate or archive, separated by commas",
                     ));
                 }
             };
-            if !event_types.iter().any(|existing| existing == event) {
-                event_types.push(event.to_owned());
-            }
+            event_types.insert(event);
         }
         Ok(Runtime {
             endpoint,
@@ -87,7 +90,7 @@ impl Config {
                 bucket: self.event_bucket.clone(),
                 notification: NotificationConfig {
                     topic,
-                    payload_format: "JSON_API_V1".into(),
+                    payload_format: PayloadFormat::JsonApiV1,
                     event_types,
                     custom_attributes: BTreeMap::new(),
                     object_name_prefix: self.event_object_prefix.clone(),

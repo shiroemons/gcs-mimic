@@ -68,9 +68,11 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                 .insert_notification(
                     "time-bucket",
                     crate::notification::NotificationConfig {
-                        topic: "//pubsub.googleapis.com/projects/project/topics/time".into(),
-                        payload_format: "NONE".into(),
-                        event_types: Vec::new(),
+                        topic: "//pubsub.googleapis.com/projects/project/topics/time"
+                            .parse()
+                            .unwrap(),
+                        payload_format: crate::notification::PayloadFormat::None,
+                        event_types: crate::notification::EventTypes::default(),
                         custom_attributes: Default::default(),
                         object_name_prefix: String::new(),
                     },

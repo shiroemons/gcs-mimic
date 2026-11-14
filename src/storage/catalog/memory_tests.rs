@@ -330,9 +330,11 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
         .insert_notification(
             "test-bucket",
             crate::notification::NotificationConfig {
-                topic: "//pubsub.googleapis.com/projects/local/topics/events".into(),
-                payload_format: "JSON_API_V1".into(),
-                event_types: Vec::new(),
+                topic: "//pubsub.googleapis.com/projects/local/topics/events"
+                    .parse()
+                    .unwrap(),
+                payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                event_types: crate::notification::EventTypes::default(),
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },

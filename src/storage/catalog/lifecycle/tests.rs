@@ -1004,13 +1004,17 @@ async fn notifications(catalog: &Catalog) {
         .insert_notification(
             "bucket",
             crate::notification::NotificationConfig {
-                topic: "//pubsub.googleapis.com/projects/project/topics/topic".into(),
-                payload_format: "JSON_API_V1".into(),
-                event_types: vec![
-                    "OBJECT_DELETE".into(),
-                    "OBJECT_ARCHIVE".into(),
-                    "OBJECT_METADATA_UPDATE".into(),
-                ],
+                topic: "//pubsub.googleapis.com/projects/project/topics/topic"
+                    .parse()
+                    .unwrap(),
+                payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                event_types: [
+                    crate::notification::Event::Delete,
+                    crate::notification::Event::Archive,
+                    crate::notification::Event::MetadataUpdate,
+                ]
+                .into_iter()
+                .collect(),
                 custom_attributes: Default::default(),
                 object_name_prefix: String::new(),
             },

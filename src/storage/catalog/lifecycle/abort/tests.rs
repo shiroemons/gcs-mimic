@@ -498,9 +498,11 @@ async fn multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory
             .insert_notification(
                 "bucket",
                 crate::notification::NotificationConfig {
-                    topic: "//pubsub.googleapis.com/projects/project/topics/topic".into(),
-                    payload_format: "JSON_API_V1".into(),
-                    event_types: vec![],
+                    topic: "//pubsub.googleapis.com/projects/project/topics/topic"
+                        .parse()
+                        .unwrap(),
+                    payload_format: crate::notification::PayloadFormat::JsonApiV1,
+                    event_types: crate::notification::EventTypes::default(),
                     custom_attributes: Default::default(),
                     object_name_prefix: String::new(),
                 },

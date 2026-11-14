@@ -75,7 +75,7 @@ pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(
         if message.matches(&config) {
             insert(
                 connection,
-                &config.topic,
+                config.topic.as_str(),
                 &message.encode(&config, None)?,
                 &message,
             )?;
@@ -85,7 +85,7 @@ pub(super) fn enqueue(connection: &Connection, message: Message<'_>) -> Result<(
         if message.matches(&record.config) {
             insert(
                 connection,
-                &record.config.topic,
+                record.config.topic.as_str(),
                 &message.encode(&record.config, Some(record.id))?,
                 &message,
             )?;

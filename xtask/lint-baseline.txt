@@ -32,7 +32,7 @@ text::json_macro_value	src/import/filesystem.rs	2
 text::json_macro_value	src/json/buckets.rs	7
 text::json_macro_value	src/json/csek.rs	2
 text::json_macro_value	src/json/error.rs	1
-text::json_macro_value	src/json/notifications.rs	6
+text::json_macro_value	src/json/notifications.rs	3
 text::json_macro_value	src/json/object_list.rs	1
 text::json_macro_value	src/json/objects.rs	28
 text::json_macro_value	src/json/rewrite.rs	4

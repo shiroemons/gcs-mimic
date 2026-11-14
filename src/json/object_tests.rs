@@ -1192,9 +1192,11 @@ fn notification_payload_keeps_the_resource_field_order_after_dropping_links() {
         replacement: None,
     };
     let config = crate::notification::NotificationConfig {
-        topic: "//pubsub.googleapis.com/projects/p/topics/t".into(),
-        payload_format: "JSON_API_V1".into(),
-        event_types: vec![],
+        topic: "//pubsub.googleapis.com/projects/p/topics/topic"
+            .parse()
+            .unwrap(),
+        payload_format: crate::notification::PayloadFormat::JsonApiV1,
+        event_types: crate::notification::EventTypes::default(),
         custom_attributes: Default::default(),
         object_name_prefix: String::new(),
     };
