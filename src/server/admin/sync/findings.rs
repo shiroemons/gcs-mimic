@@ -1,7 +1,10 @@
 use crate::{
     json::JsonError,
-    storage::sync_state::observation::{
-        FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
+    storage::sync_state::{
+        OpaqueId,
+        observation::{
+            FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
+        },
     },
     sync::mapping::Reason,
 };
@@ -76,19 +79,28 @@ pub(super) fn value(
     if let Some(recovery) = &item.recovery
         && let Some(value) = value.as_object_mut()
     {
-        value.insert("recovery_id".into(), json!(item.operation_id));
+        value.insert(
+            "recovery_id".into(),
+            Value::from(item.operation_id.map(OpaqueId::to_hex)),
+        );
         value.insert(
             "recovery_revision".into(),
-            json!(recovery.recovery_revision),
+            Value::from(recovery.recovery_revision.to_hex()),
         );
-        value.insert("target_identity".into(), json!(recovery.target_identity));
-        value.insert("phase".into(), json!(recovery.phase));
-        value.insert("retained_location".into(), json!("workspace"));
-        value.insert("retained_bytes".into(), json!(recovery.retained_bytes));
+        value.insert(
+            "target_identity".into(),
+            Value::from(recovery.target_identity.to_hex()),
+        );
+        value.insert("phase".into(), Value::from(recovery.phase.as_str()));
+        value.insert("retained_location".into(), Value::from("workspace"));
+        value.insert(
+            "retained_bytes".into(),
+            Value::from(recovery.retained_bytes),
+        );
         value.insert("hashes".into(), super::super::encode(&recovery.hashes)?);
         value.insert(
             "over_limit".into(),
-            json!(quota.is_some_and(|quota| quota.over_limit)),
+            Value::from(quota.is_some_and(|quota| quota.over_limit)),
         );
     }
     Ok(value)
@@ -98,7 +110,7 @@ pub(super) fn value(
 mod tests {
     use super::*;
     use crate::storage::sync_state::{
-        OpaqueId, conflicts::RecoveryPhase, observation::RecoveryDetails, writeback::Phase,
+        conflicts::RecoveryPhase, observation::RecoveryDetails, writeback::Phase,
     };
 
     fn id(digit: char) -> OpaqueId {
