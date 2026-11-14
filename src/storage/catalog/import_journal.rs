@@ -60,7 +60,7 @@ pub struct ImportProgress {
 pub struct ImportJournal(Catalog);
 
 #[derive(Debug)]
-pub(crate) enum ResumeError {
+pub enum ResumeError {
     Catalog(CatalogError),
     PermanentlyFailed {
         reason: String,

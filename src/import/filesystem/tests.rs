@@ -40,14 +40,10 @@ fn missing_import_lock_resumes_or_explains_how_to_restore_it() {
         let before = fs::read(options.destination.join("catalog.sqlite3")).unwrap();
         let error = execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
         assert!(error.to_string().contains("restore catalog.lock"));
-        let ImportError::Io(error) = error else {
-            panic!("expected invalid import input")
-        };
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(matches!(
-            error.get_ref().unwrap().downcast_ref::<ResumeError>(),
-            Some(ResumeError::MissingLock)
-        ));
+        assert!(
+            matches!(error, ImportError::Resume(ResumeError::MissingLock)),
+            "{error:?}"
+        );
         assert_eq!(
             fs::read(options.destination.join("catalog.sqlite3")).unwrap(),
             before
@@ -57,7 +53,7 @@ fn missing_import_lock_resumes_or_explains_how_to_restore_it() {
 }
 
 #[test]
-fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
+fn permanently_failed_import_resume_reports_the_journal_refusal() {
     let (_dir, options) = interrupted_import();
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let catalog = Catalog::open(&options.destination).await.unwrap();
@@ -76,12 +72,9 @@ fn permanently_failed_import_resume_preserves_the_invalid_data_error() {
         error.to_string(),
         "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination"
     );
-    let ImportError::Io(error) = error else {
-        panic!("expected invalid import input")
-    };
-    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert!(
-        matches!(error.get_ref().unwrap().downcast_ref::<ResumeError>(), Some(ResumeError::PermanentlyFailed { reason }) if reason == "checksum mismatch")
+        matches!(&error, ImportError::Resume(ResumeError::PermanentlyFailed { reason }) if reason == "checksum mismatch"),
+        "{error:?}"
     );
     assert_eq!(
         fs::read(options.destination.join("catalog.sqlite3")).unwrap(),

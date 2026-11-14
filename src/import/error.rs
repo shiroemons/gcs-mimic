@@ -1,6 +1,10 @@
 use super::ImportFailure;
-use crate::{bucket::CatalogError, diagnostics::Diagnostics, storage::admin::AdminError};
-use std::{error::Error, fmt, io, num::TryFromIntError};
+use crate::{
+    bucket::CatalogError,
+    diagnostics::Diagnostics,
+    storage::{admin::AdminError, import_journal::ResumeError},
+};
+use std::{borrow::Cow, error::Error, fmt, io, num::TryFromIntError};
 
 #[derive(Clone, Copy, Debug)]
 pub enum CleanupOperation {
@@ -34,6 +38,44 @@ pub enum ImportError {
         operation: CleanupOperation,
         cause: Box<Self>,
     },
+    /// The destination holds another import, or this one with other options. A resume compares
+    /// one digest of the source and options, so it cannot tell which of them differs.
+    OtherImport,
+    /// The destination's journal refused the resume.
+    Resume(ResumeError),
+    /// The source changed between the scans or since its elements were committed.
+    SourceChanged(SourceChange),
+    /// The source or destination contradicts this import, so a retry cannot succeed; the journal
+    /// records the failure.
+    Invalid(Cow<'static, str>),
+    /// A source read failed during the scan; retry the same snapshot after repairing access.
+    SourceUnreadable,
+}
+
+/// Why the source no longer matches the import. The `source_changed:` prefix is part of the text
+/// the journal records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceChange {
+    /// The final scan's export manifest differs from the preflight's.
+    ExportMetadata,
+    /// The journal's binding names another source fingerprint.
+    Binding,
+    /// A committed element's fingerprint differs from the one observed now.
+    CommittedIdentity,
+}
+
+impl fmt::Display for SourceChange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::ExportMetadata => {
+                "source_changed: keep the source immutable; abandon this incomplete destination if export metadata changed"
+            }
+            Self::Binding => {
+                "source_changed: abandon the incomplete destination and use a fresh immutable export"
+            }
+            Self::CommittedIdentity => "source_changed: committed source identity differs",
+        })
+    }
 }
 
 impl ImportError {
@@ -64,6 +106,15 @@ impl fmt::Display for ImportError {
                 operation,
                 cause,
             } => write!(f, "{original}; {}: {cause}", operation.message()),
+            Self::OtherImport => f.write_str(
+                "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
+            ),
+            Self::Resume(error) => error.fmt(f),
+            Self::SourceChanged(change) => change.fmt(f),
+            Self::Invalid(message) => f.write_str(message),
+            Self::SourceUnreadable => f.write_str(
+                "source I/O failure: resolve the reported filesystem error and retry the same immutable snapshot",
+            ),
         }
     }
 }
@@ -81,6 +132,11 @@ impl Error for ImportError {
             Self::Integer(error) => error.source(),
             // Error chains are linear; the secondary cleanup cause remains in the variant.
             Self::Cleanup { original, .. } => Some(original.as_ref()),
+            Self::Resume(error) => error.source(),
+            Self::OtherImport
+            | Self::SourceChanged(_)
+            | Self::Invalid(_)
+            | Self::SourceUnreadable => None,
         }
     }
 }
@@ -120,10 +176,56 @@ impl From<TryFromIntError> for ImportError {
         Self::Integer(error)
     }
 }
+impl From<SourceChange> for ImportError {
+    fn from(change: SourceChange) -> Self {
+        Self::SourceChanged(change)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The journal stores a terminal failure's text, and a resume shows a refusal's text, so each
+    /// named failure keeps the exact text it had as an `InvalidData` I/O error.
+    #[test]
+    fn named_import_failures_keep_their_recorded_text() {
+        for (error, text) in [
+            (
+                ImportError::OtherImport,
+                "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
+            ),
+            (
+                ImportError::Resume(ResumeError::PermanentlyFailed {
+                    reason: "checksum mismatch".into(),
+                }),
+                "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination",
+            ),
+            (
+                SourceChange::ExportMetadata.into(),
+                "source_changed: keep the source immutable; abandon this incomplete destination if export metadata changed",
+            ),
+            (
+                SourceChange::Binding.into(),
+                "source_changed: abandon the incomplete destination and use a fresh immutable export",
+            ),
+            (
+                SourceChange::CommittedIdentity.into(),
+                "source_changed: committed source identity differs",
+            ),
+            (
+                ImportError::Invalid("missing committed bucket".into()),
+                "missing committed bucket",
+            ),
+            (
+                ImportError::SourceUnreadable,
+                "source I/O failure: resolve the reported filesystem error and retry the same immutable snapshot",
+            ),
+        ] {
+            assert_eq!(error.to_string(), text);
+            assert!(error.source().is_none(), "{error:?}");
+        }
+    }
 
     #[test]
     fn cleanup_keeps_both_typed_causes_and_the_existing_message() {

@@ -1,10 +1,11 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    CleanupOperation, ImportError, ImportFailure, Options, Page, Record, Summary, codec,
-    scan_with_baseline,
+    CleanupOperation, ImportError, ImportFailure, Options, Page, Record, SourceChange, Summary,
+    codec, scan_with_baseline,
 };
 use crate::{
+    bucket::CatalogError,
     object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch},
     storage::{
         Catalog,
@@ -17,6 +18,7 @@ use crate::{
 };
 use ring::digest::{Context, SHA256, digest};
 use std::{
+    borrow::Cow,
     collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::{self, BufReader, BufWriter, Read, Seek, Write},
@@ -26,31 +28,8 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-fn invalid(message: impl Into<String>) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message.into())
-}
-
-/// A resume compares one digest of these inputs, so it cannot tell which of them differs.
-#[derive(Debug)]
-struct OtherImport;
-
-impl std::fmt::Display for OtherImport {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            "data-dir: destination is not the same unfinished import with matching options; repeat the --source, --source-format, --metadata-mode, --source-platform, --max-object-bytes, --max-entries and --max-depth of its first run, or choose a new empty destination",
-        )
-    }
-}
-
-impl std::error::Error for OtherImport {}
-
-fn other_import() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, OtherImport)
-}
-
-fn is_other_import(error: &ImportError) -> bool {
-    matches!(error, ImportError::Io(error)
-        if error.get_ref().is_some_and(|inner| inner.is::<OtherImport>()))
+fn invalid(message: impl Into<Cow<'static, str>>) -> ImportError {
+    ImportError::Invalid(message.into())
 }
 
 /// The identity a destination's journal records: the source and every option that decides what
@@ -257,7 +236,12 @@ pub(super) fn time(micros: i64) -> Result<SystemTime, io::Error> {
     } else {
         UNIX_EPOCH.checked_sub(duration)
     }
-    .ok_or_else(|| invalid("source timestamp is outside this platform's range"))
+    .ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "source timestamp is outside this platform's range",
+        )
+    })
 }
 
 fn identity(
@@ -386,7 +370,7 @@ fn require_eligible(summary: &Summary) -> Result<(), ImportError> {
             && summary.io_findings + summary.stat_identity_drift_findings
                 == summary.blocking_findings
         {
-            return Err(io::Error::other("source I/O failure: resolve the reported filesystem error and retry the same immutable snapshot").into());
+            return Err(ImportError::SourceUnreadable);
         }
         if summary.blocking_findings != 0
             && summary.stat_identity_drift_findings == summary.blocking_findings
@@ -398,8 +382,7 @@ fn require_eligible(summary: &Summary) -> Result<(), ImportError> {
         }
         return Err(invalid(
             "import preflight found blockers; restore an immutable supported snapshot and retry",
-        )
-        .into());
+        ));
     }
     Ok(())
 }
@@ -407,7 +390,7 @@ fn require_eligible(summary: &Summary) -> Result<(), ImportError> {
 fn same_export(before: &Summary, after: &Summary) -> Result<(), ImportError> {
     require_eligible(after)?;
     if before.manifest_sha256 != after.manifest_sha256 {
-        return Err(invalid("source_changed: keep the source immutable; abandon this incomplete destination if export metadata changed").into());
+        return Err(SourceChange::ExportMetadata.into());
     }
     if before.stat_observations_sha256 != after.stat_observations_sha256 {
         return Err(ImportFailure::SourceChanged {
@@ -442,8 +425,7 @@ pub fn execute(
     {
         return Err(invalid(
             "data-dir: choose an empty directory or the same unfinished import catalog",
-        )
-        .into());
+        ));
     }
     let baseline = Baseline::create()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -462,7 +444,7 @@ pub fn execute(
     // A refused resume changed nothing, so the destination can still be what an earlier release
     // started when it had other defaults.
     if start == ImportStart::Resume
-        && imported.as_ref().is_err_and(is_other_import)
+        && matches!(imported, Err(ImportError::OtherImport))
         && let Some(former) = options.with_former_defaults()
     {
         return runtime.block_on(run(
@@ -493,68 +475,65 @@ async fn run(
     let catalog = if start == ImportStart::Resume {
         Catalog::resume_import(&options.destination, source)
             .await
-            .map_err(|error| {
-                if matches!(error, crate::bucket::CatalogError::PreconditionFailed) {
-                    ImportError::from(other_import())
-                } else if let Some(ResumeError::PermanentlyFailed { reason }) =
-                    crate::error::causes(&error)
-                        .find_map(|cause| cause.downcast_ref::<ResumeError>())
-                {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        ResumeError::PermanentlyFailed {
-                            reason: reason.clone(),
-                        },
-                    )
-                    .into()
-                } else {
-                    #[cfg(not(unix))]
-                    if crate::error::causes(&error).any(|cause| {
-                        matches!(
-                            cause.downcast_ref::<ResumeError>(),
-                            Some(ResumeError::MissingLock)
-                        )
-                    }) {
-                        return io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            ResumeError::MissingLock,
-                        )
-                        .into();
-                    }
-                    ImportError::from(error)
-                }
-            })?
+            .map_err(resume_error)?
     } else {
         Catalog::open(&options.destination).await?
     };
     let result = async {
         let journal = catalog.import_journal();
         let original = journal.progress().await?;
-        if start == ImportStart::Resume && !original.as_ref().is_some_and(|state| state.active && state.binding.source == source) {
-            return Err(other_import().into());
+        if start == ImportStart::Resume
+            && !original
+                .as_ref()
+                .is_some_and(|state| state.active && state.binding.source == source)
+        {
+            return Err(ImportError::OtherImport);
         }
         if let Some(failure) = original.as_ref().and_then(|state| state.failure.as_ref()) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, ResumeError::PermanentlyFailed { reason: failure.clone() }).into());
+            return Err(ImportError::Resume(ResumeError::PermanentlyFailed {
+                reason: failure.clone(),
+            }));
         }
         let imported = async {
             let preflight = match preflight {
                 Some(summary) => summary,
                 None => metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?,
             };
-            let fingerprint = preflight.manifest_sha256.as_deref().ok_or_else(|| invalid("missing source fingerprint"))?;
+            let fingerprint = preflight
+                .manifest_sha256
+                .as_deref()
+                .ok_or_else(|| invalid("missing source fingerprint"))?;
             let binding = ImportBinding {
                 source,
                 fingerprint: sha(fingerprint.as_bytes()),
-                expected_elements: i64::try_from(preflight.eligible_buckets + preflight.eligible_objects)?,
+                expected_elements: i64::try_from(
+                    preflight.eligible_buckets + preflight.eligible_objects,
+                )?,
             };
-            if original.as_ref().is_some_and(|state| state.binding != binding) {
-                return Err(invalid("source_changed: abandon the incomplete destination and use a fresh immutable export").into());
+            if original
+                .as_ref()
+                .is_some_and(|state| state.binding != binding)
+            {
+                return Err(SourceChange::Binding.into());
             }
-            import(options, &catalog, &binding, &preflight, baseline, output, diagnostics).await
-        }.await;
+            import(
+                options,
+                &catalog,
+                &binding,
+                &preflight,
+                baseline,
+                output,
+                diagnostics,
+            )
+            .await
+        }
+        .await;
         if let Err(error) = imported {
             if terminal(&error)
-                && let Some(state) = journal.progress().await?.filter(|state| state.active && state.binding.source == source)
+                && let Some(state) = journal
+                    .progress()
+                    .await?
+                    .filter(|state| state.active && state.binding.source == source)
                 && let Err(recording) = journal.fail(state.binding, error.to_string()).await
             {
                 return Err(error.with_cleanup(CleanupOperation::TerminalFailure, recording));
@@ -562,7 +541,8 @@ async fn run(
             return Err(error);
         }
         imported
-    }.await;
+    }
+    .await;
     let closed = catalog.close().await;
     match (result, closed) {
         (result, Ok(())) => result,
@@ -571,30 +551,71 @@ async fn run(
     }
 }
 
+/// Names the refusal a resume reports. `Catalog::resume_import` carries the journal's refusal
+/// inside a catalog failure, so this is where its type comes back.
+fn resume_error(error: CatalogError) -> ImportError {
+    if matches!(error, CatalogError::PreconditionFailed) {
+        return ImportError::OtherImport;
+    }
+    let refusal = crate::error::causes(&error)
+        .find_map(|cause| cause.downcast_ref::<ResumeError>())
+        .and_then(|refusal| match refusal {
+            ResumeError::PermanentlyFailed { reason } => Some(ResumeError::PermanentlyFailed {
+                reason: reason.clone(),
+            }),
+            #[cfg(not(unix))]
+            ResumeError::MissingLock => Some(ResumeError::MissingLock),
+            // A catalog failure the journal met is reported as that failure.
+            ResumeError::Catalog(_) => None,
+        });
+    refusal.map_or_else(|| error.into(), ImportError::Resume)
+}
+
+/// Whether a failure of the import itself is recorded in the journal, so that a resume refuses
+/// the destination instead of repeating an attempt that cannot succeed.
 fn terminal(error: &ImportError) -> bool {
     match error {
-        ImportError::Admin(AdminError::SourceChanged { fields }) => {
-            fields.is_empty()
-                || fields
-                    .iter()
-                    .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"))
-        }
-        ImportError::Admin(error) => matches!(
-            error,
+        ImportError::Admin(error) => match error {
+            AdminError::SourceChanged { fields } => {
+                fields.is_empty()
+                    || fields
+                        .iter()
+                        .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"))
+            }
             AdminError::Checksum
-                | AdminError::Corrupt(_)
-                | AdminError::Invalid(_)
-                | AdminError::Precondition
-                | AdminError::Hold
-                | AdminError::TooLarge
-                | AdminError::NotFound
-        ),
+            | AdminError::Corrupt(_)
+            | AdminError::Invalid(_)
+            | AdminError::Precondition
+            | AdminError::Hold
+            | AdminError::TooLarge
+            | AdminError::NotFound => true,
+            AdminError::Busy { .. }
+            | AdminError::DiskFull(_)
+            | AdminError::Closed
+            | AdminError::SeedProjectMismatch
+            | AdminError::SeedMetadataBudget { .. }
+            | AdminError::Io(_)
+            | AdminError::Forbidden
+            | AdminError::BodyAborted(_)
+            | AdminError::Backend(_) => false,
+        },
         ImportError::Source(error) => {
             !error.retryable_stat_drift()
                 && !matches!(error, ImportFailure::Io(_) | ImportFailure::ReportClosed)
         }
+        // A native read that found malformed data cannot succeed on retry.
         ImportError::Io(error) => error.kind() == io::ErrorKind::InvalidData,
-        _ => false,
+        ImportError::SourceChanged(_) | ImportError::Invalid(_) => true,
+        // A refused resume changed nothing; it never reaches this check, which sees only the
+        // failures of the import itself.
+        ImportError::OtherImport | ImportError::Resume(_) => false,
+        ImportError::SourceUnreadable
+        | ImportError::Diagnostics(_)
+        | ImportError::Catalog(_)
+        | ImportError::Json(_)
+        | ImportError::Integer(_)
+        | ImportError::ObservationCleanup(_)
+        | ImportError::Cleanup { .. } => false,
     }
 }
 
@@ -638,7 +659,7 @@ async fn import(
                         committed_page = journal.page(binding.clone(), ordinal - 1, 256).await?.into();
                     }
                     let committed = committed_page.pop_front().filter(|element| element.ordinal == ordinal).ok_or_else(|| invalid("missing committed import observation"))?;
-                    if committed.fingerprint != observed.fingerprint { return Err(invalid("source_changed: committed source identity differs").into()); }
+                    if committed.fingerprint != observed.fingerprint { return Err(SourceChange::CommittedIdentity.into()); }
                     verify_committed(catalog, &admin, &record).await?;
                     if committed.inode != observed.inode || committed.ctime_ns != observed.ctime_ns {
                         crate::diagnostics::Diagnostics {
@@ -805,7 +826,7 @@ async fn publish(
             Ok(bytes)
         }
         Record::Directory { .. } => {
-            Err(invalid("directories cannot be published as source bodies").into())
+            Err(invalid("directories cannot be published as source bodies"))
         }
     }
 }
@@ -840,7 +861,7 @@ async fn verify_committed(
                     created != target.time_created || created != target.updated
                 })
             {
-                return Err(invalid("committed bucket differs from the source binding").into());
+                return Err(invalid("committed bucket differs from the source binding"));
             }
             if let Some(expected) =
                 codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)?
@@ -850,9 +871,9 @@ async fn verify_committed(
                     .await?
                     .ok_or_else(|| invalid("missing committed bucket ACL"))?;
                 if projection.bucket != expected {
-                    return Err(
-                        invalid("committed bucket ACL differs from the source binding").into(),
-                    );
+                    return Err(invalid(
+                        "committed bucket ACL differs from the source binding",
+                    ));
                 }
             }
         }
@@ -885,9 +906,9 @@ async fn verify_committed(
                     .generation
                     != attributes.generation
             {
-                return Err(
-                    invalid("committed live membership differs from the source binding").into(),
-                );
+                return Err(invalid(
+                    "committed live membership differs from the source binding",
+                ));
             }
             if let Some(expected) = &request.metadata.acl {
                 let projection = catalog
@@ -895,9 +916,9 @@ async fn verify_committed(
                     .await?
                     .ok_or_else(|| invalid("missing committed object ACL"))?;
                 if projection.objects.first() != Some(expected) {
-                    return Err(
-                        invalid("committed object ACL differs from the source binding").into(),
-                    );
+                    return Err(invalid(
+                        "committed object ACL differs from the source binding",
+                    ));
                 }
             }
             if target.generation != attributes.generation
@@ -922,7 +943,7 @@ async fn verify_committed(
                 || target.storage_class.as_str() != attributes.storage_class
                 || target.custom_time.as_ref() != request.metadata.custom_time.value()
             {
-                return Err(invalid("committed object differs from the source binding").into());
+                return Err(invalid("committed object differs from the source binding"));
             }
         }
         Record::Directory { .. } => (),
@@ -973,6 +994,14 @@ mod error_tests {
                 io::Error::from(io::ErrorKind::PermissionDenied).into(),
                 false,
             ),
+            (SourceChange::ExportMetadata.into(), true),
+            (SourceChange::Binding.into(), true),
+            (SourceChange::CommittedIdentity.into(), true),
+            (
+                invalid("committed bucket differs from the source binding"),
+                true,
+            ),
+            (ImportError::SourceUnreadable, false),
         ] {
             assert_eq!(terminal(&error), expected, "{error}");
         }

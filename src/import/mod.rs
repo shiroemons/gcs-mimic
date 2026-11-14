@@ -17,7 +17,7 @@ use crate::{
     hashing::Hashes,
     source_tree,
 };
-pub use error::{CleanupOperation, ImportError};
+pub use error::{CleanupOperation, ImportError, SourceChange};
 pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};

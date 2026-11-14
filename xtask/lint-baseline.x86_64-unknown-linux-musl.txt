@@ -12,7 +12,6 @@ clippy::wildcard_enum_match_arm	src/config_input/options.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/bucket_update.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/names.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/object_io/write.rs	1
-clippy::wildcard_enum_match_arm	src/import/filesystem.rs	1
 clippy::wildcard_enum_match_arm	src/import/reader.rs	2
 clippy::wildcard_enum_match_arm	src/import/snapshot.rs	2
 clippy::wildcard_enum_match_arm	src/json/acl.rs	2
