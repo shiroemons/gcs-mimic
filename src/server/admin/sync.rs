@@ -1,6 +1,6 @@
 //! Live synchronization controls never open a data directory or confer fixture authority.
 
-use crate::storage::admin::AdminError;
+use crate::storage::{admin::AdminError, failure::BackendCause};
 use crate::{
     auth::Identity,
     json::{self, JsonError},
@@ -606,13 +606,18 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
     }
 }
 
+/// Corrupt stored state needs a restored data directory, whichever control found it.
+fn corrupt(cause: &BackendCause) -> JsonError {
+    crate::object::ObjectError::Corrupt(cause.clone()).into()
+}
+
 /// The response an `AdminError` decides on its own; `None` leaves the decision to the caller.
 fn admin_error(error: &AdminError) -> Option<JsonError> {
     Some(match error {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
         // A protected or missing target means the inspected state changed, as a stale revision.
         AdminError::Precondition | AdminError::Hold | AdminError::NotFound => stale(),
-        AdminError::Corrupt(cause) => crate::object::ObjectError::Corrupt(cause.clone()).into(),
+        AdminError::Corrupt(cause) => corrupt(cause),
         AdminError::DiskFull(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",

@@ -232,12 +232,14 @@ fn admin_failure(error: &AdminError) -> JsonError {
             "disk_full",
             "Free disk space without deleting pending synchronization data, then retry the same operation ID",
         ),
-        AdminError::Busy { .. }
-        | AdminError::Closed
-        | AdminError::SeedProjectMismatch
+        // Contention and a closing catalog clear without a storage repair.
+        AdminError::Busy { .. } | AdminError::Closed => JsonError::service_unavailable(
+            "Synchronization control is busy or closed; retry the same operation ID after the active operation finishes",
+        ),
+        AdminError::Corrupt(cause) => corrupt(cause),
+        AdminError::SeedProjectMismatch
         | AdminError::SeedMetadataBudget { .. }
         | AdminError::SourceChanged { .. }
-        | AdminError::Corrupt(_)
         | AdminError::Io(_)
         | AdminError::Invalid(_)
         | AdminError::Checksum

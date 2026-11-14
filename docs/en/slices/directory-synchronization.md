@@ -842,9 +842,11 @@ the body, quota and root stop intact; the remedy is reauthorization or reinspect
 and a new explicit confirmation, never automatic retry with broadened conditions.
 
 Before unlink, durably record acceptance of that exact operation, original owner,
-target identity/revision and confirmation. If that cannot be committed (including
-ENOSPC), return 503 `disk_full` or `io_failure` and retain all bytes and the stop.
-Then unlink only the checked protected entry, sync its parent, and durably finish
+target identity/revision and confirmation. If that cannot be committed, retain all
+bytes and the stop: a storage failure (including ENOSPC) returns 503 `disk_full` or
+`io_failure`, busy or closing storage returns 503 `backendError` to retry the same
+operation ID, and corrupt stored state returns 503 `backendError` to restore a valid
+data directory. Then unlink only the checked protected entry, sync its parent, and durably finish
 the resolution and quota/state update. Keep the quota charge, original-owner
 requirement and recovery stop until durable completion; 202 acknowledges acceptance,
 not completion or root resumption. An unlink/parent-sync/completion failure remains

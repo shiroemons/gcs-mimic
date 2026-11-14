@@ -408,6 +408,11 @@ mod tests {
         "io_failure",
         "Preserve retained bytes, restore storage access and retry the same operation ID",
     );
+    const RESOLVE_BUSY: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Synchronization control is busy or closed; retry the same operation ID after the active operation finishes",
+    );
     const FORBIDDEN: Answer = (StatusCode::FORBIDDEN, "forbidden", "Forbidden");
 
     /// One value of every variant, in declaration order.
@@ -459,7 +464,7 @@ mod tests {
                 ),
                 SYNC_BUSY,
                 SYNC_BUSY,
-                RESOLVE_IO_FAILURE,
+                RESOLVE_BUSY,
             ],
             AdminError::DiskFull(_) => [
                 FIXTURE_FAILED,
@@ -535,7 +540,7 @@ mod tests {
                 RESEED_RETRY,
                 SYNC_CORRUPT,
                 SYNC_CORRUPT,
-                RESOLVE_IO_FAILURE,
+                SYNC_CORRUPT,
             ],
             AdminError::Io(_) => [
                 FIXTURE_FAILED,
@@ -605,8 +610,15 @@ mod tests {
                 FORBIDDEN,
                 FORBIDDEN,
             ],
-            AdminError::Closed
-            | AdminError::SourceChanged { .. }
+            AdminError::Closed => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_BUSY,
+            ],
+            AdminError::SourceChanged { .. }
             | AdminError::BodyAborted(_)
             | AdminError::Backend(_) => [
                 FIXTURE_FAILED,
