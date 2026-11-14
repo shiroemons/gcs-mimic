@@ -19,6 +19,7 @@ use crate::{
     auth::{AuthError, Caller, ListenerRole},
     server::State,
 };
+use routing::{Route, Routes};
 use std::{pin::Pin, sync::Arc};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -188,42 +189,42 @@ macro_rules! storage_methods {
 }
 
 storage_methods! {
-    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> (), route |r| Some(&[("bucket", r.name.as_str())]);
-    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket, route |r| Some(&[("bucket", r.name.as_str())]);
-    CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket, route |r| Some(&[("project", r.bucket.as_ref().map_or(r.parent.as_str(), |b| b.project.as_str()))]);
-    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse, route |r| Some(&[("project", r.parent.as_str())]);
+    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> (), route |r| Routes::Request(&[Route::Bucket(Some(r.name.as_str()))]);
+    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket, route |r| Routes::Request(&[Route::Bucket(Some(r.name.as_str()))]);
+    CreateBucket => create_bucket(pb::CreateBucketRequest) -> pb::Bucket, route |r| Routes::Request(&[Route::Project(r.bucket.as_ref().map_or(r.parent.as_str(), |b| b.project.as_str()))]);
+    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse, route |r| Routes::Request(&[Route::Project(&r.parent)]);
     LockBucketRetentionPolicy => lock_bucket_retention_policy(
         pb::LockBucketRetentionPolicyRequest,
-    ) -> pb::Bucket, route |r| Some(&[("bucket", r.bucket.as_str())]);
-    GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
-    SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
+    ) -> pb::Bucket, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
+    GetIamPolicy => get_iam_policy(iam::GetIamPolicyRequest) -> iam::Policy, route |r| Routes::Request(&[Route::Bucket(Some(routing::iam_bucket(&r.resource)))]);
+    SetIamPolicy => set_iam_policy(iam::SetIamPolicyRequest) -> iam::Policy, route |r| Routes::Request(&[Route::Bucket(Some(routing::iam_bucket(&r.resource)))]);
     TestIamPermissions => test_iam_permissions(
         iam::TestIamPermissionsRequest,
-    ) -> iam::TestIamPermissionsResponse, route |r| Some(&[("bucket", routing::iam_bucket(&r.resource))]);
-    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket, route |r| Some(&[("bucket", r.bucket.as_ref().map_or("", |b| b.name.as_str()))]);
-    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.destination.as_ref().map_or("", |o| o.bucket.as_str()))]);
-    DeleteObject => delete_object(pb::DeleteObjectRequest) -> (), route |r| Some(&[("bucket", r.bucket.as_str())]);
-    RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
+    ) -> iam::TestIamPermissionsResponse, route |r| Routes::Request(&[Route::Bucket(Some(routing::iam_bucket(&r.resource)))]);
+    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket, route |r| Routes::Request(&[Route::Bucket(r.bucket.as_ref().map(|b| b.name.as_str()))]);
+    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(r.destination.as_ref().map(|o| o.bucket.as_str()))]);
+    DeleteObject => delete_object(pb::DeleteObjectRequest) -> (), route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
+    RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     CancelResumableWrite => cancel_resumable_write(
         pb::CancelResumableWriteRequest,
-    ) -> pb::CancelResumableWriteResponse, route |r| Some(&[("bucket", object_io::UploadId::routing_bucket(&r.upload_id).unwrap_or(""))]);
-    GetObject => get_object(pb::GetObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
-    ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Some(&[("bucket", r.bucket.as_str())]);
+    ) -> pb::CancelResumableWriteResponse, route |r| Routes::Request(&[Route::Bucket(object_io::UploadId::routing_bucket(&r.upload_id))]);
+    GetObject => get_object(pb::GetObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
+    ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     BidiReadObject => bidi_read_object(
         Streaming<pb::BidiReadObjectRequest>,
-    ) -> Self::BidiReadObjectStream, route |_r| None;
-    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.object.as_ref().map_or("", |o| o.bucket.as_str()))]);
-    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| None;
+    ) -> Self::BidiReadObjectStream, route |_r| Routes::Deferred;
+    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(r.object.as_ref().map(|o| o.bucket.as_str()))]);
+    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| Routes::Deferred;
     BidiWriteObject => bidi_write_object(
         Streaming<pb::BidiWriteObjectRequest>,
-    ) -> Self::BidiWriteObjectStream, route |_r| None;
-    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse, route |r| Some(&[("bucket", r.parent.as_str())]);
-    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| None;
+    ) -> Self::BidiWriteObjectStream, route |_r| Routes::Deferred;
+    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse, route |r| Routes::Request(&[Route::Bucket(Some(r.parent.as_str()))]);
+    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| Routes::Deferred;
     StartResumableWrite => start_resumable_write(
         pb::StartResumableWriteRequest,
-    ) -> pb::StartResumableWriteResponse, route |r| Some(&[("bucket", r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map_or("", |o| o.bucket.as_str()))]);
+    ) -> pb::StartResumableWriteResponse, route |r| Routes::Request(&[Route::Bucket(r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map(|o| o.bucket.as_str()))]);
     QueryWriteStatus => query_write_status(
         pb::QueryWriteStatusRequest,
-    ) -> pb::QueryWriteStatusResponse, route |r| Some(&[("bucket", object_io::UploadId::routing_bucket(&r.upload_id).unwrap_or(""))]);
-    MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
+    ) -> pb::QueryWriteStatusResponse, route |r| Routes::Request(&[Route::Bucket(object_io::UploadId::routing_bucket(&r.upload_id))]);
+    MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
 }

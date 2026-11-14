@@ -1,4 +1,8 @@
-use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
+use super::{
+    Storage, access_status, convert, iam, names, pb,
+    routing::{Route, Routes},
+    status::unsupported,
+};
 use crate::{
     auth::{self, Caller},
     bucket::{
@@ -308,9 +312,9 @@ impl Storage {
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
         super::routing::check(
             &metadata,
-            Some(&[
-                ("source_bucket", target.source_bucket),
-                ("bucket", target.destination_bucket),
+            Routes::Request(&[
+                Route::SourceBucket(Some(target.source_bucket)),
+                Route::Bucket(Some(target.destination_bucket)),
             ]),
         )?;
         let destination_bucket = target.destination_bucket;

@@ -1,4 +1,10 @@
-use super::{ResponseStream, Storage, mask::ReadMask, pb, status::unsupported};
+use super::{
+    ResponseStream, Storage,
+    mask::ReadMask,
+    pb,
+    routing::{Route, Routes},
+    status::unsupported,
+};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -224,7 +230,10 @@ impl Storage {
             )
         })?;
         validate_spec(&spec)?;
-        super::routing::check(&metadata, Some(&[("bucket", spec.bucket.as_str())]))?;
+        super::routing::check(
+            &metadata,
+            Routes::Request(&[Route::Bucket(Some(spec.bucket.as_str()))]),
+        )?;
         let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
