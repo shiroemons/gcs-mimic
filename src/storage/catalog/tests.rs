@@ -670,3 +670,258 @@ async fn sqlite_settings_are_explicit() {
         .unwrap();
     catalog.close().await.unwrap();
 }
+
+type StoredColumns = Vec<(&'static str, rusqlite::types::Value)>;
+
+/// Each bucket column and its value as SQLite stores it, in `bucket_columns!` order.
+async fn stored_bucket_row(catalog: &Catalog, name: &'static str) -> StoredColumns {
+    let values = catalog
+        .run(move |connection| {
+            let row = sql::row(
+                connection,
+                concat!("SELECT ", bucket_columns!(), " FROM buckets WHERE name=?1"),
+                [name],
+                |row| {
+                    (0..row.as_ref().column_count())
+                        .map(|index| row.get(index))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                },
+            )?;
+            Ok::<_, CatalogError>(row)
+        })
+        .await
+        .unwrap();
+    bucket_columns!()
+        .split(',')
+        .map(str::trim)
+        .zip(values)
+        .collect()
+}
+
+/// `row` with the named columns replaced, so each step lists only what it changed.
+fn changed_columns<const N: usize>(
+    row: &StoredColumns,
+    changes: [(&str, rusqlite::types::Value); N],
+) -> StoredColumns {
+    let mut row = row.clone();
+    for (name, value) in changes {
+        let column = row.iter_mut().find(|(column, _)| *column == name).unwrap();
+        column.1 = value;
+    }
+    row
+}
+
+fn stored_text(text: &str) -> rusqlite::types::Value {
+    rusqlite::types::Value::Text(text.into())
+}
+
+async fn patch_stored_bucket(catalog: &Catalog, name: &str, body: &[u8]) {
+    let update =
+        crate::json::parse_bucket_patch(body, crate::config::CompatProfile::Native).unwrap();
+    catalog
+        .patch_bucket(name, update, Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn stored_bucket_row_columns_keep_their_text() {
+    let dir = crate::test_support::TestDir::new();
+    let created = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_789);
+    let clock = std::sync::Arc::new(crate::clock::ManualClock::new(created));
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    let record = crate::json::parse_insert(
+        br#"{"name":"golden-bucket","location":"EU","storageClass":"STANDARD",
+            "labels":{"team":"storage","env":"test"},
+            "cors":[{"origin":["https://example.test"],"method":["GET","PUT"],
+                "responseHeader":["Content-Type"],"maxAgeSeconds":3600}],
+            "lifecycle":{"rule":[
+                {"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},
+                 "condition":{"age":30,"createdBefore":"2024-01-02","customTimeBefore":"2024-02-03",
+                    "daysSinceCustomTime":7,"daysSinceNoncurrentTime":8,"isLive":true,
+                    "matchesPrefix":["logs/"],"matchesStorageClass":["STANDARD"],
+                    "matchesSuffix":[".log"],"noncurrentTimeBefore":"2024-03-04",
+                    "numNewerVersions":2,"sizeAboveBytes":"1024","sizeBelowBytes":"1048576"}},
+                {"action":{"type":"Delete"},"condition":{"age":365}}]},
+            "retentionPolicy":{"retentionPeriod":"3600"},
+            "softDeletePolicy":{"retentionDurationSeconds":"604800"},
+            "versioning":{"enabled":true},
+            "defaultEventBasedHold":true,
+            "iamConfiguration":{"publicAccessPrevention":"enforced",
+                "uniformBucketLevelAccess":{"enabled":true}}}"#,
+        "project",
+        created,
+    )
+    .unwrap();
+    catalog.insert_bucket(record).await.unwrap();
+    use rusqlite::types::Value::{Integer, Null};
+    let inserted = vec![
+        ("name", stored_text("golden-bucket")),
+        ("project", stored_text("project")),
+        ("location", stored_text("EU")),
+        ("location_type", stored_text("multi-region")),
+        ("storage_class", stored_text("STANDARD")),
+        ("labels", stored_text(r#"{"env":"test","team":"storage"}"#)),
+        ("metageneration", Integer(1)),
+        ("time_created", Integer(1_700_000_000_123_456)),
+        ("updated", Integer(1_700_000_000_123_456)),
+        ("versioning_enabled", Integer(1)),
+        ("default_event_based_hold", Integer(1)),
+        (
+            "cors",
+            stored_text(
+                r#"[{"origin":["https://example.test"],"method":["GET","PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":3600}]"#,
+            ),
+        ),
+        ("public_access_prevention_enforced", Integer(1)),
+        (
+            "uniform_bucket_level_access_locked_time",
+            Integer(1_707_776_000_123_456),
+        ),
+        (
+            "lifecycle",
+            stored_text(
+                r#"[{"action":{"type":"SetStorageClass","storageClass":"NEARLINE"},"condition":{"age":30,"createdBefore":"2024-01-02","customTimeBefore":"2024-02-03","daysSinceCustomTime":7,"daysSinceNoncurrentTime":8,"isLive":true,"matchesPrefix":["logs/"],"matchesStorageClass":["STANDARD"],"matchesSuffix":[".log"],"noncurrentTimeBefore":"2024-03-04","numNewerVersions":2,"sizeAboveBytes":"1024","sizeBelowBytes":"1048576"}},{"action":{"type":"Delete"},"condition":{"age":365}}]"#,
+            ),
+        ),
+        (
+            "retention_policy",
+            stored_text(
+                r#"{"retention_period":3600,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456789},"is_locked":false}"#,
+            ),
+        ),
+        (
+            "soft_delete_policy",
+            stored_text(
+                r#"{"retention_duration_seconds":604800,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456789}}"#,
+            ),
+        ),
+        ("object_retention_enabled", Integer(0)),
+        ("autoclass", Null),
+        ("time_created_nanos", Integer(0)),
+        ("updated_nanos", Integer(0)),
+        ("generation", Integer(1_700_000_000_123_456_789)),
+        ("versioning_configured", Integer(1)),
+    ];
+    assert_eq!(stored_bucket_row(&catalog, "golden-bucket").await, inserted);
+    clock.advance(std::time::Duration::new(60, 1_000));
+    patch_stored_bucket(&catalog, "golden-bucket", br#"{"labels":{"env":"prod"}}"#).await;
+    let labeled = changed_columns(
+        &inserted,
+        [
+            ("labels", stored_text(r#"{"env":"prod","team":"storage"}"#)),
+            ("metageneration", Integer(2)),
+            ("updated", Integer(1_700_000_060_123_457)),
+        ],
+    );
+    assert_eq!(stored_bucket_row(&catalog, "golden-bucket").await, labeled);
+    // Autoclass refuses lifecycle rules that change the storage class, so it gets its own bucket.
+    let record = crate::json::parse_insert(
+        br#"{"name":"autoclass-bucket","autoclass":{"enabled":true,"terminalStorageClass":"ARCHIVE"}}"#,
+        "project",
+        created,
+    )
+    .unwrap();
+    catalog.insert_bucket(record).await.unwrap();
+    let enabled = vec![
+        ("name", stored_text("autoclass-bucket")),
+        ("project", stored_text("project")),
+        ("location", stored_text("US")),
+        ("location_type", stored_text("multi-region")),
+        ("storage_class", stored_text("STANDARD")),
+        ("labels", stored_text("{}")),
+        ("metageneration", Integer(1)),
+        ("time_created", Integer(1_700_000_000_123_456)),
+        ("updated", Integer(1_700_000_000_123_456)),
+        ("versioning_enabled", Integer(0)),
+        ("default_event_based_hold", Integer(0)),
+        ("cors", stored_text("[]")),
+        ("public_access_prevention_enforced", Integer(0)),
+        ("uniform_bucket_level_access_locked_time", Null),
+        ("lifecycle", stored_text("[]")),
+        ("retention_policy", Null),
+        ("soft_delete_policy", Null),
+        ("object_retention_enabled", Integer(0)),
+        (
+            "autoclass",
+            stored_text(
+                r#"{"enabled":true,"toggle_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456000},"terminal_storage_class":"ARCHIVE","terminal_storage_class_update_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456000}}"#,
+            ),
+        ),
+        ("time_created_nanos", Integer(0)),
+        ("updated_nanos", Integer(0)),
+        ("generation", Integer(1_700_000_000_123_456_790)),
+        ("versioning_configured", Integer(0)),
+    ];
+    assert_eq!(
+        stored_bucket_row(&catalog, "autoclass-bucket").await,
+        enabled
+    );
+    clock.advance(std::time::Duration::new(60, 1_000));
+    patch_stored_bucket(
+        &catalog,
+        "autoclass-bucket",
+        br#"{"autoclass":{"enabled":false}}"#,
+    )
+    .await;
+    let disabled = changed_columns(
+        &enabled,
+        [
+            ("metageneration", Integer(2)),
+            ("updated", Integer(1_700_000_120_123_458)),
+            (
+                "autoclass",
+                stored_text(
+                    r#"{"enabled":false,"toggle_time":{"secs_since_epoch":1700000120,"nanos_since_epoch":123458000},"terminal_storage_class":null,"terminal_storage_class_update_time":null}"#,
+                ),
+            ),
+        ],
+    );
+    assert_eq!(
+        stored_bucket_row(&catalog, "autoclass-bucket").await,
+        disabled
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_lifecycle_text_survives_unrelated_updates() {
+    // Releases through 0.17.1 stored lifecycle rules in input order, not the canonical order.
+    const LEGACY: &str = r#"[{"condition":{"matchesPrefix":["logs/"],"age":30},"action":{"storageClass":"NEARLINE","type":"SetStorageClass"}}]"#;
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(crate::storage::test_fixtures::bucket(
+            "legacy-bucket",
+            "project",
+        ))
+        .await
+        .unwrap();
+    catalog
+        .run(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE buckets SET lifecycle=?1 WHERE name='legacy-bucket'",
+                [LEGACY],
+            )?;
+            Ok::<_, CatalogError>(())
+        })
+        .await
+        .unwrap();
+    patch_stored_bucket(&catalog, "legacy-bucket", br#"{"labels":{"env":"prod"}}"#).await;
+    let lifecycle = catalog
+        .run(|connection| {
+            sql::scalar::<String>(
+                connection,
+                "SELECT lifecycle FROM buckets WHERE name='legacy-bucket'",
+                [],
+            )
+            .map_err(CatalogError::from)
+        })
+        .await
+        .unwrap();
+    assert_eq!(lifecycle, LEGACY);
+    catalog.close().await.unwrap();
+}

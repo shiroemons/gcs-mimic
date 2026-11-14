@@ -2801,6 +2801,49 @@ mod tests {
         assert_eq!(entries[0].record.name, "public-bucket");
     }
 
+    /// Recorded entries keep these digests in the catalog, so the normalized value of every member
+    /// must keep its bytes.
+    #[test]
+    fn entry_digest_of_every_member_is_stable() {
+        let document = json!({"version":1,"buckets":[{
+            "name":"every-member","location":"eu","storageClass":"NEARLINE",
+            "labels":{"team":"storage","env":"test"},
+            "cors":[{"origin":["https://example.test"],"method":["GET"],
+                "responseHeader":["Content-Type"],"maxAgeSeconds":60}],
+            "versioning":{"enabled":true},
+            "defaultEventBasedHold":true,
+            "iamConfiguration":{"publicAccessPrevention":"enforced"},
+            "softDeletePolicy":{"retentionDurationSeconds":604_800},
+            "iamPolicy":{"bindings":[
+                {"role":"roles/storage.objectViewer","members":["user:a@example.invalid"]}]}}]});
+        let entry = entries(&document.to_string()).unwrap().remove(0);
+        for member in [
+            Member::Location,
+            Member::StorageClass,
+            Member::Labels,
+            Member::Cors,
+            Member::Versioning,
+            Member::DefaultEventBasedHold,
+            Member::PublicAccessPrevention,
+            Member::SoftDeletePolicy,
+            Member::IamPolicy,
+        ] {
+            assert!(entry.written.contains(member), "{member:?}");
+        }
+        assert_eq!(
+            entry
+                .written
+                .record(&entry.record, entry.policy.as_ref())
+                .digest,
+            crate::storage::admin::initialization::EntryDigest::new(
+                crate::hex::decode(
+                    "65336417bd829b0d35f43b208c71721b064fd2e745b971321b63979d46aba741"
+                )
+                .unwrap()
+            )
+        );
+    }
+
     #[test]
     fn entry_digests_follow_what_an_entry_sets_not_how_it_is_spelled() {
         let digest = |entry: Value, project: Option<&str>| {
