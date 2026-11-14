@@ -6,7 +6,7 @@ use crate::{
     config::CompatProfile,
     object::{MapPatch, ObjectError, ObjectRecord},
 };
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 use tonic::Status;
 
 pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
@@ -32,34 +32,45 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
     }
 }
 
-pub(super) fn bucket_metadata(
-    bucket: &mut pb::Bucket,
-    current: Option<&pb::Bucket>,
-) -> Result<Vec<u8>, Status> {
-    let insert = current.is_none();
-    bucket_outputs(bucket, current)?;
-    let mut body = Map::from_iter([(
-        "defaultEventBasedHold".into(),
-        json!(bucket.default_event_based_hold),
-    )]);
-    if insert {
-        body.insert("name".into(), json!(bucket.name));
-    }
+/// The InsertBucket settings as the JSON insert object every protocol's bucket creation
+/// validates (`json::insert_from_object`); any other field set is rejected.
+pub(super) fn insert_body(bucket: &mut pb::Bucket) -> Result<Map<String, Value>, Status> {
+    let mut body = Map::from_iter([
+        (
+            "defaultEventBasedHold".into(),
+            Value::from(bucket.default_event_based_hold),
+        ),
+        ("name".into(), Value::from(bucket.name.as_str())),
+    ]);
     if !bucket.storage_class.is_empty() {
-        body.insert("storageClass".into(), json!(bucket.storage_class));
+        body.insert(
+            "storageClass".into(),
+            Value::from(bucket.storage_class.as_str()),
+        );
     }
-    if !insert || !bucket.labels.is_empty() {
-        body.insert("labels".into(), json!(bucket.labels));
+    if !bucket.labels.is_empty() {
+        body.insert(
+            "labels".into(),
+            Value::Object(
+                bucket
+                    .labels
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+                    .collect(),
+            ),
+        );
     }
-    if !bucket.location.is_empty() && insert {
-        body.insert("location".into(), json!(bucket.location));
-        bucket.location.clear();
+    if !bucket.location.is_empty() {
+        body.insert(
+            "location".into(),
+            Value::from(std::mem::take(&mut bucket.location)),
+        );
     }
     if let Some(versioning) = &bucket.versioning {
         body.insert("versioning".into(), json!({"enabled":versioning.enabled}));
     }
     clear_bucket_metadata(bucket)?;
-    serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode bucket metadata"))
+    Ok(body)
 }
 
 fn bucket_outputs(bucket: &mut pb::Bucket, current: Option<&pb::Bucket>) -> Result<(), Status> {
@@ -348,11 +359,11 @@ mod tests {
             ..Default::default()
         };
         let mut same = current.clone();
-        assert!(bucket_metadata(&mut same, Some(&current)).is_ok());
+        assert!(bucket_outputs(&mut same, Some(&current)).is_ok());
         let mut changed = current.clone();
         changed.id = "different-bucket".into();
         assert_code(
-            bucket_metadata(&mut changed, Some(&current)),
+            bucket_outputs(&mut changed, Some(&current)),
             tonic::Code::Unimplemented,
         );
     }

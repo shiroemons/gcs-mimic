@@ -44,170 +44,203 @@ fn project_name(resource: &str) -> Result<&str, Status> {
     Ok(project)
 }
 
-/// Clears a message field that a client sent empty, which carries no supported setting.
-fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
-    if field.as_ref().is_some_and(|v| v == &T::default()) {
-        *field = None;
-    }
+/// A message field a client sent empty carries no setting.
+fn is_set<T: Default + PartialEq>(field: Option<&T>) -> bool {
+    field.is_some_and(|value| value != &T::default())
 }
 
-/// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
-fn create_policies(bucket: &pb::Bucket, body: &mut Map<String, Value>) -> Result<(), Status> {
-    for (field, key, policy) in [
-        (
-            "retentionPolicy",
-            "retentionPeriod",
-            bucket.retention_policy.as_ref().map(|p| {
-                (
-                    p.retention_duration.as_ref(),
-                    p.effective_time.is_some() || p.is_locked,
-                )
-            }),
-        ),
-        (
-            "softDeletePolicy",
-            "retentionDurationSeconds",
-            bucket
-                .soft_delete_policy
-                .as_ref()
-                .map(|p| (p.retention_duration.as_ref(), p.effective_time.is_some())),
-        ),
-    ] {
-        if let Some((duration, output_fields)) = policy {
-            if output_fields {
-                return Err(super::status::unsupported(
-                    "create bucket policy output fields",
-                ));
-            }
-            if let Some(duration) = duration {
-                if duration.nanos != 0 {
-                    return Err(super::status::unsupported(
-                        "fractional bucket retention duration",
-                    ));
-                }
-                if field == "retentionPolicy" {
-                    crate::bucket::RetentionPeriod::try_from(duration.seconds)?;
-                } else {
-                    crate::bucket::SoftDeleteRetention::try_from(duration.seconds)?;
-                }
-                body.insert(field.into(), json!({key: duration.seconds.to_string()}));
-            }
-        }
+/// A bucket policy duration in whole seconds.
+fn whole_seconds(duration: &prost_types::Duration) -> Result<i64, Status> {
+    if duration.nanos != 0 {
+        return Err(super::status::unsupported(
+            "fractional bucket retention duration",
+        ));
     }
-    if let Some(iam) = &bucket.iam_config {
-        let mut config = Map::new();
-        if !iam.public_access_prevention.is_empty() {
-            iam.public_access_prevention
-                .parse::<crate::bucket::PublicAccessPrevention>()?;
-            config.insert(
-                "publicAccessPrevention".into(),
-                json!(iam.public_access_prevention),
-            );
-        }
-        if let Some(uniform) = &iam.uniform_bucket_level_access {
-            if uniform.lock_time.is_some() {
-                return Err(super::status::unsupported("create bucket IAM lock_time"));
-            }
-            config.insert(
-                "uniformBucketLevelAccess".into(),
-                json!({"enabled": uniform.enabled}),
-            );
-        }
-        if !config.is_empty() {
-            body.insert("iamConfiguration".into(), Value::Object(config));
-        }
-    }
-    Ok(())
+    Ok(duration.seconds)
 }
 
-/// Builds create-only JSON metadata without introducing update-mask reset defaults.
-pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
+/// A requested retention policy, or `None` when it sets no period.
+fn retention_body(policy: &pb::bucket::RetentionPolicy) -> Result<Option<Value>, Status> {
+    if policy.effective_time.is_some() || policy.is_locked {
+        return Err(super::status::unsupported(
+            "create bucket policy output fields",
+        ));
+    }
+    let Some(duration) = &policy.retention_duration else {
+        return Ok(None);
+    };
+    let seconds = whole_seconds(duration)?;
+    crate::bucket::RetentionPeriod::try_from(seconds)?;
+    Ok(Some(json!({"retentionPeriod": seconds.to_string()})))
+}
+
+/// A requested soft-delete policy, or `None` when it sets no duration.
+fn soft_delete_body(policy: &pb::bucket::SoftDeletePolicy) -> Result<Option<Value>, Status> {
+    if policy.effective_time.is_some() {
+        return Err(super::status::unsupported(
+            "create bucket policy output fields",
+        ));
+    }
+    let Some(duration) = &policy.retention_duration else {
+        return Ok(None);
+    };
+    let seconds = whole_seconds(duration)?;
+    crate::bucket::SoftDeleteRetention::try_from(seconds)?;
+    Ok(Some(
+        json!({"retentionDurationSeconds": seconds.to_string()}),
+    ))
+}
+
+/// The requested IAM configuration, or `None` when it sets nothing.
+fn iam_body(iam: pb::bucket::IamConfig) -> Result<Option<Value>, Status> {
+    let mut config = Map::new();
+    if !iam.public_access_prevention.is_empty() {
+        iam.public_access_prevention
+            .parse::<crate::bucket::PublicAccessPrevention>()?;
+        config.insert(
+            "publicAccessPrevention".into(),
+            Value::from(iam.public_access_prevention),
+        );
+    }
+    if let Some(uniform) = &iam.uniform_bucket_level_access {
+        if uniform.lock_time.is_some() {
+            return Err(super::status::unsupported("create bucket IAM lock_time"));
+        }
+        config.insert(
+            "uniformBucketLevelAccess".into(),
+            json!({"enabled": uniform.enabled}),
+        );
+    }
+    Ok((!config.is_empty()).then_some(Value::Object(config)))
+}
+
+fn autoclass_body(autoclass: pb::bucket::Autoclass) -> Result<Value, Status> {
+    if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some() {
+        return Err(super::status::unsupported(
+            "create bucket autoclass output fields",
+        ));
+    }
+    let mut config = Map::from_iter([("enabled".into(), Value::from(autoclass.enabled))]);
+    if let Some(class) = autoclass.terminal_storage_class {
+        class.parse::<crate::bucket::autoclass::TerminalStorageClass>()?;
+        config.insert("terminalStorageClass".into(), Value::from(class));
+    }
+    Ok(Value::Object(config))
+}
+
+/// The CreateBucket settings as the JSON insert object every protocol's bucket creation
+/// validates ([`json::insert_from_object`]). Destructuring the whole message makes a new proto
+/// field a compile error, so each field is read here or required to be empty, never silently
+/// ignored. Only settings the request carries are added, never update-mask reset defaults.
+pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, Value>, Status> {
+    let pb::Bucket {
+        // `create_bucket` compared `name` with the bucket ID and cleared it, read `project`,
+        // and took `object_retention` before this call.
+        name: _,
+        project: _,
+        object_retention: _,
+        location,
+        storage_class,
+        labels,
+        cors,
+        versioning,
+        default_event_based_hold,
+        retention_policy,
+        soft_delete_policy,
+        iam_config,
+        autoclass,
+        // Accepted only when empty.
+        bucket_id,
+        etag,
+        metageneration,
+        location_type,
+        rpo,
+        acl,
+        default_object_acl,
+        lifecycle,
+        create_time,
+        update_time,
+        website,
+        logging,
+        owner,
+        encryption,
+        billing,
+        satisfies_pzs,
+        custom_placement_config,
+        hierarchical_namespace,
+        ip_filter,
+    } = bucket;
     let mut body = Map::from_iter([
-        ("name".into(), json!(name)),
+        ("name".into(), Value::from(name)),
         (
             "defaultEventBasedHold".into(),
-            json!(bucket.default_event_based_hold),
+            Value::from(default_event_based_hold),
         ),
     ]);
-    for (field, value) in [
-        ("location", &bucket.location),
-        ("storageClass", &bucket.storage_class),
-    ] {
+    for (field, value) in [("location", location), ("storageClass", storage_class)] {
         if !value.is_empty() {
-            body.insert(field.into(), json!(value));
+            body.insert(field.into(), Value::from(value));
         }
     }
-    body.insert("labels".into(), json!(bucket.labels));
+    body.insert(
+        "labels".into(),
+        Value::Object(
+            labels
+                .into_iter()
+                .map(|(key, value)| (key, Value::from(value)))
+                .collect(),
+        ),
+    );
     body.insert(
         "cors".into(),
-        crate::bucket::cors_value(&super::bucket_update::cors_rules(&bucket.cors)?),
+        crate::bucket::cors_value(&super::bucket_update::cors_rules(&cors)?),
     );
-    if let Some(versioning) = &bucket.versioning {
+    if let Some(versioning) = versioning {
         body.insert("versioning".into(), json!({"enabled": versioning.enabled}));
     }
-    create_policies(bucket, &mut body)?;
-    if let Some(autoclass) = bucket.autoclass.as_ref() {
-        if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some()
-        {
-            return Err(super::status::unsupported(
-                "create bucket autoclass output fields",
-            ));
-        }
-        let mut config = Map::from_iter([("enabled".into(), json!(autoclass.enabled))]);
-        if let Some(class) = &autoclass.terminal_storage_class {
-            class.parse::<crate::bucket::autoclass::TerminalStorageClass>()?;
-            config.insert("terminalStorageClass".into(), class.clone().into());
-        }
-        body.insert("autoclass".into(), Value::Object(config));
+    if let Some(policy) = retention_policy
+        && let Some(value) = retention_body(&policy)?
+    {
+        body.insert("retentionPolicy".into(), value);
     }
-    Ok(Value::Object(body))
-}
-
-fn create_metadata(
-    bucket: &pb::Bucket,
-    name: &str,
-    project: &str,
-    state: &crate::server::State,
-    profile: crate::config::CompatProfile,
-) -> Result<crate::bucket::BucketRecord, Status> {
-    let mut remaining = bucket.clone();
-    let body = create_fields(bucket, name)?;
-    remaining.project.clear();
-    remaining.location.clear();
-    remaining.storage_class.clear();
-    remaining.labels.clear();
-    remaining.cors.clear();
-    remaining.versioning = None;
-    remaining.default_event_based_hold = false;
-    remaining.retention_policy = None;
-    remaining.soft_delete_policy = None;
-    remaining.iam_config = None;
-    if remaining.rpo == "DEFAULT" {
-        remaining.rpo.clear();
+    if let Some(policy) = soft_delete_policy
+        && let Some(value) = soft_delete_body(&policy)?
+    {
+        body.insert("softDeletePolicy".into(), value);
     }
-    remaining.autoclass = None;
-    clear_default(&mut remaining.billing);
-    clear_default(&mut remaining.hierarchical_namespace);
-    clear_default(&mut remaining.custom_placement_config);
-    clear_default(&mut remaining.object_retention);
-    clear_default(&mut remaining.lifecycle);
-    clear_default(&mut remaining.encryption);
-    clear_default(&mut remaining.logging);
-    clear_default(&mut remaining.ip_filter);
-    if remaining != pb::Bucket::default() {
+    if let Some(iam) = iam_config
+        && let Some(value) = iam_body(iam)?
+    {
+        body.insert("iamConfiguration".into(), value);
+    }
+    if let Some(autoclass) = autoclass {
+        body.insert("autoclass".into(), autoclass_body(autoclass)?);
+    }
+    if !bucket_id.is_empty()
+        || !etag.is_empty()
+        || metageneration != 0
+        || !location_type.is_empty()
+        || !(rpo.is_empty() || rpo == "DEFAULT")
+        || !acl.is_empty()
+        || !default_object_acl.is_empty()
+        || create_time.is_some()
+        || update_time.is_some()
+        || website.is_some()
+        || owner.is_some()
+        || satisfies_pzs
+        || is_set(lifecycle.as_ref())
+        || is_set(logging.as_ref())
+        || is_set(encryption.as_ref())
+        || is_set(billing.as_ref())
+        || is_set(custom_placement_config.as_ref())
+        || is_set(hierarchical_namespace.as_ref())
+        || is_set(ip_filter.as_ref())
+    {
         return Err(super::status::unsupported(
             "CreateBucket fields outside the supported metadata subset",
         ));
     }
-    json::parse_insert_with_profile(
-        &serde_json::to_vec(&body)
-            .map_err(|_| Status::internal("Cannot encode bucket metadata"))?,
-        project,
-        state.clock.now(),
-        profile,
-        &state.default_location,
-    )
-    .map_err(Status::from)
+    Ok(body)
 }
 
 impl Storage {
@@ -335,7 +368,8 @@ impl Storage {
             }
             bucket.name.clear();
         }
-        let project = project_name(&bucket.project)?;
+        let project = std::mem::take(&mut bucket.project);
+        let project = project_name(&project)?;
         if let Some(caller) = caller {
             caller.authorize(crate::auth::BUCKETS_CREATE, Some(project))?;
             if request.enable_object_retention {
@@ -354,12 +388,13 @@ impl Storage {
                 "bucket.object_retention is output-only; set enable_object_retention=true to enable object retention",
             ));
         }
-        let mut record = create_metadata(
-            &bucket,
-            &request.bucket_id,
+        let body = create_body(bucket, &request.bucket_id)?;
+        let mut record = json::insert_from_object(
+            &body,
             project,
-            &self.state,
+            self.state.clock.now(),
             self.compat_profile,
+            &self.state.default_location,
         )?;
         record.object_retention_enabled = request.enable_object_retention;
         let record = self
@@ -566,10 +601,115 @@ mod tests {
         for (reason, invalidate) in cases {
             // Each higher-priority rejection must supersede the invalid fields already set.
             invalidate(&mut bucket);
-            let status = create_fields(&bucket, "test-bucket").unwrap_err();
+            let status = create_body(bucket.clone(), "test-bucket").unwrap_err();
             assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
             assert!(status.message().contains(reason), "{reason}: {status}");
         }
+    }
+
+    /// Every `Bucket` field CreateBucket does not read must be empty: a setting the request
+    /// cannot apply is rejected rather than silently ignored.
+    #[tokio::test]
+    async fn create_bucket_rejects_each_field_outside_the_supported_subset() {
+        let (_dir, storage) = storage(false).await;
+        type FieldCase = (&'static str, fn(&mut pb::Bucket));
+        let cases: [FieldCase; 19] = [
+            ("bucket_id", |b| b.bucket_id = "other".into()),
+            ("etag", |b| b.etag = "etag".into()),
+            ("metageneration", |b| b.metageneration = 1),
+            ("location_type", |b| b.location_type = "region".into()),
+            ("rpo", |b| b.rpo = "ASYNC_TURBO".into()),
+            ("acl", |b| b.acl = vec![Default::default()]),
+            ("default_object_acl", |b| {
+                b.default_object_acl = vec![Default::default()]
+            }),
+            ("lifecycle", |b| {
+                b.lifecycle = Some(pb::bucket::Lifecycle {
+                    rule: vec![Default::default()],
+                })
+            }),
+            ("create_time", |b| b.create_time = Some(Default::default())),
+            ("update_time", |b| b.update_time = Some(Default::default())),
+            ("website", |b| {
+                b.website = Some(pb::bucket::Website {
+                    main_page_suffix: "index.html".into(),
+                    ..Default::default()
+                })
+            }),
+            ("logging", |b| {
+                b.logging = Some(pb::bucket::Logging {
+                    log_bucket: "logs".into(),
+                    ..Default::default()
+                })
+            }),
+            ("owner", |b| {
+                b.owner = Some(pb::Owner {
+                    entity: "project-owners-p".into(),
+                    ..Default::default()
+                })
+            }),
+            ("encryption", |b| {
+                b.encryption = Some(pb::bucket::Encryption {
+                    default_kms_key: "key".into(),
+                    ..Default::default()
+                })
+            }),
+            ("billing", |b| {
+                b.billing = Some(pb::bucket::Billing {
+                    requester_pays: true,
+                })
+            }),
+            ("satisfies_pzs", |b| b.satisfies_pzs = true),
+            ("custom_placement_config", |b| {
+                b.custom_placement_config = Some(pb::bucket::CustomPlacementConfig {
+                    data_locations: vec!["us-east1".into()],
+                })
+            }),
+            ("hierarchical_namespace", |b| {
+                b.hierarchical_namespace = Some(pb::bucket::HierarchicalNamespace { enabled: true })
+            }),
+            ("ip_filter", |b| {
+                b.ip_filter = Some(pb::bucket::IpFilter {
+                    mode: Some("Enabled".into()),
+                    ..Default::default()
+                })
+            }),
+        ];
+        for (field, set) in cases {
+            let mut request = create("unsupported-field");
+            set(request.bucket.as_mut().unwrap());
+            let status = storage
+                .create_bucket(Request::new(request), None)
+                .await
+                .unwrap_err();
+            assert_eq!(status.code(), Code::Unimplemented, "{field}");
+            assert!(
+                status
+                    .message()
+                    .contains("CreateBucket fields outside the supported metadata subset"),
+                "{field}: {status}"
+            );
+        }
+        // An empty message carries no setting, and `DEFAULT` is the only replication offered.
+        let accepted: [fn(&mut pb::Bucket); 8] = [
+            |b| b.billing = Some(Default::default()),
+            |b| b.hierarchical_namespace = Some(Default::default()),
+            |b| b.custom_placement_config = Some(Default::default()),
+            |b| b.lifecycle = Some(Default::default()),
+            |b| b.encryption = Some(Default::default()),
+            |b| b.logging = Some(Default::default()),
+            |b| b.ip_filter = Some(Default::default()),
+            |b| b.rpo = "DEFAULT".into(),
+        ];
+        for (index, set) in accepted.into_iter().enumerate() {
+            let mut request = create(&format!("accepted-default-{index}"));
+            set(request.bucket.as_mut().unwrap());
+            storage
+                .create_bucket(Request::new(request), None)
+                .await
+                .unwrap();
+        }
+        storage.state.catalog.close().await.unwrap();
     }
 
     fn create(name: &str) -> pb::CreateBucketRequest {

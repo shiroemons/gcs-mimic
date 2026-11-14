@@ -1052,7 +1052,7 @@ mod tests {
             update.uniform_bucket_level_access_enabled,
             Some(false.into())
         );
-        let create = super::super::buckets::create_fields(&bucket, "").unwrap();
+        let create = super::super::buckets::create_body(bucket, "").unwrap();
         for omitted in [
             "autoclass",
             "versioning",

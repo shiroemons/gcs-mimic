@@ -395,8 +395,8 @@ impl pb::storage_server::Storage for Storage {
         let mut bucket = r.bucket.ok_or_else(|| {
             Status::invalid_argument("bucket is required; set bucket.name=example-bucket")
         })?;
-        let body = convert::bucket_metadata(&mut bucket, None)?;
-        let record = json::parse_insert_with_profile(
+        let body = convert::insert_body(&mut bucket)?;
+        let record = json::insert_from_object(
             &body,
             &r.project,
             self.state.clock.now(),
