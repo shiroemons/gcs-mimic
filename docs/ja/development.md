@@ -170,7 +170,7 @@ CIのRustジョブが使うLinux glibcのターゲットも、`scripts/check-cro
 `rust`ジョブは`GCSM_CHECK_CROSS=0`を指定して`scripts/check.sh`からの実行を省きます。
 `just check`はホストのテストとほかのターゲットの型検査だけなので、時刻精度に依存するテスト、Linux専用のコード、
 SDKスイートの失敗はCIで初めて出ることがあります。`cargo xtask lint`は[AGENTS.md](../../AGENTS.md)の実装規則を
-本番コードに強制し、従来の規則は1件でも検出すると失敗します。インデックス、文字列スライス、切り詰め・符号を落とすキャスト、静的文字列エラーは、`xtask/lint-baseline*.txt`のファイル別件数の増加を拒否します。固定コンパイラはClippyの件数減少も拒否し、current-stableは減少を警告にします。共有テキスト規則の件数減少は常に拒否します。
+本番コードに強制し、規則は1件でも検出すると失敗します。例外は、英語版の[Rules](../en/development.md#rules)の表で「per-file ratchet」と記した規則で、`xtask/lint-baseline*.txt`のファイル別件数の増加を拒否します。固定コンパイラはClippyの件数減少も拒否し、current-stableは減少を警告にします。共有テキスト規則の件数減少は常に拒否します。
 
 ホストのClippyは`--target`を付けず、既存のネイティブ成果物を再利用します。ホスト検査ではCargoの既定ターゲットをネイティブにし、クロスビルドには`--target TRIPLE`を指定してください。登録済みのbaselineはmacOS ARM64・Windows MSVC・Linux GNU x86-64・Linux musl x86-64です。別ホストでも全規則を実行しますが、対象ファイルがなければ空のbaselineとして既存の検出も新規扱いで拒否します。検出内容を確認して`cargo xtask lint --baseline --target TRIPLE`で追加し、他ターゲットの件数を流用しないでください。形式と更新手順は英語版の[Per-file ratchet](../en/development.md#per-file-ratchet)を参照してください。
 

@@ -341,10 +341,9 @@ every target.
 `cargo xtask lint` enforces the Rust implementation guardrails in
 [AGENTS.md](../../AGENTS.md#rust-implementation-guardrails). `scripts/check.sh`
 runs it after workspace Clippy, so `just check` and Foundation CI run it too.
-It prints every rejected occurrence in server production code. Existing rules
-remain zero tolerance. Indexing, string slicing, potentially truncating or
-sign-losing casts and static-string errors use per-file baseline counts;
-no new finding may increase those counts. Text rules share
+It prints every rejected occurrence in server production code. Rules are zero
+tolerance unless the [Rules](#rules) table marks them "per-file ratchet"; those
+use per-file baseline counts, and no new finding may increase them. Text rules share
 `xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
 The other exceptions are:
 

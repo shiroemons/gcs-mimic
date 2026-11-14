@@ -2004,6 +2004,51 @@ let s = \"// xtask-lint: allow(text::nope)\";
         );
     }
 
+    /// The Rules table is the one list of what the gate runs and which rules are ratcheted.
+    #[test]
+    fn every_gate_rule_has_one_row_in_the_development_guide() {
+        let guide = include_str!("../../docs/en/development.md");
+        let table = guide
+            .split_once("#### Rules\n")
+            .and_then(|(_, rest)| rest.split_once("\n####"))
+            .map(|(table, _)| table)
+            .expect("docs/en/development.md has a Rules section");
+        let rows: Vec<&str> = table
+            .lines()
+            .filter(|line| line.starts_with("| `"))
+            .collect();
+        let rules: Vec<&str> = CLIPPY_LINTS
+            .into_iter()
+            .chain(RATCHETED_CLIPPY_LINTS)
+            .chain(TEXT_RULES)
+            .collect();
+        for rule in &rules {
+            let named: Vec<_> = rows
+                .iter()
+                .filter(|row| row.contains(&format!("`{rule}`")))
+                .collect();
+            assert_eq!(
+                named.len(),
+                1,
+                "{rule} needs exactly one row in the Rules table"
+            );
+            assert_eq!(
+                named[0].contains("per-file ratchet"),
+                ratchet::eligible(rule),
+                "{rule}: the row says `per-file ratchet` exactly when the rule is ratcheted"
+            );
+        }
+        for row in rows {
+            let first = row.split('|').nth(1).unwrap_or_default();
+            for name in first.split('`').skip(1).step_by(2) {
+                assert!(
+                    rules.contains(&name),
+                    "the Rules table names {name}, which the gate does not run"
+                );
+            }
+        }
+    }
+
     #[test]
     fn workspace_denied_lints_are_not_downgraded_by_the_gate() {
         // `-W` on the command line would override a `deny` from `[workspace.lints]`. An
