@@ -26,8 +26,10 @@ fn resumable_message_end_must_fit_the_wire_offset() {
             )),
             ..Default::default()
         };
+        let data = take_data(&mut message);
         let result = resumable_piece(
-            &mut message,
+            &message,
+            &data,
             Persisted {
                 offset: offset.cast_unsigned(),
                 total: None,

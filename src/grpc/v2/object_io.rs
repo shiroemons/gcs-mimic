@@ -28,6 +28,15 @@ mod upload_id;
 mod write;
 
 pub(super) use upload_id::UploadId;
+pub(super) use write::{Responses, WriteSpec, send};
+
+/// Takes a write message's data; a message without data carries none.
+pub(super) fn take_data(message: &mut pb::BidiWriteObjectRequest) -> pb::ChecksummedData {
+    match message.data.take() {
+        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
+        None => pb::ChecksummedData::default(),
+    }
+}
 
 /// `?` would use JSON's unsupported-setting description instead of the v2 metadata wording.
 pub(super) fn object_status(error: ObjectError) -> Status {

@@ -144,7 +144,7 @@ async fn append(
     let mut messages = messages.into_iter();
     let first = messages.next().unwrap().unwrap();
     let mut stream = tonic::codegen::tokio_stream::iter(messages);
-    let (tx, mut rx) = mpsc::channel(16);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let result = storage
         .receive_append(first, &mut stream, caller, &tx)
         .await;

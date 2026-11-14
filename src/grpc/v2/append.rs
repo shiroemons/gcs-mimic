@@ -3,7 +3,10 @@
 
 use super::{
     Storage, convert,
-    object_io::{common, conditions, hashes, object_status, verify_crc32c},
+    object_io::{
+        Responses, WriteSpec, common, conditions, hashes, object_status, send, take_data,
+        verify_crc32c,
+    },
     pb,
     status::unsupported_for,
 };
@@ -13,13 +16,10 @@ use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{AppendError, AppendWriter, Finality, ObjectReader},
 };
-use tokio::sync::mpsc;
 use tonic::{
     Status,
     codegen::tokio_stream::{Stream, StreamExt},
 };
-
-type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
 
 pub(super) fn is_append(first: &pb::BidiWriteObjectRequest) -> bool {
     use pb::bidi_write_object_request::FirstMessage;
@@ -63,17 +63,16 @@ struct AppendStep {
     report: Report,
 }
 
-fn append_step(message: &mut pb::BidiWriteObjectRequest) -> Result<AppendStep, Status> {
+fn append_step(
+    message: &pb::BidiWriteObjectRequest,
+    data: pb::ChecksummedData,
+) -> Result<AppendStep, Status> {
     common(message.common_object_request_params.as_ref())?;
     if message.first_message.is_some() {
         return Err(Status::invalid_argument(
             "Only the first message may contain write_object_spec or append_object_spec",
         ));
     }
-    let data = match message.data.take() {
-        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-        None => pb::ChecksummedData::default(),
-    };
     verify_crc32c(&data)?;
     if message.object_checksums.is_some() && !message.finish_write {
         return Err(Status::invalid_argument(
@@ -177,10 +176,11 @@ fn status_response(
     })
 }
 
-async fn send(tx: &Responses, response: pb::BidiWriteObjectResponse) -> Result<(), Status> {
-    tx.send(Ok(response))
-        .await
-        .map_err(|_| Status::cancelled("Response stream closed"))
+/// The writer an appendable stream opened, and what its first acknowledgement reports.
+struct OpenedWriter {
+    writer: AppendWriter,
+    access: BucketAccess,
+    acknowledgement: Acknowledgement,
 }
 
 impl Storage {
@@ -188,7 +188,7 @@ impl Storage {
         &self,
         first: &mut pb::BidiWriteObjectRequest,
         caller: Option<Caller<'_>>,
-    ) -> Result<(AppendWriter, BucketAccess, Acknowledgement), Status> {
+    ) -> Result<OpenedWriter, Status> {
         use pb::bidi_write_object_request::FirstMessage;
         match first.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
@@ -199,7 +199,12 @@ impl Storage {
                     ));
                 }
                 spec.appendable = None;
-                let (bucket, name, options, _) = self.write_spec(spec, None, caller).await?;
+                let WriteSpec {
+                    bucket,
+                    name,
+                    options,
+                    total: _,
+                } = self.write_spec(spec, None, caller).await?;
                 // The proto allows object_checksums on the finish_write message, which may also
                 // be the first one; the receive loop verifies them at finalization. Rejecting
                 // the others here keeps an invalid request from creating the object.
@@ -217,7 +222,11 @@ impl Storage {
                     .create_appendable(&bucket, &name, options)
                     .await
                     .map_err(|e| append_status(e, caller))?;
-                Ok((writer, access, Acknowledgement::Resource))
+                Ok(OpenedWriter {
+                    writer,
+                    access,
+                    acknowledgement: Acknowledgement::Resource,
+                })
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
                 let (bucket, name) = self.object_name(&spec.bucket, &spec.object)?;
@@ -240,7 +249,11 @@ impl Storage {
                     )
                     .await
                     .map_err(|e| append_status(e, caller))?;
-                Ok((writer, access, Acknowledgement::PersistedSize))
+                Ok(OpenedWriter {
+                    writer,
+                    access,
+                    acknowledgement: Acknowledgement::PersistedSize,
+                })
             }
             _ => Err(Status::invalid_argument(
                 "First message must contain write_object_spec with appendable=true or append_object_spec",
@@ -261,11 +274,15 @@ impl Storage {
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
         common(message.common_object_request_params.as_ref())?;
-        let (mut writer, access, mut acknowledgement) =
-            self.open_writer(&mut message, caller).await?;
+        let OpenedWriter {
+            mut writer,
+            access,
+            mut acknowledgement,
+        } = self.open_writer(&mut message, caller).await?;
         let mut first = true;
         loop {
-            let step = append_step(&mut message)?;
+            let data = take_data(&mut message);
+            let step = append_step(&message, data)?;
             if let Some((offset, content)) = step.data {
                 writer
                     .append(offset, content, self.max_object_bytes)

@@ -1,4 +1,6 @@
-use super::write::{EndOfStream, MessagePosition, Reported, Responses, send_status};
+use super::write::{
+    EndOfStream, MessagePosition, Reported, Responses, message_after_finish, send_status,
+};
 use super::*;
 use crate::grpc::v2::stored;
 use crate::storage::{ChunkEnd, ChunkWait};
@@ -53,7 +55,12 @@ impl Storage {
         let spec = r
             .write_object_spec
             .ok_or_else(|| Status::invalid_argument("write_object_spec is required"))?;
-        let (bucket, name, options, total) = self
+        let WriteSpec {
+            bucket,
+            name,
+            options,
+            total,
+        } = self
             .write_spec(spec, r.object_checksums.as_ref(), caller)
             .await?;
         let session = self
@@ -136,7 +143,6 @@ impl Storage {
         use pb::bidi_write_object_response::WriteStatus;
         let (bucket, id) = (upload.bucket(), upload.session());
         let mut position = MessagePosition::First;
-        let mut result;
         loop {
             check_resumable_message(&message, caller)?;
             let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
@@ -174,19 +180,17 @@ impl Storage {
                 offset: lease.session.offset,
                 total: lease.session.total,
             };
+            let data = take_data(&mut message);
             let ResumablePiece {
                 offset,
-                data,
                 written,
                 length,
-            } = resumable_piece(&mut message, persisted, position, self.max_object_bytes)?;
+            } = resumable_piece(&message, &data, persisted, position, self.max_object_bytes)?;
             if message.finish_write
                 && end == EndOfStream::Required
                 && stream.next().await.transpose()?.is_some()
             {
-                return Err(Status::invalid_argument(
-                    "A message followed finish_write; finish_write must be the final message",
-                ));
+                return Err(message_after_finish());
             }
             let (tx, rx) = mpsc::channel(2);
             let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
@@ -221,7 +225,7 @@ impl Storage {
             let (sent, written_record) = tokio::join!(producer, write);
             let completion = written_record.map_err(session_status)?;
             sent?;
-            result = if let Some(value) = completion.as_ref() {
+            let result = if let Some(value) = completion.as_ref() {
                 let resource = self.completed_resource(Some(value), caller, bucket).await?;
                 WriteStatus::Resource(resource)
             } else {
@@ -240,11 +244,10 @@ impl Storage {
                 if reported == Reported::No {
                     send_status(responses, &result).await?;
                 }
-                break;
+                return Ok(result);
             };
             message = next;
         }
-        Ok(result)
     }
 }
 
@@ -257,7 +260,6 @@ pub(super) struct Persisted {
 
 pub(super) struct ResumablePiece {
     offset: u64,
-    data: pb::ChecksummedData,
     pub(super) written: u64,
     length: u64,
 }
@@ -292,7 +294,8 @@ fn check_resumable_message(
 /// Validates one resumable message's offset, data checksum and size against the persisted
 /// session, retaining the checked length for the catalog write.
 pub(super) fn resumable_piece(
-    message: &mut pb::BidiWriteObjectRequest,
+    message: &pb::BidiWriteObjectRequest,
+    data: &pb::ChecksummedData,
     persisted: Persisted,
     position: MessagePosition,
     max_object_bytes: u64,
@@ -307,11 +310,7 @@ pub(super) fn resumable_piece(
             "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
         ));
     }
-    let data = match message.data.take() {
-        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-        None => pb::ChecksummedData::default(),
-    };
-    verify_crc32c(&data)?;
+    verify_crc32c(data)?;
     let (length, end) = u64::try_from(data.content.len())
         .ok()
         .and_then(|length| offset.checked_add(length).map(|end| (length, end)))
@@ -333,7 +332,6 @@ pub(super) fn resumable_piece(
     }
     Ok(ResumablePiece {
         offset,
-        data,
         written: end,
         length,
     })

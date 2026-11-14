@@ -1,5 +1,45 @@
 use super::*;
 
+/// A caller the write task can own: [`Caller`] borrows its identity from the request.
+enum TaskCaller {
+    Anonymous,
+    Principal(crate::auth::Identity),
+}
+
+impl From<Caller<'_>> for TaskCaller {
+    fn from(caller: Caller<'_>) -> Self {
+        match caller {
+            Caller::Anonymous => Self::Anonymous,
+            Caller::Principal(identity) => Self::Principal(identity.clone()),
+        }
+    }
+}
+
+impl TaskCaller {
+    fn as_caller(&self) -> Caller<'_> {
+        match self {
+            Self::Anonymous => Caller::Anonymous,
+            Self::Principal(identity) => Caller::Principal(identity),
+        }
+    }
+}
+
+/// A validated `WriteObjectSpec`: where the object goes and how its upload is checked.
+pub(in crate::grpc::v2) struct WriteSpec {
+    pub(in crate::grpc::v2) bucket: String,
+    pub(in crate::grpc::v2) name: String,
+    pub(in crate::grpc::v2) options: ResumableOptions,
+    /// `object_size`, when the client declared it.
+    pub(in crate::grpc::v2) total: Option<u64>,
+}
+
+/// A write stream sent a message after the one that set `finish_write`.
+pub(super) fn message_after_finish() -> Status {
+    Status::invalid_argument(
+        "A message followed finish_write; finish_write must be the final message",
+    )
+}
+
 impl Storage {
     pub(in crate::grpc::v2) async fn write_object(
         &self,
@@ -63,19 +103,11 @@ impl Storage {
         })?;
         super::super::routing::write(&metadata, first.first_message.as_ref())?;
         let append = super::super::append::is_append(&first);
-        let strict = caller.is_some();
-        let identity = caller.and_then(|c| match c {
-            Caller::Principal(i) => Some(i.clone()),
-            Caller::Anonymous => None,
-        });
+        let caller = caller.map(TaskCaller::from);
         let storage = self.clone();
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-write-object", async move {
-            let caller = strict.then(|| {
-                identity
-                    .as_ref()
-                    .map_or(Caller::Anonymous, Caller::Principal)
-            });
+            let caller = caller.as_ref().map(TaskCaller::as_caller);
             let result = if append {
                 let mut stream = stream;
                 storage
@@ -103,7 +135,7 @@ impl Storage {
         mut spec: pb::WriteObjectSpec,
         checksums: Option<&pb::ObjectChecksums>,
         caller: Option<Caller<'_>>,
-    ) -> Result<(String, String, ResumableOptions, Option<u64>), Status> {
+    ) -> Result<WriteSpec, Status> {
         if spec.appendable == Some(true) || !spec.predefined_acl.is_empty() {
             return Err(unsupported_for(
                 "appendable/predefined_acl; omit these fields",
@@ -173,7 +205,12 @@ impl Storage {
         options.metadata = metadata;
         options.expected = expected;
         options.conditions = conditions;
-        Ok((bucket, name, options, total))
+        Ok(WriteSpec {
+            bucket,
+            name,
+            options,
+            total,
+        })
     }
 
     pub(super) async fn receive_write<
@@ -228,7 +265,12 @@ impl Storage {
             responses,
             end,
         } = write;
-        let (bucket, name, options, total) = self
+        let WriteSpec {
+            bucket,
+            name,
+            options,
+            total,
+        } = self
             .write_spec(spec, message.object_checksums.as_ref(), caller)
             .await?;
         #[expect(
@@ -277,7 +319,17 @@ impl Storage {
     }
 }
 
-pub(super) type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
+pub(in crate::grpc::v2) type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
+
+/// Sends one BidiWriteObject response; the client may have closed its stream.
+pub(in crate::grpc::v2) async fn send(
+    tx: &Responses,
+    response: pb::BidiWriteObjectResponse,
+) -> Result<(), Status> {
+    tx.send(Ok(response))
+        .await
+        .map_err(|_| Status::cancelled("Response stream closed"))
+}
 
 /// Whether a write must end its request stream at `finish_write`. WriteObject rejects a later
 /// message; BidiWriteObject answers at `finish_write` without waiting for the stream to close.
@@ -335,12 +387,14 @@ pub(super) async fn send_status(
     let Some(tx) = responses else {
         return Ok(Reported::No);
     };
-    tx.send(Ok(pb::BidiWriteObjectResponse {
-        write_status: Some(status.clone()),
-        ..Default::default()
-    }))
-    .await
-    .map_err(|_| Status::cancelled("Response stream closed"))?;
+    send(
+        tx,
+        pb::BidiWriteObjectResponse {
+            write_status: Some(status.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
     Ok(Reported::Yes)
 }
 
@@ -389,10 +443,7 @@ async fn produce_single_write<
         let start = u64::try_from(message.write_offset).map_err(|_| {
             Status::out_of_range("write_offset must be nonnegative; use 0 for the first message")
         })?;
-        let data = match message.data.take() {
-            Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-            None => pb::ChecksummedData::default(),
-        };
+        let data = take_data(&mut message);
         intake
             .accept(
                 IntakePiece {
@@ -426,9 +477,7 @@ async fn produce_single_write<
             .transpose()?
             .is_some()
     {
-        return Err(Status::invalid_argument(
-            "A message followed finish_write; finish_write must be the final message",
-        ));
+        return Err(message_after_finish());
     }
     intake
         .finish(&tx, EndMarker::Plain)
