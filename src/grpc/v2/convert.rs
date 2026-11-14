@@ -137,22 +137,22 @@ fn proto_rule(value: &LifecycleRule) -> Result<pb::bucket::lifecycle::Rule, Obje
 
 macro_rules! access_control {
     ($name:ident, $type:path) => {
-        /// Converts an entry rendered by the JSON ACL code, so both transports derive the same
-        /// ids, etags and entity fields.
-        pub(crate) fn $name(value: &Value) -> $type {
-            let text = |field: &str| value[field].as_str().unwrap_or_default().to_owned();
+        /// Takes every field from the helpers the JSON renderer uses, so both transports derive
+        /// the same ids, etags and entity fields.
+        pub(crate) fn $name(owner: AclOwner<'_>, entry: &AclEntry) -> $type {
+            let entity = &entry.entity;
             $type {
-                role: text("role"),
-                id: text("id"),
-                entity: text("entity"),
+                role: entry.role.as_str().into(),
+                id: owner.entry_id(entity).unwrap_or_default(),
+                entity: entity.as_str().into(),
                 entity_alt: String::new(),
-                entity_id: text("entityId"),
-                etag: text("etag"),
-                email: text("email"),
-                domain: text("domain"),
-                project_team: value.get("projectTeam").map(|team| pb::ProjectTeam {
-                    project_number: team["projectNumber"].as_str().unwrap_or_default().into(),
-                    team: team["team"].as_str().unwrap_or_default().into(),
+                entity_id: entity.entity_id().unwrap_or_default().into(),
+                etag: owner.etag(),
+                email: entity.email().unwrap_or_default().into(),
+                domain: entity.domain().unwrap_or_default().into(),
+                project_team: entity.team().map(|(team, project)| pb::ProjectTeam {
+                    project_number: project.into(),
+                    team: team.as_str().into(),
                 }),
             }
         }
@@ -409,8 +409,8 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
     })
 }
 
-/// Object ACL entries rendered by the shared JSON renderer, so IDs, etags and entity details
-/// agree with `objectAccessControls`.
+/// Object ACL entries built from the helpers the JSON renderer uses, so IDs, etags and entity
+/// details agree with `objectAccessControls`.
 pub(crate) fn object_acl(
     object: &pb::Object,
     bucket: &str,
@@ -426,15 +426,13 @@ pub(crate) fn object_acl(
     entries
         .iter()
         .map(|entry| {
-            // The base URL only reaches `selfLink`, which the protobuf resource does not carry.
-            let value = crate::json::acl::acl_entry_resource("", owner, entry);
-            let mut acl = object_access_control(&value);
+            let mut acl = object_access_control(owner, entry);
             // Cloud Storage repeats a project-team entity under the project ID (observed
             // 2026-11-01).
-            acl.entity_alt = acl
-                .project_team
-                .as_ref()
-                .map(|team| format!("project-{}-{project}", team.team))
+            acl.entity_alt = entry
+                .entity
+                .team()
+                .map(|(team, _)| format!("project-{}-{project}", team.as_str()))
                 .unwrap_or_default();
             acl
         })
@@ -623,13 +621,100 @@ mod tests {
             };
             let value = crate::json::acl::acl_entry_resource("http://localhost", owner, &entry);
             assert_eq!(value["role"], role, "{kind:?} {role}");
-            assert_eq!(bucket_access_control(&value).role, role, "{kind:?} {role}");
-            assert_eq!(object_access_control(&value).role, role, "{kind:?} {role}");
+            assert_eq!(
+                bucket_access_control(owner, &entry).role,
+                role,
+                "{kind:?} {role}"
+            );
+            assert_eq!(
+                object_access_control(owner, &entry).role,
+                role,
+                "{kind:?} {role}"
+            );
             assert_eq!(
                 serde_json::to_string(&entry).unwrap(),
                 format!(r#"{{"entity":"allUsers","role":"{role}"}}"#),
                 "{kind:?} {role}"
             );
+        }
+    }
+
+    /// Both transports describe an ACL entry with the same ID, etag and derived entity fields,
+    /// for every kind of entity and of owner.
+    #[test]
+    fn access_controls_agree_with_the_json_resource() {
+        let owners = [
+            AclOwner::Bucket {
+                bucket: "bucket",
+                metageneration: 3,
+            },
+            AclOwner::DefaultObject { metageneration: 3 },
+            AclOwner::Object {
+                bucket: "bucket",
+                name: "dir/object",
+                generation: 1_700_000_000_000_000,
+                metageneration: 2,
+            },
+        ];
+        let entities = [
+            "allUsers",
+            "allAuthenticatedUsers",
+            "user-liz@example.com",
+            "user-00b4903a97",
+            "group-team@example.com",
+            "group-00b4903a97",
+            "domain-example.com",
+            "project-owners-123",
+            "project-viewers-0",
+        ];
+        let text =
+            |value: &Value, field: &str| value[field].as_str().unwrap_or_default().to_owned();
+        for owner in owners {
+            for entity in entities {
+                let entry = AclEntry {
+                    entity: entity.parse().unwrap(),
+                    role: "OWNER".parse().unwrap(),
+                };
+                let json = crate::json::acl::acl_entry_resource("http://host", owner, &entry);
+                let team = json.get("projectTeam").map(|team| pb::ProjectTeam {
+                    project_number: text(team, "projectNumber"),
+                    team: text(team, "team"),
+                });
+                let bucket = bucket_access_control(owner, &entry);
+                let object = object_access_control(owner, &entry);
+                for (role, id, name, entity_id, etag, email, domain, project_team) in [
+                    (
+                        &bucket.role,
+                        &bucket.id,
+                        &bucket.entity,
+                        &bucket.entity_id,
+                        &bucket.etag,
+                        &bucket.email,
+                        &bucket.domain,
+                        &bucket.project_team,
+                    ),
+                    (
+                        &object.role,
+                        &object.id,
+                        &object.entity,
+                        &object.entity_id,
+                        &object.etag,
+                        &object.email,
+                        &object.domain,
+                        &object.project_team,
+                    ),
+                ] {
+                    let case = format!("{owner:?} {entity}");
+                    assert_eq!(*role, text(&json, "role"), "{case}");
+                    assert_eq!(*id, text(&json, "id"), "{case}");
+                    assert_eq!(*name, text(&json, "entity"), "{case}");
+                    assert_eq!(*entity_id, text(&json, "entityId"), "{case}");
+                    assert_eq!(*etag, text(&json, "etag"), "{case}");
+                    assert_eq!(*email, text(&json, "email"), "{case}");
+                    assert_eq!(*domain, text(&json, "domain"), "{case}");
+                    assert_eq!(*project_team, team, "{case}");
+                }
+            }
         }
     }
 

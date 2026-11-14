@@ -333,7 +333,6 @@ impl Storage {
         if acl.uniform_access {
             return;
         }
-        let base = &self.state.api_base_url;
         let bucket_owner = AclOwner::Bucket {
             bucket: name,
             metageneration: bucket.metageneration,
@@ -341,16 +340,15 @@ impl Storage {
         let default_owner = AclOwner::DefaultObject {
             metageneration: bucket.metageneration,
         };
-        let rendered = |owner, entry| json::acl::acl_entry_resource(base, owner, entry);
         bucket.acl = acl
             .bucket
             .iter()
-            .map(|entry| convert::bucket_access_control(&rendered(bucket_owner, entry)))
+            .map(|entry| convert::bucket_access_control(bucket_owner, entry))
             .collect();
         bucket.default_object_acl = acl
             .default_object
             .iter()
-            .map(|entry| convert::object_access_control(&rendered(default_owner, entry)))
+            .map(|entry| convert::object_access_control(default_owner, entry))
             .collect();
     }
 
