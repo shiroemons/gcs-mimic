@@ -279,8 +279,7 @@ impl Storage {
         request: Request<pb::RewriteObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
-        let metadata = request.metadata().clone();
-        let r = request.into_inner();
+        let (metadata, _, r) = request.into_parts();
         check_rewrite_request(&r)?;
         let sc = request_conditions!(strict_conditions, source r)?;
         let dc = request_conditions!(strict_conditions, r)?;

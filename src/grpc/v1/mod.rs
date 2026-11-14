@@ -355,8 +355,7 @@ impl pb::storage_server::Storage for Storage {
             .state
             .catalog
             .get_bucket(&r.bucket, &access)
-            .await
-            .map_err(Status::from)?
+            .await?
             .ok_or_else(|| {
                 Status::not_found("Bucket not found; create it with InsertBucket or JSON")
             })?;
@@ -386,8 +385,7 @@ impl pb::storage_server::Storage for Storage {
         self.state
             .catalog
             .delete_bucket(&r.bucket, bucket_conditions!(r), &access)
-            .await
-            .map_err(Status::from)?;
+            .await?;
         Ok(Response::new(()))
     }
 
@@ -414,12 +412,7 @@ impl pb::storage_server::Storage for Storage {
             self.compat_profile,
             &self.state.default_location,
         )?;
-        let record = self
-            .state
-            .catalog
-            .insert_bucket(record)
-            .await
-            .map_err(Status::from)?;
+        let record = self.state.catalog.insert_bucket(record).await?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -453,8 +446,7 @@ impl pb::storage_server::Storage for Storage {
             .state
             .catalog
             .get_bucket(&r.bucket, &access)
-            .await
-            .map_err(Status::from)?
+            .await?
             .ok_or_else(|| Status::from(CatalogError::NotFound))?;
         if !requested.hold(current.metageneration) {
             return Err(Status::from(CatalogError::PreconditionFailed));
@@ -474,8 +466,7 @@ impl pb::storage_server::Storage for Storage {
                 },
                 &access,
             )
-            .await
-            .map_err(Status::from)?;
+            .await?;
         Ok(Response::new(convert::bucket(&record)))
     }
 
@@ -529,8 +520,7 @@ impl pb::storage_server::Storage for Storage {
                 start.as_deref(),
                 limit(r.max_results)?,
             )
-            .await
-            .map_err(Status::from)?;
+            .await?;
         let next_page_token = if page.has_more {
             let last = &page
                 .items
@@ -685,7 +675,7 @@ impl pb::storage_server::Storage for Storage {
         let page = self
             .state
             .catalog
-            .list_objects(query.clone(), max_results, &access)
+            .list_objects(query, max_results, &access)
             .await?;
         let next_page_token = page
             .next

@@ -24,6 +24,7 @@ use tonic::{Request, Response, Status, Streaming};
 pub(crate) type ResponseStream<T> =
     Pin<Box<dyn tonic::codegen::tokio_stream::Stream<Item = Result<T, Status>> + Send>>;
 
+#[derive(Clone)]
 pub(crate) struct Storage {
     pub state: Arc<State>,
     pub max_object_bytes: u64,

@@ -241,7 +241,11 @@ pub(crate) fn bucket(
                 terminal_storage_class_update_time,
             }
         }),
-        labels: record.labels.clone().into_iter().collect(),
+        labels: record
+            .labels
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),
         default_event_based_hold: record.default_event_based_hold,
@@ -356,7 +360,11 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         content_disposition: record.content_disposition.clone().unwrap_or_default(),
         content_language: record.content_language.clone().unwrap_or_default(),
         cache_control: record.cache_control.clone().unwrap_or_default(),
-        metadata: record.metadata.clone().into_iter().collect(),
+        metadata: record
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
         // Cloud Storage returned these three at millisecond precision over gRPC while
         // `finalize_time` kept its microseconds (observed 2026-11-01).
         create_time: Some(millis(record.time_created)),

@@ -7,9 +7,9 @@ impl Storage {
         request: Request<Streaming<pb::WriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::WriteObjectResponse>, Status> {
-        let metadata = request.metadata().clone();
+        let (metadata, _, input) = request.into_parts();
         let mut position = MessagePosition::First;
-        let mut stream = request.into_inner().map(|result| {
+        let mut stream = input.map(|result| {
             result.and_then(|r| {
                 let message = pb::BidiWriteObjectRequest {
                     write_offset: r.write_offset,
@@ -58,8 +58,7 @@ impl Storage {
         request: Request<Streaming<pb::BidiWriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::BidiWriteObjectResponse>>, Status> {
-        let metadata = request.metadata().clone();
-        let mut stream = request.into_inner();
+        let (metadata, _, mut stream) = request.into_parts();
         let first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
@@ -70,11 +69,7 @@ impl Storage {
             Caller::Principal(i) => Some(i.clone()),
             Caller::Anonymous => None,
         });
-        let storage = Storage {
-            state: self.state.clone(),
-            max_object_bytes: self.max_object_bytes,
-            compat_profile: self.compat_profile,
-        };
+        let storage = self.clone();
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-write-object", async move {
             let caller = strict.then(|| {

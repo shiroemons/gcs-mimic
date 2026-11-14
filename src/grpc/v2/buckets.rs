@@ -305,9 +305,9 @@ impl Storage {
         bucket: &mut pb::Bucket,
     ) -> Result<(), Status> {
         use crate::acl::AclKind;
-        let name = bucket.bucket_id.clone();
+        let name = bucket.bucket_id.as_str();
         let readable =
-            match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, &name).await {
+            match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, name).await {
                 Ok(readable) => readable,
                 Err(error) if error.status == hyper::StatusCode::UNAUTHORIZED => false,
                 Err(error) => return Err(Status::from(error)),
@@ -315,7 +315,7 @@ impl Storage {
         if !readable {
             return Ok(());
         }
-        let Some(acl) = self.state.catalog.acl_projection(&name, Vec::new()).await? else {
+        let Some(acl) = self.state.catalog.acl_projection(name, Vec::new()).await? else {
             return Ok(());
         };
         self.apply_bucket_acl(bucket, &acl);

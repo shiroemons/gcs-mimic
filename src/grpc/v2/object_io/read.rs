@@ -250,7 +250,7 @@ impl Storage {
         let page = self
             .state
             .catalog
-            .list_objects(query.clone(), limit, &access)
+            .list_objects(query, limit, &access)
             .await
             .map_err(object_status)?;
         let next_page_token = page

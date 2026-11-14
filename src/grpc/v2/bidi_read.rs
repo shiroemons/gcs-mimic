@@ -212,8 +212,7 @@ impl Storage {
         {
             return Err(unsupported("BidiReadObject x-goog-fieldmask"));
         }
-        let metadata = request.metadata().clone();
-        let mut input = request.into_inner();
+        let (metadata, _, mut input) = request.into_parts();
         let first = input.message().await?.ok_or_else(|| {
             Status::invalid_argument(
                 "First message must contain read_object_spec; specify bucket and object",
