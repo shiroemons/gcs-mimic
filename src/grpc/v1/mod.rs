@@ -58,25 +58,46 @@ pub(crate) fn service(
     .max_encoding_message_size(4 * 1024 * 1024)
 }
 
-pub(crate) fn known_method(path: &str) -> bool {
-    path.strip_prefix("/google.storage.v1.Storage/")
-        .is_some_and(|method| {
-            matches!(
-                method,
-                "GetBucket"
-                    | "DeleteBucket"
-                    | "InsertBucket"
-                    | "UpdateBucket"
-                    | "ListBuckets"
-                    | "InsertObject"
-                    | "GetObject"
-                    | "DeleteObject"
-                    | "UpdateObject"
-                    | "PatchObject"
-                    | "ComposeObject"
-                    | "ListObjects"
-            )
-        })
+/// The path prefix of every legacy v1 method.
+pub(crate) const SERVICE_PREFIX: &str = "/google.storage.v1.Storage/";
+
+// Dispatch and forwarding come from one list: a method listed here has a handler, and the
+// generated trait's "Not yet implemented" default can only answer a method that is not.
+macro_rules! legacy_methods {
+    ($($wire:ident => $method:ident($request:ty $(,)?) -> $response:ty;)*) => {
+        pub(crate) fn known_method(path: &str) -> bool {
+            path.strip_prefix(SERVICE_PREFIX)
+                .is_some_and(|method| matches!(method, $(stringify!($wire))|*))
+        }
+
+        #[tonic::async_trait]
+        impl pb::storage_server::Storage for Storage {
+            $(
+                async fn $method(
+                    &self,
+                    request: Request<$request>,
+                ) -> Result<Response<$response>, Status> {
+                    let caller = self.authenticate(&request).await?;
+                    self.$method(request, caller).await
+                }
+            )*
+        }
+    };
+}
+
+legacy_methods! {
+    GetBucket => get_bucket(pb::GetBucketRequest) -> pb::Bucket;
+    DeleteBucket => delete_bucket(pb::DeleteBucketRequest) -> ();
+    InsertBucket => insert_bucket(pb::InsertBucketRequest) -> pb::Bucket;
+    UpdateBucket => update_bucket(pb::UpdateBucketRequest) -> pb::Bucket;
+    ListBuckets => list_buckets(pb::ListBucketsRequest) -> pb::ListBucketsResponse;
+    InsertObject => insert_object(Streaming<pb::InsertObjectRequest>) -> pb::Object;
+    GetObject => get_object(pb::GetObjectRequest) -> pb::Object;
+    DeleteObject => delete_object(pb::DeleteObjectRequest) -> ();
+    UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object;
+    PatchObject => patch_object(pb::PatchObjectRequest) -> pb::Object;
+    ComposeObject => compose_object(pb::ComposeObjectRequest) -> pb::Object;
+    ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse;
 }
 
 /// The catalog can deny after `access` (deferred object ACLs, overwrite, holds, compose sources);
@@ -381,13 +402,13 @@ impl Storage {
     }
 }
 
-#[tonic::async_trait]
-impl pb::storage_server::Storage for Storage {
+/// The legacy RPC handlers, which `legacy_methods!` calls after authentication.
+impl Storage {
     async fn get_bucket(
         &self,
         request: Request<pb::GetBucketRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -414,8 +435,8 @@ impl pb::storage_server::Storage for Storage {
     async fn delete_bucket(
         &self,
         request: Request<pb::DeleteBucketRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         let requested = bucket_conditions(BucketConditions::from(&r))?;
@@ -432,8 +453,8 @@ impl pb::storage_server::Storage for Storage {
     async fn insert_bucket(
         &self,
         request: Request<pb::InsertBucketRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -459,8 +480,8 @@ impl pb::storage_server::Storage for Storage {
     async fn update_bucket(
         &self,
         request: Request<pb::UpdateBucketRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Bucket>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -508,8 +529,8 @@ impl pb::storage_server::Storage for Storage {
     async fn list_buckets(
         &self,
         request: Request<pb::ListBucketsRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListBucketsResponse>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -562,8 +583,8 @@ impl pb::storage_server::Storage for Storage {
     async fn get_object(
         &self,
         request: Request<pb::GetObjectRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -591,8 +612,8 @@ impl pb::storage_server::Storage for Storage {
     async fn delete_object(
         &self,
         request: Request<pb::DeleteObjectRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<()>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -618,8 +639,8 @@ impl pb::storage_server::Storage for Storage {
     async fn update_object(
         &self,
         request: Request<pb::UpdateObjectRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -643,8 +664,8 @@ impl pb::storage_server::Storage for Storage {
     async fn patch_object(
         &self,
         request: Request<pb::PatchObjectRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -670,8 +691,8 @@ impl pb::storage_server::Storage for Storage {
     async fn list_objects(
         &self,
         request: Request<pb::ListObjectsRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::ListObjectsResponse>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
@@ -720,8 +741,8 @@ impl pb::storage_server::Storage for Storage {
     async fn compose_object(
         &self,
         request: Request<pb::ComposeObjectRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request).await?;
         let r = request.into_inner();
         common(
             r.common_request_params.as_ref(),
@@ -791,8 +812,8 @@ impl pb::storage_server::Storage for Storage {
     async fn insert_object(
         &self,
         request: Request<Streaming<pb::InsertObjectRequest>>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
-        let caller = self.authenticate(&request).await?;
         self.upload(request.into_inner(), caller)
             .await
             .map(Response::new)

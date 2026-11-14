@@ -1,4 +1,4 @@
-use super::pb::storage_server::Storage as _;
+use super::pb::storage_server::Storage as Legacy;
 use super::*;
 use crate::grpc::test_support::{self as fixtures, assert_code};
 use crate::{
@@ -115,12 +115,14 @@ async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
         .await
         .unwrap();
     let legacy = assert_code(
-        storage
-            .delete_bucket(Request::new(pb::DeleteBucketRequest {
+        Legacy::delete_bucket(
+            &storage,
+            Request::new(pb::DeleteBucketRequest {
                 bucket: "list-a".into(),
                 ..Default::default()
-            }))
-            .await,
+            }),
+        )
+        .await,
         tonic::Code::FailedPrecondition,
     );
     assert_eq!(
@@ -169,13 +171,15 @@ async fn object_listing_preserves_encoded_query_and_uri_limits() {
             Some("Invalid list request") => assert!(uri.is_err()),
             Some(_) => assert!(json::parse_query(uri.as_ref().unwrap().query().unwrap()).is_err()),
         }
-        let actual = storage
-            .list_objects(Request::new(pb::ListObjectsRequest {
+        let actual = Legacy::list_objects(
+            &storage,
+            Request::new(pb::ListObjectsRequest {
                 bucket: "list-a".into(),
                 prefix,
                 ..Default::default()
-            }))
-            .await;
+            }),
+        )
+        .await;
         if let Some(expected) = expected {
             assert_eq!(
                 assert_code(actual, tonic::Code::InvalidArgument).message(),
@@ -194,7 +198,7 @@ async fn object_listing_preserves_encoded_query_and_uri_limits() {
         };
         let uri = format!("/storage/v1/b/list-a/o?prefix={}&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false", request.prefix).parse::<hyper::Uri>();
         let error = assert_code(
-            storage.list_objects(Request::new(request)).await,
+            Legacy::list_objects(&storage, Request::new(request)).await,
             tonic::Code::InvalidArgument,
         );
         assert_eq!(
@@ -259,8 +263,7 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
                 .await
                 .unwrap();
             let rendered = json::object_list(&page, &params, &storage.state.api_base_url).unwrap();
-            let actual = storage
-                .list_objects(Request::new(request.clone()))
+            let actual = Legacy::list_objects(&storage, Request::new(request.clone()))
                 .await
                 .unwrap()
                 .into_inner();
@@ -284,8 +287,7 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
             changed.prefix.push('x');
             changed.page_token = actual.next_page_token.clone();
             // A token is a position, so another prefix continues after it, as on Cloud Storage.
-            let changed = storage
-                .list_objects(Request::new(changed))
+            let changed = Legacy::list_objects(&storage, Request::new(changed))
                 .await
                 .unwrap()
                 .into_inner();
@@ -294,13 +296,15 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
         }
     }
     let error = assert_code(
-        storage
-            .list_objects(Request::new(pb::ListObjectsRequest {
+        Legacy::list_objects(
+            &storage,
+            Request::new(pb::ListObjectsRequest {
                 bucket: "list-a".into(),
                 page_token: "!".into(),
                 ..Default::default()
-            }))
-            .await,
+            }),
+        )
+        .await,
         tonic::Code::InvalidArgument,
     );
     assert_eq!(
@@ -308,13 +312,15 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
         "Invalid object listing or page token; use the token with its original query"
     );
     let error = assert_code(
-        storage
-            .list_objects(Request::new(pb::ListObjectsRequest {
+        Legacy::list_objects(
+            &storage,
+            Request::new(pb::ListObjectsRequest {
                 bucket: "list-a".into(),
                 max_results: -1,
                 ..Default::default()
-            }))
-            .await,
+            }),
+        )
+        .await,
         tonic::Code::InvalidArgument,
     );
     assert_eq!(
@@ -338,14 +344,16 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
         (None, Some(1), false),
         (None, Some(2), true),
     ] {
-        let result = storage
-            .get_bucket(Request::new(pb::GetBucketRequest {
+        let result = Legacy::get_bucket(
+            &storage,
+            Request::new(pb::GetBucketRequest {
                 bucket: "list-a".into(),
                 if_metageneration_match: matching,
                 if_metageneration_not_match: not_matching,
                 ..Default::default()
-            }))
-            .await;
+            }),
+        )
+        .await;
         if succeeds {
             assert_eq!(result.unwrap().into_inner().metageneration, 1);
         } else {
@@ -358,16 +366,18 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
         }
     }
     for (matching, not_matching) in [(Some(2), None), (None, Some(1))] {
-        let error = storage
-            .update_bucket(Request::new(pb::UpdateBucketRequest {
+        let error = Legacy::update_bucket(
+            &storage,
+            Request::new(pb::UpdateBucketRequest {
                 bucket: "list-a".into(),
                 metadata: Some(pb::Bucket::default()),
                 if_metageneration_match: matching,
                 if_metageneration_not_match: not_matching,
                 ..Default::default()
-            }))
-            .await
-            .unwrap_err();
+            }),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(error.code(), tonic::Code::FailedPrecondition);
         assert_eq!(error.message(), PRECONDITION_NOT_HELD);
         assert_eq!(
@@ -382,28 +392,32 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
             1
         );
     }
-    let updated = storage
-        .update_bucket(Request::new(pb::UpdateBucketRequest {
+    let updated = Legacy::update_bucket(
+        &storage,
+        Request::new(pb::UpdateBucketRequest {
             bucket: "list-a".into(),
             metadata: Some(pb::Bucket::default()),
             if_metageneration_match: Some(1),
             if_metageneration_not_match: Some(2),
             ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+        }),
+    )
+    .await
+    .unwrap()
+    .into_inner();
     assert_eq!(updated.metageneration, 2);
     for (matching, not_matching) in [(Some(1), None), (None, Some(2))] {
-        let error = storage
-            .delete_bucket(Request::new(pb::DeleteBucketRequest {
+        let error = Legacy::delete_bucket(
+            &storage,
+            Request::new(pb::DeleteBucketRequest {
                 bucket: "list-a".into(),
                 if_metageneration_match: matching,
                 if_metageneration_not_match: not_matching,
                 ..Default::default()
-            }))
-            .await
-            .unwrap_err();
+            }),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(error.code(), tonic::Code::FailedPrecondition);
         assert_eq!(error.message(), PRECONDITION_NOT_HELD);
         assert!(
@@ -416,14 +430,16 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
                 .is_some()
         );
     }
-    storage
-        .delete_bucket(Request::new(pb::DeleteBucketRequest {
+    Legacy::delete_bucket(
+        &storage,
+        Request::new(pb::DeleteBucketRequest {
             bucket: "list-a".into(),
             if_metageneration_match: Some(2),
             ..Default::default()
-        }))
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .unwrap();
     assert!(
         storage
             .state
@@ -440,8 +456,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
 async fn list_buckets_without_project_spans_projects_with_paging() {
     let dir = TestDir::new();
     let storage = storage(&dir, Auth::permissive()).await;
-    let first = storage
-        .list_buckets(list("", None, 2, ""))
+    let first = Legacy::list_buckets(&storage, list("", None, 2, ""))
         .await
         .unwrap()
         .into_inner();
@@ -449,13 +464,10 @@ async fn list_buckets_without_project_spans_projects_with_paging() {
     assert!(!first.next_page_token.is_empty());
     // An all-projects cursor is not a project cursor, and vice versa.
     assert_code(
-        storage
-            .list_buckets(list("p1", None, 2, &first.next_page_token))
-            .await,
+        Legacy::list_buckets(&storage, list("p1", None, 2, &first.next_page_token)).await,
         tonic::Code::InvalidArgument,
     );
-    let rest = storage
-        .list_buckets(list("", None, 2, &first.next_page_token))
+    let rest = Legacy::list_buckets(&storage, list("", None, 2, &first.next_page_token))
         .await
         .unwrap()
         .into_inner();
@@ -463,13 +475,10 @@ async fn list_buckets_without_project_spans_projects_with_paging() {
     assert!(rest.next_page_token.is_empty());
     let project_token = json::encode_page_token("p1", "list-", "list-a").unwrap();
     assert_code(
-        storage
-            .list_buckets(list("", None, 2, &project_token))
-            .await,
+        Legacy::list_buckets(&storage, list("", None, 2, &project_token)).await,
         tonic::Code::InvalidArgument,
     );
-    let scoped = storage
-        .list_buckets(list("p1", None, 0, ""))
+    let scoped = Legacy::list_buckets(&storage, list("p1", None, 0, ""))
         .await
         .unwrap()
         .into_inner();
@@ -488,34 +497,31 @@ async fn strict_list_buckets_without_project_only_sees_listable_projects() {
     )
     .unwrap();
     let storage = storage(&dir, Auth::strict(registry)).await;
-    let first = storage
-        .list_buckets(list("", Some("tok-two"), 1, ""))
+    let first = Legacy::list_buckets(&storage, list("", Some("tok-two"), 1, ""))
         .await
         .unwrap()
         .into_inner();
     assert_eq!(names(&first), ["list-a"]);
-    let rest = storage
-        .list_buckets(list("", Some("tok-two"), 1000, &first.next_page_token))
-        .await
-        .unwrap()
-        .into_inner();
+    let rest = Legacy::list_buckets(
+        &storage,
+        list("", Some("tok-two"), 1000, &first.next_page_token),
+    )
+    .await
+    .unwrap()
+    .into_inner();
     // objectViewer lacks storage.buckets.list, so the p3 bucket stays hidden.
     assert_eq!(names(&rest), ["list-b"]);
     assert!(rest.next_page_token.is_empty());
     assert_code(
-        storage
-            .list_buckets(list("", Some("tok-none"), 0, ""))
-            .await,
+        Legacy::list_buckets(&storage, list("", Some("tok-none"), 0, "")).await,
         tonic::Code::PermissionDenied,
     );
     assert_code(
-        storage.list_buckets(list("", None, 0, "")).await,
+        Legacy::list_buckets(&storage, list("", None, 0, "")).await,
         tonic::Code::Unauthenticated,
     );
     assert_code(
-        storage
-            .list_buckets(list("p3", Some("tok-two"), 0, ""))
-            .await,
+        Legacy::list_buckets(&storage, list("p3", Some("tok-two"), 0, "")).await,
         tonic::Code::PermissionDenied,
     );
     storage.state.catalog.close().await.unwrap();

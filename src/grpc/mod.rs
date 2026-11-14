@@ -75,11 +75,7 @@ pub(crate) async fn serve_connection(
         let service = service.clone();
         let mut legacy = legacy.clone();
         async move {
-            if request
-                .uri()
-                .path()
-                .starts_with("/google.storage.v1.Storage/")
-            {
+            if request.uri().path().starts_with(v1::SERVICE_PREFIX) {
                 if !v1::known_method(request.uri().path()) {
                     return Ok(v2::status::unsupported(
                         "legacy v1 method outside the reference inventory",
