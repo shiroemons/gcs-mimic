@@ -3,7 +3,7 @@
 use crate::{
     clock::Clock,
     config::Config,
-    object::{ExpectedHashes, name::validate as validate_object_name},
+    object::ExpectedHashes,
     source_tree::{
         LARGE_TREE_ENTRIES, TreeLimits, WalkError, Walker, is_os_metadata, warn_large_tree,
     },
@@ -180,8 +180,8 @@ async fn import_directory(
         config,
         clock,
         buckets: 0,
+        skipped_os_metadata: 0,
     };
-    let mut skipped_os_metadata = 0;
     let mut walked = 0;
     loop {
         let entry = match entries.recv().await {
@@ -208,7 +208,7 @@ async fn import_directory(
             metadata: &metadata,
             depth,
         };
-        seed.entry(&fixture, &mut skipped_os_metadata)
+        seed.entry(&fixture)
             .await
             .map_err(|error| SeedError::Entry {
                 label,
@@ -223,7 +223,7 @@ async fn import_directory(
         unchanged: committed.unchanged,
         // Atomic replay never skips fixtures; retain the field for output compatibility.
         blocked: 0,
-        skipped_os_metadata,
+        skipped_os_metadata: seed.skipped_os_metadata,
     })
 }
 
@@ -235,6 +235,8 @@ struct Seed<'a> {
     config: &'a Config,
     clock: &'a dyn Clock,
     buckets: usize,
+    /// OS metadata files such as `.DS_Store` that the seed skipped.
+    skipped_os_metadata: usize,
 }
 
 /// One walked fixture entry.
@@ -246,63 +248,89 @@ struct Fixture<'a> {
     depth: usize,
 }
 
-impl Seed<'_> {
-    async fn entry(
-        &mut self,
-        fixture: &Fixture<'_>,
-        skipped_os_metadata: &mut usize,
-    ) -> Result<(), SeedError> {
-        let leaf = fixture
+/// What one walked fixture entry is, decided once from its depth and type.
+enum FixtureKind<'a> {
+    /// A file macOS or Windows leaves beside fixtures; it is skipped and counted.
+    OsMetadata,
+    /// A top-level file, which fake-gcs-server ignores; it is skipped with a warning.
+    TopLevelFile,
+    /// A top-level directory names a bucket.
+    Bucket(&'a str),
+    /// A directory below a bucket. Its path must still be a valid object name.
+    Directory,
+    /// A regular file below a bucket names an object; `leaf` selects its content type.
+    Object {
+        bucket: BucketName,
+        name: ObjectName,
+        leaf: &'a str,
+    },
+}
+
+impl<'a> Fixture<'a> {
+    /// Classifies the entry. Its checks fail in a fixed order: the leaf name, the entry type, the
+    /// bucket component, the object name, then the bucket name of an object.
+    fn kind(&self) -> Result<FixtureKind<'a>, SeedError> {
+        let leaf = self
             .path
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or(SeedError::NonUtf8Name)?;
-        let kind = fixture.metadata.file_type();
+        let kind = self.metadata.file_type();
         if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
             return Err(SeedError::UnsupportedFile);
         }
         if kind.is_file() && is_os_metadata(leaf) {
-            *skipped_os_metadata += 1;
-            return Ok(());
+            return Ok(FixtureKind::OsMetadata);
         }
-        let mut components = fixture.relative.iter();
+        let mut components = self.relative.iter();
         let bucket = components
             .next()
             .and_then(|part| part.to_str())
             .ok_or(SeedError::NonUtf8Name)?;
-        let (bucket, name) = if fixture.depth > 0 {
-            let name = components
-                .map(|part| part.to_str().ok_or(SeedError::NonUtf8Name))
-                .collect::<Result<Vec<_>, _>>()?
-                .join("/");
-            validate_object_name(&name).map_err(|_| {
-                SeedError::ObjectName(crate::json::JsonError::invalid_parameter(
-                    "Invalid object name",
-                ))
-            })?;
-            (bucket.to_owned(), name)
-        } else {
+        if self.depth == 0 {
+            return Ok(if kind.is_dir() {
+                FixtureKind::Bucket(leaf)
+            } else {
+                FixtureKind::TopLevelFile
+            });
+        }
+        let name = components
+            .map(|part| part.to_str().ok_or(SeedError::NonUtf8Name))
+            .collect::<Result<Vec<_>, _>>()?
+            .join("/");
+        // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
+        let name = ObjectName::try_from(name).map_err(|_| {
+            SeedError::ObjectName(crate::json::JsonError::invalid_parameter(
+                "Invalid object name",
+            ))
+        })?;
+        if kind.is_dir() {
+            return Ok(FixtureKind::Directory);
+        }
+        let bucket = BucketName::new(bucket).map_err(SeedError::BucketName)?;
+        Ok(FixtureKind::Object { bucket, name, leaf })
+    }
+}
+
+impl Seed<'_> {
+    async fn entry(&mut self, fixture: &Fixture<'_>) -> Result<(), SeedError> {
+        match fixture.kind()? {
+            FixtureKind::OsMetadata => self.skipped_os_metadata += 1,
             // fake-gcs-server ignores top-level files, and an implicit /data mount often holds
             // a README or .gitkeep, so skipping keeps such trees startable.
-            if !kind.is_dir() {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "seed_skipped",
-                    serde_json::json!({
-                        "path": fixture.label,
-                        "reason": "top-level entries must be bucket directories",
-                    }),
-                );
-                return Ok(());
+            FixtureKind::TopLevelFile => crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "seed_skipped",
+                serde_json::json!({
+                    "path": fixture.label,
+                    "reason": "top-level entries must be bucket directories",
+                }),
+            ),
+            FixtureKind::Bucket(leaf) => self.bucket(leaf)?,
+            FixtureKind::Directory => {}
+            FixtureKind::Object { bucket, name, leaf } => {
+                self.object(fixture, bucket, name, leaf).await?;
             }
-            self.bucket(leaf)?;
-            (leaf.to_owned(), String::new())
-        };
-        if kind.is_file() {
-            let bucket = BucketName::new(bucket).map_err(SeedError::BucketName)?;
-            // The string already passed validate_object_name before constructing this typed name.
-            let name = ObjectName::new(name)?;
-            self.object(fixture, bucket, name, leaf).await?;
         }
         Ok(())
     }
