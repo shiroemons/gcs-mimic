@@ -5,7 +5,7 @@ use super::bucket;
 use super::case::{Body, BucketMode, Case, Protocol, fingerprint};
 use super::normalize::{NormBody, NormResponse, Normalizer, project_numbers};
 use super::template::{Vars, expand, expand_json, extract, percent_encode};
-use super::transport::{Request, Transport};
+use super::transport::{Request, Transport, Wire};
 use serde_json::Value;
 
 pub(crate) struct Names {
@@ -37,9 +37,15 @@ pub(crate) struct Side<'a> {
     pub(crate) hosts: Vec<String>,
     /// Longest wait before retrying a 5xx; short in tests.
     pub(crate) server_error_wait: std::time::Duration,
-    /// Live only: label every `{new_bucket}` a case creates (see
-    /// `bucket::add_label`) so a sweep recognises it.
-    pub(crate) label_new_buckets: bool,
+    pub(crate) new_buckets: NewBuckets,
+}
+
+/// Whether the `{new_bucket}` a case creates carries the harness label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NewBuckets {
+    AsIs,
+    /// Live only: labelled (see `bucket::add_label`) so a sweep recognises it.
+    Labelled,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -111,6 +117,7 @@ fn build_grpc_request(step: &super::case::Step, vars: &Vars) -> Result<Request, 
         body.push(b'\n');
     }
     Ok(Request {
+        wire: Wire::Grpc,
         method: step.method.clone(),
         target: String::new(),
         headers,
@@ -152,6 +159,7 @@ pub(crate) fn build_request(step: &super::case::Step, vars: &Vars) -> Result<Req
         Body::Bytes(bytes) => Some(bytes.clone()),
     };
     Ok(Request {
+        wire: Wire::Http,
         method: step.method.clone(),
         target,
         headers,
@@ -218,7 +226,7 @@ fn run_step(
         }
     };
     // The label is not part of the request shown in the report or recording.
-    let hide_label = side.label_new_buckets && step.mentions("{new_bucket}");
+    let hide_label = side.new_buckets == NewBuckets::Labelled && step.mentions("{new_bucket}");
     if hide_label && step.protocol == Protocol::Http {
         let new_bucket = vars.get("new_bucket").cloned().unwrap_or_default();
         bucket::add_label(&mut request, &new_bucket);
@@ -507,7 +515,7 @@ mod tests {
             project: "proj-x",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
-            label_new_buckets: false,
+            new_buckets: NewBuckets::AsIs,
         }
     }
 
@@ -552,7 +560,7 @@ mod tests {
         let case = parse_case(&value, "mk").unwrap();
         let echo = Echo(RefCell::default());
         let mut live = side_with(&echo);
-        live.label_new_buckets = true;
+        live.new_buckets = NewBuckets::Labelled;
         let run = run_side(&live, std::slice::from_ref(&case), &names());
         let sent = String::from_utf8(echo.0.borrow()[0].clone()).unwrap();
         assert!(sent.contains(bucket::LABEL), "{sent}");
@@ -575,7 +583,7 @@ mod tests {
             project: "proj-x",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
-            label_new_buckets: false,
+            new_buckets: NewBuckets::AsIs,
         }
     }
 
@@ -658,7 +666,7 @@ mod tests {
             project: "proj-x",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
-            label_new_buckets: false,
+            new_buckets: NewBuckets::AsIs,
         };
         let run = run_side(&side, &[own], &names());
         let error = run.cases[0].error.clone().unwrap_or_default();

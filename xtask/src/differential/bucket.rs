@@ -7,7 +7,7 @@
 use super::normalize::{Normalizer, project_numbers};
 use super::runner::Side;
 use super::template::percent_encode;
-use super::transport::{Request, Response};
+use super::transport::{Request, Response, Wire};
 use serde_json::{Value, json};
 use std::{thread::sleep, time::Duration};
 
@@ -33,6 +33,7 @@ fn send_retrying(side: &Side<'_>, request: &Request) -> Result<Response> {
 
 fn request(method: &str, target: String, body: Option<Value>) -> Request {
     Request {
+        wire: Wire::Http,
         method: method.into(),
         target,
         headers: body
@@ -539,6 +540,7 @@ pub(crate) fn sweep(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::differential::runner::NewBuckets;
     use crate::differential::transport::Transport;
     use std::cell::RefCell;
     use std::collections::BTreeSet;
@@ -670,7 +672,7 @@ mod tests {
             project: "proj",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
-            label_new_buckets: false,
+            new_buckets: NewBuckets::AsIs,
         }
     }
 
@@ -901,7 +903,7 @@ mod tests {
                 project: "proj",
                 hosts: Vec::new(),
                 server_error_wait: Duration::ZERO,
-                label_new_buckets: false,
+                new_buckets: NewBuckets::AsIs,
             },
             &Normalizer::default(),
             "bk",

@@ -12,8 +12,18 @@ use std::{
 
 type Result<T> = std::result::Result<T, String>;
 
+/// Which protocol a request travels over, and so what its `method` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Wire {
+    /// `method` is an HTTP verb.
+    Http,
+    /// `method` is the full RPC name (`google.storage.v2.Storage/GetBucket`).
+    Grpc,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Request {
+    pub(crate) wire: Wire,
     pub(crate) method: String,
     /// Path and query, already percent-encoded.
     pub(crate) target: String,
@@ -49,26 +59,28 @@ pub(crate) trait Transport {
     }
 }
 
+/// Whether curl uses the proxy the environment configures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Proxy {
+    FromEnvironment,
+    /// `--noproxy *`: loopback targets must not go through a configured proxy.
+    Bypass,
+}
+
 pub(crate) struct CurlTransport {
     base: String,
     bearer: Option<String>,
-    /// Loopback targets must not go through a configured proxy.
-    bypass_proxy: bool,
+    proxy: Proxy,
     scratch: PathBuf,
     counter: AtomicU64,
 }
 
 impl CurlTransport {
-    pub(crate) fn new(
-        base: &str,
-        bearer: Option<String>,
-        bypass_proxy: bool,
-        scratch: &Path,
-    ) -> Self {
+    pub(crate) fn new(base: &str, bearer: Option<String>, proxy: Proxy, scratch: &Path) -> Self {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             bearer,
-            bypass_proxy,
+            proxy,
             scratch: scratch.to_owned(),
             counter: AtomicU64::new(0),
         }
@@ -164,8 +176,11 @@ impl CurlTransport {
             "60",
         ]);
         command.args(["--max-filesize", "8388608", "--write-out", "%{http_code}"]);
-        if self.bypass_proxy {
-            command.args(["--noproxy", "*"]);
+        match self.proxy {
+            Proxy::FromEnvironment => {}
+            Proxy::Bypass => {
+                command.args(["--noproxy", "*"]);
+            }
         }
         if request.method == "HEAD" {
             command.arg("--head");
@@ -289,22 +304,31 @@ pub(crate) fn grpcurl_version() -> String {
 /// `{"code", "message", "details"}` for a failed call.
 pub(crate) struct GrpcTransport {
     address: String,
-    plaintext: bool,
+    channel: Channel,
     bearer: Option<String>,
     proto_root: PathBuf,
     counter: AtomicU64,
 }
 
+/// How `grpcurl` connects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Channel {
+    /// TLS to the live service, through the proxy the environment configures.
+    Tls,
+    /// `-plaintext` to a loopback gcs-mimic, never through a proxy.
+    Plaintext,
+}
+
 impl GrpcTransport {
     pub(crate) fn new(
         address: &str,
-        plaintext: bool,
+        channel: Channel,
         bearer: Option<String>,
         proto_root: &Path,
     ) -> Self {
         Self {
             address: address.to_owned(),
-            plaintext,
+            channel,
             bearer,
             proto_root: proto_root.to_owned(),
             counter: AtomicU64::new(0),
@@ -334,8 +358,9 @@ impl GrpcTransport {
         ]);
         args.extend(["-connect-timeout".into(), "15".into()]);
         args.extend(["-max-time".into(), "60".into()]);
-        if self.plaintext {
-            args.push("-plaintext".into());
+        match self.channel {
+            Channel::Tls => {}
+            Channel::Plaintext => args.push("-plaintext".into()),
         }
         if self.bearer.is_some() {
             args.push("-expand-headers".into());
@@ -424,7 +449,7 @@ impl Transport for GrpcTransport {
         let proxies = ["HTTPS_PROXY", "https_proxy", "GRPC_PROXY"];
         for name in inherited
             .into_iter()
-            .chain(proxies.into_iter().filter(|_| !self.plaintext))
+            .chain(proxies.into_iter().filter(|_| self.channel == Channel::Tls))
         {
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
@@ -464,7 +489,7 @@ mod tests {
     fn grpc_arguments_keep_the_token_out_of_the_command_line() {
         let transport = GrpcTransport::new(
             "storage.googleapis.com:443",
-            false,
+            Channel::Tls,
             Some("s3cret-token".into()),
             Path::new("protos"),
         );
@@ -480,7 +505,8 @@ mod tests {
         assert!(args.contains(&"x-goog-request-params: bucket=b".to_owned()));
         assert!(!args.contains(&"-plaintext".to_owned()));
         assert_eq!(args[args.len() - 1], "google.storage.v2.Storage/GetBucket");
-        let local = GrpcTransport::new("127.0.0.1:1", true, None, Path::new("protos"));
+        let local =
+            GrpcTransport::new("127.0.0.1:1", Channel::Plaintext, None, Path::new("protos"));
         let args = local.args("a.B/C", &[]).unwrap();
         let hostile = vec![("x-a".to_owned(), "${HOME}".to_owned())];
         assert!(transport.args("a.B/C", &hostile).is_err());

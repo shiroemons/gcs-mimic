@@ -24,13 +24,13 @@ mod xml;
 use crate::Verdict;
 use guard::Guarded;
 use pace::Paced;
-use runner::{CaseOutcome, Names, Side, run_side};
+use runner::{CaseOutcome, Names, NewBuckets, Side, run_side};
 use std::{
     env, fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use transport::{CurlTransport, GrpcTransport, Transport};
+use transport::{Channel, CurlTransport, GrpcTransport, Proxy, Transport};
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -52,8 +52,7 @@ struct Options {
     reference: Option<PathBuf>,
     evidence: Option<PathBuf>,
     binary: Option<PathBuf>,
-    fail_on_diff: bool,
-    fail_on_note: bool,
+    fail_on: report::FailOn,
 }
 
 fn parse_options(args: &[String]) -> Result<Options> {
@@ -61,11 +60,11 @@ fn parse_options(args: &[String]) -> Result<Options> {
     let mut iter = args.iter();
     while let Some(flag) = iter.next() {
         if flag == "--fail-on-diff" {
-            options.fail_on_diff = true;
+            options.fail_on.diff = true;
             continue;
         }
         if flag == "--fail-on-note" {
-            options.fail_on_note = true;
+            options.fail_on.note = true;
             continue;
         }
         let value = iter.next().ok_or_else(|| format!("{flag} needs a value"))?;
@@ -124,6 +123,16 @@ enum Mode {
         endpoint: String,
     },
     Replay(PathBuf),
+}
+
+impl Mode {
+    fn run_mode(&self) -> report::RunMode {
+        match self {
+            Self::SelfCheck => report::RunMode::SelfCheck,
+            Self::Live { .. } => report::RunMode::Live,
+            Self::Replay(_) => report::RunMode::Replay,
+        }
+    }
 }
 
 fn select_mode(options: &Options) -> Result<Mode> {
@@ -293,7 +302,12 @@ fn run_live(
     proto_root: &Path,
 ) -> LiveRun {
     let (project, token, endpoint) = live;
-    let curl = CurlTransport::new(endpoint, Some(token.to_owned()), false, scratch);
+    let curl = CurlTransport::new(
+        endpoint,
+        Some(token.to_owned()),
+        Proxy::FromEnvironment,
+        scratch,
+    );
     let paced = Paced::new(&curl);
     let guarded = Guarded { inner: &paced };
     let grpc = GrpcTransport::new(
@@ -301,7 +315,7 @@ fn run_live(
             "{}:{LIVE_GRPC_PORT}",
             endpoint.trim_start_matches("https://")
         ),
-        false,
+        Channel::Tls,
         Some(token.to_owned()),
         proto_root,
     );
@@ -313,7 +327,7 @@ fn run_live(
         project,
         hosts: live_hosts(endpoint),
         server_error_wait: Duration::from_secs(30),
-        label_new_buckets: true,
+        new_buckets: NewBuckets::Labelled,
     };
     println!(
         "running {} cases against the live reference service",
@@ -342,12 +356,12 @@ fn run_mimic(
     scratch: &Path,
     proto_root: &Path,
 ) -> runner::SideRun {
-    let curl = CurlTransport::new(&local.endpoint, None, true, scratch);
+    let curl = CurlTransport::new(&local.endpoint, None, Proxy::Bypass, scratch);
     let guarded = Guarded { inner: &curl };
     let grpc = local
         .grpc
         .as_deref()
-        .map(|address| GrpcTransport::new(address, true, None, proto_root));
+        .map(|address| GrpcTransport::new(address, Channel::Plaintext, None, proto_root));
     let grpc_guarded = grpc.as_ref().map(|t| Guarded { inner: t });
     let side = Side {
         transport: &guarded,
@@ -360,7 +374,7 @@ fn run_mimic(
             "storage.googleapis.com".to_owned(),
         ],
         server_error_wait: Duration::from_secs(3),
-        label_new_buckets: false,
+        new_buckets: NewBuckets::AsIs,
     };
     println!(
         "running {} cases against gcs-mimic at the local endpoint",
@@ -406,118 +420,176 @@ fn execute(
     let proto_root = root.join(PROTO_ROOT);
     let mimic_run = run_mimic(&local, cases, &names, scratch, &proto_root);
     let mut secrets = base_secrets(&names, &local.endpoint, cases.len());
+    let run = RunContext {
+        options,
+        cases,
+        names: &names,
+        work,
+        scratch,
+        proto_root: &proto_root,
+        today: today(),
+    };
+    // A replay's report also names the days its recording was made.
+    let generated = replayed.as_ref().map_or_else(
+        || run.today.clone(),
+        |recorded| replay_date(&run.today, recorded),
+    );
+    let reference = reference_run(&run, mode, replayed, &mut secrets)?;
+    if let (Mode::SelfCheck, Some(path)) = (mode, &options.record) {
+        // Recording gcs-mimic itself gives an offline fixture for testing replay.
+        let own = run.recording(recording::Source::SelfCheck, 0, mimic_run.cases.clone());
+        write_recording(path, &own, &secrets)?;
+    }
+    let reports = report::build(cases, &mimic_run.cases, reference.cases.as_deref());
+    let header = report::Header {
+        mode: mode.run_mode(),
+        generated: &generated,
+        reference_requests: reference.requests,
+        reference_retries: reference.retries,
+        cleanup: &mimic_run.cleanup,
+        reference_cleanup: &reference.cleanup,
+        skipped: &skipped,
+    };
+    write_reports(options, work, &header, &reports, &secrets)?;
+    let failed_cleanup = mimic_run.failed_cleanup || reference.failed_cleanup;
+    Ok(Verdict::fail_if(
+        failed_cleanup || report::has_failures(&reports, options.fail_on),
+    ))
+}
 
-    let mut reference_requests = None;
-    let mut reference_retries = 0;
-    let mut reference_cleanup = Vec::new();
-    let mut reference_failed_cleanup = false;
-    let mut generated = today();
-    let reference_cases: Option<Vec<CaseOutcome>> = match mode {
-        Mode::SelfCheck => None,
+/// What the parts of one run after the gcs-mimic side share.
+struct RunContext<'a> {
+    options: &'a Options,
+    cases: &'a [case::Case],
+    names: &'a Names,
+    work: &'a Path,
+    scratch: &'a Path,
+    proto_root: &'a Path,
+    /// Read once, so every date a run writes is the same day even across midnight.
+    today: String,
+}
+
+impl RunContext<'_> {
+    fn recording(
+        &self,
+        source: recording::Source,
+        requests: u64,
+        cases: Vec<CaseOutcome>,
+    ) -> recording::Recording {
+        recording::Recording {
+            generated: self.today.clone(),
+            recorded_dates: std::collections::BTreeSet::from([self.today.clone()]),
+            source,
+            requests,
+            tools: tools_note(),
+            cases,
+        }
+    }
+}
+
+/// What the reference side answered: nothing in a self-check.
+#[derive(Default)]
+struct ReferenceRun {
+    cases: Option<Vec<CaseOutcome>>,
+    requests: Option<u64>,
+    retries: u32,
+    cleanup: Vec<String>,
+    failed_cleanup: bool,
+}
+
+/// Replays the recorded reference, or runs the live one and writes its sanitized
+/// recording. The live run's project, token and project numbers join `secrets` first.
+fn reference_run(
+    run: &RunContext<'_>,
+    mode: &Mode,
+    replayed: Option<recording::Recording>,
+    secrets: &mut Vec<(String, &'static str)>,
+) -> Result<ReferenceRun> {
+    let (project, token, endpoint) = match mode {
+        Mode::SelfCheck => return Ok(ReferenceRun::default()),
         Mode::Replay(_) => {
             let recorded = replayed.ok_or("recording was not loaded")?;
-            generated = replay_date(&generated, &recorded);
-            reference_requests = Some(recorded.requests);
-            reference_retries = count_retries(&recorded.cases);
-            Some(recorded.cases)
+            return Ok(ReferenceRun {
+                requests: Some(recorded.requests),
+                retries: count_retries(&recorded.cases),
+                cases: Some(recorded.cases),
+                ..ReferenceRun::default()
+            });
         }
         Mode::Live {
             project,
             token,
             endpoint,
-        } => {
-            secrets.push((project.clone(), "project"));
-            secrets.push((token.clone(), "access token"));
-            let live = run_live(
-                cases,
-                &names,
-                (project, token, endpoint),
-                scratch,
-                &proto_root,
-            );
-            // The project number identifies the project like its name does.
-            secrets.extend(
-                live.run
-                    .project_numbers
-                    .iter()
-                    .map(|number| (number.clone(), "project number")),
-            );
-            reference_requests = Some(live.requests);
-            reference_retries = count_retries(&live.run.cases);
-            reference_cleanup = live.run.cleanup;
-            reference_failed_cleanup = live.run.failed_cleanup;
-            let recording = recording::Recording {
-                generated: today(),
-                recorded_dates: std::collections::BTreeSet::from([today()]),
-                source: recording::Source::Live,
-                requests: live.requests,
-                tools: tools_note(),
-                cases: live.run.cases.clone(),
-            };
-            let path = options
-                .record
-                .clone()
-                .unwrap_or_else(|| out_dir(options, work).join("reference-recording.json"));
-            write_checked(
-                &path,
-                &(recording::to_json(&recording).to_string() + "\n"),
-                &secrets,
-            )?;
-            println!("wrote sanitized reference recording: {}", path.display());
-            Some(live.run.cases)
-        }
+        } => (project, token, endpoint),
     };
+    secrets.push((project.clone(), "project"));
+    secrets.push((token.clone(), "access token"));
+    let live = run_live(
+        run.cases,
+        run.names,
+        (project, token, endpoint),
+        run.scratch,
+        run.proto_root,
+    );
+    // The project number identifies the project like its name does.
+    secrets.extend(
+        live.run
+            .project_numbers
+            .iter()
+            .map(|number| (number.clone(), "project number")),
+    );
+    let recording = run.recording(
+        recording::Source::Live,
+        live.requests,
+        live.run.cases.clone(),
+    );
+    let path = run
+        .options
+        .record
+        .clone()
+        .unwrap_or_else(|| out_dir(run.options, run.work).join("reference-recording.json"));
+    write_recording(&path, &recording, secrets)?;
+    println!("wrote sanitized reference recording: {}", path.display());
+    Ok(ReferenceRun {
+        retries: count_retries(&live.run.cases),
+        cases: Some(live.run.cases),
+        requests: Some(live.requests),
+        cleanup: live.run.cleanup,
+        failed_cleanup: live.run.failed_cleanup,
+    })
+}
 
-    if let (Mode::SelfCheck, Some(path)) = (mode, &options.record) {
-        // Recording gcs-mimic itself gives an offline fixture for testing replay.
-        let recording = recording::Recording {
-            generated: today(),
-            recorded_dates: std::collections::BTreeSet::from([today()]),
-            source: recording::Source::SelfCheck,
-            requests: 0,
-            tools: tools_note(),
-            cases: mimic_run.cases.clone(),
-        };
-        write_checked(
-            path,
-            &(recording::to_json(&recording).to_string() + "\n"),
-            &secrets,
-        )?;
-    }
+fn write_recording(
+    path: &Path,
+    recording: &recording::Recording,
+    secrets: &[(String, &str)],
+) -> Result<()> {
+    write_checked(
+        path,
+        &(recording::to_json(recording).to_string() + "\n"),
+        secrets,
+    )
+}
 
-    let reports = report::build(cases, &mimic_run.cases, reference_cases.as_deref());
-    let mode_label = match mode {
-        Mode::SelfCheck => "self-check (gcs-mimic only)",
-        Mode::Live { .. } => "live comparison against the real service",
-        Mode::Replay(_) => "replay of a recorded reference",
-    };
-    let header = report::Header {
-        mode: mode_label,
-        generated: &generated,
-        reference_requests,
-        reference_retries,
-        cleanup: &mimic_run.cleanup,
-        reference_cleanup: &reference_cleanup,
-        skipped: &skipped,
-    };
-    let markdown = report::markdown(&header, &reports);
-    let json_text = report::json_report(&header, &reports).to_string() + "\n";
+/// Writes the Markdown and JSON reports and the evidence copy, then prints the Markdown.
+fn write_reports(
+    options: &Options,
+    work: &Path,
+    header: &report::Header<'_>,
+    reports: &[report::CaseReport],
+    secrets: &[(String, &str)],
+) -> Result<()> {
+    let markdown = report::markdown(header, reports);
+    let json_text = report::json_report(header, reports).to_string() + "\n";
     let out = out_dir(options, work);
-    write_checked(&out.join("report.md"), &markdown, &secrets)?;
-    write_checked(&out.join("report.json"), &json_text, &secrets)?;
+    write_checked(&out.join("report.md"), &markdown, secrets)?;
+    write_checked(&out.join("report.json"), &json_text, secrets)?;
     if let Some(path) = &options.evidence {
-        write_checked(path, &markdown, &secrets)?;
+        write_checked(path, &markdown, secrets)?;
     }
     println!("{markdown}");
     println!("reports: {}", out.display());
-    let failed_cleanup = mimic_run.failed_cleanup || reference_failed_cleanup;
-    let fail_on = report::FailOn {
-        diff: options.fail_on_diff,
-        note: options.fail_on_note,
-    };
-    Ok(Verdict::fail_if(
-        failed_cleanup || report::has_failures(&reports, fail_on),
-    ))
+    Ok(())
 }
 
 /// Deletes every bucket whose name starts with the harness prefix, for the
@@ -536,7 +608,12 @@ pub fn sweep(args: &[String]) -> Result<Verdict> {
     };
     let scratch = env::temp_dir().join(format!("gcsmimic-sweep-{}", random_hex()));
     fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
-    let curl = CurlTransport::new(&endpoint, Some(token.clone()), false, &scratch);
+    let curl = CurlTransport::new(
+        &endpoint,
+        Some(token.clone()),
+        Proxy::FromEnvironment,
+        &scratch,
+    );
     let paced = Paced::new(&curl);
     let guarded = Guarded { inner: &paced };
     let side = Side {
@@ -545,7 +622,7 @@ pub fn sweep(args: &[String]) -> Result<Verdict> {
         project: &project,
         hosts: live_hosts(&endpoint),
         server_error_wait: Duration::from_secs(30),
-        label_new_buckets: false,
+        new_buckets: NewBuckets::AsIs,
     };
     let mut norm = normalize::Normalizer::default();
     norm.add_literal(&project, "<project>");

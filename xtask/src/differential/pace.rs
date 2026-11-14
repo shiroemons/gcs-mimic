@@ -5,7 +5,7 @@
 //! limit the service answers 429. [`Paced`] waits before a request that counts
 //! against a limit and, when a 429 comes back anyway, waits and retries.
 
-use super::transport::{Request, Response, Transport};
+use super::transport::{Request, Response, Transport, Wire};
 use std::{cell::Cell, thread::sleep, time::Duration};
 
 type Result<T> = std::result::Result<T, String>;
@@ -28,14 +28,8 @@ pub(crate) enum Cost {
 /// gRPC status RESOURCE_EXHAUSTED, the gRPC counterpart of HTTP 429.
 const GRPC_RESOURCE_EXHAUSTED: u16 = 8;
 
-/// A gRPC request carries the RPC name (`pkg.Service/Method`) as its method.
-fn is_grpc(request: &Request) -> bool {
-    !request.method.chars().all(|c| c.is_ascii_uppercase())
-}
-
 pub(crate) fn cost(request: &Request) -> Cost {
-    let grpc = is_grpc(request);
-    if grpc {
+    if request.wire == Wire::Grpc {
         let rpc = request.method.rsplit('/').next().unwrap_or_default();
         return match rpc {
             "CreateBucket" | "DeleteBucket" => Cost::BucketLifecycle,
@@ -103,10 +97,9 @@ impl Transport for Paced<'_> {
         let mut backoff = FIRST_BACKOFF;
         loop {
             let response = self.inner.send(request)?;
-            let throttled = if is_grpc(request) {
-                response.status == GRPC_RESOURCE_EXHAUSTED
-            } else {
-                response.status == 429
+            let throttled = match request.wire {
+                Wire::Grpc => response.status == GRPC_RESOURCE_EXHAUSTED,
+                Wire::Http => response.status == 429,
             };
             if !throttled || self.retries.get() >= MAX_RETRIES {
                 return Ok(response);
@@ -162,8 +155,9 @@ mod tests {
         }
     }
 
-    fn request(method: &str, target: &str) -> Request {
+    fn request(wire: Wire, method: &str, target: &str) -> Request {
         Request {
+            wire,
             method: method.into(),
             target: target.into(),
             headers: Vec::new(),
@@ -171,28 +165,40 @@ mod tests {
         }
     }
 
+    fn http(method: &str, target: &str) -> Request {
+        request(Wire::Http, method, target)
+    }
+
+    fn rpc(name: &str) -> Request {
+        request(Wire::Grpc, name, "")
+    }
+
     #[test]
     fn classifies_requests_by_the_limit_they_count_against() {
-        assert_eq!(cost(&request("GET", "/storage/v1/b/x")), Cost::Read);
-        assert_eq!(cost(&request("PATCH", "/storage/v1/b/x")), Cost::Write);
+        assert_eq!(cost(&http("GET", "/storage/v1/b/x")), Cost::Read);
+        assert_eq!(cost(&http("PATCH", "/storage/v1/b/x")), Cost::Write);
         assert_eq!(
-            cost(&request("POST", "/storage/v1/b?project=p")),
+            cost(&http("POST", "/storage/v1/b?project=p")),
             Cost::BucketLifecycle
         );
         assert_eq!(
-            cost(&request("DELETE", "/storage/v1/b/x")),
+            cost(&http("DELETE", "/storage/v1/b/x")),
             Cost::BucketLifecycle
         );
-        assert_eq!(cost(&request("DELETE", "/storage/v1/b/x/o/y")), Cost::Write);
-        assert_eq!(cost(&request("DELETE", "/bucket")), Cost::BucketLifecycle);
-        assert_eq!(cost(&request("DELETE", "/bucket/object")), Cost::Write);
+        assert_eq!(cost(&http("DELETE", "/storage/v1/b/x/o/y")), Cost::Write);
+        assert_eq!(cost(&http("DELETE", "/bucket")), Cost::BucketLifecycle);
+        assert_eq!(cost(&http("DELETE", "/bucket/object")), Cost::Write);
         assert_eq!(
-            cost(&request("google.storage.v2.Storage/GetBucket", "")),
+            cost(&rpc("google.storage.v2.Storage/GetBucket")),
             Cost::Read
         );
         assert_eq!(
-            cost(&request("google.storage.v2.Storage/UpdateObject", "")),
+            cost(&rpc("google.storage.v2.Storage/UpdateObject")),
             Cost::Write
+        );
+        assert_eq!(
+            cost(&rpc("google.storage.v2.Storage/DeleteBucket")),
+            Cost::BucketLifecycle
         );
     }
 
@@ -204,7 +210,7 @@ mod tests {
             sent: Cell::new(0),
         };
         let paced = Paced::with_sleeper(&inner, record);
-        let response = paced.send(&request("DELETE", "/storage/v1/b/x")).unwrap();
+        let response = paced.send(&http("DELETE", "/storage/v1/b/x")).unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(paced.take_retries(), 2);
         assert_eq!(paced.take_retries(), 0);
@@ -212,7 +218,7 @@ mod tests {
         let slept = SLEPT.with(|s| s.borrow().clone());
         assert_eq!(slept, [BUCKET_PAUSE, FIRST_BACKOFF, FIRST_BACKOFF * 2]);
         SLEPT.with(|s| s.borrow_mut().clear());
-        paced.send(&request("GET", "/x")).unwrap();
+        paced.send(&http("GET", "/x")).unwrap();
         assert!(SLEPT.with(|s| s.borrow().is_empty()));
     }
 
@@ -236,12 +242,12 @@ mod tests {
         let grpc = Status(8, Cell::new(2));
         let paced = Paced::with_sleeper(&grpc, |_| {});
         let response = paced
-            .send(&request("google.storage.v2.Storage/GetBucket", ""))
+            .send(&rpc("google.storage.v2.Storage/GetBucket"))
             .unwrap();
         assert_eq!((response.status, paced.take_retries()), (0, 2));
-        let http = Status(8, Cell::new(2));
-        let paced = Paced::with_sleeper(&http, |_| {});
-        assert_eq!(paced.send(&request("GET", "/x")).unwrap().status, 8);
+        let json_api = Status(8, Cell::new(2));
+        let paced = Paced::with_sleeper(&json_api, |_| {});
+        assert_eq!(paced.send(&http("GET", "/x")).unwrap().status, 8);
         assert_eq!(paced.take_retries(), 0);
     }
     #[test]
@@ -251,7 +257,7 @@ mod tests {
             sent: Cell::new(0),
         };
         let paced = Paced::with_sleeper(&inner, |_| {});
-        let response = paced.send(&request("PATCH", "/x")).unwrap();
+        let response = paced.send(&http("PATCH", "/x")).unwrap();
         assert_eq!(response.status, 429);
         assert_eq!(paced.take_retries(), MAX_RETRIES);
         assert_eq!(inner.sent.get(), u64::from(MAX_RETRIES) + 1);

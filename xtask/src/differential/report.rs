@@ -4,6 +4,7 @@ use super::case::{Case, LocalChoice, Protocol, Step, fingerprint};
 use super::diff::{Difference, Fractions, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
@@ -17,14 +18,71 @@ pub(crate) enum Outcome {
 }
 
 impl Outcome {
-    fn label(self, reference: bool) -> &'static str {
-        match (self, reference) {
-            (Self::Match, true) => "match",
-            (Self::Match, false) => "ok",
-            (Self::Differs, _) => "differs",
-            (Self::Noted, _) => "note",
-            (Self::Error, _) => "error",
+    fn label(self, mode: RunMode) -> &'static str {
+        match self {
+            Self::Match if mode.has_reference() => "match",
+            Self::Match => "ok",
+            Self::Differs => "differs",
+            Self::Noted => "note",
+            Self::Error => "error",
         }
+    }
+}
+
+/// Where the reference answers of a run came from, if anywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunMode {
+    SelfCheck,
+    Live,
+    Replay,
+}
+
+impl RunMode {
+    /// The report header's description of the run.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::SelfCheck => "self-check (gcs-mimic only)",
+            Self::Live => "live comparison against the real service",
+            Self::Replay => "replay of a recorded reference",
+        }
+    }
+
+    /// Whether a reference service answered the cases, so a match is a comparison.
+    pub(crate) const fn has_reference(self) -> bool {
+        match self {
+            Self::SelfCheck => false,
+            Self::Live | Self::Replay => true,
+        }
+    }
+}
+
+/// The service a note is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Side {
+    Mimic,
+    Reference,
+}
+
+impl fmt::Display for Side {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Mimic => "mimic",
+            Self::Reference => "reference",
+        })
+    }
+}
+
+/// A finding about one side of a step that is not a difference, such as an unmet
+/// `expect_status`. It prints as `side: text`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Note {
+    pub(crate) side: Side,
+    pub(crate) text: String,
+}
+
+impl fmt::Display for Note {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.side, self.text)
     }
 }
 
@@ -32,7 +90,7 @@ pub(crate) struct StepReport {
     pub(crate) name: String,
     pub(crate) request: String,
     pub(crate) differences: Vec<Difference>,
-    pub(crate) notes: Vec<String>,
+    pub(crate) notes: Vec<Note>,
     /// Why this step differs from the reference on purpose, when it does.
     pub(crate) local_choice: Option<String>,
 }
@@ -45,9 +103,12 @@ pub(crate) struct CaseReport {
     pub(crate) steps: Vec<StepReport>,
 }
 
-fn note_expectation(label: &str, step: &StepOutcome, notes: &mut Vec<String>) {
+fn note_expectation(side: Side, step: &StepOutcome, notes: &mut Vec<Note>) {
     if let Some(expectation) = &step.expectation {
-        notes.push(format!("{label}: {expectation}"));
+        notes.push(Note {
+            side,
+            text: expectation.clone(),
+        });
     }
 }
 
@@ -55,32 +116,31 @@ fn note_expectation(label: &str, step: &StepOutcome, notes: &mut Vec<String>) {
 /// the expectation the case had when it was made, and correcting a case's `expect_status` must
 /// not need a new recording. A step with no `expect_status`, or
 /// that failed before a response, keeps its recorded note.
-fn note_reference_expectation(spec: &Step, step: &StepOutcome, notes: &mut Vec<String>) {
+fn note_reference_expectation(spec: &Step, step: &StepOutcome, notes: &mut Vec<Note>) {
     match (&step.result, spec.expect_status) {
-        (Ok(response), Some(expected)) if response.status != expected => notes.push(format!(
-            "reference: expected status {expected}, got {}",
-            response.status
-        )),
+        (Ok(response), Some(expected)) if response.status != expected => notes.push(Note {
+            side: Side::Reference,
+            text: format!("expected status {expected}, got {}", response.status),
+        }),
         (Ok(_), Some(_)) => {}
         // Without an `expect_status` there is nothing to judge again; keep what was recorded.
-        (Ok(_), None) | (Err(_), _) => note_expectation("reference", step, notes),
+        (Ok(_), None) | (Err(_), _) => note_expectation(Side::Reference, step, notes),
     }
 }
 
 /// A local choice answers for itself: its status replaces the case's `expect_status`, which speaks
 /// for the reference, and a different answer means the choice no longer holds.
-fn note_local_choice(choice: &LocalChoice, step: &StepOutcome, notes: &mut Vec<String>) {
+fn note_local_choice(choice: &LocalChoice, step: &StepOutcome, notes: &mut Vec<Note>) {
     let expected = choice.mimic_status;
-    match &step.result {
-        Ok(response) if response.status == expected => {}
-        Ok(response) => notes.push(format!(
-            "mimic: local choice expected status {expected}, got {}",
-            response.status
-        )),
-        Err(error) => notes.push(format!(
-            "mimic: local choice expected status {expected}, got {error}"
-        )),
-    }
+    let got = match &step.result {
+        Ok(response) if response.status == expected => return,
+        Ok(response) => response.status.to_string(),
+        Err(error) => error.clone(),
+    };
+    notes.push(Note {
+        side: Side::Mimic,
+        text: format!("local choice expected status {expected}, got {got}"),
+    });
 }
 
 fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome>) -> CaseReport {
@@ -134,7 +194,7 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
         if let Some(step) = mimic_step {
             match &spec.local_choice {
                 Some(choice) => note_local_choice(choice, step, &mut report.notes),
-                None => note_expectation("mimic", step, &mut report.notes),
+                None => note_expectation(Side::Mimic, step, &mut report.notes),
             }
         }
         if let Some(step) = reference_step {
@@ -164,7 +224,7 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
     let reference_note = steps
         .iter()
         .flat_map(|s| &s.notes)
-        .any(|n| n.starts_with("reference:"));
+        .any(|n| n.side == Side::Reference);
     let has_notes = steps.iter().any(|s| !s.notes.is_empty());
     let outcome = if !errors.is_empty() || (reference_note && !has_diffs) {
         Outcome::Error
@@ -214,7 +274,7 @@ pub(crate) fn build(
 }
 
 pub(crate) struct Header<'a> {
-    pub(crate) mode: &'a str,
+    pub(crate) mode: RunMode,
     pub(crate) generated: &'a str,
     pub(crate) reference_requests: Option<u64>,
     /// 429 responses the live run waited out and retried, over all steps.
@@ -225,20 +285,16 @@ pub(crate) struct Header<'a> {
     pub(crate) skipped: &'a [String],
 }
 
-fn show(value: &Option<Value>) -> String {
-    let mut text = value
-        .as_ref()
-        .map_or_else(|| "(absent)".to_owned(), Value::to_string);
+fn show(value: Option<&Value>) -> String {
+    let mut text = value.map_or_else(|| "(absent)".to_owned(), Value::to_string);
     if text.chars().count() > 160 {
         text = text.chars().take(157).collect::<String>() + "...";
     }
     text.replace('`', "'")
 }
 
-fn show_header(value: &Option<String>) -> String {
-    value
-        .as_ref()
-        .map_or_else(|| "(absent)".to_owned(), |v| v.replace('`', "'"))
+fn show_header(value: Option<&str>) -> String {
+    value.map_or_else(|| "(absent)".to_owned(), |v| v.replace('`', "'"))
 }
 
 fn describe(difference: &Difference) -> String {
@@ -252,8 +308,8 @@ fn describe(difference: &Difference) -> String {
             mimic,
         } => format!(
             "header `{name}`: reference `{}`, mimic `{}`",
-            show_header(reference),
-            show_header(mimic)
+            show_header(reference.as_deref()),
+            show_header(mimic.as_deref())
         ),
         Difference::Body {
             path,
@@ -261,20 +317,20 @@ fn describe(difference: &Difference) -> String {
             mimic,
         } => format!(
             "body `{path}`: reference `{}`, mimic `{}`",
-            show(reference),
-            show(mimic)
+            show(reference.as_ref()),
+            show(mimic.as_ref())
         ),
     }
 }
 
 pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
-    let reference = header.reference_requests.is_some() || header.mode.starts_with("replay");
     let mut out = String::from(
         "<!-- markdownlint-configure-file {\"MD013\": false} -->\n\n# Differential comparison report\n\n",
     );
     out.push_str(&format!(
         "- Mode: {}\n- Generated: {}\n",
-        header.mode, header.generated
+        header.mode.label(),
+        header.generated
     ));
     if let Some(requests) = header.reference_requests {
         out.push_str(&format!(
@@ -287,7 +343,7 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
         out.push_str(&format!(
             "| {} | {} | {count} |\n",
             report.id,
-            report.outcome.label(reference)
+            report.outcome.label(header.mode)
         ));
     }
     out.push_str("\n## Details\n");
@@ -373,9 +429,8 @@ fn difference_json(difference: &Difference) -> Value {
 }
 
 pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value {
-    let reference = header.reference_requests.is_some() || header.mode.starts_with("replay");
     json!({
-        "mode": header.mode,
+        "mode": header.mode.label(),
         "generated": header.generated,
         "reference_requests": header.reference_requests,
         "reference_retries": header.reference_retries,
@@ -384,12 +439,12 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
         "skipped": header.skipped,
         "cases": reports.iter().map(|r| json!({
             "id": r.id,
-            "result": r.outcome.label(reference),
+            "result": r.outcome.label(header.mode),
             "errors": r.errors,
             "steps": r.steps.iter().map(|s| json!({
                 "name": s.name,
                 "request": s.request,
-                "notes": s.notes,
+                "notes": s.notes.iter().map(Note::to_string).collect::<Vec<_>>(),
                 "local_choice": s.local_choice,
                 "differences": s.differences.iter().map(difference_json).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
@@ -589,6 +644,65 @@ pub(crate) fn has_failures(reports: &[CaseReport], fail_on: FailOn) -> bool {
 mod tests {
     use super::*;
 
+    /// The notes as the reports print them.
+    fn texts(notes: &[Note]) -> Vec<String> {
+        notes.iter().map(Note::to_string).collect()
+    }
+
+    #[test]
+    fn run_modes_name_the_run_and_whether_a_match_is_a_comparison() {
+        let report = CaseReport {
+            id: "c".into(),
+            description: "d".into(),
+            outcome: Outcome::Match,
+            errors: vec![],
+            steps: vec![StepReport {
+                name: "s".into(),
+                request: "GET /x".into(),
+                differences: vec![],
+                notes: vec![Note {
+                    side: Side::Mimic,
+                    text: "expected status 404, got 200".into(),
+                }],
+                local_choice: None,
+            }],
+        };
+        for (mode, label, result) in [
+            (RunMode::SelfCheck, "self-check (gcs-mimic only)", "ok"),
+            (
+                RunMode::Live,
+                "live comparison against the real service",
+                "match",
+            ),
+            (RunMode::Replay, "replay of a recorded reference", "match"),
+        ] {
+            let header = Header {
+                mode,
+                generated: "2026-11-01",
+                reference_requests: None,
+                reference_retries: 0,
+                cleanup: &[],
+                reference_cleanup: &[],
+                skipped: &[],
+            };
+            let reports = std::slice::from_ref(&report);
+            let md = markdown(&header, reports);
+            assert!(md.contains(&format!("- Mode: {label}\n")), "{md}");
+            assert!(md.contains(&format!("| c | {result} | 0 |")), "{md}");
+            assert!(
+                md.contains("  - mimic: expected status 404, got 200\n"),
+                "{md}"
+            );
+            let json = json_report(&header, reports);
+            assert_eq!(json["mode"], label);
+            assert_eq!(json["cases"][0]["result"], result);
+            assert_eq!(
+                json["cases"][0]["steps"][0]["notes"],
+                json!(["mimic: expected status 404, got 200"])
+            );
+        }
+    }
+
     #[test]
     fn guard_catches_and_redacts_encoded_email_paths() {
         for encoded in ["%40", "%2540"] {
@@ -715,7 +829,7 @@ mod tests {
         // A reference that does not meet the case's current expectation is still reported.
         let wrong = compare_case(&case, &outcome(200, None), Some(&outcome(404, None)));
         assert_eq!(
-            wrong.steps[0].notes,
+            texts(&wrong.steps[0].notes),
             ["reference: expected status 200, got 404"]
         );
     }
@@ -807,7 +921,7 @@ mod tests {
             }],
         };
         let header = Header {
-            mode: "live",
+            mode: RunMode::Live,
             generated: "2026-11-01",
             reference_requests: Some(9),
             reference_retries: 0,
@@ -876,7 +990,7 @@ mod tests {
             assert!(report.steps[0].differences.is_empty());
             assert!(report.steps[0].notes.is_empty());
             let header = Header {
-                mode: "replay",
+                mode: RunMode::Replay,
                 generated: "2026-11-07",
                 reference_requests: None,
                 reference_retries: 0,
@@ -894,7 +1008,7 @@ mod tests {
         let stale = compare_case(&case, &answer(400), Some(&answer(400)));
         assert_eq!(stale.outcome, Outcome::Noted);
         assert_eq!(
-            stale.steps[0].notes,
+            texts(&stale.steps[0].notes),
             ["mimic: local choice expected status 200, got 400"]
         );
         assert!(has_failures(&[stale], strict));
@@ -934,7 +1048,7 @@ mod tests {
         };
         let noted = compare_case(&case, &outcome(Some("expected 404")), None);
         assert_eq!(noted.outcome, Outcome::Noted);
-        assert_eq!(noted.outcome.label(false), "note");
+        assert_eq!(noted.outcome.label(RunMode::SelfCheck), "note");
         assert!(!has_failures(
             std::slice::from_ref(&noted),
             FailOn::default()

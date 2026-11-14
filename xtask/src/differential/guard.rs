@@ -231,6 +231,8 @@ fn check_hmac(request: &Request, path: &str, query: &[(String, String)]) -> Resu
     if creates && names_account {
         return Err("creating an HMAC key would expose its secret".into());
     }
+    // Matched by name, not by `request.wire`: the last check before the bytes leave must not
+    // trust a label, and the gRPC transport sends `method` as the RPC whatever the label says.
     if request.method.ends_with("/CreateHmacKey") {
         return Err("creating an HMAC key would expose its secret".into());
     }
@@ -280,9 +282,11 @@ fn bytes_of(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::differential::transport::Wire;
 
     fn http(method: &str, target: &str, headers: &[(&str, &str)], body: Option<&str>) -> Request {
         Request {
+            wire: Wire::Http,
             method: method.into(),
             target: target.into(),
             headers: headers
@@ -336,6 +340,7 @@ mod tests {
             Some("<RetentionConfiguration><Mode> Locked </Mode></RetentionConfiguration>")
         )));
         let grpc = Request {
+            wire: Wire::Grpc,
             method: "google.storage.v2.Storage/LockBucketRetentionPolicy".into(),
             target: String::new(),
             headers: Vec::new(),
@@ -505,6 +510,17 @@ mod tests {
             &[],
             None
         )));
+        // The RPC name alone refuses it: the gRPC transport sends `method` whatever the wire says.
+        for wire in [Wire::Grpc, Wire::Http] {
+            let create = Request {
+                wire,
+                method: "google.storage.v2.Storage/CreateHmacKey".into(),
+                target: String::new(),
+                headers: Vec::new(),
+                body: Some(b"{}\n".to_vec()),
+            };
+            assert!(refused(&create), "{wire:?}");
+        }
     }
 
     #[test]
