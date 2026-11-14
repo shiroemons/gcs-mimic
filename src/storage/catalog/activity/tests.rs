@@ -18,6 +18,7 @@ use crate::{
 };
 use bytes::Bytes;
 use std::sync::{Mutex, atomic::AtomicBool, mpsc};
+use std::time::Duration;
 use tokio::{sync::oneshot, task::JoinHandle};
 
 type UploadBody = tokio::sync::mpsc::Receiver<Result<crate::object::UploadChunk, std::io::Error>>;
@@ -514,6 +515,59 @@ async fn a_reset_waits_for_as_long_as_its_deadline_allows() {
     );
     drop(upload);
     reset.await.unwrap();
+    catalog.close().await.unwrap();
+}
+
+/// Polls `job` once, without letting any time pass.
+async fn poll_once<T>(job: impl Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(Duration::ZERO, job).await.ok()
+}
+
+/// The drain used to be polled, so the job slept up to ten milliseconds after the last lease
+/// went. The lease now wakes it as it drops, so the job starts on its very next poll.
+#[tokio::test(start_paused = true)]
+async fn an_exclusive_job_starts_as_soon_as_its_last_lease_drops() {
+    let catalog = Catalog::open_memory_for_server(
+        1024,
+        1024 * 1024,
+        Arc::new(SystemClock),
+        LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    let lease = catalog.activity().unwrap();
+    let mut job = std::pin::pin!(catalog.wait_exclusive(LONG.deadline()));
+    assert!(poll_once(&mut job).await.is_none());
+    drop(lease);
+    let exclusive = poll_once(&mut job)
+        .await
+        .expect("the job waited on")
+        .unwrap();
+    drop(exclusive);
+    catalog.close().await.unwrap();
+}
+
+/// A job holding the gate drops no lease when it ends, so the next job, waiting on the gate rather
+/// than on the execution permit, wakes when the reservation before it ends.
+#[tokio::test(start_paused = true)]
+async fn an_exclusive_job_starts_as_soon_as_the_job_holding_the_gate_ends() {
+    let catalog = Catalog::open_memory_for_server(
+        1024,
+        1024 * 1024,
+        Arc::new(SystemClock),
+        LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    let first = exclusive_job_after_the_next_sql(&catalog);
+    let mut second = std::pin::pin!(catalog.wait_exclusive(LONG.deadline()));
+    assert!(poll_once(&mut second).await.is_none());
+    drop(first);
+    let exclusive = poll_once(&mut second)
+        .await
+        .expect("the job waited on")
+        .unwrap();
+    drop(exclusive);
     catalog.close().await.unwrap();
 }
 

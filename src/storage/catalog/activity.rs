@@ -17,12 +17,9 @@ use crate::{
     object::ObjectError,
     storage::failure::{BackendFailure, object_unavailable},
 };
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering, fence},
 };
 use tokio::{
     sync::{
@@ -32,7 +29,25 @@ use tokio::{
     time::Instant,
 };
 
-pub(super) type Activity = OwnedRwLockReadGuard<()>;
+/// A read lease on the activity gate. Dropping it wakes an exclusive job waiting for leases to
+/// drain, which costs a fence and one atomic load while no such job waits.
+pub(super) struct Activity {
+    lease: Option<OwnedRwLockReadGuard<()>>,
+    reservations: Arc<Reservations>,
+}
+
+impl Drop for Activity {
+    fn drop(&mut self) {
+        // Released before waking, or the woken job would find this lease still held.
+        drop(self.lease.take());
+        // Pairs with the fence in `ActivityGate::reserve`: either this load sees the job's
+        // reservation and wakes it, or the job's next attempt at the gate sees this lease gone.
+        fence(Ordering::SeqCst);
+        if self.reservations.count.load(Ordering::SeqCst) > 0 {
+            self.reservations.lease_released.notify_waiters();
+        }
+    }
+}
 
 /// What a caller waiting for a lease is about to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,11 +98,16 @@ struct Reservations {
     count: AtomicUsize,
     /// Wakes the callers waiting for a lease when a reservation ends or the catalog closes.
     released: Notify,
+    /// Wakes the exclusive jobs waiting for leases to drain when a lease drops.
+    lease_released: Notify,
 }
 
 impl ActivityGate {
     fn reserve(&self) -> Reservation {
         self.reservations.count.fetch_add(1, Ordering::SeqCst);
+        // Pairs with the fence in `Activity::drop`, so a lease dropped from now on either sees
+        // this reservation or is seen gone by the job's next attempt at the gate.
+        fence(Ordering::SeqCst);
         Reservation(self.reservations.clone())
     }
 
@@ -97,7 +117,11 @@ impl ActivityGate {
     }
 
     fn try_read(&self) -> Result<Activity, TryLockError> {
-        self.lock.clone().try_read_owned()
+        let lease = self.lock.clone().try_read_owned()?;
+        Ok(Activity {
+            lease: Some(lease),
+            reservations: self.reservations.clone(),
+        })
     }
 
     /// Wakes every caller waiting for a lease, so that it sees the catalog closing.
@@ -109,6 +133,9 @@ impl ActivityGate {
     #[cfg(test)]
     pub(super) async fn drained(&self) {
         drop(self.lock.clone().write_owned().await);
+        // The gate was briefly shut as an exclusive job shuts it; a job that found it shut then
+        // waits for a lease to drop, and none may come.
+        self.reservations.lease_released.notify_waiters();
     }
 }
 
@@ -194,21 +221,34 @@ impl Catalog {
         &self,
         deadline: Instant,
     ) -> Result<ExclusiveGuard, AdminError> {
-        let reservation = self.0.activity.reserve();
+        let gate = &self.0.activity;
+        let reservation = gate.reserve();
         loop {
+            // Registered before the attempt, so a lease dropped right after it still wakes this
+            // job. The gate may also be shut by another job rather than by a lease, and closing
+            // the catalog wakes `released` too.
+            let lease_released = gate.reservations.lease_released.notified();
+            let released = gate.reservations.released.notified();
+            tokio::pin!(lease_released, released);
+            lease_released.as_mut().enable();
+            released.as_mut().enable();
             let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
             // Queuing a writer would reject the nested read leases needed by draining uploads.
-            if let Ok(gate) = self.0.activity.lock.clone().try_write_owned() {
+            if let Ok(lock) = gate.lock.clone().try_write_owned() {
                 return Ok(ExclusiveGuard {
-                    _gate: gate,
+                    _gate: lock,
                     _reservation: reservation,
                     _execution: execution,
                 });
             }
             // Draining work may need the execution slot to finish and release its lease.
             drop(execution);
-            tokio::time::sleep_until(deadline.min(Instant::now() + Duration::from_millis(10)))
-                .await;
+            // Past the deadline, the next `wait_admin` reports the job busy.
+            tokio::select! {
+                () = lease_released => {}
+                () = released => {}
+                () = tokio::time::sleep_until(deadline) => {}
+            }
         }
     }
 }
