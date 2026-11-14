@@ -5,7 +5,9 @@ use crate::server::upload_drive::{
 };
 use crate::{
     auth::{self, Caller},
+    bucket::{InvalidStorageClass, StorageClass},
     json,
+    metadata_error::MetadataError,
     object::{
         ExpectedHashes, HashAlgorithm, MapPatch, ObjectConditions, ObjectError,
         ObjectMetadataUpdate, Patch,
@@ -282,15 +284,14 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         *field = single(headers, name)?.map_or(Patch::Keep, |value| Patch::Set(value.to_owned()));
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
-        let class =
-            crate::object::validate_object_storage_class(class).map_err(|error| match error {
-                ObjectError::Metadata(error) if error.unsupported() => {
-                    Error::unsupported(&error.to_string())
-                }
-                _ => Error::invalid(
-                    "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
-                ),
-            })?;
+        let class = StorageClass::from_name(class).map_err(|error| match error {
+            InvalidStorageClass::RequiresLocation => Error::unsupported(
+                &MetadataError::UnsupportedObjectStorageClass(class.to_owned()).to_string(),
+            ),
+            InvalidStorageClass::Unknown => Error::invalid(
+                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
+            ),
+        })?;
         metadata.storage_class = Some(class);
     }
     if let Some(value) = single(headers, super::CUSTOM_TIME)? {

@@ -346,10 +346,6 @@ enum Condition<'p> {
 }
 
 impl<'p> Condition<'p> {
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "only an object or an array states a condition; every other JSON value is unsupported"
-    )]
     fn parse(value: &'p serde_json::Value) -> Result<Self, Error> {
         let unsupported = || policy_error(format!("Unsupported policy condition {value}."));
         match value {
@@ -388,7 +384,12 @@ impl<'p> Condition<'p> {
                     expected: expected.as_str().ok_or_else(unsupported)?,
                 })
             }
-            _ => Err(unsupported()),
+            // Only a one-entry object or an array states a condition.
+            serde_json::Value::Object(_)
+            | serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => Err(unsupported()),
         }
     }
 }

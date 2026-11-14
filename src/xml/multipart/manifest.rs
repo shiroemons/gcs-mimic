@@ -69,17 +69,21 @@ impl Part {
                 Scope::Root
             }
             Scope::Root => Scope::Done,
-            _ => return Err(malformed()),
+            Scope::Before | Scope::Done => return Err(malformed()),
         })
     }
 
     fn text(&mut self, scope: Scope, text: &str) -> Result<(), Error> {
         match scope {
             Scope::Number | Scope::Etag => self.text.push_str(text),
-            _ if text
-                .chars()
-                .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n')) => {}
-            _ => return Err(malformed()),
+            Scope::Before | Scope::Root | Scope::Part | Scope::Done => {
+                if !text
+                    .chars()
+                    .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
+                {
+                    return Err(malformed());
+                }
+            }
         }
         Ok(())
     }

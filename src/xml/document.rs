@@ -76,8 +76,16 @@ pub(super) fn walk(
             Event::Comment(_) => {}
             Event::PI(instruction) if !instruction.target().eq_ignore_ascii_case("xml") => {}
             Event::Eof if depth == 0 => return Ok(()),
-            // DTDs are forbidden even when they define only internal entities.
-            _ => return Err(malformed()),
+            // DTDs are forbidden even when they define only internal entities. The reader
+            // expands empty elements, so `Empty` never arrives; the rest failed a guard above.
+            Event::DocType(_)
+            | Event::Empty(_)
+            | Event::Text(_)
+            | Event::CData(_)
+            | Event::GeneralRef(_)
+            | Event::Decl(_)
+            | Event::PI(_)
+            | Event::Eof => return Err(malformed()),
         }
         declaration_allowed = false;
     }

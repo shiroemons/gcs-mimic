@@ -61,7 +61,9 @@ impl From<MalformedRange<'_>> for Error {
     fn from(error: MalformedRange<'_>) -> Self {
         let message = match error.reason {
             Reason::NotAPair => "Invalid argument.".to_owned(),
-            _ => format!("The {HEADER} header you specified was invalid"),
+            Reason::MissingBound | Reason::Unparsable | Reason::Negative | Reason::Reversed => {
+                format!("The {HEADER} header you specified was invalid")
+            }
         };
         Self::new(XmlCode::ContentLengthRangeInHeaderIsInvalid, message)
             .with_details(error.to_string())
