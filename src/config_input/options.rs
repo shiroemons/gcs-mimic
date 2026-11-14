@@ -51,7 +51,7 @@ impl std::error::Error for DurationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Number(error) => Some(error),
-            _ => None,
+            Self::Unit | Self::Overflow => None,
         }
     }
 }

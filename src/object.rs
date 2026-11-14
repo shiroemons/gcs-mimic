@@ -1027,7 +1027,35 @@ impl std::error::Error for ObjectError {
             Self::BodyAborted(cause) | Self::Corrupt(cause) | Self::Unavailable(cause) => {
                 cause.source()
             }
-            _ => None,
+            Self::BucketNotFound
+            | Self::ObjectNotFound
+            | Self::PreconditionFailed
+            | Self::Component(_)
+            | Self::PublicAccessPrevention
+            | Self::OverwriteForbidden(_)
+            | Self::ActiveHold(_)
+            | Self::ObjectRetentionNotMet(_)
+            | Self::UnlockedRetentionOverrideRequired
+            | Self::LockedRetention
+            | Self::ObjectNotSoftDeleted
+            | Self::Denied(_)
+            | Self::Forbidden
+            | Self::NotModified
+            | Self::WriteNotModified
+            | Self::ChecksumMismatch
+            | Self::HashMismatch(_)
+            | Self::TooLarge
+            | Self::InvalidMetadata
+            | Self::InvalidFixedMetadata(_)
+            | Self::UniformAccessPredefinedAcl
+            | Self::InvalidDerivedArgument(_)
+            | Self::ComposeClassMismatch { .. }
+            | Self::DerivedTransferNotFound
+            | Self::DerivedTransferExpired
+            | Self::DerivedTransferBusy
+            | Self::DerivedTransferIncomplete
+            | Self::UnsupportedMetadata(_)
+            | Self::CustomerEncryption(_) => None,
         }
     }
 }

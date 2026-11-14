@@ -231,7 +231,7 @@ impl std::error::Error for EndpointError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Url(error) => Some(error),
-            _ => None,
+            Self::PublicHost | Self::DomainLimit | Self::ApiVirtualHost | Self::Poisoned => None,
         }
     }
 }

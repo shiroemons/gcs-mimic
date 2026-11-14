@@ -2,12 +2,10 @@
 clippy::option_option	src/storage/catalog/sync_state/writeback/live_export.rs	1
 clippy::struct_excessive_bools	src/xml/list.rs	1
 clippy::wildcard_enum_match_arm	src/auth/mod.rs	1
-clippy::wildcard_enum_match_arm	src/bucket.rs	2
+clippy::wildcard_enum_match_arm	src/bucket.rs	1
 clippy::wildcard_enum_match_arm	src/bucket/lifecycle.rs	1
-clippy::wildcard_enum_match_arm	src/config/runtime.rs	1
 clippy::wildcard_enum_match_arm	src/config/setting.rs	1
 clippy::wildcard_enum_match_arm	src/config_input.rs	1
-clippy::wildcard_enum_match_arm	src/config_input/options.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/bucket_update.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/names.rs	1
 clippy::wildcard_enum_match_arm	src/grpc/v2/object_io/write.rs	1
@@ -18,7 +16,7 @@ clippy::wildcard_enum_match_arm	src/json/derived_metadata.rs	1
 clippy::wildcard_enum_match_arm	src/json/fields.rs	1
 clippy::wildcard_enum_match_arm	src/json/notifications.rs	1
 clippy::wildcard_enum_match_arm	src/json/object_metadata.rs	1
-clippy::wildcard_enum_match_arm	src/object.rs	2
+clippy::wildcard_enum_match_arm	src/object.rs	1
 clippy::wildcard_enum_match_arm	src/seed.rs	1
 clippy::wildcard_enum_match_arm	src/server/admin/sync.rs	2
 clippy::wildcard_enum_match_arm	src/server/admin/sync/conflicts.rs	1

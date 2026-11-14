@@ -801,7 +801,20 @@ impl std::error::Error for CatalogError {
             Self::Io(cause) => cause.source(),
             Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
             Self::Metadata(error) => Some(error),
-            _ => None,
+            Self::AuthenticationAlreadyConfigured
+            | Self::AlreadyExists
+            | Self::NotFound
+            | Self::NotEmpty
+            | Self::RestoreConflict
+            | Self::PreconditionFailed
+            | Self::PublicAccessPrevention
+            | Self::Denied(_)
+            | Self::Forbidden
+            | Self::RetentionPolicyLocked(_)
+            | Self::RetentionPolicyNotSet
+            | Self::InvalidMetadata(_)
+            | Self::UnsupportedMetadata(_)
+            | Self::NewerSchema { .. } => None,
         }
     }
 }
