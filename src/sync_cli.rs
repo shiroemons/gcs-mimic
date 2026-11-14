@@ -5,6 +5,7 @@ use gcs_mimic::{
     bounded_file,
     config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{DiagnosticSource, Diagnostics},
+    net::is_local_address,
     sync::handshake,
     tls,
 };
@@ -18,7 +19,6 @@ use std::{
     collections::{BTreeMap, btree_map},
     io,
     io::Write,
-    net::IpAddr,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -430,7 +430,7 @@ impl Options {
                 let addresses = tokio::net::lookup_host(self.endpoint.authority.as_str()).await?;
                 let mut checked = Vec::new();
                 for address in addresses {
-                    if !local_address(address.ip()) || checked.len() == 8 {
+                    if !is_local_address(address.ip()) || checked.len() == 8 {
                         return Err(CliError::from(fail(
                             "Endpoint must resolve only to local addresses, at most eight",
                         )));
@@ -714,16 +714,6 @@ fn endpoint(value: &str, ca_cert: Option<&str>) -> Result<Endpoint, Diagnostics>
         host: host.trim_matches(['[', ']']).to_owned(),
         transport,
     })
-}
-
-fn local_address(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
-        IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or_else(
-            || ip.is_loopback() || ip.is_unique_local(),
-            |ip| local_address(IpAddr::V4(ip)),
-        ),
-    }
 }
 
 fn read_token(path: &str) -> Result<hyper::header::HeaderValue, CliError> {

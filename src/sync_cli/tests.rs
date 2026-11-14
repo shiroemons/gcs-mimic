@@ -387,27 +387,7 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
     ] {
         assert!(endpoint(value, None).is_err(), "{value}");
     }
-    for value in [
-        "127.0.0.1",
-        "10.0.0.1",
-        "192.168.1.1",
-        "::1",
-        "fc00::1",
-        "::ffff:127.0.0.1",
-    ] {
-        assert!(local_address(value.parse().unwrap()));
-    }
-    for value in [
-        "0.0.0.0",
-        "169.254.169.254",
-        "8.8.8.8",
-        "::",
-        "fe80::1",
-        "ff02::1",
-        "::ffff:169.254.169.254",
-    ] {
-        assert!(!local_address(value.parse().unwrap()));
-    }
+    // Which resolved addresses count as local is tested with the shared check in `gcs_mimic::net`.
     assert!(parse_cmd(&["status", "--ca-cert", "unused"]).is_err());
     assert!(parse_cmd(&["status", "--timeout-ms", "60001"]).is_err());
 }

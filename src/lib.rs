@@ -25,6 +25,7 @@ mod match_glob;
 mod memory_limit;
 mod metadata_error;
 pub mod mime;
+pub mod net;
 mod notification;
 pub mod object;
 pub mod seed;

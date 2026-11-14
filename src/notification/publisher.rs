@@ -1,6 +1,7 @@
 //! Explicit local Pub/Sub REST integration; never discover credentials or a production endpoint.
 
 use super::Topic;
+use crate::net::is_local_address;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::{Request, Uri, client::conn::http1};
@@ -67,7 +68,7 @@ impl Endpoint {
             || host.is_empty()
             || host.ends_with("googleapis.com")
             || host.ends_with("google.internal")
-            || host.parse::<IpAddr>().is_ok_and(|ip| !local_address(ip))
+            || host.parse::<IpAddr>().is_ok_and(|ip| !is_local_address(ip))
         {
             return Err(InvalidEndpoint);
         }
@@ -81,7 +82,8 @@ impl Endpoint {
     async fn address(&self) -> io::Result<SocketAddr> {
         let mut addresses = lookup_host((self.host.as_str(), self.port)).await?;
         let first = addresses.next().ok_or(InvalidEndpoint)?;
-        if !local_address(first.ip()) || addresses.any(|address| !local_address(address.ip())) {
+        if !is_local_address(first.ip()) || addresses.any(|address| !is_local_address(address.ip()))
+        {
             return Err(InvalidEndpoint.into());
         }
         // Connect to the checked address itself, so a second DNS lookup cannot bypass the guard.
@@ -223,19 +225,6 @@ impl std::error::Error for TopicCheckError {
         match self {
             Self::Unreachable(error) => Some(error),
             Self::NotFound | Self::Unexpected(_) => None,
-        }
-    }
-}
-
-fn local_address(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => address.is_loopback() || address.is_private(),
-        IpAddr::V6(address) => {
-            address.is_loopback()
-                || address.is_unique_local()
-                || address
-                    .to_ipv4_mapped()
-                    .is_some_and(|address| address.is_loopback() || address.is_private())
         }
     }
 }
