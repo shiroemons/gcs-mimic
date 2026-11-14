@@ -4,6 +4,7 @@ use super::{
 use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
+    decimal::Grammar,
     object::{ExpectedHashes, MapPatch, ObjectError},
     storage::ResumableOptions,
 };
@@ -62,7 +63,7 @@ pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'
 }
 
 pub(crate) fn unsigned(value: &str) -> Result<u64, JsonError> {
-    if value.is_empty() || !value.bytes().all(|v| v.is_ascii_digit()) {
+    if !Grammar::Digits.admits(value) {
         return Err(JsonError::invalid_parameter(
             "Expected an unsigned decimal integer",
         ));
@@ -369,10 +370,10 @@ pub(crate) fn range_fails_session(headers: &HeaderMap) -> bool {
 }
 
 fn range_unsigned(value: &str) -> Result<u64, RangeError> {
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !Grammar::Digits.admits(value) {
         return Err(RangeError::Syntax);
     }
-    unsigned(value).map_err(|_| RangeError::Semantic)
+    value.parse().map_err(|_| RangeError::Semantic)
 }
 
 fn parse_range(headers: &HeaderMap) -> Result<Option<Range>, RangeError> {

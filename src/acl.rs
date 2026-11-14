@@ -358,11 +358,10 @@ pub(crate) fn validate_role(kind: AclKind, role: &str) -> Result<AclRole, AclErr
 /// The project number rendered by bucket resources: numeric project IDs are used verbatim and
 /// other local project IDs map to `0`, because the local registry has no project numbers.
 pub(crate) fn project_number(project: &str) -> String {
-    if project.bytes().all(|byte| byte.is_ascii_digit()) {
-        project.parse::<u64>().unwrap_or(0).to_string()
-    } else {
-        "0".to_owned()
-    }
+    crate::decimal::Grammar::Digits
+        .parse::<u64>(project)
+        .unwrap_or(0)
+        .to_string()
 }
 
 /// The `projectPrivate` canned ACL used for buckets and objects without stored entries.

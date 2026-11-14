@@ -39,7 +39,7 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
     // beyond uint32 are digits-only and stay rejected; the record does not cover them.
     let max_keys = match values.remove("max-keys") {
         None => None,
-        Some(value) if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) => Some(
+        Some(value) if crate::decimal::Grammar::Digits.admits(&value) => Some(
             value
                 .parse::<u32>()
                 .ok()

@@ -1,5 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
+    objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
 };
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
     storage::{MoveConditions, MoveNames},
 };
 use hyper::{Method, Uri};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectMoveParams {
@@ -67,38 +69,8 @@ pub(super) fn route(
         if query.remove("alt").is_some_and(|alt| alt != "json") {
             return Err(JsonError::invalid_parameter("move requires alt=json"));
         }
-        let mut conditions = |prefix: &str| -> Result<ObjectConditions, JsonError> {
-            let conditions = ObjectConditions {
-                if_generation_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}GenerationMatch"),
-                )?,
-                if_generation_not_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}GenerationNotMatch"),
-                )?,
-                if_metageneration_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}MetagenerationMatch"),
-                )?,
-                if_metageneration_not_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}MetagenerationNotMatch"),
-                )?,
-            };
-            if conditions.if_generation_match.is_some()
-                && conditions.if_generation_not_match.is_some()
-                || conditions.if_metageneration_match.is_some()
-                    && conditions.if_metageneration_not_match.is_some()
-            {
-                return Err(JsonError::invalid_argument(
-                    "Match and NotMatch conditions are mutually exclusive; supply only one condition per generation kind",
-                ));
-            }
-            Ok(conditions)
-        };
-        let source_conditions = conditions("Source")?;
-        let destination_conditions = conditions("")?;
+        let source_conditions = exclusive_conditions(&mut query, ConditionKeys::Source)?;
+        let destination_conditions = exclusive_conditions(&mut query, ConditionKeys::Plain)?;
         finish(&query)?;
         Ok(ObjectRequest::Move(ObjectMoveParams {
             names: MoveNames {
@@ -113,6 +85,21 @@ pub(super) fn route(
             projection,
         }))
     })())
+}
+
+/// One side's preconditions. `storage.proto` makes each Match and NotMatch pair of
+/// MoveObjectRequest mutually exclusive.
+fn exclusive_conditions(
+    query: &mut BTreeMap<String, String>,
+    keys: ConditionKeys,
+) -> Result<ObjectConditions, JsonError> {
+    let conditions = take_conditions(query, keys)?;
+    if match_and_not_match(&conditions) {
+        return Err(JsonError::invalid_argument(
+            "Match and NotMatch conditions are mutually exclusive; supply only one condition per generation kind",
+        ));
+    }
+    Ok(conditions)
 }
 
 #[cfg(test)]

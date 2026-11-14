@@ -260,9 +260,7 @@ fn part(
         ));
     }
     if let Some(length) = single(&inner, "content-length")?
-        && (length.is_empty()
-            || !length.bytes().all(|byte| byte.is_ascii_digit())
-            || length.parse::<usize>().ok() != Some(body.len()))
+        && crate::decimal::Grammar::Digits.parse::<usize>(length) != Some(body.len())
     {
         return Err(invalid("Batch part Content-Length does not match its body"));
     }

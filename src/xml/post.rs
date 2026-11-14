@@ -490,9 +490,8 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     let declared_length = fields
         .get("content-length")
         .map(|raw| {
-            raw.parse::<u64>()
-                .ok()
-                .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
+            crate::decimal::Grammar::Digits
+                .parse::<u64>(raw)
                 .ok_or_else(|| Error::invalid("Invalid Content-Length form field."))
         })
         .transpose()?;

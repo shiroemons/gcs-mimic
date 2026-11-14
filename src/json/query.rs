@@ -1,6 +1,6 @@
 use super::buckets::validate_bucket_name_for_profile;
-use super::{JsonError, decode_page_token};
-use crate::{bucket::BucketConditions, config::CompatProfile};
+use super::{JsonError, decode_page_token, integer::take_int64};
+use crate::{bucket::BucketConditions, config::CompatProfile, decimal::Grammar};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
@@ -163,15 +163,15 @@ fn parse_lock_retention_policy(
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
-    let metageneration = query
-        .remove("ifMetagenerationMatch")
-        .ok_or_else(|| {
-            JsonError::required(
-                "ifMetagenerationMatch is required; read the bucket metageneration first",
-            )
-        })?
-        .parse::<i64>()
-        .map_err(|_| JsonError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
+    let metageneration = query.remove("ifMetagenerationMatch").ok_or_else(|| {
+        JsonError::required(
+            "ifMetagenerationMatch is required; read the bucket metageneration first",
+        )
+    })?;
+    // Unlike the other int64 parameters, this one keeps accepting a leading `+` (`%2B1`).
+    let metageneration = Grammar::Signed
+        .parse::<i64>(&metageneration)
+        .ok_or_else(|| JsonError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
     finish(&query)?;
     Ok(BucketRequest::LockRetentionPolicy {
         bucket,
@@ -211,10 +211,9 @@ fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>
     query
         .remove("generation")
         .map(|value| {
-            value
-                .parse::<i64>()
-                .ok()
-                .filter(|generation| *generation > 0 && !value.starts_with('+'))
+            Grammar::SignedNoPlus
+                .parse::<i64>(&value)
+                .filter(|generation| *generation > 0)
                 .ok_or_else(|| JsonError::invalid_parameter("generation must be a positive int64"))
         })
         .transpose()
@@ -333,7 +332,7 @@ fn parse_iam(
         // Cloud Storage answered an out-of-range version such as -1 with its version 1 policy
         // (recorded 2026-10-31), so only a value that is not an integer is a bad parameter.
         if let Some(version) = query.remove("optionsRequestedPolicyVersion")
-            && version.parse::<i32>().is_err()
+            && Grammar::Signed.parse::<i32>(&version).is_none()
         {
             return Err(JsonError::invalid_parameter(
                 "optionsRequestedPolicyVersion must be an integer",
@@ -665,12 +664,9 @@ fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result
     let Some(value) = query.remove("maxResults") else {
         return Ok(page_cap);
     };
-    let invalid =
-        || JsonError::invalid_parameter("maxResults must be a uint32").at_parameter("maxResults");
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(invalid());
-    }
-    let size = value.parse::<u32>().map_err(|_| invalid())?;
+    let size = Grammar::Digits.parse::<u32>(&value).ok_or_else(|| {
+        JsonError::invalid_parameter("maxResults must be a uint32").at_parameter("maxResults")
+    })?;
     Ok(if size == 0 {
         page_cap
     } else {
@@ -733,26 +729,9 @@ fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), Jso
 }
 
 fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, JsonError> {
-    let mut integer = |key| {
-        query
-            .remove(key)
-            .map(|value| {
-                if value.starts_with('+') {
-                    return Err(
-                        JsonError::invalid_parameter(format!("{key} must be an int64"))
-                            .at_parameter(key),
-                    );
-                }
-                value.parse::<i64>().map_err(|_| {
-                    JsonError::invalid_parameter(format!("{key} must be an int64"))
-                        .at_parameter(key)
-                })
-            })
-            .transpose()
-    };
     Ok(BucketConditions {
-        if_metageneration_match: integer("ifMetagenerationMatch")?,
-        if_metageneration_not_match: integer("ifMetagenerationNotMatch")?,
+        if_metageneration_match: take_int64(query, "ifMetagenerationMatch")?,
+        if_metageneration_not_match: take_int64(query, "ifMetagenerationNotMatch")?,
     })
 }
 

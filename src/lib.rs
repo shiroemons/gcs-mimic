@@ -8,6 +8,7 @@ pub mod clock;
 pub mod config;
 pub mod config_input;
 mod csek;
+mod decimal;
 pub mod diagnostics;
 mod error;
 pub mod fd_limit;

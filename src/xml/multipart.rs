@@ -100,14 +100,9 @@ fn operation(
 }
 
 fn integer(raw: &str, min: u32, max: u32) -> Result<u32, Error> {
-    raw.parse::<u32>()
-        .ok()
-        .filter(|value| {
-            *value >= min
-                && *value <= max
-                && !raw.is_empty()
-                && raw.bytes().all(|byte| byte.is_ascii_digit())
-        })
+    crate::decimal::Grammar::Digits
+        .parse::<u32>(raw)
+        .filter(|value| (min..=max).contains(value))
         .ok_or_else(|| Error::invalid("Multipart number is out of range"))
 }
 

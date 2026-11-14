@@ -210,8 +210,7 @@ fn host_without_port(value: &str) -> Option<&str> {
     let literal = host.starts_with('[') && host.ends_with(']');
     (!host.is_empty()
         && (literal || !host.contains(':'))
-        && port.bytes().all(|byte| byte.is_ascii_digit())
-        && port.parse::<u16>().is_ok())
+        && crate::decimal::Grammar::Digits.parse::<u16>(port).is_some())
     .then_some(host)
 }
 

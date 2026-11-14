@@ -104,10 +104,12 @@ fn touch_bucket(
 
 /// Only canonical positive decimal IDs can name a stored configuration.
 fn parse_id(id: &str) -> Option<i64> {
-    if id.starts_with('0') || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+    if id.starts_with('0') {
         return None;
     }
-    id.parse().ok().filter(|id| *id > 0)
+    crate::decimal::Grammar::Digits
+        .parse(id)
+        .filter(|id| *id > 0)
 }
 
 impl Catalog {

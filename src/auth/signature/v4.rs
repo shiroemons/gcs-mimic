@@ -415,11 +415,7 @@ fn non_empty(value: Option<&str>) -> Result<&str, Failure> {
 /// A lifetime in whole seconds within `1..=MAX_EXPIRES`.
 fn parse_expires(raw: &str, parameter: ExpiresParameter) -> Result<u64, Failure> {
     let out_of_range = |value| Failure::ExpiresOutOfRange(parameter, value);
-    match raw
-        .parse::<u64>()
-        .ok()
-        .filter(|_| raw.bytes().all(|byte| byte.is_ascii_digit()))
-    {
+    match crate::decimal::Grammar::Digits.parse::<u64>(raw) {
         Some(seconds @ 1..=MAX_EXPIRES) => Ok(seconds),
         Some(0) => Err(out_of_range(InvalidExpires::Zero)),
         Some(_) | None => Err(out_of_range(InvalidExpires::Other)),

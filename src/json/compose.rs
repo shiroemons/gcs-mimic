@@ -1,5 +1,6 @@
 use crate::{
     bucket::StorageClass,
+    decimal::Grammar,
     json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
     object::{ComposeSource, MapPatch, ObjectMetadataUpdate, Patch},
 };
@@ -48,12 +49,8 @@ pub(crate) fn route(
             query
                 .remove(key)
                 .map(|value| {
-                    value
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit())
-                        .then(|| value.parse::<i64>().ok())
-                        .flatten()
-                        .filter(|value| *value >= 0)
+                    Grammar::Digits
+                        .parse::<i64>(&value)
                         .ok_or_else(|| JsonError::invalid_parameter(format!("Invalid {key}")))
                 })
                 .transpose()
@@ -266,11 +263,7 @@ fn integer(value: Option<&Value>, label: &str) -> Result<Option<i64>, JsonError>
         .map(|value| {
             value
                 .as_str()
-                .and_then(|value| {
-                    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
-                        .then(|| value.parse::<i64>().ok())
-                        .flatten()
-                })
+                .and_then(|value| Grammar::Digits.parse::<i64>(value))
                 .or_else(|| value.as_i64())
                 .filter(|value| *value >= 0)
                 .ok_or_else(|| JsonError::invalid_argument(format!("Invalid {label}")))

@@ -20,6 +20,7 @@ mod error;
 mod fields;
 mod format;
 mod iam;
+mod integer;
 mod multipart;
 pub(crate) mod notifications;
 mod object_copy;

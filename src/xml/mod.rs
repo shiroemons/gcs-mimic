@@ -847,10 +847,9 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
         MinValue::Zero => 0,
         MinValue::One => 1,
     };
-    raw.parse::<i64>()
-        .ok()
+    crate::decimal::Grammar::Digits
+        .parse::<i64>(raw)
         .filter(|n| *n >= floor)
-        .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
         .ok_or_else(|| Error::invalid("Invalid generation or metageneration."))
 }
 

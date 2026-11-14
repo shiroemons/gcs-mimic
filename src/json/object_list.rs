@@ -58,15 +58,9 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     }
     let projection = projection(&mut params)?;
     let mut empty_page = false;
-    let max_results = match params.remove("maxResults") {
+    let max_results = match super::integer::take_max_results(&mut params)? {
         None => 1000,
         Some(value) => {
-            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(JsonError::invalid_unsigned(&value).at_parameter("maxResults"));
-            }
-            let value = value
-                .parse::<u32>()
-                .map_err(|_| JsonError::invalid_unsigned(&value).at_parameter("maxResults"))?;
             empty_page = value == 0;
             if value == 0 {
                 1000

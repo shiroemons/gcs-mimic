@@ -1,5 +1,7 @@
 use super::{
     JsonError, ObjectRequest, Projection,
+    integer::take_long,
+    objects::{ConditionKeys, take_conditions},
     query::{Decoding, decode, parse_query, projection, standard_parameters},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
@@ -49,34 +51,14 @@ pub(super) fn route(
             return Err(JsonError::invalid_parameter("copy requires alt=json"));
         }
         let projection = projection(&mut query)?;
-        let source_generation = super::objects::integer(&mut query, "sourceGeneration")?;
+        let source_generation = take_long(&mut query, "sourceGeneration")?;
         if source_generation.is_some_and(|generation| generation <= 0) {
             return Err(JsonError::invalid_parameter(
                 "sourceGeneration must be positive",
             ));
         }
-        let mut conditions = |prefix: &str| -> Result<ObjectConditions, JsonError> {
-            Ok(ObjectConditions {
-                if_generation_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}GenerationMatch"),
-                )?,
-                if_generation_not_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}GenerationNotMatch"),
-                )?,
-                if_metageneration_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}MetagenerationMatch"),
-                )?,
-                if_metageneration_not_match: super::objects::integer(
-                    &mut query,
-                    &format!("if{prefix}MetagenerationNotMatch"),
-                )?,
-            })
-        };
-        let source_conditions = conditions("Source")?;
-        let conditions = conditions("")?;
+        let source_conditions = take_conditions(&mut query, ConditionKeys::Source)?;
+        let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
         // Cloud Storage copied an object whose request carried an undeclared `gcsmimicUnknown=1`
         // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
         // knows, so what remains in `query` is ignored.

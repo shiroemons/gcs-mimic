@@ -151,25 +151,10 @@ fn parse(
                 validate_service_account_email(email)?;
             }
             let show_deleted_keys = super::query::boolean(&mut query, "showDeletedKeys")?;
-            let max_results = match query.remove("maxResults") {
-                None => HMAC_KEY_PAGE_CAP,
-                Some(value) => {
-                    // Cloud Storage's wording for maxResults=-1 (case bkt-edges-hmac-keys).
-                    let invalid = || {
-                        JsonError::invalid_parameter(format!(
-                            "Invalid unsigned integer value: '{value}'."
-                        ))
-                        .at_parameter("maxResults")
-                    };
-                    // `u32::from_str` also accepts a leading `+`, which is not a decimal digit.
-                    if !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(invalid());
-                    }
-                    match value.parse::<u32>().map_err(|_| invalid())? {
-                        0 => HMAC_KEY_PAGE_CAP,
-                        size => size.min(HMAC_KEY_PAGE_CAP),
-                    }
-                }
+            // Cloud Storage's wording for maxResults=-1 (case bkt-edges-hmac-keys).
+            let max_results = match super::integer::take_max_results(&mut query)? {
+                None | Some(0) => HMAC_KEY_PAGE_CAP,
+                Some(size) => size.min(HMAC_KEY_PAGE_CAP),
             };
             let mut params = HmacKeyListParams {
                 project,

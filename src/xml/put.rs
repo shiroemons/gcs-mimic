@@ -193,9 +193,8 @@ fn validate_framing(
 ) -> Result<Option<u64>, Error> {
     let length = single(headers, "content-length")?
         .map(|raw| {
-            raw.parse::<u64>()
-                .ok()
-                .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
+            crate::decimal::Grammar::Digits
+                .parse::<u64>(raw)
                 .ok_or_else(|| Error::invalid("Invalid Content-Length."))
         })
         .transpose()?;

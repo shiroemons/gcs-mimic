@@ -5,6 +5,7 @@ use super::{
     Decoding, Fields, JsonError, Schema,
     buckets::encode_segment,
     decode,
+    integer::take_int64,
     objects::revision_etag,
     parse_query,
     query::{common, finish},
@@ -125,25 +126,10 @@ fn parse_route(
     };
     let fields = Fields::take(&mut query, schema)?;
     common(&mut query)?;
-    let mut integer = |key: &str| {
-        query
-            .remove(key)
-            .map(|value| {
-                value
-                    .parse::<i64>()
-                    .ok()
-                    .filter(|_| !value.starts_with('+'))
-                    .ok_or_else(|| {
-                        JsonError::invalid_parameter(format!("{key} must be an int64"))
-                            .at_parameter(key)
-                    })
-            })
-            .transpose()
-    };
     let conditions = if kind == AclKind::DefaultObject && operation == AclOperation::List {
         BucketConditions {
-            if_metageneration_match: integer("ifMetagenerationMatch")?,
-            if_metageneration_not_match: integer("ifMetagenerationNotMatch")?,
+            if_metageneration_match: take_int64(&mut query, "ifMetagenerationMatch")?,
+            if_metageneration_not_match: take_int64(&mut query, "ifMetagenerationNotMatch")?,
         }
     } else {
         BucketConditions::default()
@@ -157,7 +143,7 @@ fn parse_route(
             AclTarget::Object {
                 bucket,
                 name,
-                generation: integer("generation")?,
+                generation: take_int64(&mut query, "generation")?,
             }
         }
     };

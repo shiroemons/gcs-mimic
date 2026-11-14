@@ -40,9 +40,9 @@ pub(crate) fn validate(name: &str) -> Result<(), InvalidBucketName> {
     }
     let parts: Vec<_> = name.split('.').collect();
     if parts.len() == 4
-        && parts.iter().all(|part| {
-            part.bytes().all(|byte| byte.is_ascii_digit()) && part.parse::<u8>().is_ok()
-        })
+        && parts
+            .iter()
+            .all(|part| crate::decimal::Grammar::Digits.parse::<u8>(part).is_some())
     {
         return Err(InvalidBucketName);
     }

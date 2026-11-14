@@ -1,12 +1,10 @@
 use super::{
     JsonError, ObjectRequest,
-    objects::integer,
+    integer::take_long,
+    objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
 };
-use crate::{
-    config::CompatProfile,
-    object::{ObjectConditions, ObjectTarget},
-};
+use crate::{config::CompatProfile, object::ObjectTarget};
 use hyper::{Method, Uri};
 
 pub(super) fn route(
@@ -52,21 +50,13 @@ pub(super) fn route(
         // Cloud Storage was observed to omit acl and owner from the restore response even for
         // full, so the value is validated and then has no effect on the rendered resource.
         projection(&mut query)?;
-        let generation = integer(&mut query, "generation")?.ok_or_else(|| {
+        let generation = take_long(&mut query, "generation")?.ok_or_else(|| {
             JsonError::required(
                 "Missing required generation; select a generation from softDeleted=true listing",
             )
         })?;
-        let conditions = ObjectConditions {
-            if_generation_match: integer(&mut query, "ifGenerationMatch")?,
-            if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
-            if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
-            if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
-        };
-        if conditions.if_generation_match.is_some() && conditions.if_generation_not_match.is_some()
-            || conditions.if_metageneration_match.is_some()
-                && conditions.if_metageneration_not_match.is_some()
-        {
+        let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
+        if match_and_not_match(&conditions) {
             return Err(JsonError::invalid_argument(
                 "Match and NotMatch conditions are mutually exclusive; supply one condition per generation kind",
             ));

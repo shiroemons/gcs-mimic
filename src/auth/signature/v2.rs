@@ -103,10 +103,8 @@ fn query_fields(uri: &Uri) -> Result<(BTreeMap<String, String>, SystemTime), Fai
     required(&query, "GoogleAccessId")?;
     required(&query, "Signature")?;
     let expires = required(&query, "Expires")?;
-    let seconds = expires
-        .parse::<u64>()
-        .ok()
-        .filter(|_| expires.bytes().all(|byte| byte.is_ascii_digit()))
+    let seconds = crate::decimal::Grammar::Digits
+        .parse::<u64>(expires)
         .ok_or(Failure::Malformed)?;
     let deadline = UNIX_EPOCH
         .checked_add(Duration::from_secs(seconds))

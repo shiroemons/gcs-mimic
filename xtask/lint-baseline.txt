@@ -13,7 +13,7 @@ text::immediately_invoked_closure	src/json/notifications.rs	1
 text::immediately_invoked_closure	src/json/object_copy.rs	1
 text::immediately_invoked_closure	src/json/object_move.rs	1
 text::immediately_invoked_closure	src/json/object_restore.rs	1
-text::immediately_invoked_closure	src/json/objects.rs	2
+text::immediately_invoked_closure	src/json/objects.rs	1
 text::immediately_invoked_closure	src/json/resumable.rs	1
 text::immediately_invoked_closure	src/json/rewrite.rs	1
 text::immediately_invoked_closure	src/source_tree.rs	1

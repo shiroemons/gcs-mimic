@@ -50,9 +50,9 @@ pub(super) fn validate(
             != 1
         || headers.get_all("content-encoding").iter().count() > 1
         || headers.get_all("x-amz-content-sha256").iter().count() != 1
-        || length.is_empty()
-        || !length.bytes().all(|byte| byte.is_ascii_digit())
-        || length.parse::<u64>().is_err()
+        || crate::decimal::Grammar::Digits
+            .parse::<u64>(length)
+            .is_none()
         || (aws_encoding && !framed)
         || (!transfer && !aws_encoding)
     {

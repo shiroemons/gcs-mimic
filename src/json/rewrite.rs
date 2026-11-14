@@ -1,5 +1,5 @@
 use super::{
-    Decoding, Fields, JsonError, Schema, decode, parse_query, query,
+    Decoding, Fields, JsonError, Schema, decode, integer::take_long, parse_query, query,
     validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
@@ -148,13 +148,7 @@ pub(crate) fn route(
             "ifMetagenerationNotMatch",
             "maxBytesRewrittenPerCall",
         ] {
-            if let Some(value) = remaining.remove(key) {
-                if value.is_empty() || value.starts_with('+') {
-                    return Err(JsonError::invalid_long(&value).at_parameter(key));
-                }
-                let number = value
-                    .parse::<i64>()
-                    .map_err(|_| JsonError::invalid_long(&value).at_parameter(key))?;
+            if let Some(number) = take_long(&mut remaining, key)? {
                 if key == "sourceGeneration" && number <= 0 {
                     return Err(JsonError::invalid_parameter(format!("Invalid {key}")));
                 }

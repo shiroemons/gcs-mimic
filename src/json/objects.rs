@@ -1,8 +1,10 @@
 use super::{
     JsonError, Projection, WriteMode,
     buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
+    integer::take_long,
     query::{Decoding, boolean, decode, parse_query, projection},
 };
+use crate::decimal::Grammar;
 use crate::{
     config::CompatProfile,
     object::{
@@ -262,16 +264,9 @@ fn parse_object_query(
         }
     };
     let upload = name.is_none();
-    let conditions = (|| {
-        Ok::<_, JsonError>(ObjectConditions {
-            if_generation_match: integer(&mut query, "ifGenerationMatch")?,
-            if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
-            if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
-            if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
-        })
-    })()
-    // The upload front end labelled its query problems `text/html`.
-    .map_err(|error| if upload { error.html_typed() } else { error })?;
+    let conditions = take_conditions(&mut query, ConditionKeys::Plain)
+        // The upload front end labelled its query problems `text/html`.
+        .map_err(|error| if upload { error.html_typed() } else { error })?;
     match name {
         None => {
             let upload = UploadQuery {
@@ -444,7 +439,7 @@ fn parse_named_object_query(
         conditions,
         media,
     } = target;
-    let target = ObjectTarget::new(bucket, name, integer(&mut query, "generation")?);
+    let target = ObjectTarget::new(bucket, name, take_long(&mut query, "generation")?);
     if method == Method::PATCH || method == Method::PUT {
         // A PUT without `projection` answered without `acl` and `owner` (recorded), although
         // the reference documents `full` as its default.
@@ -490,21 +485,59 @@ fn parse_named_object_query(
     Ok(ObjectRequest::Delete { target, conditions })
 }
 
-pub(super) fn integer(
+/// The query names of the four object preconditions: plain, or with `Source` for the source of
+/// a copy, move or rewrite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ConditionKeys {
+    Plain,
+    Source,
+}
+
+impl ConditionKeys {
+    const fn names(self) -> [&'static str; 4] {
+        match self {
+            Self::Plain => [
+                "ifGenerationMatch",
+                "ifGenerationNotMatch",
+                "ifMetagenerationMatch",
+                "ifMetagenerationNotMatch",
+            ],
+            Self::Source => [
+                "ifSourceGenerationMatch",
+                "ifSourceGenerationNotMatch",
+                "ifSourceMetagenerationMatch",
+                "ifSourceMetagenerationNotMatch",
+            ],
+        }
+    }
+}
+
+/// Removes and parses the four preconditions, in the order the names are listed.
+pub(super) fn take_conditions(
     query: &mut BTreeMap<String, String>,
-    key: &str,
-) -> Result<Option<i64>, JsonError> {
-    query
-        .remove(key)
-        .map(|value| {
-            if value.starts_with('+') {
-                return Err(JsonError::invalid_long(&value).at_parameter(key));
-            }
-            value
-                .parse()
-                .map_err(|_| JsonError::invalid_long(&value).at_parameter(key))
-        })
-        .transpose()
+    keys: ConditionKeys,
+) -> Result<ObjectConditions, JsonError> {
+    let [
+        generation_match,
+        generation_not_match,
+        metageneration_match,
+        metageneration_not_match,
+    ] = keys.names();
+    Ok(ObjectConditions {
+        if_generation_match: take_long(query, generation_match)?,
+        if_generation_not_match: take_long(query, generation_not_match)?,
+        if_metageneration_match: take_long(query, metageneration_match)?,
+        if_metageneration_not_match: take_long(query, metageneration_not_match)?,
+    })
+}
+
+/// Whether both the match and the not-match condition of one generation kind are set. Move and
+/// restore reject that with their own wording; copy accepts it, as its tests pin and as the
+/// official reference describes no such exclusion for copies.
+pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
+    conditions.if_generation_match.is_some() && conditions.if_generation_not_match.is_some()
+        || conditions.if_metageneration_match.is_some()
+            && conditions.if_metageneration_not_match.is_some()
 }
 
 /// `keys` lists the customer-supplied key header prefixes the caller parses itself.
@@ -722,7 +755,7 @@ pub(crate) fn range_request(headers: &HeaderMap) -> RangeRequest<'_> {
 /// A range position. Saturation preserves comparisons with the bounded object size for
 /// arbitrarily large numerals.
 fn range_number(value: &str) -> Option<u64> {
-    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
+    Grammar::Digits.admits(value).then(|| {
         value.bytes().fold(0_u64, |n, byte| {
             n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
         })
