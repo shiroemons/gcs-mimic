@@ -1018,6 +1018,63 @@ fn bucket_updates_name_each_versioning_change() {
     }
 }
 
+/// The XML API and gRPC create buckets from members they already hold. That entry reaches the
+/// same record, or the same error, as the JSON body carrying those members.
+#[test]
+fn bucket_inserts_from_members_match_inserts_from_json_bodies() {
+    let now = UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_789);
+    let minimal = json!({"name": "member-bucket"});
+    let full = json!({
+        "name": "member-bucket",
+        "location": "eu",
+        "storageClass": "NEARLINE",
+        "labels": {"env": "test"},
+        "versioning": {"enabled": true},
+        "defaultEventBasedHold": true,
+        "softDeletePolicy": {"retentionDurationSeconds": "604800"},
+        "retentionPolicy": {"retentionPeriod": "3600"},
+        "cors": [{"origin": ["*"], "method": ["GET"], "maxAgeSeconds": 60}],
+        "lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 30}}]},
+        "iamConfiguration": {
+            "uniformBucketLevelAccess": {"enabled": true},
+            "publicAccessPrevention": "enforced"
+        },
+    });
+    let refused = [
+        json!({}),
+        json!({"name": "-bad"}),
+        json!({"name": "member-bucket", "acl": []}),
+        json!({"name": "member-bucket", "location": "nowhere"}),
+        json!({"name": "member-bucket", "versioning": {"enabled": "yes"}}),
+    ];
+    // The fake-gcs-server profile ignores labels on insert.
+    let malformed_labels = json!({"name": "member-bucket", "labels": "env"});
+    for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
+        let insert = |body: &Value, project: &str| {
+            let members = body.as_object().unwrap();
+            let from_members = buckets::insert_from_object(members, project, now, profile, "US");
+            let bytes = serde_json::to_vec(body).unwrap();
+            let from_bytes =
+                buckets::parse_insert_with_profile(&bytes, project, now, profile, "US");
+            assert_eq!(from_members, from_bytes, "{profile:?} {project:?} {body}");
+            from_members
+        };
+        assert!(insert(&minimal, "project-1").is_ok(), "{profile:?}");
+        assert_eq!(
+            insert(&full, "project-1").is_ok(),
+            profile == CompatProfile::Native
+        );
+        assert!(insert(&minimal, "").is_err(), "{profile:?}");
+        for body in &refused {
+            assert!(insert(body, "project-1").is_err(), "{profile:?} {body}");
+        }
+        assert_eq!(
+            insert(&malformed_labels, "project-1").is_err(),
+            profile == CompatProfile::Native
+        );
+    }
+}
+
 #[test]
 fn bkt_ins_001_defaults_and_server_owned_values() {
     let now = UNIX_EPOCH + Duration::new(123, 456_789_123);

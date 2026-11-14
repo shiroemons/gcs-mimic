@@ -234,11 +234,26 @@ pub(crate) fn parse_insert_with_profile(
     profile: CompatProfile,
     default_location: &str,
 ) -> Result<BucketRecord, JsonError> {
+    // An invalid project is reported before a malformed body.
     validate_project(project)?;
     let value = parse_insert_json(bytes, profile)?;
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
+    insert_from_object(body, project, now, profile, default_location)
+}
+
+/// [`parse_insert_with_profile`] for a resource the caller already holds as members, such as
+/// one the XML API builds from its `CreateBucketConfiguration` or gRPC from its `Bucket`
+/// message.
+pub(crate) fn insert_from_object(
+    body: &Map<String, Value>,
+    project: &str,
+    now: SystemTime,
+    profile: CompatProfile,
+    default_location: &str,
+) -> Result<BucketRecord, JsonError> {
+    validate_project(project)?;
     reject_unsupported_insert_fields(body, profile)?;
     let name =
         if profile == CompatProfile::FakeGcsServer && body.get("name").is_none_or(Value::is_null) {
