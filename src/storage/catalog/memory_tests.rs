@@ -869,7 +869,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         })
         .await
         .unwrap();
-    let blob = super::super::blob_id::BlobId::parse(&id).unwrap();
+    let blob: super::super::blob_id::BlobId = id.parse().unwrap();
     let paths = [
         blob.staging_path(Path::new("")),
         blob.blob_path(Path::new("")),

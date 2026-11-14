@@ -136,7 +136,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         // A creation that crashed before its row committed leaves an unreferenced file.
-        if BlobId::parse(&name).is_none() {
+        if name.parse::<BlobId>().is_err() {
             continue;
         }
         let referenced: bool = connection.query_row(

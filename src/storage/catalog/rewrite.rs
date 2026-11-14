@@ -306,7 +306,7 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 /// Whether a decoded session's identifiers, progress and stored response agree; an
 /// incomplete session owns the derived transfer with its own ID, a completed one none.
 fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> bool {
-    let opaque_id = |value: &str| BlobId::parse(value).is_some();
+    let opaque_id = |value: &str| value.parse::<BlobId>().is_ok();
     let completed = session
         .response
         .as_ref()

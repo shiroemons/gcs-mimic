@@ -1,4 +1,5 @@
 mod blob_id;
+pub mod opaque_id;
 pub(crate) use blob_id::BlobId;
 mod catalog;
 #[cfg(test)]

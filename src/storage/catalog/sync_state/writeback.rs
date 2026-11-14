@@ -397,7 +397,7 @@ const SELECT_PENDING: &str = concat!(
 );
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
     let id: String = row.get(0)?;
-    if BlobId::parse(&id).is_none() {
+    if id.parse::<BlobId>().is_err() {
         return Err(sql::conversion_error(
             0,
             rusqlite::types::Type::Text,

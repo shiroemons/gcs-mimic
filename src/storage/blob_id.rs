@@ -1,71 +1,16 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use rusqlite::{
-    ToSql,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
-};
-use std::{
-    fmt,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct BlobId([u8; 16]);
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct InvalidBlobId;
-
-impl fmt::Display for InvalidBlobId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("invalid opaque blob ID")
-    }
-}
-
-impl std::error::Error for InvalidBlobId {}
-
-impl FromStr for BlobId {
-    type Err = InvalidBlobId;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        Self::parse(text).ok_or(InvalidBlobId)
-    }
-}
-
-impl fmt::Display for BlobId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.to_hex())
-    }
-}
-
-impl ToSql for BlobId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(self.to_hex().into()))
-    }
-}
-
-impl FromSql for BlobId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value
-            .as_str()?
-            .parse()
-            .map_err(|error| FromSqlError::Other(Box::new(error)))
-    }
+crate::storage::opaque_id::opaque_id! {
+    pub(crate) struct BlobId([u8; 16]);
+    invalid = "invalid opaque blob ID";
+    column = text;
 }
 
 impl BlobId {
     pub(crate) fn generate() -> Result<Self, getrandom::Error> {
-        let mut bytes = [0; 16];
-        getrandom::fill(&mut bytes)?;
-        Ok(Self(bytes))
-    }
-
-    pub(crate) fn parse(text: &str) -> Option<Self> {
-        crate::hex::decode_lower(text).map(Self)
-    }
-
-    pub(crate) fn to_hex(self) -> String {
-        crate::hashing::encode_lower(&self.0)
+        crate::storage::opaque_id::random().map(Self)
     }
 
     pub(crate) fn blob_path(self, data_dir: &Path) -> PathBuf {
@@ -85,15 +30,15 @@ impl BlobId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::opaque_id::InvalidOpaqueId;
 
     #[test]
     fn canonical_ids_preserve_names_shards_and_leading_zeroes() {
         let text = "000102030405060708090a0b0c0d0e0f";
-        let id = BlobId::parse(text).unwrap();
+        let id: BlobId = text.parse().unwrap();
         assert_eq!(id.0, std::array::from_fn(|index| index as u8));
         assert_eq!(id.to_hex(), text);
         assert_eq!(id.to_string(), text);
-        assert_eq!(text.parse::<BlobId>().unwrap(), id);
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         assert_eq!(
             connection
@@ -111,7 +56,7 @@ mod tests {
         assert_eq!(id.blob_path(root), root.join("blobs").join("00").join(text));
         assert_eq!(id.staging_path(root), root.join("staging").join(text));
         let generated = BlobId::generate().unwrap();
-        assert_eq!(BlobId::parse(&generated.to_hex()), Some(generated));
+        assert_eq!(generated.to_hex().parse(), Ok(generated));
         for invalid in [
             "",
             "a",
@@ -123,8 +68,10 @@ mod tests {
             &"/".repeat(32),
             &"é".repeat(16),
         ] {
-            assert_eq!(BlobId::parse(invalid), None);
-            assert_eq!(invalid.parse::<BlobId>(), Err(InvalidBlobId));
+            assert_eq!(
+                invalid.parse::<BlobId>(),
+                Err(InvalidOpaqueId::new("invalid opaque blob ID"))
+            );
             let error = connection
                 .query_row("SELECT ?1", [invalid], |row| row.get::<_, BlobId>(0))
                 .unwrap_err();
@@ -141,5 +88,43 @@ mod tests {
             connection.query_row("SELECT 1", [], |row| row.get::<_, BlobId>(0)),
             Err(rusqlite::Error::InvalidColumnType(0, _, _))
         ));
+    }
+
+    /// Fixed-length lowercase hex sorts like its bytes, so a keyset cursor may compare the
+    /// typed ID or the stored text.
+    #[test]
+    fn ordering_matches_sqlite_text_order() {
+        let mut ids: Vec<BlobId> = (0..64).map(|_| BlobId::generate().unwrap()).collect();
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE ids (id TEXT NOT NULL)")
+            .unwrap();
+        for id in &ids {
+            connection
+                .execute("INSERT INTO ids VALUES (?1)", [id])
+                .unwrap();
+        }
+        let ordered: Vec<BlobId> = connection
+            .prepare("SELECT id FROM ids ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        ids.sort();
+        assert_eq!(ordered, ids);
+    }
+
+    #[test]
+    fn serde_uses_the_lowercase_text_form() {
+        let id: BlobId = "000102030405060708090a0b0c0d0e0f".parse().unwrap();
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"000102030405060708090a0b0c0d0e0f\"");
+        assert_eq!(serde_json::from_str::<BlobId>(&json).unwrap(), id);
+        assert!(serde_json::from_str::<BlobId>("\"000102030405060708090A0B0C0D0E0F\"").is_err());
+        assert_eq!(
+            format!("{id:?}"),
+            "BlobId(000102030405060708090a0b0c0d0e0f)"
+        );
     }
 }

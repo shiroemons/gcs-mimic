@@ -444,7 +444,7 @@ unavailable_cause!(
     crate::task::BlockingFailed,
     crate::fsutil::FsError,
     crate::storage::admin::AdminError,
-    crate::storage::blob_id::InvalidBlobId,
+    crate::storage::opaque_id::InvalidOpaqueId,
 );
 
 impl From<Classified> for CatalogError {

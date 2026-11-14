@@ -483,7 +483,8 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     let blob: String = connection
         .query_row("SELECT blob_id FROM objects", [], |row| row.get(0))
         .unwrap();
-    let blob_path = crate::storage::blob_id::BlobId::parse(&blob)
+    let blob_path = blob
+        .parse::<crate::storage::blob_id::BlobId>()
         .unwrap()
         .blob_path(&dir.0);
     std::fs::create_dir_all(blob_path.parent().unwrap()).unwrap();

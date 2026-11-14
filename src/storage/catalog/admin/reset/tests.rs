@@ -55,7 +55,7 @@ async fn reclaim_retains_the_whole_page_until_every_directory_is_synced() {
         "01000000000000000000000000000001",
         "01000000000000000000000000000002",
     ]
-    .map(|id| BlobId::parse(id).unwrap());
+    .map(|id| id.parse::<BlobId>().unwrap());
     for id in ids {
         for path in [
             id.blob_path(&dir.0),
