@@ -3,7 +3,7 @@ use crate::storage::failure::BackendCause;
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub(super) struct DirectoryLock {
@@ -102,18 +102,26 @@ pub(super) fn acquire_import<T>(
         released: false,
     };
     #[cfg(not(unix))]
-    let lock =
-        acquire_file(data_dir, OpenOptions::new().read(true).write(true)).map_err(|error| {
-            if crate::error::causes(&error).any(|cause| {
-                cause
-                    .downcast_ref::<io::Error>()
-                    .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
-            }) {
-                CatalogError::from(super::import_journal::ResumeError::MissingLock)
-            } else {
-                error
-            }
-        })?;
+    let lock = {
+        // Resuming never creates the lock file, so a missing one is the resume refusal rather
+        // than an open failure.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(lock_path(data_dir))
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound {
+                    CatalogError::from(super::import_journal::ResumeError::MissingLock)
+                } else {
+                    open_failure(error)
+                }
+            })?;
+        DirectoryLock {
+            directory: None,
+            file: lock_file(data_dir, file)?,
+            released: false,
+        }
+    };
     let inspected = inspect()?;
     #[cfg(unix)]
     {
@@ -163,10 +171,21 @@ fn acquire_catalog_directory(data_dir: &Path) -> Result<File, CatalogError> {
     })
 }
 
+fn lock_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("catalog.lock")
+}
+
+fn open_failure(error: io::Error) -> CatalogError {
+    lock_failure(format!("open data directory lock: {error}"), error)
+}
+
 fn open_lock_file(data_dir: &Path, options: &OpenOptions) -> Result<File, CatalogError> {
-    let file = options
-        .open(data_dir.join("catalog.lock"))
-        .map_err(|e| lock_failure(format!("open data directory lock: {e}"), e))?;
+    let file = options.open(lock_path(data_dir)).map_err(open_failure)?;
+    lock_file(data_dir, file)
+}
+
+/// Locks an open `catalog.lock`, reporting a lock another process holds as in use.
+fn lock_file(data_dir: &Path, file: File) -> Result<File, CatalogError> {
     file.try_lock().map_err(|e| match e {
         TryLockError::WouldBlock => in_use(data_dir),
         TryLockError::Error(e) => lock_failure(
