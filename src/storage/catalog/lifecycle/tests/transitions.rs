@@ -1020,7 +1020,7 @@ async fn synchronized_transitions_follow_execution_settings_without_exporting_bo
         task.rescan().await.unwrap();
         let path = tree.0.join("bucket/object");
         let before = std::fs::metadata(&path).unwrap();
-        let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
+        let fence = catalog.current_fence().await.unwrap();
         clock.advance(DAY);
         let outcome = catalog.run_lifecycle_now().await.unwrap();
         let enabled = choice == Some(LifecycleExecution::Enabled);
@@ -1058,15 +1058,15 @@ async fn synchronized_transitions_follow_execution_settings_without_exporting_bo
                 original.storage_class
             }
         );
-        let changes = catalog.read_changes(Some(fence), None, 256).await.unwrap();
-        assert_eq!(changes.items.len(), usize::from(enabled));
+        let changes = catalog.read_changes(fence, None, 256).await.unwrap();
+        assert_eq!(changes.items().len(), usize::from(enabled));
         if enabled {
             assert_eq!(
-                changes.items[0].kind,
+                changes.items()[0].kind,
                 crate::storage::catalog::change_journal::ChangeKind::Metadata
             );
             assert_eq!(
-                changes.items[0].metageneration,
+                changes.items()[0].metageneration,
                 Some(changed.metageneration)
             );
         }

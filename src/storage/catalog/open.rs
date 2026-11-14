@@ -7,6 +7,100 @@ use super::*;
 /// statements cost on the order of a megabyte, bounded by this one connection.
 const STATEMENT_CACHE_CAPACITY: usize = 256;
 
+/// Where a catalog keeps its data, decided once at open.
+pub(super) enum Backing {
+    /// A data directory. `resume` is an unfinished import's source digest, verified under the
+    /// directory lock before migration and recovery.
+    Disk {
+        data_dir: PathBuf,
+        resume: Option<[u8; 32]>,
+    },
+    /// A volatile catalog with budgets for blob bytes and catalog database pages. `data_dir` is
+    /// only the path the catalog reports: a server passes an empty one, and tests a directory
+    /// that keeps their fault injection apart.
+    Memory {
+        limits: MemoryLimits,
+        data_dir: PathBuf,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct MemoryLimits {
+    pub(super) blob_bytes: u64,
+    pub(super) catalog_bytes: u64,
+}
+
+#[cfg(test)]
+impl Backing {
+    /// A small memory catalog whose fault injection is keyed by `data_dir`.
+    pub(super) fn test_memory(data_dir: PathBuf) -> Self {
+        Self::Memory {
+            limits: MemoryLimits {
+                blob_bytes: 8192,
+                catalog_bytes: 1024 * 1024,
+            },
+            data_dir,
+        }
+    }
+
+    pub(super) fn test_disk(data_dir: PathBuf) -> Self {
+        Self::Disk {
+            data_dir,
+            resume: None,
+        }
+    }
+}
+
+/// Opened storage, before the schema is brought up to date.
+struct OpenedStorage {
+    backend: BlobBackend,
+    /// Held for a data directory for as long as the catalog is open.
+    lock: Option<lock::DirectoryLock>,
+    stored_version: i64,
+    connection: Connection,
+    data_dir: PathBuf,
+}
+
+/// Opens the blob store and the catalog database: for a data directory, under its lock and
+/// after inspecting the stored catalog read-only.
+fn open_storage(backing: Backing) -> Result<OpenedStorage, CatalogError> {
+    match backing {
+        Backing::Memory { limits, data_dir } => {
+            let backend = BlobBackend::Memory(super::super::memory::Store::new(limits.blob_bytes));
+            Ok(OpenedStorage {
+                backend,
+                lock: None,
+                stored_version: 0,
+                connection: open_memory(limits.catalog_bytes)?,
+                data_dir,
+            })
+        }
+        Backing::Disk { data_dir, resume } => {
+            let data_dir = std::path::absolute(data_dir)?;
+            let backend = BlobBackend::Disk(data_dir.clone());
+            let path = data_dir.join("catalog.sqlite3");
+            let (lock, (version, readonly)) = if let Some(source) = resume {
+                lock::acquire_import(&data_dir, || {
+                    let (version, readonly) = inspect_catalog(&path)?;
+                    import_journal::verify_resume(&readonly, version, source)?;
+                    Ok((version, readonly))
+                })?
+            } else {
+                let lock = lock::acquire(&data_dir)?;
+                (lock, inspect_catalog(&path)?)
+            };
+            drop(readonly);
+            Ok(OpenedStorage {
+                backend,
+                lock: Some(lock),
+                stored_version: version,
+                connection: open_writable(&path)?,
+                data_dir,
+            })
+        }
+    }
+}
+
 pub(super) fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
     #[cfg(unix)]
     let bytes = path.as_os_str().as_encoded_bytes();
@@ -209,8 +303,11 @@ impl Catalog {
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
     ) -> Result<Self, CatalogError> {
-        let data_dir = data_dir.as_ref().to_owned();
-        Self::open_backend(data_dir, clock, local_admin, None, None).await
+        let backing = Backing::Disk {
+            data_dir: data_dir.as_ref().to_owned(),
+            resume: None,
+        };
+        Self::open_backend(backing, clock, local_admin).await
     }
 
     /// Checks the unfinished import binding under the directory lock before migration/recovery.
@@ -219,11 +316,12 @@ impl Catalog {
         source: [u8; 32],
     ) -> Result<Self, CatalogError> {
         let catalog = Self::open_backend(
-            data_dir.to_owned(),
+            Backing::Disk {
+                data_dir: data_dir.to_owned(),
+                resume: Some(source),
+            },
             Arc::new(SystemClock),
             admin::LocalAdmin::Disabled,
-            None,
-            Some(source),
         )
         .await?;
         catalog.set_principal_profile(principals::Profile::TrustedLocal)?;
@@ -243,49 +341,32 @@ impl Catalog {
             ));
         }
         Self::open_backend(
-            PathBuf::new(),
+            Backing::Memory {
+                limits: MemoryLimits {
+                    blob_bytes: max_bytes,
+                    catalog_bytes: catalog_max_bytes,
+                },
+                data_dir: PathBuf::new(),
+            },
             clock,
             local_admin,
-            Some((max_bytes, catalog_max_bytes)),
-            None,
         )
         .await
     }
 
     pub(super) async fn open_backend(
-        data_dir: PathBuf,
+        backing: Backing,
         clock: Arc<dyn Clock>,
         local_admin: admin::LocalAdmin,
-        memory_limits: Option<(u64, u64)>,
-        resume_source: Option<[u8; 32]>,
     ) -> Result<Self, CatalogError> {
         crate::task::run_blocking("catalog-open", move || -> Result<Self, CatalogError> {
-            let data_dir = if memory_limits.is_none() {
-                std::path::absolute(data_dir)?
-            } else {
-                data_dir
-            };
-            let backend = match memory_limits {
-                Some((bytes, _)) => BlobBackend::Memory(super::super::memory::Store::new(bytes)),
-                None => BlobBackend::Disk(data_dir.clone()),
-            };
-            let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
-                (None, 0, open_memory(bytes)?)
-            } else {
-                let path = data_dir.join("catalog.sqlite3");
-                let (lock, (version, readonly)) = if let Some(source) = resume_source {
-                    lock::acquire_import(&data_dir, || {
-                        let (version, readonly) = inspect_catalog(&path)?;
-                        import_journal::verify_resume(&readonly, version, source)?;
-                        Ok((version, readonly))
-                    })?
-                } else {
-                    let lock = lock::acquire(&data_dir)?;
-                    (lock, inspect_catalog(&path)?)
-                };
-                drop(readonly);
-                (Some(lock), version, open_writable(&path)?)
-            };
+            let OpenedStorage {
+                backend,
+                lock,
+                stored_version,
+                mut connection,
+                data_dir,
+            } = open_storage(backing)?;
             // A version-zero database has no catalog yet, including an interrupted first open.
             let data_dir_state = if stored_version == 0 {
                 DataDirState::Created
@@ -309,19 +390,24 @@ impl Catalog {
                     serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
                 );
             }
-            if memory_limits.is_some() {
-                connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
-                notification_outbox::open(&connection)?;
-                resumable::open(&connection)?;
-            } else {
-                recover_on_open(&mut connection, &backend, &*clock)?;
+            match backend.kind() {
+                crate::config::Backend::Memory => {
+                    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
+                    notification_outbox::open(&connection)?;
+                    resumable::open(&connection)?;
+                }
+                crate::config::Backend::Disk => recover_on_open(&mut connection, &backend, &*clock)?,
             }
             let parent_policy = Arc::<read_pool::ParentPolicy>::default();
             let lifecycle = lifecycle::LifecycleSchedule::open(&connection)?;
             // An in-memory database exists only inside the writer's connection.
-            let read_pool = memory_limits.is_none().then(|| {
-                read_pool::ReadPool::new(data_dir.join("catalog.sqlite3"), parent_policy.clone())
-            });
+            let read_pool = match backend.kind() {
+                crate::config::Backend::Memory => None,
+                crate::config::Backend::Disk => Some(read_pool::ReadPool::new(
+                    data_dir.join("catalog.sqlite3"),
+                    parent_policy.clone(),
+                )),
+            };
             Ok(Self(Arc::new(Inner {
                 principals: OnceLock::new(),
                 activity: ActivityGate::default(),

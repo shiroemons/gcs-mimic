@@ -143,12 +143,7 @@ impl Fixture {
             .open_object(&self.bucket, &name, None)
             .await
             .unwrap();
-        let fence = self
-            .catalog
-            .read_changes(None, None, 1)
-            .await
-            .unwrap()
-            .fence;
+        let fence = self.catalog.current_fence().await.unwrap();
         self.writeback
             .begin_live_export(
                 binding,
@@ -547,12 +542,7 @@ async fn live_export_removal_requires_a_complete_baseline_and_the_tracked_genera
         .get_path(binding.clone(), "test-bucket/object".into())
         .await
         .unwrap();
-    let fence = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let fence = fixture.catalog.current_fence().await.unwrap();
     assert!(matches!(
         fixture
             .writeback
@@ -717,12 +707,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
             name,
             Generation::new(record.generation).unwrap(),
             None,
-            fixture
-                .catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence,
+            fixture.catalog.current_fence().await.unwrap(),
             LiveSource::ApiCopy(reader.into_file().await.unwrap()),
         )
         .await
@@ -779,12 +764,7 @@ async fn live_export_rejects_held_and_stale_tracked_inputs() {
         .binding(&fixture.bucket)
         .await
         .unwrap();
-    let fence = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let fence = fixture.catalog.current_fence().await.unwrap();
     fixture
         .catalog
         .update_object_metadata(
@@ -843,12 +823,7 @@ async fn live_export_rejects_held_and_stale_tracked_inputs() {
         .unwrap()
         .unwrap();
     tracked.fingerprint.inode ^= 1;
-    let fence = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let fence = fixture.catalog.current_fence().await.unwrap();
     assert!(matches!(
         fixture
             .writeback
@@ -953,12 +928,7 @@ async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_
                 ObjectName::new("object").unwrap(),
                 item.generation,
                 None,
-                fixture
-                    .catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
+                fixture.catalog.current_fence().await.unwrap(),
                 LiveSource::Observe
             )
             .await

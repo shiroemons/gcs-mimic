@@ -51,7 +51,7 @@ impl LiveControl<'_> {
                 Some(summary),
             ));
         }
-        let fence = self.catalog.read_changes(None, None, 1).await?.fence;
+        let fence = self.catalog.current_fence().await?;
         #[cfg(test)]
         export_checkpoint("wait-fence").await;
         let writeback = self.writeback;
@@ -65,14 +65,17 @@ impl LiveControl<'_> {
                 reason = WaitReason::Timeout;
                 break;
             }
-            let page = self
+            let page = match self
                 .catalog
-                .read_changes(Some(*self.cursor), Some(fence), 256)
-                .await?;
-            if page.rescan_required {
-                reason = WaitReason::JournalChanged;
-                break;
-            }
+                .read_changes(*self.cursor, Some(fence), 256)
+                .await?
+            {
+                ChangeRead::Rescan { .. } => {
+                    reason = WaitReason::JournalChanged;
+                    break;
+                }
+                ChangeRead::Page(page) => page,
+            };
             let next = page.next;
             let replay = replay_page_with(
                 self.catalog,

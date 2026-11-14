@@ -90,12 +90,7 @@ async fn changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
-    let mut cursor = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let mut cursor = fixture.catalog.current_fence().await.unwrap();
     let mut control = LiveControl {
         catalog: &fixture.catalog,
         root: &fixture.root,
@@ -169,12 +164,7 @@ async fn queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset()
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
-    let mut cursor = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let mut cursor = fixture.catalog.current_fence().await.unwrap();
     let mut control = LiveControl {
         catalog: &fixture.catalog,
         root: &fixture.root,
@@ -227,12 +217,7 @@ async fn history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan() {
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
-    let mut cursor = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let mut cursor = fixture.catalog.current_fence().await.unwrap();
     let mut control = LiveControl {
         catalog: &fixture.catalog,
         root: &fixture.root,
@@ -295,12 +280,7 @@ async fn explicit_rescan_requires_verified_quiet_before_clearing_history() {
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
-    let mut cursor = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let mut cursor = fixture.catalog.current_fence().await.unwrap();
     let mut control = LiveControl {
         catalog: &fixture.catalog,
         root: &fixture.root,

@@ -746,12 +746,7 @@ async fn protected_workspace(fixture: &Fixture, size: u64) -> (writeback::Writeb
         .writeback(writeback::Limits::new(MAX_BYTES, MAX_ENTRIES).unwrap())
         .await
         .unwrap();
-    let fence = fixture
-        .catalog
-        .read_changes(None, None, 1)
-        .await
-        .unwrap()
-        .fence;
+    let fence = fixture.catalog.current_fence().await.unwrap();
     let pending = writeback::armed_observation(
         &writeback,
         &fixture.bucket,

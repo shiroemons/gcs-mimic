@@ -626,7 +626,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let record = publish_origin(&catalog, &bucket, b"same", Origin::Api).await;
         catalog.enable_change_journal().await.unwrap();
-        let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
+        let fence = catalog.current_fence().await.unwrap();
         let binding = catalog.sync_state().binding(&bucket).await.unwrap();
         let writeback = root
             .writeback(Limits::new(4096, 10).unwrap())
@@ -1200,7 +1200,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             .unwrap()
             .unwrap();
         catalog.enable_change_journal().await.unwrap();
-        let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
+        let fence = catalog.current_fence().await.unwrap();
         let writeback = root
             .writeback(Limits::new(4096, 10).unwrap())
             .await
@@ -1570,7 +1570,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
     fs::rename(&workspace, tree.0.join("retained-workspace")).unwrap();
     fs::create_dir(&workspace).unwrap();
     let config = Config::default();
-    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut cursor = catalog.current_fence().await.unwrap();
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
     let (_sender, stopping) = tokio::sync::watch::channel(false);
@@ -1620,7 +1620,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
     reconcile(&catalog, &root).await.unwrap();
     fs::write(tree.0.join("test-bucket/new-source"), b"unsettled").unwrap();
     let config = Config::default();
-    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut cursor = catalog.current_fence().await.unwrap();
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
     let (_sender, stopping) = tokio::sync::watch::channel(false);
@@ -1663,7 +1663,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
     catalog.enable_change_journal().await.unwrap();
     let config = Config::default();
     assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
-    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let mut cursor = catalog.current_fence().await.unwrap();
     publish_origin(&catalog, &bucket, b"captured", Origin::Api).await;
     let mut gate = BaselineGate::Allowed;
     let mut baseline = true;
@@ -1717,13 +1717,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
     assert!(!result.timed_out);
     assert!(
         result.journal_fence.unwrap().sequence
-            < catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence
-                .sequence
-                .get()
+            < catalog.current_fence().await.unwrap().sequence.get()
     );
     assert_eq!(
         fs::read(tree.0.join("test-bucket/object")).unwrap(),

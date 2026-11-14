@@ -773,12 +773,15 @@ mod tests {
         use super::super::fault::{Fault, Step};
         for memory in [false, true] {
             let dir = crate::test_support::TestDir::new();
+            let backing = if memory {
+                super::super::open::Backing::test_memory(dir.0.clone())
+            } else {
+                super::super::open::Backing::test_disk(dir.0.clone())
+            };
             let catalog = Catalog::open_backend(
-                dir.0.clone(),
+                backing,
                 std::sync::Arc::new(crate::clock::SystemClock),
                 super::super::admin::LocalAdmin::Disabled,
-                memory.then_some((8192, 1024 * 1024)),
-                None,
             )
             .await
             .unwrap();

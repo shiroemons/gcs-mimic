@@ -9,12 +9,7 @@ async fn live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_
         &fixture.bucket,
         &ObjectName::new("object").unwrap(),
         Generation::new(record.generation).unwrap(),
-        fixture
-            .catalog
-            .read_changes(None, None, 1)
-            .await
-            .unwrap()
-            .fence,
+        fixture.catalog.current_fence().await.unwrap(),
     )
     .await;
     let path = fixture

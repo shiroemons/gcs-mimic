@@ -26,10 +26,10 @@ async fn failed_transition_update_rolls_back_the_page_and_retries() {
     );
     assert_eq!(
         catalog
-            .read_changes(Some(fence), None, 256)
+            .read_changes(fence, None, 256)
             .await
             .unwrap()
-            .items
+            .items()
             .len(),
         0
     );
@@ -83,10 +83,10 @@ async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retr
     );
     assert_eq!(
         catalog
-            .read_changes(Some(fence), None, 256)
+            .read_changes(fence, None, 256)
             .await
             .unwrap()
-            .items
+            .items()
             .len(),
         0
     );
@@ -107,10 +107,10 @@ async fn failed_transition_commit_preserves_metadata_events_and_journal_for_retr
     );
     assert_eq!(
         catalog
-            .read_changes(Some(fence), None, 256)
+            .read_changes(fence, None, 256)
             .await
             .unwrap()
-            .items
+            .items()
             .len(),
         1
     );
@@ -144,10 +144,10 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             recovered.configure_lifecycle(&Default::default());
             assert!(
                 recovered
-                    .read_changes(Some(fence), None, 256)
+                    .read_changes(fence, None, 256)
                     .await
                     .unwrap()
-                    .rescan_required
+                    .rescan_required()
             );
             let restarted = recovered.enable_change_journal().await.unwrap();
             assert_eq!(
@@ -165,12 +165,12 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
                 count(&recovered, "SELECT count(*) FROM pending_blob_deletions").await,
                 0
             );
-            let page = recovered
-                .read_changes(Some(restarted), None, 256)
-                .await
-                .unwrap();
+            let page = recovered.read_changes(restarted, None, 256).await.unwrap();
             // Opening starts a new journal epoch; committed rows survive but need a rescan.
-            assert_eq!(page.items.len(), usize::from(step == Step::LifecycleCommit));
+            assert_eq!(
+                page.items().len(),
+                usize::from(step == Step::LifecycleCommit)
+            );
             assert_eq!(
                 count(
                     &recovered,

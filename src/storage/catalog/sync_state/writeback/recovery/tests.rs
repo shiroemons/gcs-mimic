@@ -74,11 +74,7 @@ impl Fixture {
             &self.bucket,
             &ObjectName::new("object").unwrap(),
             Generation::new(self.record.generation).unwrap(),
-            self.catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence,
+            self.catalog.current_fence().await.unwrap(),
         )
         .await;
         live_pending(&operation).await
@@ -89,11 +85,7 @@ impl Fixture {
             &self.bucket,
             &ObjectName::new("object").unwrap(),
             Generation::new(self.record.generation).unwrap(),
-            self.catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence,
+            self.catalog.current_fence().await.unwrap(),
         )
         .await
     }
@@ -129,11 +121,7 @@ impl Fixture {
                 name,
                 Generation::new(self.record.generation).unwrap(),
                 None,
-                self.catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
+                self.catalog.current_fence().await.unwrap(),
                 LiveSource::ApiCopy(reader.into_file().await.unwrap()),
             )
             .await

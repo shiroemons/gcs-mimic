@@ -79,12 +79,7 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
                     ObjectName::new("object").unwrap(),
                     Generation::new(fixture.record.generation).unwrap(),
                     None,
-                    fixture
-                        .catalog
-                        .read_changes(None, None, 1)
-                        .await
-                        .unwrap()
-                        .fence,
+                    fixture.catalog.current_fence().await.unwrap(),
                     LiveSource::Observe
                 )
                 .await

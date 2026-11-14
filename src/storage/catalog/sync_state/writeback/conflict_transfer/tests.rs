@@ -96,11 +96,7 @@ impl Fixture {
             &self.bucket,
             &ObjectName::new("object").unwrap(),
             Generation::new(self.record.generation).unwrap(),
-            self.catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence,
+            self.catalog.current_fence().await.unwrap(),
         )
         .await;
         fs::write(
@@ -209,11 +205,7 @@ impl Fixture {
                 ObjectName::new("object").unwrap(),
                 Generation::new(self.record.generation).unwrap(),
                 None,
-                self.catalog
-                    .read_changes(None, None, 1)
-                    .await
-                    .unwrap()
-                    .fence,
+                self.catalog.current_fence().await.unwrap(),
                 LiveSource::Preserved {
                     source: Some(reader.into_file().await.unwrap()),
                     conflict: Box::new(captured),
@@ -386,12 +378,7 @@ async fn preserved_export_uses_exact_byte_and_entry_budget_once() {
             ObjectName::new("object").unwrap(),
             Generation::new(fixture.record.generation).unwrap(),
             None,
-            fixture
-                .catalog
-                .read_changes(None, None, 1)
-                .await
-                .unwrap()
-                .fence,
+            fixture.catalog.current_fence().await.unwrap(),
             LiveSource::Preserved {
                 source: Some(reader.into_file().await.unwrap()),
                 conflict: Box::new(captured),

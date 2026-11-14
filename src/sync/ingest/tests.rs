@@ -243,7 +243,7 @@ async fn recovery_rechecks_a_project_added_after_control_authorization() {
     let bucket = BucketName::new("test-bucket").unwrap();
     let name = ObjectName::new("body").unwrap();
     let winner = object(&catalog, "test-bucket/body").await;
-    let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let fence = catalog.current_fence().await.unwrap();
     let pending = armed_observation(
         &writeback,
         &bucket,

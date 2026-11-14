@@ -62,22 +62,11 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         .unwrap();
     publish(&catalog, Origin::Seed, "disabled").await;
     assert_eq!(
-        catalog
-            .read_changes(None, None, 256)
-            .await
-            .unwrap()
-            .fence
-            .sequence,
+        catalog.current_fence().await.unwrap().sequence,
         JournalSeq(0)
     );
     let baseline = catalog.enable_change_journal().await.unwrap();
-    assert!(
-        catalog
-            .read_changes(None, None, 1)
-            .await
-            .unwrap()
-            .rescan_required
-    );
+    assert_eq!(catalog.current_fence().await.unwrap(), baseline);
     for origin in [
         Origin::Api,
         Origin::Seed,
@@ -105,25 +94,28 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         )
         .await
         .unwrap();
-    let first = catalog.read_changes(Some(baseline), None, 2).await.unwrap();
-    assert_eq!(first.items.len(), 2);
-    assert!(first.has_more);
-    let fence = first.fence;
+    let first = catalog.read_changes(baseline, None, 2).await.unwrap();
+    assert_eq!(first.items().len(), 2);
+    assert!(first.has_more());
+    let fence = first.fence();
     publish(&catalog, Origin::Api, "later").await;
     let second = catalog
-        .read_changes(Some(first.next), Some(fence), 256)
+        .read_changes(first.next(), Some(fence), 256)
         .await
         .unwrap();
-    assert_eq!(second.items.len(), 5);
-    assert!(!second.has_more);
-    assert_eq!(second.items.last().unwrap().kind, ChangeKind::Delete);
-    assert_eq!(second.items[3].kind, ChangeKind::Metadata);
+    assert_eq!(second.items().len(), 5);
+    assert!(!second.has_more());
+    assert_eq!(second.items().last().unwrap().kind, ChangeKind::Delete);
+    assert_eq!(second.items()[3].kind, ChangeKind::Metadata);
     let all = catalog
-        .read_changes(Some(baseline), Some(fence), 256)
+        .read_changes(baseline, Some(fence), 256)
         .await
         .unwrap();
     assert_eq!(
-        all.items[..5].iter().map(|c| c.origin).collect::<Vec<_>>(),
+        all.items()[..5]
+            .iter()
+            .map(|c| c.origin)
+            .collect::<Vec<_>>(),
         [
             Origin::Api,
             Origin::Seed,
@@ -132,14 +124,14 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
             Origin::Import
         ]
     );
-    assert!(all.items.iter().all(|c| c.project == "project"
+    assert!(all.items().iter().all(|c| c.project == "project"
         && c.incarnation.to_hex().len() == 32
         && c.generation.is_some()));
     let before = catalog
-        .read_changes(Some(fence), None, 256)
+        .read_changes(fence, None, 256)
         .await
         .unwrap()
-        .fence;
+        .fence();
     catalog.run::<_, CatalogError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_change BEFORE INSERT ON change_journal BEGIN SELECT RAISE(ABORT, 'injected journal failure'); END;").map_err(unavailable)
     }).await.unwrap();
@@ -159,14 +151,14 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
     );
     assert_eq!(
         catalog
-            .read_changes(Some(before), None, 256)
+            .read_changes(before, None, 256)
             .await
             .unwrap()
-            .fence,
+            .fence(),
         before
     );
-    assert!(catalog.read_changes(Some(before), None, 0).await.is_err());
-    assert!(catalog.read_changes(Some(before), None, 257).await.is_err());
+    assert!(catalog.read_changes(before, None, 0).await.is_err());
+    assert!(catalog.read_changes(before, None, 257).await.is_err());
     catalog.close().await.unwrap();
 }
 
@@ -197,20 +189,17 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         })
         .await
         .unwrap();
-    let page = catalog
-        .read_changes(Some(baseline), None, 256)
-        .await
-        .unwrap();
-    assert!(page.rescan_required);
-    assert_eq!(page.fence.sequence, JournalSeq(MAX_RECORDS as u64 + 1));
+    let page = catalog.read_changes(baseline, None, 256).await.unwrap();
+    assert!(page.rescan_required());
+    assert_eq!(page.fence().sequence, JournalSeq(MAX_RECORDS as u64 + 1));
     let mut cursor = baseline;
     cursor.sequence = JournalSeq(1);
     assert_eq!(
         catalog
-            .read_changes(Some(cursor), None, 256)
+            .read_changes(cursor, None, 256)
             .await
             .unwrap()
-            .items
+            .items()
             .len(),
         256
     );
@@ -221,29 +210,25 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         })
         .await
         .unwrap();
-    let latest = page.fence;
+    let latest = page.fence();
     catalog
         .configure_public_access_prevention(&["project".into()])
         .await
         .unwrap();
     assert!(
         catalog
-            .read_changes(Some(latest), None, 1)
+            .read_changes(latest, None, 1)
             .await
             .unwrap()
-            .rescan_required
+            .rescan_required()
     );
-    let pap = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let pap = catalog.current_fence().await.unwrap();
     catalog
         .configure_public_access_prevention(&["project".into(), "project".into()])
         .await
         .unwrap();
     assert_eq!(
-        catalog
-            .read_changes(Some(pap), None, 1)
-            .await
-            .unwrap()
-            .fence,
+        catalog.read_changes(pap, None, 1).await.unwrap().fence(),
         pap
     );
     catalog.disable_change_journal().await.unwrap();
@@ -256,19 +241,19 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
     assert_eq!(enabled.sequence, pap.sequence);
     assert!(
         catalog
-            .read_changes(Some(pap), None, 1)
+            .read_changes(pap, None, 1)
             .await
             .unwrap()
-            .rescan_required
+            .rescan_required()
     );
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert!(
         catalog
-            .read_changes(Some(enabled), None, 1)
+            .read_changes(enabled, None, 1)
             .await
             .unwrap()
-            .rescan_required
+            .rescan_required()
     );
     let restarted = catalog.enable_change_journal().await.unwrap();
     catalog
@@ -277,10 +262,10 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         .unwrap();
     assert!(
         catalog
-            .read_changes(Some(restarted), None, 1)
+            .read_changes(restarted, None, 1)
             .await
             .unwrap()
-            .rescan_required
+            .rescan_required()
     );
     catalog.close().await.unwrap();
 }
@@ -420,12 +405,9 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         )
         .await
         .unwrap();
-    let page = catalog
-        .read_changes(Some(baseline), None, 256)
-        .await
-        .unwrap();
+    let page = catalog.read_changes(baseline, None, 256).await.unwrap();
     assert_eq!(
-        page.items
+        page.items()
             .iter()
             .map(|c| c.kind.as_str())
             .collect::<Vec<_>>(),
@@ -441,11 +423,11 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
             "publish"
         ]
     );
-    assert_eq!(page.items[0].origin, Origin::BucketInit);
-    assert_eq!(page.items[1].origin, Origin::Import);
-    assert_eq!(page.items[4].incarnation, page.items[1].incarnation);
-    assert_eq!(page.items[7].object.as_deref(), Some("source"));
-    assert_eq!(page.items[8].object.as_deref(), Some("resumable"));
+    assert_eq!(page.items()[0].origin, Origin::BucketInit);
+    assert_eq!(page.items()[1].origin, Origin::Import);
+    assert_eq!(page.items()[4].incarnation, page.items()[1].incarnation);
+    assert_eq!(page.items()[7].object.as_deref(), Some("source"));
+    assert_eq!(page.items()[8].object.as_deref(), Some("resumable"));
     catalog
         .run::<_, CatalogError>(|connection| {
             for index in 0..40 {

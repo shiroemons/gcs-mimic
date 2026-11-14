@@ -474,13 +474,7 @@ impl Fixture {
             )
             .await
             .unwrap();
-        let fence = self
-            .state
-            .catalog
-            .read_changes(None, None, 1)
-            .await
-            .unwrap()
-            .fence;
+        let fence = self.state.catalog.current_fence().await.unwrap();
         let pending = crate::storage::sync_state::writeback::armed_observation(
             &writeback,
             &bucket,

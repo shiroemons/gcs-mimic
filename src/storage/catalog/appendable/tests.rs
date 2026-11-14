@@ -11,11 +11,9 @@ async fn deletion_serializes_with_appendable_finalization_on_disk_and_ram() {
         let dir = TestDir::new();
         let catalog = if memory {
             let catalog = Catalog::open_backend(
-                dir.0.clone(),
+                super::super::open::Backing::test_memory(dir.0.clone()),
                 Arc::new(crate::clock::SystemClock),
                 super::super::admin::LocalAdmin::Enabled,
-                Some((8192, 1024 * 1024)),
-                None,
             )
             .await
             .unwrap();
@@ -228,12 +226,15 @@ async fn committed_appendable_cleanup_failure_keeps_delete_and_stale_creation_su
     use super::super::fault::{Fault, Step};
     for memory in [false, true] {
         let dir = TestDir::new();
+        let backing = if memory {
+            super::super::open::Backing::test_memory(dir.0.clone())
+        } else {
+            super::super::open::Backing::test_disk(dir.0.clone())
+        };
         let catalog = Catalog::open_backend(
-            dir.0.clone(),
+            backing,
             Arc::new(crate::clock::SystemClock),
             super::super::admin::LocalAdmin::Disabled,
-            memory.then_some((8192, 1024 * 1024)),
-            None,
         )
         .await
         .unwrap();
@@ -361,11 +362,9 @@ async fn retained_memory_slots_do_not_alias_a_replacement_catalog() {
     let dir = TestDir::new();
     let open = || {
         Catalog::open_backend(
-            dir.0.clone(),
+            super::super::open::Backing::test_memory(dir.0.clone()),
             Arc::new(crate::clock::SystemClock),
             super::super::admin::LocalAdmin::Enabled,
-            Some((8192, 1024 * 1024)),
-            None,
         )
     };
     let first = open().await.unwrap();
@@ -387,11 +386,9 @@ async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_
         let catalog = match backend {
             crate::config::Backend::Disk => Catalog::open(&data_dir).await.unwrap(),
             crate::config::Backend::Memory => Catalog::open_backend(
-                data_dir.clone(),
+                super::super::open::Backing::test_memory(data_dir.clone()),
                 Arc::new(crate::clock::SystemClock),
                 super::super::admin::LocalAdmin::Enabled,
-                Some((8192, 1024 * 1024)),
-                None,
             )
             .await
             .unwrap(),

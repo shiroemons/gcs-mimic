@@ -11,7 +11,7 @@ use crate::{
     storage::{
         Catalog, ObjectListQuery,
         admin::{Admin, AdminError, BucketName, Generation, ObjectName, Origin},
-        change_journal::{ChangeKind, ChangePage, JournalFence},
+        change_journal::{ChangeKind, ChangePage, ChangeRead, JournalFence},
         sync_state::{
             SyncBinding, SyncRecord,
             root::{RootError, RootLease},
@@ -417,20 +417,22 @@ async fn run_live_config(
             .await?;
             continue;
         }
-        let page = catalog.read_changes(Some(cursor), None, 256).await?;
-        if page.rescan_required {
-            cursor = page.fence;
-            let summary = reconcile_with(
-                catalog,
-                root,
-                Interrupt::new(stopping),
-                ingest_complete,
-                &writeback,
-            )
-            .await?;
-            diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
-            continue;
-        }
+        let page = match catalog.read_changes(cursor, None, 256).await? {
+            ChangeRead::Rescan { fence } => {
+                cursor = fence;
+                let summary = reconcile_with(
+                    catalog,
+                    root,
+                    Interrupt::new(stopping),
+                    ingest_complete,
+                    &writeback,
+                )
+                .await?;
+                diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
+                continue;
+            }
+            ChangeRead::Page(page) => page,
+        };
         if page.items.is_empty() {
             #[cfg(test)]
             export_checkpoint("idle").await;
@@ -571,7 +573,7 @@ async fn initialize_live(
         .map(|request| root.with_authority(request.authority.clone()));
     let operation_root = initial_root.as_ref().unwrap_or(root);
     catalog.enable_change_journal().await?;
-    let cursor = catalog.read_changes(None, None, 1).await?.fence;
+    let cursor = catalog.current_fence().await?;
     let watcher = DirectoryWatch::new(root).await?;
     let mut writeback = recover_writeback(operation_root).await?;
     root.invalidate_deletions().await?;
@@ -915,7 +917,7 @@ pub(super) async fn restore_from_catalog(
     bucket: &BucketName,
     name: &ObjectName,
 ) -> Result<(), SyncError> {
-    let fence = catalog.read_changes(None, None, 1).await?.fence;
+    let fence = catalog.current_fence().await?;
     let writeback = root.default_writeback().await?;
     let object = LiveObject {
         catalog,
@@ -1689,7 +1691,7 @@ async fn reconcile_with(
     writeback: &Writeback,
 ) -> Result<Reconciliation, SyncError> {
     catalog.enable_change_journal().await?;
-    let fence = catalog.read_changes(None, None, 1).await?.fence;
+    let fence = catalog.current_fence().await?;
     if writeback.status().await?.stop != Stop::Ready {
         return Err(SyncError::WritebackUnfinished(Pass::Reconcile));
     }
@@ -1713,7 +1715,7 @@ async fn reconcile_with(
     summary.ignored += external.1;
     summary.unrepresentable += external.2;
     summary.interrupted = interrupt.check() != Interrupted::No;
-    let end = catalog.read_changes(None, None, 1).await?.fence;
+    let end = catalog.current_fence().await?;
     if baseline == BaselineGate::Allowed
         && summary.deferred == 0
         && interrupt.check() == Interrupted::No

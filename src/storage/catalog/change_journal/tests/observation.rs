@@ -153,18 +153,15 @@ async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarn
         .await
         .unwrap();
     assert_eq!(next.items[0].bucket.name, "page-m");
-    let replay = catalog
-        .read_changes(Some(baseline), None, 256)
-        .await
-        .unwrap();
+    let replay = catalog.read_changes(baseline, None, 256).await.unwrap();
     assert_eq!(
-        replay.items.iter().map(|c| c.kind).collect::<Vec<_>>(),
+        replay.items().iter().map(|c| c.kind).collect::<Vec<_>>(),
         [ChangeKind::BucketDelete, ChangeKind::BucketCreate]
     );
     let current = admin.list_all_buckets(None, 1).await.unwrap();
     assert_eq!(current.items[0].bucket.project, "other-owner");
     assert_ne!(current.items[0].incarnation, old.incarnation);
-    assert_eq!(replay.items[1].incarnation, current.items[0].incarnation);
+    assert_eq!(replay.items()[1].incarnation, current.items[0].incarnation);
     catalog.close().await.unwrap();
 }
 
@@ -245,15 +242,15 @@ async fn sync_observation_commits_before_during_and_after_registration_are_not_l
         let observed = finish(hook, wait).await;
         assert!(!observed.rescan_required);
         assert!(observed.fence.sequence > baseline.sequence);
-        let page = catalog.read_changes(Some(baseline), None, 1).await.unwrap();
-        let captured = page.fence;
+        let page = catalog.read_changes(baseline, None, 1).await.unwrap();
+        let captured = page.fence();
         publish(&catalog, Origin::Api, "later").await;
         assert_eq!(
             catalog
-                .read_changes(Some(page.next), Some(captured), 256)
+                .read_changes(page.next(), Some(captured), 256)
                 .await
                 .unwrap()
-                .fence,
+                .fence(),
             captured
         );
         catalog.close().await.unwrap();
@@ -355,13 +352,13 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                     .unwrap();
             }
         }
-        let page = catalog.read_changes(Some(cursor), None, 256).await.unwrap();
-        assert_eq!(page.items.len(), 1);
-        assert_eq!(page.items[0].kind, kind);
+        let page = catalog.read_changes(cursor, None, 256).await.unwrap();
+        assert_eq!(page.items().len(), 1);
+        assert_eq!(page.items()[0].kind, kind);
         for (hook, wait) in waits {
-            assert_eq!(finish(hook, wait).await.fence, page.fence);
+            assert_eq!(finish(hook, wait).await.fence, page.fence());
         }
-        cursor = page.fence;
+        cursor = page.fence();
     }
     catalog.close().await.unwrap();
 }
@@ -369,7 +366,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
 #[tokio::test]
 async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan() {
     let (dir, catalog) = setup().await;
-    let disabled = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let disabled = catalog.current_fence().await.unwrap();
     assert!(
         catalog
             .wait_for_changes(disabled)
@@ -443,7 +440,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
             .unwrap()
             .rescan_required
     );
-    let before_restart = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let before_restart = catalog.current_fence().await.unwrap();
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     assert!(
@@ -505,10 +502,10 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
     assert!(hook.checks.load(std::sync::atomic::Ordering::SeqCst) <= 2);
     assert_eq!(
         catalog
-            .read_changes(Some(baseline), None, 1)
+            .read_changes(baseline, None, 1)
             .await
             .unwrap()
-            .fence,
+            .fence(),
         baseline
     );
     wait.abort();
@@ -518,7 +515,7 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
     assert!(!finish(hook, wait).await.rescan_required);
     drop(api);
     drop(uploads);
-    let current = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let current = catalog.current_fence().await.unwrap();
     let (hook, wait) = paused_wait(&catalog, current, "checked").await;
     catalog.close().await.unwrap();
     hook.release.notify_one();

@@ -197,12 +197,7 @@ impl Fixture {
             .await
             .unwrap();
         let source = reader.into_file().await.unwrap();
-        let fence = self
-            .catalog
-            .read_changes(None, None, 1)
-            .await
-            .unwrap()
-            .fence;
+        let fence = self.catalog.current_fence().await.unwrap();
         self.writeback
             .begin_live_export(
                 binding,

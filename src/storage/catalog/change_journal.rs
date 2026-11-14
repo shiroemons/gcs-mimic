@@ -152,7 +152,46 @@ pub(crate) struct ChangePage {
         expect(dead_code, reason = "only unit tests read this field")
     )]
     pub has_more: bool,
-    pub rescan_required: bool,
+}
+
+/// One read of the change journal after a cursor.
+pub(crate) enum ChangeRead {
+    /// The cursor no longer continues this journal: rescan from `fence`.
+    Rescan {
+        fence: JournalFence,
+    },
+    Page(ChangePage),
+}
+
+/// Tests read a rescan as an empty page that ends at the current fence.
+#[cfg(test)]
+impl ChangeRead {
+    pub(crate) fn rescan_required(&self) -> bool {
+        matches!(self, Self::Rescan { .. })
+    }
+
+    pub(crate) fn fence(&self) -> JournalFence {
+        match self {
+            Self::Rescan { fence } | Self::Page(ChangePage { fence, .. }) => *fence,
+        }
+    }
+
+    pub(crate) fn next(&self) -> JournalFence {
+        match self {
+            Self::Rescan { fence } | Self::Page(ChangePage { next: fence, .. }) => *fence,
+        }
+    }
+
+    pub(crate) fn items(&self) -> &[Change] {
+        match self {
+            Self::Rescan { .. } => &[],
+            Self::Page(page) => &page.items,
+        }
+    }
+
+    pub(crate) fn has_more(&self) -> bool {
+        matches!(self, Self::Page(page) if page.has_more)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -366,28 +405,34 @@ impl Catalog {
         }).await
     }
 
-    /// `None` requests a baseline fence. Scan current catalog state, then resume from it.
+    /// The journal's current fence, the baseline a reader scans catalog state at and then
+    /// resumes from.
+    pub(crate) async fn current_fence(&self) -> Result<JournalFence, AdminError> {
+        self.run_admin(|connection| Ok(state(connection)?.current))
+            .await
+    }
+
+    /// One read after `after`, up to `until` (the current fence when `None`).
     pub(crate) async fn read_changes(
         &self,
-        after: Option<JournalFence>,
-        fence: Option<JournalFence>,
+        after: JournalFence,
+        until: Option<JournalFence>,
         limit: usize,
-    ) -> Result<ChangePage, AdminError> {
+    ) -> Result<ChangeRead, AdminError> {
         let limit = super::PageLimit::<MAX_PAGE>::try_from(limit)
             .map_err(|_| AdminError::Invalid("change page limit must be 1..=256".into()))?;
         self.run_admin(move |connection| {
             let JournalState { current, floor, enabled } = state(connection)?;
-            let target = fence.unwrap_or(current);
+            let target = until.unwrap_or(current);
             let valid = |f: JournalFence| valid_cursor(f, current, floor);
-            let rescan = !enabled || after.is_none_or(|a| !valid(a)) || !valid(target) || after.is_some_and(|a| a.sequence > target.sequence);
-            if rescan { return Ok(ChangePage {items: vec![], next: current, fence: current, has_more: false, rescan_required: true}); }
-            let start = after.ok_or_else(|| unavailable("missing journal cursor"))?;
+            let rescan = !enabled || !valid(after) || !valid(target) || after.sequence > target.sequence;
+            if rescan { return Ok(ChangeRead::Rescan { fence: current }); }
             let mut statement = connection.prepare_cached("SELECT sequence, origin, kind, bucket, project, incarnation, object, generation, metageneration FROM change_journal WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence LIMIT ?3")?;
-            let items = statement.query_map(params![start.sequence, target.sequence, limit], |r| {
+            let items = statement.query_map(params![after.sequence, target.sequence, limit], |r| {
                 Ok(Change { sequence: r.get(0)?, origin: r.get(1)?, kind: r.get(2)?, bucket: r.get(3)?, project: r.get(4)?, incarnation: r.get(5)?, object: r.get(6)?, generation: r.get(7)?, metageneration: r.get(8)? })
             })?.collect::<rusqlite::Result<Vec<_>>>()?;
             let next = items.last().map_or(target, |c| JournalFence {sequence: c.sequence, revision: target.revision});
-            Ok(ChangePage {has_more: next.sequence < target.sequence, items, next, fence: target, rescan_required: false})
+            Ok(ChangeRead::Page(ChangePage {has_more: next.sequence < target.sequence, items, next, fence: target}))
         }).await
     }
 }
