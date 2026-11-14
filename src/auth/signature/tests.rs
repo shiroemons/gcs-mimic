@@ -1284,3 +1284,69 @@ fn registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material() {
     let value = json!({"identities":[{"id":SIGNER,"tokens":[],"public_keys":[]}]});
     assert!(Registry::parse(&serde_json::to_vec(&value).unwrap()).is_err());
 }
+
+/// The dispatch predicates test prefixes of every `Authorization` value, while the exact
+/// parsers and the AWS dialect read one value or a longer prefix, so near-miss values and
+/// several values are classified differently by each.
+#[test]
+fn authorization_prefixes_select_dispatch_and_dialect() {
+    for (values, expected) in [
+        (
+            &["GOOG4x"][..],
+            "signed=true v4=true legacy=false legacy_aws=false dialect=google",
+        ),
+        (
+            &["AWS4x"][..],
+            "signed=true v4=true legacy=false legacy_aws=false dialect=google",
+        ),
+        (
+            &["AWS4-HMAC-SHA256 x"][..],
+            "signed=true v4=true legacy=false legacy_aws=false dialect=aws",
+        ),
+        (
+            &["GOOG1x"][..],
+            "signed=true v4=false legacy=true legacy_aws=false dialect=google",
+        ),
+        (
+            &["AWS"][..],
+            "signed=true v4=false legacy=true legacy_aws=false dialect=google",
+        ),
+        (
+            &["AWS k:s"][..],
+            "signed=true v4=false legacy=true legacy_aws=true dialect=aws",
+        ),
+        (
+            &["Bearer t"][..],
+            "signed=false v4=false legacy=false legacy_aws=false dialect=google",
+        ),
+        (
+            &["Bearer t", "AWS k:s"][..],
+            "signed=true v4=false legacy=true legacy_aws=false dialect=google",
+        ),
+        (
+            &["AWS k:s", "Bearer t"][..],
+            "signed=true v4=false legacy=true legacy_aws=true dialect=aws",
+        ),
+        (
+            &["Bearer t", "AWS4-HMAC-SHA256 x"][..],
+            "signed=true v4=true legacy=false legacy_aws=false dialect=aws",
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append("authorization", value.parse().unwrap());
+        }
+        let dialect = match ExtensionDialect::of(None, &headers) {
+            ExtensionDialect::Aws => "aws",
+            ExtensionDialect::Google => "google",
+        };
+        let classified = format!(
+            "signed={} v4={} legacy={} legacy_aws={} dialect={dialect}",
+            has_header(&headers),
+            v4::has_header(&headers),
+            v2::has_header(&headers),
+            legacy_aws(&headers),
+        );
+        assert_eq!(classified, expected, "{values:?}");
+    }
+}

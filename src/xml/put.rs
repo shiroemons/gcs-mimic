@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 
 pub(super) mod length_range;
 mod streaming;
+#[cfg(test)]
+mod tests;
 
 use length_range::LengthRange;
 

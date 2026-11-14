@@ -52,14 +52,17 @@ fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
 
 /// Whether the initiation authenticated through a signature, which admits its signing headers.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Signing {
+pub(super) enum Signing {
     Signed,
     Unsigned,
 }
 
 /// Rejects initiation headers outside the supported subset instead of ignoring their effect.
 /// Whole-object checksums are not documented for initiation, so they stay unsupported here.
-fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(), Error> {
+pub(super) fn reject_unsupported_headers(
+    headers: &HeaderMap,
+    signing: Signing,
+) -> Result<(), Error> {
     for key in headers.keys() {
         let name = key.as_str();
         let goog = name.starts_with("x-goog-")
