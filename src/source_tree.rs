@@ -96,7 +96,7 @@ impl std::error::Error for WalkError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => std::error::Error::source(error),
-            _ => None,
+            Self::EntryLimit { .. } | Self::DepthLimit { .. } | Self::NotDirectory => None,
         }
     }
 }

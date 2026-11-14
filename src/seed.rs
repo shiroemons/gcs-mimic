@@ -97,6 +97,10 @@ impl From<WalkError> for SeedError {
 /// the walk and the portable open path do, lets an unreadable fixture classify alike on every
 /// platform instead of passing for a storage failure.
 #[cfg(unix)]
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other administrative failure is carried unchanged as SeedError::Admin"
+)]
 fn source_failure(error: crate::storage::admin::AdminError) -> SeedError {
     use crate::storage::admin::AdminError;
     match error {

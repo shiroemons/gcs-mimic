@@ -27,7 +27,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 19] = [
+pub const CLIPPY_LINTS: [&str; 20] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -54,14 +54,13 @@ pub const CLIPPY_LINTS: [&str; 19] = [
     "clippy::struct_excessive_bools",
     // "Encode invariants in types": a nested option mixes up three states.
     "clippy::option_option",
+    // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
+    "clippy::wildcard_enum_match_arm",
 ];
 
 /// Lints whose existing findings are counted per file; see "Graduating a ratcheted rule" in
 /// `docs/en/development.md` for moving one to `CLIPPY_LINTS` once its last row is gone.
-pub const RATCHETED_CLIPPY_LINTS: [&str; 1] = [
-    // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
-    "clippy::wildcard_enum_match_arm",
-];
+pub const RATCHETED_CLIPPY_LINTS: [&str; 0] = [];
 
 const STATIC_STR_ERROR: &str = "text::static_str_error";
 const JSON_MACRO_VALUE: &str = "text::json_macro_value";
