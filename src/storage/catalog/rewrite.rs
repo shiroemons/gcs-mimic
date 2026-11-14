@@ -15,7 +15,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     sync::{Arc, Mutex},
     time::SystemTime,
@@ -149,7 +149,66 @@ pub(crate) struct RewriteSession {
     pub offset: u64,
     pub total: u64,
     deadline: UnixMillis,
-    response: Option<Value>,
+    response: Option<StoredResponse>,
+}
+
+/// What a rewrite step stored for replay under its previous token. Every release has written
+/// exactly these two shapes: `{"offset":N,"token":T}` and `{"offset":N,"resource":{..}}`.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+enum StoredResponse {
+    /// Copying continues with `token`.
+    Progress { offset: u64, token: RewriteToken },
+    /// The destination was published. `resource` is the response the adapter rendered: a JSON
+    /// object resource, or gRPC's `{"proto":[..]}`.
+    Complete { offset: u64, resource: Value },
+}
+
+impl StoredResponse {
+    fn offset(&self) -> u64 {
+        match self {
+            Self::Progress { offset, .. } | Self::Complete { offset, .. } => *offset,
+        }
+    }
+}
+
+/// A stored rewrite session whose columns disagree, reported at the request column as corrupt.
+#[derive(Debug)]
+struct InvalidRewriteSession;
+
+impl std::fmt::Display for InvalidRewriteSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("invalid rewrite session")
+    }
+}
+
+impl std::error::Error for InvalidRewriteSession {}
+
+/// The rules sessions have always been checked by: a `resource` object makes a completed
+/// response, otherwise a string `token` makes one in progress.
+impl TryFrom<Value> for StoredResponse {
+    type Error = InvalidRewriteSession;
+
+    fn try_from(value: Value) -> Result<Self, InvalidRewriteSession> {
+        let Value::Object(mut fields) = value else {
+            return Err(InvalidRewriteSession);
+        };
+        let offset = fields
+            .get("offset")
+            .and_then(Value::as_u64)
+            .ok_or(InvalidRewriteSession)?;
+        match (fields.remove("resource"), fields.get("token")) {
+            (Some(resource @ Value::Object(_)), None) => Ok(Self::Complete { offset, resource }),
+            (Some(Value::Object(_)), Some(_)) => Err(InvalidRewriteSession),
+            // A token that is not canonical hex cannot be the session's token, which is all
+            // the check asks; the parse error adds nothing to "invalid rewrite session".
+            (_, Some(Value::String(token))) => token
+                .parse()
+                .map(|token| Self::Progress { offset, token })
+                .map_err(|_| InvalidRewriteSession),
+            _ => Err(InvalidRewriteSession),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -249,10 +308,23 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         if_metageneration_match,
         if_metageneration_not_match,
     ] = request.source_conditions;
+    let id = row.get(0)?;
+    let token = row.get(1)?;
+    let previous_token = row.get(2)?;
+    let offset = row.get(4)?;
+    let total = row.get(5)?;
+    let deadline = row.get(6)?;
+    let response = row.get::<_, Option<sql::Json<Value>>>(7)?;
+    let transfer_id: Option<BlobId> = row.get(8)?;
+    let invalid = |error| sql::conversion_error(3, rusqlite::types::Type::Text, error);
+    let response = response
+        .map(|response| StoredResponse::try_from(response.0))
+        .transpose()
+        .map_err(invalid)?;
     let session = RewriteSession {
-        id: row.get(0)?,
-        token: row.get(1)?,
-        previous_token: row.get(2)?,
+        id,
+        token,
+        previous_token,
         binding: RewriteBinding {
             source_bucket,
             source_object,
@@ -284,20 +356,13 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         destination_incarnation: request.destination_incarnation,
         source_key_sha256: request.source_key_sha256,
         budget: request.budget,
-        offset: row.get(4)?,
-        total: row.get(5)?,
-        deadline: row.get(6)?,
-        response: row
-            .get::<_, Option<sql::Json<Value>>>(7)?
-            .map(|response| response.0),
+        offset,
+        total,
+        deadline,
+        response,
     };
-    let transfer_id: Option<BlobId> = row.get(8)?;
     if !session_consistent(&session, transfer_id) {
-        return Err(sql::conversion_error(
-            3,
-            rusqlite::types::Type::Text,
-            "invalid rewrite session",
-        ));
+        return Err(invalid(InvalidRewriteSession));
     }
     Ok(session)
 }
@@ -305,28 +370,23 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 /// Whether a decoded session's identifiers, progress and stored response agree; an
 /// incomplete session owns the derived transfer with its own ID, a completed one none.
 fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> bool {
-    let completed = session
-        .response
-        .as_ref()
-        .and_then(|response| response.get("resource"))
-        .is_some_and(Value::is_object);
-    let response_valid = match &session.response {
-        None => session.offset == 0 && session.previous_token.is_none(),
-        Some(response) => {
-            response["offset"].as_u64() == Some(session.offset)
-                && if response.get("resource").is_some_and(Value::is_object) {
-                    session.offset == session.total && response.get("token").is_none()
-                } else {
-                    session.offset < session.total
-                        && response["token"].as_str() == Some(session.token.to_hex().as_str())
-                }
+    let progress_valid = match &session.response {
+        None => {
+            session.offset == 0
+                && session.previous_token.is_none()
+                && transfer_id == Some(session.id)
+        }
+        Some(StoredResponse::Progress { offset, token }) => {
+            *offset == session.offset
+                && session.offset < session.total
+                && *token == session.token
+                && transfer_id == Some(session.id)
+        }
+        Some(StoredResponse::Complete { offset, .. }) => {
+            *offset == session.offset && session.offset == session.total && transfer_id.is_none()
         }
     };
-    (if completed {
-        transfer_id.is_none()
-    } else {
-        transfer_id == Some(session.id)
-    }) && response_valid
+    progress_valid
         && session.binding.source_generation > 0
         && session.source_metageneration > 0
         && session.offset <= session.total
@@ -460,21 +520,23 @@ fn check_incarnations(
     Ok(())
 }
 
-fn progress(session: &RewriteSession, response: &Value) -> Result<RewriteProgress, ObjectError> {
-    Ok(RewriteProgress {
+fn progress(session: &RewriteSession, response: &StoredResponse) -> RewriteProgress {
+    let (token, resource) = match response {
+        StoredResponse::Progress { token, .. } => (Some(token.to_string()), None),
+        StoredResponse::Complete { resource, .. } => (None, Some(resource.clone())),
+    };
+    RewriteProgress {
         total: session.total,
-        offset: response["offset"]
-            .as_u64()
-            .ok_or_else(|| object_unavailable("invalid rewrite response"))?,
-        token: response["token"].as_str().map(str::to_owned),
-        resource: response.get("resource").filter(|v| !v.is_null()).cloned(),
+        offset: response.offset(),
+        token,
+        resource,
         fields: session
             .binding
             .parameters
             .get("fields")
             .and_then(Value::as_str)
             .map(str::to_owned),
-    })
+    }
 }
 
 impl Catalog {
@@ -595,10 +657,7 @@ impl Catalog {
             .await?;
         let replay = session.previous_token == Some(token);
         if let Err(error) = source_result {
-            if session
-                .response
-                .as_ref()
-                .is_none_or(|value| !value["resource"].is_object())
+            if !matches!(session.response, Some(StoredResponse::Complete { .. }))
                 && matches!(
                     error,
                     ObjectError::PreconditionFailed
@@ -616,14 +675,13 @@ impl Catalog {
             return Err(error.into());
         }
         if replay {
-            return progress(
+            return Ok(progress(
                 &session,
                 session
                     .response
                     .as_ref()
                     .ok_or_else(|| object_unavailable("missing rewrite replay"))?,
-            )
-            .map_err(Into::into);
+            ));
         }
         let current =
             source_result?.ok_or_else(|| object_unavailable("missing rewrite transfer"))?;
@@ -652,22 +710,25 @@ impl Catalog {
                 record.component_count = crate::json::derived_component_count(&source,record.storage_class,location);
                 Ok(())
             },move |connection,record| {
-                let response=json!({"offset":record.size,"resource":render(record)?});
-                sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,response.to_string()])?;
+                let response=StoredResponse::Complete { offset: record.size, resource: render(record)? };
+                let saved=serde_json::to_string(&response).map_err(object_unavailable)?;
+                sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,saved])?;
                 trim_finished(connection, &session.id, finished_budget)?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
             },None).await?;
-            return progress(
+            return Ok(progress(
                 &completed_session,
                 &receiver.await.map_err(object_unavailable)?,
-            )
-            .map_err(Into::into);
+            ));
         }
         let next = RewriteToken::generate().map_err(object_unavailable)?;
-        let response = json!({"offset":current.offset,"token":next});
-        let saved = response.to_string();
+        let response = StoredResponse::Progress {
+            offset: current.offset,
+            token: next,
+        };
+        let saved = serde_json::to_string(&response).map_err(object_unavailable)?;
         let id = session.id;
         let now = UnixMillis::try_from(self.0.clock.now())?;
         let changed = self.run(move |connection| {
@@ -677,7 +738,7 @@ impl Catalog {
         if changed != 1 {
             return Err(RewriteError::Gone);
         }
-        progress(&session, &response).map_err(Into::into)
+        Ok(progress(&session, &response))
     }
 
     pub(super) async fn maintain_rewrite_sessions(
@@ -751,6 +812,7 @@ mod tests {
     use super::*;
     use crate::clock::ManualClock;
     use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload};
+    use serde_json::json;
     use std::{
         sync::Arc,
         time::{Duration, UNIX_EPOCH},

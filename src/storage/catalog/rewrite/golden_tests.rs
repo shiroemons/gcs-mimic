@@ -1,4 +1,83 @@
 use super::*;
+use serde_json::json;
+
+const TOKEN: &str = "00000000000000000000000000000000000000000000000000000000000000ab";
+
+/// Stored responses are replayed after restarts, so both shapes keep their bytes, including the
+/// gRPC adapter's `{"proto":[..]}` resource.
+#[test]
+fn stored_responses_keep_their_json_bytes() {
+    let progress = StoredResponse::Progress {
+        offset: 1048576,
+        token: TOKEN.parse().unwrap(),
+    };
+    assert_eq!(
+        serde_json::to_string(&progress).unwrap(),
+        format!(r#"{{"offset":1048576,"token":"{TOKEN}"}}"#)
+    );
+    for (resource, text) in [
+        (
+            json!({"kind":"storage#object","name":"destination","size":"8"}),
+            r#"{"offset":8,"resource":{"kind":"storage#object","name":"destination","size":"8"}}"#,
+        ),
+        (
+            json!({"proto":[10,1,98]}),
+            r#"{"offset":8,"resource":{"proto":[10,1,98]}}"#,
+        ),
+    ] {
+        let complete = StoredResponse::Complete {
+            offset: 8,
+            resource,
+        };
+        let stored = serde_json::to_string(&complete).unwrap();
+        assert_eq!(stored, text);
+        let value: Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(StoredResponse::try_from(value).unwrap(), complete);
+    }
+    let value: Value = serde_json::from_str(&serde_json::to_string(&progress).unwrap()).unwrap();
+    assert_eq!(StoredResponse::try_from(value).unwrap(), progress);
+}
+
+/// The decoding rules sessions were always checked by: a `resource` object completes, a string
+/// `token` without one continues, and anything else is an invalid session.
+#[test]
+fn stored_response_shapes_outside_the_two_written_ones_are_invalid() {
+    let progress = || StoredResponse::Progress {
+        offset: 1,
+        token: TOKEN.parse().unwrap(),
+    };
+    for (value, expected) in [
+        (json!({"offset":1,"token":TOKEN}), Some(progress())),
+        (
+            json!({"offset":1,"token":TOKEN,"resource":null}),
+            Some(progress()),
+        ),
+        (
+            json!({"offset":1,"resource":{}}),
+            Some(StoredResponse::Complete {
+                offset: 1,
+                resource: json!({}),
+            }),
+        ),
+        (json!({"offset":1,"token":null}), None),
+        (json!({"offset":1,"resource":null}), None),
+        (json!({"offset":1,"resource":{},"token":TOKEN}), None),
+        (json!({"offset":1,"resource":{},"token":null}), None),
+        (json!({"offset":1}), None),
+        (json!({"token":TOKEN}), None),
+        (json!({"offset":-1,"token":TOKEN}), None),
+        (json!({"offset":1,"token":TOKEN.to_uppercase()}), None),
+        (json!({"offset":1,"token":7}), None),
+        (json!([1]), None),
+        (json!(null), None),
+    ] {
+        assert_eq!(
+            StoredResponse::try_from(value.clone()).ok(),
+            expected,
+            "{value}"
+        );
+    }
+}
 
 #[test]
 fn populated_request_keeps_its_json_bytes() {
