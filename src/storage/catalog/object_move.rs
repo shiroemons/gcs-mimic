@@ -1,10 +1,9 @@
 use super::{
     Catalog,
     objects::{
-        GenerationAssignment, NewVersion, authorized_bucket, check_publication, lookup,
-        publish_in_transaction, selected,
+        GenerationAssignment, NewVersion, PublicationTime, authorized_bucket, check_publication,
+        lookup, publish_in_transaction, selected,
     },
-    unix_micros,
 };
 use crate::storage::catalog::sql;
 use crate::{
@@ -56,6 +55,7 @@ impl Catalog {
         let (record, retired) = self
             .run(move |connection| {
                 let transaction = sql::immediate(connection)?;
+                let now = PublicationTime::read(clock.as_ref())?;
                 let super::objects::StoredObject {
                     mut record,
                     blob: blob_id,
@@ -83,22 +83,20 @@ impl Catalog {
                     previous.as_ref(),
                     conditions.destination,
                     delete_permission,
-                    clock.now(),
+                    now.time,
                 )?;
-                record.check_retention(clock.now())?;
+                record.check_retention(now.time)?;
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);
                 }
                 let publication = super::objects::BucketPublication::load(&transaction, &bucket)?;
-                let now = clock.now();
-                let micros = unix_micros(now)?;
                 let origin = super::change_journal::origin(&destination_create);
                 super::notification_outbox::enqueue(
                     &transaction,
                     crate::notification::Message {
                         event: crate::notification::Event::Delete,
                         object: &record,
-                        time: now,
+                        time: now.time,
                         replacement: None,
                     },
                 )?;
@@ -116,8 +114,8 @@ impl Catalog {
                 )?;
                 record.name = destination;
                 record.metageneration = 1;
-                record.time_created = now;
-                record.updated = now;
+                record.time_created = now.time;
+                record.updated = now.time;
                 record.time_deleted = None;
                 let (record, retired, ()) = publish_in_transaction(
                     &transaction,
@@ -126,7 +124,7 @@ impl Catalog {
                     NewVersion {
                         blob_id,
                         assignment: GenerationAssignment::Automatic,
-                        micros,
+                        micros: now.micros,
                         origin,
                         notification_mode: crate::notification::NotificationMode::for_access(
                             &destination_create,

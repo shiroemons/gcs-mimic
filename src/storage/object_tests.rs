@@ -108,6 +108,52 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
     );
 }
 
+#[tokio::test]
+async fn move_answers_with_the_record_a_read_returns() {
+    use crate::bucket::BucketAccess;
+    // A Linux clock reads nanoseconds, finer than the microseconds the catalog stores.
+    let dir = TestDir::new();
+    let clock = Arc::new(ManualClock::new(
+        UNIX_EPOCH + Duration::from_nanos(1_234_567_891),
+    ));
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
+    catalog
+        .insert_bucket(bucket("bucket", "project"))
+        .await
+        .unwrap();
+    put(&catalog, "source", b"moved bytes", Default::default())
+        .await
+        .unwrap();
+    let access = BucketAccess::Permissive;
+    let moved = catalog
+        .move_object(
+            MoveNames {
+                bucket: "bucket".into(),
+                source: "source".into(),
+                destination: "target".into(),
+            },
+            Default::default(),
+            crate::storage::MoveAccess {
+                source_read: &access,
+                source_delete: &access,
+                destination_create: &access,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        moved.time_created,
+        UNIX_EPOCH + Duration::from_micros(1_234_567)
+    );
+    assert_eq!(
+        catalog
+            .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
+            .await
+            .unwrap(),
+        moved
+    );
+}
+
 async fn read(mut reader: ObjectReader) -> Vec<u8> {
     let mut bytes = Vec::new();
     while let Some(chunk) = reader.next_chunk().await.unwrap() {
