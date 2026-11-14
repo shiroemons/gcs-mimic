@@ -379,7 +379,7 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             .map(|json| json.0),
         name: row.get("name")?,
         project: row.get("project")?,
-        location: row.get("location")?,
+        location: read_location(row)?,
         location_type: row.get("location_type")?,
         storage_class: row.get("storage_class")?,
         autoclass: row
@@ -402,6 +402,24 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             .transpose()?,
         cors: read_cors(row)?,
     })
+}
+
+/// The stored location, which every release wrote as a canonical name from the official table
+/// next to the type that table gives it; anything else is corrupt.
+fn read_location(row: &Row<'_>) -> rusqlite::Result<String> {
+    let location: String = row.get("location")?;
+    let kind: String = row.get("location_type")?;
+    let index = row.as_ref().column_index("location_type")?;
+    let consistent = crate::bucket::bucket_location(&location)
+        .is_ok_and(|(canonical, expected)| canonical == location && expected == kind);
+    if !consistent {
+        return Err(sql::conversion_error(
+            index,
+            Type::Text,
+            "invalid stored bucket location",
+        ));
+    }
+    Ok(location)
 }
 
 /// The `cors` column holds the JSON resource form; rules it does not accept are corrupt.

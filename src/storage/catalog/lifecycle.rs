@@ -549,9 +549,18 @@ fn bucket_rules(
     {
         return Ok(cached);
     }
-    let rules = serde_json::from_str::<Vec<serde_json::Value>>(&stored)
-        .map_err(unavailable)
-        .and_then(|values| LifecycleRule::from_stored(&values));
+    // A type no release wrote cannot tell which transitions the bucket allows, so its rules wait
+    // in quarantine like rules that no longer decode.
+    let rules = match location {
+        LifecycleLocation::Unknown => Err(CatalogError::Corrupt(
+            crate::storage::failure::BackendCause::new("invalid stored bucket location type"),
+        )),
+        LifecycleLocation::Region | LifecycleLocation::MultiRegion => {
+            serde_json::from_str::<Vec<serde_json::Value>>(&stored)
+                .map_err(unavailable)
+                .and_then(|values| LifecycleRule::from_stored(&values))
+        }
+    };
     match rules {
         Ok(mut rules) => {
             rules.retain(|rule| location.permits(rule.action));

@@ -170,7 +170,6 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
         ("US-CENTRAL1", "region", StorageClass::MultiRegional, 0),
         ("US", "multi-region", StorageClass::MultiRegional, 1),
         ("NAM4", "dual-region", StorageClass::MultiRegional, 1),
-        ("UNKNOWN", "unknown", StorageClass::Coldline, 0),
     ] {
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
@@ -232,6 +231,50 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
         }
         catalog.close().await.unwrap();
     }
+}
+
+/// A location type that no release wrote cannot tell which transitions the bucket allows, so
+/// the scheduler quarantines every rule of the bucket, deletions included, until the row is
+/// repaired, rather than running only some of them.
+#[tokio::test]
+async fn an_unreadable_stored_location_type_quarantines_the_bucket_rules() {
+    let (catalog, clock) = memory().await;
+    let mut record = bucket("bucket", "project");
+    record.location = "US-CENTRAL1".into();
+    record.location_type = "region".into();
+    record.lifecycle = vec![
+        transition(StorageClass::Coldline, json!({"age":1})),
+        delete(json!({"age":1})),
+    ];
+    catalog.insert_bucket(record).await.unwrap();
+    let original = put_class(&catalog, "object", StorageClass::Standard).await;
+    catalog
+        .run::<_, CatalogError>(|connection| {
+            sql::exec(
+                connection,
+                "UPDATE buckets SET location_type = 'unknown' WHERE name = 'bucket'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    clock.advance(DAY);
+    let outcome = execute(&catalog).await;
+    assert_eq!(
+        (outcome.scanned, outcome.transitioned, outcome.deleted),
+        (0, 0, 0)
+    );
+    assert_eq!(
+        count(&catalog, "SELECT count(*) FROM lifecycle_quarantine").await,
+        1
+    );
+    assert_eq!(current(&catalog, "object").await, original);
+    assert!(matches!(
+        catalog.get_bucket("bucket", PERMISSIVE).await,
+        Err(CatalogError::Corrupt(_))
+    ));
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

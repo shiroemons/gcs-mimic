@@ -672,6 +672,47 @@ async fn sqlite_settings_are_explicit() {
     catalog.close().await.unwrap();
 }
 
+/// Every release stored a canonical name from the official location table with the type that
+/// table gives it, so anything else in those columns is a corrupt catalog rather than a location
+/// to report.
+#[tokio::test]
+async fn stored_bucket_location_outside_the_table_is_corruption() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+        .await
+        .unwrap();
+    for (location, kind) in [
+        ("US", "unknown"),
+        ("MARS", "multi-region"),
+        ("US", "region"),
+        ("us", "multi-region"),
+    ] {
+        catalog
+            .run(move |connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET location = ?1, location_type = ?2 WHERE name = 'bucket'",
+                    [location, kind],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap_err();
+        assert!(
+            matches!(error, CatalogError::Corrupt(_)),
+            "{location} {kind}: {error:?}"
+        );
+        assert_eq!(
+            crate::json::JsonError::from(error).message,
+            "Bucket catalog is unavailable"
+        );
+    }
+    catalog.close().await.unwrap();
+}
+
 /// Bucket writes bind `bucket_parameters!` in `bucket_columns!` order, so each parameter must
 /// name the column at its position.
 #[test]
