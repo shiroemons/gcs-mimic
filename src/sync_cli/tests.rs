@@ -16,6 +16,134 @@ fn parse_cmd(args: &[&str]) -> Result<Options, CliError> {
     parse(&args)
 }
 
+/// The one diagnostic `args` is refused with.
+fn refusal(args: &[&str]) -> String {
+    match parse(args) {
+        Err(CliError::Diagnostics(diagnostics)) => {
+            let [error] = diagnostics.errors.as_slice() else {
+                panic!("{args:?}: one error expected: {diagnostics:?}");
+            };
+            assert_eq!(error.key, "sync", "{args:?}");
+            error.fix.clone()
+        }
+        Err(error) => panic!("{args:?}: refused without a diagnostic: {error:?}"),
+        Ok(_) => panic!("{args:?}: accepted"),
+    }
+}
+
+#[test]
+fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
+    let endpoint = "http://127.0.0.1:4443";
+    let revision = "0123456789abcdef0123456789abcdef";
+    for (args, fix) in [
+        (vec![], HELP),
+        (
+            vec!["status", "--endpoint"],
+            "Use unique sync option/value pairs; see sync --help",
+        ),
+        (
+            vec!["status", "--unknown", "x"],
+            "Use unique sync option/value pairs; see sync --help",
+        ),
+        (
+            vec!["status", "--endpoint", ""],
+            "Use unique sync option/value pairs; see sync --help",
+        ),
+        (
+            vec!["status", "--view", "other"],
+            "--view must be deletions or findings",
+        ),
+        // Approval refuses --revision before it looks for an endpoint.
+        (
+            vec!["approve", "--revision", revision],
+            "sync approve takes --deletion-set REVISION, not --revision",
+        ),
+        // An unknown operation is reported only after the shared options are read.
+        (vec!["stop"], "Supply --endpoint http(s)://HOST:PORT"),
+        (
+            vec!["stop", "--endpoint", "http://127.0.0.1:1"],
+            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+        ),
+        (
+            vec!["stop", "--endpoint", endpoint, "--revision", "x"],
+            "Use the exact lowercase inspected revision: 48 characters for findings, 32 for deletions/approval/conflicts",
+        ),
+        (
+            vec!["status", "--endpoint", "http://local host:1"],
+            "Invalid HTTP(S) endpoint origin",
+        ),
+        (
+            vec!["status", "--endpoint", "http://localhost"],
+            "Supply a bare HTTP(S) origin with an explicit nonzero port",
+        ),
+        // The origin is checked before the certificate that needs its scheme.
+        (
+            vec![
+                "status",
+                "--endpoint",
+                "http://localhost",
+                "--ca-cert",
+                "ca",
+            ],
+            "Supply a bare HTTP(S) origin with an explicit nonzero port",
+        ),
+        (
+            vec!["status", "--endpoint", endpoint, "--ca-cert", "ca"],
+            "--ca-cert requires an HTTPS endpoint",
+        ),
+        (
+            vec![
+                "status",
+                "--endpoint",
+                endpoint,
+                "--timeout",
+                "1s",
+                "--timeout-ms",
+                "1000",
+            ],
+            "Supply only one timeout option",
+        ),
+        (
+            vec!["status", "--endpoint", endpoint, "--timeout-ms", "0"],
+            "--timeout-ms must be 1 through 60000",
+        ),
+        (
+            vec!["status", "--endpoint", endpoint, "--revision", revision],
+            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+        ),
+        (
+            vec!["findings", "--endpoint", endpoint, "--revision", revision],
+            "Use the exact lowercase inspected revision: 48 characters for findings, 32 for deletions/approval/conflicts",
+        ),
+        (
+            vec!["deletions", "--endpoint", endpoint],
+            "Pages require the matching --revision from status",
+        ),
+        (
+            vec!["conflicts", "--endpoint", endpoint, "--limit", "0"],
+            "--limit must be 1 through 256",
+        ),
+        (
+            vec!["approve", "--endpoint", endpoint],
+            "Approval requires --deletion-set REVISION from an inspected deletion set",
+        ),
+        (
+            vec!["resolve", "--endpoint", endpoint],
+            "Resolve requires the inspected --revision",
+        ),
+        (
+            vec!["rescan", "--endpoint", endpoint, "--deletion-set", "x"],
+            "This sync operation does not accept the remaining options; see sync --help",
+        ),
+        (
+            vec!["rescan", "--endpoint", endpoint, "--view", "deletions"],
+            "This sync operation does not accept the remaining options; see sync --help",
+        ),
+    ] {
+        assert_eq!(refusal(&args), fix, "{args:?}");
+    }
+}
+
 #[test]
 fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
     for (value, fix) in [
@@ -257,7 +385,7 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
         "http://localhost:80/#x",
         "ftp://localhost:80",
     ] {
-        assert!(origin(value).is_err(), "{value}");
+        assert!(endpoint(value, None).is_err(), "{value}");
     }
     for value in [
         "127.0.0.1",
