@@ -141,12 +141,19 @@ fn xml_service_lists_only_selected_project_in_order_with_persisted_creation_date
             .contains("<ListAllMyBucketsResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'>")
     );
     assert_eq!(names(&reply.body), ["alpha-bucket", "zulu-bucket"]);
-    let metadata = server.request("GET", "/storage/v1/b/alpha-bucket", "", "");
-    let metadata: Value = serde_json::from_str(&metadata.body).unwrap();
-    assert!(reply.body.contains(&format!(
-        "<CreationDate>{}</CreationDate>",
-        metadata["timeCreated"].as_str().unwrap()
-    )));
+    let created = |name: &str| {
+        let metadata = server.request("GET", &format!("/storage/v1/b/{name}"), "", "");
+        let metadata: Value = serde_json::from_str(&metadata.body).unwrap();
+        metadata["timeCreated"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(
+        reply.body,
+        format!(
+            "<?xml version='1.0' encoding='UTF-8'?><ListAllMyBucketsResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Buckets><Bucket><Name>alpha-bucket</Name><CreationDate>{}</CreationDate></Bucket><Bucket><Name>zulu-bucket</Name><CreationDate>{}</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>",
+            created("alpha-bucket"),
+            created("zulu-bucket")
+        )
+    );
     let empty = server.request("GET", "/", "x-goog-project-id: empty\r\n", "");
     empty.expect(200);
     assert!(names(&empty.body).is_empty());

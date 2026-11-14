@@ -66,3 +66,42 @@ impl SignedUploadFixture {
         }
     }
 }
+
+/// An object with every field an XML document renders, named so escaping and URL encoding show.
+pub(super) fn object_record(
+    bucket: &str,
+    name: &str,
+    now: std::time::SystemTime,
+) -> crate::object::ObjectRecord {
+    crate::object::ObjectRecord {
+        bucket: bucket.into(),
+        name: name.into(),
+        generation: 42,
+        metageneration: 2,
+        owner: None,
+        content_type: "text/plain".into(),
+        content_encoding: None,
+        content_disposition: None,
+        content_language: None,
+        cache_control: None,
+        metadata: std::collections::BTreeMap::new(),
+        size: 5,
+        md5: [3; 16],
+        md5_availability: Default::default(),
+        crc32c: 123,
+        component_count: None,
+        storage_class: crate::bucket::StorageClass::Nearline,
+        time_created: now,
+        time_storage_class_updated: None,
+        updated: now,
+        time_deleted: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
+        event_based_hold: crate::object::Hold::Unset,
+        temporary_hold: crate::object::Hold::Unset,
+        custom_time: None,
+        retention_expiration_time: None,
+        retention: None,
+        customer_key_sha256: None,
+    }
+}

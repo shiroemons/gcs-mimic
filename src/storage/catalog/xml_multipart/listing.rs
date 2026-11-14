@@ -1,6 +1,7 @@
 use super::*;
 use crate::storage::catalog::sql;
 
+#[derive(Clone)]
 pub(crate) struct UploadQuery {
     pub bucket: String,
     pub prefix: String,

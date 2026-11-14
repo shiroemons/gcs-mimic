@@ -392,7 +392,7 @@ fn check_policy(
     Ok(range)
 }
 
-enum Success {
+pub(super) enum Success {
     Status(StatusCode),
     /// The validated `success_action_redirect`, already in its `Location` header form.
     Redirect(HeaderValue),
@@ -779,7 +779,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
         })
 }
 
-fn success_response(
+pub(super) fn success_response(
     success: Success,
     record: &ObjectRecord,
     api_base_url: &str,

@@ -255,10 +255,7 @@ pub(crate) async fn respond(
             ))
             .await
             .map_err(|error| storage_error(error, ctx))?;
-        let mut body = render::start("InitiateMultipartUploadResult");
-        render::target(&mut body, &upload.target);
-        body.push_str("</InitiateMultipartUploadResult>");
-        return Ok(response(body));
+        return Ok(response(render::initiate_body(&upload.target)));
     }
     let target = storage::Target {
         bucket: path.target.bucket,
@@ -400,22 +397,7 @@ async fn complete(
         .await
         .map_err(|error| storage_error(error, ctx))?;
     drop(wait);
-    let mut body = render::start("CompleteMultipartUploadResult");
-    element(
-        &mut body,
-        "Location",
-        &format!(
-            "{}/{}/{}",
-            ctx.endpoints.api_base_url().trim_end_matches('/'),
-            record.bucket,
-            crate::url::encode_object_name(&record.name)
-        ),
-    );
-    element(&mut body, "Bucket", &record.bucket);
-    element(&mut body, "Key", &record.name);
-    element(&mut body, "ETag", &super::object_etag(&record));
-    body.push_str("</CompleteMultipartUploadResult>");
-    let mut response = response(body);
+    let mut response = response(render::complete_body(ctx.endpoints.api_base_url(), &record));
     json::insert_response_headers(&record, response.headers_mut());
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     super::move_headers(

@@ -26,6 +26,8 @@ pub(crate) mod extension_headers;
 pub(crate) mod list;
 pub(crate) mod multipart;
 #[cfg(test)]
+mod render_tests;
+#[cfg(test)]
 mod test_support;
 pub use cors::CorsWarnings;
 pub(crate) use cors::{cors, note_default_cors_fallback, warn_unconfigured_cors};

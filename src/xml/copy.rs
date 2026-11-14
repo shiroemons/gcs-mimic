@@ -286,7 +286,7 @@ fn destination(
     })
 }
 
-fn response(
+pub(super) fn response(
     record: &ObjectRecord,
     modified: std::time::SystemTime,
 ) -> Result<Response<ResponseBody>, Error> {

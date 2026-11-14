@@ -11,7 +11,7 @@ use hyper::header::HeaderValue;
 use hyper::{HeaderMap, Request, Response};
 use std::collections::BTreeMap;
 
-struct Params {
+pub(super) struct Params {
     query: ObjectListQuery,
     limit: usize,
     /// Whether the request named a usable `max-keys`; only then does a version 1 listing echo it.
@@ -25,7 +25,7 @@ struct Params {
     start_after: Option<String>,
 }
 
-fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error> {
+pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error> {
     let mut values = crate::auth::signature::xml_query(raw, headers)?;
     let v2 = match values.remove("list-type").as_deref() {
         None | Some("1") => false,
@@ -230,7 +230,7 @@ fn name_element(body: &mut String, name: &str, value: &str, params: &Params) {
     }
 }
 
-fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
+pub(super) fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
     let root = if params.query.versions && params.interop {
         "ListVersionsResult"
     } else {

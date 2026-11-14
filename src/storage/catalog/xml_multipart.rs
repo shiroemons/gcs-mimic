@@ -16,7 +16,7 @@ use std::{fmt, path::Path, time::SystemTime};
 mod listing;
 mod maintenance;
 mod transfer;
-pub(crate) use listing::UploadQuery;
+pub(crate) use listing::{UploadPage, UploadQuery};
 pub(crate) use transfer::PartUpload;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE xml_multipart_uploads (
@@ -426,6 +426,39 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         read_upload(row)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+impl Upload {
+    /// An upload as listings report it; the incarnation only matters to the catalog.
+    pub(crate) fn for_test(
+        target: Target,
+        options: resumable::ResumableOptions,
+        created: SystemTime,
+    ) -> Self {
+        Self {
+            target,
+            options,
+            created,
+            incarnation: String::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Part {
+    /// A part as listings report it; the blob and hashes only matter to completion.
+    pub(crate) fn for_test(number: u16, etag: &str, size: u64, updated: SystemTime) -> Self {
+        Self {
+            number,
+            etag: etag.to_owned(),
+            size,
+            updated,
+            blob_id: BlobId::generate().unwrap(),
+            md5: [0; 16],
+            crc32c: 0,
+        }
+    }
 }
 
 #[cfg(test)]
