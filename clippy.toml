@@ -39,6 +39,11 @@ disallowed-methods = [
     { path = "rusqlite::Connection::prepare", reason = "prepares on every call; use prepare_cached" },
 ]
 
+# gcs-mimic is not published (`publish = false`); its `pub` items exist for the binary and the
+# integration tests. Without this, Clippy skips `option_option`, `ref_option` and similar lints
+# on every `pub` item, which `unreachable_pub` makes the whole crate-root API.
+avoid-breaking-exported-api = false
+
 # Tests may unwrap and expect; production code must not.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
