@@ -35,7 +35,8 @@ pub(crate) struct RequestCtx<'a> {
     /// Shared rather than borrowed, for work that outlives the handler that started it: a batch
     /// runs its parts behind a response head that has already left.
     pub(crate) state: &'a Arc<State>,
-    pub(crate) config: &'a Config,
+    /// Shared like `state`: a batch keeps it for parts that run after the response head left.
+    pub(crate) config: &'a Arc<Config>,
     pub(crate) endpoints: &'a RequestEndpoints,
     /// Reports body and catalog progress to the connection's deadline watchdog.
     pub(crate) activity: &'a watch::Sender<ObjectActivity>,

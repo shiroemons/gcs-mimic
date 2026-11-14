@@ -140,7 +140,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         chunk_body::checked_channel("Batch response ended before its closing delimiter");
     let runner = PartRunner {
         state: Arc::clone(ctx.state),
-        config: ctx.config.clone(),
+        config: Arc::clone(ctx.config),
         endpoints: ctx.endpoints.clone(),
         connection: ctx.activity.clone(),
         listener: ctx.listener,
@@ -161,7 +161,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
 /// What the parts need after the handler has returned the response head.
 struct PartRunner {
     state: Arc<State>,
-    config: Config,
+    config: Arc<Config>,
     endpoints: RequestEndpoints,
     connection: watch::Sender<ObjectActivity>,
     /// A part arrived inside the envelope, so it authenticates as on the envelope's listener.
@@ -372,7 +372,7 @@ mod tests {
     struct Harness {
         _dir: TestDir,
         state: Arc<State>,
-        config: Config,
+        config: Arc<Config>,
         endpoints: RequestEndpoints,
         activity: watch::Sender<ObjectActivity>,
     }
@@ -393,7 +393,7 @@ mod tests {
             Self {
                 _dir: dir,
                 state,
-                config,
+                config: Arc::new(config),
                 endpoints,
                 activity,
             }
@@ -640,7 +640,7 @@ mod tests {
             .await;
             harness.objects(&["a"]).await;
             let budget = std::mem::replace(
-                &mut harness.config.catalog_wait_timeout,
+                &mut Arc::make_mut(&mut harness.config).catalog_wait_timeout,
                 TimeLimit::from_millis(1),
             );
             let admission = harness.state.catalog.hold_admission();
@@ -650,7 +650,7 @@ mod tests {
             let rendered = render_part(delete_part(uri), harness.ctx(), &harness.activity).await;
             tokio::time::resume();
             drop(admission);
-            harness.config.catalog_wait_timeout = budget;
+            Arc::make_mut(&mut harness.config).catalog_wait_timeout = budget;
             let rendered = String::from_utf8(rendered).unwrap();
             assert!(
                 rendered.contains("HTTP/1.1 503 Service Unavailable"),
@@ -800,7 +800,7 @@ mod tests {
             Catalog::open(&dir.0).await.unwrap(),
             Auth::permissive(),
         ));
-        let config = Config::default();
+        let config = Arc::new(Config::default());
         let endpoints = config
             .runtime_endpoints
             .snapshot(&config, "http://localhost")
@@ -851,10 +851,10 @@ mod tests {
         assert!(read.load(Ordering::Acquire));
         drop(response);
 
-        let short = Config {
+        let short = Arc::new(Config {
             object_request_timeout: crate::time_limit::TimeLimit::from_millis(1),
-            ..config.clone()
-        };
+            ..Config::clone(&config)
+        });
         let permits = state
             .pools
             .batches

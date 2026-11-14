@@ -408,11 +408,13 @@ impl Fixture {
                 body,
             ))))
             .unwrap();
+        // Tests change the fixture's settings between requests, so each request shares a copy.
+        let config = Arc::new(self.config.clone());
         control(
             request,
             RequestCtx {
                 state: &self.state,
-                config: &self.config,
+                config: &config,
                 endpoints: &endpoints,
                 activity: &activity,
                 listener: crate::auth::ListenerRole::Public,

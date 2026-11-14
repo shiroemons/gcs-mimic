@@ -331,7 +331,7 @@ mod tests {
             Catalog::open(&dir.0).await.unwrap(),
             Auth::permissive(),
         ));
-        let config = Config::default();
+        let config = std::sync::Arc::new(Config::default());
         let endpoints = config
             .runtime_endpoints
             .snapshot(&config, "http://localhost")

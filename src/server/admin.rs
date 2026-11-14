@@ -253,11 +253,11 @@ mod tests {
         auth.trust(&crate::config::TrustedCaller::Named("manager".into()));
         assert_eq!(auth.trusted_principal(), Some("manager"));
         let state = std::sync::Arc::new(super::super::State::for_test(catalog, auth));
-        let config = crate::config::Config {
+        let config = std::sync::Arc::new(crate::config::Config {
             admin_enabled: true,
             admin_principal: Some("manager".into()),
             ..Default::default()
-        };
+        });
         let endpoints = config
             .runtime_endpoints
             .snapshot(&config, "http://localhost")

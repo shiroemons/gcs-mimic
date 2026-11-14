@@ -138,7 +138,7 @@ mod tests {
             Catalog::open(&dir.0).await.unwrap(),
             Auth::permissive(),
         ));
-        let config = Config::default();
+        let config = std::sync::Arc::new(Config::default());
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         for (host, expected) in [
             ("evil.example.com", Some(StatusCode::MISDIRECTED_REQUEST)),
@@ -188,10 +188,10 @@ mod tests {
             Catalog::open(&dir.0).await.unwrap(),
             Auth::permissive(),
         ));
-        let config = Config {
+        let config = std::sync::Arc::new(Config {
             admin_allowed_hosts: vec!["dev.example.com".into()],
             ..Config::default()
-        };
+        });
         let endpoints = RequestEndpoints::explicit("http://api.example.com");
         let (activity, _) = tokio::sync::watch::channel(ObjectActivity::default());
         let ctx = RequestCtx {

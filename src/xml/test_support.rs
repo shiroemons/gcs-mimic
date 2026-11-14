@@ -13,7 +13,7 @@ use tokio::sync::watch;
 
 pub(super) struct SignedUploadFixture {
     pub(super) state: Arc<State>,
-    pub(super) config: Config,
+    pub(super) config: Arc<Config>,
     pub(super) endpoints: RequestEndpoints,
     pub(super) activity: watch::Sender<ObjectActivity>,
     pub(super) access_id: String,
@@ -54,10 +54,10 @@ impl SignedUploadFixture {
                 api_base_url: endpoints.api_base_url().to_owned(),
                 ..State::for_test(catalog, auth)
             }),
-            config: Config {
+            config: Arc::new(Config {
                 max_object_bytes: 1024 * 1024,
                 ..Config::default()
-            },
+            }),
             endpoints,
             activity,
             access_id: key.record.access_id,
