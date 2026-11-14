@@ -606,26 +606,28 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<Setting> {
         Ok(values) => {
             for (key, value) in values {
                 let setting = key.parse::<Setting>().ok();
-                let text = member_text(setting, &value);
+                // A member of an unsupported type still counts against the input limits.
+                let Some(text) = member_text(setting, &value) else {
+                    if !inputs.admit(DiagnosticSource::Config, &key) {
+                        break;
+                    }
+                    invalid_file_fields.extend(setting);
+                    inputs.diagnostics.errors.push(Diagnostic::new(
+                        DiagnosticSource::Config,
+                        key,
+                        member_fix(setting),
+                    ));
+                    continue;
+                };
                 if !inputs.push(Input {
                     source: DiagnosticSource::Config,
                     key: key.clone(),
-                    name: key.clone(),
-                    value: text.clone().unwrap_or_default(),
+                    name: key,
+                    value: text,
                     kind: InputKind::Native,
                     invalid: None,
                 }) {
                     break;
-                }
-                if text.is_none() {
-                    invalid_file_fields.extend(setting);
-                    let fix = member_fix(setting);
-                    inputs.diagnostics.errors.push(Diagnostic::new(
-                        DiagnosticSource::Config,
-                        key,
-                        fix,
-                    ));
-                    inputs.entries.pop();
                 }
             }
         }
@@ -655,10 +657,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
     ] {
         for input in inputs.entries.iter().filter(|i| {
             i.source == source
-                && !(i.key == "PUBSUB_EMULATOR_HOST"
-                    && inputs.entries.iter().any(|other| {
-                        other.source == source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
-                    }))
+                && !i.shadowed(&inputs.entries)
                 && match i.kind {
                     InputKind::Native | InputKind::Translated => true,
                     InputKind::NativeFlag(_) | InputKind::Alias(_) | InputKind::Refused(_) => false,

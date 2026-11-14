@@ -187,13 +187,15 @@ pub(crate) struct Inputs {
 }
 
 impl Inputs {
-    pub(crate) fn push(&mut self, input: Input) -> bool {
+    /// Counts one supplied setting against the limits without keeping it: the occurrence and key
+    /// limits bound what a caller can make validation read, kept or not.
+    pub(crate) fn admit(&mut self, source: DiagnosticSource, key: &str) -> bool {
         if self.limited {
             return false;
         }
         if self.count == MAX_SETTINGS {
             self.diagnostics.errors.push(Diagnostic::new(
-                input.source,
+                source,
                 "input_limit",
                 "Configuration accepts at most 1024 supplied settings; remove excess entries.",
             ));
@@ -201,120 +203,61 @@ impl Inputs {
             return false;
         }
         self.count += 1;
-        if input.key.len() > MAX_KEY_BYTES {
+        if key.len() > MAX_KEY_BYTES {
             self.diagnostics.errors.push(Diagnostic::new(
-                input.source,
+                source,
                 "input_limit",
                 "Setting keys must contain at most 256 UTF-8 bytes; shorten the key.",
             ));
             self.limited = true;
             return false;
         }
-        self.entries.push(input);
         true
     }
 
+    pub(crate) fn push(&mut self, input: Input) -> bool {
+        let admitted = self.admit(input.source, &input.key);
+        if admitted {
+            self.entries.push(input);
+        }
+        admitted
+    }
+
     pub(crate) fn cli(&mut self, args: &[String], command: CliCommand) {
-        let mut index = 0;
-        while let Some(token) = args.get(index) {
+        let mut args = args.iter();
+        while let Some(token) = args.next() {
             // Checked here so that a value such as `--seed-dir -h` is never mistaken for help.
             if command == CliCommand::Serve
                 && matches!(token.as_str(), "-h" | "--h" | "-help" | "--help")
             {
                 self.help_requested = true;
-                index += 1;
                 continue;
             }
-            let (key, inline) = token
-                .split_once('=')
-                .map_or((token.as_str(), None), |(k, v)| (k, Some(v)));
-            let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
-            let name = key.trim_start_matches('-');
-            let normalized = name.replace('-', "_");
-            let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
-            let next = args.get(index + 1);
-            let supplied = inline.or(next.map(String::as_str));
-            // One and two hyphens mean the same, so the count never selects a meaning.
-            let spelled = (1..=2).contains(&hyphens);
-            let flag = name.parse::<ServerFlag>().ok().filter(|_| spelled);
-            let filesystem_backend = flag.zip(supplied).is_some_and(|(f, v)| {
-                f == ServerFlag::Alias(AliasFlag::Backend) && v == "filesystem"
-            });
-            let native = spelled && native_name && !filesystem_backend;
-            let native_flag =
-                command == CliCommand::Serve && matches!(flag, Some(ServerFlag::Native(_)));
-            let special = flag.filter(|_| !native);
-            let expects_pair = special.is_none() || native_flag;
-            let separate = inline.is_none()
-                && next.is_some_and(|value| {
-                    native
-                        || native_flag
-                        || !value.starts_with('-')
-                        || value.parse::<i64>().is_ok()
-                        || (hyphens == 2 && special.is_none())
-                });
-            let value = inline.or_else(|| {
-                if separate {
-                    next.map(String::as_str)
-                } else {
-                    None
-                }
-            });
-            let valid_syntax = (hyphens == 2 || native || native_flag)
-                && (separate || (inline.is_some() && command == CliCommand::Serve));
-            // fake-gcs-server users expect a valueless switch here, so name the value they need.
-            let example = if native_name && normalized == "cors_fallback" {
-                "--cors-fallback allow-all"
-            } else {
-                "--scheme http"
-            };
-            let syntax_error = expects_pair && !valid_syntax;
-            let spelling_fix = (native_name && name.contains('_')).then(|| {
-                format!(
-                    "Server options are spelled with hyphens; use {}.",
-                    Spelled::new(&normalized, DiagnosticSource::Cli)
-                )
-            });
-            let input = Input {
-                source: DiagnosticSource::Cli,
-                key: key.into(),
-                name: normalized,
-                value: value.unwrap_or_default().into(),
-                kind: match special {
-                    Some(ServerFlag::Native(flag)) => InputKind::NativeFlag(flag),
-                    Some(ServerFlag::Alias(flag)) => InputKind::Alias(flag),
-                    Some(ServerFlag::Refused(flag)) => InputKind::Refused(flag),
-                    None => InputKind::Native,
-                },
-                invalid: if syntax_error {
-                    Some(InputError::Syntax)
-                } else {
-                    spelling_fix.as_ref().map(|_| InputError::Spelling)
-                },
-            };
-            let saved_key = if key.len() <= MAX_KEY_BYTES {
-                Some(key.to_owned())
-            } else {
-                None
-            };
-            if !self.push(input) {
+            let reading = Reading::of(token, args.as_slice().first(), command);
+            if reading.consumes_next {
+                args.next();
+            }
+            if !self.record(reading) {
                 break;
             }
-            if let Some(key) = saved_key {
-                if syntax_error {
-                    self.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, key,
-                        format!("Options require --name VALUE pairs; for example {example}. Use --help for supported options.")));
-                    if !native_name && !native_flag {
-                        self.entries.pop();
-                    }
-                } else if let Some(fix) = spelling_fix {
-                    self.diagnostics
-                        .errors
-                        .push(Diagnostic::new(DiagnosticSource::Cli, key, fix));
-                }
-            }
-            index += if separate { 2 } else { 1 };
         }
+    }
+
+    /// Counts one option against the limits, reports its diagnostic and keeps its input unless
+    /// the reading drops it; `false` once the limits stop the reading of further options.
+    fn record(&mut self, reading: Reading<'_>) -> bool {
+        if !self.admit(DiagnosticSource::Cli, reading.key) {
+            return false;
+        }
+        if let Some(fix) = reading.fix {
+            self.diagnostics
+                .errors
+                .push(Diagnostic::new(DiagnosticSource::Cli, reading.key, fix));
+        }
+        if reading.keep {
+            self.entries.push(reading.input);
+        }
+        true
     }
 
     pub(crate) fn environment(&mut self, env: &BTreeMap<String, String>) {
@@ -333,17 +276,9 @@ impl Inputs {
             .take(MAX_SETTINGS + 1)
         {
             let Ok(key) = key.into_string() else {
-                if !self.push(Input {
-                    source: DiagnosticSource::Environment,
-                    key: "input".into(),
-                    name: "input".into(),
-                    value: String::new(),
-                    kind: InputKind::Native,
-                    invalid: Some(InputError::Encoding),
-                }) {
+                if !self.admit(DiagnosticSource::Environment, "input") {
                     break;
                 }
-                self.entries.pop();
                 self.diagnostics.errors.push(Diagnostic::new(
                     DiagnosticSource::Environment,
                     "input",
@@ -509,6 +444,104 @@ impl Inputs {
     }
 }
 
+/// How the grammar reads one command-line option. Its parts were the parser's locals, moved here
+/// unchanged so that each reading stays the one the tests pin.
+struct Reading<'a> {
+    /// The option as written, before any `=VALUE`.
+    key: &'a str,
+    input: Input,
+    /// The next argument is this option's value.
+    consumes_next: bool,
+    /// The diagnostic for a malformed or misspelled option.
+    fix: Option<String>,
+    /// A malformed option that names neither a setting nor a native flag is reported, not kept.
+    keep: bool,
+}
+
+impl<'a> Reading<'a> {
+    fn of(token: &'a str, next: Option<&'a String>, command: CliCommand) -> Self {
+        let (key, inline) = token
+            .split_once('=')
+            .map_or((token, None), |(k, v)| (k, Some(v)));
+        let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
+        let name = key.trim_start_matches('-');
+        let normalized = name.replace('-', "_");
+        let native_name = command == CliCommand::Serve && normalized.parse::<Setting>().is_ok();
+        let supplied = inline.or(next.map(String::as_str));
+        // One and two hyphens mean the same, so the count never selects a meaning.
+        let spelled = (1..=2).contains(&hyphens);
+        let flag = name.parse::<ServerFlag>().ok().filter(|_| spelled);
+        let filesystem_backend = flag
+            .zip(supplied)
+            .is_some_and(|(f, v)| f == ServerFlag::Alias(AliasFlag::Backend) && v == "filesystem");
+        let native = spelled && native_name && !filesystem_backend;
+        let native_flag =
+            command == CliCommand::Serve && matches!(flag, Some(ServerFlag::Native(_)));
+        let special = flag.filter(|_| !native);
+        let expects_pair = special.is_none() || native_flag;
+        let separate = inline.is_none()
+            && next.is_some_and(|value| {
+                native
+                    || native_flag
+                    || !value.starts_with('-')
+                    || value.parse::<i64>().is_ok()
+                    || (hyphens == 2 && special.is_none())
+            });
+        let value = inline.or_else(|| {
+            if separate {
+                next.map(String::as_str)
+            } else {
+                None
+            }
+        });
+        let valid_syntax = (hyphens == 2 || native || native_flag)
+            && (separate || (inline.is_some() && command == CliCommand::Serve));
+        let syntax_error = expects_pair && !valid_syntax;
+        let fix = if syntax_error {
+            // fake-gcs-server users expect a valueless switch here, so name the value they need.
+            let example = if native_name && normalized == Setting::CorsFallback.as_str() {
+                "--cors-fallback allow-all"
+            } else {
+                "--scheme http"
+            };
+            Some(format!(
+                "Options require --name VALUE pairs; for example {example}. Use --help for supported options."
+            ))
+        } else {
+            (native_name && name.contains('_')).then(|| {
+                format!(
+                    "Server options are spelled with hyphens; use {}.",
+                    Spelled::new(&normalized, DiagnosticSource::Cli)
+                )
+            })
+        };
+        let input = Input {
+            source: DiagnosticSource::Cli,
+            key: key.into(),
+            name: normalized,
+            value: value.unwrap_or_default().into(),
+            kind: match special {
+                Some(ServerFlag::Native(flag)) => InputKind::NativeFlag(flag),
+                Some(ServerFlag::Alias(flag)) => InputKind::Alias(flag),
+                Some(ServerFlag::Refused(flag)) => InputKind::Refused(flag),
+                None => InputKind::Native,
+            },
+            invalid: if syntax_error {
+                Some(InputError::Syntax)
+            } else {
+                fix.as_ref().map(|_| InputError::Spelling)
+            },
+        };
+        Self {
+            key,
+            input,
+            consumes_next: separate,
+            fix,
+            keep: !syntax_error || native_name || native_flag,
+        }
+    }
+}
+
 /// Values that advice may quote.
 fn advice_values<'a>(effective: &BTreeMap<ServerFlag, &'a Input>) -> BTreeMap<ServerFlag, &'a str> {
     effective
@@ -518,7 +551,7 @@ fn advice_values<'a>(effective: &BTreeMap<ServerFlag, &'a Input>) -> BTreeMap<Se
 }
 
 /// Empty listener parts retain their defaults; an empty Pub/Sub endpoint deliberately disables it.
-fn native_value<'a>(entries: &'a [Input], name: &str) -> Option<&'a str> {
+fn native_value(entries: &[Input], setting: Setting) -> Option<&str> {
     [
         DiagnosticSource::Cli,
         DiagnosticSource::Environment,
@@ -529,13 +562,9 @@ fn native_value<'a>(entries: &'a [Input], name: &str) -> Option<&'a str> {
         entries.iter().find(|input| {
             input.source == source
                 && input.kind == InputKind::Native
-                && input.name == name
-                && (!input.value.is_empty() || name == "pubsub_emulator_host")
-                && !(input.key == "PUBSUB_EMULATOR_HOST"
-                    && entries.iter().any(|other| {
-                        other.source == DiagnosticSource::Environment
-                            && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
-                    }))
+                && input.name == setting.as_str()
+                && (!input.value.is_empty() || setting == Setting::PubsubEmulatorHost)
+                && !input.shadowed(entries)
         })
     })
     .map(|input| input.value.as_str())
@@ -554,25 +583,25 @@ struct TranslationBase {
 
 impl TranslationBase {
     fn new(entries: &[Input], flags: &BTreeMap<ServerFlag, &Input>) -> Self {
-        let listen = native_value(entries, "listen").map_or_else(
+        let listen = native_value(entries, Setting::Listen).map_or_else(
             || Some(crate::config::Config::default().listen),
             |address| address.parse().ok(),
         );
-        let http_ip = native_value(entries, "listen_http")
+        let http_ip = native_value(entries, Setting::ListenHttp)
             .and_then(|address| address.parse::<SocketAddr>().ok())
             .or(listen)
             .map(|address| address.ip());
         Self {
             listen,
             http_ip,
-            scheme: native_value(entries, "scheme")
+            scheme: native_value(entries, Setting::Scheme)
                 .or_else(|| {
                     flags
                         .get(&ServerFlag::Native(NativeFlag::Scheme))
                         .map(|i| i.value.as_str())
                 })
                 .and_then(|scheme| scheme.parse().ok()),
-            pubsub_emulator_host: native_value(entries, "pubsub_emulator_host")
+            pubsub_emulator_host: native_value(entries, Setting::PubsubEmulatorHost)
                 .is_some_and(|value| !value.is_empty()),
         }
     }

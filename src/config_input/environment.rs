@@ -1,3 +1,16 @@
+use super::Input;
+
+impl Input {
+    /// Whether this is the standard client variable `PUBSUB_EMULATOR_HOST` and the native
+    /// variable from the same source in `entries` takes its place.
+    pub(crate) fn shadowed(&self, entries: &[Input]) -> bool {
+        self.key == "PUBSUB_EMULATOR_HOST"
+            && entries.iter().any(|other| {
+                other.source == self.source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
+            })
+    }
+}
+
 /// Withdrawn client variables share one definition across server and helper diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenamedEnvironmentVariable {
