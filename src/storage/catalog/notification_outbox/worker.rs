@@ -1,6 +1,11 @@
 use super::{Catalog, unavailable, unix_micros};
-use crate::{bucket::CatalogError, notification::Endpoint, task::TaskHealth};
+use crate::{
+    bucket::CatalogError,
+    notification::{Endpoint, Topic, publisher::InvalidEndpoint},
+    task::TaskHealth,
+};
 use std::{
+    io,
     sync::{Arc, Weak, atomic::Ordering},
     time::Duration,
 };
@@ -24,7 +29,7 @@ impl Catalog {
     /// emulator nothing can be confirmed, so the topic is accepted unchecked.
     pub(crate) async fn check_notification_topic(
         &self,
-        topic: &str,
+        topic: &Topic,
     ) -> Result<(), crate::notification::TopicCheckError> {
         match self.0.pubsub_endpoint.get() {
             Some(endpoint) => endpoint.topic_exists(topic).await,
@@ -122,7 +127,11 @@ async fn attempt(
             u64::try_from(pending.due.saturating_sub(now)).map_err(unavailable)?,
         )));
     }
-    match endpoint.publish(&pending.topic, pending.message).await {
+    let delivered = match queued_topic(&pending.topic) {
+        Ok(topic) => endpoint.publish(&topic, pending.message).await,
+        Err(error) => Err(error),
+    };
+    match delivered {
         Ok(()) => {
             catalog.acknowledge_notification(pending.id).await?;
             health.pass_succeeded();
@@ -141,6 +150,20 @@ async fn attempt(
         }
     }
     Ok(Some(Duration::ZERO))
+}
+
+/// The topic a queued row names. Rows hold only topics this server queued, so the check is a
+/// read boundary: a damaged row is retried like a failed delivery and never blocks the rows
+/// queued after it.
+fn queued_topic(stored: &str) -> io::Result<Topic> {
+    Topic::from_canonical(stored).ok_or_else(|| {
+        if stored.parse::<Topic>().is_ok() {
+            // A relative name reads as a rejected endpoint, as before delivery took a topic.
+            InvalidEndpoint.into()
+        } else {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid Pub/Sub topic")
+        }
+    })
 }
 
 #[cfg(test)]

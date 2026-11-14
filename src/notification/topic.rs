@@ -12,6 +12,20 @@ impl Topic {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// `projects/{project}/topics/{topic}`, the path the Pub/Sub REST API addresses.
+    pub(crate) fn relative(&self) -> &str {
+        // Parsing builds the full form, so the prefix is always there.
+        self.0.strip_prefix(PREFIX).unwrap_or(&self.0)
+    }
+
+    /// A topic this server wrote, which must already be in the full form.
+    pub(crate) fn from_canonical(stored: &str) -> Option<Self> {
+        stored
+            .parse::<Self>()
+            .ok()
+            .filter(|topic| topic.0 == stored)
+    }
 }
 
 /// Accepts the documented full resource name and the relative `projects/.../topics/...` name
@@ -58,5 +72,28 @@ impl std::str::FromStr for Topic {
 impl fmt::Display for Topic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_full_topics_come_back_from_storage() {
+        let full = "//pubsub.googleapis.com/projects/p/topics/topic";
+        let topic = Topic::from_canonical(full).unwrap();
+        assert_eq!(topic.as_str(), full);
+        assert_eq!(topic.relative(), "projects/p/topics/topic");
+        // The relative form is accepted from clients but never stored, so a row holding it is
+        // damaged, as is one that names no topic at all.
+        for stored in [
+            "projects/p/topics/topic",
+            "//pubsub.googleapis.com/projects/p/topics/ab",
+            "//pubsub.googleapis.com/projects/p/subscriptions/topic",
+            "",
+        ] {
+            assert_eq!(Topic::from_canonical(stored), None, "{stored}");
+        }
     }
 }

@@ -84,6 +84,12 @@ impl From<crate::config::InvalidChoice> for Fix {
     }
 }
 
+impl From<crate::notification::publisher::InvalidEndpoint> for Fix {
+    fn from(error: crate::notification::publisher::InvalidEndpoint) -> Self {
+        Self(error.to_string())
+    }
+}
+
 impl From<&str> for Fix {
     fn from(fix: &str) -> Self {
         Self(fix.to_owned())

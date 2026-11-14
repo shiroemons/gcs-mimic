@@ -1,18 +1,38 @@
 //! Explicit local Pub/Sub REST integration; never discover credentials or a production endpoint.
 
+use super::Topic;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::{Request, Uri, client::conn::http1};
 use hyper_util::rt::TokioIo;
 use std::{
-    io,
+    fmt, io,
     net::{IpAddr, SocketAddr},
     time::Duration,
 };
 use tokio::net::{TcpStream, lookup_host};
 
 pub(crate) const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
-pub(crate) const INVALID_ENDPOINT: &str = "Pub/Sub requires an explicit local emulator host:port (HTTP, no credentials, path or query); public, metadata and Google endpoints are disabled";
+const INVALID_ENDPOINT: &str = "Pub/Sub requires an explicit local emulator host:port (HTTP, no credentials, path or query); public, metadata and Google endpoints are disabled";
+
+/// The emulator endpoint is not an explicit local `host:port`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InvalidEndpoint;
+
+impl fmt::Display for InvalidEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(INVALID_ENDPOINT)
+    }
+}
+
+impl std::error::Error for InvalidEndpoint {}
+
+/// A connection attempt reports a rejected endpoint as invalid input, as parsing does.
+impl From<InvalidEndpoint> for io::Error {
+    fn from(error: InvalidEndpoint) -> Self {
+        Self::new(io::ErrorKind::InvalidInput, error)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Endpoint {
@@ -21,24 +41,20 @@ pub(crate) struct Endpoint {
     port: u16,
 }
 
-fn invalid_endpoint() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, INVALID_ENDPOINT)
-}
-
 impl Endpoint {
-    pub(crate) fn parse(value: &str) -> io::Result<Self> {
+    pub(crate) fn parse(value: &str) -> Result<Self, InvalidEndpoint> {
         let uri: Uri = if value.contains("://") {
             value.to_owned()
         } else {
             format!("http://{value}")
         }
         .parse()
-        .map_err(|_| invalid_endpoint())?;
-        let authority = uri.authority().ok_or_else(invalid_endpoint)?;
+        .map_err(|_| InvalidEndpoint)?;
+        let authority = uri.authority().ok_or(InvalidEndpoint)?;
         let port = authority
             .port_u16()
             .filter(|port| *port != 0)
-            .ok_or_else(invalid_endpoint)?;
+            .ok_or(InvalidEndpoint)?;
         let host = authority
             .host()
             .trim_start_matches('[')
@@ -53,7 +69,7 @@ impl Endpoint {
             || host.ends_with("google.internal")
             || host.parse::<IpAddr>().is_ok_and(|ip| !local_address(ip))
         {
-            return Err(invalid_endpoint());
+            return Err(InvalidEndpoint);
         }
         Ok(Self {
             authority: authority.to_string(),
@@ -64,15 +80,15 @@ impl Endpoint {
 
     async fn address(&self) -> io::Result<SocketAddr> {
         let mut addresses = lookup_host((self.host.as_str(), self.port)).await?;
-        let first = addresses.next().ok_or_else(invalid_endpoint)?;
+        let first = addresses.next().ok_or(InvalidEndpoint)?;
         if !local_address(first.ip()) || addresses.any(|address| !local_address(address.ip())) {
-            return Err(invalid_endpoint());
+            return Err(InvalidEndpoint.into());
         }
         // Connect to the checked address itself, so a second DNS lookup cannot bypass the guard.
         Ok(first)
     }
 
-    pub(crate) async fn publish(&self, topic: &str, message: String) -> io::Result<()> {
+    pub(crate) async fn publish(&self, topic: &Topic, message: String) -> io::Result<()> {
         tokio::time::timeout(ATTEMPT_TIMEOUT, self.publish_inner(topic, message))
             .await
             .map_err(io::Error::other)?
@@ -80,14 +96,14 @@ impl Endpoint {
 
     /// Ask the emulator whether `topic` exists, bounded by the same attempt timeout as a publish.
     /// Only existence is checked: the emulator has no permission model to consult.
-    pub(crate) async fn topic_exists(&self, topic: &str) -> Result<(), TopicCheckError> {
+    pub(crate) async fn topic_exists(&self, topic: &Topic) -> Result<(), TopicCheckError> {
         self.topic_exists_within(topic, ATTEMPT_TIMEOUT).await
     }
 
     /// `topic_exists` with the attempt timeout injected, so tests need not wait five seconds.
     async fn topic_exists_within(
         &self,
-        topic: &str,
+        topic: &Topic,
         timeout: Duration,
     ) -> Result<(), TopicCheckError> {
         let status = tokio::time::timeout(timeout, self.topic_status(topic))
@@ -101,8 +117,8 @@ impl Endpoint {
         }
     }
 
-    async fn topic_status(&self, topic: &str) -> io::Result<hyper::StatusCode> {
-        let relative = self.topic_path(topic)?;
+    async fn topic_status(&self, topic: &Topic) -> io::Result<hyper::StatusCode> {
+        let relative = Self::topic_path(topic);
         let request = Request::get(format!("/v1/{relative}"))
             .header("Host", &self.authority)
             .body(Full::new(Bytes::new()))
@@ -110,22 +126,13 @@ impl Endpoint {
         Ok(self.roundtrip(request).await?.0)
     }
 
-    /// The encoded `projects/P/topics/T` path of a canonical topic name.
-    fn topic_path(&self, topic: &str) -> io::Result<String> {
-        if topic.parse::<super::Topic>().is_err() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid Pub/Sub topic",
-            ));
-        }
-        let relative = topic
-            .strip_prefix("//pubsub.googleapis.com/")
-            .ok_or_else(invalid_endpoint)?;
-        Ok(crate::url::encode_object_name(relative))
+    /// The encoded `projects/P/topics/T` path of a topic.
+    fn topic_path(topic: &Topic) -> String {
+        crate::url::encode_object_name(topic.relative())
     }
 
-    async fn publish_inner(&self, topic: &str, message: String) -> io::Result<()> {
-        let relative = self.topic_path(topic)?;
+    async fn publish_inner(&self, topic: &Topic, message: String) -> io::Result<()> {
+        let relative = Self::topic_path(topic);
         let request = Request::post(format!("/v1/{relative}:publish"))
             .header("Host", &self.authority)
             .header("Content-Type", "application/json")

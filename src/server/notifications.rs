@@ -95,7 +95,7 @@ async fn check_topic(
         .get_bucket(bucket, access)
         .await?
         .ok_or(CatalogError::NotFound)?;
-    match state.catalog.check_notification_topic(topic.as_str()).await {
+    match state.catalog.check_notification_topic(topic).await {
         Ok(()) => Ok(()),
         // The service agent named in the message belongs to the bucket's project.
         Err(crate::notification::TopicCheckError::NotFound) => {

@@ -12,8 +12,7 @@ pub(super) fn emulator_host(value: &str) -> Result<Option<String>, SettingFix> {
     if value.is_empty() {
         return Ok(None);
     }
-    Endpoint::parse(value)
-        .map_err(|_| SettingFix::from(notification::publisher::INVALID_ENDPOINT))?;
+    Endpoint::parse(value)?;
     Ok(Some(value.to_owned()))
 }
 

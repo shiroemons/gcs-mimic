@@ -76,7 +76,9 @@ async fn topic_names_are_encoded_before_entering_the_pubsub_request_path() {
     });
     endpoint
         .publish(
-            "//pubsub.googleapis.com/projects/example.com:local/topics/a%b+c",
+            &"//pubsub.googleapis.com/projects/example.com:local/topics/a%b+c"
+                .parse()
+                .unwrap(),
             "{\"messages\":[]}".into(),
         )
         .await
@@ -115,7 +117,9 @@ async fn publish_uses_checked_local_rest_origin_and_requires_one_acknowledgement
         assert_eq!(
             endpoint
                 .publish(
-                    "//pubsub.googleapis.com/projects/p/topics/topic",
+                    &"//pubsub.googleapis.com/projects/p/topics/topic"
+                        .parse()
+                        .unwrap(),
                     r#"{"messages":[{"attributes":{"eventType":"OBJECT_FINALIZE"}}]}"#.into()
                 )
                 .await
@@ -152,7 +156,11 @@ async fn topic_lookup_separates_missing_from_unconfirmed() {
             listener
         });
         let result = endpoint
-            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .topic_exists(
+                &"//pubsub.googleapis.com/projects/p/topics/topic"
+                    .parse()
+                    .unwrap(),
+            )
             .await;
         let actual = match result {
             Ok(()) => "found",
@@ -167,7 +175,11 @@ async fn topic_lookup_separates_missing_from_unconfirmed() {
     drop(listener);
     assert!(matches!(
         endpoint
-            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .topic_exists(
+                &"//pubsub.googleapis.com/projects/p/topics/topic"
+                    .parse()
+                    .unwrap()
+            )
             .await,
         Err(TopicCheckError::Unreachable(_))
     ));
@@ -178,7 +190,9 @@ async fn topic_lookup_without_a_usable_answer_is_unreachable() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();
-    let topic = "//pubsub.googleapis.com/projects/p/topics/topic";
+    let topic: Topic = "//pubsub.googleapis.com/projects/p/topics/topic"
+        .parse()
+        .unwrap();
     // None of these answers is a 200 or a 404: silence, a non-HTTP reply and a body past the
     // bounded read must each leave the topic unconfirmed.
     let oversized = format!(
@@ -205,7 +219,7 @@ async fn topic_lookup_without_a_usable_answer_is_unreachable() {
             listener
         });
         let result = endpoint
-            .topic_exists_within(topic, Duration::from_millis(if hold { 100 } else { 5000 }))
+            .topic_exists_within(&topic, Duration::from_millis(if hold { 100 } else { 5000 }))
             .await;
         assert!(
             matches!(result, Err(TopicCheckError::Unreachable(_))),
