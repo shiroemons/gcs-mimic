@@ -750,20 +750,28 @@ impl Registry {
         trusted: &TrustedCaller,
         projects: &BTreeSet<String>,
     ) -> Result<(Self, TestSigner), IdentityError> {
-        let load = || {
-            let mut registry = match source {
-                Some(source) => Self::parse(&read_identities(source)?)?,
-                None => Self::without_document(),
-            };
-            let signer = signer.settle(|| registry.declares(test_signer::ID));
-            match signer {
-                TestSigner::Enabled => registry.add_test_signer(projects)?,
-                TestSigner::Disabled => {}
-            }
-            registry.trust(trusted, projects)?;
-            Ok((registry, signer))
+        Self::assemble_principals(source, signer, trusted, projects)
+            .map_err(|error| IdentityError::new(source, error))
+    }
+
+    /// [`Self::load_principals`] before its failure names the identity document.
+    fn assemble_principals(
+        source: Option<&DocumentSource>,
+        signer: TestSignerChoice,
+        trusted: &TrustedCaller,
+        projects: &BTreeSet<String>,
+    ) -> Result<(Self, TestSigner), RegistryError> {
+        let mut registry = match source {
+            Some(source) => Self::parse(&read_identities(source)?)?,
+            None => Self::without_document(),
         };
-        load().map_err(|error| IdentityError::new(source, error))
+        let signer = signer.settle(|| registry.declares(test_signer::ID));
+        match signer {
+            TestSigner::Enabled => registry.add_test_signer(projects)?,
+            TestSigner::Disabled => {}
+        }
+        registry.trust(trusted, projects)?;
+        Ok((registry, signer))
     }
 
     /// The keys permissive verification accepts: an optional identity document's and the

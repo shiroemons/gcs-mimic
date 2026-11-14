@@ -49,14 +49,25 @@ pub(super) enum Rejection {
     DisabledTestSigner,
 }
 
+/// A token whose header and claims fit the supported subset, before any key is looked up.
+struct Unverified<'t> {
+    /// The signed `header.claims` text.
+    message: &'t str,
+    issuer: String,
+    signature: Vec<u8>,
+}
+
 impl<'a> Candidate<'a> {
     pub(super) fn parse(
         registry: &'a Registry,
         token: &str,
         clock: &dyn Clock,
     ) -> Result<Self, Rejection> {
-        let (message, issuer, signature) =
-            Self::unverified(token, clock).ok_or(Rejection::Unsupported)?;
+        let Unverified {
+            message,
+            issuer,
+            signature,
+        } = Self::unverified(token, clock).ok_or(Rejection::Unsupported)?;
         // The enabled test signer always has its published key, so a missing one means disabled.
         let keys = registry
             .signing_keys
@@ -75,9 +86,8 @@ impl<'a> Candidate<'a> {
         })
     }
 
-    /// The signed message, the issuer and the signature of a token whose header and claims fit
-    /// the supported subset, before any key is looked up.
-    fn unverified<'t>(token: &'t str, clock: &dyn Clock) -> Option<(&'t str, String, Vec<u8>)> {
+    /// The token's signed parts, or `None` when its header or claims leave the supported subset.
+    fn unverified<'t>(token: &'t str, clock: &dyn Clock) -> Option<Unverified<'t>> {
         if token.len() > MAX_TOKEN_BYTES {
             return None;
         }
@@ -106,7 +116,11 @@ impl<'a> Candidate<'a> {
         {
             return None;
         }
-        Some((message, claims.iss, decode(signature)?))
+        Some(Unverified {
+            message,
+            issuer: claims.iss,
+            signature: decode(signature)?,
+        })
     }
 
     pub(super) async fn verify(
