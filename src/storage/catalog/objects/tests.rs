@@ -1604,7 +1604,9 @@ async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
                 .patch_bucket(
                     "bucket",
                     crate::bucket::BucketMetadataUpdate {
-                        public_access_prevention_enforced: Some(true),
+                        public_access_prevention: Some(
+                            crate::bucket::PublicAccessPrevention::Enforced,
+                        ),
                         ..Default::default()
                     },
                     Default::default(),

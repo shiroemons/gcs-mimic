@@ -1,8 +1,8 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, RETENTION_RANGE_MESSAGE,
-    RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass,
-    UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning, VersioningUpdate,
+    BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
+    RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket,
+    StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning, VersioningUpdate,
     cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
@@ -317,10 +317,8 @@ pub(crate) fn parse_insert_with_profile(
         lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?.unwrap_or_default(),
         versioning,
         default_event_based_hold,
-        public_access_prevention_enforced: parse_public_access_prevention(
-            body.get("iamConfiguration"),
-        )?
-        .unwrap_or(false),
+        public_access_prevention: parse_public_access_prevention(body.get("iamConfiguration"))?
+            .unwrap_or_default(),
         uniform_bucket_level_access_locked_time: if parse_uniform_access(
             body.get("iamConfiguration"),
         )?
@@ -552,9 +550,7 @@ fn parse_bucket_update(
             "defaultEventBasedHold",
         )?
         .or(omitted_clears.then_some(false)),
-        public_access_prevention_enforced: parse_public_access_prevention(
-            body.get("iamConfiguration"),
-        )?,
+        public_access_prevention: parse_public_access_prevention(body.get("iamConfiguration"))?,
         uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
     })
 }
@@ -746,7 +742,9 @@ fn parse_uniform_access(value: Option<&Value>) -> Result<Option<UniformAccessReq
     Ok(enabled)
 }
 
-fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
+fn parse_public_access_prevention(
+    value: Option<&Value>,
+) -> Result<Option<PublicAccessPrevention>, JsonError> {
     // A null `iamConfiguration` leaves the settings alone (recorded 2026-10-31).
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
@@ -758,7 +756,7 @@ fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>,
         .get("publicAccessPrevention")
         .filter(|value| !value.is_null())
         .map(|value| match value.as_str() {
-            Some(value) => crate::bucket::public_access_prevention(value).map_err(Into::into),
+            Some(value) => value.parse::<PublicAccessPrevention>().map_err(Into::into),
             _ => Err(JsonError::invalid(format!(
                 "Invalid value for: {} is not a valid value",
                 value
@@ -1021,11 +1019,14 @@ pub(crate) fn bucket_resource_with_profile(
     if let Some(locked_time) = bucket.uniform_bucket_level_access_locked_time {
         uniform_access.insert("lockedTime".into(), timestamp(locked_time)?.into());
     }
-    value.insert("iamConfiguration".into(), json!({
-        "bucketPolicyOnly": uniform_access,
-        "uniformBucketLevelAccess": uniform_access,
-        "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
-    }));
+    value.insert(
+        "iamConfiguration".into(),
+        json!({
+            "bucketPolicyOnly": uniform_access,
+            "uniformBucketLevelAccess": uniform_access,
+            "publicAccessPrevention": bucket.public_access_prevention.as_str(),
+        }),
+    );
     value.insert(
         "locationType".into(),
         bucket.location.kind().as_str().into(),

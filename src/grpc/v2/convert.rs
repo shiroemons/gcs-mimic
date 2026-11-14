@@ -265,12 +265,7 @@ pub(crate) fn bucket(
             .object_retention_enabled
             .then_some(pb::bucket::ObjectRetention { enabled: true }),
         iam_config: Some(pb::bucket::IamConfig {
-            public_access_prevention: if record.public_access_prevention_enforced {
-                "enforced"
-            } else {
-                "inherited"
-            }
-            .into(),
+            public_access_prevention: record.public_access_prevention.as_str().into(),
             uniform_bucket_level_access: Some(pb::bucket::iam_config::UniformBucketLevelAccess {
                 enabled: record.uniform_bucket_level_access_locked_time.is_some(),
                 lock_time: record
@@ -725,7 +720,7 @@ mod tests {
             object_retention_enabled: false,
             versioning: crate::bucket::Versioning::Enabled,
             default_event_based_hold: true,
-            public_access_prevention_enforced: false,
+            public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
             uniform_bucket_level_access_locked_time: Some(now),
             metageneration: 3,
             generation: 0,

@@ -1085,7 +1085,10 @@ mod tests {
             Some(0)
         );
         assert!(update.cors.unwrap().is_empty());
-        assert_eq!(update.public_access_prevention_enforced, Some(false));
+        assert_eq!(
+            update.public_access_prevention,
+            Some(crate::bucket::PublicAccessPrevention::Inherited)
+        );
         assert_eq!(
             update.uniform_bucket_level_access_enabled,
             Some(false.into())
@@ -1360,7 +1363,10 @@ mod tests {
     async fn grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access() {
         let empty = bucket_patch(&pb::Bucket::default(), &["iam_config".into()]).unwrap();
         assert_eq!(empty.uniform_bucket_level_access_enabled, None);
-        assert_eq!(empty.public_access_prevention_enforced, Some(false));
+        assert_eq!(
+            empty.public_access_prevention,
+            Some(crate::bucket::PublicAccessPrevention::Inherited)
+        );
         assert!(empty.touched);
         assert_eq!(
             bucket_patch(
@@ -1378,7 +1384,7 @@ mod tests {
             .patch_bucket(
                 "update-copy-bucket",
                 BucketMetadataUpdate {
-                    public_access_prevention_enforced: Some(true),
+                    public_access_prevention: Some(crate::bucket::PublicAccessPrevention::Enforced),
                     ..Default::default()
                 },
                 Default::default(),

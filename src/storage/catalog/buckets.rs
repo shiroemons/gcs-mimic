@@ -208,7 +208,8 @@ pub(super) fn create_bucket_in_transaction(
         Some(policy) => {
             insert_bucket_with_policy(transaction, record, default_retention, policy)?;
             if policy.names_public_principal()
-                && policies::public_access_prevention(transaction, &record.name)?
+                && policies::policy_public_access(transaction, &record.name)?
+                    == crate::auth::PublicAccess::Prevented
             {
                 return Err(CatalogError::PublicAccessPrevention);
             }
@@ -331,7 +332,7 @@ fn insert_row(
             ":versioning_enabled": versioning_enabled,
             ":default_event_based_hold": record.default_event_based_hold,
             ":cors": Cors(&record.cors),
-            ":public_access_prevention_enforced": record.public_access_prevention_enforced,
+            ":public_access_prevention_enforced": record.public_access_prevention,
             ":uniform_bucket_level_access_locked_time": locked_time,
             ":lifecycle": sql::Json(&record.lifecycle),
             ":retention_policy": record.retention_policy.as_ref().map(sql::Json),
@@ -398,7 +399,7 @@ pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
             row.get("versioning_configured")?,
         )),
         default_event_based_hold: row.get("default_event_based_hold")?,
-        public_access_prevention_enforced: row.get("public_access_prevention_enforced")?,
+        public_access_prevention: row.get("public_access_prevention_enforced")?,
         uniform_bucket_level_access_locked_time: row
             .get::<_, Option<i64>>("uniform_bucket_level_access_locked_time")?
             .map(system_time_micros)

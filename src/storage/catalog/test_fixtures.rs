@@ -84,7 +84,7 @@ pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
         labels: Default::default(),
         versioning: crate::bucket::Versioning::Unset,
         default_event_based_hold: false,
-        public_access_prevention_enforced: false,
+        public_access_prevention: crate::bucket::PublicAccessPrevention::Inherited,
         uniform_bucket_level_access_locked_time: None,
         lifecycle: Vec::new(),
         retention_policy: None,

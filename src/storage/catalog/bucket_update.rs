@@ -99,12 +99,10 @@ pub(super) fn update_in_transaction(
     let mut record = select_bucket(transaction, name)?.ok_or(CatalogError::NotFound)?;
     check_access(transaction, name, &record.project, access)?;
     let pap = update
-        .public_access_prevention_enforced
-        .unwrap_or(record.public_access_prevention_enforced);
+        .public_access_prevention
+        .unwrap_or(record.public_access_prevention);
     // Permissive and administrative access hold no IAM permission to check twice.
-    if pap != record.public_access_prevention_enforced
-        && matches!(access, BucketAccess::Policy { .. })
-    {
+    if pap != record.public_access_prevention && matches!(access, BucketAccess::Policy { .. }) {
         check_access(
             transaction,
             name,
@@ -210,7 +208,7 @@ fn store_bucket(
             ":metageneration": record.metageneration,
             ":updated": updated,
             ":cors": Cors(&record.cors),
-            ":public_access_prevention_enforced": record.public_access_prevention_enforced,
+            ":public_access_prevention_enforced": record.public_access_prevention,
             ":uniform_bucket_level_access_locked_time": locked_time,
             ":lifecycle": lifecycle,
             ":retention_policy": record.retention_policy.as_ref().map(sql::Json),
@@ -382,8 +380,8 @@ fn apply_plain_settings(
     if let Some(hold) = update.default_event_based_hold {
         record.default_event_based_hold = hold;
     }
-    if let Some(enforced) = update.public_access_prevention_enforced {
-        record.public_access_prevention_enforced = enforced;
+    if let Some(prevention) = update.public_access_prevention {
+        record.public_access_prevention = prevention;
     }
     if let Some(cors) = update.cors.take() {
         validate_cors(&cors)?;

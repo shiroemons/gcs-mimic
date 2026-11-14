@@ -4,7 +4,8 @@
 use crate::{
     auth::Policy,
     bucket::{
-        BucketMetadataUpdate, BucketRecord, SoftDeleteRetention, VersioningUpdate, cors_value,
+        BucketMetadataUpdate, BucketRecord, PublicAccessPrevention, SoftDeleteRetention,
+        VersioningUpdate, cors_value,
     },
     object::MapPatch,
     storage::admin::{
@@ -101,7 +102,10 @@ impl Member {
             // `DIGEST_LABEL`.
             Self::Versioning => record.versioning.is_enabled().into(),
             Self::DefaultEventBasedHold => record.default_event_based_hold.into(),
-            Self::PublicAccessPrevention => record.public_access_prevention_enforced.into(),
+            // Recorded digests hash whether it is enforced, not the setting's name.
+            Self::PublicAccessPrevention => {
+                (record.public_access_prevention == PublicAccessPrevention::Enforced).into()
+            }
             Self::SoftDeletePolicy => retention(record).into(),
             Self::IamPolicy => policy.map_or(Value::Null, |policy| {
                 Value::Object(
@@ -134,8 +138,7 @@ impl Member {
                 update.default_event_based_hold = Some(wanted.default_event_based_hold);
             }
             Self::PublicAccessPrevention => {
-                update.public_access_prevention_enforced =
-                    Some(wanted.public_access_prevention_enforced);
+                update.public_access_prevention = Some(wanted.public_access_prevention);
             }
             Self::SoftDeletePolicy => {
                 // Validation accepted the retention, so a failure here is a broken invariant.
@@ -163,7 +166,7 @@ impl Member {
                 wanted.default_event_based_hold != record.default_event_based_hold
             }
             Self::PublicAccessPrevention => {
-                wanted.public_access_prevention_enforced != record.public_access_prevention_enforced
+                wanted.public_access_prevention != record.public_access_prevention
             }
             Self::SoftDeletePolicy => retention(wanted) != retention(record),
             Self::IamPolicy => policy.map(grants) != Some(grants(&stored.policy)),

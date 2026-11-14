@@ -1579,8 +1579,15 @@ mod tests {
     #[tokio::test]
     async fn pap_mutations_require_update_and_set_iam_permissions() {
         use crate::{
-            bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
+            bucket::{BucketAccess, BucketMetadataUpdate, CatalogError, PublicAccessPrevention},
             storage::Catalog,
+        };
+        let pap = |enforced| {
+            if enforced {
+                PublicAccessPrevention::Enforced
+            } else {
+                PublicAccessPrevention::Inherited
+            }
         };
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -1604,7 +1611,7 @@ mod tests {
         };
         for replace in [false, true] {
             let update = BucketMetadataUpdate {
-                public_access_prevention_enforced: Some(true),
+                public_access_prevention: Some(crate::bucket::PublicAccessPrevention::Enforced),
                 ..Default::default()
             };
             let result = if replace {
@@ -1635,7 +1642,7 @@ mod tests {
                 .patch_bucket(
                     "pap-permissions",
                     BucketMetadataUpdate {
-                        public_access_prevention_enforced: Some(enforced),
+                        public_access_prevention: Some(pap(enforced)),
                         ..Default::default()
                     },
                     Default::default(),
@@ -1651,7 +1658,7 @@ mod tests {
                         .unwrap()
                         .unwrap();
                     let update = BucketMetadataUpdate {
-                        public_access_prevention_enforced: value,
+                        public_access_prevention: value.map(pap),
                         labels: MapPatch::Merge(BTreeMap::from([(
                             "team".into(),
                             Some("storage".into()),
@@ -1670,7 +1677,7 @@ mod tests {
                     let expected = value.unwrap_or(enforced);
                     if expected == enforced {
                         let after = result.unwrap();
-                        assert_eq!(after.public_access_prevention_enforced, enforced);
+                        assert_eq!(after.public_access_prevention, pap(enforced));
                         assert_eq!(after.labels["team"], "storage");
                         assert_eq!(after.metageneration, before.metageneration + 1);
                     } else {

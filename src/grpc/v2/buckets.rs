@@ -182,7 +182,8 @@ fn create_policies(bucket: &pb::Bucket, body: &mut Map<String, Value>) -> Result
     if let Some(iam) = &bucket.iam_config {
         let mut config = Map::new();
         if !iam.public_access_prevention.is_empty() {
-            crate::bucket::public_access_prevention(&iam.public_access_prevention)?;
+            iam.public_access_prevention
+                .parse::<crate::bucket::PublicAccessPrevention>()?;
             config.insert(
                 "publicAccessPrevention".into(),
                 json!(iam.public_access_prevention),

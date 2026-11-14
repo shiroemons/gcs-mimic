@@ -9,7 +9,7 @@
 use super::{
     Catalog, change_journal,
     objects::{object_unavailable, selected},
-    policies::{check_access, public_access_prevention},
+    policies::{check_access, policy_public_access},
     unavailable, unix_micros,
 };
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
@@ -120,7 +120,7 @@ pub(super) fn publish_object_acl(
             if entries
                 .iter()
                 .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
-                && public_access_prevention(connection, bucket)?
+                && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
             {
                 return Err(ObjectError::PublicAccessPrevention);
             }
@@ -632,7 +632,7 @@ pub(super) fn replace_resource_acl(
     if entries
         .iter()
         .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
-        && public_access_prevention(connection, bucket)?
+        && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
     {
         return Err(CatalogError::PublicAccessPrevention);
     }
@@ -851,7 +851,7 @@ impl Catalog {
                 AclChange::Upsert { entity, role } => {
                     // Public access prevention blocks new public grants, as it does for IAM.
                     if Entity::parse(&entity).is_ok_and(Entity::is_public)
-                        && public_access_prevention(&transaction, bucket)?
+                        && policy_public_access(&transaction, bucket)? == crate::auth::PublicAccess::Prevented
                     {
                         return Err(CatalogError::PublicAccessPrevention.into());
                     }

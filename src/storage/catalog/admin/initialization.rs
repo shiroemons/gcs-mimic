@@ -240,16 +240,9 @@ fn observe(
             let project = existing.as_ref().map_or(target.project.as_str(), |stored| {
                 stored.record.project.as_str()
             });
-            let prevented: bool =
+            let parent: PublicAccess =
                 sql::scalar(transaction, PARENT_PREVENTS_PUBLIC_ACCESS, [project])?;
-            Ok(Observed {
-                existing,
-                parent: if prevented {
-                    PublicAccess::Prevented
-                } else {
-                    PublicAccess::Allowed
-                },
-            })
+            Ok(Observed { existing, parent })
         })
         .collect()
 }

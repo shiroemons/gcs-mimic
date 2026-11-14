@@ -75,6 +75,9 @@ text_enum!(
     "invalid stored bucket location",
     crate::bucket::Location::from_canonical
 );
+integer_enum!(crate::bucket::PublicAccessPrevention, { Inherited => 0, Enforced => 1 });
+// The effective access a bucket query computes from its own setting and its parent project's.
+integer_enum!(crate::auth::PublicAccess, { Allowed => 0, Prevented => 1 });
 
 // Only sync_state columns decode into these types: those rows are written from them. Catalog
 // tables (`objects`, `buckets`, ...) may hold names the fake-gcs-server profile or an older
@@ -419,6 +422,20 @@ mod tests {
             (PathStop::IoFailure, "IoFailure"),
         ]);
         integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)], 2);
+        integer_values(
+            &[
+                (crate::bucket::PublicAccessPrevention::Inherited, 0),
+                (crate::bucket::PublicAccessPrevention::Enforced, 1),
+            ],
+            2,
+        );
+        integer_values(
+            &[
+                (crate::auth::PublicAccess::Allowed, 0),
+                (crate::auth::PublicAccess::Prevented, 1),
+            ],
+            2,
+        );
         integer_values(
             &[
                 (Phase::Prepared, 0),

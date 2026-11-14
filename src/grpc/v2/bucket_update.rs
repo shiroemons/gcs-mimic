@@ -246,8 +246,11 @@ fn apply_public_access_prevention(
         .map(|config| config.public_access_prevention.as_str())
         .filter(|value| !value.is_empty())
         .unwrap_or("inherited");
-    update.public_access_prevention_enforced =
-        Some(bucket::public_access_prevention(value).map_err(input_error)?);
+    update.public_access_prevention = Some(
+        value
+            .parse::<bucket::PublicAccessPrevention>()
+            .map_err(input_error)?,
+    );
     Ok(())
 }
 

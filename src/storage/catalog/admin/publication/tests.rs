@@ -241,8 +241,8 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
             let update = crate::bucket::BucketMetadataUpdate {
                 uniform_bucket_level_access_enabled: (restriction == "uniform")
                     .then_some(true.into()),
-                public_access_prevention_enforced: (restriction == "public-prevention")
-                    .then_some(true),
+                public_access_prevention: (restriction == "public-prevention")
+                    .then_some(crate::bucket::PublicAccessPrevention::Enforced),
                 ..Default::default()
             };
             catalog

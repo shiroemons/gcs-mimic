@@ -558,7 +558,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         .patch_bucket(
             "pap-migration",
             BucketMetadataUpdate {
-                public_access_prevention_enforced: Some(true),
+                public_access_prevention: Some(crate::bucket::PublicAccessPrevention::Enforced),
                 ..Default::default()
             },
             BucketConditions {

@@ -214,10 +214,9 @@ pub(super) fn plan(
 
 /// Whether public members may be granted: neither the bucket nor its parent project prevents it.
 fn public_access(bucket: &BucketRecord, parent: PublicAccess) -> PublicAccess {
-    if bucket.public_access_prevention_enforced {
-        PublicAccess::Prevented
-    } else {
-        parent
+    match bucket.public_access_prevention {
+        crate::bucket::PublicAccessPrevention::Enforced => PublicAccess::Prevented,
+        crate::bucket::PublicAccessPrevention::Inherited => parent,
     }
 }
 

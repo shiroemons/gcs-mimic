@@ -2464,14 +2464,20 @@ mod tests {
         assert_eq!(records[0].cors[0].max_age_seconds, Some(3600));
         assert!(records[0].versioning.is_enabled());
         assert!(records[0].default_event_based_hold);
-        assert!(records[0].public_access_prevention_enforced);
+        assert_eq!(
+            records[0].public_access_prevention,
+            crate::bucket::PublicAccessPrevention::Enforced
+        );
         let defaults = parsed(r#"{"version":1,"buckets":[{"name":"default-bucket","cors":null,"versioning":{},"iamConfiguration":{}}]}"#).unwrap();
         assert_eq!(defaults[0].project, "seed-project");
         assert_eq!(defaults[0].location.as_str(), "US");
         assert_eq!(defaults[0].storage_class.as_str(), "STANDARD");
         assert!(!defaults[0].versioning.is_enabled());
         assert!(!defaults[0].default_event_based_hold);
-        assert!(!defaults[0].public_access_prevention_enforced);
+        assert_eq!(
+            defaults[0].public_access_prevention,
+            crate::bucket::PublicAccessPrevention::Inherited
+        );
         assert!(parsed(r#"{"version":1,"buckets":[]}"#).unwrap().is_empty());
     }
 

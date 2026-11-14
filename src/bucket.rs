@@ -111,7 +111,7 @@ pub struct BucketRecord {
     pub object_retention_enabled: bool,
     pub versioning: Versioning,
     pub default_event_based_hold: bool,
-    pub public_access_prevention_enforced: bool,
+    pub(crate) public_access_prevention: PublicAccessPrevention,
     pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
     pub metageneration: i64,
     /// Version of the bucket; the catalog assigns it at creation and keeps it across a
@@ -264,7 +264,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub(crate) versioning: Option<VersioningUpdate>,
     pub default_event_based_hold: Option<bool>,
-    pub public_access_prevention_enforced: Option<bool>,
+    pub(crate) public_access_prevention: Option<PublicAccessPrevention>,
     pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
@@ -287,7 +287,7 @@ impl BucketMetadataUpdate {
             autoclass,
             versioning,
             default_event_based_hold,
-            public_access_prevention_enforced,
+            public_access_prevention,
             uniform_bucket_level_access_enabled,
             touched,
         } = self;
@@ -305,7 +305,7 @@ impl BucketMetadataUpdate {
                 .is_none_or(|update| *update == autoclass::AutoclassUpdate::default())
             && versioning.is_none()
             && default_event_based_hold.is_none()
-            && public_access_prevention_enforced.is_none()
+            && public_access_prevention.is_none()
             && uniform_bucket_level_access_enabled.is_none()
             && !touched
     }
@@ -503,13 +503,35 @@ pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {
         .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
 }
 
-pub(crate) fn public_access_prevention(value: &str) -> Result<bool, CatalogError> {
-    match value {
-        "enforced" => Ok(true),
-        "inherited" => Ok(false),
-        _ => Err(CatalogError::InvalidMetadata(format!(
-            "Invalid value for: {value} is not a valid value"
-        ))),
+/// A bucket's own public access prevention setting. The parent project can still prevent public
+/// access when this is `Inherited`; `crate::auth::PublicAccess` is the effective result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PublicAccessPrevention {
+    #[default]
+    Inherited,
+    Enforced,
+}
+
+impl PublicAccessPrevention {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherited => "inherited",
+            Self::Enforced => "enforced",
+        }
+    }
+}
+
+impl FromStr for PublicAccessPrevention {
+    type Err = CatalogError;
+
+    fn from_str(value: &str) -> Result<Self, CatalogError> {
+        match value {
+            "enforced" => Ok(Self::Enforced),
+            "inherited" => Ok(Self::Inherited),
+            _ => Err(CatalogError::InvalidMetadata(format!(
+                "Invalid value for: {value} is not a valid value"
+            ))),
+        }
     }
 }
 

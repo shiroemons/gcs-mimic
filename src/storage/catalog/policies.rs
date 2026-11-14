@@ -403,7 +403,9 @@ pub(super) fn replace_policy(
         access,
         metageneration,
     } = write;
-    if public_access_prevention(connection, bucket)? && policy.names_public_principal() {
+    if policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
+        && policy.names_public_principal()
+    {
         return Err(CatalogError::PublicAccessPrevention);
     }
     super::acl::replace_from_policy(connection, bucket, policy, principals)?;
@@ -423,25 +425,14 @@ pub(super) fn replace_policy(
     )
 }
 
-pub(super) fn public_access_prevention(
-    connection: &Connection,
-    bucket: &str,
-) -> Result<bool, CatalogError> {
-    sql::scalar(connection, "SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1", [bucket])
-        .map_err(unavailable)
-}
-
-/// Whether public members of the bucket's IAM policy may grant access.
+/// Whether public members of the bucket's IAM policy may grant access: neither the bucket nor
+/// its parent project prevents it.
 pub(super) fn policy_public_access(
     connection: &Connection,
     bucket: &str,
 ) -> Result<crate::auth::PublicAccess, CatalogError> {
-    use crate::auth::PublicAccess;
-    Ok(if public_access_prevention(connection, bucket)? {
-        PublicAccess::Prevented
-    } else {
-        PublicAccess::Allowed
-    })
+    sql::scalar(connection, "SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1", [bucket])
+        .map_err(unavailable)
 }
 
 fn authorize_policy(
