@@ -89,14 +89,7 @@ async fn authority(
         )
     })?;
     if let Some(caller) = ctx
-        .state
-        .auth
-        .authenticate_request(
-            request.headers(),
-            request.uri().query(),
-            ctx.state.clock.as_ref(),
-            ctx.listener,
-        )
+        .authenticate(request.headers(), request.uri().query())
         .await?
     {
         let principal = caller.principal()?;

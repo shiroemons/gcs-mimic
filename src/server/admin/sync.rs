@@ -127,16 +127,7 @@ async fn control(
                 "Directory synchronization is not running",
             )
         })?;
-    let caller = ctx
-        .state
-        .auth
-        .authenticate_request(
-            request.headers(),
-            None,
-            ctx.state.clock.as_ref(),
-            ctx.listener,
-        )
-        .await?;
+    let caller = ctx.authenticate(request.headers(), None).await?;
     let identity = caller
         .map(|caller| caller.principal().cloned())
         .transpose()?;

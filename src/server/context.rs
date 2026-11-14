@@ -5,13 +5,15 @@
 
 use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
 use crate::{
-    auth::{Caller, ListenerRole},
+    auth::{Caller, ListenerRole, signature::Resource},
     bucket::BucketAccess,
     config::{ApiBaseSource, Config, RequestEndpoints},
     json::{self, JsonError},
     object::ObjectError,
     time_limit::TimeLimit,
+    xml,
 };
+use hyper::{HeaderMap, Request};
 use serde_json::Value;
 use std::{future::Future, sync::Arc};
 use tokio::{sync::watch, time::Instant};
@@ -51,6 +53,48 @@ pub(crate) enum DeadlineWatch {
 }
 
 impl<'a> RequestCtx<'a> {
+    /// Authenticates request credentials as the listener that accepted the connection would.
+    /// The caller borrows from the server state, not from the request, so the request can be
+    /// consumed once the future resolves.
+    pub(crate) fn authenticate<'r>(
+        self,
+        headers: &'r HeaderMap,
+        query: Option<&'r str>,
+    ) -> impl Future<Output = Result<Option<Caller<'a>>, JsonError>> + Send + use<'a, 'r> {
+        let RequestCtx {
+            state, listener, ..
+        } = self;
+        async move {
+            state
+                .auth
+                .authenticate_request(headers, query, state.clock.as_ref(), listener)
+                .await
+                .map_err(JsonError::from)
+        }
+    }
+
+    /// The inputs of an XML authentication of `request` against the signature `resource`.
+    pub(crate) fn xml_authentication<'r, B>(
+        self,
+        request: &'r Request<B>,
+        resource: &'r Resource,
+    ) -> xml::Authentication<'a, 'r>
+    where
+        'a: 'r,
+    {
+        let state: &'a State = self.state;
+        xml::Authentication {
+            auth: &state.auth,
+            catalog: &state.catalog,
+            method: request.method(),
+            uri: request.uri(),
+            headers: request.headers(),
+            clock: state.clock.as_ref(),
+            resource,
+            listener: self.listener,
+        }
+    }
+
     /// Starts an object request deadline of `object_request_timeout_ms` from now.
     pub(crate) fn start_object_deadline(self, watch: DeadlineWatch) -> Instant {
         let deadline = self.config.object_request_timeout.deadline();

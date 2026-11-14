@@ -32,16 +32,8 @@ pub(super) async fn request(
             "Upload transport Content-Encoding must be one gzip coding",
         ));
     }
-    ctx.state
-        .auth
-        .authenticate_request(
-            request.headers(),
-            request.uri().query(),
-            ctx.state.clock.as_ref(),
-            ctx.listener,
-        )
-        .await
-        .map_err(JsonError::from)?;
+    ctx.authenticate(request.headers(), request.uri().query())
+        .await?;
     let (mut parts, body) = request.into_parts();
     parts.headers.remove(CONTENT_ENCODING);
     parts.headers.remove(CONTENT_LENGTH);

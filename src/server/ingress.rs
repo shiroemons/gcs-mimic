@@ -199,16 +199,8 @@ pub(super) async fn decode_metadata(
             "JSON request Content-Encoding must be a single gzip coding",
         ));
     }
-    ctx.state
-        .auth
-        .authenticate_request(
-            request.headers(),
-            request.uri().query(),
-            ctx.state.clock.as_ref(),
-            ctx.listener,
-        )
-        .await
-        .map_err(JsonError::from)?;
+    ctx.authenticate(request.headers(), request.uri().query())
+        .await?;
     let (mut parts, mut body) = request.into_parts();
     if body.size_hint().lower() > RESOURCE_BODY_LIMIT as u64 {
         return Err(too_large());

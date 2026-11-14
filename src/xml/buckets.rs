@@ -37,17 +37,7 @@ pub(crate) async fn respond(
         auth::signature::Resource::PathStyle,
         ObjectPath::signature_resource,
     );
-    let result = match super::authenticate_target(super::Authentication {
-        auth: &ctx.state.auth,
-        catalog: &ctx.state.catalog,
-        method: request.method(),
-        uri: request.uri(),
-        headers: request.headers(),
-        clock: ctx.state.clock.as_ref(),
-        resource: &resource,
-        listener: ctx.listener,
-    })
-    .await
+    let result = match super::authenticate_target(ctx.xml_authentication(&request, &resource)).await
     {
         Ok(caller) => match super::extension_headers::normalize(
             &mut request,

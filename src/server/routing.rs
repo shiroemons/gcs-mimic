@@ -10,7 +10,6 @@ use super::{
     unsupported, xml_read,
 };
 use crate::{
-    auth::Caller,
     bucket::{BucketAccess, CatalogError},
     config::{CompatProfile, CorsFallback, CorsFallbackChoice},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
@@ -387,7 +386,7 @@ async fn respond_routed(
 ) -> Response<ResponseBody> {
     if is_unsupported_protocol_upload(&request) {
         return boxed(
-            authenticate(&request, ctx)
+            ctx.authenticate(request.headers(), request.uri().query())
                 .await
                 .and_then(|_| Err(json::unsupported_upload_type()))
                 .unwrap_or_else(JsonError::into_response),
@@ -465,30 +464,14 @@ async fn respond_routed(
     boxed(probe(&request, ctx.state).unwrap_or_else(|| unknown_route().into_response()))
 }
 
-fn authenticate<'a, 'r>(
-    request: &'r Request<Incoming>,
-    ctx: RequestCtx<'a>,
-) -> impl Future<Output = Result<Option<Caller<'a>>, JsonError>> + Send + use<'a, 'r> {
-    let (headers, query) = (request.headers(), request.uri().query());
-    let RequestCtx {
-        state, listener, ..
-    } = ctx;
-    async move {
-        state
-            .auth
-            .authenticate_request(headers, query, state.clock.as_ref(), listener)
-            .await
-            .map_err(JsonError::from)
-    }
-}
-
 async fn respond_acl(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
     parsed: Result<json::acl::AclRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result = match authenticate(&request, ctx)
+    let result = match ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)))
     {
@@ -512,7 +495,7 @@ async fn respond_unsupported(
     route: &str,
 ) -> Response<ResponseBody> {
     boxed(
-        authenticate(request, ctx)
+        ctx.authenticate(request.headers(), request.uri().query())
             .await
             .and_then(|_| {
                 Err(JsonError::unsupported_message(
@@ -529,7 +512,8 @@ async fn respond_notifications(
     parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result = match authenticate(&request, ctx)
+    let result = match ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)))
     {
@@ -567,16 +551,7 @@ async fn respond_xml_object(
         .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.target.bucket.clone(), read.target.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let auth_inputs = xml::Authentication {
-        auth: &ctx.state.auth,
-        catalog: &ctx.state.catalog,
-        method: request.method(),
-        uri: request.uri(),
-        headers: request.headers(),
-        clock: ctx.state.clock.as_ref(),
-        resource: &resource,
-        listener: ctx.listener,
-    };
+    let auth_inputs = ctx.xml_authentication(&request, &resource);
     let authentication = if put && !multipart {
         xml::authenticate_upload_target(auth_inputs).await
     } else {
@@ -632,18 +607,7 @@ async fn respond_xml_resumable(
             xml::resumable::session(request, object, ctx.object(None, deadline)).await
         }
         xml::resumable::Route::Start => {
-            match xml::authenticate_target(xml::Authentication {
-                auth: &ctx.state.auth,
-                catalog: &ctx.state.catalog,
-                method: request.method(),
-                uri: request.uri(),
-                headers: request.headers(),
-                clock: ctx.state.clock.as_ref(),
-                resource,
-                listener: ctx.listener,
-            })
-            .await
-            {
+            match xml::authenticate_target(ctx.xml_authentication(&request, resource)).await {
                 Ok(caller) => match xml::extension_headers::normalize(
                     &mut request,
                     xml::extension_headers::Route::Object,
@@ -666,7 +630,8 @@ async fn respond_rewrite(
     ctx: RequestCtx<'_>,
     parsed: Result<json::rewrite::RewriteRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx)
+    let parsed = ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
@@ -687,7 +652,8 @@ async fn respond_json_object(
     ctx: RequestCtx<'_>,
     parsed: Result<ObjectRequest, JsonError>,
 ) -> Response<ResponseBody> {
-    let parsed = authenticate(&request, ctx)
+    let parsed = ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)));
     let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
@@ -749,7 +715,8 @@ async fn respond_project(
     parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result = match authenticate(&request, ctx)
+    let result = match ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)))
     {
@@ -775,7 +742,8 @@ async fn respond_bucket(
     parsed: Result<json::BucketRequest, JsonError>,
 ) -> Response<ResponseBody> {
     let state = ctx.state;
-    let result = match authenticate(&request, ctx)
+    let result = match ctx
+        .authenticate(request.headers(), request.uri().query())
         .await
         .and_then(|caller| parsed.map(|op| (op, caller)))
     {
