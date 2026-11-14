@@ -111,11 +111,8 @@ impl Capture<'_> {
         }
         codec::parse_bucket_timestamp(created)
             .map_err(|error| corrupt(BackendCause::from_error(error)))?;
-        // An invalid ACL still reports as a source I/O failure, as it did when the codec
-        // returned I/O errors.
-        codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket).map_err(|error| {
-            ImportFailure::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-        })?;
+        codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)
+            .map_err(|error| corrupt(BackendCause::from_error(error)))?;
         self.buckets += 1;
         self.report.summary.buckets += 1;
         self.report.summary.eligible_buckets += 1;
@@ -203,11 +200,8 @@ impl Capture<'_> {
         }
         let before = self.report.summary.blocking_findings;
         let checks = reader::check_object_fields(self.report, &blob, &attributes)?;
-        // An invalid retention setting still reports as a source I/O failure, as it did when the
-        // codec returned I/O errors.
-        let retention = codec::retention(&attributes).map_err(|error| {
-            ImportFailure::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-        })?;
+        let retention = codec::retention(&attributes)
+            .map_err(|error| corrupt(BackendCause::from_error(error)))?;
         if retention.is_some() && !self.retention_enabled {
             return Err(corrupt(
                 "retention configuration requires declared derived bucket enablement",

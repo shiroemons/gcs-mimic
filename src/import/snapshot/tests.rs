@@ -153,7 +153,14 @@ fn object(name: &str, generation: i64, membership: &str) -> Value {
         "blob":"", "size":5, "attributes":attributes})
 }
 
-fn fixture(mut objects: Vec<Value>) -> (TestDir, Options) {
+fn fixture(objects: Vec<Value>) -> (TestDir, Options) {
+    fixture_with_bucket_acl(
+        json!([{"Entity":"allAuthenticatedUsers","Role":"READER"}]),
+        objects,
+    )
+}
+
+fn fixture_with_bucket_acl(bucket_acl: Value, mut objects: Vec<Value>) -> (TestDir, Options) {
     let dir = TestDir::new();
     let source = dir.0.join("source");
     fs::create_dir_all(source.join("blobs")).unwrap();
@@ -168,7 +175,7 @@ fn fixture(mut objects: Vec<Value>) -> (TestDir, Options) {
         "capture_id":"0123456789abcdef0123456789abcdef","quiesced":true,"backend":"memory","original_names_verified":true});
     let bucket = json!({"kind":"bucket","name":"bucket-one","created":"2026-01-01T00:00:00.123456789Z",
         "attributes":{"VersioningEnabled":true,"DefaultEventBasedHold":true,
-            "ACL":[{"Entity":"allAuthenticatedUsers","Role":"READER"}]},"enable_object_retention":true});
+            "ACL":bucket_acl},"enable_object_retention":true});
     let mut bytes = Vec::new();
     for row in [header, bucket] {
         serde_json::to_writer(&mut bytes, &row).unwrap();
@@ -384,6 +391,55 @@ fn snapshot_rejects_invalid_membership_duplicate_generations_and_incomplete_expo
         if corruption != "checksum" {
             assert!(!options.destination.exists(), "{corruption}");
         }
+    }
+}
+
+/// An invalid ACL or retention setting is part of the snapshot, so repairing filesystem access
+/// cannot fix it: the report blames the snapshot, and the preflight asks for a supported one.
+#[test]
+fn invalid_snapshot_acl_and_retention_are_reported_as_corrupt_snapshots() {
+    let mut retention = object("retained", 7, "live");
+    retention["attributes"]["RetentionMode"] = json!("Sometimes");
+    retention["attributes"]["RetentionRetainUntil"] = json!("2099-01-01T00:00:00.123456Z");
+    for (case, (_dir, options), reason) in [
+        (
+            "bucket ACL",
+            fixture_with_bucket_acl(json!([{"Entity":"bad","Role":"READER"}]), Vec::new()),
+            "bad",
+        ),
+        (
+            "object retention",
+            fixture(vec![retention]),
+            "source retention mode must be Locked or Unlocked",
+        ),
+    ] {
+        let mut output = Vec::new();
+        let summary = import::inspect(options.clone(), &mut output, Vec::new()).unwrap();
+        assert!(!summary.eligible, "{case}");
+        assert_eq!(summary.io_findings, 0, "{case}");
+        let findings: Vec<Value> = std::str::from_utf8(&output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter_map(|page| page["page"]["findings"].as_array().cloned())
+            .flatten()
+            .collect();
+        assert!(
+            findings.iter().any(|finding| {
+                finding["diagnostic"]["key"] == ".:snapshot"
+                    && finding["reason"]
+                        .as_str()
+                        .is_some_and(|text| text.contains(reason))
+            }),
+            "{case}: {findings:?}"
+        );
+        let error = import::execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "import preflight found blockers; restore an immutable supported snapshot and retry",
+            "{case}"
+        );
+        assert!(!options.destination.exists(), "{case}");
     }
 }
 
