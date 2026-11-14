@@ -1,4 +1,4 @@
-use super::Config;
+use super::{Config, DomainLimit, VirtualHostDomains};
 use crate::url::{PublicOrigin, UrlError, normalize_base_url};
 use hyper::http::uri::Authority;
 use std::{
@@ -10,7 +10,7 @@ use std::{
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeEndpoints {
     current: Arc<RwLock<Option<Arc<EndpointSnapshot>>>>,
-    declared_domains: Option<Arc<[String]>>,
+    declared_domains: Option<Arc<VirtualHostDomains>>,
 }
 
 /// Whether an operator chose the advertised API base.
@@ -83,7 +83,7 @@ pub(crate) struct EndpointSnapshot {
     fixed_api_base: ApiBase,
     api_base_source: ApiBaseSource,
     pub(crate) public_base_url: Option<PublicOrigin>,
-    pub(crate) xml_virtual_host_domains: Vec<String>,
+    pub(crate) xml_virtual_host_domains: VirtualHostDomains,
 }
 
 impl EndpointSnapshot {
@@ -92,7 +92,7 @@ impl EndpointSnapshot {
     pub(crate) fn explicit(
         api_base_url: &str,
         public_base_url: Option<PublicOrigin>,
-        xml_virtual_host_domains: Vec<String>,
+        xml_virtual_host_domains: VirtualHostDomains,
     ) -> Self {
         Self {
             fixed_api_base: ApiBase::try_from(api_base_url).unwrap(),
@@ -171,7 +171,12 @@ impl RequestEndpoints {
     /// An explicit API base, for tests that build a request context by hand.
     #[cfg(test)]
     pub(crate) fn explicit(api_base_url: &str) -> Self {
-        Arc::new(EndpointSnapshot::explicit(api_base_url, None, Vec::new())).without_request()
+        Arc::new(EndpointSnapshot::explicit(
+            api_base_url,
+            None,
+            VirtualHostDomains::default(),
+        ))
+        .without_request()
     }
 
     fn api_base(&self) -> &ApiBase {
@@ -238,9 +243,9 @@ impl From<UrlError> for EndpointError {
 }
 
 impl RuntimeEndpoints {
-    pub(super) fn new(domains: Vec<String>) -> Self {
+    pub(super) fn new(domains: VirtualHostDomains) -> Self {
         Self {
-            declared_domains: Some(domains.into()),
+            declared_domains: Some(Arc::new(domains)),
             ..Self::default()
         }
     }
@@ -297,23 +302,16 @@ impl RuntimeEndpoints {
                 .declared_domains
                 .as_deref()
                 .unwrap_or(&config.xml_virtual_host_domains)
-                .to_vec();
+                .clone();
             if let Some(domain) = candidate
                 .public_base_url
                 .as_ref()
                 .and_then(PublicOrigin::dns_name)
-                && !candidate
-                    .xml_virtual_host_domains
-                    .iter()
-                    .any(|entry| entry == domain)
             {
-                if candidate.xml_virtual_host_domains.len() == 32 {
-                    return Err(EndpointError::DomainLimit);
-                }
-                candidate.xml_virtual_host_domains.push(domain.to_owned());
                 candidate
                     .xml_virtual_host_domains
-                    .sort_by_key(|domain| std::cmp::Reverse(domain.len()));
+                    .insert(domain.to_owned())
+                    .map_err(|DomainLimit| EndpointError::DomainLimit)?;
             }
         }
         if crate::xml::bucket_for_authority(

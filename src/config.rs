@@ -19,6 +19,7 @@ use std::{
 
 mod auth;
 mod document;
+mod domains;
 mod help;
 mod notifications;
 mod rejection;
@@ -34,6 +35,8 @@ pub(crate) use auth::Verification;
 pub(crate) use auth::{AuthProfile, TrustedCaller};
 pub use document::DocumentSource;
 pub(crate) use document::{DocumentKind, Form};
+pub use domains::VirtualHostDomains;
+use domains::{DomainLimit, Inserted};
 pub use help::help;
 pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{
@@ -326,7 +329,7 @@ pub struct Config {
     pub event_bucket: String,
     pub event_object_prefix: String,
     pub event_list: String,
-    pub xml_virtual_host_domains: Vec<String>,
+    pub xml_virtual_host_domains: VirtualHostDomains,
     pub max_connections: usize,
     /// Streams each gRPC connection may run at once. Each can buffer a request message of up to
     /// 4 MiB and its encoded response, so lowering this limits a connection's memory.
@@ -422,7 +425,7 @@ impl Default for Config {
             event_bucket: String::new(),
             event_object_prefix: String::new(),
             event_list: "finalize".into(),
-            xml_virtual_host_domains: Vec::new(),
+            xml_virtual_host_domains: VirtualHostDomains::default(),
             max_connections: 1024,
             max_grpc_streams: DEFAULT_MAX_GRPC_STREAMS,
             max_object_bytes: setting::MAX_OBJECT_BYTES,
@@ -830,27 +833,27 @@ fn public_base_url(value: &str) -> Result<PublicOrigin, SettingFix> {
     PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}").into())
 }
 
-/// The comma-separated base domains, longest first: the most specific configured suffix owns
-/// overlapping domains.
-fn virtual_host_domains(value: &str) -> Result<Vec<String>, SettingFix> {
-    let mut domains = Vec::new();
+/// The comma-separated base domains; unlike `public_base_url`, the setting may not repeat one.
+fn virtual_host_domains(value: &str) -> Result<VirtualHostDomains, SettingFix> {
+    let mut domains = VirtualHostDomains::default();
     if value.is_empty() {
         return Ok(domains);
     }
     for domain in value.split(',') {
         let domain = domain.trim().to_ascii_lowercase();
         validate_dns_name(&domain).map_err(|error| error.to_string())?;
-        if domains.contains(&domain) {
-            return Err(
-                "duplicate xml_virtual_host_domains entry; remove repeated DNS names".into(),
-            );
+        match domains.insert(domain) {
+            Ok(Inserted::Added) => {}
+            Ok(Inserted::AlreadyListed) => {
+                return Err(
+                    "duplicate xml_virtual_host_domains entry; remove repeated DNS names".into(),
+                );
+            }
+            Err(DomainLimit) => {
+                return Err("xml_virtual_host_domains must contain at most 32 DNS names".into());
+            }
         }
-        if domains.len() == 32 {
-            return Err("xml_virtual_host_domains must contain at most 32 DNS names".into());
-        }
-        domains.push(domain);
     }
-    domains.sort_by_key(|d| std::cmp::Reverse(d.len()));
     Ok(domains)
 }
 
@@ -1303,18 +1306,12 @@ impl ConfigurationReport {
             && let Some(origin) = config.public_base_url.as_ref()
         {
             if let Some(domain) = origin.dns_name() {
-                let domain = domain.to_owned();
-                if !config.xml_virtual_host_domains.contains(&domain) {
-                    if config.xml_virtual_host_domains.len() == 32 {
-                        self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                            "public_base_url and xml_virtual_host_domains must contain at most 32 distinct DNS names; remove a domain or reuse one already configured."));
-                        self.invalid.insert(Setting::PublicBaseUrl);
-                    } else {
-                        config.xml_virtual_host_domains.push(domain);
-                        config
-                            .xml_virtual_host_domains
-                            .sort_by_key(|d| std::cmp::Reverse(d.len()));
-                    }
+                // The origin's domain may repeat one the list already names.
+                if let Err(DomainLimit) = config.xml_virtual_host_domains.insert(domain.to_owned())
+                {
+                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                        "public_base_url and xml_virtual_host_domains must contain at most 32 distinct DNS names; remove a domain or reuse one already configured."));
+                    self.invalid.insert(Setting::PublicBaseUrl);
                 }
             } else {
                 self.diagnostics.warnings.push(Diagnostic::new(input.source, &input.key,
@@ -3031,7 +3028,7 @@ mod tests {
         );
         assert!(config.public_virtual_host_enabled());
         assert_eq!(
-            config.xml_virtual_host_domains,
+            *config.xml_virtual_host_domains,
             ["storage.invalid", "invalid"]
         );
         args[5] = "storage.invalid,STORAGE.invalid".into();
@@ -3090,7 +3087,7 @@ mod tests {
                     .contains("virtual-host routing is disabled")
             );
             assert!(!report.config.public_virtual_host_enabled());
-            assert_eq!(report.config.xml_virtual_host_domains, ["storage.invalid"]);
+            assert_eq!(*report.config.xml_virtual_host_domains, ["storage.invalid"]);
         }
         for base in [
             "http://storage.invalid/path",
@@ -3151,7 +3148,7 @@ mod tests {
                 vec!["storage.example.invalid".into(), "example.invalid".into()],
             ],
             Config::load,
-            |config| config.xml_virtual_host_domains,
+            |config| config.xml_virtual_host_domains.to_vec(),
         );
         *args.last_mut().unwrap() = String::new();
         assert!(

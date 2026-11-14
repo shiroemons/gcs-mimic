@@ -41,7 +41,7 @@ fn endpoint_updates_keep_in_flight_snapshots_and_replace_only_the_implicit_publi
         "new.invalid:9876"
     );
     assert_eq!(
-        new.xml_virtual_host_domains,
+        *new.xml_virtual_host_domains,
         ["explicit.invalid", "new.invalid"]
     );
     assert!(Arc::ptr_eq(

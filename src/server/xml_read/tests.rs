@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     auth::Auth,
-    config::Config,
+    config::{Config, VirtualHostDomains},
     server::{ObjectActivity, RequestCtx, State},
     storage::Catalog,
 };
@@ -15,7 +15,7 @@ async fn xml_read_validators_wrap_routed_public_and_virtual_host_responses() {
         Auth::permissive(),
     ));
     let config = Config {
-        xml_virtual_host_domains: vec!["storage.invalid".into()],
+        xml_virtual_host_domains: VirtualHostDomains::of(&["storage.invalid"]),
         ..Config::default()
     };
     let endpoints = config

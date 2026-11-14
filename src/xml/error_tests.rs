@@ -1,5 +1,8 @@
 use super::*;
-use crate::{auth::AuthFailure, bucket::CatalogError, csek::CsekError, object::ObjectError};
+use crate::{
+    auth::AuthFailure, bucket::CatalogError, config::VirtualHostDomains, csek::CsekError,
+    object::ObjectError,
+};
 
 #[test]
 fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
@@ -36,7 +39,7 @@ fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
     let endpoints = EndpointSnapshot::explicit(
         "http://localhost",
         None,
-        vec!["storage.example.com".into(), "example.com".into()],
+        VirtualHostDomains::of(&["storage.example.com", "example.com"]),
     );
     let public = "storage.example.com".parse().unwrap();
     let host = "bucket.storage.example.com.".parse().unwrap();
@@ -342,7 +345,7 @@ async fn legacy_header_clock_skew_answers_request_time_too_skewed() {
 #[test]
 fn object_paths_name_their_bucket_source() {
     let virtual_hosts = Config {
-        xml_virtual_host_domains: vec!["storage.example.test".into()],
+        xml_virtual_host_domains: VirtualHostDomains::of(&["storage.example.test"]),
         ..Config::default()
     };
     let legacy_public = Config {
