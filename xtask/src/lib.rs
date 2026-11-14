@@ -2,9 +2,11 @@ use serde_json::Value;
 pub mod container;
 pub mod dependencies;
 pub mod differential;
+mod ledger;
 pub mod lint;
 pub mod release;
 mod test_ids;
+use ledger::{Classification, FeatureRow, Fidelity, Kind, Status};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
@@ -58,22 +60,6 @@ macro_rules! named {
 pub(crate) use named;
 
 const MAX_JSON_BYTES: u64 = 8 * 1024 * 1024;
-const KINDS: [&str; 3] = ["api_operation", "behavior", "project_requirement"];
-const STATUSES: [&str; 6] = [
-    "NOT_STARTED",
-    "IN_PROGRESS",
-    "PARTIAL",
-    "IMPLEMENTED",
-    "BLOCKED",
-    "NOT_APPLICABLE",
-];
-const FIDELITIES: [&str; 5] = [
-    "EXACT",
-    "LOCAL_SIMULATION",
-    "METADATA_ONLY",
-    "EXTERNAL",
-    "PROJECT",
-];
 
 pub fn read_json(path: &Path) -> Result<Value> {
     let mut bytes = Vec::new();
@@ -247,11 +233,12 @@ fn scoped_differences(
     Ok(())
 }
 
-fn evidence(root: &Path, row: &Value, gaps: &BTreeMap<&str, &Value>) -> Result<()> {
+fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>) -> Result<()> {
+    let row = feature.value;
     let cases = array(row, "acceptance_cases")?;
     let tests = strings(row, "test_ids")?;
     let checks = array(row, "verification")?;
-    let complete = row["status"] == "IMPLEMENTED";
+    let complete = feature.status == Status::Implemented;
     if complete {
         ensure(
             !cases.is_empty() && !tests.is_empty() && !checks.is_empty(),
@@ -270,7 +257,7 @@ fn evidence(root: &Path, row: &Value, gaps: &BTreeMap<&str, &Value>) -> Result<(
             "invalid last_verified date",
         )?;
         ensure(
-            row["actual_fidelity"] == row["target_fidelity"],
+            feature.achieved == Some(feature.target),
             "IMPLEMENTED must meet target fidelity",
         )?;
     }
@@ -339,8 +326,7 @@ fn evidence(root: &Path, row: &Value, gaps: &BTreeMap<&str, &Value>) -> Result<(
             "IMPLEMENTED has unlinked test IDs",
         )?;
     }
-    let id = string(row, "id")?;
-    scoped_differences(row, id, &proven, gaps)
+    scoped_differences(row, feature.id, &proven, gaps)
 }
 
 /// Indexes the gap ledger only when a row records a scoped difference, so ledgers without
@@ -374,92 +360,114 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
         }
     }
     let mut by_id = BTreeMap::new();
-    let mut kinds: BTreeMap<&str, usize> = KINDS.into_iter().map(|k| (k, 0)).collect();
-    let mut categories = BTreeMap::new();
     for row in rows {
-        let id = string(row, "id")?;
-        let check = || -> Result<()> {
-            ensure(
-                id.as_bytes()[0].is_ascii_uppercase()
-                    && id
-                        .bytes()
-                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'-'),
-                "invalid ID",
-            )?;
-            ensure(!by_id.contains_key(id), "duplicate feature ID")?;
-            let kind = string(row, "kind")?;
-            ensure(KINDS.contains(&kind), "invalid kind")?;
-            ensure(STATUSES.contains(&string(row, "status")?), "invalid status")?;
-            ensure(
-                FIDELITIES.contains(&string(row, "target_fidelity")?),
-                "invalid target fidelity",
-            )?;
-            let actual = string(row, "actual_fidelity")?;
-            ensure(
-                actual == "NONE" || FIDELITIES.contains(&actual),
-                "invalid actual fidelity",
-            )?;
-            ensure(
-                kind == "project_requirement" || row["target_fidelity"] != "PROJECT",
-                "kind/target fidelity mismatch",
-            )?;
-            ensure(
-                (actual != "PROJECT" || row["target_fidelity"] == "PROJECT")
-                    && (row["target_fidelity"] != "PROJECT"
-                        || ["NONE", "PROJECT"].contains(&actual)),
-                "kind/actual fidelity mismatch",
-            )?;
-            ensure(
-                row["target_fidelity"] != "LOCAL_SIMULATION" || actual != "EXACT",
-                "simulation cannot claim EXACT",
-            )?;
-            if row["status"] == "NOT_STARTED" {
-                ensure(actual == "NONE", "NOT_STARTED has achieved fidelity")?;
-            }
-            ensure(
-                ["P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7"].contains(&string(row, "phase")?),
-                "invalid phase",
-            )?;
-            string(row, "title")?;
-            string(row, "category")?;
-            ensure(
-                date(string(row, "source_checked_at")?),
-                "invalid source date",
-            )?;
-            let urls = strings(row, "source_urls")?;
-            ensure(
-                urls.iter()
-                    .all(|u| u.starts_with("https://") && u.len() > 8),
-                "sources require HTTPS URLs",
-            )?;
-            ensure(
-                !urls.is_empty()
-                    || (kind == "project_requirement"
-                        && row["source_evidence"] == "PROPOSED_PROJECT_REQUIREMENT"),
-                "missing source provenance",
-            )?;
-            string(row, "source_evidence")?;
-            strings(row, "dependencies")?;
-            array(row, "sdk_evidence")?;
-            array(row, "known_deviations")?;
-            if ["IN_PROGRESS", "PARTIAL", "IMPLEMENTED"].contains(&string(row, "status")?) {
-                ensure(
-                    !array(row, "acceptance_cases")?.is_empty(),
-                    "active work needs acceptance decomposition",
-                )?;
-            }
-            evidence(root, row, &gaps)
-        };
-        check().map_err(|e| format!("{id}: {e}"))?;
-        *kinds.get_mut(string(row, "kind")?).unwrap() += 1;
-        if row["kind"] == "api_operation" {
-            *categories.entry(string(row, "category")?).or_insert(0usize) += 1;
+        let feature = validate_row(root, row, &by_id, &gaps)?;
+        by_id.insert(feature.id, feature);
+    }
+    count_rows(ledger, &by_id)?;
+    check_dependencies(&by_id)
+}
+
+/// Validates one row against the rows before it. Every error after the ID names the row.
+fn validate_row<'a>(
+    root: &Path,
+    row: &'a Value,
+    seen: &BTreeMap<&str, FeatureRow<'_>>,
+    gaps: &BTreeMap<&str, &Value>,
+) -> Result<FeatureRow<'a>> {
+    let id = string(row, "id")?;
+    check_row(root, row, id, seen, gaps).map_err(|e| format!("{id}: {e}"))
+}
+
+fn check_row<'a>(
+    root: &Path,
+    row: &'a Value,
+    id: &'a str,
+    seen: &BTreeMap<&str, FeatureRow<'_>>,
+    gaps: &BTreeMap<&str, &Value>,
+) -> Result<FeatureRow<'a>> {
+    ensure(
+        id.as_bytes()[0].is_ascii_uppercase()
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'-'),
+        "invalid ID",
+    )?;
+    ensure(!seen.contains_key(id), "duplicate feature ID")?;
+    let classification = Classification::parse(row)?;
+    classification.check()?;
+    let Classification {
+        kind,
+        status,
+        target,
+        achieved,
+    } = classification;
+    let phase = string(row, "phase")?;
+    ensure(
+        ["P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7"].contains(&phase),
+        "invalid phase",
+    )?;
+    string(row, "title")?;
+    let category = string(row, "category")?;
+    check_sources(row, kind)?;
+    strings(row, "dependencies")?;
+    array(row, "sdk_evidence")?;
+    array(row, "known_deviations")?;
+    if status.is_active() {
+        ensure(
+            !array(row, "acceptance_cases")?.is_empty(),
+            "active work needs acceptance decomposition",
+        )?;
+    }
+    let feature = FeatureRow {
+        id,
+        kind,
+        status,
+        target,
+        achieved,
+        phase,
+        category,
+        value: row,
+    };
+    evidence(root, &feature, gaps)?;
+    Ok(feature)
+}
+
+/// A row cites HTTPS sources unless it is a proposed project requirement.
+fn check_sources(row: &Value, kind: Kind) -> Result<()> {
+    ensure(
+        date(string(row, "source_checked_at")?),
+        "invalid source date",
+    )?;
+    let urls = strings(row, "source_urls")?;
+    ensure(
+        urls.iter()
+            .all(|u| u.starts_with("https://") && u.len() > 8),
+        "sources require HTTPS URLs",
+    )?;
+    ensure(
+        !urls.is_empty()
+            || (kind == Kind::ProjectRequirement
+                && row["source_evidence"] == "PROPOSED_PROJECT_REQUIREMENT"),
+        "missing source provenance",
+    )?;
+    string(row, "source_evidence")?;
+    Ok(())
+}
+
+/// Checks the ledger's totals per kind and per API category against its rows.
+fn count_rows(ledger: &Value, rows: &BTreeMap<&str, FeatureRow<'_>>) -> Result<()> {
+    let mut kinds: BTreeMap<Kind, usize> = Kind::ALL.iter().map(|&kind| (kind, 0)).collect();
+    let mut categories = BTreeMap::new();
+    for row in rows.values() {
+        *kinds.entry(row.kind).or_default() += 1;
+        if row.kind == Kind::ApiOperation {
+            *categories.entry(row.category).or_insert(0usize) += 1;
         }
-        by_id.insert(id, row);
     }
     for (kind, count) in kinds {
         ensure(
-            ledger["counts_by_kind"][kind].as_u64() == Some(count as u64),
+            ledger["counts_by_kind"][kind.as_str()].as_u64() == Some(count as u64),
             &format!("counts_by_kind mismatch: {kind}"),
         )?;
     }
@@ -475,18 +483,23 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
             "API category total mismatch",
         )?;
     }
+    Ok(())
+}
+
+/// Rejects unknown and cyclic dependencies, and incomplete ones of an IMPLEMENTED row.
+fn check_dependencies(by_id: &BTreeMap<&str, FeatureRow<'_>>) -> Result<()> {
     // Kahn's algorithm avoids a recursive stack proportional to user-edited dependency depth.
     let mut pending = BTreeMap::new();
     let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (&id, row) in &by_id {
-        let deps = strings(row, "dependencies")?;
+    for (&id, row) in by_id {
+        let deps = strings(row.value, "dependencies")?;
         let mut waiting = false;
         for &dependency in &deps {
             let other = by_id
                 .get(dependency)
                 .ok_or_else(|| format!("{id}: unknown dependency {dependency}"))?;
-            let complete = other["status"] == "IMPLEMENTED";
-            if row["status"] == "IMPLEMENTED" {
+            let complete = other.status == Status::Implemented;
+            if row.status == Status::Implemented {
                 ensure(
                     complete,
                     &format!("{id}: incomplete dependency {dependency}"),
@@ -497,9 +510,9 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
         }
         // An incomplete dependency already names what a PARTIAL row is missing, so the row
         // need not restate it as a deviation of its own.
-        if row["status"] == "PARTIAL" {
+        if row.status == Status::Partial {
             ensure(
-                waiting || !array(row, "known_deviations")?.is_empty(),
+                waiting || !array(row.value, "known_deviations")?.is_empty(),
                 &format!("{id}: PARTIAL needs explicit missing cases or an incomplete dependency"),
             )?;
         }
@@ -522,7 +535,7 @@ pub fn validate(root: &Path, ledger: &Value) -> Result<()> {
             }
         }
     }
-    ensure(visited == rows.len(), "dependency cycle")
+    ensure(visited == by_id.len(), "dependency cycle")
 }
 
 fn escape(text: &str) -> String {
@@ -541,23 +554,27 @@ fn escape(text: &str) -> String {
 
 pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
     let rows = array(ledger, "features")?;
+    let as_of = string(ledger, "as_of")?;
+    let rows = rows
+        .iter()
+        .map(FeatureRow::parse)
+        .collect::<Result<Vec<_>>>()?;
     let mut result = String::from(
         "# Feature implementation matrix\n\nGenerated from `compatibility/features.json`; do not edit status here.\n\n",
     );
     result.push_str(&format!(
-        "Research cutoff: {}. Implementation status and achieved fidelity are independent.\n\n",
-        string(ledger, "as_of")?
+        "Research cutoff: {as_of}. Implementation status and achieved fidelity are independent.\n\n"
     ));
     result.push_str("API operations, behaviors and project requirements have separate denominators. Parameter and schema-field inventories are not additional features. SDK evidence is recorded separately on each row.\n\n");
     result.push_str("`Kind` groups rows by what they track: `api_operation` is an API method or operation, `behavior` is a semantic rule or workflow, and `project_requirement` is an emulator engineering or usability requirement.\n\n## Implementation status\n\nStatus tracks completion of each row's declared acceptance cases.\n\n");
     result.push_str("| Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
-    for kind in KINDS {
-        let group: Vec<_> = rows.iter().filter(|r| r["kind"] == kind).collect();
+    for &kind in Kind::ALL {
+        let group: Vec<_> = rows.iter().filter(|r| r.kind == kind).collect();
         result.push_str(&format!("| {kind} | {} |", group.len()));
-        for status in STATUSES {
+        for &status in Status::ALL {
             result.push_str(&format!(
                 " {} |",
-                group.iter().filter(|r| r["status"] == status).count()
+                group.iter().filter(|r| r.status == status).count()
             ));
         }
         result.push('\n');
@@ -576,53 +593,44 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         "Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT` fidelity for its tested subset while other acceptance cases remain pending. An `IMPLEMENTED` local simulation still has `LOCAL_SIMULATION` fidelity; it does not become `EXACT`.\n\n",
         "| Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n",
     ));
-    for kind in KINDS {
+    for &kind in Kind::ALL {
         result.push_str(&format!("| {kind} |"));
-        for fidelity in [
-            "NONE",
-            "EXACT",
-            "LOCAL_SIMULATION",
-            "METADATA_ONLY",
-            "EXTERNAL",
-            "PROJECT",
-        ] {
+        // `NONE` comes first, as in the table header above.
+        for achieved in std::iter::once(None).chain(Fidelity::ALL.iter().copied().map(Some)) {
             result.push_str(&format!(
                 " {} |",
                 rows.iter()
-                    .filter(|r| r["kind"] == kind && r["actual_fidelity"] == fidelity)
+                    .filter(|r| r.kind == kind && r.achieved == achieved)
                     .count()
             ));
         }
         result.push('\n');
     }
-    for kind in KINDS {
+    for &kind in Kind::ALL {
         result.push_str(&format!("\n## {kind}\n"));
-        let mut categories: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
-        for row in rows.iter().filter(|r| r["kind"] == kind) {
-            categories
-                .entry(string(row, "category")?)
-                .or_default()
-                .push(row);
+        let mut categories: BTreeMap<&str, Vec<&FeatureRow<'_>>> = BTreeMap::new();
+        for row in rows.iter().filter(|r| r.kind == kind) {
+            categories.entry(row.category).or_default().push(row);
         }
         for (category, mut group) in categories {
-            group.sort_by_key(|r| r["id"].as_str().unwrap());
+            group.sort_by_key(|r| r.id);
             result.push_str(&format!("\n### {}\n\n| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |\n| --- | --- | --- | --- | --- | --- | ---: |\n", escape(category)));
             for row in group {
-                let id = string(row, "id")?;
+                let id = row.id;
                 let title = match titles {
                     Some(t) => t["titles"][id]
                         .as_str()
                         .ok_or_else(|| format!("missing companion title: {id}"))?,
-                    None => string(row, "title")?,
+                    None => string(row.value, "title")?,
                 };
                 result.push_str(&format!(
                     "| {id} | {} | {} | {} | {} | {} | {} |\n",
                     escape(title),
-                    string(row, "status")?,
-                    string(row, "phase")?,
-                    string(row, "target_fidelity")?,
-                    string(row, "actual_fidelity")?,
-                    array(row, "sdk_evidence")?.len()
+                    row.status,
+                    row.phase,
+                    row.target,
+                    ledger::achieved_text(row.achieved),
+                    array(row.value, "sdk_evidence")?.len()
                 ));
             }
         }
@@ -640,12 +648,11 @@ fn validate_inventory(root: &Path, file: &str, key: &str) -> Result<usize> {
     let mut ids = BTreeSet::new();
     for row in rows {
         ensure(ids.insert(string(row, "id")?), "duplicate inventory ID")?;
-        ensure(
-            STATUSES.contains(&string(row, "status")?),
-            "invalid inventory status",
-        )?;
+        let status: Status = string(row, "status")?
+            .parse()
+            .map_err(|UnknownName| "invalid inventory status")?;
         // These inventories have no fidelity or test-ID fields; their evidence is validated separately.
-        if row["status"] == "IMPLEMENTED" {
+        if status == Status::Implemented {
             ensure(
                 !array(row, "acceptance_cases")?.is_empty()
                     && !array(row, "verification")?.is_empty(),
@@ -710,27 +717,55 @@ pub fn check_test_ids(root: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    use serde_json::json;
+
     #[test]
     fn schema_enumerations_match_validator() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let schema = read_json(&root.join("compatibility/features.schema.json")).unwrap();
         let properties = &schema["properties"]["features"]["items"]["properties"];
-        assert_eq!(properties["kind"]["enum"], serde_json::json!(KINDS));
-        assert_eq!(properties["status"]["enum"], serde_json::json!(STATUSES));
-        assert_eq!(
-            properties["target_fidelity"]["enum"],
-            serde_json::json!(FIDELITIES)
-        );
+        let kinds: Vec<_> = Kind::ALL.iter().map(|kind| kind.as_str()).collect();
+        let statuses: Vec<_> = Status::ALL.iter().map(|status| status.as_str()).collect();
+        let fidelities: Vec<_> = Fidelity::ALL.iter().map(|f| f.as_str()).collect();
+        assert_eq!(properties["kind"]["enum"], json!(kinds));
+        assert_eq!(properties["status"]["enum"], json!(statuses));
+        assert_eq!(properties["target_fidelity"]["enum"], json!(fidelities));
         assert_eq!(
             properties["actual_fidelity"]["enum"],
-            serde_json::json!([
-                "NONE",
-                "EXACT",
-                "LOCAL_SIMULATION",
-                "METADATA_ONLY",
-                "EXTERNAL",
-                "PROJECT"
-            ])
+            json!([&[ledger::NO_FIDELITY][..], &fidelities].concat())
         );
+    }
+
+    /// Two rows in one category, so rendering sorts them by ID.
+    fn two_row_ledger() -> Value {
+        let row = json!({
+            "id": "TEST-001", "kind": "project_requirement", "category": "Governance",
+            "title": "Test requirement", "phase": "P0", "status": "NOT_STARTED",
+            "target_fidelity": "PROJECT", "actual_fidelity": "NONE", "sdk_evidence": []
+        });
+        let mut second = row.clone();
+        second["id"] = json!("TEST-002");
+        json!({"as_of": "2026-10-21", "features": [row, second]})
+    }
+
+    #[test]
+    fn render_reports_rows_it_cannot_read_instead_of_panicking() {
+        assert!(render(&two_row_ledger(), None).is_ok());
+        let mut ledger = two_row_ledger();
+        ledger["features"][1].as_object_mut().unwrap().remove("id");
+        assert_eq!(
+            render(&ledger, None).unwrap_err(),
+            "id: expected nonempty string"
+        );
+        for (key, value, expected) in [
+            ("kind", json!("method"), "invalid kind"),
+            ("status", json!("DONE"), "invalid status"),
+            ("target_fidelity", json!("FAST"), "invalid target fidelity"),
+            ("actual_fidelity", json!("FAST"), "invalid actual fidelity"),
+        ] {
+            let mut ledger = two_row_ledger();
+            ledger["features"][1][key] = value;
+            assert_eq!(render(&ledger, None).unwrap_err(), expected, "{key}");
+        }
     }
 }
