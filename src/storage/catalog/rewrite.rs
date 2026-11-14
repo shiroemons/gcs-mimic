@@ -107,6 +107,10 @@ pub(crate) enum RewriteError {
     Object(ObjectError),
 }
 impl From<ObjectError> for RewriteError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every other object error is carried unchanged"
+    )]
     fn from(error: ObjectError) -> Self {
         match error {
             ObjectError::DerivedTransferNotFound | ObjectError::DerivedTransferExpired => {
@@ -485,6 +489,10 @@ fn check_source(
     access: &BucketAccess,
 ) -> Result<ObjectRecord, ObjectError> {
     check_incarnations(connection, session)?;
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every other object error passes through unchanged"
+    )]
     let source = Catalog::check_derived_source_in_transaction(
         connection,
         &session.binding.source.bucket,

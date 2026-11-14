@@ -188,6 +188,10 @@ pub(in crate::storage::catalog) fn expiration_after(
 }
 
 /// ACL metadata rejections keep their client-input status across publication paths.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared object mapping"
+)]
 pub(in crate::storage::catalog) fn acl_update_error(error: CatalogError) -> ObjectError {
     match error {
         CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
