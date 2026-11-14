@@ -1,4 +1,4 @@
-use std::{error::Error, io};
+use std::error::Error;
 
 pub(crate) struct Report<'a>(pub(crate) &'a (dyn Error + 'static));
 impl std::fmt::Display for Report<'_> {
@@ -19,21 +19,19 @@ impl std::fmt::Display for Report<'_> {
     }
 }
 
+/// `error` and every error below it through `source()`, outermost first. An `io::Error` hands
+/// over its payload's own source, not the payload: the payload's text is already its own, and
+/// the decisions that need a failure's type read typed chains instead.
 pub(crate) fn causes<'a>(
     error: &'a (dyn Error + 'static),
 ) -> impl Iterator<Item = &'a (dyn Error + 'static)> {
-    std::iter::successors(Some(error), |&cause| {
-        // `io::Error::source()` skips the wrapped error itself, hiding its type from downcasts.
-        cause
-            .downcast_ref::<io::Error>()
-            .and_then(|error| error.get_ref().map(|inner| inner as &(dyn Error + 'static)))
-            .or_else(|| cause.source())
-    })
+    std::iter::successors(Some(error), |&cause| cause.source())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
 
     #[test]
     fn reports_do_not_repeat_wrappers_with_the_same_display() {
@@ -60,19 +58,19 @@ mod tests {
         }
     }
 
+    /// Each `io::Error` shows its payload's text and hands over the payload's own source, so
+    /// the wrapped payloads are not separate links.
     #[test]
-    fn causes_include_each_nested_io_error_and_the_typed_inner_error() {
+    fn causes_follow_source_past_the_payloads_of_io_errors() {
         let error = io::Error::other(io::Error::other(Wrapped(io::ErrorKind::TimedOut.into())));
         let chain: Vec<_> = causes(&error).collect();
-        assert_eq!(chain.len(), 4);
+        assert_eq!(chain.len(), 2);
         assert!(std::ptr::eq(
             chain[0].downcast_ref::<io::Error>().unwrap(),
             &error
         ));
-        assert!(chain[1].is::<io::Error>());
-        assert!(chain[2].is::<Wrapped>());
         assert_eq!(
-            chain[3].downcast_ref::<io::Error>().unwrap().kind(),
+            chain[1].downcast_ref::<io::Error>().unwrap().kind(),
             io::ErrorKind::TimedOut
         );
     }
@@ -85,7 +83,7 @@ mod tests {
         );
         let error = io::Error::other("message");
         let chain: Vec<_> = causes(&error).collect();
-        assert_eq!(chain.len(), 2);
-        assert_eq!(chain[1].to_string(), "message");
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].to_string(), "message");
     }
 }
