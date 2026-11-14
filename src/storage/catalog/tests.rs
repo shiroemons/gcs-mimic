@@ -672,6 +672,18 @@ async fn sqlite_settings_are_explicit() {
     catalog.close().await.unwrap();
 }
 
+/// Bucket writes bind `bucket_parameters!` in `bucket_columns!` order, so each parameter must
+/// name the column at its position.
+#[test]
+fn bucket_parameters_name_every_column_in_order() {
+    let columns: Vec<_> = bucket_columns!().split(',').map(str::trim).collect();
+    let parameters: Vec<_> = bucket_parameters!().split(',').map(str::trim).collect();
+    assert_eq!(parameters.len(), columns.len());
+    for (parameter, column) in parameters.iter().zip(&columns) {
+        assert_eq!(*parameter, format!(":{column}"));
+    }
+}
+
 type StoredColumns = Vec<(&'static str, rusqlite::types::Value)>;
 
 /// Each bucket column and its value as SQLite stores it, in `bucket_columns!` order.

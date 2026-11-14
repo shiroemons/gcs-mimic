@@ -6,7 +6,7 @@ use crate::bucket::{
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::{BackendCause, BackendFailure, unavailable};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, types::Type};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -126,7 +126,7 @@ use bucket_list::bucket_list_page;
 use bucket_list::bucket_metadata_charge;
 pub(super) use buckets::select_bucket;
 use buckets::{
-    BucketCreation, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
+    BucketCreation, Cors, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
 };
 use connection::ConnectionUnavailable;
 #[cfg(test)]
@@ -158,6 +158,18 @@ macro_rules! bucket_columns {
     };
 }
 use bucket_columns;
+// The named parameter of each column in `bucket_columns!`, in the same order, so a write binds
+// columns by name; a test keeps the two lists aligned.
+macro_rules! bucket_parameters {
+    () => {
+        ":name, :project, :location, :location_type, :storage_class, :labels,
+                      :metageneration, :time_created, :updated, :versioning_enabled,
+                      :default_event_based_hold, :cors, :public_access_prevention_enforced,
+                      :uniform_bucket_level_access_locked_time, :lifecycle, :retention_policy, :soft_delete_policy,
+                      :object_retention_enabled, :autoclass, :time_created_nanos, :updated_nanos, :generation, :versioning_configured"
+    };
+}
+use bucket_parameters;
 
 crate::storage::opaque_id::opaque_id! {
     /// Which life of a bucket name a row belongs to. SQLite draws a new value

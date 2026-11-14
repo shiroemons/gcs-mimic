@@ -4,8 +4,9 @@ use std::num::NonZeroU64;
 const INSERT_BUCKET: &str = concat!(
     "INSERT INTO buckets (",
     bucket_columns!(),
-    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, ?19, ?20, 1)
-         ON CONFLICT(name) DO NOTHING"
+    ", acl_policy_bound) VALUES (",
+    bucket_parameters!(),
+    ", 1) ON CONFLICT(name) DO NOTHING"
 );
 const SELECT_BUCKET: &str = concat!(
     "SELECT ",
@@ -267,7 +268,6 @@ fn insert_bucket_with_policy(
             unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
         })
         .transpose()?;
-    let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     // Cloud Storage bucket generations are 19-digit nanosecond values. A dedicated allocator
     // keeps them unique and increasing even under a frozen injected clock, and across a
     // recreated name's soft-deleted versions, without disturbing object generations.
@@ -280,41 +280,7 @@ fn insert_bucket_with_policy(
         last.checked_add(1)
             .ok_or_else(|| unavailable("generation exhausted"))?,
     );
-    let changed = transaction.prepare_cached(INSERT_BUCKET)?.execute(params![
-        record.name,
-        record.project,
-        record.location,
-        record.location_type,
-        record.storage_class,
-        labels,
-        record.metageneration,
-        created,
-        updated,
-        record.versioning_enabled,
-        record.default_event_based_hold,
-        cors_value(&record.cors).to_string(),
-        record.public_access_prevention_enforced,
-        record
-            .uniform_bucket_level_access_locked_time
-            .map(unix_micros)
-            .transpose()?,
-        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
-        record
-            .retention_policy
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(unavailable)?,
-        record
-            .soft_delete_policy
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(unavailable)?,
-        record.object_retention_enabled,
-        record.generation,
-        record.versioning_configured,
-    ])?;
+    let changed = insert_row(transaction, record, created, updated)?;
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
@@ -334,6 +300,60 @@ fn insert_bucket_with_policy(
         [&record.name],
     )?;
     Ok(())
+}
+
+/// Inserts the row of a new bucket unless the name exists, returning how many rows it inserted.
+/// Autoclass starts as NULL: `bucket_autoclass::insert` owns that column's encoding.
+fn insert_row(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &BucketRecord,
+    created: i64,
+    updated: i64,
+) -> Result<usize, CatalogError> {
+    let locked_time = record
+        .uniform_bucket_level_access_locked_time
+        .map(unix_micros)
+        .transpose()?;
+    let changed = transaction
+        .prepare_cached(INSERT_BUCKET)?
+        .execute(rusqlite::named_params! {
+            ":name": record.name,
+            ":project": record.project,
+            ":location": record.location,
+            ":location_type": record.location_type,
+            ":storage_class": record.storage_class,
+            ":labels": sql::Json(&record.labels),
+            ":metageneration": record.metageneration,
+            ":time_created": created,
+            ":updated": updated,
+            ":versioning_enabled": record.versioning_enabled,
+            ":default_event_based_hold": record.default_event_based_hold,
+            ":cors": Cors(&record.cors),
+            ":public_access_prevention_enforced": record.public_access_prevention_enforced,
+            ":uniform_bucket_level_access_locked_time": locked_time,
+            ":lifecycle": sql::Json(&record.lifecycle),
+            ":retention_policy": record.retention_policy.as_ref().map(sql::Json),
+            ":soft_delete_policy": record.soft_delete_policy.as_ref().map(sql::Json),
+            ":object_retention_enabled": record.object_retention_enabled,
+            ":autoclass": None::<sql::Json<crate::bucket::autoclass::Autoclass>>,
+            ":time_created_nanos": 0,
+            ":updated_nanos": 0,
+            ":generation": record.generation,
+            ":versioning_configured": record.versioning_configured,
+        })?;
+    Ok(changed)
+}
+
+/// The `cors` column holds the JSON resource form. `Catalog::bucket_has_cors` compares the
+/// stored text with `[]`, the only spelling of no rules this writes.
+pub(super) struct Cors<'a>(pub(super) &'a [crate::bucket::CorsRule]);
+
+impl rusqlite::ToSql for Cors<'_> {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(
+            cors_value(self.0).to_string(),
+        ))
+    }
 }
 
 /// Reads one bucket through the cached statement that request paths share.

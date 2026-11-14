@@ -2,10 +2,22 @@ use super::*;
 use crate::bucket::RetentionPolicyUpdate;
 use crate::object::{MapPatch, WriteMode};
 
-const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
-                     versioning_enabled = ?4, versioning_configured = ?14, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7, updated_nanos = 0, cors = ?8, public_access_prevention_enforced = ?9,
-                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1";
+const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = :labels, storage_class = :storage_class,
+                     versioning_enabled = :versioning_enabled, versioning_configured = :versioning_configured,
+                     default_event_based_hold = :default_event_based_hold, metageneration = :metageneration,
+                     updated = :updated, updated_nanos = 0, cors = :cors,
+                     public_access_prevention_enforced = :public_access_prevention_enforced,
+                     uniform_bucket_level_access_locked_time = :uniform_bucket_level_access_locked_time,
+                     lifecycle = COALESCE(:lifecycle, lifecycle), retention_policy = :retention_policy,
+                     soft_delete_policy = :soft_delete_policy WHERE name = :name";
+
+/// Whether an update writes the lifecycle column. One that leaves the rules alone keeps the
+/// stored text byte for byte, including text an older release wrote in another key order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LifecycleColumn {
+    Keep,
+    Replace,
+}
 
 impl Catalog {
     pub(crate) async fn patch_bucket(
@@ -143,7 +155,7 @@ pub(super) fn update_in_transaction(
             "A bucket can have at most 64 labels".into(),
         ));
     }
-    apply_plain_settings(&mut record, &mut update)?;
+    let lifecycle = apply_plain_settings(&mut record, &mut update)?;
     record.metageneration = record
         .metageneration
         .checked_add(1)
@@ -156,7 +168,7 @@ pub(super) fn update_in_transaction(
             unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
         })
         .transpose()?;
-    store_bucket(transaction, &record, updated)?;
+    store_bucket(transaction, &record, updated, lifecycle)?;
     for (target, entries) in [
         (acl::ResolvedAclTarget::Bucket(name), update.acl),
         (
@@ -182,36 +194,34 @@ fn store_bucket(
     transaction: &rusqlite::Transaction<'_>,
     record: &BucketRecord,
     updated: i64,
+    lifecycle: LifecycleColumn,
 ) -> Result<(), CatalogError> {
-    transaction.prepare_cached(UPDATE_BUCKET)?.execute(params![
-        record.name,
-        serde_json::to_string(&record.labels).map_err(unavailable)?,
-        record.storage_class,
-        record.versioning_enabled,
-        record.default_event_based_hold,
-        record.metageneration,
-        updated,
-        cors_value(&record.cors).to_string(),
-        record.public_access_prevention_enforced,
-        record
-            .uniform_bucket_level_access_locked_time
-            .map(unix_micros)
-            .transpose()?,
-        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
-        record
-            .retention_policy
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(unavailable)?,
-        record
-            .soft_delete_policy
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(unavailable)?,
-        record.versioning_configured,
-    ])?;
+    let locked_time = record
+        .uniform_bucket_level_access_locked_time
+        .map(unix_micros)
+        .transpose()?;
+    let lifecycle = match lifecycle {
+        LifecycleColumn::Replace => Some(sql::Json(&record.lifecycle)),
+        LifecycleColumn::Keep => None,
+    };
+    transaction
+        .prepare_cached(UPDATE_BUCKET)?
+        .execute(rusqlite::named_params! {
+            ":name": record.name,
+            ":labels": sql::Json(&record.labels),
+            ":storage_class": record.storage_class,
+            ":versioning_enabled": record.versioning_enabled,
+            ":versioning_configured": record.versioning_configured,
+            ":default_event_based_hold": record.default_event_based_hold,
+            ":metageneration": record.metageneration,
+            ":updated": updated,
+            ":cors": Cors(&record.cors),
+            ":public_access_prevention_enforced": record.public_access_prevention_enforced,
+            ":uniform_bucket_level_access_locked_time": locked_time,
+            ":lifecycle": lifecycle,
+            ":retention_policy": record.retention_policy.as_ref().map(sql::Json),
+            ":soft_delete_policy": record.soft_delete_policy.as_ref().map(sql::Json),
+        })?;
     if !record.lifecycle.is_empty() {
         lifecycle::rules_written();
     }
@@ -363,11 +373,12 @@ fn lock_retention_policy(
     Ok(())
 }
 
-/// Applies the settings that only validate and replace a stored value.
+/// Applies the settings that only validate and replace a stored value, and tells whether the
+/// lifecycle column must be written.
 fn apply_plain_settings(
     record: &mut BucketRecord,
     update: &mut BucketMetadataUpdate,
-) -> Result<(), CatalogError> {
+) -> Result<LifecycleColumn, CatalogError> {
     if let Some(class) = update.storage_class.take() {
         record.storage_class = class;
     }
@@ -387,10 +398,11 @@ fn apply_plain_settings(
         validate_cors(&cors)?;
         record.cors = cors;
     }
-    if let Some(lifecycle) = update.lifecycle.take() {
-        record.lifecycle = lifecycle;
-    }
-    Ok(())
+    let Some(lifecycle) = update.lifecycle.take() else {
+        return Ok(LifecycleColumn::Keep);
+    };
+    record.lifecycle = lifecycle;
+    Ok(LifecycleColumn::Replace)
 }
 
 /// Applies a label update. A PUT whose labels merge (a library caller: the adapters send a
