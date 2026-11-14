@@ -307,8 +307,10 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         report.diagnostics.warnings.extend(warnings);
     }
     // The fake-gcs-server profile keeps project-owner objects, as fake-gcs-server does.
-    if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
-        auth = auth.with_local_creator_email(&report.config.local_creator_email);
+    if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native
+        && let Some(email) = report.config.local_creator_email.as_deref()
+    {
+        auth = auth.with_local_creator_email(email);
     }
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());

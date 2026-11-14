@@ -320,8 +320,9 @@ pub struct Config {
     /// `localhost` names and single-label names.
     pub trusted_allowed_hosts: Vec<String>,
     /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
-    /// authentication; empty disables it. Never an authorization input.
-    pub local_creator_email: String,
+    /// authentication; `None` disables it, as the setting's empty value asks. Never an
+    /// authorization input.
+    pub local_creator_email: Option<String>,
     pub runtime_endpoints: RuntimeEndpoints,
     pub pubsub_emulator_host: Option<String>,
     pub event_pubsub_project_id: String,
@@ -417,7 +418,7 @@ impl Default for Config {
             admin_allowed_hosts: Vec::new(),
             trusted_principal: None,
             trusted_allowed_hosts: Vec::new(),
-            local_creator_email: DEFAULT_LOCAL_CREATOR_EMAIL.into(),
+            local_creator_email: Some(DEFAULT_LOCAL_CREATOR_EMAIL.into()),
             runtime_endpoints: RuntimeEndpoints::default(),
             pubsub_emulator_host: None,
             event_pubsub_project_id: String::new(),
@@ -907,16 +908,17 @@ fn principal(setting: Setting, value: &str) -> Result<String, SettingFix> {
 }
 
 /// An empty value disables recording a creator.
-fn local_creator_email(value: &str) -> Result<String, SettingFix> {
-    if !value.is_empty() {
-        crate::auth::validate_local_creator_email(value).map_err(|reason| {
-            format!(
-                "local_creator_email {reason}; use an address such as \
-                 local-user@gcs-mimic.invalid or an empty value to disable it"
-            )
-        })?;
+fn local_creator_email(value: &str) -> Result<Option<String>, SettingFix> {
+    if value.is_empty() {
+        return Ok(None);
     }
-    Ok(value.to_owned())
+    crate::auth::validate_local_creator_email(value).map_err(|reason| {
+        format!(
+            "local_creator_email {reason}; use an address such as \
+             local-user@gcs-mimic.invalid or an empty value to disable it"
+        )
+    })?;
+    Ok(Some(value.to_owned()))
 }
 
 /// The DNS names an allow-list `setting` names, normalized as request hosts compare.
@@ -1128,7 +1130,7 @@ impl ConfigurationReport {
             self.invalid.insert(Setting::DefaultLocation);
         }
         if config.compat_profile == CompatProfile::FakeGcsServer
-            && !config.local_creator_email.is_empty()
+            && config.local_creator_email.is_some()
             && let Some(input) = settings.get(&Setting::LocalCreatorEmail)
             && !self.invalid.contains(&Setting::LocalCreatorEmail)
         {
@@ -1144,7 +1146,7 @@ impl ConfigurationReport {
         if (config.auth_mode == AuthMode::Strict
             || (config.identities.is_some()
                 && config.effective_signed_urls() == SignedUrls::Ignore))
-            && !config.local_creator_email.is_empty()
+            && config.local_creator_email.is_some()
             && let Some(input) = settings.get(&Setting::LocalCreatorEmail)
             && !self.invalid.contains(&Setting::LocalCreatorEmail)
         {
@@ -2495,19 +2497,25 @@ mod tests {
     fn local_creator_email_defaults_validates_and_requires_the_native_profile() {
         let empty = BTreeMap::new();
         assert_eq!(
-            Config::load(&[], &empty).unwrap().local_creator_email,
-            DEFAULT_LOCAL_CREATOR_EMAIL
+            Config::load(&[], &empty)
+                .unwrap()
+                .local_creator_email
+                .as_deref(),
+            Some(DEFAULT_LOCAL_CREATOR_EMAIL)
         );
         let env = BTreeMap::from([(
             "GCS_MIMIC_LOCAL_CREATOR_EMAIL".into(),
             "env@example.test".into(),
         )]);
         assert_eq!(
-            Config::load(&[], &env).unwrap().local_creator_email,
-            "env@example.test"
+            Config::load(&[], &env)
+                .unwrap()
+                .local_creator_email
+                .as_deref(),
+            Some("env@example.test")
         );
         let cli = ["--local-creator-email", ""].map(str::to_owned);
-        assert_eq!(Config::load(&cli, &env).unwrap().local_creator_email, "");
+        assert_eq!(Config::load(&cli, &env).unwrap().local_creator_email, None);
         for bad in ["plain", "a b@example.test", "@example.test", "user-x"] {
             let args = ["--local-creator-email", bad].map(str::to_owned);
             assert!(
@@ -4086,7 +4094,7 @@ mod tests {
             );
         }
         let env = BTreeMap::from([("GCS_MIMIC_LOCAL_CREATOR_EMAIL".to_owned(), String::new())]);
-        assert_eq!(Config::load(&[], &env).unwrap().local_creator_email, "");
+        assert_eq!(Config::load(&[], &env).unwrap().local_creator_email, None);
         // Only beside the listener it belongs to, which needs strict mode.
         let env = BTreeMap::from(
             [
