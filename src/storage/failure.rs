@@ -333,6 +333,10 @@ impl StorageCause for rusqlite::Error {
         BackendCause::from_error(self)
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "rusqlite::Error is non_exhaustive; every database failure not named here is unavailable"
+    )]
     fn classify(self) -> Classified {
         use rusqlite::{Error, ErrorCode};
         match &self {
@@ -378,7 +382,21 @@ impl StorageCause for CatalogError {
             Self::Corrupt(cause) => Classified::Corrupt(cause),
             Self::Io(cause) => Classified::Io(cause),
             Self::Unavailable(cause) => Classified::Unavailable(cause),
-            error => Classified::Unavailable(BackendCause::from_error(error)),
+            error @ (Self::AuthenticationAlreadyConfigured
+            | Self::AlreadyExists
+            | Self::NotFound
+            | Self::NotEmpty
+            | Self::RestoreConflict
+            | Self::PreconditionFailed
+            | Self::PublicAccessPrevention
+            | Self::Denied(_)
+            | Self::Forbidden
+            | Self::RetentionPolicyLocked(_)
+            | Self::RetentionPolicyNotSet
+            | Self::InvalidMetadata(_)
+            | Self::Metadata(_)
+            | Self::UnsupportedMetadata(_)
+            | Self::NewerSchema { .. }) => Classified::Unavailable(BackendCause::from_error(error)),
         }
     }
 }
@@ -394,7 +412,37 @@ impl StorageCause for ObjectError {
             Self::Corrupt(cause) => Classified::Corrupt(cause),
             Self::Io(cause) => Classified::Io(cause),
             Self::Unavailable(cause) => Classified::Unavailable(cause),
-            error => Classified::Unavailable(BackendCause::from_error(error)),
+            error @ (Self::BucketNotFound
+            | Self::ObjectNotFound
+            | Self::PreconditionFailed
+            | Self::Component(_)
+            | Self::PublicAccessPrevention
+            | Self::OverwriteForbidden(_)
+            | Self::ActiveHold(_)
+            | Self::ObjectRetentionNotMet(_)
+            | Self::UnlockedRetentionOverrideRequired
+            | Self::LockedRetention
+            | Self::ObjectNotSoftDeleted
+            | Self::Denied(_)
+            | Self::Forbidden
+            | Self::NotModified
+            | Self::WriteNotModified
+            | Self::ChecksumMismatch
+            | Self::HashMismatch(_)
+            | Self::TooLarge
+            | Self::InvalidMetadata
+            | Self::InvalidFixedMetadata(_)
+            | Self::UniformAccessPredefinedAcl
+            | Self::Metadata(_)
+            | Self::InvalidDerivedArgument(_)
+            | Self::ComposeClassMismatch { .. }
+            | Self::DerivedTransferNotFound
+            | Self::DerivedTransferExpired
+            | Self::DerivedTransferBusy
+            | Self::DerivedTransferIncomplete
+            | Self::UnsupportedMetadata(_)
+            | Self::CustomerEncryption(_)
+            | Self::BodyAborted(_)) => Classified::Unavailable(BackendCause::from_error(error)),
         }
     }
 }

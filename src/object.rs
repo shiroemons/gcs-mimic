@@ -1058,15 +1058,29 @@ impl ObjectError {
 
 impl From<crate::bucket::CatalogError> for ObjectError {
     fn from(error: crate::bucket::CatalogError) -> Self {
+        use crate::bucket::CatalogError;
         match error {
-            crate::bucket::CatalogError::Denied(denied) => Self::Denied(denied),
-            crate::bucket::CatalogError::Forbidden => Self::Forbidden,
-            crate::bucket::CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
-            crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
-            crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
+            CatalogError::Denied(denied) => Self::Denied(denied),
+            CatalogError::Forbidden => Self::Forbidden,
+            CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
+            CatalogError::Io(kind) => Self::Io(kind),
+            CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             // The same mapping as `object_unavailable`, which keeps an unavailable cause as is.
-            crate::bucket::CatalogError::Unavailable(reason) => Self::Unavailable(reason),
-            error => Self::Unavailable(BackendCause::from_error(error)),
+            CatalogError::Unavailable(reason) => Self::Unavailable(reason),
+            error @ (CatalogError::AuthenticationAlreadyConfigured
+            | CatalogError::AlreadyExists
+            | CatalogError::NotFound
+            | CatalogError::NotEmpty
+            | CatalogError::RestoreConflict
+            | CatalogError::PreconditionFailed
+            | CatalogError::RetentionPolicyLocked(_)
+            | CatalogError::RetentionPolicyNotSet
+            | CatalogError::InvalidMetadata(_)
+            | CatalogError::Metadata(_)
+            | CatalogError::UnsupportedMetadata(_)
+            | CatalogError::NewerSchema { .. }) => {
+                Self::Unavailable(BackendCause::from_error(error))
+            }
         }
     }
 }
