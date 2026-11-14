@@ -83,7 +83,9 @@ impl std::error::Error for RollbackError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Rollback(error) => Some(error),
-            _ => None,
+            Self::StillOpen => None,
+            #[cfg(test)]
+            Self::Injected => None,
         }
     }
 }

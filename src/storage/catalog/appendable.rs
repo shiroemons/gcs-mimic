@@ -742,7 +742,7 @@ impl AppendWriter {
             .run_upload(
                 move |connection| match select(connection, &bucket, &name)? {
                     Lookup::Live(row) => Ok(*row),
-                    _ => Err(ObjectError::ObjectNotFound),
+                    Lookup::Stale(_) | Lookup::Absent => Err(ObjectError::ObjectNotFound),
                 },
             )
             .await?;
@@ -1016,7 +1016,7 @@ impl Catalog {
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let row = match select(&transaction, &bucket, &name)? {
                     Lookup::Live(row) if row.generation == generation => row,
-                    _ => {
+                    Lookup::Live(_) | Lookup::Stale(_) | Lookup::Absent => {
                         return Err(
                             if published_generation(&transaction, &bucket, &name, generation)? {
                                 AppendError::Finalized

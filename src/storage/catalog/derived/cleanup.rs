@@ -1,4 +1,8 @@
+use super::super::resumable_maintenance::SweepOutcome;
 use super::*;
+
+/// Names the expired-transfer sweep in the maintenance log.
+const DERIVED_SWEEP: &str = "derived transfer";
 
 pub(crate) struct DerivedRequestGuard {
     catalog: Catalog,
@@ -109,7 +113,10 @@ impl Catalog {
         &self,
         now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
-        let mut failure = self.reclaim_pending().await.err();
+        let mut sweep = SweepOutcome::default();
+        if let Err(error) = self.reclaim_pending().await {
+            sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
+        }
         let mut after = After::Start;
         loop {
             let cursor = after.clone();
@@ -131,20 +138,26 @@ impl Catalog {
                     Ok(guard) => guard,
                     Err(ObjectError::DerivedTransferBusy) => continue,
                     Err(error) => {
-                        failure = Some(error);
+                        sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
                         continue;
                     }
                 };
                 if let Err(error) = self.cleanup_derived(&id).await
                     && error != ObjectError::DerivedTransferNotFound
                 {
-                    failure = Some(error);
+                    sweep.fail(DERIVED_SWEEP, super::super::unavailable(error));
                 }
             }
         }
-        if let Some(error) = failure {
-            return Err(super::super::unavailable(error));
-        }
+        let next = self.next_derived_deadline(now).await;
+        sweep.record(DERIVED_SWEEP, next);
+        sweep.finish()
+    }
+
+    async fn next_derived_deadline(
+        &self,
+        now: UnixMillis,
+    ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         self.run(move |connection| {
             // Derived transfers wake the maintenance sweep, so these run per request.
             let deadline: Option<UnixMillis> = sql::scalar(

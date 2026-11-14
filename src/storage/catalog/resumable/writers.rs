@@ -6,6 +6,7 @@ use crate::storage::{
 use std::{
     collections::{HashMap, HashSet},
     fmt,
+    sync::{MutexGuard, PoisonError},
 };
 
 /// Typed namespaces keep unrelated transfer and upload IDs independent.
@@ -49,7 +50,7 @@ impl std::error::Error for ClaimError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Catalog(error) => Some(error),
-            _ => None,
+            Self::Busy | Self::Poisoned => None,
         }
     }
 }
@@ -181,10 +182,7 @@ struct WholeUploadTurn<'a> {
 impl Drop for WholeUploadTurn<'_> {
     fn drop(&mut self) {
         self.catalog
-            .0
-            .session_writers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .registry_for_release()
             .settle_upload(self.id, |upload| upload.whole_waiting -= 1);
         self.catalog.0.writer_released.notify_waiters();
     }
@@ -211,12 +209,7 @@ impl WriterGuard {
 
 impl Drop for WriterGuard {
     fn drop(&mut self) {
-        self.catalog
-            .0
-            .session_writers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .release(&self.key);
+        self.catalog.registry_for_release().release(&self.key);
         self.catalog.0.writer_released.notify_waiters();
         if matches!(self.origin, KeyOrigin::Client)
             && matches!(
@@ -245,6 +238,24 @@ impl Drop for WriterGuard {
 }
 
 impl Catalog {
+    /// The registry for a new claim. A poisoned registry refuses claims, and `is_healthy` reports
+    /// it.
+    fn registry_for_claim(&self) -> Result<MutexGuard<'_, SessionWriters>, ClaimError> {
+        self.0
+            .session_writers
+            .lock()
+            .map_err(|_| ClaimError::Poisoned)
+    }
+
+    /// The registry for a release, which runs in `Drop` and cannot fail: the holder's own entry is
+    /// still valid after another holder panicked.
+    fn registry_for_release(&self) -> MutexGuard<'_, SessionWriters> {
+        self.0
+            .session_writers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Whether any session or transfer writer is held right now.
     #[cfg(test)]
     pub(crate) fn has_session_writers(&self) -> bool {
@@ -294,11 +305,7 @@ impl Catalog {
         key: WriterKey,
         origin: KeyOrigin,
     ) -> Result<WriterGuard, ClaimError> {
-        self.0
-            .session_writers
-            .lock()
-            .map_err(|_| ClaimError::Poisoned)?
-            .claim(&key)?;
+        self.registry_for_claim()?.claim(&key)?;
         Ok(WriterGuard {
             catalog: self.clone(),
             key,
@@ -370,12 +377,7 @@ impl Catalog {
         &'a self,
         id: &'a str,
     ) -> Result<WholeUploadTurn<'a>, ClaimError> {
-        self.0
-            .session_writers
-            .lock()
-            .map_err(|_| ClaimError::Poisoned)?
-            .upload(id)
-            .whole_waiting += 1;
+        self.registry_for_claim()?.upload(id).whole_waiting += 1;
         Ok(WholeUploadTurn { catalog: self, id })
     }
 

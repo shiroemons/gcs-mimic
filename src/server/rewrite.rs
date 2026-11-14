@@ -5,7 +5,10 @@ use crate::{
     object::ObjectConditions,
     storage::{
         DerivedDestination,
-        rewrite::{RewriteBinding, RewriteError, RewriteStart},
+        rewrite::{
+            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteStart,
+            UNLIMITED_REWRITE_BUDGET,
+        },
     },
 };
 use serde_json::Value;
@@ -266,9 +269,11 @@ async fn execute(
                 .unwrap_or(destination_bucket.storage_class)
                 != source.object.storage_class;
         let budget = if multiple {
-            operation.max_bytes_per_call.unwrap_or(8 * 1024 * 1024)
+            operation
+                .max_bytes_per_call
+                .unwrap_or(DEFAULT_REWRITE_BUDGET)
         } else {
-            u64::MAX
+            UNLIMITED_REWRITE_BUDGET
         };
         let binding = RewriteBinding {
             source: crate::object::ObjectTarget::new(

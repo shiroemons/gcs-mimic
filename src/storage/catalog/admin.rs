@@ -302,7 +302,18 @@ impl std::error::Error for AdminError {
                 cause.source()
             }
             Self::Io(cause) | Self::DiskFull(cause) => cause.source(),
-            _ => None,
+            Self::Busy { .. }
+            | Self::Closed
+            | Self::Precondition
+            | Self::Hold
+            | Self::SeedProjectMismatch
+            | Self::SeedMetadataBudget { .. }
+            | Self::SourceChanged { .. }
+            | Self::NotFound
+            | Self::Invalid(_)
+            | Self::Checksum
+            | Self::TooLarge
+            | Self::Forbidden => None,
         }
     }
 }

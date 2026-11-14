@@ -112,7 +112,7 @@ fn populated_request_keeps_its_json_bytes() {
         source_metageneration: 3,
         source_access: BucketAccess::Permissive,
         source_key_sha256: Some([3; 32]),
-        budget: 1048576,
+        budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
     };
     let encoded = encode(
         &start,

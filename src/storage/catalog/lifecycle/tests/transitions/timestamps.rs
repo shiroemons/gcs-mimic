@@ -151,7 +151,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                     source_metageneration: transitioned.metageneration,
                     source_access: BucketAccess::Permissive,
                     source_key_sha256: None,
-                    budget: 1_048_576,
+                    budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
                 };
                 let (token, mut owner) = catalog
                     .begin_rewrite_session(vec![source.whole()], u64::MAX, start)

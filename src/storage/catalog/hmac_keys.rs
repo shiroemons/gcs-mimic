@@ -130,7 +130,11 @@ impl std::error::Error for HmacKeyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Catalog(error) => Some(error),
-            _ => None,
+            Self::NotFound
+            | Self::PreconditionFailed
+            | Self::DeleteActive
+            | Self::Deleted
+            | Self::LimitReached => None,
         }
     }
 }

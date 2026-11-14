@@ -12,7 +12,10 @@ use crate::{
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
         RestoreAccess,
-        rewrite::{RewriteBinding, RewriteError, RewriteStart},
+        rewrite::{
+            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteStart,
+            UNLIMITED_REWRITE_BUDGET,
+        },
     },
 };
 use serde_json::{Map, Value, json};
@@ -453,14 +456,12 @@ impl Storage {
             .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
         let multiple = source_bucket.location != destination_bucket.location
             || class.unwrap_or(destination_bucket.storage_class) != source.object.storage_class;
+        // Zero asks for the default; validation already rejected a negative limit.
         let budget = if multiple {
-            if max_bytes_rewritten_per_call == 0 {
-                8 * 1024 * 1024
-            } else {
-                max_bytes_rewritten_per_call.cast_unsigned()
-            }
+            std::num::NonZeroU64::new(max_bytes_rewritten_per_call.cast_unsigned())
+                .unwrap_or(DEFAULT_REWRITE_BUDGET)
         } else {
-            u64::MAX
+            UNLIMITED_REWRITE_BUDGET
         };
         let content_type = metadata
             .content_type

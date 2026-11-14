@@ -82,7 +82,7 @@ async fn md5_availability_survives_restart_without_component_count() {
         source_metageneration: record.metageneration,
         source_access: BucketAccess::Permissive,
         source_key_sha256: None,
-        budget: 1_048_576,
+        budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
     };
     let (token, mut owner) = catalog
         .begin_rewrite_session(vec![selected.whole()], u64::MAX, start)

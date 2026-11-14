@@ -180,7 +180,11 @@ impl std::error::Error for ResumableError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Object(error) => Some(error),
-            _ => None,
+            Self::NotFound
+            | Self::Gone
+            | Self::Cancelled
+            | Self::InvalidContentRange
+            | Self::Invalid(_) => None,
         }
     }
 }

@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     io::{self, Read, Seek, SeekFrom},
     sync::{
-        Arc, Mutex, Weak,
+        Arc, Mutex, MutexGuard, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
@@ -146,6 +146,21 @@ impl Store {
             && !self.failed.load(Ordering::Acquire)
     }
 
+    /// The published blobs. A poisoned table fails the caller, and `is_healthy` reports it.
+    fn blobs(&self) -> io::Result<MutexGuard<'_, HashMap<String, Arc<Blob>>>> {
+        self.blobs
+            .lock()
+            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))
+    }
+
+    /// The drafts not yet published. A poisoned table fails the caller, and `is_healthy` reports
+    /// it.
+    fn drafts(&self) -> io::Result<MutexGuard<'_, HashMap<String, Box<Stage>>>> {
+        self.drafts
+            .lock()
+            .map_err(|_| io::Error::other("RAM draft store lock poisoned"))
+    }
+
     pub(super) fn stage(self: &Arc<Self>) -> io::Result<Stage> {
         let mut reservation = Reservation {
             budget: self.budget.clone(),
@@ -164,10 +179,7 @@ impl Store {
     }
 
     pub(super) fn open(&self, id: &str) -> io::Result<Reader> {
-        let blobs = self
-            .blobs
-            .lock()
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))?;
+        let blobs = self.blobs()?;
         let blob = blobs
             .get(id)
             .cloned()
@@ -181,10 +193,7 @@ impl Store {
     }
 
     pub(super) fn remove(&self, id: &str) -> io::Result<()> {
-        self.blobs
-            .lock()
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))?
-            .remove(id);
+        self.blobs()?.remove(id);
         Ok(())
     }
 
@@ -194,26 +203,14 @@ impl Store {
     }
 
     pub(super) fn clear(&self) -> io::Result<()> {
-        self.drafts
-            .lock()
-            .map_err(|_| io::Error::other("RAM draft store lock poisoned"))?
-            .clear();
-        self.blobs
-            .lock()
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))?
-            .clear();
+        self.drafts()?.clear();
+        self.blobs()?.clear();
         Ok(())
     }
 
     pub(super) fn retain_ids(&self, selected: &std::collections::HashSet<&str>) -> io::Result<()> {
-        self.drafts
-            .lock()
-            .map_err(|_| io::Error::other("RAM draft store lock poisoned"))?
-            .clear();
-        self.blobs
-            .lock()
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))?
-            .retain(|id, _| selected.contains(id.as_str()));
+        self.drafts()?.clear();
+        self.blobs()?.retain(|id, _| selected.contains(id.as_str()));
         Ok(())
     }
 }
@@ -334,10 +331,7 @@ impl Stage {
             .store
             .upgrade()
             .ok_or_else(|| io::Error::other("RAM store is closed"))?;
-        let mut blobs = store
-            .blobs
-            .lock()
-            .map_err(|_| io::Error::other("RAM blob store lock poisoned"))?;
+        let mut blobs = store.blobs()?;
         if blobs.contains_key(&id) {
             return Err(io::ErrorKind::AlreadyExists.into());
         }

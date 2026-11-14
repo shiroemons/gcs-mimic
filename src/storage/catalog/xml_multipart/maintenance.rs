@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::catalog::{After, Work, sql};
+use rusqlite::{Transaction, TransactionBehavior};
 use std::sync::atomic::Ordering;
 
 pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectError> {
@@ -146,13 +147,12 @@ fn orphaned(connection: &Connection, after: &After<String>) -> Result<Vec<String
         .map_err(super::super::unavailable)
 }
 
+/// Recovery holds only a shared connection, so it opens the transaction unchecked; dropping it
+/// rolls back a failed retirement or commit.
 fn retire_at_recovery(connection: &Connection, id: &str) -> Result<(), CatalogError> {
-    connection.execute_batch("BEGIN IMMEDIATE")?;
-    if let Err(error) = retire(connection, id) {
-        connection.execute_batch("ROLLBACK")?;
-        return Err(super::super::unavailable(error));
-    }
-    connection.execute_batch("COMMIT")?;
+    let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+    retire(&transaction, id).map_err(super::super::unavailable)?;
+    transaction.commit()?;
     Ok(())
 }
 

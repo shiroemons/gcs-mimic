@@ -11,6 +11,7 @@ use crate::{
 };
 use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
+use std::num::NonZeroU64;
 
 pub(crate) struct RewriteRequest {
     pub(crate) names: RewriteNames,
@@ -22,7 +23,7 @@ pub(crate) struct RewriteRequest {
     /// The unprefixed preconditions, which guard the destination.
     pub(crate) conditions: ObjectConditions,
     /// `maxBytesRewrittenPerCall`: a positive multiple of 1 MiB.
-    pub(crate) max_bytes_per_call: Option<u64>,
+    pub(crate) max_bytes_per_call: Option<NonZeroU64>,
     /// The parameters a rewrite token binds, by their JSON API names, as the session stores
     /// them: numbers in canonical decimal, every other bound parameter as sent, keys in
     /// ascending order. The text and the order are part of the stored session bytes.
@@ -187,18 +188,18 @@ fn parse(
 }
 
 /// `maxBytesRewrittenPerCall`, which must be a positive multiple of 1 MiB.
-fn byte_budget(number: i64) -> Result<u64, JsonError> {
-    if number <= 0 {
+fn byte_budget(number: i64) -> Result<NonZeroU64, JsonError> {
+    let Some(budget) = u64::try_from(number).ok().and_then(NonZeroU64::new) else {
         return Err(JsonError::invalid(
             "maxBytesRewrittenPerCall must be a positive value",
         ));
-    }
-    if number % 1_048_576 != 0 {
+    };
+    if budget.get() % 1_048_576 != 0 {
         return Err(JsonError::invalid(
             "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
         ));
     }
-    Ok(number.unsigned_abs())
+    Ok(budget)
 }
 
 pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
@@ -305,7 +306,7 @@ mod tests {
                 if_metageneration_not_match: Some(11),
             }
         );
-        assert_eq!(request.max_bytes_per_call, Some(2_097_152));
+        assert_eq!(request.max_bytes_per_call, NonZeroU64::new(2_097_152));
         let bare = route(
             &Method::POST,
             &"/storage/v1/b/source-bucket/o/a/rewriteTo/b/destination-bucket/o/c"

@@ -3,6 +3,7 @@ use super::{
     derived::{DerivedDestination, DerivedSegment},
     resumable,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
+    resumable_maintenance::SweepOutcome,
     rewrite_token::RewriteToken,
     session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
 };
@@ -16,12 +17,15 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::SystemTime;
+use std::{num::NonZeroU64, time::SystemTime};
 
 pub(crate) use super::rewrite_token::{RewriteBinding, RewriteNames};
 
 #[cfg(test)]
 mod golden_tests;
+
+/// Names the expired-session sweep in the maintenance log.
+const REWRITE_SWEEP: &str = "rewrite session";
 
 pub(super) const SCHEMA: &str = "CREATE TABLE rewrite_sessions (
     id TEXT PRIMARY KEY CHECK(length(id) = 32),
@@ -119,6 +123,11 @@ impl From<CatalogError> for RewriteError {
 }
 use crate::storage::failure::object_unavailable;
 
+/// Copies the rest of the object in one rewrite call: the step target saturates to its size.
+pub(crate) const UNLIMITED_REWRITE_BUDGET: NonZeroU64 = NonZeroU64::MAX;
+/// Bytes one call of a rewrite that needs several calls copies when the request sets no limit.
+pub(crate) const DEFAULT_REWRITE_BUDGET: NonZeroU64 = NonZeroU64::new(8 * 1024 * 1024).unwrap();
+
 pub(crate) struct RewriteStart {
     pub binding: RewriteBinding,
     pub destination: DerivedDestination,
@@ -127,7 +136,8 @@ pub(crate) struct RewriteStart {
     pub source_access: BucketAccess,
     /// Verified when the session starts; every continuation must repeat the same source key.
     pub source_key_sha256: Option<[u8; 32]>,
-    pub budget: u64,
+    /// Bytes one rewrite call copies at most.
+    pub budget: NonZeroU64,
 }
 
 #[derive(Clone)]
@@ -142,7 +152,7 @@ pub(crate) struct RewriteSession {
     source_incarnation: Incarnation,
     destination_incarnation: Incarnation,
     pub source_key_sha256: Option<[u8; 32]>,
-    budget: u64,
+    budget: NonZeroU64,
     pub offset: u64,
     pub total: u64,
     deadline: UnixMillis,
@@ -276,7 +286,7 @@ fn encode(
             conditions.if_metageneration_match,
             conditions.if_metageneration_not_match,
         ],
-        budget: start.budget,
+        budget: start.budget.get(),
         source_key_sha256: start.source_key_sha256,
     })
     .map_err(object_unavailable)
@@ -286,13 +296,13 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
     let request: StoredRequest = row.get::<_, sql::Json<_>>(3)?.0;
     let options = resumable::decode_options(&request.options)
         .map_err(|error| sql::conversion_error(3, rusqlite::types::Type::Text, error))?;
-    if request.budget == 0 {
+    let Some(budget) = NonZeroU64::new(request.budget) else {
         return Err(sql::conversion_error(
             3,
             rusqlite::types::Type::Text,
             "invalid rewrite budget",
         ));
-    }
+    };
     let [
         source_bucket,
         source_object,
@@ -353,7 +363,7 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         source_incarnation: request.source_incarnation,
         destination_incarnation: request.destination_incarnation,
         source_key_sha256: request.source_key_sha256,
-        budget: request.budget,
+        budget,
         offset,
         total,
         deadline,
@@ -678,7 +688,7 @@ impl Catalog {
             source_result?.ok_or_else(|| object_unavailable("missing rewrite transfer"))?;
         let target = session
             .offset
-            .saturating_add(session.budget)
+            .saturating_add(session.budget.get())
             .min(session.total);
         let current = self
             .advance_derived(&session.id, target.saturating_sub(current.offset))
@@ -731,7 +741,7 @@ impl Catalog {
         &self,
         now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
-        let mut failure = None;
+        let mut sweep = SweepOutcome::default();
         let mut after = super::After::Start;
         loop {
             let cursor = after.clone();
@@ -745,7 +755,7 @@ impl Catalog {
                     Ok(guard) => guard,
                     Err(ClaimError::Busy) => continue,
                     Err(error) => {
-                        failure = Some(CatalogError::from(error));
+                        sweep.fail(REWRITE_SWEEP, CatalogError::from(error));
                         continue;
                     }
                 };
@@ -753,7 +763,7 @@ impl Catalog {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
                     Err(ObjectError::DerivedTransferBusy) => continue,
                     Err(error) => {
-                        failure = Some(super::unavailable(error));
+                        sweep.fail(REWRITE_SWEEP, super::unavailable(error));
                         continue;
                     }
                 }
@@ -769,13 +779,19 @@ impl Catalog {
                     })
                     .await
                 {
-                    failure = Some(error);
+                    sweep.fail(REWRITE_SWEEP, error);
                 }
             }
         }
-        if let Some(error) = failure {
-            return Err(error);
-        }
+        let next = self.next_rewrite_deadline(now).await;
+        sweep.record(REWRITE_SWEEP, next);
+        sweep.finish()
+    }
+
+    async fn next_rewrite_deadline(
+        &self,
+        now: UnixMillis,
+    ) -> Result<Option<SystemTime>, CatalogError> {
         self.run(move |connection| {
             // Rewrite calls wake the maintenance sweep, so this runs per request.
             let deadline: Option<UnixMillis> = sql::scalar(
@@ -823,7 +839,7 @@ mod tests {
             source_metageneration: 1,
             source_access: BucketAccess::Permissive,
             source_key_sha256: None,
-            budget: 1048576,
+            budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
         };
         let encoded = encode(
             &start,
@@ -930,7 +946,7 @@ mod tests {
             source_metageneration: source.object.metageneration,
             source_access: BucketAccess::Permissive,
             source_key_sha256: None,
-            budget: 1048576,
+            budget: std::num::NonZeroU64::new(1_048_576).unwrap(),
         };
         catalog
             .begin_rewrite_session(vec![source.whole()], 8, start)

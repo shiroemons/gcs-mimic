@@ -32,15 +32,26 @@ const HAS_RULES: &str = "SELECT EXISTS(SELECT 1 FROM buckets WHERE lifecycle != 
 const VERSION_SCAN: &str = "SELECT name, generation FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL AND (name, generation) < (?2, ?3) ORDER BY name DESC, generation DESC LIMIT ?4";
 const VERSION_FIRST: &str = "SELECT name, generation FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL ORDER BY name DESC, generation DESC LIMIT ?2";
 
+/// Where the catalog writer's thread stands on lifecycle rule writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuleWrites {
+    /// No catalog operation is running on this thread.
+    OutsideScope,
+    /// An operation is running and has not written lifecycle rules.
+    Unwritten,
+    /// The running operation wrote lifecycle rules.
+    Written,
+}
+
 // Only the catalog writer touches this marker; even rolled-back writes may harmlessly rearm it.
-thread_local! { static RULES_WRITTEN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) }; }
+thread_local! { static RULES_WRITTEN: std::cell::Cell<RuleWrites> = const { std::cell::Cell::new(RuleWrites::OutsideScope) }; }
 
 pub(super) fn rules_written() {
     debug_assert!(
-        RULES_WRITTEN.get().is_some(),
+        RULES_WRITTEN.get() != RuleWrites::OutsideScope,
         "lifecycle rules must be written inside with_connection"
     );
-    RULES_WRITTEN.set(Some(true));
+    RULES_WRITTEN.set(RuleWrites::Written);
 }
 
 pub(super) struct RuleWriteScope;
@@ -48,20 +59,20 @@ pub(super) struct RuleWriteScope;
 impl RuleWriteScope {
     pub(super) fn enter() -> Self {
         debug_assert!(
-            RULES_WRITTEN.get().is_none(),
+            RULES_WRITTEN.get() == RuleWrites::OutsideScope,
             "catalog write scopes cannot nest"
         );
-        RULES_WRITTEN.set(Some(false));
+        RULES_WRITTEN.set(RuleWrites::Unwritten);
         Self
     }
     pub(super) fn written(&self) -> bool {
-        RULES_WRITTEN.get() == Some(true)
+        RULES_WRITTEN.get() == RuleWrites::Written
     }
 }
 
 impl Drop for RuleWriteScope {
     fn drop(&mut self) {
-        RULES_WRITTEN.set(None);
+        RULES_WRITTEN.set(RuleWrites::OutsideScope);
     }
 }
 

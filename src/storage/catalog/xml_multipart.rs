@@ -82,7 +82,11 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Object(error) => Some(error),
-            _ => None,
+            Self::NoSuchUpload
+            | Self::InvalidPart
+            | Self::InvalidPartOrder
+            | Self::PartTooSmall
+            | Self::Busy => None,
         }
     }
 }
