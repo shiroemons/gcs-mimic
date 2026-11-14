@@ -197,7 +197,8 @@ impl Fields {
                     }
                 });
             }
-            _ => {}
+            // A scalar has no fields to select from.
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
         }
     }
 }

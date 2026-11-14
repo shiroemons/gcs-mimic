@@ -132,16 +132,24 @@ fn invalid(message: impl Into<String>) -> JsonError {
 /// underlying cause to keep.
 impl From<notification::NotificationError> for JsonError {
     fn from(error: notification::NotificationError) -> Self {
+        use notification::NotificationError;
         // Cloud Storage's wording for the two commonest mistakes (recorded 2026-10-31); a bad
         // payload format is reported as a missing one.
         match error {
-            notification::NotificationError::InvalidTopic(_) => invalid(
+            NotificationError::InvalidTopic(_) => invalid(
                 "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
             ),
-            notification::NotificationError::InvalidPayloadFormat(_) => JsonError::required(
+            NotificationError::InvalidPayloadFormat(_) => JsonError::required(
                 "You must specify a payload format in the 'payload_format' field.",
             ),
-            error => invalid(error.to_string()),
+            error @ (NotificationError::InvalidEventType(_)
+            | NotificationError::DuplicateEventType(_)
+            | NotificationError::TooManyCustomAttributes(_)
+            | NotificationError::InvalidCustomAttributeKey(_)
+            | NotificationError::CustomAttributeTooLong(_)
+            | NotificationError::ObjectNamePrefixTooLong
+            | NotificationError::BucketLimit
+            | NotificationError::EventTypeLimit(_)) => invalid(error.to_string()),
         }
     }
 }
