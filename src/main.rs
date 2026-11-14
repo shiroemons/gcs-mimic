@@ -293,11 +293,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.valid(&["scheme", "tls_cert", "tls_key"]) {
         match tls::load_server(&report.config) {
             Ok(value) => security = value,
-            Err(error) => report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Tls,
-                error.setting(),
-                format!("Cannot load TLS identity: {error}; {}", error.repair()),
-            )),
+            Err(error) => report.diagnostics.errors.push(error.diagnostic()),
         }
     }
     // Load the registry before binding so a bad identity document never reaches readiness.
@@ -394,10 +390,7 @@ fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
         .find(|(name, _)| *name == "--config");
     match file {
         Some((_, value)) => {
-            gcs_mimic::config::read_public_base_url(value).map_err(|error| Diagnostics {
-                errors: vec![error],
-                ..Default::default()
-            })
+            gcs_mimic::config::read_public_base_url(value).map_err(Diagnostics::from)
         }
         None => Ok(None),
     }

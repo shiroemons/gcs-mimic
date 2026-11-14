@@ -1,4 +1,5 @@
 use crate::config::{Config, Scheme};
+use crate::diagnostics::{Diagnostic, DiagnosticSource};
 use std::{io, path::Path, sync::Arc};
 use tokio_rustls::{
     TlsAcceptor,
@@ -48,6 +49,15 @@ impl ServerIdentityError {
         match self {
             Self::Certificate(error) | Self::PrivateKey(error) | Self::Identity(error) => error,
         }
+    }
+
+    /// The startup diagnostic for this failure: the setting to fix, the cause and the repair.
+    pub fn diagnostic(&self) -> Diagnostic {
+        Diagnostic::new(
+            DiagnosticSource::Tls,
+            self.setting(),
+            format!("Cannot load TLS identity: {self}; {}", self.repair()),
+        )
     }
 }
 

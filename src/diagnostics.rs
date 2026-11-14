@@ -133,13 +133,33 @@ pub struct Diagnostics {
     pub errors: Vec<Diagnostic>,
 }
 
-impl Diagnostics {
-    pub fn error(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
+impl From<Diagnostic> for Diagnostics {
+    /// One error and nothing else.
+    fn from(error: Diagnostic) -> Self {
         Self {
             info: Vec::new(),
             warnings: Vec::new(),
-            errors: vec![Diagnostic::new(source, key, fix)],
+            errors: vec![error],
         }
+    }
+}
+
+impl Diagnostics {
+    pub fn error(source: DiagnosticSource, key: impl Into<String>, fix: impl Into<String>) -> Self {
+        Diagnostic::new(source, key, fix).into()
+    }
+
+    /// The advice for a startup or shutdown failure that has none of its own: its kind and
+    /// message, and where to look. Every such failure is reported through this one text.
+    pub fn startup_failure(error: &io::Error) -> Self {
+        Self::error(
+            DiagnosticSource::Runtime,
+            "startup",
+            format!(
+                "Startup or shutdown failed ({:?}): {error}; inspect active connections and configured local resources.",
+                error.kind()
+            ),
+        )
     }
 
     pub fn is_err(&self) -> bool {
@@ -221,13 +241,13 @@ fn append_shutdown_failure(
     describe: impl FnOnce(&io::Error) -> Diagnostic,
 ) -> io::Result<()> {
     let mut result = result.map_err(|error| {
-        if error.get_ref().is_some_and(|inner| inner.is::<Diagnostics>()) {
+        if error
+            .get_ref()
+            .is_some_and(|inner| inner.is::<Diagnostics>())
+        {
             error
         } else {
-            io::Error::new(error.kind(), Diagnostics::error(
-                DiagnosticSource::Runtime, "startup",
-                format!("Startup or shutdown failed ({:?}): {error}; inspect active connections and configured local resources.", error.kind()),
-            ))
+            io::Error::new(error.kind(), Diagnostics::startup_failure(&error))
         }
     });
     if let Err(close) = close {
@@ -240,14 +260,7 @@ fn append_shutdown_failure(
                 diagnostics.errors.push(diagnostic);
             }
         } else {
-            result = Err(io::Error::new(
-                close.kind(),
-                Diagnostics {
-                    info: Vec::new(),
-                    warnings: Vec::new(),
-                    errors: vec![diagnostic],
-                },
-            ));
+            result = Err(io::Error::new(close.kind(), Diagnostics::from(diagnostic)));
         }
     }
     result
@@ -256,6 +269,23 @@ fn append_shutdown_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every startup or shutdown failure without advice of its own reports this one text.
+    #[test]
+    fn startup_failures_render_their_kind_message_and_where_to_look() {
+        let diagnostics =
+            Diagnostics::startup_failure(&io::Error::new(io::ErrorKind::TimedOut, "x"));
+        assert!(diagnostics.info.is_empty() && diagnostics.warnings.is_empty());
+        let [error] = diagnostics.errors.as_slice() else {
+            panic!("one error expected: {:?}", diagnostics.errors);
+        };
+        assert_eq!(error.source, DiagnosticSource::Runtime);
+        assert_eq!(error.key, "startup");
+        assert_eq!(
+            error.fix,
+            "Startup or shutdown failed (TimedOut): x; inspect active connections and configured local resources."
+        );
+    }
 
     #[test]
     fn event_thresholds_filter_each_severity_and_escape_json() {
