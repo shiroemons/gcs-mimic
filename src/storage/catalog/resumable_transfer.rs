@@ -1,6 +1,8 @@
 use super::{
     Catalog, UploadGuard,
-    resumable::{ResumableError, ResumableOptions, SessionLease, SessionState, read_session},
+    resumable::{
+        ResumableError, ResumableOptions, SessionLease, SessionState, TerminalReason, read_session,
+    },
     transfer_io::Output,
 };
 use super::{
@@ -271,20 +273,22 @@ impl Catalog {
         &self,
         lease: &SessionLease,
     ) -> Result<(), ResumableError> {
-        self.fail_resumable_session(lease, "aborted").await
+        self.fail_resumable_session(lease, TerminalReason::Aborted)
+            .await
     }
 
     pub(crate) async fn reject_resumable_content_range(
         &self,
         lease: &SessionLease,
     ) -> Result<(), ResumableError> {
-        self.fail_resumable_session(lease, "content-range").await
+        self.fail_resumable_session(lease, TerminalReason::ContentRange)
+            .await
     }
 
     async fn fail_resumable_session(
         &self,
         lease: &SessionLease,
-        reason: &'static str,
+        reason: TerminalReason,
     ) -> Result<(), ResumableError> {
         let id = lease.session.id;
         let blob_id = lease.session.blob_id;

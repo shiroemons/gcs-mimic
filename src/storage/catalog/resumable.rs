@@ -73,6 +73,33 @@ pub(crate) enum SessionState {
     InvalidContentRange,
 }
 
+/// The stored `state` column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StoredState {
+    Active,
+    Complete,
+    Cancelled,
+}
+
+sql::text_enum!(StoredState, "invalid upload state", {
+    Active => "ACTIVE",
+    Complete => "COMPLETE",
+    Cancelled => "CANCELLED",
+});
+
+/// Why the emulator cancelled a session. Kept in the options document's `terminal_error`, so
+/// catalogs written before these reasons need no migration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TerminalReason {
+    Aborted,
+    ContentRange,
+}
+
+sql::text_enum!(TerminalReason, "invalid upload terminal reason", {
+    Aborted => "aborted",
+    ContentRange => "content-range",
+});
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableOptions {
     pub content_type: String,
@@ -623,25 +650,25 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
     let id: SessionId = row.get(0)?;
     let blob_id: BlobId = row.get(1)?;
     let options = row.get::<_, sql::Json<Value>>(5)?.0;
+    let stored: StoredState = row.get(10)?;
+    let invalid_state = || sql::conversion_error(10, Type::Text, "invalid upload state");
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
-    let state = match (
-        row.get::<_, String>(10)?.as_str(),
-        options.get("terminal_error"),
-    ) {
-        ("ACTIVE", None) => SessionState::Active,
-        ("COMPLETE", None) => SessionState::Complete,
-        ("CANCELLED", None) => SessionState::Cancelled,
-        ("CANCELLED", Some(Value::String(reason))) if reason == "aborted" => SessionState::Aborted,
-        ("CANCELLED", Some(Value::String(reason))) if reason == "content-range" => {
+    let reason = match options.get("terminal_error") {
+        None => None,
+        Some(Value::String(reason)) => {
+            Some(TerminalReason::parse(reason).ok_or_else(invalid_state)?)
+        }
+        Some(_) => return Err(invalid_state()),
+    };
+    let state = match (stored, reason) {
+        (StoredState::Active, None) => SessionState::Active,
+        (StoredState::Complete, None) => SessionState::Complete,
+        (StoredState::Cancelled, None) => SessionState::Cancelled,
+        (StoredState::Cancelled, Some(TerminalReason::Aborted)) => SessionState::Aborted,
+        (StoredState::Cancelled, Some(TerminalReason::ContentRange)) => {
             SessionState::InvalidContentRange
         }
-        _ => {
-            return Err(sql::conversion_error(
-                10,
-                Type::Text,
-                "invalid upload state",
-            ));
-        }
+        (StoredState::Active | StoredState::Complete, Some(_)) => return Err(invalid_state()),
     };
     let completion: Option<String> = row.get(11)?;
     Ok(ResumableSession {
