@@ -187,7 +187,7 @@ async fn preserved_live_export_crash_and_power_loss_keep_the_external_copy_befor
                 record,
             };
             assert_eq!(
-                recovered.writeback.recover_pending().await.unwrap().stop,
+                recovered.writeback.recover_pending().await.unwrap().stop(),
                 Stop::Ready
             );
             let page = recovered.page().await;
@@ -276,7 +276,7 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
                 .await
                 .unwrap_or_else(|error| panic!("{step:?} {crash:?}: {error:?}"));
             assert_eq!(
-                (usage.entries, usage.retained_bytes, usage.stop),
+                (usage.entries, usage.retained_bytes, usage.stop()),
                 (0, 0, Stop::Ready),
                 "{step:?} {crash:?}"
             );

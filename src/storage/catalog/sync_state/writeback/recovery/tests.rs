@@ -218,7 +218,7 @@ async fn restart_cancels_only_unarmed_owned_copies_including_short_and_zero_byte
         let fixture = fixture.restart(Journal::Disabled).await;
         let status = fixture.writeback.recover_pending().await.unwrap();
         assert_eq!(
-            (status.entries, status.reserved_bytes, status.stop),
+            (status.entries, status.reserved_bytes, status.stop()),
             (0, 0, Stop::Ready)
         );
         assert!(!workspace.join(item.token.id().to_string()).exists());
@@ -251,7 +251,7 @@ async fn restart_armed_and_durable_absence_preserves_the_current_target() {
         fs::write(fixture.tree.0.join("test-bucket/object"), b"later writer").unwrap();
         let fixture = fixture.restart(Journal::Disabled).await;
         assert_eq!(
-            fixture.writeback.recover_pending().await.unwrap().stop,
+            fixture.writeback.recover_pending().await.unwrap().stop(),
             Stop::Ready
         );
         assert_eq!(
@@ -295,7 +295,7 @@ async fn restart_protects_actual_armed_and_durable_bodies_without_quota_eviction
             (1, 1, u128::from(size), 0)
         );
         assert_eq!(
-            usage.stop,
+            usage.stop(),
             if size > (1 << 30) {
                 Stop::ConflictCapacity
             } else {
@@ -329,7 +329,7 @@ async fn restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries() 
         drop(operation);
         let fixture = fixture.restart(Journal::Disabled).await;
         assert_eq!(
-            fixture.writeback.recover_pending().await.unwrap().stop,
+            fixture.writeback.recover_pending().await.unwrap().stop(),
             Stop::Ready
         );
         assert_eq!(
@@ -364,7 +364,7 @@ async fn recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancell
     let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
-        (usage.entries, usage.reserved_bytes, usage.stop),
+        (usage.entries, usage.reserved_bytes, usage.stop()),
         (0, 0, Stop::Ready)
     );
     assert!(fixture.writeback.page(0, 256).await.unwrap().is_empty());
@@ -432,7 +432,10 @@ async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_re
         .unwrap();
     let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
-    assert_eq!((usage.stop, usage.retained_bytes), (Stop::ProtectedBody, 8));
+    assert_eq!(
+        (usage.stop(), usage.retained_bytes),
+        (Stop::ProtectedBody, 8)
+    );
     let pending = fixture.writeback.page(0, 1).await.unwrap().pop().unwrap();
     assert_eq!(pending.owner, "owner");
     assert_eq!(pending.incarnation, item.incarnation);
@@ -504,7 +507,7 @@ async fn restart_after_arming_a_live_copy_retains_the_uninstalled_body() {
     let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
-        (usage.stop, usage.retained_bytes),
+        (usage.stop(), usage.retained_bytes),
         (Stop::ProtectedBody, API.len() as u128)
     );
     assert!(!fixture.tree.0.join("test-bucket/object").exists());

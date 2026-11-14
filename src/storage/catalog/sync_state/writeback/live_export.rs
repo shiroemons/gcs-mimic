@@ -339,7 +339,7 @@ impl Writeback {
                 check_fence(&tx, fence)?;
                 super::super::matching(&tx,&binding,bucket.as_str())?;
                 let mut usage = status(&tx, root)?;
-                if usage.stop != Stop::Ready { return Err(Error::RecoveryRequired); }
+                if usage.stop() != Stop::Ready { return Err(Error::RecoveryRequired); }
                 let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
                 let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket,name,incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
@@ -570,7 +570,7 @@ impl Writeback {
                 if displaced {
                     let pending = self.inspect_inner(item.token.clone()).await?;
                     operation.item = pending.clone();
-                    self.io_failure(pending.token, 1).await?;
+                    self.mark_entry_failure(pending.token).await?;
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
                     return Err(AdminError::backend(error).into());
                 }

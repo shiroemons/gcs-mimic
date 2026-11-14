@@ -532,7 +532,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
             .writeback(Limits::new(4096, 10).unwrap())
             .await
             .unwrap();
-        assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+        assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
         assert!(writeback.page(0, 256).await.unwrap().is_empty());
         assert_eq!(
             std::fs::read(tree.0.join("zz-other/object")).unwrap(),
@@ -601,7 +601,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
                 .unwrap(),
             before.modified().unwrap()
         );
-        assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+        assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
         publish_origin(&catalog, &bucket, b"later", Origin::Api).await;
         hook.release.notify_one();
         tokio::time::timeout(HANG_GUARD, hook.entered.notified())
@@ -668,7 +668,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
             LiveResult::Conflict
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"external");
-        assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+        assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
         assert!(writeback.page(0, 256).await.unwrap().is_empty());
         drop(writeback);
         drop(root);
@@ -726,7 +726,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
             .writeback(Limits::new(4096, 10).unwrap())
             .await
             .unwrap();
-        assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+        assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
         assert!(writeback.page(0, 256).await.unwrap().is_empty());
         stop.send_replace(true);
         hook.release.notify_one();
@@ -1029,7 +1029,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
                 .await
                 .unwrap();
             let usage = recovering.status().await.unwrap();
-            assert_eq!(usage.stop, Stop::IoFailure);
+            assert_eq!(usage.stop(), Stop::IoFailure);
             assert_eq!(usage.protected_entries, 1);
             assert_eq!(usage.retained_bytes, b"before".len() as u128);
             let pending = recovering.page(0, 256).await.unwrap();
@@ -1045,7 +1045,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             );
             recovering.recover_pending().await.unwrap();
             assert_eq!(
-                recovering.preserve_protected().await.unwrap().stop,
+                recovering.preserve_protected().await.unwrap().stop(),
                 Stop::Ready
             );
             let copies = root
@@ -1139,7 +1139,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             )
             .await
             .unwrap();
-        assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+        assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
         assert_eq!(
             std::fs::read_dir(tree.0.join(mapping::WORKSPACE))
                 .unwrap()
@@ -1262,7 +1262,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             "{phase} {action}"
         );
         assert_eq!(
-            writeback.status().await.unwrap().stop,
+            writeback.status().await.unwrap().stop(),
             Stop::Ready,
             "{phase} {action}"
         );

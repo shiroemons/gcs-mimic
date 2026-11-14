@@ -627,8 +627,8 @@ async fn recover_writeback(root: &RootLease) -> Result<Writeback, SyncError> {
     let writeback = root.default_writeback().await?;
     writeback.recover_pending().await?;
     let recovered = writeback.preserve_protected().await?;
-    if recovered.stop != Stop::Ready {
-        return Err(SyncError::Recovery(recovered.stop));
+    if recovered.stop() != Stop::Ready {
+        return Err(SyncError::Recovery(recovered.stop()));
     }
     Ok(writeback)
 }
@@ -1692,7 +1692,7 @@ async fn reconcile_with(
 ) -> Result<Reconciliation, SyncError> {
     catalog.enable_change_journal().await?;
     let fence = catalog.current_fence().await?;
-    if writeback.status().await?.stop != Stop::Ready {
+    if writeback.status().await?.stop() != Stop::Ready {
         return Err(SyncError::WritebackUnfinished(Pass::Reconcile));
     }
     let reconciler = Reconciler {

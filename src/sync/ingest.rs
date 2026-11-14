@@ -148,7 +148,7 @@ pub(super) async fn rescan_with(
     writeback: &crate::storage::sync_state::writeback::Writeback,
     interrupt: Interrupt<'_>,
 ) -> Result<Reconciliation, SyncError> {
-    if writeback.status().await?.stop != crate::storage::sync_state::writeback::Stop::Ready {
+    if writeback.status().await?.stop() != crate::storage::sync_state::writeback::Stop::Ready {
         return Err(SyncError::WritebackUnfinished(Pass::Ingest));
     }
     let ingest = Ingest {

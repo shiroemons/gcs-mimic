@@ -248,7 +248,6 @@ pub(crate) struct Status {
     pub retained_bytes: u128,
     pub entries: u64,
     pub protected_entries: u64,
-    pub stop: Stop,
     limits: Limits,
     recovery: bool,
     io_failure: bool,
@@ -256,6 +255,20 @@ pub(crate) struct Status {
     captured_entries: u64,
 }
 impl Status {
+    /// Why write-back is paused, derived from the counters it was read with.
+    pub(crate) fn stop(&self) -> Stop {
+        if self.io_failure {
+            Stop::IoFailure
+        } else if self.over_limit() {
+            Stop::ConflictCapacity
+        } else if self.protected_entries > 0 {
+            Stop::ProtectedBody
+        } else if self.recovery {
+            Stop::RecoveryRequired
+        } else {
+            Stop::Ready
+        }
+    }
     fn effective_entries(&self) -> u64 {
         self.entries + self.conflicts.entries - self.captured_entries
     }
@@ -276,18 +289,35 @@ impl Status {
                 + u128::from(reservation)
                 > u128::from(self.limits.bytes)
     }
-    fn refresh(&mut self) {
-        self.stop = if self.io_failure {
-            Stop::IoFailure
-        } else if self.over_limit() {
-            Stop::ConflictCapacity
-        } else if self.protected_entries > 0 {
-            Stop::ProtectedBody
-        } else if self.recovery {
-            Stop::RecoveryRequired
-        } else {
-            Stop::Ready
-        };
+}
+
+/// The `sync_writeback_roots` row before operation failures and conflict usage are added.
+struct RootRow {
+    limits: Limits,
+    reserved_bytes: u128,
+    retained_bytes: u128,
+    entries: u64,
+    protected_entries: u64,
+    recovery: bool,
+    io_failure: bool,
+}
+
+impl RootRow {
+    const SELECT: &str = "SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure FROM sync_writeback_roots WHERE root_id=?1";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            limits: Limits {
+                bytes: row.get(0)?,
+                entries: row.get(1)?,
+            },
+            reserved_bytes: u128::from_be_bytes(row.get(2)?),
+            retained_bytes: u128::from_be_bytes(row.get(3)?),
+            entries: row.get(4)?,
+            protected_entries: row.get(5)?,
+            recovery: row.get(6)?,
+            io_failure: row.get(7)?,
+        })
     }
 }
 
@@ -317,30 +347,7 @@ impl RootLease {
             sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok(NodeId::from_be_bytes(r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
         }).await?;
         let directory = self
-            .file_job(move |root| {
-                let selected = (|| -> Result<File, Error> {
-                    let directory = workspace_directory(
-                        root,
-                        if expected.is_none() {
-                            fsutil::DirectoryOpen::CreateIfMissing
-                        } else {
-                            fsutil::DirectoryOpen::Existing
-                        },
-                    )?;
-                    let identity = fsutil::stat_identity(&directory)?;
-                    if identity.device != fsutil::stat_identity(root)?.device
-                        || expected.is_some_and(|node| node != identity.node())
-                    {
-                        return Err(Error::WorkspaceChanged);
-                    }
-                    if expected.is_none() {
-                        directory.sync_all()?;
-                        root.sync_all()?;
-                    }
-                    Ok(directory)
-                })();
-                Ok(selected)
-            })
+            .file_job(move |root| Ok(select_workspace(root, expected)))
             .await?;
         let directory = match directory {
             Ok(directory) => directory,
@@ -426,18 +433,27 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
     })
 }
 fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
-    let mut value = connection.prepare_cached("SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root], |r| {
-        Ok(Status { limits:Limits {bytes:r.get(0)?,entries:r.get(1)?}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get(4)?,protected_entries:r.get(5)?,recovery:r.get(6)?,io_failure:r.get(7)?,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
-    })?;
-    value.io_failure |= connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|r.get::<_,bool>(0))?;
-    value.conflicts = super::conflicts::usage(connection, root).map_err(AdminError::backend)?;
-    value.captured_entries =
+    let row = connection
+        .prepare_cached(RootRow::SELECT)?
+        .query_row([root], RootRow::read)?;
+    let failed_operation: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|r.get(0))?;
+    let conflicts = super::conflicts::usage(connection, root).map_err(AdminError::backend)?;
+    let captured_entries =
         super::conflicts::captured_entries(connection, root).map_err(AdminError::backend)?;
-    if value.captured_entries > value.entries {
+    if captured_entries > row.entries {
         return Err(stale());
     }
-    value.refresh();
-    Ok(value)
+    Ok(Status {
+        reserved_bytes: row.reserved_bytes,
+        retained_bytes: row.retained_bytes,
+        entries: row.entries,
+        protected_entries: row.protected_entries,
+        limits: row.limits,
+        recovery: row.recovery,
+        io_failure: row.io_failure || failed_operation,
+        conflicts,
+        captured_entries,
+    })
 }
 pub(super) fn observation(
     connection: &Connection,
@@ -445,7 +461,7 @@ pub(super) fn observation(
 ) -> Result<super::observation::WritebackSummary, Error> {
     let value = status(connection, root)?;
     Ok(super::observation::WritebackSummary {
-        state: value.stop,
+        state: value.stop(),
         reserved_bytes: value.reserved_bytes + value.conflicts.reserved_bytes,
         retained_bytes: value.retained_bytes + value.conflicts.retained_bytes,
         entries: value.effective_entries(),
@@ -574,6 +590,41 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
         return Err(Error::WorkspaceChanged);
     }
     Ok(())
+}
+
+/// Opens the workspace and checks it is the one this root recorded; the first use creates it.
+fn select_workspace(root: &File, recorded: Option<NodeId>) -> Result<File, Error> {
+    let directory = workspace_directory(
+        root,
+        if recorded.is_none() {
+            fsutil::DirectoryOpen::CreateIfMissing
+        } else {
+            fsutil::DirectoryOpen::Existing
+        },
+    )?;
+    let identity = fsutil::stat_identity(&directory)?;
+    if identity.device != fsutil::stat_identity(root)?.device
+        || recorded.is_some_and(|node| node != identity.node())
+    {
+        return Err(Error::WorkspaceChanged);
+    }
+    if recorded.is_none() {
+        directory.sync_all()?;
+        root.sync_all()?;
+    }
+    Ok(directory)
+}
+
+/// Runs `job` between two workspace checks; a failed check replaces the job's own result.
+fn verified<T>(
+    root: &File,
+    workspace: &File,
+    job: impl FnOnce(&File, &File) -> Result<T, Error>,
+) -> Result<T, Error> {
+    verify_workspace(root, workspace)?;
+    let result = job(root, workspace);
+    verify_workspace(root, workspace)?;
+    result
 }
 
 fn workspace_open_error(error: io::Error) -> Error {
@@ -721,14 +772,7 @@ impl Writeback {
         let workspace = self.workspace.clone();
         let result = self
             .lease
-            .file_job(move |root| {
-                Ok((|| {
-                    verify_workspace(root, &workspace)?;
-                    let result = job(root, &workspace);
-                    verify_workspace(root, &workspace)?;
-                    result
-                })())
-            })
+            .file_job(move |root| Ok(verified(root, &workspace, job)))
             .await?;
         if matches!(result, Err(Error::WorkspaceChanged)) {
             self.lease.mark_workspace_changed().await?;
@@ -768,15 +812,16 @@ impl Writeback {
         })
         .await
     }
-    async fn io_failure(&self, token: Token, stage: i64) -> Result<(), Error> {
-        // Entry and target failures coexist until their own revision is revalidated.
+    /// Marks a failed workspace entry (bit 1) and requires recovery. Catalogs written by older
+    /// releases may also carry bit 2, a failed target, which the masks in `inspect_inner` keep.
+    async fn mark_entry_failure(&self, token: Token) -> Result<(), Error> {
         self.db(move |c| {
             let tx = c.transaction()?;
             checked(&tx, &token)?;
             tx.prepare_cached(
-                "UPDATE sync_writeback_ops SET io_failure=io_failure | ?2 WHERE id=?1",
+                "UPDATE sync_writeback_ops SET io_failure=io_failure | 1 WHERE id=?1",
             )?
-            .execute(params![token.id, stage])?;
+            .execute([token.id])?;
             tx.prepare_cached("UPDATE sync_writeback_roots SET recovery=1 WHERE root_id=?1")?
                 .execute([token.root])?;
             tx.commit()?;
@@ -809,13 +854,13 @@ impl Writeback {
         let observed = match observed {
             Ok(v) => v,
             Err(e) => {
-                self.io_failure(token.clone(), 1).await?;
+                self.mark_entry_failure(token.clone()).await?;
                 return Err(e);
             }
         };
         let Some((size, failure)) = observed else {
             if item.phase == Phase::Protected {
-                self.io_failure(token.clone(), 1).await?;
+                self.mark_entry_failure(token.clone()).await?;
                 return Err(Error::Protected);
             }
             return self.db(move|c| {
@@ -852,7 +897,6 @@ impl Writeback {
             tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1")?
                 .execute([root])?;
             save_status(&tx, root, &usage)?;
-            usage.refresh();
             tx.commit()?;
             Ok(usage)
         })

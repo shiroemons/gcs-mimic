@@ -35,7 +35,7 @@ async fn live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_
         Phase::Armed
     );
     assert_eq!(
-        fixture.writeback.status().await.unwrap().stop,
+        fixture.writeback.status().await.unwrap().stop(),
         Stop::RecoveryRequired
     );
     assert_eq!(fs::read(&path).unwrap(), b"recover after full disk");
@@ -50,7 +50,7 @@ async fn live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_
         .unwrap();
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
-        (usage.stop, usage.retained_bytes),
+        (usage.stop(), usage.retained_bytes),
         (Stop::ProtectedBody, 23)
     );
     assert_eq!(

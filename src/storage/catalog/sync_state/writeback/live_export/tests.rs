@@ -202,7 +202,7 @@ async fn live_export_observed_external_change_cancels_the_unpublished_copy_and_r
     );
     let usage = fixture.writeback.status().await.unwrap();
     assert_eq!(
-        (usage.entries, usage.reserved_bytes, usage.stop),
+        (usage.entries, usage.reserved_bytes, usage.stop()),
         (0, 0, Stop::Ready)
     );
     drop(operation);
@@ -389,7 +389,7 @@ async fn live_export_obsolete_copy_never_cancels_a_modified_workspace_body() {
     ));
     let usage = fixture.writeback.status().await.unwrap();
     assert_eq!(
-        (usage.stop, usage.retained_bytes),
+        (usage.stop(), usage.retained_bytes),
         (Stop::ProtectedBody, 22)
     );
     assert_eq!(fs::read(owned).unwrap(), b"retained external body");
@@ -431,7 +431,7 @@ async fn live_export_installed_copy_is_never_cancelled_after_arming() {
             .is_err()
     );
     assert_eq!(
-        fixture.writeback.status().await.unwrap().stop,
+        fixture.writeback.status().await.unwrap().stop(),
         Stop::RecoveryRequired
     );
     assert_eq!(
@@ -678,7 +678,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
             .is_err()
     );
     assert_eq!(
-        fixture.writeback.status().await.unwrap().stop,
+        fixture.writeback.status().await.unwrap().stop(),
         Stop::IoFailure
     );
     let tree = TestDir::new();
@@ -723,7 +723,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
         LiveResult::Complete
     );
     assert_eq!(
-        fixture.writeback.status().await.unwrap().stop,
+        fixture.writeback.status().await.unwrap().stop(),
         Stop::IoFailure
     );
     assert!(
@@ -734,7 +734,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
             .is_err()
     );
     assert_eq!(
-        fixture.writeback.recover_pending().await.unwrap().stop,
+        fixture.writeback.recover_pending().await.unwrap().stop(),
         Stop::Ready
     );
     assert_eq!(
@@ -902,7 +902,7 @@ async fn live_export_cancelled_install_serializes_other_handles_until_the_owned_
     assert!(matches!(completion.await.unwrap(), Err(Error::Protected)));
     let usage = other.status().await.unwrap();
     assert_eq!(
-        (usage.entries, usage.retained_bytes, usage.stop),
+        (usage.entries, usage.retained_bytes, usage.stop()),
         (1, 19, Stop::ProtectedBody)
     );
     assert_eq!(

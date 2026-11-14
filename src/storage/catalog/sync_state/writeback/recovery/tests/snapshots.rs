@@ -62,7 +62,7 @@ async fn recovery_failures_keep_intents_and_retry_without_double_quota_release()
                 usage.entries,
                 usage.reserved_bytes,
                 usage.retained_bytes,
-                usage.stop
+                usage.stop()
             ),
             (0, 0, 0, Stop::Ready),
             "{step:?}"
@@ -113,7 +113,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
                 .catalog
                 .inject(step, 0, Fault::Snapshot(data.clone()));
             assert_eq!(
-                fixture.writeback.recover_pending().await.unwrap().stop,
+                fixture.writeback.recover_pending().await.unwrap().stop(),
                 Stop::Ready
             );
             assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
@@ -133,7 +133,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
             let writeback = lease.writeback(limits()).await.unwrap();
             let usage = writeback.recover_pending().await.unwrap();
             assert_eq!(
-                (usage.entries, usage.reserved_bytes, usage.stop),
+                (usage.entries, usage.reserved_bytes, usage.stop()),
                 (0, 0, Stop::Ready),
                 "{step:?} {crash:?}"
             );
@@ -208,7 +208,7 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
                 .unwrap();
             let writeback = lease.writeback(limits()).await.unwrap();
             assert_eq!(
-                writeback.recover_pending().await.unwrap().stop,
+                writeback.recover_pending().await.unwrap().stop(),
                 Stop::Ready,
                 "{step:?} {crash:?}"
             );
@@ -256,7 +256,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
             .catalog
             .inject(step, 0, Fault::Snapshot(data.clone()));
         assert_eq!(
-            fixture.writeback.recover_pending().await.unwrap().stop,
+            fixture.writeback.recover_pending().await.unwrap().stop(),
             Stop::ProtectedBody
         );
         assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
@@ -276,7 +276,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
         let writeback = lease.writeback(limits()).await.unwrap();
         let usage = writeback.recover_pending().await.unwrap();
         assert_eq!(
-            (usage.retained_bytes, usage.entries, usage.stop),
+            (usage.retained_bytes, usage.entries, usage.stop()),
             (10, 1, Stop::ProtectedBody)
         );
         assert_eq!(
@@ -314,7 +314,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
             .unwrap();
         let usage = writeback.recover_pending().await.unwrap();
         assert_eq!(
-            (usage.retained_bytes, usage.entries, usage.stop),
+            (usage.retained_bytes, usage.entries, usage.stop()),
             (0, 0, Stop::Ready)
         );
         assert_api(&recovered, &record).await;

@@ -27,11 +27,11 @@ async fn a_tracked_body_past_one_gibibyte_reserves_without_pausing_the_root() {
         .unwrap();
     let operation = fixture.begin().await;
     let status = fixture.writeback.status().await.unwrap();
-    assert_ne!(status.stop, Stop::ConflictCapacity);
+    assert_ne!(status.stop(), Stop::ConflictCapacity);
     assert_eq!(status.reserved_bytes, u128::from(TRACKED_SIZE));
     drain(&fixture.writeback, operation).await;
     let status = fixture.writeback.status().await.unwrap();
-    assert_eq!(status.stop, Stop::Ready);
+    assert_eq!(status.stop(), Stop::Ready);
     assert_eq!(status.reserved_bytes, 0);
     fixture.shut_down().await;
 }
@@ -373,13 +373,13 @@ async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_un
             let writeback = root.writeback(limits()).await.unwrap();
             if step == Step::SyncCopyCommit {
                 assert_eq!(
-                    writeback.status().await.unwrap().stop,
+                    writeback.status().await.unwrap().stop(),
                     Stop::Ready,
                     "{step:?} {crash:?}"
                 );
             } else {
                 assert_ne!(
-                    writeback.status().await.unwrap().stop,
+                    writeback.status().await.unwrap().stop(),
                     Stop::Ready,
                     "{step:?} {crash:?}"
                 );

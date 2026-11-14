@@ -40,10 +40,10 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
         );
         let pending = fixture.writeback.page(0, 1).await.unwrap().pop().unwrap();
         if phase == "displaced-parent-sync" {
-            assert_eq!(usage.stop, Stop::IoFailure);
+            assert_eq!(usage.stop(), Stop::IoFailure);
             assert_eq!((usage.retained_bytes, page.usage.entries), (0, 1));
         } else {
-            assert_eq!(usage.stop, Stop::IoFailure);
+            assert_eq!(usage.stop(), Stop::IoFailure);
             assert!(usage.over_limit());
             assert_eq!(
                 (
@@ -91,12 +91,12 @@ async fn native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_
         fixture.writeback.recover_pending().await.unwrap();
         if phase == "displaced-parent-sync" {
             assert_eq!(
-                fixture.writeback.preserve_protected().await.unwrap().stop,
+                fixture.writeback.preserve_protected().await.unwrap().stop(),
                 Stop::Ready
             );
         } else {
             assert_eq!(
-                fixture.writeback.preserve_protected().await.unwrap().stop,
+                fixture.writeback.preserve_protected().await.unwrap().stop(),
                 Stop::ConflictCapacity
             );
             let pending = fixture.writeback.page(0, 1).await.unwrap().pop().unwrap();
@@ -134,7 +134,7 @@ async fn preserved_native_proof_survives_restart_without_charging_another_retain
     drop(operation);
     let fixture = fixture.restart(Journal::Enabled).await;
     assert_eq!(
-        fixture.writeback.recover_pending().await.unwrap().stop,
+        fixture.writeback.recover_pending().await.unwrap().stop(),
         Stop::Ready
     );
     let (operation, reused) = fixture.preserved().await;
@@ -212,7 +212,7 @@ async fn protected_zero_byte_transfer_reserves_a_second_physical_entry() {
     let fixture = Fixture::new(4096, 1).await;
     fixture.protected(b"").await;
     assert_eq!(
-        fixture.writeback.preserve_protected().await.unwrap().stop,
+        fixture.writeback.preserve_protected().await.unwrap().stop(),
         Stop::ProtectedBody
     );
     assert!(fixture.page().await.items.is_empty());

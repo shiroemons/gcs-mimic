@@ -224,7 +224,7 @@ async fn protected_transfer_preserves_binary_and_empty_without_changing_api() {
         let item = fixture.protected(body).await;
         let usage = fixture.writeback.preserve_protected().await.unwrap();
         assert_eq!(
-            (usage.entries, usage.retained_bytes, usage.stop),
+            (usage.entries, usage.retained_bytes, usage.stop()),
             (0, 0, Stop::Ready)
         );
         let page = fixture.page().await;
@@ -272,7 +272,7 @@ async fn protected_transfer_requires_temporary_capacity_for_both_actual_copies()
     let item = fixture.protected(BODY).await;
     let usage = fixture.writeback.preserve_protected().await.unwrap();
     assert_eq!(
-        (usage.entries, usage.retained_bytes, usage.stop),
+        (usage.entries, usage.retained_bytes, usage.stop()),
         (1, BODY.len() as u128, Stop::ProtectedBody)
     );
     assert!(fixture.page().await.items.is_empty());

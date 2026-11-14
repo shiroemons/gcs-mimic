@@ -23,7 +23,7 @@ async fn protected_transfer_crosses_keyset_pages_without_skipping_completed_rows
         Ok(())
     }).await.unwrap();
     assert_eq!(
-        fixture.writeback.preserve_protected().await.unwrap().stop,
+        fixture.writeback.preserve_protected().await.unwrap().stop(),
         Stop::Ready
     );
     assert!(fixture.writeback.page(0, 256).await.unwrap().is_empty());
@@ -87,7 +87,7 @@ async fn protected_transfer_restarts_each_copy_and_unlink_failure_without_losing
         fixture.writeback.recover_pending().await.unwrap();
         let usage = fixture.writeback.preserve_protected().await.unwrap();
         assert_eq!(
-            (usage.entries, usage.retained_bytes, usage.stop),
+            (usage.entries, usage.retained_bytes, usage.stop()),
             (0, 0, Stop::Ready),
             "{step:?}"
         );

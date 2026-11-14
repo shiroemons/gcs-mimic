@@ -114,7 +114,7 @@ impl Writeback {
                 self.inspect_inner(item.token).await?;
                 return Err(error);
             }
-            self.io_failure(item.token, 1).await?;
+            self.mark_entry_failure(item.token).await?;
             return Err(error);
         }
         #[cfg(test)]
