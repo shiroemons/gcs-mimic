@@ -66,7 +66,7 @@ mod tests {
         let signer = registry.identity(ID).unwrap();
         assert!(!signer.allows_anywhere(OBJECTS_GET));
         assert_eq!(
-            signer.acl_entity().as_deref(),
+            signer.acl_entity().as_ref().map(crate::acl::Entity::as_str),
             Some("user-test-signer@gcs-mimic.invalid")
         );
         assert_eq!(registry.signing_keys.get(ID).unwrap().len(), 1);
@@ -122,7 +122,7 @@ mod tests {
         assert!(!signer.allows(OBJECTS_CREATE, "local"));
         assert!(!signer.allows(OBJECTS_GET, "project-a"));
         assert_eq!(
-            signer.acl_entity().as_deref(),
+            signer.acl_entity().as_ref().map(crate::acl::Entity::as_str),
             Some("user-signer-alias@example.invalid")
         );
         assert_eq!(registry.signing_keys.get(ID).unwrap().len(), 2);

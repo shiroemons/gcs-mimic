@@ -89,7 +89,7 @@ pub(crate) fn parse_entries(
     let mut entities = std::collections::BTreeSet::new();
     let mut entries = Vec::with_capacity(input.len());
     for entry in input {
-        Entity::parse(&entry.entity)?;
+        parse_entity(&entry.entity)?;
         let role = validate_role(kind, &entry.role)?;
         if !entities.insert(entry.entity.clone()) {
             return Err(AclError::DuplicateEntity(entry.entity));
@@ -239,7 +239,7 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
     }
     let mut entities = std::collections::BTreeSet::new();
     for entry in entries {
-        Entity::parse(&entry.entity)?;
+        parse_entity(&entry.entity)?;
         check_role(kind, entry.role)?;
         if !entities.insert(&entry.entity) {
             return Err(AclError::DuplicateEntity(entry.entity.clone()));
@@ -248,9 +248,72 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
     Ok(())
 }
 
-/// Entity kinds from the pinned Discovery `entity` description.
+/// The three project teams that ACL entities and IAM convenience members name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ProjectTeam {
+    Owners,
+    Editors,
+    Viewers,
+}
+
+impl ProjectTeam {
+    const ALL: [Self; 3] = [Self::Owners, Self::Editors, Self::Viewers];
+
+    /// The entity spelling, as in `project-owners-123`.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Owners => "owners",
+            Self::Editors => "editors",
+            Self::Viewers => "viewers",
+        }
+    }
+
+    /// The IAM convenience member kind, as in `projectOwner:example-project`.
+    pub(crate) fn member_kind(self) -> &'static str {
+        match self {
+            Self::Owners => "projectOwner",
+            Self::Editors => "projectEditor",
+            Self::Viewers => "projectViewer",
+        }
+    }
+
+    fn from_team(team: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.as_str() == team)
+    }
+}
+
+/// What an entity names, found once when it was parsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Scope {
+    AllUsers,
+    AllAuthenticatedUsers,
+    UserEmail,
+    UserId,
+    GroupEmail,
+    GroupId,
+    Domain,
+    ProjectTeam(ProjectTeam),
+}
+
+impl Scope {
+    /// The length of the ASCII prefix before the value, such as `user-` or `project-owners-`.
+    fn prefix_len(self) -> usize {
+        match self {
+            Self::AllUsers | Self::AllAuthenticatedUsers => 0,
+            Self::UserEmail | Self::UserId => "user-".len(),
+            Self::GroupEmail | Self::GroupId => "group-".len(),
+            Self::Domain => "domain-".len(),
+            Self::ProjectTeam(team) => "project-".len() + team.as_str().len() + 1,
+        }
+    }
+}
+
+/// A parsed entity's parts, borrowed from its text: the entity kinds from the pinned Discovery
+/// `entity` description.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Entity<'a> {
+pub(crate) enum EntityRef<'a> {
     AllUsers,
     AllAuthenticatedUsers,
     UserEmail(&'a str),
@@ -258,95 +321,204 @@ pub(crate) enum Entity<'a> {
     GroupEmail(&'a str),
     GroupId(&'a str),
     Domain(&'a str),
-    ProjectTeam { team: &'a str, project: &'a str },
+    ProjectTeam { team: ProjectTeam, project: &'a str },
 }
+
+/// An ACL entity of a form the pinned Discovery `entity` description allows, kept in the exact
+/// spelling it was given. Equality and order are the text's, because `text` is the first field
+/// and the scope is a function of it: stored ACL order, duplicate detection and the IAM bridge
+/// all compare spellings.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct Entity {
+    text: String,
+    scope: Scope,
+}
+
+crate::serde_util::serialize_as_str!(Entity);
 
 /// The longest entity: `project-viewers-` and a project ID of up to 256 bytes. Emails take at most
 /// 254 bytes and domains 253, so each kind of entity fits, and ACLs and the policies derived from
 /// them stay bounded by their entry counts.
 const MAX_ENTITY_BYTES: usize = 272;
 
-impl<'a> Entity<'a> {
-    pub(crate) fn parse(entity: &'a str) -> Result<Self, AclError> {
-        if entity.len() > MAX_ENTITY_BYTES {
-            return Err(AclError::EntityTooLong);
+impl Entity {
+    /// `project-TEAM-NUMBER` for `project`, spelled with the number bucket resources render.
+    pub(crate) fn project_team(team: ProjectTeam, project: &str) -> Self {
+        Self {
+            text: format!("project-{}-{}", team.as_str(), project_number(project)),
+            scope: Scope::ProjectTeam(team),
         }
-        let invalid = || AclError::InvalidEntity(entity.to_owned());
-        let email = |value: &str| {
-            value.split_once('@').is_some_and(|(local, domain)| {
-                !local.is_empty()
-                    && valid_domain(domain)
-                    && local
-                        .bytes()
-                        .all(|byte| byte.is_ascii_graphic() && byte != b'@')
-            })
-        };
-        let id =
-            |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_alphanumeric());
-        Ok(match entity {
-            "allUsers" => Self::AllUsers,
-            "allAuthenticatedUsers" => Self::AllAuthenticatedUsers,
-            _ => {
-                if let Some(value) = entity.strip_prefix("user-") {
-                    if email(value) {
-                        Self::UserEmail(value)
-                    } else if id(value) {
-                        Self::UserId(value)
-                    } else {
-                        return Err(invalid());
-                    }
-                } else if let Some(value) = entity.strip_prefix("group-") {
-                    if email(value) {
-                        Self::GroupEmail(value)
-                    } else if id(value) {
-                        Self::GroupId(value)
-                    } else {
-                        return Err(invalid());
-                    }
-                } else if let Some(value) = entity.strip_prefix("domain-") {
-                    if !valid_domain(value) {
-                        return Err(invalid());
-                    }
-                    Self::Domain(value)
-                } else if let Some(value) = entity.strip_prefix("project-") {
-                    let (team, project) = value.split_once('-').ok_or_else(invalid)?;
-                    if !matches!(team, "owners" | "editors" | "viewers")
-                        || project.is_empty()
-                        || !project
-                            .bytes()
-                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-                    {
-                        return Err(invalid());
-                    }
-                    Self::ProjectTeam { team, project }
-                } else {
-                    return Err(invalid());
-                }
-            }
-        })
     }
 
-    pub(crate) fn is_public(self) -> bool {
-        matches!(self, Self::AllUsers | Self::AllAuthenticatedUsers)
+    /// The natural `user-ID` entity of a principal ID, when the ID forms one within the size cap.
+    pub(crate) fn from_user_id(id: &str) -> Option<Self> {
+        parse_entity(&format!("user-{id}")).ok()
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) fn into_string(self) -> String {
+        self.text
+    }
+
+    pub(crate) fn parsed(&self) -> EntityRef<'_> {
+        // `classify` checked this prefix, so the value always starts at a character boundary.
+        let value = self.text.get(self.scope.prefix_len()..).unwrap_or_default();
+        match self.scope {
+            Scope::AllUsers => EntityRef::AllUsers,
+            Scope::AllAuthenticatedUsers => EntityRef::AllAuthenticatedUsers,
+            Scope::UserEmail => EntityRef::UserEmail(value),
+            Scope::UserId => EntityRef::UserId(value),
+            Scope::GroupEmail => EntityRef::GroupEmail(value),
+            Scope::GroupId => EntityRef::GroupId(value),
+            Scope::Domain => EntityRef::Domain(value),
+            Scope::ProjectTeam(team) => EntityRef::ProjectTeam {
+                team,
+                project: value,
+            },
+        }
+    }
+
+    pub(crate) fn is_public(&self) -> bool {
+        matches!(self.scope, Scope::AllUsers | Scope::AllAuthenticatedUsers)
+    }
+
+    /// The email or ID of a `user-` entity.
+    pub(crate) fn user_id(&self) -> Option<&str> {
+        match self.parsed() {
+            EntityRef::UserEmail(user) | EntityRef::UserId(user) => Some(user),
+            EntityRef::AllUsers
+            | EntityRef::AllAuthenticatedUsers
+            | EntityRef::GroupEmail(_)
+            | EntityRef::GroupId(_)
+            | EntityRef::Domain(_)
+            | EntityRef::ProjectTeam { .. } => None,
+        }
+    }
+
+    /// The email of a `user-` or `group-` entity.
+    pub(crate) fn email(&self) -> Option<&str> {
+        match self.parsed() {
+            EntityRef::UserEmail(email) | EntityRef::GroupEmail(email) => Some(email),
+            EntityRef::AllUsers
+            | EntityRef::AllAuthenticatedUsers
+            | EntityRef::UserId(_)
+            | EntityRef::GroupId(_)
+            | EntityRef::Domain(_)
+            | EntityRef::ProjectTeam { .. } => None,
+        }
     }
 
     pub(crate) fn matches(
-        self,
+        &self,
         identity: Option<&crate::auth::Identity>,
         public: crate::auth::PublicAccess,
     ) -> bool {
-        match self {
-            Self::AllUsers => public == crate::auth::PublicAccess::Allowed,
-            Self::AllAuthenticatedUsers => {
+        match self.parsed() {
+            EntityRef::AllUsers => public == crate::auth::PublicAccess::Allowed,
+            EntityRef::AllAuthenticatedUsers => {
                 public == crate::auth::PublicAccess::Allowed && identity.is_some()
             }
-            Self::UserEmail(user) | Self::UserId(user) => {
+            EntityRef::UserEmail(user) | EntityRef::UserId(user) => {
                 identity.is_some_and(|id| id.matches_acl_user(user))
             }
-            Self::GroupEmail(_) | Self::GroupId(_) | Self::Domain(_) | Self::ProjectTeam { .. } => {
-                false
-            }
+            EntityRef::GroupEmail(_)
+            | EntityRef::GroupId(_)
+            | EntityRef::Domain(_)
+            | EntityRef::ProjectTeam { .. } => false,
         }
+    }
+}
+
+/// The entity's form only, without the size cap: a stored entity parses here, so one a release
+/// before 0.12.0 stored past [`MAX_ENTITY_BYTES`] stays readable, while [`validate_entries`]
+/// refuses to write it back.
+impl FromStr for Entity {
+    type Err = AclError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let scope = classify(text)?;
+        Ok(Self {
+            text: text.to_owned(),
+            scope,
+        })
+    }
+}
+
+impl TryFrom<String> for Entity {
+    type Error = AclError;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        let scope = classify(&text)?;
+        Ok(Self { text, scope })
+    }
+}
+
+impl fmt::Display for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// Debug shows the spelling, as the `String` it replaced did, so test failures and logs stay
+/// readable.
+impl fmt::Debug for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.text, f)
+    }
+}
+
+/// A client-supplied or derived entity: refuses one past [`MAX_ENTITY_BYTES`] before naming it,
+/// then parses its form.
+pub(crate) fn parse_entity(text: &str) -> Result<Entity, AclError> {
+    if text.len() > MAX_ENTITY_BYTES {
+        return Err(AclError::EntityTooLong);
+    }
+    text.parse()
+}
+
+/// The scope of `entity`. `user`, `group`, `domain` and `project` contain no `-`, so the first
+/// segment is the prefix.
+fn classify(entity: &str) -> Result<Scope, AclError> {
+    let invalid = || AclError::InvalidEntity(entity.to_owned());
+    let email = |value: &str| {
+        value.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && valid_domain(domain)
+                && local
+                    .bytes()
+                    .all(|byte| byte.is_ascii_graphic() && byte != b'@')
+        })
+    };
+    let id = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_alphanumeric());
+    match entity {
+        "allUsers" => return Ok(Scope::AllUsers),
+        "allAuthenticatedUsers" => return Ok(Scope::AllAuthenticatedUsers),
+        _ => {}
+    }
+    let (prefix, value) = entity.split_once('-').ok_or_else(invalid)?;
+    match prefix {
+        "user" if email(value) => Ok(Scope::UserEmail),
+        "user" if id(value) => Ok(Scope::UserId),
+        "group" if email(value) => Ok(Scope::GroupEmail),
+        "group" if id(value) => Ok(Scope::GroupId),
+        "domain" if valid_domain(value) => Ok(Scope::Domain),
+        "project" => {
+            let (team, project) = value.split_once('-').ok_or_else(invalid)?;
+            let team = ProjectTeam::from_team(team).ok_or_else(invalid)?;
+            if project.is_empty()
+                || !project
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return Err(invalid());
+            }
+            Ok(Scope::ProjectTeam(team))
+        }
+        _ => Err(invalid()),
     }
 }
 
@@ -634,35 +806,52 @@ mod tests {
         }
     }
 
-    #[test]
-    fn entities_follow_the_discovery_forms() {
-        for (entity, parsed) in [
-            ("allUsers", Entity::AllUsers),
-            ("allAuthenticatedUsers", Entity::AllAuthenticatedUsers),
-            ("user-liz@example.com", Entity::UserEmail("liz@example.com")),
-            ("user-00b4903a97", Entity::UserId("00b4903a97")),
+    fn sample_entities() -> [(&'static str, EntityRef<'static>); 10] {
+        [
+            ("allUsers", EntityRef::AllUsers),
+            ("allAuthenticatedUsers", EntityRef::AllAuthenticatedUsers),
+            (
+                "user-liz@example.com",
+                EntityRef::UserEmail("liz@example.com"),
+            ),
+            ("user-00b4903a97", EntityRef::UserId("00b4903a97")),
             (
                 "group-team@example.com",
-                Entity::GroupEmail("team@example.com"),
+                EntityRef::GroupEmail("team@example.com"),
             ),
-            ("group-00b4903a97", Entity::GroupId("00b4903a97")),
-            ("domain-example.com", Entity::Domain("example.com")),
+            ("group-00b4903a97", EntityRef::GroupId("00b4903a97")),
+            ("domain-example.com", EntityRef::Domain("example.com")),
             (
                 "project-owners-123",
-                Entity::ProjectTeam {
-                    team: "owners",
+                EntityRef::ProjectTeam {
+                    team: ProjectTeam::Owners,
+                    project: "123",
+                },
+            ),
+            (
+                "project-editors-123",
+                EntityRef::ProjectTeam {
+                    team: ProjectTeam::Editors,
                     project: "123",
                 },
             ),
             (
                 "project-viewers-local-project",
-                Entity::ProjectTeam {
-                    team: "viewers",
+                EntityRef::ProjectTeam {
+                    team: ProjectTeam::Viewers,
                     project: "local-project",
                 },
             ),
-        ] {
-            assert_eq!(Entity::parse(entity), Ok(parsed), "{entity}");
+        ]
+    }
+
+    #[test]
+    fn entities_follow_the_discovery_forms() {
+        for (entity, parsed) in sample_entities() {
+            let parsed_entity = parse_entity(entity).unwrap();
+            assert_eq!(parsed_entity.parsed(), parsed, "{entity}");
+            assert_eq!(parsed_entity.as_str(), entity);
+            assert_eq!(entity.parse::<Entity>().as_ref(), Ok(&parsed_entity));
         }
         // Each kind's longest value fits, and only the length refuses what follows it.
         let email = format!("{}@example.com", "x".repeat(254 - "@example.com".len()));
@@ -671,16 +860,16 @@ mod tests {
             format!("group-{email}"),
             format!("project-viewers-{}", "p".repeat(256)),
         ] {
-            assert!(Entity::parse(&entity).is_ok(), "{entity}");
+            assert!(parse_entity(&entity).is_ok(), "{entity}");
         }
         let longest = format!("project-viewers-{}", "p".repeat(256));
         assert_eq!(longest.len(), MAX_ENTITY_BYTES);
         assert_eq!(
-            Entity::parse(&format!("{longest}p")),
+            parse_entity(&format!("{longest}p")),
             Err(AclError::EntityTooLong)
         );
         assert_eq!(
-            Entity::parse(&format!("user-{}@example.com", "x".repeat(16 * 1024))),
+            parse_entity(&format!("user-{}@example.com", "x".repeat(16 * 1024))),
             Err(AclError::EntityTooLong)
         );
         for entity in [
@@ -699,10 +888,74 @@ mod tests {
             "project-owners",
             "serviceAccount:sa@example.com",
         ] {
-            assert!(Entity::parse(entity).is_err(), "{entity}");
+            assert!(parse_entity(entity).is_err(), "{entity}");
+            assert!(entity.parse::<Entity>().is_err(), "{entity}");
         }
-        assert!(Entity::AllUsers.is_public() && Entity::AllAuthenticatedUsers.is_public());
-        assert!(!Entity::Domain("example.com").is_public());
+        let public = |entity: &str| parse_entity(entity).unwrap().is_public();
+        assert!(public("allUsers") && public("allAuthenticatedUsers"));
+        assert!(!public("domain-example.com"));
+    }
+
+    /// Stored ACL order and the IAM bridge sort entities by spelling, so their order must be
+    /// the text's, whatever their kinds.
+    #[test]
+    fn entities_order_by_their_text() {
+        let texts: Vec<_> = sample_entities()
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        let mut by_text = texts.clone();
+        by_text.sort_unstable();
+        let mut entities: Vec<Entity> = texts.iter().map(|text| text.parse().unwrap()).collect();
+        entities.sort();
+        let sorted: Vec<_> = entities.iter().map(Entity::as_str).collect();
+        assert_eq!(sorted, by_text);
+    }
+
+    /// The constructors spell what parsing reads, so a built entity equals a parsed one.
+    #[test]
+    fn built_entities_match_parsed_ones() {
+        for (team, number) in [
+            (ProjectTeam::Owners, "123"),
+            (ProjectTeam::Editors, "123"),
+            (ProjectTeam::Viewers, "0"),
+        ] {
+            let project = if number == "0" {
+                "local-project"
+            } else {
+                number
+            };
+            let built = Entity::project_team(team, project);
+            let text = format!("project-{}-{number}", team.as_str());
+            assert_eq!(built, text.parse().unwrap());
+            assert_eq!(
+                built.parsed(),
+                EntityRef::ProjectTeam {
+                    team,
+                    project: number
+                }
+            );
+        }
+        assert_eq!(
+            Entity::from_user_id("liz@example.com").map(Entity::into_string),
+            Some("user-liz@example.com".into())
+        );
+        assert_eq!(Entity::from_user_id("local:admin"), None);
+    }
+
+    /// A release before 0.12.0 stored entities without the size cap; such an entity still reads
+    /// back, while a request or a write refuses it.
+    #[test]
+    fn oversized_entities_parse_only_without_the_size_cap() {
+        let oversized = format!("project-viewers-{}", "p".repeat(257));
+        assert_eq!(oversized.len(), MAX_ENTITY_BYTES + 1);
+        let stored: Entity = oversized.parse().unwrap();
+        assert_eq!(stored.as_str(), oversized);
+        assert_eq!(
+            serde_json::from_value::<Entity>(serde_json::Value::String(oversized.clone())).unwrap(),
+            stored
+        );
+        assert_eq!(parse_entity(&oversized), Err(AclError::EntityTooLong));
     }
 
     #[test]

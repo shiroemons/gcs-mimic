@@ -47,7 +47,7 @@ fn the_built_in_app_holds_storage_admin_in_its_projects_only_on_the_trusted_list
     }
     assert!(!app.allows(BUCKETS_CREATE, "other-project"));
     assert_eq!(
-        app.acl_entity().as_deref(),
+        app.acl_entity().as_ref().map(crate::acl::Entity::as_str),
         Some("user-trusted-app@gcs-mimic.invalid")
     );
     assert!(registry.tokens.values().all(|index| *index != 1));
@@ -85,7 +85,7 @@ fn a_declared_app_keeps_its_own_entry_instead_of_the_implicit_grants() {
     assert!(!app.allows(OBJECTS_CREATE, "local-project"));
     assert!(!app.allows(OBJECTS_GET, "project-a"));
     assert_eq!(
-        app.acl_entity().as_deref(),
+        app.acl_entity().as_ref().map(crate::acl::Entity::as_str),
         Some("user-app-alias@example.invalid")
     );
     assert_eq!(registry.tokens["app-token"], 1);

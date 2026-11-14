@@ -413,7 +413,7 @@ enum Presented<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     id: String,
-    acl_entity: Option<String>,
+    acl_entity: Option<crate::acl::Entity>,
     /// Shared because requests clone the caller, and a principal may hold any number of projects.
     projects: Arc<BTreeMap<String, ProjectGrant>>,
 }
@@ -930,7 +930,7 @@ impl Registry {
         };
         self.identities.push(Identity {
             id: id.to_owned(),
-            acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
+            acl_entity: acl_identity::parse_alias(entry.get("acl_entity"), index)?,
             projects: permissions.into(),
         });
         Ok(())
@@ -1129,7 +1129,7 @@ pub struct Auth {
     test_signer: TestSigner,
     /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
     /// It never authorizes anything.
-    local_creator_entity: Option<String>,
+    local_creator_entity: Option<crate::acl::Entity>,
 }
 
 impl Default for Auth {
@@ -1277,14 +1277,16 @@ impl Auth {
     }
 
     /// Records `email` as the creator of objects written in permissive mode. Strict mode ignores
-    /// it because its callers are registered principals.
+    /// it because its callers are registered principals. `email` passed
+    /// `validate_local_creator_email` when the setting loaded; an address that failed it only
+    /// reaches here while startup is failing on that diagnostic, and records no creator.
     pub fn with_local_creator_email(mut self, email: &str) -> Self {
-        self.local_creator_entity = (!email.is_empty()).then(|| format!("user-{email}"));
+        self.local_creator_entity = acl_identity::creator_entity(email).ok();
         self
     }
 
-    pub(crate) fn local_creator_entity(&self) -> Option<&str> {
-        self.local_creator_entity.as_deref()
+    pub(crate) fn local_creator_entity(&self) -> Option<&crate::acl::Entity> {
+        self.local_creator_entity.as_ref()
     }
 
     /// Points the trusted listener at `caller`, as loading a strict profile does.

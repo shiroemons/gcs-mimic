@@ -12,7 +12,10 @@ use super::{
     validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
-    acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, project_number, validate_role},
+    acl::{
+        AclEntry, AclKind, AclRole, AclTarget, EntityRef, parse_entity, project_number,
+        validate_role,
+    },
     bucket::BucketConditions,
     config::CompatProfile,
 };
@@ -225,7 +228,7 @@ pub(crate) fn parse_acl_body(
         }
         _ => unreachable!("only mutations carry a body"),
     };
-    Entity::parse(&entity)?;
+    parse_entity(&entity)?;
     if role.is_none() && !matches!(operation, AclOperation::Patch(_)) {
         return Err(required("role"));
     }
@@ -237,23 +240,26 @@ pub(crate) fn parse_acl_body(
 }
 
 fn entity_fields(resource: &mut Map<String, Value>, entity: &str) {
-    match Entity::parse(entity) {
-        Ok(Entity::UserEmail(email) | Entity::GroupEmail(email)) => {
+    let Ok(entity) = parse_entity(entity) else {
+        return;
+    };
+    match entity.parsed() {
+        EntityRef::UserEmail(email) | EntityRef::GroupEmail(email) => {
             resource.insert("email".into(), email.into());
         }
-        Ok(Entity::UserId(id) | Entity::GroupId(id)) => {
+        EntityRef::UserId(id) | EntityRef::GroupId(id) => {
             resource.insert("entityId".into(), id.into());
         }
-        Ok(Entity::Domain(domain)) => {
+        EntityRef::Domain(domain) => {
             resource.insert("domain".into(), domain.into());
         }
-        Ok(Entity::ProjectTeam { team, project }) => {
+        EntityRef::ProjectTeam { team, project } => {
             resource.insert(
                 "projectTeam".into(),
-                json!({"projectNumber": project, "team": team}),
+                json!({"projectNumber": project, "team": team.as_str()}),
             );
         }
-        Ok(Entity::AllUsers | Entity::AllAuthenticatedUsers) | Err(_) => {}
+        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => {}
     }
 }
 

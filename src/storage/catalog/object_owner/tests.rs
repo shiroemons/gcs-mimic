@@ -4,13 +4,41 @@ use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
+/// The `objects.owner` column keeps its JSON text with a parsed entity, and an entity of no
+/// valid form no longer reads back.
+#[test]
+fn principal_owner_keeps_its_stored_json() {
+    let owner = ObjectOwner::Principal {
+        id: "x".into(),
+        entity: Some("user-a@example.test".parse().unwrap()),
+    };
+    let stored = serde_json::to_string(&owner).unwrap();
+    assert_eq!(
+        stored,
+        r#"{"kind":"Principal","id":"x","entity":"user-a@example.test"}"#
+    );
+    assert_eq!(serde_json::from_str::<ObjectOwner>(&stored).unwrap(), owner);
+    let unaliased = r#"{"kind":"Principal","id":"local:x","entity":null}"#;
+    assert_eq!(
+        serde_json::from_str::<ObjectOwner>(unaliased).unwrap(),
+        ObjectOwner::Principal {
+            id: "local:x".into(),
+            entity: None
+        }
+    );
+    assert!(
+        serde_json::from_str::<ObjectOwner>(r#"{"kind":"Principal","id":"x","entity":"user-"}"#)
+            .is_err()
+    );
+}
+
 #[test]
 fn owner_acl_reconciliation_rejects_corrupt_stored_roles_and_json() {
     let connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE acl_object_entries(bucket TEXT,name TEXT,generation INTEGER,entries TEXT);").unwrap();
     let owner = ObjectOwner::Principal {
         id: "owner".into(),
-        entity: Some("user-old@example.test".into()),
+        entity: Some("user-old@example.test".parse().unwrap()),
     };
     for stored in [
         r#"[{"entity":"user-old@example.test","role":"UNKNOWN"}]"#,
@@ -101,15 +129,18 @@ fn canonical_owner_entities_require_current_registered_ids_and_keep_profile_boun
     ] {
         let mut owner = ObjectOwner::Principal {
             id: id.into(),
-            entity: Some("user-old@example.test".into()),
+            entity: Some("user-old@example.test".parse().unwrap()),
         };
         canonicalize(&mut owner, Some(&profile));
-        assert_eq!(owner.entity().as_deref(), expected);
+        assert_eq!(
+            owner.entity().as_ref().map(crate::acl::Entity::as_str),
+            expected
+        );
         assert!(matches!(owner, ObjectOwner::Principal { id: actual, .. } if actual == id));
     }
     let original = ObjectOwner::Principal {
         id: "local:owner".into(),
-        entity: Some("user-original@example.test".into()),
+        entity: Some("user-original@example.test".parse().unwrap()),
     };
     for profile in [
         None,
@@ -141,7 +172,7 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
     for name in ["first", "second"] {
         let owner = ObjectOwner::Principal {
             id: "local:owner".into(),
-            entity: Some("user-old@example.test".into()),
+            entity: Some("user-old@example.test".parse().unwrap()),
         };
         connection
             .execute(
@@ -160,7 +191,8 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
             .unwrap()
             .unwrap()
             .entity()
-            .as_deref(),
+            .as_ref()
+            .map(crate::acl::Entity::as_str),
         Some("user-first@example.test")
     );
     assert_eq!(
@@ -168,7 +200,8 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
             .unwrap()
             .unwrap()
             .entity()
-            .as_deref(),
+            .as_ref()
+            .map(crate::acl::Entity::as_str),
         Some("user-old@example.test")
     );
     let stale: String = connection
@@ -217,7 +250,7 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
             selected(&connection, "bucket", name, 7).unwrap(),
             Some(ObjectOwner::Principal {
                 id: "local:owner".into(),
-                entity: Some("user-current@example.test".into())
+                entity: Some("user-current@example.test".parse().unwrap())
             })
         );
         let unchanged: (i64, i64, i64, Vec<u8>) = connection
@@ -233,14 +266,14 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
 
 fn permissive(email: Option<&str>) -> Profile {
     Profile::Permissive {
-        creator: email.map(|email| Arc::from(format!("user-{email}"))),
+        creator: email.map(|email| format!("user-{email}").parse().unwrap()),
     }
 }
 
 fn local_creator(entity: &str) -> ObjectOwner {
     ObjectOwner::Principal {
         id: LOCAL_CREATOR_ID.into(),
-        entity: Some(entity.into()),
+        entity: Some(entity.parse().unwrap()),
     }
 }
 
@@ -283,10 +316,13 @@ fn permissive_canonicalize_follows_the_configured_address_only_for_the_local_cre
     assert_eq!(owner, local_creator("user-new@example.test"));
     let mut other = ObjectOwner::Principal {
         id: "local:owner".into(),
-        entity: Some("user-x@example.test".into()),
+        entity: Some("user-x@example.test".parse().unwrap()),
     };
     canonicalize(&mut other, Some(&permissive(Some("new@example.test"))));
-    assert_eq!(other.entity().as_deref(), Some("user-x@example.test"));
+    assert_eq!(
+        other.entity().as_ref().map(crate::acl::Entity::as_str),
+        Some("user-x@example.test")
+    );
     let mut project = ObjectOwner::ProjectOwners {
         project: "project".into(),
     };

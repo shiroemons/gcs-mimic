@@ -1,6 +1,7 @@
 //! Startup-only principal data excludes every bearer token and signing key.
 
 use super::{Catalog, CatalogError, acl, unix_micros};
+use crate::acl::Entity;
 use crate::auth::{Auth, Identity};
 use crate::storage::catalog::sql;
 use std::collections::BTreeMap;
@@ -14,7 +15,7 @@ pub(super) enum Profile {
     TrustedLocal,
     /// `creator` is the ACL entity recorded as owner of new objects; it grants nothing.
     Permissive {
-        creator: Option<Arc<str>>,
+        creator: Option<Entity>,
     },
     Strict(Arc<BTreeMap<String, Identity>>),
 }
@@ -37,7 +38,7 @@ impl Catalog {
                     .collect(),
             )),
             None => Profile::Permissive {
-                creator: auth.local_creator_entity().map(Arc::from),
+                creator: auth.local_creator_entity().cloned(),
             },
         };
         self.set_principal_profile(profile.clone())?;
@@ -79,17 +80,13 @@ impl Catalog {
 }
 
 impl Profile {
-    pub(super) fn canonical_acl_entity(&self, id: &str) -> Option<String> {
+    /// A registered identity's entity, or else the same natural derivation an identity uses.
+    pub(super) fn canonical_acl_entity(&self, id: &str) -> Option<Entity> {
         if let Self::Strict(identities) = self
             && let Some(identity) = identities.get(id)
         {
             return identity.acl_entity();
         }
-        let entity = format!("user-{id}");
-        matches!(
-            crate::acl::Entity::parse(&entity),
-            Ok(crate::acl::Entity::UserEmail(_) | crate::acl::Entity::UserId(_))
-        )
-        .then_some(entity)
+        Entity::from_user_id(id)
     }
 }

@@ -60,7 +60,8 @@ const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot use ACL API to update bucket pol
 /// A missing entity. A project-team entity that names another project is a bad request about
 /// that project, and any other missing entity is a missing key (recorded 2026-10-31).
 fn entity_not_found(entity: &str, project_number: &str) -> JsonError {
-    if let Ok(crate::acl::Entity::ProjectTeam { project, .. }) = crate::acl::Entity::parse(entity)
+    if let Ok(entity) = crate::acl::parse_entity(entity)
+        && let crate::acl::EntityRef::ProjectTeam { project, .. } = entity.parsed()
         && project != project_number
     {
         return JsonError::invalid(format!("Project \"{project}\" was not found."));

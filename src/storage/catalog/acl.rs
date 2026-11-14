@@ -14,7 +14,7 @@ use super::{
 };
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
-    acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
+    acl::{AclEntry, AclKind, AclRole, AclTarget, MAX_ENTRIES, parse_entity, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
     object::{ObjectConditions, ObjectError},
 };
@@ -119,7 +119,7 @@ pub(super) fn publish_object_acl(
             let entries = predefined.entries(&row.project);
             if entries
                 .iter()
-                .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
+                .any(|entry| parse_entity(&entry.entity).is_ok_and(|entity| entity.is_public()))
                 && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
             {
                 return Err(ObjectError::PublicAccessPrevention);
@@ -384,7 +384,7 @@ fn entries_grant(
 ) -> Result<bool, CatalogError> {
     let mut cached = None;
     for entry in entries.iter().filter(|entry| allows(entry.role)) {
-        let Ok(entity) = Entity::parse(&entry.entity) else {
+        let Ok(entity) = parse_entity(&entry.entity) else {
             continue;
         };
         let access = if entity.is_public() {
@@ -640,7 +640,7 @@ pub(super) fn replace_resource_acl(
     validate_effective_entries(target.kind(), entries, owner.as_ref())?;
     if entries
         .iter()
-        .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
+        .any(|entry| parse_entity(&entry.entity).is_ok_and(|entity| entity.is_public()))
         && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
     {
         return Err(CatalogError::PublicAccessPrevention);
@@ -884,7 +884,7 @@ impl Catalog {
             let changed = match change {
                 AclChange::Upsert { entity, role } => {
                     // Public access prevention blocks new public grants, as it does for IAM.
-                    if Entity::parse(&entity).is_ok_and(Entity::is_public)
+                    if parse_entity(&entity).is_ok_and(|entity| entity.is_public())
                         && policy_public_access(&transaction, bucket)? == crate::auth::PublicAccess::Prevented
                     {
                         return Err(CatalogError::PublicAccessPrevention.into());

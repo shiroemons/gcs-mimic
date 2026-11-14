@@ -1,12 +1,14 @@
 //! Legacy bucket IAM roles and bucket ACLs are two views of the same authority.
 
 use super::{
-    AclEntry, BucketScope, CatalogError, Entity, UPSERT_BUCKET_ENTRIES, bucket_row,
-    stored_bucket_entries,
+    AclEntry, BucketScope, CatalogError, UPSERT_BUCKET_ENTRIES, bucket_row, stored_bucket_entries,
 };
 use crate::storage::catalog::sql;
 use crate::{
-    acl::{AclKind, AclRole, project_number, project_private, validate_entries},
+    acl::{
+        AclKind, AclRole, Entity, EntityRef, parse_entity, project_number, project_private,
+        validate_entries,
+    },
     auth::{Binding, Policy, Role},
     storage::catalog::{policies, principals::Profile, unavailable},
 };
@@ -30,10 +32,10 @@ fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> O
     let (kind, id) = member.split_once(':')?;
     if matches!(kind, "user" | "serviceAccount") {
         if let Some(principals) = principals {
-            return principals.canonical_acl_entity(id);
+            return principals.canonical_acl_entity(id).map(Entity::into_string);
         }
         let entity = format!("user-{id}");
-        return Entity::parse(&entity).is_ok().then_some(entity);
+        return parse_entity(&entity).is_ok().then_some(entity);
     }
     let entity = match kind {
         "group" => format!("group-{id}"),
@@ -53,27 +55,23 @@ fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> O
         }
         _ => return None,
     };
-    Entity::parse(&entity).is_ok().then_some(entity)
+    parse_entity(&entity).is_ok().then_some(entity)
 }
 
 fn iam_member(entity: &str, project: &str) -> Result<String, CatalogError> {
-    Ok(match Entity::parse(entity)? {
-        Entity::AllUsers | Entity::AllAuthenticatedUsers => entity.into(),
-        Entity::UserEmail(id) | Entity::UserId(id) => format!("user:{id}"),
-        Entity::GroupEmail(id) | Entity::GroupId(id) => format!("group:{id}"),
-        Entity::Domain(domain) => format!("domain:{domain}"),
-        Entity::ProjectTeam { team, project: id } => {
-            let kind = match team {
-                "owners" => "projectOwner",
-                "editors" => "projectEditor",
-                _ => "projectViewer",
-            };
+    let parsed = parse_entity(entity)?;
+    Ok(match parsed.parsed() {
+        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => entity.into(),
+        EntityRef::UserEmail(id) | EntityRef::UserId(id) => format!("user:{id}"),
+        EntityRef::GroupEmail(id) | EntityRef::GroupId(id) => format!("group:{id}"),
+        EntityRef::Domain(domain) => format!("domain:{domain}"),
+        EntityRef::ProjectTeam { team, project: id } => {
             let id = if id == project_number(project) {
                 project
             } else {
                 id
             };
-            format!("{kind}:{id}")
+            format!("{}:{id}", team.member_kind())
         }
     })
 }

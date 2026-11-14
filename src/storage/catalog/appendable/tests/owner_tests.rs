@@ -128,7 +128,7 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
             record.owner,
             Some(ObjectOwner::Principal {
                 id: "local:creator".into(),
-                entity: Some(expected_alias.into())
+                entity: Some(expected_alias.parse().unwrap())
             })
         );
         drop(writer);

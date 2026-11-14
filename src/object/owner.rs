@@ -1,6 +1,9 @@
 //! Actual ownership is separate from additional ACL OWNER grants.
 
-use crate::{acl::AclEntry, auth::Identity};
+use crate::{
+    acl::{AclEntry, Entity, ProjectTeam},
+    auth::Identity,
+};
 
 /// Owner id of objects written by the permissive profile's local creator. The id is fixed, so a
 /// changed creator address renames the entity without rewriting the owner kind. The whole
@@ -12,18 +15,17 @@ pub(crate) const RESERVED_ID_PREFIX: &str = "gcs-mimic:";
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub(crate) enum ObjectOwner {
-    Principal { id: String, entity: Option<String> },
+    Principal { id: String, entity: Option<Entity> },
     ProjectOwners { project: String },
 }
 
 impl ObjectOwner {
-    pub(crate) fn entity(&self) -> Option<String> {
+    pub(crate) fn entity(&self) -> Option<Entity> {
         match self {
             Self::Principal { entity, .. } => entity.clone(),
-            Self::ProjectOwners { project } => Some(format!(
-                "project-owners-{}",
-                crate::acl::project_number(project)
-            )),
+            Self::ProjectOwners { project } => {
+                Some(Entity::project_team(ProjectTeam::Owners, project))
+            }
         }
     }
 
@@ -35,11 +37,14 @@ impl ObjectOwner {
 
     pub(crate) fn preserve_grant(&self, entries: &mut Vec<AclEntry>) {
         let Some(entity) = self.entity() else { return };
-        if let Some(entry) = entries.iter_mut().find(|entry| entry.entity == entity) {
+        if let Some(entry) = entries
+            .iter_mut()
+            .find(|entry| entry.entity == entity.as_str())
+        {
             entry.role = crate::acl::AclRole::Owner;
         } else {
             let grant = AclEntry {
-                entity,
+                entity: entity.into_string(),
                 role: crate::acl::AclRole::Owner,
             };
             // Cloud Storage lists the project owners team first on an object, ahead of the
@@ -57,7 +62,7 @@ impl ObjectOwner {
         let Some(entity) = self.entity() else { return };
         let through_grant = entries
             .iter()
-            .position(|entry| entry.entity == entity)
+            .position(|entry| entry.entity == entity.as_str())
             .and_then(|at| entries.get_mut(..=at));
         if let Some(through_grant) = through_grant {
             through_grant.rotate_right(1);
@@ -71,7 +76,7 @@ impl ObjectOwner {
             return;
         }
         if let Some(entity) = self.entity() {
-            entries.retain(|entry| entry.entity != entity);
+            entries.retain(|entry| entry.entity != entity.as_str());
         }
     }
 }

@@ -28,15 +28,6 @@ impl EmailKey {
     }
 }
 
-fn natural_entity(id: &str) -> Option<String> {
-    let entity = format!("user-{id}");
-    matches!(
-        Entity::parse(&entity),
-        Ok(Entity::UserEmail(_) | Entity::UserId(_))
-    )
-    .then_some(entity)
-}
-
 /// A creator address must be a canonical ACL user email, so `user-EMAIL` is a valid entity.
 #[derive(Debug)]
 pub(crate) struct InvalidCreatorEmail;
@@ -49,23 +40,26 @@ impl std::fmt::Display for InvalidCreatorEmail {
 
 impl std::error::Error for InvalidCreatorEmail {}
 
-pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), InvalidCreatorEmail> {
-    let entity = format!("user-{email}");
-    if email.len() > 254
-        || !matches!(
-            crate::acl::Entity::parse(&entity),
-            Ok(crate::acl::Entity::UserEmail(_))
-        )
-    {
+/// A creator address as its `user-EMAIL` entity.
+pub(crate) fn creator_entity(email: &str) -> Result<Entity, InvalidCreatorEmail> {
+    if email.len() > 254 {
         return Err(InvalidCreatorEmail);
     }
-    Ok(())
+    Entity::from_user_id(email)
+        .filter(|entity| entity.email().is_some())
+        .ok_or(InvalidCreatorEmail)
 }
 
-pub(super) fn parse_entity(
+/// [`creator_entity`] for a setting that needs only the verdict.
+pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), InvalidCreatorEmail> {
+    creator_entity(email).map(|_| ())
+}
+
+/// The registry's `acl_entity` alias: a `user-` entity of at most 259 bytes.
+pub(super) fn parse_alias(
     value: Option<&Value>,
     index: usize,
-) -> Result<Option<String>, RegistryError> {
+) -> Result<Option<Entity>, RegistryError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -79,24 +73,22 @@ pub(super) fn parse_entity(
         .as_str()
         .filter(|entity| entity.len() <= MAX_ID_BYTES + 5)
         .ok_or_else(invalid)?;
-    if !matches!(
-        Entity::parse(entity),
-        Ok(Entity::UserEmail(_) | Entity::UserId(_))
-    ) {
-        return Err(invalid());
-    }
-    Ok(Some(entity.to_owned()))
+    crate::acl::parse_entity(entity)
+        .ok()
+        .filter(|entity| entity.user_id().is_some())
+        .map(Some)
+        .ok_or_else(invalid)
 }
 
 pub(super) fn validate_aliases(identities: &[Identity]) -> Result<(), RegistryError> {
     let mut owners = BTreeMap::new();
     for (index, identity) in identities.iter().enumerate() {
-        for entity in [natural_entity(&identity.id), identity.acl_entity()]
+        for entity in [Entity::from_user_id(&identity.id), identity.acl_entity()]
             .into_iter()
             .flatten()
         {
             if owners
-                .insert(EmailKey::new(&entity), index)
+                .insert(EmailKey::new(entity.as_str()), index)
                 .is_some_and(|old| old != index)
             {
                 return Err(RegistryError::entry(
@@ -110,16 +102,19 @@ pub(super) fn validate_aliases(identities: &[Identity]) -> Result<(), RegistryEr
 }
 
 impl Identity {
-    pub(crate) fn acl_entity(&self) -> Option<String> {
-        self.acl_entity.clone().or_else(|| natural_entity(&self.id))
+    /// The registry's alias, or else the natural `user-ID` entity when the ID forms one.
+    pub(crate) fn acl_entity(&self) -> Option<Entity> {
+        self.acl_entity
+            .clone()
+            .or_else(|| Entity::from_user_id(&self.id))
     }
 
     pub(crate) fn matches_acl_user(&self, user: &str) -> bool {
         same_principal_email(&self.id, user)
             || self
                 .acl_entity
-                .as_deref()
-                .and_then(|entity| entity.strip_prefix("user-"))
+                .as_ref()
+                .and_then(Entity::user_id)
                 .is_some_and(|alias| same_principal_email(alias, user))
     }
 }
@@ -186,7 +181,10 @@ mod tests {
         let aliased = &registry.identities[0];
         assert_eq!(aliased.id(), "local:admin-user");
         assert_eq!(
-            aliased.acl_entity().as_deref(),
+            aliased
+                .acl_entity()
+                .as_ref()
+                .map(crate::acl::Entity::as_str),
             Some("user-admin@example.test")
         );
         assert!(aliased.matches_acl_user("admin@example.test"));
@@ -212,7 +210,10 @@ mod tests {
         }
         assert_eq!(registry.identities[1].acl_entity(), None);
         assert_eq!(
-            registry.identities[2].acl_entity().as_deref(),
+            registry.identities[2]
+                .acl_entity()
+                .as_ref()
+                .map(crate::acl::Entity::as_str),
             Some("user-natural@example.test")
         );
         let mut snapshot = aliased.upload_snapshot();

@@ -34,7 +34,7 @@ pub(super) fn canonicalize(owner: &mut ObjectOwner, profile: Option<&Profile>) {
             if let ObjectOwner::Principal { id, entity } = owner
                 && id == LOCAL_CREATOR_ID
             {
-                *entity = Some(creator.to_string());
+                *entity = Some(creator.clone());
             }
         }
         Some(Profile::Permissive { creator: None } | Profile::TrustedLocal) | None => {}
@@ -124,19 +124,25 @@ fn reconcile_grant(
     )?;
     let Some(stored) = stored else { return Ok(()) };
     let mut entries = super::acl::decode(&stored, crate::acl::AclKind::Object)?;
-    let Some(index) = entries.iter().position(|entry| entry.entity == previous) else {
+    let Some(index) = entries
+        .iter()
+        .position(|entry| entry.entity == previous.as_str())
+    else {
         return Ok(());
     };
     // An implicit grant follows the stable principal identity without leaving its old alias access.
     entries.remove(index);
     if let Some(entity) = after.entity() {
-        if let Some(existing) = entries.iter_mut().find(|entry| entry.entity == entity) {
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|entry| entry.entity == entity.as_str())
+        {
             existing.role = crate::acl::AclRole::Owner;
         } else {
             entries.insert(
                 index,
                 crate::acl::AclEntry {
-                    entity,
+                    entity: entity.into_string(),
                     role: crate::acl::AclRole::Owner,
                 },
             );
@@ -177,7 +183,7 @@ pub(super) fn for_publication(
     {
         return Ok(ObjectOwner::Principal {
             id: LOCAL_CREATOR_ID.into(),
-            entity: Some(creator.to_string()),
+            entity: Some(creator.clone()),
         });
     }
     let project = sql::scalar(

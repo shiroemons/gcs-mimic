@@ -212,7 +212,7 @@ impl Storage {
                 object.owner = owner
                     .and_then(|owner| owner.entity())
                     .map(|entity| pb::Owner {
-                        entity,
+                        entity: entity.into_string(),
                         entity_id: String::new(),
                     });
             }

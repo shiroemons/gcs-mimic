@@ -346,15 +346,14 @@ async fn move_object(
             // Cloud Storage cannot tell a missing source from a denied one for a move.
             ObjectError::ObjectNotFound => {
                 let principal = match ctx.caller {
+                    // An alias and a natural entity name at most 254 bytes of email, as a
+                    // creator address does.
                     Some(auth::Caller::Principal(identity)) => identity.acl_entity()
-                        .and_then(|entity| {
-                            let email = entity.strip_prefix("user-")?;
-                            auth::validate_local_creator_email(email).is_ok().then(|| email.to_owned())
-                        })
+                        .and_then(|entity| entity.email().map(str::to_owned))
                         .or_else(|| auth::validate_local_creator_email(identity.id()).is_ok().then(|| identity.id().to_owned())),
                     Some(auth::Caller::Anonymous) => Some("Anonymous caller".into()),
                     None => ctx.state.auth.local_creator_entity()
-                        .and_then(|entity| entity.strip_prefix("user-"))
+                        .and_then(crate::acl::Entity::user_id)
                         .map(str::to_owned),
                 };
                 let Some(principal) = principal else { return JsonError::forbidden() };
