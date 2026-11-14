@@ -69,9 +69,11 @@ pub(super) fn parse_entity(
     let Some(value) = value else {
         return Ok(None);
     };
-    let invalid = || RegistryError::Invalid {
-        entry: Some(index),
-        reason: "acl_entity must be a canonical user-EMAIL or user-ID of at most 259 bytes".into(),
+    let invalid = || {
+        RegistryError::entry(
+            index,
+            "acl_entity must be a canonical user-EMAIL or user-ID of at most 259 bytes",
+        )
     };
     let entity = value
         .as_str()
@@ -97,12 +99,10 @@ pub(super) fn validate_aliases(identities: &[Identity]) -> Result<(), RegistryEr
                 .insert(EmailKey::new(&entity), index)
                 .is_some_and(|old| old != index)
             {
-                return Err(RegistryError::Invalid {
-                    entry: Some(index),
-                    reason:
-                        "acl_entity collides with another principal's alias or natural user entity"
-                            .into(),
-                });
+                return Err(RegistryError::entry(
+                    index,
+                    "acl_entity collides with another principal's alias or natural user entity",
+                ));
             }
         }
     }

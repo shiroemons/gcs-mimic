@@ -137,7 +137,7 @@ mod tests {
         ] {
             let mut registry = registry(json!([identity]));
             let error = registry.add_test_signer(&BTreeSet::new()).unwrap_err();
-            assert!(matches!(error, RegistryError::Invalid { entry: None, .. }));
+            assert!(matches!(error, RegistryError::Invalid(_)));
             assert!(
                 error.to_string().contains("test_signer=disabled"),
                 "{error}"

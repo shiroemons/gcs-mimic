@@ -595,8 +595,11 @@ pub enum RegistryError {
     Io(std::io::Error),
     /// The file is not valid JSON.
     Syntax(serde_json::Error),
-    Invalid {
-        entry: Option<usize>,
+    /// The identity document as a whole is invalid.
+    Invalid(String),
+    /// One `identities` entry is invalid.
+    InvalidEntry {
+        entry: usize,
         reason: String,
     },
     /// An identity's `public_keys` entry is not a supported RSA public key.
@@ -619,14 +622,8 @@ impl fmt::Display for RegistryError {
             Self::TooLarge => write!(f, "exceeds {MAX_REGISTRY_MIB} MiB"),
             Self::Io(error) => write!(f, "{error}"),
             Self::Syntax(error) => write!(f, "{error}"),
-            Self::Invalid {
-                entry: None,
-                reason,
-            } => f.write_str(reason),
-            Self::Invalid {
-                entry: Some(index),
-                reason,
-            } => write!(f, "identities[{index}]: {reason}"),
+            Self::Invalid(reason) => f.write_str(reason),
+            Self::InvalidEntry { entry, reason } => write!(f, "identities[{entry}]: {reason}"),
             Self::PublicKey { entry, source } => {
                 write!(f, "identities[{entry}]: {source}")
             }
@@ -650,7 +647,20 @@ impl std::error::Error for RegistryError {
             Self::Syntax(error) => Some(error),
             Self::PublicKey { source, .. } => Some(source),
             Self::Project { source, .. } => Some(source.as_ref()),
-            Self::TooLarge | Self::Invalid { .. } => None,
+            Self::TooLarge | Self::Invalid(_) | Self::InvalidEntry { .. } => None,
+        }
+    }
+}
+
+impl RegistryError {
+    fn document(reason: impl Into<String>) -> Self {
+        Self::Invalid(reason.into())
+    }
+
+    fn entry(entry: usize, reason: impl Into<String>) -> Self {
+        Self::InvalidEntry {
+            entry,
+            reason: reason.into(),
         }
     }
 }
@@ -798,34 +808,34 @@ impl Registry {
     }
 
     fn parse_for(bytes: &[u8], usage: IdentityUse) -> Result<Self, RegistryError> {
-        let error = |reason: String| RegistryError::Invalid {
-            entry: None,
-            reason,
-        };
         let value: Value = serde_json::from_slice(bytes).map_err(RegistryError::Syntax)?;
         let top = value
             .as_object()
-            .ok_or_else(|| error("top level must be a JSON object".into()))?;
+            .ok_or_else(|| RegistryError::document("top level must be a JSON object"))?;
         if let Some(key) = top.keys().find(|key| {
             !matches!(
                 key.as_str(),
                 "identities" | "public_access_prevention_projects"
             )
         }) {
-            return Err(error(format!("unknown field: {key}")));
+            return Err(RegistryError::document(format!("unknown field: {key}")));
         }
         let pap_projects = top.get("public_access_prevention_projects");
         if usage == IdentityUse::SigningKeys && pap_projects.is_some() {
-            return Err(error(strict_only("public_access_prevention_projects")));
+            return Err(RegistryError::document(strict_only(
+                "public_access_prevention_projects",
+            )));
         }
         let public_access_prevention_projects = parse_pap_projects(pap_projects)?;
         let entries = top
             .get("identities")
-            .ok_or_else(|| error("missing required field: identities".into()))?
+            .ok_or_else(|| RegistryError::document("missing required field: identities"))?
             .as_array()
-            .ok_or_else(|| error("identities must be an array".into()))?;
+            .ok_or_else(|| RegistryError::document("identities must be an array"))?;
         if entries.is_empty() {
-            return Err(error("identities must contain at least one entry".into()));
+            return Err(RegistryError::document(
+                "identities must contain at least one entry",
+            ));
         }
         let mut registry = Self {
             identities: Vec::with_capacity(entries.len()),
@@ -850,50 +860,53 @@ impl Registry {
         index: usize,
         usage: IdentityUse,
     ) -> Result<(), RegistryError> {
-        let error = |reason: String| RegistryError::Invalid {
-            entry: Some(index),
-            reason,
-        };
         let entry = entry
             .as_object()
-            .ok_or_else(|| error("must be a JSON object".into()))?;
+            .ok_or_else(|| RegistryError::entry(index, "must be a JSON object"))?;
         if let Some(key) = entry.keys().find(|key| {
             !matches!(
                 key.as_str(),
                 "id" | "tokens" | "project_roles" | "public_keys" | "acl_entity"
             )
         }) {
-            return Err(error(format!("unknown field: {key}")));
+            return Err(RegistryError::entry(index, format!("unknown field: {key}")));
         }
         if let Some(field) = usage.rejected_field(entry) {
-            return Err(error(strict_only(field)));
+            return Err(RegistryError::entry(index, strict_only(field)));
         }
         let id = entry
             .get("id")
-            .ok_or_else(|| error("missing required field: id".into()))?
+            .ok_or_else(|| RegistryError::entry(index, "missing required field: id"))?
             .as_str()
-            .ok_or_else(|| error("id must be a string".into()))?;
+            .ok_or_else(|| RegistryError::entry(index, "id must be a string"))?;
         if !valid_principal_id(id) {
-            return Err(error(format!(
-                "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
-            )));
+            return Err(RegistryError::entry(
+                index,
+                format!(
+                    "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
+                ),
+            ));
         }
         if id.starts_with(crate::object::owner::RESERVED_ID_PREFIX) {
-            return Err(error(format!(
-                "id must not start with {}; that namespace is reserved for emulator-internal principals",
-                crate::object::owner::RESERVED_ID_PREFIX
-            )));
+            return Err(RegistryError::entry(
+                index,
+                format!(
+                    "id must not start with {}; that namespace is reserved for emulator-internal principals",
+                    crate::object::owner::RESERVED_ID_PREFIX
+                ),
+            ));
         }
         if self.ids.insert(id.to_owned(), index).is_some() {
-            return Err(error(format!("duplicate id: {id}")));
+            return Err(RegistryError::entry(index, format!("duplicate id: {id}")));
         }
         match (entry.get("public_keys"), usage) {
             (Some(keys), _) => self
                 .signing_keys
                 .insert(id, parse_public_keys(keys, index)?),
             (None, IdentityUse::SigningKeys) => {
-                return Err(error(
-                    "missing required field: public_keys; with auth_mode=permissive an identity file supplies only signing keys".into(),
+                return Err(RegistryError::entry(
+                    index,
+                    "missing required field: public_keys; with auth_mode=permissive an identity file supplies only signing keys",
                 ));
             }
             (None, IdentityUse::Principals) => {}
@@ -901,10 +914,13 @@ impl Registry {
         let tokens: &[Value] = match (entry.get("tokens"), usage) {
             (Some(tokens), _) => tokens
                 .as_array()
-                .ok_or_else(|| error("tokens must be an array".into()))?,
+                .ok_or_else(|| RegistryError::entry(index, "tokens must be an array"))?,
             (None, IdentityUse::SigningKeys) => &[],
             (None, IdentityUse::Principals) => {
-                return Err(error("missing required field: tokens".into()));
+                return Err(RegistryError::entry(
+                    index,
+                    "missing required field: tokens",
+                ));
             }
         };
         self.add_tokens(tokens, index)?;
@@ -921,27 +937,25 @@ impl Registry {
     }
 
     fn add_tokens(&mut self, tokens: &[Value], index: usize) -> Result<(), RegistryError> {
-        let error = |reason: String| RegistryError::Invalid {
-            entry: Some(index),
-            reason,
-        };
         for token in tokens {
             let token = token
                 .as_str()
                 .filter(|token| visible_ascii(token, MAX_TOKEN_BYTES))
                 .ok_or_else(|| {
-                    error(format!(
-                        "each token must be 1..={MAX_TOKEN_BYTES} bytes of visible ASCII"
-                    ))
+                    RegistryError::entry(
+                        index,
+                        format!("each token must be 1..={MAX_TOKEN_BYTES} bytes of visible ASCII"),
+                    )
                 })?;
             // Never echo token values into startup errors or logs.
             if jwt_shaped(token) {
-                return Err(error(
-                    "tokens must not be JWT-shaped (three dot-separated segments)".into(),
+                return Err(RegistryError::entry(
+                    index,
+                    "tokens must not be JWT-shaped (three dot-separated segments)",
                 ));
             }
             if self.tokens.insert(token.to_owned(), index).is_some() {
-                return Err(error("duplicate token".into()));
+                return Err(RegistryError::entry(index, "duplicate token"));
             }
         }
         Ok(())
@@ -980,27 +994,26 @@ impl Registry {
 }
 
 fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryError> {
-    let error = |reason: String| RegistryError::Invalid {
-        entry: None,
-        reason,
-    };
     let Some(value) = value else {
         return Ok(Vec::new());
     };
     let projects = value.as_array().ok_or_else(|| {
-        error("public_access_prevention_projects must be an array of project identifiers".into())
+        RegistryError::document(
+            "public_access_prevention_projects must be an array of project identifiers",
+        )
     })?;
     let mut seen = BTreeSet::new();
     let mut public_access_prevention_projects = Vec::with_capacity(projects.len());
     for project in projects {
         let project = project.as_str().ok_or_else(|| {
-            error("public_access_prevention_projects entries must be strings".into())
+            RegistryError::document("public_access_prevention_projects entries must be strings")
         })?;
-        crate::json::validate_project(project)
-            .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
+        crate::json::validate_project(project).map_err(|_| {
+            RegistryError::document("invalid public_access_prevention_projects entry")
+        })?;
         if !seen.insert(project) {
-            return Err(error(
-                "duplicate public_access_prevention_projects entry".into(),
+            return Err(RegistryError::document(
+                "duplicate public_access_prevention_projects entry",
             ));
         }
         public_access_prevention_projects.push(project.to_owned());
@@ -1012,22 +1025,20 @@ fn parse_public_keys(
     keys: &Value,
     index: usize,
 ) -> Result<Vec<signature::PublicKey>, RegistryError> {
-    let error = |reason: String| RegistryError::Invalid {
-        entry: Some(index),
-        reason,
-    };
     let keys = keys
         .as_array()
         .filter(|keys| !keys.is_empty())
         .ok_or_else(|| {
-            error("public_keys must be a nonempty array of inline public PEM strings".into())
+            RegistryError::entry(
+                index,
+                "public_keys must be a nonempty array of inline public PEM strings",
+            )
         })?;
     keys.iter()
         .map(|key| {
-            signature::PublicKey::parse(
-                key.as_str()
-                    .ok_or_else(|| error("public_keys entries must be strings".into()))?,
-            )
+            signature::PublicKey::parse(key.as_str().ok_or_else(|| {
+                RegistryError::entry(index, "public_keys entries must be strings")
+            })?)
             .map_err(|source| RegistryError::PublicKey {
                 entry: index,
                 source,
@@ -1041,14 +1052,10 @@ fn parse_project_roles(
     projects: &Value,
     index: usize,
 ) -> Result<BTreeMap<String, ProjectGrant>, RegistryError> {
-    let error = |reason: String| RegistryError::Invalid {
-        entry: Some(index),
-        reason,
-    };
     let mut permissions = BTreeMap::new();
     let projects = projects
         .as_object()
-        .ok_or_else(|| error("project_roles must be a JSON object".into()))?;
+        .ok_or_else(|| RegistryError::entry(index, "project_roles must be a JSON object"))?;
     for (project, role_values) in projects {
         crate::json::validate_project(project).map_err(|source| RegistryError::Project {
             entry: index,
@@ -1059,21 +1066,28 @@ fn parse_project_roles(
             .as_array()
             .filter(|roles| !roles.is_empty())
             .ok_or_else(|| {
-                error(format!(
-                    "project {project:?}: roles must be a nonempty array of role names"
-                ))
+                RegistryError::entry(
+                    index,
+                    format!("project {project:?}: roles must be a nonempty array of role names"),
+                )
             })?;
         let mut names = BTreeSet::new();
         let granted: &mut ProjectGrant = permissions.entry(project.clone()).or_default();
         for role in role_values {
-            let role = role
-                .as_str()
-                .ok_or_else(|| error(format!("project {project:?}: role names must be strings")))?;
+            let role = role.as_str().ok_or_else(|| {
+                RegistryError::entry(
+                    index,
+                    format!("project {project:?}: role names must be strings"),
+                )
+            })?;
             if !names.insert(role) {
-                return Err(error(format!("project {project:?}: duplicate role {role}")));
+                return Err(RegistryError::entry(
+                    index,
+                    format!("project {project:?}: duplicate role {role}"),
+                ));
             }
             let role = role.parse::<Role>().map_err(|_| {
-                error(format!(
+                RegistryError::entry(index, format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;

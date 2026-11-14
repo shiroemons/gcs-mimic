@@ -94,10 +94,8 @@ impl Registry {
             projects: Arc::new(built_in.grants(projects)),
         });
         // The document's own aliases were already validated, so a collision involves this one.
-        acl_identity::validate_aliases(&self.identities).map_err(|_| RegistryError::Invalid {
-            entry: None,
-            reason: built_in.collision(),
-        })?;
+        acl_identity::validate_aliases(&self.identities)
+            .map_err(|_| RegistryError::document(built_in.collision()))?;
         Ok(index)
     }
 

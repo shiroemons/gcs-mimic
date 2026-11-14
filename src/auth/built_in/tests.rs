@@ -125,7 +125,7 @@ fn an_alias_naming_the_app_fails_instead_of_sharing_its_acl_entity() {
         let error = registry
             .trust(&TrustedCaller::BuiltIn, &projects(&["local-project"]))
             .unwrap_err();
-        assert!(matches!(error, RegistryError::Invalid { entry: None, .. }));
+        assert!(matches!(error, RegistryError::Invalid(_)));
         assert!(error.to_string().contains("trusted_principal"), "{error}");
     }
 }
