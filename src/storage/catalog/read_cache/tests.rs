@@ -3,7 +3,7 @@ use super::*;
 use crate::{
     auth::Binding,
     bucket::BucketMetadataUpdate,
-    object::{ObjectError, ObjectMetadataUpdate, ReadAhead},
+    object::{ObjectError, ObjectMetadataUpdate, Patch, ReadAhead},
     storage::test_fixtures::{PERMISSIVE, body, bucket, live, permissive_upload},
     test_support::TestDir,
     time_limit::TimeLimit,
@@ -450,7 +450,7 @@ async fn a_stored_gzip_body_is_never_read_ahead() {
     let dir = TestDir::new();
     let catalog = open_catalog(&dir).await;
     let mut upload = permissive_upload("bucket", "object", 1 << 20);
-    upload.metadata.content_encoding = Some(Some("gzip".into()));
+    upload.metadata.content_encoding = Patch::Set("gzip".into());
     catalog
         .put_object(upload, body(vec![Bytes::from_static(b"\x1f\x8b plain")]))
         .await

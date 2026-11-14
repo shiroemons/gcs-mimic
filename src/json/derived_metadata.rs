@@ -99,12 +99,7 @@ pub(crate) fn derived_metadata(
             "temporaryHold on copy/rewrite",
         ));
     }
-    if parsed
-        .update
-        .custom_time
-        .as_ref()
-        .is_some_and(Option::is_some)
-    {
+    if parsed.update.custom_time.value().is_some() {
         return Err(JsonError::unsupported_object("customTime on copy/rewrite"));
     }
     if parsed.update.retention.is_some() {
@@ -159,6 +154,7 @@ pub(crate) fn derived_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::Patch;
 
     #[test]
     fn bucket_class_patch_keeps_error_contracts() {
@@ -333,7 +329,7 @@ mod tests {
         };
         edit(
             ObjectMetadataUpdate {
-                content_disposition: Some(Some("x".repeat(30 * 1024))),
+                content_disposition: Patch::Set("x".repeat(30 * 1024)),
                 ..Default::default()
             },
             &mut record,
@@ -341,7 +337,7 @@ mod tests {
         .unwrap();
         let second = edit(
             ObjectMetadataUpdate {
-                cache_control: Some(Some("x".repeat(30 * 1024))),
+                cache_control: Patch::Set("x".repeat(30 * 1024)),
                 ..Default::default()
             },
             &mut record,

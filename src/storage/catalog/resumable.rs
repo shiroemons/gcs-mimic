@@ -663,6 +663,7 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::Patch;
 
     #[tokio::test]
     async fn rejected_creation_releases_the_draft_but_post_commit_failure_retains_it() {
@@ -776,7 +777,7 @@ mod tests {
         let options = decode_options(&legacy).unwrap();
         assert_eq!(
             options.metadata.content_type,
-            Some(Some("text/custom".into()))
+            Patch::Set("text/custom".into())
         );
         assert_eq!(
             options.metadata.metadata,
@@ -792,7 +793,7 @@ mod tests {
     #[test]
     fn nullable_updates_keep_removal_distinct_from_omission() {
         let mut options = ResumableOptions::new(BucketAccess::Permissive);
-        options.metadata.content_type = Some(None);
+        options.metadata.content_type = Patch::Clear;
         options.metadata.metadata = Some(None);
         options.metadata.retention = Some(None);
         let encoded = encode_options(&options);

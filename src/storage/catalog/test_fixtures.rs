@@ -1,7 +1,7 @@
 use super::admin::{BucketDefinition, Origin, Publication, PublishMode};
 use super::{Catalog, ObjectReader, ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
-use crate::object::{ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk};
+use crate::object::{ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, UploadChunk};
 use crate::test_support::TestDir;
 use bytes::Bytes;
 use rusqlite::Connection;
@@ -248,7 +248,7 @@ pub(crate) async fn lifecycle_transitioned_object() -> (ObjectRecord, ObjectReco
             live("bucket", "object"),
             Default::default(),
             ObjectMetadataUpdate {
-                content_type: Some(Some("text/html".into())),
+                content_type: Patch::Set("text/html".into()),
                 ..Default::default()
             },
             |_| Ok(()),

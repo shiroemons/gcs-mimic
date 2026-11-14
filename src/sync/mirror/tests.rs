@@ -8,7 +8,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::test_support::hooked_worker;
 use crate::{
     clock::SystemClock,
-    object::UploadChunk,
+    object::{Patch, UploadChunk},
     storage::admin::{BucketDefinition, GenerationCondition, Publication, PublishMode},
     test_support::{HANG_GUARD, TestDir, eventually_async},
 };
@@ -560,7 +560,7 @@ async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ac
                 live(bucket.as_str(), "object"),
                 Default::default(),
                 crate::object::ObjectMetadataUpdate {
-                    content_type: Some(Some("text/plain".into())),
+                    content_type: Patch::Set("text/plain".into()),
                     ..Default::default()
                 },
                 |_| Ok(()),

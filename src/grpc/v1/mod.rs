@@ -28,7 +28,7 @@ use crate::{
         validate::{self, bucket_conditions, request_conditions},
     },
     json,
-    object::{ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget},
+    object::{ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch},
     server::State,
 };
 use prost::Message;
@@ -189,7 +189,7 @@ fn metadata(
         (&mut update.cache_control, &object.cache_control),
     ] {
         if replace || !value.is_empty() {
-            *field = Some((!value.is_empty()).then(|| value.clone()));
+            *field = Patch::nullable((!value.is_empty()).then(|| value.clone()));
         }
     }
     if replace || !object.metadata.is_empty() {

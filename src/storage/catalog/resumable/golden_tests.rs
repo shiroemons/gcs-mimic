@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::Patch;
 
 #[test]
 fn unknown_stored_storage_class_is_catalog_corruption() {
@@ -63,18 +64,18 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
             acl: None,
             predefined_acl: Some(crate::acl::PredefinedObjectAcl::parse("publicRead").unwrap()),
             write: crate::object::WriteMode::Replace,
-            content_type: Some(Some("text/custom".into())),
-            content_encoding: Some(Some("gzip".into())),
-            content_disposition: Some(Some("inline".into())),
-            content_language: Some(Some("en".into())),
-            cache_control: Some(Some("private".into())),
+            content_type: Patch::Set("text/custom".into()),
+            content_encoding: Patch::Set("gzip".into()),
+            content_disposition: Patch::Set("inline".into()),
+            content_language: Patch::Set("en".into()),
+            cache_control: Patch::Set("private".into()),
             metadata: Some(Some(std::collections::BTreeMap::from([
                 ("alpha".into(), Some("one".into())),
                 ("removed".into(), None),
             ]))),
             event_based_hold: Some(false),
             temporary_hold: Some(true),
-            custom_time: Some(Some("2026-01-02T03:04:05Z".into())),
+            custom_time: Patch::Set("2026-01-02T03:04:05Z".into()),
             retention: Some(Some(crate::object::retention::ObjectRetention {
                 mode: crate::object::retention::RetentionMode::Unlocked,
                 retain_until: crate::object::unix_nanos::UnixNanos::new(4_000_000_000, 123_456_789)

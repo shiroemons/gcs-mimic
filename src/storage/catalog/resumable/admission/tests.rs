@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::Patch;
 use crate::{
     bucket::BucketAccess,
     clock::ManualClock,
@@ -56,7 +57,7 @@ async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
             .unwrap();
         for index in 0..sessions {
             let mut options = crate::storage::ResumableOptions::new(BucketAccess::Permissive);
-            options.metadata.cache_control = Some(Some("x".repeat(metadata_bytes)));
+            options.metadata.cache_control = Patch::Set("x".repeat(metadata_bytes));
             let session = catalog
                 .create_resumable_session(
                     "bucket",

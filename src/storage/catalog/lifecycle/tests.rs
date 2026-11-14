@@ -3,7 +3,7 @@ use crate::{
     bucket::{BucketMetadataUpdate, SoftDeletePolicy},
     clock::{Clock, ManualClock},
     object::{
-        ObjectMetadataUpdate,
+        ObjectMetadataUpdate, Patch,
         retention::{ObjectRetention, RetentionMode},
     },
     storage::{
@@ -559,7 +559,7 @@ async fn custom_time_conditions_require_metadata_and_delete_at_its_exact_deadlin
             live("bucket", "dated"),
             Default::default(),
             ObjectMetadataUpdate {
-                custom_time: Some(Some("1970-01-02T12:00:00.000123Z".into())),
+                custom_time: Patch::Set("1970-01-02T12:00:00.000123Z".into()),
                 ..Default::default()
             },
             |_| Ok(()),
@@ -580,7 +580,7 @@ async fn custom_time_conditions_require_metadata_and_delete_at_its_exact_deadlin
             live("bucket", "exact-date"),
             Default::default(),
             ObjectMetadataUpdate {
-                custom_time: Some(Some("1970-01-04T00:00:00Z".into())),
+                custom_time: Patch::Set("1970-01-04T00:00:00Z".into()),
                 ..Default::default()
             },
             |_| Ok(()),

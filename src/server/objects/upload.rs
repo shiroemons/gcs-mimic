@@ -196,7 +196,7 @@ pub(super) async fn multipart(
         .await?;
     }
     let part_type = multipart.headers(json::PartKind::Media).await?;
-    if let (Some(Some(declared)), Some(part)) = (&metadata.content_type, &part_type) {
+    if let (Some(declared), Some(part)) = (metadata.content_type.value(), &part_type) {
         json::check_declared_content_type(declared, part)?;
     }
     // A part without a type stores none unless the metadata names one.

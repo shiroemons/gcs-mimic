@@ -152,12 +152,7 @@ pub(crate) fn options(
     let bytes = value.to_string().into_bytes();
     let (name, mut metadata, expected) = multipart_metadata(&bytes, name, expected)?;
     super::declare_content_encoding(&mut metadata, encoding)?;
-    let content_type = metadata
-        .content_type
-        .as_ref()
-        .and_then(|v| v.as_ref())
-        .cloned()
-        .unwrap_or(mime);
+    let content_type = metadata.content_type.value().cloned().unwrap_or(mime);
     // Persisted with the session so completion applies the ACL the initiation requested.
     metadata.predefined_acl = params.predefined_acl;
     Ok((

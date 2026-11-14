@@ -16,7 +16,7 @@ use crate::{
     },
     json::{self, JsonError},
     object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch,
         UploadChunk,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, anonymous_error, boxed},
@@ -538,11 +538,11 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
         ("content-encoding", &mut metadata.content_encoding),
     ] {
         if let Some(value) = fields.get(field) {
-            *target = Some(Some(header_value(field, value)?));
+            *target = Patch::Set(header_value(field, value)?);
         }
     }
     if let Some(value) = fields.get(super::CUSTOM_TIME) {
-        metadata.custom_time = Some(Some(super::custom_time(value)?));
+        metadata.custom_time = Patch::Set(super::custom_time(value)?);
     }
     let mut custom = BTreeMap::new();
     for (field, value) in fields {
@@ -1142,7 +1142,7 @@ mod tests {
         assert_eq!(planned.content_type, "text/plain");
         assert_eq!(
             planned.metadata.cache_control,
-            Some(Some("no-cache".into()))
+            Patch::Set("no-cache".into())
         );
         assert_eq!(
             planned.metadata.metadata,

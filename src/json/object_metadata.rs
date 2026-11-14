@@ -1,6 +1,8 @@
 use super::JsonError;
 use crate::config::ApiBaseSource;
-use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, WriteMode};
+use crate::object::{
+    ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -342,22 +344,21 @@ fn string(
     body: &Map<String, Value>,
     kind: BodyKind,
     key: &str,
-) -> Result<Option<Option<String>>, JsonError> {
-    body.get(key)
-        .map(|value| {
-            if value.is_null() {
-                return Ok(None);
-            }
-            let value = value.as_str().ok_or_else(|| {
-                JsonError::invalid_argument(format!("{key} must be a string or null"))
-            })?;
-            // Cloud Storage stores the empty strings a PATCH sets (recorded 2026-11).
-            if !(kind == BodyKind::Mutation && value.is_empty()) {
-                validate_fixed_metadata(key, value)?;
-            }
-            Ok(Some(value.to_owned()))
-        })
-        .transpose()
+) -> Result<Patch<String>, JsonError> {
+    let Some(value) = body.get(key) else {
+        return Ok(Patch::Keep);
+    };
+    if value.is_null() {
+        return Ok(Patch::Clear);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| JsonError::invalid_argument(format!("{key} must be a string or null")))?;
+    // Cloud Storage stores the empty strings a PATCH sets (recorded 2026-11).
+    if !(kind == BodyKind::Mutation && value.is_empty()) {
+        validate_fixed_metadata(key, value)?;
+    }
+    Ok(Patch::Set(value.to_owned()))
 }
 
 pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), JsonError> {
@@ -377,14 +378,13 @@ pub(crate) fn declare_content_encoding(
     validate_fixed_metadata("contentEncoding", &encoding)?;
     if metadata
         .content_encoding
-        .as_ref()
-        .and_then(Option::as_ref)
+        .value()
         .is_some_and(|declared| declared != &encoding)
     {
         return Err(JsonError::invalid_parameter(
             "Conflicting contentEncoding declarations",
         ));
     }
-    metadata.content_encoding = Some(Some(encoding));
+    metadata.content_encoding = Patch::Set(encoding);
     Ok(())
 }

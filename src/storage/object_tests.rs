@@ -7,7 +7,7 @@ use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
     clock::ManualClock,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, Patch, UploadChunk},
     storage::{Catalog, MoveConditions, MoveNames, ObjectReader, ObjectUpload},
     test_support::{TestDir, eventually_async, live_len},
 };
@@ -1610,8 +1610,8 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
             live("bucket", "metadata"),
             Default::default(),
             ObjectMetadataUpdate {
-                content_type: Some(Some("text/plain".into())),
-                content_encoding: Some(Some("identity".into())),
+                content_type: Patch::Set("text/plain".into()),
+                content_encoding: Patch::Set("identity".into()),
                 metadata: Some(Some(BTreeMap::from([("key".into(), Some("value".into()))]))),
                 ..Default::default()
             },

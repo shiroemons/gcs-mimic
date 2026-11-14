@@ -5,7 +5,7 @@ use crate::{
     auth,
     bucket::BucketAccess,
     json,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget, WriteMode},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget, Patch, WriteMode},
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
         copy::{self, CopyBudget, CopyJob},
@@ -255,15 +255,15 @@ fn destination(
         .or(Some(source.storage_class));
     let mut metadata = if matches!(directive, MetadataDirective::Replace) {
         options.metadata.write = WriteMode::Replace;
-        options.metadata.content_type = Some(Some(if options.content_type.is_empty() {
+        options.metadata.content_type = Patch::Set(if options.content_type.is_empty() {
             "application/octet-stream".into()
         } else {
             options.content_type
-        }));
+        });
         options.metadata
     } else {
         let mut inherited = json::derived_metadata(b"", source)?.0;
-        inherited.custom_time = Some(source.custom_time.clone());
+        inherited.custom_time = Patch::nullable(source.custom_time.clone());
         inherited
     };
     metadata.customer_key_sha256 = destination_key;

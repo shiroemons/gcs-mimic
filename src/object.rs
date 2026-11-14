@@ -14,7 +14,7 @@ mod patch;
 pub(crate) mod retention;
 pub(crate) mod unix_nanos;
 
-pub use patch::WriteMode;
+pub use patch::{Patch, WriteMode};
 
 /// Unset holds are omitted from JSON; a released hold keeps its explicit false value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -133,6 +133,17 @@ impl ObjectRecord {
 
     pub(crate) fn has_hold(&self) -> bool {
         self.event_based_hold.is_held() || self.temporary_hold.is_held()
+    }
+
+    /// The stored fixed metadata fields with their JSON names, in the order updates report them.
+    fn fixed_fields(&self) -> [(&'static str, Option<&str>); 5] {
+        [
+            ("contentType", Some(self.content_type.as_str())),
+            ("contentEncoding", self.content_encoding.as_deref()),
+            ("contentDisposition", self.content_disposition.as_deref()),
+            ("contentLanguage", self.content_language.as_deref()),
+            ("cacheControl", self.cache_control.as_deref()),
+        ]
     }
 
     /// Guards removing this generation permanently (or soft deleting it). With both a bucket
@@ -302,16 +313,17 @@ pub struct ObjectMetadataUpdate {
     pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
     /// A PUT resets the content fields, custom metadata and holds it does not name.
     pub write: WriteMode,
-    pub content_type: Option<Option<String>>,
-    pub content_encoding: Option<Option<String>>,
-    pub content_disposition: Option<Option<String>>,
-    pub content_language: Option<Option<String>>,
-    pub cache_control: Option<Option<String>>,
+    pub content_type: Patch<String>,
+    pub content_encoding: Patch<String>,
+    pub content_disposition: Patch<String>,
+    pub content_language: Patch<String>,
+    pub cache_control: Patch<String>,
     pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
     pub(crate) metadata_mode: MapMode,
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
-    pub custom_time: Option<Option<String>>,
+    /// Only a time changes the stored custom time; `Clear` keeps it (see `apply_with`).
+    pub custom_time: Patch<String>,
     /// `Some(None)` removes the configuration; transitions are checked by the catalog.
     pub(crate) retention: Option<Option<retention::ObjectRetention>>,
     pub(crate) override_unlocked_retention: retention::UnlockedOverride,
@@ -350,28 +362,30 @@ fn encoded_json_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
 const ENCODED_METADATA_LIMIT: usize = 40 * 1024;
 
 impl ObjectMetadataUpdate {
+    /// The fixed metadata fields with their JSON names, in the order errors are reported.
+    fn fixed_fields(&self) -> [(&'static str, &Patch<String>); 5] {
+        [
+            ("contentType", &self.content_type),
+            ("contentEncoding", &self.content_encoding),
+            ("contentDisposition", &self.content_disposition),
+            ("contentLanguage", &self.content_language),
+            ("cacheControl", &self.cache_control),
+        ]
+    }
+
     /// Options store the content type both as a session field and inside the metadata.
     fn encoded_size(&self) -> usize {
-        let text = |value: &Option<Option<String>>| {
-            value
-                .as_ref()
-                .and_then(Option::as_ref)
-                .map_or(0, encoded_json_len)
-        };
-        [
-            text(&self.content_type),
-            text(&self.content_type),
-            text(&self.content_encoding),
-            text(&self.content_disposition),
-            text(&self.content_language),
-            text(&self.cache_control),
-            self.metadata
-                .as_ref()
-                .and_then(Option::as_ref)
-                .map_or(0, encoded_json_len),
-        ]
-        .into_iter()
-        .fold(0, usize::saturating_add)
+        let text = |patch: &Patch<String>| patch.value().map_or(0, encoded_json_len);
+        let metadata = self
+            .metadata
+            .as_ref()
+            .and_then(Option::as_ref)
+            .map_or(0, encoded_json_len);
+        self.fixed_fields()
+            .into_iter()
+            .map(|(_, patch)| text(patch))
+            .chain([text(&self.content_type), metadata])
+            .fold(0, usize::saturating_add)
     }
 
     /// Fails an update too large for the rows that keep a copy of it.
@@ -402,17 +416,11 @@ impl ObjectMetadataUpdate {
                 "Custom metadata replacement cannot remove individual keys".into(),
             ));
         }
-        if let Some(Some(value)) = &self.custom_time {
+        if let Some(value) = self.custom_time.value() {
             custom_time_key(value)?;
         }
-        for (field, value) in [
-            ("contentType", &self.content_type),
-            ("contentEncoding", &self.content_encoding),
-            ("contentDisposition", &self.content_disposition),
-            ("contentLanguage", &self.content_language),
-            ("cacheControl", &self.cache_control),
-        ] {
-            if let Some(Some(value)) = value
+        for (field, patch) in self.fixed_fields() {
+            if let Some(value) = patch.value()
                 && !empty.is_stored(value)
             {
                 validate_fixed_metadata(field, value)?;
@@ -458,13 +466,15 @@ impl ObjectMetadataUpdate {
     /// The update that gives a new object the editable metadata of `source`, except its holds.
     /// An empty content field a metadata update stored is left unset on the new generation.
     pub(crate) fn inheriting(source: &ObjectRecord) -> Self {
-        let set = |value: &Option<String>| value.clone().filter(|value| !value.is_empty());
+        let set = |value: &Option<String>| {
+            Patch::nullable(value.clone().filter(|value| !value.is_empty()))
+        };
         Self {
-            content_type: Some(Some(source.content_type.clone())),
-            content_encoding: Some(set(&source.content_encoding)),
-            content_disposition: Some(set(&source.content_disposition)),
-            content_language: Some(set(&source.content_language)),
-            cache_control: Some(set(&source.cache_control)),
+            content_type: Patch::Set(source.content_type.clone()),
+            content_encoding: set(&source.content_encoding),
+            content_disposition: set(&source.content_disposition),
+            content_language: set(&source.content_language),
+            cache_control: set(&source.cache_control),
             metadata: Some(Some(
                 source
                     .metadata
@@ -484,7 +494,7 @@ impl ObjectMetadataUpdate {
         self.validate_for(empty)?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
         // (both recorded as 200); only a time can change it, and never backwards.
-        if let Some(Some(value)) = self.custom_time {
+        if let Patch::Set(value) = self.custom_time {
             let next = custom_time_key(&value)?;
             if let Some(previous) = &record.custom_time {
                 let previous = custom_time_key(previous)?;
@@ -518,24 +528,23 @@ impl ObjectMetadataUpdate {
             record.cache_control = None;
             record.metadata.clear();
         }
-        if let Some(value) = self.content_type {
-            if let Some(value) = value {
+        match self.content_type {
+            Patch::Keep => {}
+            Patch::Clear => record.content_type.clear(),
+            // An empty type leaves the stored type (or the one a PUT cleared) as it is.
+            Patch::Set(value) => {
                 if !value.is_empty() {
                     record.content_type = value;
                 }
-            } else {
-                record.content_type.clear();
             }
         }
-        for (field, value) in [
+        for (field, patch) in [
             (&mut record.content_encoding, self.content_encoding),
             (&mut record.content_disposition, self.content_disposition),
             (&mut record.content_language, self.content_language),
             (&mut record.cache_control, self.cache_control),
         ] {
-            if let Some(value) = value {
-                *field = value.filter(|value| empty.is_stored(value) || !value.is_empty());
-            }
+            empty.apply(field, patch);
         }
         if self.metadata_mode == MapMode::Replace && self.metadata.is_some() {
             record.metadata.clear();
@@ -562,13 +571,7 @@ impl ObjectMetadataUpdate {
         {
             return Err(ObjectError::InvalidMetadata);
         }
-        for (field, value) in [
-            ("contentType", Some(record.content_type.as_str())),
-            ("contentEncoding", record.content_encoding.as_deref()),
-            ("contentDisposition", record.content_disposition.as_deref()),
-            ("contentLanguage", record.content_language.as_deref()),
-            ("cacheControl", record.cache_control.as_deref()),
-        ] {
+        for (field, value) in record.fixed_fields() {
             if let Some(value) = value
                 && !empty.is_stored(value)
             {
@@ -593,6 +596,17 @@ enum EmptyContent {
 impl EmptyContent {
     fn is_stored(self, value: &str) -> bool {
         self == Self::Stored && value.is_empty()
+    }
+
+    /// Stores an optional content field's patch; an empty value is unset on a new generation.
+    fn apply(self, field: &mut Option<String>, patch: Patch<String>) {
+        match patch {
+            Patch::Keep => {}
+            Patch::Clear => *field = None,
+            Patch::Set(value) => {
+                *field = (self.is_stored(&value) || !value.is_empty()).then_some(value);
+            }
+        }
     }
 }
 

@@ -1,4 +1,6 @@
-use crate::object::{MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate, WriteMode};
+use crate::object::{
+    MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch, WriteMode,
+};
 use ring::digest::{Context, SHA256};
 
 /// Versioned request identity, independent of diagnostic and serialization formats.
@@ -90,6 +92,18 @@ impl Canonical {
             write(self, value);
         }
     }
+    /// The bytes the nested `Option` wrote before the field became a [`Patch`]: `0` keeps,
+    /// `1 0` clears, `1 1` and the value sets.
+    fn patch<T>(&mut self, value: &Patch<T>, write: impl FnOnce(&mut Self, &T)) {
+        match value {
+            Patch::Keep => self.0.update(&[0]),
+            Patch::Clear => self.0.update(&[1, 0]),
+            Patch::Set(value) => {
+                self.0.update(&[1, 1]);
+                write(self, value);
+            }
+        }
+    }
 
     fn metadata(&mut self, metadata: &ObjectMetadataUpdate) {
         // Exhaustive fields make changes to the persisted request format a deliberate choice.
@@ -132,9 +146,7 @@ impl Canonical {
             cache_control,
             custom_time,
         ] {
-            self.optional(field.as_ref(), |encoded, value| {
-                encoded.optional(value.as_deref(), Self::text)
-            });
+            self.patch(field, |encoded, value| encoded.text(value));
         }
         self.optional(metadata.as_ref(), |encoded, value| {
             encoded.optional(value.as_ref(), |encoded, entries| {
@@ -206,16 +218,16 @@ mod tests {
             |value| value.acl = None,
             |value| value.predefined_acl = None,
             |value| value.write = WriteMode::Patch,
-            |value| value.content_type = None,
-            |value| value.content_encoding = None,
-            |value| value.content_disposition = None,
-            |value| value.content_language = None,
-            |value| value.cache_control = None,
+            |value| value.content_type = Patch::Keep,
+            |value| value.content_encoding = Patch::Keep,
+            |value| value.content_disposition = Patch::Keep,
+            |value| value.content_language = Patch::Keep,
+            |value| value.cache_control = Patch::Keep,
             |value| value.metadata = None,
             |value| value.metadata_mode = MapMode::Replace,
             |value| value.event_based_hold = None,
             |value| value.temporary_hold = None,
-            |value| value.custom_time = None,
+            |value| value.custom_time = Patch::Keep,
             |value| value.retention = None,
             |value| {
                 value.override_unlocked_retention =
@@ -254,14 +266,37 @@ mod tests {
     fn nullable_fields_and_empty_strings_have_distinct_identities() {
         let mut metadata = ObjectMetadataUpdate::default();
         let absent = request(&metadata).digest().unwrap();
-        metadata.content_type = Some(None);
+        metadata.content_type = Patch::Clear;
         let removed = request(&metadata).digest().unwrap();
-        metadata.content_type = Some(Some(String::new()));
+        metadata.content_type = Patch::Set(String::new());
         let empty = request(&metadata).digest().unwrap();
         assert_ne!(absent, removed);
         assert_ne!(absent, empty);
         assert_ne!(removed, empty);
         assert_ne!(empty, copy_fingerprint("object").unwrap());
+    }
+
+    /// Stored fingerprints survive an upgrade, so clearing a field keeps the bytes earlier
+    /// releases wrote for it.
+    #[test]
+    fn cleared_fields_keep_their_golden_digest() {
+        let metadata = ObjectMetadataUpdate {
+            content_type: Patch::Clear,
+            content_encoding: Patch::Clear,
+            content_disposition: Patch::Clear,
+            content_language: Patch::Clear,
+            cache_control: Patch::Clear,
+            metadata: Some(None),
+            custom_time: Patch::Clear,
+            retention: Some(None),
+            ..Default::default()
+        };
+        let digest = request(&metadata).digest().unwrap();
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            hex,
+            "90ae3438bc8dea7a5af82941eb5b7ce99c32bf859364ce28ffb71fdc2b954582"
+        );
     }
 
     #[test]

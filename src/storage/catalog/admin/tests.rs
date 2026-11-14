@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::Patch;
 use crate::storage::ObjectUpload;
 use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
@@ -1349,18 +1350,18 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
             "direct-content-type" => {
                 publication.content_type = "text/plain\r\nInjected: yes".into()
             }
-            "contentType" => publication.metadata.content_type = Some(Some("text/plain\n".into())),
+            "contentType" => publication.metadata.content_type = Patch::Set("text/plain\n".into()),
             "contentEncoding" => {
-                publication.metadata.content_encoding = Some(Some("gzip\t".into()))
+                publication.metadata.content_encoding = Patch::Set("gzip\t".into())
             }
             "contentDisposition" => {
-                publication.metadata.content_disposition = Some(Some("inline\0".into()))
+                publication.metadata.content_disposition = Patch::Set("inline\0".into())
             }
             "contentLanguage" => {
-                publication.metadata.content_language = Some(Some("x".repeat(101)))
+                publication.metadata.content_language = Patch::Set("x".repeat(101))
             }
             "cacheControl" => {
-                publication.metadata.cache_control = Some(Some("public\u{7f}".into()))
+                publication.metadata.cache_control = Patch::Set("public\u{7f}".into())
             }
             "custom-key" => {
                 publication.metadata.metadata = Some(Some(BTreeMap::from([(

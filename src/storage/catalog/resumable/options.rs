@@ -4,7 +4,7 @@ use super::{InvalidOptions, ResumableOptions};
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate, WriteMode},
+    object::{ExpectedHashes, Hold, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -59,12 +59,12 @@ impl<T, C> Metadata<T, C> {
             },
             event_based_hold: self.event_based_hold.into(),
             temporary_hold: self.temporary_hold.into(),
-            custom_time: self.custom_time.map(&string),
-            content_type: self.content_type.map(&string),
-            content_encoding: self.content_encoding.map(&string),
-            content_disposition: self.content_disposition.map(&string),
-            content_language: self.content_language.map(&string),
-            cache_control: self.cache_control.map(string),
+            custom_time: restored(self.custom_time, &string),
+            content_type: restored(self.content_type, &string),
+            content_encoding: restored(self.content_encoding, &string),
+            content_disposition: restored(self.content_disposition, &string),
+            content_language: restored(self.content_language, &string),
+            cache_control: restored(self.cache_control, string),
             metadata: self.metadata.map(custom),
             metadata_mode: crate::object::MapMode::Merge,
             retention: super::super::objects::retention::from_session(&self.retention)?,
@@ -82,6 +82,23 @@ impl<T, C> Metadata<T, C> {
             override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
         })
     }
+}
+
+/// A nullable update field as the session document stores it: absent keeps, `{"value":null}`
+/// clears, `{"value":v}` sets.
+fn stored<T: Clone>(patch: &Patch<T>) -> Option<Field<Option<T>>> {
+    match patch {
+        Patch::Keep => None,
+        Patch::Clear => Some(Field { value: None }),
+        Patch::Set(value) => Some(Field {
+            value: Some(value.clone()),
+        }),
+    }
+}
+
+/// A stored field read back; `nullable` unwraps the version's wrapper (v1 stores a bare value).
+fn restored<S>(stored: Option<S>, nullable: impl Fn(S) -> Option<String>) -> Patch<String> {
+    stored.map_or(Patch::Keep, |stored| Patch::nullable(nullable(stored)))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -111,17 +128,16 @@ impl StoredOptions {
     /// authorize a new upload; without it they are stored as they are.
     pub(super) fn from_options(options: &ResumableOptions, bucket_project: Option<&str>) -> Self {
         let m = &options.metadata;
-        let field = |value: &Option<Option<String>>| value.clone().map(|value| Field { value });
         let metadata = Metadata {
             replace: Some(m.write == WriteMode::Replace),
             event_based_hold: m.event_based_hold.into(),
             temporary_hold: m.temporary_hold.into(),
-            custom_time: field(&m.custom_time),
-            content_type: field(&m.content_type),
-            content_encoding: field(&m.content_encoding),
-            content_disposition: field(&m.content_disposition),
-            content_language: field(&m.content_language),
-            cache_control: field(&m.cache_control),
+            custom_time: stored(&m.custom_time),
+            content_type: stored(&m.content_type),
+            content_encoding: stored(&m.content_encoding),
+            content_disposition: stored(&m.content_disposition),
+            content_language: stored(&m.content_language),
+            cache_control: stored(&m.cache_control),
             metadata: m.metadata.clone().map(|value| Field { value }),
             retention: super::super::objects::retention::session_value(m.retention.as_ref()),
             customer_key_sha256: m.customer_key_sha256,

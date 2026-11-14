@@ -3,7 +3,7 @@ use crate::{
     acl::AclKind,
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     object::{
-        MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord, WriteMode,
+        MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
         retention::{ObjectRetention, RetentionMode},
         unix_nanos::UnixNanos,
     },
@@ -44,16 +44,21 @@ pub(super) fn from_proto(
                     .get_or_insert_with(BTreeMap::new)
                     .insert(key.into(), object.metadata.get(key).cloned());
             }
-            "content_type" => update.content_type = Some(Some(object.content_type.clone())),
+            "content_type" => update.content_type = Patch::Set(object.content_type.clone()),
             // A proto3 string cannot tell empty from unset: an empty masked field clears it.
-            "content_encoding" => update.content_encoding = Some(set(&object.content_encoding)),
-            "content_disposition" => {
-                update.content_disposition = Some(set(&object.content_disposition))
+            "content_encoding" => {
+                update.content_encoding = Patch::nullable(set(&object.content_encoding))
             }
-            "content_language" => update.content_language = Some(set(&object.content_language)),
-            "cache_control" => update.cache_control = Some(set(&object.cache_control)),
+            "content_disposition" => {
+                update.content_disposition = Patch::nullable(set(&object.content_disposition))
+            }
+            "content_language" => {
+                update.content_language = Patch::nullable(set(&object.content_language))
+            }
+            "cache_control" => update.cache_control = Patch::nullable(set(&object.cache_control)),
             "custom_time" => {
-                update.custom_time = Some(object.custom_time.map(|time| time.to_string()))
+                update.custom_time =
+                    Patch::nullable(object.custom_time.map(|time| time.to_string()))
             }
             "temporary_hold" => update.temporary_hold = Some(object.temporary_hold),
             "event_based_hold" => {
@@ -123,17 +128,17 @@ pub(super) fn retention(
 }
 
 pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
+    // An empty proto3 string leaves the field unnamed rather than cleared. The update always
+    // describes a new generation, where the field starts unset either way, and upload replay
+    // fingerprints keep the bytes they had for it.
+    let named = |value: &str| set(value).map_or(Patch::Keep, Patch::Set);
     ObjectMetadataUpdate {
         write: WriteMode::Replace,
-        content_type: (!object.content_type.is_empty()).then(|| Some(object.content_type.clone())),
-        content_encoding: (!object.content_encoding.is_empty())
-            .then(|| Some(object.content_encoding.clone())),
-        content_disposition: (!object.content_disposition.is_empty())
-            .then(|| Some(object.content_disposition.clone())),
-        content_language: (!object.content_language.is_empty())
-            .then(|| Some(object.content_language.clone())),
-        cache_control: (!object.cache_control.is_empty())
-            .then(|| Some(object.cache_control.clone())),
+        content_type: named(&object.content_type),
+        content_encoding: named(&object.content_encoding),
+        content_disposition: named(&object.content_disposition),
+        content_language: named(&object.content_language),
+        cache_control: named(&object.cache_control),
         metadata: Some(Some(
             object
                 .metadata
@@ -143,7 +148,9 @@ pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
         )),
         temporary_hold: object.temporary_hold.then_some(true),
         event_based_hold: object.event_based_hold,
-        custom_time: object.custom_time.map(|time| Some(time.to_string())),
+        custom_time: object
+            .custom_time
+            .map_or(Patch::Keep, |time| Patch::Set(time.to_string())),
         ..Default::default()
     }
 }
@@ -196,7 +203,7 @@ mod tests {
         .unwrap();
         assert_eq!(update.metadata_mode, MapMode::Replace);
         assert_eq!(update.metadata.unwrap().unwrap().len(), 1);
-        assert_eq!(update.content_language, Some(None));
+        assert_eq!(update.content_language, Patch::Clear);
         assert_eq!(update.retention, Some(None));
         let update = from_proto(&object, &["metadata.missing".into()]).unwrap();
         assert_eq!(update.metadata_mode, MapMode::Merge);

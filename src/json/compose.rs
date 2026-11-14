@@ -227,12 +227,7 @@ fn destination_metadata(
     if metadata.update.temporary_hold == Some(true) {
         return Err(JsonError::unsupported_object("temporaryHold on compose"));
     }
-    if metadata
-        .update
-        .custom_time
-        .as_ref()
-        .is_some_and(Option::is_some)
-    {
+    if metadata.update.custom_time.value().is_some() {
         return Err(JsonError::unsupported_object("customTime on compose"));
     }
     if metadata.update.retention.is_some() {

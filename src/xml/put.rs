@@ -6,7 +6,9 @@ use crate::server::upload_drive::{
 use crate::{
     auth::{self, Caller},
     json,
-    object::{ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate},
+    object::{
+        ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch,
+    },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
 };
@@ -331,7 +333,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         ("content-encoding", &mut metadata.content_encoding),
         ("content-language", &mut metadata.content_language),
     ] {
-        *field = single(headers, name)?.map(|value| Some(value.to_owned()));
+        *field = single(headers, name)?.map_or(Patch::Keep, |value| Patch::Set(value.to_owned()));
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         let class =
@@ -346,7 +348,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         metadata.storage_class = Some(class);
     }
     if let Some(value) = single(headers, super::CUSTOM_TIME)? {
-        metadata.custom_time = Some(Some(super::custom_time(value)?));
+        metadata.custom_time = Patch::Set(super::custom_time(value)?);
     }
     let mut custom = BTreeMap::new();
     let mut custom_bytes = 0usize;

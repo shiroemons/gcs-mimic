@@ -13,9 +13,9 @@ fn malformed() -> Error {
     Error::invalid("Invalid signed chunk framing or decoded length.")
 }
 
-pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Option<Option<String>>, Error> {
+pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Patch<String>, Error> {
     let Some(value) = single(headers, "content-encoding")? else {
-        return Ok(None);
+        return Ok(Patch::Keep);
     };
     let mut remaining = Vec::new();
     let mut found = false;
@@ -36,7 +36,9 @@ pub(super) fn stored_encoding(headers: &HeaderMap) -> Result<Option<Option<Strin
             remaining.push(token);
         }
     }
-    Ok(Some((!remaining.is_empty()).then(|| remaining.join(","))))
+    Ok(Patch::nullable(
+        (!remaining.is_empty()).then(|| remaining.join(",")),
+    ))
 }
 
 /// What the request headers declare about the body.

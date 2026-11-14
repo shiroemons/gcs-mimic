@@ -7,7 +7,7 @@ use crate::{
     auth::AuthFailure,
     json::{self, JsonError},
     notification::NotificationMode,
-    object::{ExpectedHashes, ObjectError, UploadChunk},
+    object::{ExpectedHashes, ObjectError, Patch, UploadChunk},
     server::{DeadlineWatch, RequestBody, RequestCtx, json_response},
     storage::admin::{
         AdminError, BucketName, Generation, ImportedIdentity, ObjectName, Publication, PublishMode,
@@ -59,7 +59,7 @@ pub(super) async fn insert(
     )?;
     let admin = admin.with_notification_mode(fixture.notification_mode);
     if let Some(content_type) = multipart.headers(json::PartKind::Media).await?
-        && fixture.publication.metadata.content_type.is_none()
+        && fixture.publication.metadata.content_type == Patch::Keep
     {
         fixture.publication.content_type = content_type;
     }
@@ -182,8 +182,7 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
     let name = ObjectName::new(name).map_err(failure)?;
     let content_type = metadata
         .content_type
-        .as_ref()
-        .and_then(Option::as_ref)
+        .value()
         .cloned()
         .unwrap_or_else(|| "application/octet-stream".into());
     metadata.validate()?;

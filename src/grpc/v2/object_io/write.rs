@@ -155,7 +155,7 @@ impl Storage {
                 caller,
             ));
         }
-        metadata.content_type = Some(Some(content_type.clone()));
+        metadata.content_type = crate::object::Patch::Set(content_type.clone());
         metadata.storage_class = (!storage_class.is_empty())
             .then(|| crate::object::validate_object_storage_class(&storage_class))
             .transpose()

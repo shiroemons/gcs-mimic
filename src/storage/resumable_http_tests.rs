@@ -761,7 +761,7 @@ async fn initiation_preserves_encoded_names_metadata_and_query_precedence() {
     assert_eq!(session.options.content_type, "application/test");
     assert_eq!(
         session.options.metadata.content_encoding,
-        Some(Some("gzip".into()))
+        gcs_mimic::object::Patch::Set("gzip".into())
     );
     assert_eq!(session.total, Some(0));
     let r = h.request("PUT", &h.path(&reply), "", b"").await;

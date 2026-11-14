@@ -334,8 +334,7 @@ fn destination(
     }
     let content_type = metadata
         .content_type
-        .as_ref()
-        .and_then(|value| value.as_ref())
+        .value()
         .cloned()
         .unwrap_or_else(|| "application/octet-stream".into());
     Ok(DerivedDestination {

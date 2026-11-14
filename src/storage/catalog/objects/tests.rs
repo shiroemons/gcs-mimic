@@ -4,6 +4,7 @@ use super::durability::cleanup_failed_shard;
 use super::list::{ListSource, UpperBound, list_page_within, list_seek_sql};
 use super::publication::expiration_after;
 use super::*;
+use crate::object::Patch;
 use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
@@ -1511,7 +1512,7 @@ async fn assert_all_forbidden(catalog: &Catalog, access: &BucketAccess, current:
         Err(denied())
     );
     let update = ObjectMetadataUpdate {
-        content_type: Some(Some("application/json".into())),
+        content_type: Patch::Set("application/json".into()),
         ..Default::default()
     };
     assert_eq!(

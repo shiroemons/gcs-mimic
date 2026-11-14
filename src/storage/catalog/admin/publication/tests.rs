@@ -1,5 +1,6 @@
 use super::super::tests::{body, request, setup};
 use super::*;
+use crate::object::Patch;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::test_support::{eventually_async, eventually_some_async};
 use std::io::{Seek, SeekFrom};
@@ -494,8 +495,8 @@ async fn publication_inherits_metadata_patched_after_staging() {
     let mut input = entry(&admin, &dir.0, "object", b"new").await;
     input.request.mode = PublishMode::InheritFromReplaced;
     let patch = ObjectMetadataUpdate {
-        content_type: Some(Some("application/custom".into())),
-        cache_control: Some(Some("private".into())),
+        content_type: Patch::Set("application/custom".into()),
+        cache_control: Patch::Set("private".into()),
         metadata: Some(Some(BTreeMap::from([(
             "patched".into(),
             Some("value".into()),

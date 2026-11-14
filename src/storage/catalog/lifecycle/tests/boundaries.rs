@@ -41,7 +41,7 @@ async fn overflowing_days_never_delete_or_schedule_catalog_work() {
                 .put_object(
                     crate::storage::ObjectUpload {
                         metadata: ObjectMetadataUpdate {
-                            custom_time: Some(Some("2026-01-10T10:00:00.123456Z".into())),
+                            custom_time: Patch::Set("2026-01-10T10:00:00.123456Z".into()),
                             ..Default::default()
                         },
                         ..permissive_upload("bucket", "object", 100)
@@ -106,7 +106,7 @@ async fn extreme_date_conditions_match_present_timestamps_consistently_in_the_sw
                 .put_object(
                     crate::storage::ObjectUpload {
                         metadata: ObjectMetadataUpdate {
-                            custom_time: Some(Some("1970-01-02T00:00:00Z".into())),
+                            custom_time: Patch::Set("1970-01-02T00:00:00Z".into()),
                             ..Default::default()
                         },
                         ..permissive_upload("bucket", "object", 100)
@@ -154,7 +154,7 @@ async fn early_custom_times_remain_present_for_date_and_elapsed_day_conditions_i
                 .put_object(
                     crate::storage::ObjectUpload {
                         metadata: ObjectMetadataUpdate {
-                            custom_time: Some(Some(custom.into())),
+                            custom_time: Patch::Set(custom.into()),
                             ..Default::default()
                         },
                         ..permissive_upload("bucket", "object", 100)
@@ -197,7 +197,7 @@ async fn early_custom_times_can_produce_representable_future_day_deadlines_in_th
             .put_object(
                 crate::storage::ObjectUpload {
                     metadata: ObjectMetadataUpdate {
-                        custom_time: Some(Some(custom.into())),
+                        custom_time: Patch::Set(custom.into()),
                         ..Default::default()
                     },
                     ..permissive_upload("bucket", "object", 100)
@@ -227,7 +227,7 @@ async fn combined_time_conditions_use_the_latest_deadline_and_rules_use_the_earl
         .put_object(
             crate::storage::ObjectUpload {
                 metadata: ObjectMetadataUpdate {
-                    custom_time: Some(Some("1970-01-03T00:00:00Z".into())),
+                    custom_time: Patch::Set("1970-01-03T00:00:00Z".into()),
                     ..Default::default()
                 },
                 ..permissive_upload("bucket", "object", 100)
@@ -288,7 +288,7 @@ async fn zero_custom_days_and_past_custom_time_delete_at_the_exact_catalog_deadl
             .put_object(
                 crate::storage::ObjectUpload {
                     metadata: ObjectMetadataUpdate {
-                        custom_time: Some(Some(custom.into())),
+                        custom_time: Patch::Set(custom.into()),
                         ..Default::default()
                     },
                     ..permissive_upload("bucket", "object", 100)
@@ -325,7 +325,7 @@ async fn custom_time_one_microsecond_before_the_date_matches_but_midnight_does_n
             .put_object(
                 crate::storage::ObjectUpload {
                     metadata: ObjectMetadataUpdate {
-                        custom_time: Some(Some(custom.into())),
+                        custom_time: Patch::Set(custom.into()),
                         ..Default::default()
                     },
                     ..permissive_upload("bucket", name, 100)

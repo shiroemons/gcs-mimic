@@ -2,11 +2,9 @@
 clippy::option_option	src/bucket.rs	2
 clippy::option_option	src/grpc/v2/append.rs	1
 clippy::option_option	src/json/buckets.rs	1
-clippy::option_option	src/json/object_metadata.rs	1
-clippy::option_option	src/object.rs	8
+clippy::option_option	src/object.rs	2
 clippy::option_option	src/storage/catalog/objects/retention.rs	1
 clippy::option_option	src/storage/catalog/sync_state/writeback/live_export.rs	1
-clippy::option_option	src/xml/put/streaming.rs	1
 clippy::struct_excessive_bools	src/bucket.rs	1
 clippy::struct_excessive_bools	src/xml/list.rs	1
 clippy::unreachable	src/json/acl.rs	1

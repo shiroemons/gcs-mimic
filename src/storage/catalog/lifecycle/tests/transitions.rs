@@ -865,7 +865,7 @@ async fn transitions_use_each_versions_creation_custom_time_noncurrent_and_size_
             live("bucket", "custom/dated"),
             Default::default(),
             ObjectMetadataUpdate {
-                custom_time: Some(Some("1970-01-02T00:00:00Z".into())),
+                custom_time: Patch::Set("1970-01-02T00:00:00Z".into()),
                 ..Default::default()
             },
             |_| Ok(()),

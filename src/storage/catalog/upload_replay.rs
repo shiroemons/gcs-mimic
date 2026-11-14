@@ -564,7 +564,7 @@ impl UploadGuard {
 mod tests {
     use super::super::unavailable;
     use super::*;
-    use crate::object::ObjectMetadataUpdate;
+    use crate::object::{ObjectMetadataUpdate, Patch};
     use std::collections::BTreeMap;
 
     #[tokio::test]
@@ -725,7 +725,7 @@ mod tests {
     #[test]
     fn fingerprint_encoding_has_a_stable_golden_digest() {
         let metadata = ObjectMetadataUpdate {
-            content_type: Some(Some("text/plain".into())),
+            content_type: Patch::Set("text/plain".into()),
             metadata: Some(Some(BTreeMap::from([
                 ("zeta".to_owned(), Some("1".to_owned())),
                 ("alpha".to_owned(), None),

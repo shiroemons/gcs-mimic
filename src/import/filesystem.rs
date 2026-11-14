@@ -5,7 +5,7 @@ use super::{
     scan_with_baseline,
 };
 use crate::{
-    object::{ExpectedHashes, ObjectMetadataUpdate},
+    object::{ExpectedHashes, ObjectMetadataUpdate, Patch},
     storage::{
         Catalog,
         admin::{
@@ -287,7 +287,7 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
                 crate::bucket::validate_storage_class(&attrs.storage_class)
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
             ),
-            custom_time: Some(
+            custom_time: Patch::nullable(
                 if codec::is_unset_time(&attrs.custom_time)
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
                 {
@@ -296,12 +296,14 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Impo
                     Some(attrs.custom_time.clone())
                 },
             ),
-            content_encoding: Some(Some(attrs.content_encoding.clone())),
-            content_disposition: Some(Some(attrs.content_disposition.clone())),
-            content_language: Some(
+            content_encoding: Patch::Set(attrs.content_encoding.clone()),
+            content_disposition: Patch::Set(attrs.content_disposition.clone()),
+            // A new generation stores neither an empty language nor a cleared one, but
+            // validation refuses an empty contentLanguage, so an empty source clears it.
+            content_language: Patch::nullable(
                 (!attrs.content_language.is_empty()).then(|| attrs.content_language.clone()),
             ),
-            cache_control: Some(Some(attrs.cache_control.clone())),
+            cache_control: Patch::Set(attrs.cache_control.clone()),
             metadata: Some(attrs.metadata.clone().map(|entries| {
                 entries
                     .into_iter()
@@ -919,7 +921,7 @@ async fn verify_committed(
                 || target.metadata != attributes.metadata.clone().unwrap_or_default()
                 || target.event_based_hold.is_held()
                 || target.storage_class.as_str() != attributes.storage_class
-                || target.custom_time != request.metadata.custom_time.flatten()
+                || target.custom_time.as_ref() != request.metadata.custom_time.value()
             {
                 return Err(invalid("committed object differs from the source binding").into());
             }

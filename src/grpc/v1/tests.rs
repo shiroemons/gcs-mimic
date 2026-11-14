@@ -16,7 +16,11 @@ fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
         assert_eq!(update.write, mode);
         assert_eq!(
             update.content_type,
-            (mode == json::WriteMode::Replace).then_some(None)
+            if mode == json::WriteMode::Replace {
+                crate::object::Patch::Clear
+            } else {
+                crate::object::Patch::Keep
+            }
         );
         assert_eq!(update.metadata.is_some(), mode == json::WriteMode::Replace);
         assert_eq!(update.event_based_hold, None);

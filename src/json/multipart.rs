@@ -1,5 +1,5 @@
 use super::{JsonError, ObjectMetadataRequest, parse_object_metadata};
-use crate::object::{ExpectedHashes, ObjectMetadataUpdate};
+use crate::object::{ExpectedHashes, ObjectMetadataUpdate, Patch};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
@@ -729,9 +729,10 @@ pub(crate) fn multipart_metadata(
             error
         }
     })?;
-    update.content_type = update
-        .content_type
-        .filter(|value| value.as_ref().is_some_and(|value| !value.is_empty()));
+    update.content_type = match update.content_type {
+        Patch::Set(value) if !value.is_empty() => Patch::Set(value),
+        Patch::Keep | Patch::Clear | Patch::Set(_) => Patch::Keep,
+    };
     if let Some(Some(metadata)) = &update.metadata
         && metadata
             .iter()

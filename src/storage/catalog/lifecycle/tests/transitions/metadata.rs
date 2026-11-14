@@ -177,7 +177,7 @@ async fn releasing_a_hold_preserves_custom_time_and_only_class_dependent_delete_
         )
         .await;
         let mut upload = permissive_upload("bucket", "object", 100);
-        upload.metadata.custom_time = Some(Some("1970-01-02T00:00:00Z".into()));
+        upload.metadata.custom_time = Patch::Set("1970-01-02T00:00:00Z".into());
         upload.metadata.temporary_hold = Some(true);
         let original = catalog
             .put_object(upload, body(vec![Bytes::from_static(b"data")]))
@@ -250,7 +250,11 @@ async fn backdated_custom_time_is_effective_immediately_on_upload_or_patch() {
             clock.advance(DAY * 200);
             let timestamp = "1970-01-10T00:00:00Z";
             let mut upload = permissive_upload("bucket", "object", 100);
-            upload.metadata.custom_time = (!patch).then(|| Some(timestamp.into()));
+            upload.metadata.custom_time = if patch {
+                Patch::Keep
+            } else {
+                Patch::Set(timestamp.into())
+            };
             catalog
                 .put_object(upload, body(vec![Bytes::from_static(b"data")]))
                 .await
@@ -261,7 +265,7 @@ async fn backdated_custom_time_is_effective_immediately_on_upload_or_patch() {
                         live("bucket", "object"),
                         Default::default(),
                         ObjectMetadataUpdate {
-                            custom_time: Some(Some(timestamp.into())),
+                            custom_time: Patch::Set(timestamp.into()),
                             ..Default::default()
                         },
                         |_| Ok(()),

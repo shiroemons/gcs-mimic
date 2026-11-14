@@ -6,7 +6,7 @@ use crate::storage::test_fixtures::{
 };
 use crate::{
     notification::NotificationConfig,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, Patch},
     test_support::{TestDir, eventually_async},
 };
 use bytes::Bytes;
@@ -562,7 +562,7 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
         .await
         .unwrap();
     let update = crate::object::ObjectMetadataUpdate {
-        content_type: Some(Some("application/test".into())),
+        content_type: Patch::Set("application/test".into()),
         ..Default::default()
     };
     let changed = catalog

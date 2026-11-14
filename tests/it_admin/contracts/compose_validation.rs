@@ -1,5 +1,5 @@
 use gcs_mimic::json::{self, compose};
-use gcs_mimic::object::WriteMode;
+use gcs_mimic::object::{Patch, WriteMode};
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
@@ -30,7 +30,7 @@ fn compose_body_preserves_source_order_duplicates_generations_and_metadata() {
     assert_eq!(parsed.sources[1].generation, None);
     assert_eq!(
         parsed.destination.content_type,
-        Some(Some("text/plain".into()))
+        Patch::Set("text/plain".into())
     );
     assert_eq!(parsed.destination.event_based_hold, Some(true));
     assert_eq!(parsed.destination.write, WriteMode::Replace);
@@ -47,7 +47,7 @@ fn compose_body_accepts_one_and_thirty_two_sources_and_empty_destination() {
         let parsed =
             parse(json!({"sourceObjects": vec![json!({"name": "source"}); count]})).unwrap();
         assert_eq!(parsed.sources.len(), count);
-        assert_eq!(parsed.destination.content_type, None);
+        assert_eq!(parsed.destination.content_type, Patch::Keep);
         assert!(!parsed.delete_sources);
     }
     assert!(
@@ -57,7 +57,7 @@ fn compose_body_accepts_one_and_thirty_two_sources_and_empty_destination() {
     );
     let defaults = parse(json!({"sourceObjects": [{"name": "source"}], "destination": null, "deleteSourceObjects": null})).unwrap();
     assert!(!defaults.delete_sources);
-    assert_eq!(defaults.destination.content_type, None);
+    assert_eq!(defaults.destination.content_type, Patch::Keep);
 }
 
 #[test]

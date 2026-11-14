@@ -4,6 +4,7 @@ use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
     clock::ManualClock,
+    object::Patch,
     storage::{Catalog, ResumableError, ResumableOptions},
 };
 use std::{
@@ -61,9 +62,9 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         origin: Some("https://client.invalid".into()),
         metadata: gcs_mimic::object::ObjectMetadataUpdate {
             write: gcs_mimic::object::WriteMode::Replace,
-            content_type: Some(None),
-            content_encoding: Some(None),
-            content_disposition: Some(Some("inline".into())),
+            content_type: Patch::Clear,
+            content_encoding: Patch::Clear,
+            content_disposition: Patch::Set("inline".into()),
             metadata: Some(None),
             ..Default::default()
         },

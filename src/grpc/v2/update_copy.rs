@@ -423,9 +423,7 @@ impl Storage {
             .map(super::object_update::for_write)
             .unwrap_or_else(|| super::object_update::inherited(&source.object));
         super::object_update::validate(&metadata)?;
-        if metadata.temporary_hold == Some(true)
-            || metadata.custom_time.as_ref().is_some_and(Option::is_some)
-        {
+        if metadata.temporary_hold == Some(true) || metadata.custom_time.value().is_some() {
             return Err(unsupported(
                 "RewriteObject temporary_hold/custom_time; omit these fields",
             ));
@@ -463,8 +461,8 @@ impl Storage {
         };
         let content_type = metadata
             .content_type
-            .as_ref()
-            .and_then(|v| v.clone())
+            .value()
+            .cloned()
             .unwrap_or_else(|| "application/octet-stream".into());
         let destination = DerivedDestination {
             bucket: db.into(),
