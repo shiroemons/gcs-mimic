@@ -18,10 +18,19 @@ pub(crate) enum AclKind {
 }
 
 impl AclKind {
-    fn roles(self) -> &'static [&'static str] {
+    /// Whether an ACL of this kind may grant `role`: `WRITER` exists only on buckets.
+    pub(crate) fn allows(self, role: AclRole) -> bool {
         match self {
-            Self::Bucket => &["OWNER", "WRITER", "READER"],
-            Self::DefaultObject | Self::Object => &["OWNER", "READER"],
+            Self::Bucket => true,
+            Self::DefaultObject | Self::Object => role != AclRole::Writer,
+        }
+    }
+
+    /// The roles a message lists, in Cloud Storage's order.
+    fn role_names(self) -> &'static str {
+        match self {
+            Self::Bucket => "OWNER, WRITER, READER",
+            Self::DefaultObject | Self::Object => "OWNER, READER",
         }
     }
 }
@@ -112,7 +121,7 @@ impl AclRole {
 
 crate::serde_util::serialize_as_str!(AclRole);
 
-// Persisted upload fingerprints include the former String's quoted Debug representation.
+// Debug shows the wire spelling, as the String it replaced did.
 impl fmt::Debug for AclRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_str(), f)
@@ -205,7 +214,7 @@ impl fmt::Display for AclError {
             Self::InvalidRole { kind, role } => write!(
                 f,
                 "Invalid ACL role {role:?}; use one of {} (for example, READER)",
-                kind.roles().join(", ")
+                kind.role_names()
             ),
         }
     }
@@ -220,7 +229,7 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
     let mut entities = std::collections::BTreeSet::new();
     for entry in entries {
         Entity::parse(&entry.entity)?;
-        validate_role(kind, entry.role.as_str())?;
+        check_role(kind, entry.role)?;
         if !entities.insert(&entry.entity) {
             return Err(AclError::DuplicateEntity(entry.entity.clone()));
         }
@@ -342,17 +351,27 @@ fn valid_domain(domain: &str) -> bool {
         })
 }
 
+/// A client-supplied role name for an ACL of `kind`.
 pub(crate) fn validate_role(kind: AclKind, role: &str) -> Result<AclRole, AclError> {
-    if kind.roles().contains(&role) {
-        return role.parse().map_err(|_| AclError::InvalidRole {
+    role.parse::<AclRole>()
+        .ok()
+        .filter(|parsed| kind.allows(*parsed))
+        .ok_or_else(|| AclError::InvalidRole {
             kind,
             role: role.to_owned(),
-        });
+        })
+}
+
+/// A typed role checked against the ACL it is written to or read from.
+pub(crate) fn check_role(kind: AclKind, role: AclRole) -> Result<(), AclError> {
+    if kind.allows(role) {
+        Ok(())
+    } else {
+        Err(AclError::InvalidRole {
+            kind,
+            role: role.as_str().to_owned(),
+        })
     }
-    Err(AclError::InvalidRole {
-        kind,
-        role: role.to_owned(),
-    })
 }
 
 /// The project number rendered by bucket resources: numeric project IDs are used verbatim and
@@ -687,6 +706,21 @@ mod tests {
         }
         for role in ["reader", "", "FULL_CONTROL"] {
             assert!(validate_role(AclKind::Bucket, role).is_err(), "{role}");
+        }
+        for kind in [AclKind::Bucket, AclKind::DefaultObject, AclKind::Object] {
+            for role in [AclRole::Owner, AclRole::Writer, AclRole::Reader] {
+                let checked = check_role(kind, role);
+                assert_eq!(
+                    checked.is_ok(),
+                    kind == AclKind::Bucket || role != AclRole::Writer,
+                    "{kind:?} {role:?}"
+                );
+                assert_eq!(
+                    checked,
+                    validate_role(kind, role.as_str()).map(|_| ()),
+                    "{kind:?} {role:?}"
+                );
+            }
         }
     }
 

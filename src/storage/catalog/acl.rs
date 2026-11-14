@@ -286,22 +286,19 @@ fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>
 }
 
 pub(super) fn decode(entries: &str, kind: AclKind) -> Result<Vec<AclEntry>, CatalogError> {
-    let invalid = |error| {
-        CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
-            "invalid stored ACL",
-            error,
-        ))
-    };
-    let entries: Vec<AclEntry> = serde_json::from_str(entries).map_err(invalid)?;
+    let entries: Vec<AclEntry> = serde_json::from_str(entries).map_err(invalid_stored)?;
     for entry in &entries {
-        crate::acl::validate_role(kind, entry.role.as_str()).map_err(|error| {
-            CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
-                "invalid stored ACL",
-                error,
-            ))
-        })?;
+        crate::acl::check_role(kind, entry.role).map_err(invalid_stored)?;
     }
     Ok(entries)
+}
+
+/// A stored ACL row that does not decode, or holds a role its kind cannot grant.
+fn invalid_stored(error: impl std::error::Error + Send + Sync + 'static) -> CatalogError {
+    CatalogError::Corrupt(crate::storage::failure::BackendCause::with_source(
+        "invalid stored ACL",
+        error,
+    ))
 }
 
 fn stored_bucket_entries(

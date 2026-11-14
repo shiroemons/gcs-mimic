@@ -44,7 +44,7 @@ fn decode_completion(stored: &str, index: usize) -> rusqlite::Result<Completion>
     let conversion = |error| sql::conversion_error(index, rusqlite::types::Type::Text, error);
     let completion: Completion = serde_json::from_str(stored).map_err(conversion)?;
     for entry in completion.acl.iter().flatten() {
-        crate::acl::validate_role(crate::acl::AclKind::Object, entry.role.as_str())
+        crate::acl::check_role(crate::acl::AclKind::Object, entry.role)
             .map_err(|error| sql::conversion_error(index, rusqlite::types::Type::Text, error))?;
     }
     Ok(completion)
