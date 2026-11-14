@@ -56,7 +56,6 @@ async fn md5_availability_survives_restart_without_component_count() {
             deadline: tokio::time::Instant::now() + std::time::Duration::from_secs(10),
             activity: &activity,
         },
-        None,
     )
     .await
     .unwrap();

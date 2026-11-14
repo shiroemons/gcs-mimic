@@ -26,6 +26,8 @@ pub(crate) use catalog::xml_multipart;
 pub(crate) use catalog::CopyReplay;
 pub(crate) use catalog::Page;
 pub(crate) use catalog::ResumableError;
+#[cfg(test)]
+pub(crate) use catalog::ResumableSession;
 pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::StoredHashes;
@@ -35,9 +37,7 @@ pub(crate) use catalog::{AppendError, AppendWriter, Finality};
 pub use catalog::{Catalog, DataDirState};
 pub(crate) use catalog::{ChunkEnd, ChunkWait, ResumableChunk};
 pub(crate) use catalog::{CopyReplaySource, ReplayInvocation, UploadCheck};
-pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource};
-#[cfg(test)]
-pub(crate) use catalog::{DerivedTransfer, ResumableSession};
+pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedTransfer};
 pub(crate) use catalog::{
     FoldersAsPrefixes, ListQueryError, ObjectListCursor, ObjectListPage, ObjectListQuery,
     ObjectReader,

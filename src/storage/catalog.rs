@@ -88,10 +88,8 @@ mod blob_backend;
 mod derived;
 use blob_backend::BlobBackend;
 mod transfer_io;
-#[cfg(test)]
-pub(crate) use derived::DerivedTransfer;
 pub(crate) use derived::{
-    DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedSourceSpec,
+    DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedSourceSpec, DerivedTransfer,
 };
 
 pub mod admin;

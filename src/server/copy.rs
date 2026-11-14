@@ -5,13 +5,19 @@ use crate::{
     json,
     object::{ObjectError, ObjectRecord},
     storage::{
-        Catalog, CopyReplay, DerivedDestination, DerivedSource,
+        Catalog, CopyReplay, DerivedDestination, DerivedSource, DerivedTransfer,
         failure::{BackendFailure, object_unavailable},
     },
 };
 use tokio::{sync::watch, time::Instant};
 
 const BYTE_BUDGET: u64 = 16 * 1024 * 1024;
+
+#[cfg(test)]
+tokio::task_local! {
+    /// The checkpoint a test arms for the copy running in its task.
+    static CHECKPOINT: std::cell::RefCell<Option<Checkpoint>>;
+}
 
 #[cfg(test)]
 pub(crate) struct Checkpoint {
@@ -40,25 +46,33 @@ impl std::fmt::Display for CheckpointError {
 #[cfg(test)]
 impl std::error::Error for CheckpointError {}
 
+/// Pauses the copy once it has transferred the bytes the test's armed checkpoint waits for.
 #[cfg(test)]
-async fn checkpoint_at(
-    progress: &crate::storage::DerivedTransfer,
-    checkpoint: &mut Option<Checkpoint>,
-) -> Result<(), ObjectError> {
-    if checkpoint
-        .as_ref()
-        .is_some_and(|checkpoint| progress.offset >= checkpoint.after_bytes)
-    {
-        let checkpoint = checkpoint.take().unwrap();
-        checkpoint
-            .reached
-            .send(progress.clone())
-            .map_err(|_| ObjectError::backend(CheckpointError::ObserverDropped))?;
-        checkpoint
-            .resume
-            .await
-            .map_err(|_| ObjectError::backend(CheckpointError::Abandoned))?;
-    }
+async fn checkpoint_at(progress: &DerivedTransfer) -> Result<(), ObjectError> {
+    // The borrow ends inside `take_if`, so it never spans an await.
+    let due = CHECKPOINT
+        .try_with(|armed| {
+            armed
+                .borrow_mut()
+                .take_if(|checkpoint| progress.offset >= checkpoint.after_bytes)
+        })
+        .ok()
+        .flatten();
+    let Some(checkpoint) = due else {
+        return Ok(());
+    };
+    checkpoint
+        .reached
+        .send(progress.clone())
+        .map_err(|_| ObjectError::backend(CheckpointError::ObserverDropped))?;
+    checkpoint
+        .resume
+        .await
+        .map_err(|_| ObjectError::backend(CheckpointError::Abandoned))
+}
+
+#[cfg(not(test))]
+async fn checkpoint_at(_: &DerivedTransfer) -> Result<(), ObjectError> {
     Ok(())
 }
 
@@ -84,7 +98,6 @@ pub(crate) async fn execute(
     catalog: &Catalog,
     job: CopyJob,
     budget: CopyBudget<'_>,
-    #[cfg(test)] mut checkpoint: Option<Checkpoint>,
 ) -> Result<ObjectRecord, ObjectError> {
     let CopyJob {
         source,
@@ -128,14 +141,12 @@ pub(crate) async fn execute(
     // but cannot start publication after its handler and cleanup guard have been dropped.
     tokio::time::timeout_at(deadline, async {
         let mut progress = transfer.clone();
-        #[cfg(test)]
-        checkpoint_at(&progress, &mut checkpoint).await?;
+        checkpoint_at(&progress).await?;
         while progress.offset < progress.total {
             let wait = begin_catalog_wait(activity).await;
             progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
             drop(wait);
-            #[cfg(test)]
-            checkpoint_at(&progress, &mut checkpoint).await?;
+            checkpoint_at(&progress).await?;
         }
         Ok::<_, ObjectError>(())
     })
@@ -275,27 +286,31 @@ mod tests {
                 ..Default::default()
             };
             let (activity, _updates) = watch::channel(ObjectActivity::default());
-            execute(
-                &catalog,
-                CopyJob {
-                    source,
-                    source_access,
-                    destination,
-                    source_location: Some("US".into()),
-                    replay: None,
-                },
-                CopyBudget {
-                    config: &config,
-                    deadline: Instant::now() + Duration::from_secs(15),
-                    activity: &activity,
-                },
-                Some(Checkpoint {
-                    after_bytes,
-                    reached,
-                    resume: paused,
-                }),
-            )
-            .await
+            let checkpoint = Checkpoint {
+                after_bytes,
+                reached,
+                resume: paused,
+            };
+            CHECKPOINT
+                .scope(
+                    std::cell::RefCell::new(Some(checkpoint)),
+                    execute(
+                        &catalog,
+                        CopyJob {
+                            source,
+                            source_access,
+                            destination,
+                            source_location: Some("US".into()),
+                            replay: None,
+                        },
+                        CopyBudget {
+                            config: &config,
+                            deadline: Instant::now() + Duration::from_secs(15),
+                            activity: &activity,
+                        },
+                    ),
+                )
+                .await
         });
         (request, observed, resume)
     }

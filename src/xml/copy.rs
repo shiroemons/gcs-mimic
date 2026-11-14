@@ -233,8 +233,6 @@ pub(super) async fn respond(
             deadline: ctx.deadline,
             activity: ctx.activity,
         },
-        #[cfg(test)]
-        None,
     )
     .await
     .map_err(|error| put::storage_error(error, ctx.caller))?;

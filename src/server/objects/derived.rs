@@ -189,14 +189,7 @@ async fn copy_object(
         deadline: ctx.deadline,
         activity: ctx.activity,
     };
-    Ok(copy::execute(
-        catalog,
-        job,
-        budget,
-        #[cfg(test)]
-        None,
-    )
-    .await?)
+    Ok(copy::execute(catalog, job, budget).await?)
 }
 
 pub(super) async fn compose(

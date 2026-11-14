@@ -28,6 +28,18 @@ const RESPONSE_LIMIT: usize = 256 * 1024;
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
+// Tests hold a control at these points; elsewhere they do nothing.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+use tests::{authorization_checkpoint, authorization_wait_checkpoint};
+
+#[cfg(not(all(test, any(target_os = "linux", target_os = "macos"))))]
+async fn authorization_wait_checkpoint(
+    _: &tokio::sync::watch::Sender<crate::server::ObjectActivity>,
+) {
+}
+
+#[cfg(not(all(test, any(target_os = "linux", target_os = "macos"))))]
+async fn authorization_checkpoint() {}
 
 pub(super) mod conflicts;
 mod cursor;
@@ -49,8 +61,7 @@ async fn authorize_controls(
 ) -> Result<tokio::time::Instant, JsonError> {
     let deadline = ctx.config.catalog_wait_timeout.deadline();
     let authorize = async {
-        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        tests::authorization_wait_checkpoint(ctx.activity).await;
+        authorization_wait_checkpoint(ctx.activity).await;
         root.authorize_controls(ctx.config.seed_project.clone(), identity)
             .await
             .map_err(|error| root_error(&error))
@@ -132,8 +143,7 @@ async fn control(
         .map(|caller| caller.principal().cloned())
         .transpose()?;
     let preparation_deadline = authorize_controls(&request, &root, identity.clone(), ctx).await?;
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    tests::authorization_checkpoint().await;
+    authorization_checkpoint().await;
     let path = request.uri().path();
     let method = match path {
         "/_internal/sync" | "/_internal/sync/conflicts" => Method::GET,

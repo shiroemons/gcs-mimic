@@ -121,7 +121,6 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                         deadline: crate::time_limit::TimeLimit::DISABLED.deadline(),
                         activity: &activity,
                     },
-                    None,
                 )
                 .await
                 .unwrap()

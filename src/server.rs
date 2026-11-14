@@ -128,6 +128,35 @@ tokio::task_local! { static ACCEPT_FAULTS: Arc<std::sync::Mutex<std::collections
 #[cfg(test)]
 tokio::task_local! { static FORCE_HANDLER_PANIC: Arc<AtomicBool>; }
 
+/// The next accept error a test queued for the accept loop.
+#[cfg(test)]
+fn injected_accept_fault() -> Option<io::Error> {
+    ACCEPT_FAULTS
+        .try_with(|faults| faults.lock().unwrap().pop_front())
+        .ok()
+        .flatten()
+        .map(io::Error::from_raw_os_error)
+}
+
+#[cfg(not(test))]
+fn injected_accept_fault() -> Option<io::Error> {
+    None
+}
+
+/// Panics in the request handler once when a test armed it, to exercise panic isolation.
+#[cfg(test)]
+fn injected_handler_panic() {
+    if FORCE_HANDLER_PANIC
+        .try_with(|armed| armed.swap(false, Ordering::AcqRel))
+        .unwrap_or(false)
+    {
+        panic!("injected handler panic");
+    }
+}
+
+#[cfg(not(test))]
+fn injected_handler_panic() {}
+
 /// A connection task ends with an error only when it panicked or was aborted.
 /// hyper polls request handlers inside that task, so one faulty request must
 /// close only its own connection; the accept loop keeps serving the others.
@@ -1179,13 +1208,8 @@ fn poll_incoming(
     next: usize,
     cx: &mut std::task::Context<'_>,
 ) -> std::task::Poll<Result<(usize, transport::Stream), (usize, io::Error)>> {
-    #[cfg(test)]
-    if let Some(code) = ACCEPT_FAULTS
-        .try_with(|faults| faults.lock().unwrap().pop_front())
-        .ok()
-        .flatten()
-    {
-        return std::task::Poll::Ready(Err((next, io::Error::from_raw_os_error(code))));
+    if let Some(error) = injected_accept_fault() {
+        return std::task::Poll::Ready(Err((next, error)));
     }
     for (index, (listener, _)) in listeners
         .iter()
@@ -1404,13 +1428,7 @@ impl ConnectionService {
             activity,
             reads,
         } = self;
-        #[cfg(test)]
-        if FORCE_HANDLER_PANIC
-            .try_with(|armed| armed.swap(false, Ordering::AcqRel))
-            .unwrap_or(false)
-        {
-            panic!("injected handler panic");
-        }
+        injected_handler_panic();
         // Each request starts its own deadline without an earlier transfer's state.
         activity.send_replace(ObjectActivity::default());
         let finished = RequestFinished {
