@@ -2,4 +2,3 @@
 text::downcast	src/error.rs	1
 text::downcast	src/import/filesystem.rs	1
 text::downcast	src/sync/error.rs	8
-text::json_macro_value	src/import/filesystem.rs	2

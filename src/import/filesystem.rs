@@ -666,10 +666,10 @@ async fn publish_bucket(
         ..
     } = record;
     let mut input = serde_json::Map::from_iter([
-        ("name".into(), serde_json::json!(name)),
+        ("name".into(), serde_json::Value::from(name.as_str())),
         (
             "defaultEventBasedHold".into(),
-            serde_json::json!(attributes.default_event_based_hold),
+            serde_json::Value::from(attributes.default_event_based_hold),
         ),
     ]);
     if let Some(enabled) = attributes.versioning_enabled {

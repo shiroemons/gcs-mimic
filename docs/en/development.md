@@ -408,7 +408,7 @@ cannot express.
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
 | `text::allow_too_many_arguments` | `#[allow]`, `#[expect]` or `cfg_attr` of `clippy::too_many_arguments`, including attributes split over several lines. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
-| `text::json_macro_value` | `json!(expr)` whose whole argument is not a JSON literal: it expands to `to_value(&expr).unwrap()`; per-file ratchet. Build the value with `Value::from`, or with `serde_json::to_value` and a typed error. |
+| `text::json_macro_value` | `json!(expr)` whose whole argument is not a JSON literal: it expands to `to_value(&expr).unwrap()`. Build the value with `Value::from`, or with `serde_json::to_value` and a typed error. |
 | `text::downcast` | `.downcast_ref`, `.downcast_mut` and `.downcast` calls that recover a type from a type-erased value; per-file ratchet. A panic payload takes a reasoned suppression. |
 | `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type. |
 | `text::immediately_invoked_closure` | `(\|\| ..)()` and `(move \|\| ..)()`, a closure called where it is written. |
