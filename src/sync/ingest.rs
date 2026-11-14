@@ -427,7 +427,7 @@ impl Ingest<'_> {
                 let (file, parent) = open_source(root, &path, expected)?;
                 let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
                 let (_, current) = open_source(root, &path, expected)?;
-                if parent.device != current.device || parent.inode != current.inode {
+                if parent.node() != current.node() {
                     return Err(AdminError::Precondition);
                 }
                 Ok(hashes)
@@ -494,7 +494,7 @@ impl Ingest<'_> {
             .root
             .file_job(move |root| {
                 let (_, current) = open_source(root, &selected, identity)?;
-                if current.device != directory.device || current.inode != directory.inode {
+                if current.node() != directory.node() {
                     return Err(AdminError::Precondition);
                 }
                 Ok(())

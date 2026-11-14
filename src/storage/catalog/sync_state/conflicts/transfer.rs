@@ -9,8 +9,7 @@ type StoredWorkspace = (
     Incarnation,
     String,
     Generation,
-    [u8; 8],
-    [u8; 8],
+    NodeId,
     Option<Vec<u8>>,
 );
 
@@ -47,17 +46,14 @@ struct Transfer {
     owner: String,
     request: CaptureRequest,
     accepted: Option<OwnedProof>,
-    device: [u8; 8],
-    inode: [u8; 8],
+    node: NodeId,
 }
 
 fn directory(root: &File, selected: &Transfer) -> Result<File, Error> {
     let directory =
         fsutil::directory_at(root, WORKSPACE.as_ref(), fsutil::DirectoryOpen::Existing)?;
     let identity = fsutil::stat_identity(&directory)?;
-    if identity.device.to_be_bytes() != selected.device
-        || identity.inode.to_be_bytes() != selected.inode
-    {
+    if identity.node() != selected.node {
         return Err(Error::TargetChanged);
     }
     Ok(directory)
@@ -414,10 +410,10 @@ impl RootLease {
         let root = self.status().root_id;
         let catalog = self.catalog().sync_state().catalog_id().await?;
         self.conflict_db(move |connection| {
-            let (owner,bucket,incarnation,name,generation,device,inode,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
-                .query_row(params![root,id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)))?;
+            let (owner,bucket,incarnation,name,generation,node,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
+                .query_row(params![root,id], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,NodeId::from_be_bytes(row.get(5)?,row.get(6)?),row.get(7)?)))?;
             let accepted = snapshot.as_deref().map(self::snapshot).transpose()?.flatten().and_then(|snapshot|snapshot.transfer);
-            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(generation),source_op:Some(id)},accepted,device,inode })
+            Ok(Transfer { id,owner,request:CaptureRequest { binding:SyncBinding {catalog,bucket,incarnation,deletion:None,control:None},name:ObjectName::new(name)?,expected_generation:Some(generation),source_op:Some(id)},accepted,node })
         }).await
     }
 

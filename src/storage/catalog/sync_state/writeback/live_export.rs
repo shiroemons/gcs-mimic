@@ -234,7 +234,7 @@ fn install_target(
             .as_ref()
             .map(fsutil::stat_identity)
             .transpose()?
-            .is_some_and(|f| f.device == staged.device && f.inode == staged.inode),
+            .is_some_and(|f| f.node() == staged.node()),
         None => retained.is_some(),
     };
     if !already_installed {
@@ -596,18 +596,14 @@ impl Writeback {
                     .as_ref()
                     .map(fsutil::stat_identity)
                     .transpose()?;
-                if retained.is_some_and(|retained| {
-                    retained.device != staged.device || retained.inode != staged.inode
-                }) {
+                if retained.is_some_and(|retained| retained.node() != staged.node()) {
                     return Ok(true);
                 }
                 let current = target(root, &item.path)?
                     .as_ref()
                     .map(fsutil::stat_identity)
                     .transpose()?;
-                Ok(current.is_some_and(|current| {
-                    current.device == staged.device && current.inode == staged.inode
-                }))
+                Ok(current.is_some_and(|current| current.node() == staged.node()))
             } else {
                 Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())
             }
@@ -757,9 +753,7 @@ impl Writeback {
                         .as_ref()
                         .map(fsutil::stat_identity)
                         .transpose()?
-                        .is_some_and(|identity| {
-                            identity.device == staged.device && identity.inode == staged.inode
-                        })
+                        .is_some_and(|identity| identity.node() == staged.node())
                 {
                     return Err(Error::Protected);
                 }

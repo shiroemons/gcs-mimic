@@ -186,6 +186,37 @@ pub(crate) struct FileIdentity {
     pub changed_ns: i128,
 }
 
+/// The file-system object a path or handle resolved to: equal values name the same inode on the
+/// same device, whatever its size or times.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct NodeId {
+    pub(crate) device: u64,
+    pub(crate) inode: u64,
+}
+
+impl NodeId {
+    /// Big-endian bytes, the order the catalog's `device` and `inode` BLOB columns store.
+    pub(crate) fn to_be_bytes(self) -> ([u8; 8], [u8; 8]) {
+        (self.device.to_be_bytes(), self.inode.to_be_bytes())
+    }
+
+    pub(crate) fn from_be_bytes(device: [u8; 8], inode: [u8; 8]) -> Self {
+        Self {
+            device: u64::from_be_bytes(device),
+            inode: u64::from_be_bytes(inode),
+        }
+    }
+}
+
+impl FileIdentity {
+    pub(crate) fn node(&self) -> NodeId {
+        NodeId {
+            device: self.device,
+            inode: self.inode,
+        }
+    }
+}
+
 #[cfg(unix)]
 impl FileIdentity {
     fn same_displaced_file(&self, other: &Self) -> bool {
@@ -865,8 +896,7 @@ pub(crate) fn durable_replace_between(
     validate_name(destination_name)?;
     let source_identity = stat_identity(source_directory)?;
     let destination_identity = stat_identity(destination_directory)?;
-    let same_directory = source_identity.device == destination_identity.device
-        && source_identity.inode == destination_identity.inode;
+    let same_directory = source_identity.node() == destination_identity.node();
     if same_directory && staged_name == destination_name {
         return Err(
             io::Error::new(io::ErrorKind::InvalidInput, "replacement names must differ").into(),
@@ -1135,6 +1165,30 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The catalog stores a node as two big-endian BLOB columns; the full `u64` range survives.
+    #[test]
+    fn node_ids_round_trip_through_their_stored_bytes() {
+        for node in [
+            NodeId {
+                device: 0,
+                inode: 0,
+            },
+            NodeId {
+                device: u64::MAX,
+                inode: 1,
+            },
+            NodeId {
+                device: 1,
+                inode: u64::MAX,
+            },
+        ] {
+            let (device, inode) = node.to_be_bytes();
+            assert_eq!(device, node.device.to_be_bytes());
+            assert_eq!(inode, node.inode.to_be_bytes());
+            assert_eq!(NodeId::from_be_bytes(device, inode), node);
+        }
+    }
 
     #[cfg(unix)]
     #[test]

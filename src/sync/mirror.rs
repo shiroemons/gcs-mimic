@@ -1577,7 +1577,7 @@ pub(super) fn fs_error(error: fsutil::FsError) -> AdminError {
 fn same_inode(left: &File, right: &File) -> Result<bool, AdminError> {
     let a = fsutil::stat_identity(left).map_err(fs_error)?;
     let b = fsutil::stat_identity(right).map_err(fs_error)?;
-    Ok(a.device == b.device && a.inode == b.inode)
+    Ok(a.node() == b.node())
 }
 
 enum Target {

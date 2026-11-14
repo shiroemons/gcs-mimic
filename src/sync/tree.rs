@@ -1,7 +1,7 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
 use super::mapping::Reason;
-use crate::fsutil::{self, Child, DirectoryOpen};
+use crate::fsutil::{self, Child, DirectoryOpen, NodeId};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
 use crate::{config::MAX_TREE_DEPTH, fsutil::FileIdentity, storage::admin::AdminError};
@@ -72,7 +72,7 @@ pub(crate) struct TreeScan {
 }
 struct Frame {
     path: PathBuf,
-    identity: Option<(u64, u64)>,
+    identity: Option<NodeId>,
     after: Option<OsString>,
     buffered: VecDeque<OsString>,
     exhausted: bool,
@@ -90,7 +90,7 @@ fn identity(file: &File) -> Result<FileIdentity, AdminError> {
     })
 }
 impl Frame {
-    fn new(path: PathBuf, identity: Option<(u64, u64)>) -> Self {
+    fn new(path: PathBuf, identity: Option<NodeId>) -> Self {
         Self {
             path,
             identity,
@@ -152,7 +152,7 @@ impl TreeScan {
             let stat = identity(&file)?;
             if frame
                 .identity
-                .is_some_and(|expected| expected != (stat.device, stat.inode))
+                .is_some_and(|expected| expected != stat.node())
             {
                 entries.push(TreeEntry {
                     path: frame.path.clone(),
@@ -163,7 +163,7 @@ impl TreeScan {
                 self.frames.truncate(index);
                 break;
             }
-            frame.identity = Some((stat.device, stat.inode));
+            frame.identity = Some(stat.node());
             directories.push(file);
         }
         Ok(directories)
@@ -240,8 +240,7 @@ impl TreeScan {
                         return Err(self.limits.too_deep());
                     }
                     let stat = identity(&file)?;
-                    self.frames
-                        .push(Frame::new(path, Some((stat.device, stat.inode))));
+                    self.frames.push(Frame::new(path, Some(stat.node())));
                     directories.push(file);
                     entry.directory = true;
                 }

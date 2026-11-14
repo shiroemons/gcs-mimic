@@ -14,7 +14,7 @@ use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
-    fsutil,
+    fsutil::{self, NodeId},
     object::ObjectError,
     sync::mapping::{self, PathMapping},
 };
@@ -305,9 +305,9 @@ impl RootLease {
     async fn writeback_inner(&self, limits: Limits) -> Result<Writeback, Error> {
         let root = self.status().root_id;
         let owner = self.clone();
-        let expected:Option<([u8;8],[u8;8])>=self.catalog().run_admin(move|c| {
+        let expected:Option<NodeId>=self.catalog().run_admin(move|c| {
             let _owner=owner;
-            sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
+            sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok(NodeId::from_be_bytes(r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
         }).await?;
         let directory = self
             .file_job(move |root| {
@@ -322,10 +322,7 @@ impl RootLease {
                     )?;
                     let identity = fsutil::stat_identity(&directory)?;
                     if identity.device != fsutil::stat_identity(root)?.device
-                        || expected.is_some_and(|(device, inode)| {
-                            device != identity.device.to_be_bytes()
-                                || inode != identity.inode.to_be_bytes()
-                        })
+                        || expected.is_some_and(|node| node != identity.node())
                     {
                         return Err(Error::WorkspaceChanged);
                     }
@@ -346,16 +343,17 @@ impl RootLease {
             }
             Err(error) => return Err(error),
         };
-        let identity = fsutil::stat_identity(&directory)?;
+        let node = fsutil::stat_identity(&directory)?.node();
         let state = Writeback {
             lease: self.clone(),
             workspace: Arc::new(directory),
         };
         state.db(move |connection| {
+            let (device, inode) = node.to_be_bytes();
             connection.prepare_cached("INSERT INTO sync_writeback_roots(root_id,max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure,workspace_device,workspace_inode,sequence,epoch) VALUES(?1,?2,?3,?4,?4,0,0,0,0,?5,?6,NULL,NULL) ON CONFLICT(root_id) DO UPDATE SET max_bytes=excluded.max_bytes,max_entries=excluded.max_entries WHERE workspace_device=excluded.workspace_device AND workspace_inode=excluded.workspace_inode")?
-                .execute(params![root,limits.bytes,limits.entries,[0u8;16],identity.device.to_be_bytes(),identity.inode.to_be_bytes()])?;
-            let current:([u8;8],[u8;8])=connection.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))?;
-            if current!=(identity.device.to_be_bytes(),identity.inode.to_be_bytes()){return Err(Error::WorkspaceChanged);}
+                .execute(params![root,limits.bytes,limits.entries,[0u8;16],device,inode])?;
+            let current=connection.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root],|r|Ok(NodeId::from_be_bytes(r.get(0)?,r.get(1)?)))?;
+            if current!=node {return Err(Error::WorkspaceChanged);}
             Ok(())
         }).await?;
         Ok(state)
@@ -566,10 +564,7 @@ fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
     let selected = workspace_directory(root, fsutil::DirectoryOpen::Existing)?;
     let selected = fsutil::stat_identity(&selected)?;
     let owned = fsutil::stat_identity(workspace)?;
-    if selected.device != owned.device
-        || selected.inode != owned.inode
-        || owned.device != fsutil::stat_identity(root)?.device
-    {
+    if selected.node() != owned.node() || owned.device != fsutil::stat_identity(root)?.device {
         return Err(Error::WorkspaceChanged);
     }
     Ok(())

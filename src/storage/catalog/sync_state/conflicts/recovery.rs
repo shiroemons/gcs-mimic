@@ -29,17 +29,14 @@ struct Workspace {
     incarnation: Incarnation,
     name: String,
     ordinal: i64,
-    device: [u8; 8],
-    inode: [u8; 8],
+    node: NodeId,
 }
 
 fn directory(root: &File, selected: &Workspace) -> Result<File, Error> {
     let directory =
         fsutil::directory_at(root, WORKSPACE.as_ref(), fsutil::DirectoryOpen::Existing)?;
     let identity = fsutil::stat_identity(&directory)?;
-    if identity.device.to_be_bytes() != selected.device
-        || identity.inode.to_be_bytes() != selected.inode
-    {
+    if identity.node() != selected.node {
         return Err(Error::TargetChanged);
     }
     Ok(directory)
@@ -47,7 +44,7 @@ fn directory(root: &File, selected: &Workspace) -> Result<File, Error> {
 
 fn workspace(connection: &Connection, root: RootId, id: OpaqueId) -> Result<Workspace, Error> {
     connection.prepare_cached("SELECT w.id,w.owner,w.bucket,w.incarnation,w.name,w.ordinal,r.workspace_device,r.workspace_inode FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
-        .query_row(params![root,id],|row|Ok(Workspace {id:row.get(0)?,owner:row.get(1)?,bucket:row.get(2)?,incarnation:row.get(3)?,name:row.get(4)?,ordinal:row.get(5)?,device:row.get(6)?,inode:row.get(7)?})).optional()?.ok_or(Error::RevisionMismatch)
+        .query_row(params![root,id],|row|Ok(Workspace {id:row.get(0)?,owner:row.get(1)?,bucket:row.get(2)?,incarnation:row.get(3)?,name:row.get(4)?,ordinal:row.get(5)?,node:NodeId::from_be_bytes(row.get(6)?,row.get(7)?)})).optional()?.ok_or(Error::RevisionMismatch)
 }
 
 impl RootLease {

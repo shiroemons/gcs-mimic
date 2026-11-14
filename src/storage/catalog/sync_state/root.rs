@@ -5,7 +5,7 @@ use super::{CatalogId, SyncState, catalog_id};
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
-    fsutil::{self, FileIdentity, FsError},
+    fsutil::{self, FileIdentity, FsError, NodeId},
     storage::{admin::AdminError, lock},
     sync::mapping::{MARKER, MARKER_STAGING},
 };
@@ -329,20 +329,17 @@ fn reserve(
     if catalog_id(&transaction)? != catalog {
         return Err(RootError::ForeignMarker);
     }
+    let node = identity.node();
+    let (device, inode) = node.to_be_bytes();
     let found = sql::row(
         &transaction,
         "SELECT root_id, device, inode, complete, location FROM sync_roots
          WHERE location = ?1 OR (device = ?2 AND inode = ?3) LIMIT 1",
-        params![
-            location,
-            identity.device.to_be_bytes(),
-            identity.inode.to_be_bytes()
-        ],
+        params![location, device, inode],
         |row| {
             Ok((
                 row.get::<_, RootId>(0)?,
-                row.get::<_, [u8; 8]>(1)?,
-                row.get::<_, [u8; 8]>(2)?,
+                NodeId::from_be_bytes(row.get(1)?, row.get(2)?),
                 row.get::<_, bool>(3)?,
                 row.get::<_, Vec<u8>>(4)?,
             ))
@@ -350,11 +347,8 @@ fn reserve(
     )
     .optional()
     .map_err(super::super::unavailable)?;
-    let status = if let Some((id, device, inode, complete, stored_location)) = found {
-        if device != identity.device.to_be_bytes()
-            || inode != identity.inode.to_be_bytes()
-            || stored_location != location
-        {
+    let status = if let Some((id, stored_node, complete, stored_location)) = found {
+        if stored_node != node || stored_location != location {
             return Err(RootError::RootChanged);
         }
         let baseline = match (activation, marker) {
@@ -395,12 +389,7 @@ fn reserve(
         sql::exec(
             &transaction,
             "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
-            params![
-                id,
-                location,
-                identity.device.to_be_bytes(),
-                identity.inode.to_be_bytes()
-            ],
+            params![id, location, device, inode],
         )
         .map_err(super::super::unavailable)?;
         RootStatus {
@@ -425,7 +414,7 @@ impl Ownership {
                 }
             })?;
             let identity = fsutil::stat_identity(&current)?;
-            if identity.device != self.identity.device || identity.inode != self.identity.inode {
+            if identity.node() != self.identity.node() {
                 return Err(RootError::RootChanged);
             }
         }
@@ -667,8 +656,8 @@ impl SyncState {
             .0
             .run_admin_with_error(move |connection| {
                 let valid=if staged {
-                    let (catalog_id,root_id)=marker_ids.as_ref().ok_or(RootError::InvalidMarker)?;
-                    catalog_id==&catalog.to_string() && sql::scalar::<bool>(connection,"SELECT EXISTS(SELECT 1 FROM sync_roots WHERE location=?1 AND device=?2 AND inode=?3 AND lower(hex(root_id))=?4)",params![location,identity.device.to_be_bytes(),identity.inode.to_be_bytes(),root_id]).map_err(super::super::unavailable)?
+                    let (catalog_id,root_id)=marker_ids.as_ref().ok_or(RootError::InvalidMarker)?;let (device,inode)=identity.node().to_be_bytes();
+                    catalog_id==&catalog.to_string() && sql::scalar::<bool>(connection,"SELECT EXISTS(SELECT 1 FROM sync_roots WHERE location=?1 AND device=?2 AND inode=?3 AND lower(hex(root_id))=?4)",params![location,device,inode,root_id]).map_err(super::super::unavailable)?
                 } else {true};
                 Ok::<_,RootError>((reserve(connection,&location,identity,if valid {marker_ids} else {None},catalog,activation),valid))
             })

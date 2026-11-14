@@ -10,7 +10,7 @@ use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
-    fsutil::{self, FileIdentity},
+    fsutil::{self, FileIdentity, NodeId},
     hashing::Hashes,
     object::{ObjectError, ObjectRecord},
     storage::{
