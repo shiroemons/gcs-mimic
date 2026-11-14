@@ -323,7 +323,7 @@ impl Storage {
     }
 
     fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
-        use crate::{acl::AclKind, json::acl::AclOwner};
+        use crate::json::acl::AclOwner;
         let name = &bucket.bucket_id;
         bucket.owner = Some(pb::Owner {
             entity: crate::acl::Entity::project_team(crate::acl::ProjectTeam::Owners, &acl.project)
@@ -334,22 +334,23 @@ impl Storage {
             return;
         }
         let base = &self.state.api_base_url;
-        let owner = |kind| AclOwner {
-            kind,
+        let bucket_owner = AclOwner::Bucket {
             bucket: name,
-            object: None,
             metageneration: bucket.metageneration,
         };
-        let rendered = |kind, entry| json::acl::acl_entry_resource(base, owner(kind), entry);
+        let default_owner = AclOwner::DefaultObject {
+            metageneration: bucket.metageneration,
+        };
+        let rendered = |owner, entry| json::acl::acl_entry_resource(base, owner, entry);
         bucket.acl = acl
             .bucket
             .iter()
-            .map(|entry| convert::bucket_access_control(&rendered(AclKind::Bucket, entry)))
+            .map(|entry| convert::bucket_access_control(&rendered(bucket_owner, entry)))
             .collect();
         bucket.default_object_acl = acl
             .default_object
             .iter()
-            .map(|entry| convert::object_access_control(&rendered(AclKind::DefaultObject, entry)))
+            .map(|entry| convert::object_access_control(&rendered(default_owner, entry)))
             .collect();
     }
 

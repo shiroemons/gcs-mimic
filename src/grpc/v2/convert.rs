@@ -1,6 +1,6 @@
 use super::{iam, pb};
 use crate::{
-    acl::{AclEntry, AclKind},
+    acl::AclEntry,
     auth,
     bucket::{
         BucketRecord, CatalogError,
@@ -417,10 +417,10 @@ pub(crate) fn object_acl(
     project: &str,
     entries: &[AclEntry],
 ) -> Vec<pb::ObjectAccessControl> {
-    let owner = AclOwner {
-        kind: AclKind::Object,
+    let owner = AclOwner::Object {
         bucket,
-        object: Some((&object.name, object.generation)),
+        name: &object.name,
+        generation: object.generation,
         metageneration: object.metageneration,
     };
     entries
@@ -469,6 +469,7 @@ impl From<iam::Binding> for auth::policy_input::BindingInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acl::AclKind;
     use crate::json::{self, Projection};
     use std::{
         collections::BTreeMap,
@@ -600,26 +601,27 @@ mod tests {
                 assert_eq!(output.temporary_hold, grpc_hold, "{class} {hold:?}");
             }
         }
-        for (kind, role) in [
-            (AclKind::Bucket, "WRITER"),
-            (AclKind::Bucket, "OWNER"),
-            (AclKind::Object, "READER"),
-            (AclKind::Object, "OWNER"),
+        let bucket_owner = AclOwner::Bucket {
+            bucket: "bucket",
+            metageneration: 1,
+        };
+        let object_owner = AclOwner::Object {
+            bucket: "bucket",
+            name: "object",
+            generation: 7,
+            metageneration: 1,
+        };
+        for (kind, owner, role) in [
+            (AclKind::Bucket, bucket_owner, "WRITER"),
+            (AclKind::Bucket, bucket_owner, "OWNER"),
+            (AclKind::Object, object_owner, "READER"),
+            (AclKind::Object, object_owner, "OWNER"),
         ] {
             let entry = AclEntry {
                 entity: "allUsers".parse().unwrap(),
                 role: role.parse().unwrap(),
             };
-            let value = crate::json::acl::acl_entry_resource(
-                "http://localhost",
-                AclOwner {
-                    kind,
-                    bucket: "bucket",
-                    object: Some(("object", 7)),
-                    metageneration: 1,
-                },
-                &entry,
-            );
+            let value = crate::json::acl::acl_entry_resource("http://localhost", owner, &entry);
             assert_eq!(value["role"], role, "{kind:?} {role}");
             assert_eq!(bucket_access_control(&value).role, role, "{kind:?} {role}");
             assert_eq!(object_access_control(&value).role, role, "{kind:?} {role}");

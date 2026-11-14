@@ -19,6 +19,7 @@ use crate::{
     config::CompatProfile,
 };
 use hyper::{Method, Uri};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 /// A rejected ACL entity, role or entry list becomes the error body text; the validation
@@ -42,11 +43,92 @@ impl From<crate::acl::AclError> for JsonError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AclOperation {
     List,
+    /// The decoded path entity. It is matched against stored entities by exact text and may
+    /// name no valid entity, which reads as not found.
     Get(String),
+    Delete(String),
+    Write(AclWrite),
+}
+
+/// A request that carries an access-control body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AclWrite {
     Insert,
+    /// The decoded path entity; a body entity must repeat it.
     Patch(String),
     Update(String),
-    Delete(String),
+}
+
+/// Whether an ACL request reads or changes the ACL, which selects its IAM permission and the
+/// wording of a uniform-access refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AclAccess {
+    Read,
+    Write,
+}
+
+impl AclOperation {
+    /// Listing and getting read the ACL; deleting and every write change it.
+    pub(crate) fn access(&self) -> AclAccess {
+        match self {
+            Self::List | Self::Get(_) => AclAccess::Read,
+            Self::Delete(_) | Self::Write(_) => AclAccess::Write,
+        }
+    }
+
+    /// Only a write carries a body.
+    pub(crate) fn accepts_body(&self) -> bool {
+        match self {
+            Self::Write(_) => true,
+            Self::List | Self::Get(_) | Self::Delete(_) => false,
+        }
+    }
+}
+
+/// What a method on an ACL path asks for, before the entity segment is percent-decoded.
+#[derive(Clone, Copy)]
+enum Selection<'a> {
+    List,
+    Insert,
+    Entry(EntryMethod, &'a str),
+}
+
+/// A method on one entry of an ACL.
+#[derive(Clone, Copy)]
+enum EntryMethod {
+    Get,
+    Patch,
+    Update,
+    Delete,
+}
+
+impl EntryMethod {
+    fn operation(self, entity: String) -> AclOperation {
+        match self {
+            Self::Get => AclOperation::Get(entity),
+            Self::Patch => AclOperation::Write(AclWrite::Patch(entity)),
+            Self::Update => AclOperation::Write(AclWrite::Update(entity)),
+            Self::Delete => AclOperation::Delete(entity),
+        }
+    }
+}
+
+/// The resource an ACL path names, before its segments are decoded.
+#[derive(Clone, Copy)]
+enum PathTarget<'a> {
+    Bucket,
+    DefaultObject,
+    Object(&'a str),
+}
+
+impl PathTarget<'_> {
+    fn kind(self) -> AclKind {
+        match self {
+            Self::Bucket => AclKind::Bucket,
+            Self::DefaultObject => AclKind::DefaultObject,
+            Self::Object(_) => AclKind::Object,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -69,66 +151,55 @@ pub(crate) fn route_acl(
     if segments.iter().any(|segment| segment.is_empty()) {
         return None;
     }
-    let (kind, object, entity) = match segments.as_slice() {
-        [_, "acl"] => (AclKind::Bucket, None, None),
-        [_, "acl", entity] => (AclKind::Bucket, None, Some(*entity)),
-        [_, "defaultObjectAcl"] => (AclKind::DefaultObject, None, None),
-        [_, "defaultObjectAcl", entity] => (AclKind::DefaultObject, None, Some(*entity)),
-        [_, "o", object, "acl"] => (AclKind::Object, Some(*object), None),
-        [_, "o", object, "acl", entity] => (AclKind::Object, Some(*object), Some(*entity)),
+    let (bucket, target, entity) = match segments.as_slice() {
+        [bucket, "acl"] => (*bucket, PathTarget::Bucket, None),
+        [bucket, "acl", entity] => (*bucket, PathTarget::Bucket, Some(*entity)),
+        [bucket, "defaultObjectAcl"] => (*bucket, PathTarget::DefaultObject, None),
+        [bucket, "defaultObjectAcl", entity] => (*bucket, PathTarget::DefaultObject, Some(*entity)),
+        [bucket, "o", object, "acl"] => (*bucket, PathTarget::Object(object), None),
+        [bucket, "o", object, "acl", entity] => {
+            (*bucket, PathTarget::Object(object), Some(*entity))
+        }
         _ => return None,
     };
-    let operation = match (method, entity) {
-        (&Method::GET, None) => AclOperation::List,
-        (&Method::POST, None) => AclOperation::Insert,
-        (&Method::GET, Some(_)) => AclOperation::Get(String::new()),
-        (&Method::PATCH, Some(_)) => AclOperation::Patch(String::new()),
-        (&Method::PUT, Some(_)) => AclOperation::Update(String::new()),
-        (&Method::DELETE, Some(_)) => AclOperation::Delete(String::new()),
+    let selection = match (method, entity) {
+        (&Method::GET, None) => Selection::List,
+        (&Method::POST, None) => Selection::Insert,
+        (&Method::GET, Some(entity)) => Selection::Entry(EntryMethod::Get, entity),
+        (&Method::PATCH, Some(entity)) => Selection::Entry(EntryMethod::Patch, entity),
+        (&Method::PUT, Some(entity)) => Selection::Entry(EntryMethod::Update, entity),
+        (&Method::DELETE, Some(entity)) => Selection::Entry(EntryMethod::Delete, entity),
         _ => return None,
     };
-    Some(parse_route(
-        uri,
-        segments.first()?,
-        kind,
-        object,
-        entity,
-        operation,
-        profile,
-    ))
+    Some(parse_route(uri, bucket, target, selection, profile))
 }
 
 fn parse_route(
     uri: &Uri,
     bucket: &str,
-    kind: AclKind,
-    object: Option<&str>,
-    entity: Option<&str>,
-    operation: AclOperation,
+    target: PathTarget<'_>,
+    selection: Selection<'_>,
     profile: CompatProfile,
 ) -> Result<AclRequest, JsonError> {
     let bucket = decode(bucket, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
-    let entity = entity
-        .map(|entity| decode(entity, Decoding::Path))
-        .transpose()?;
-    let operation = match (operation, entity) {
-        (AclOperation::Get(_), Some(entity)) => AclOperation::Get(entity),
-        (AclOperation::Patch(_), Some(entity)) => AclOperation::Patch(entity),
-        (AclOperation::Update(_), Some(entity)) => AclOperation::Update(entity),
-        (AclOperation::Delete(_), Some(entity)) => AclOperation::Delete(entity),
-        (operation, _) => operation,
+    let operation = match selection {
+        Selection::List => AclOperation::List,
+        Selection::Insert => AclOperation::Write(AclWrite::Insert),
+        Selection::Entry(method, entity) => method.operation(decode(entity, Decoding::Path)?),
     };
     let mut query = parse_query(uri.query().unwrap_or_default())?;
-    let schema = match (kind, &operation) {
-        (AclKind::Bucket, AclOperation::List) => Schema::BucketAccessControls,
-        (AclKind::Bucket, _) => Schema::BucketAccessControl,
-        (_, AclOperation::List) => Schema::ObjectAccessControls,
-        _ => Schema::ObjectAccessControl,
+    let kind = target.kind();
+    let listing = operation == AclOperation::List;
+    let schema = match (kind, listing) {
+        (AclKind::Bucket, true) => Schema::BucketAccessControls,
+        (AclKind::Bucket, false) => Schema::BucketAccessControl,
+        (AclKind::DefaultObject | AclKind::Object, true) => Schema::ObjectAccessControls,
+        (AclKind::DefaultObject | AclKind::Object, false) => Schema::ObjectAccessControl,
     };
     let fields = Fields::take(&mut query, schema)?;
     common(&mut query)?;
-    let conditions = if kind == AclKind::DefaultObject && operation == AclOperation::List {
+    let conditions = if kind == AclKind::DefaultObject && listing {
         BucketConditions {
             if_metageneration_match: take_int64(&mut query, "ifMetagenerationMatch")?,
             if_metageneration_not_match: take_int64(&mut query, "ifMetagenerationNotMatch")?,
@@ -136,10 +207,10 @@ fn parse_route(
     } else {
         BucketConditions::default()
     };
-    let target = match object {
-        None if kind == AclKind::Bucket => AclTarget::Bucket(bucket),
-        None => AclTarget::DefaultObject(bucket),
-        Some(object) => {
+    let target = match target {
+        PathTarget::Bucket => AclTarget::Bucket(bucket),
+        PathTarget::DefaultObject => AclTarget::DefaultObject(bucket),
+        PathTarget::Object(object) => {
             let name = decode(object, Decoding::Path)?;
             validate_object_name(&name)?;
             AclTarget::Object {
@@ -174,7 +245,7 @@ pub(crate) struct AclBody {
 }
 
 pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, JsonError> {
-    let input = serde_json::from_value(value.clone()).map_err(|_| {
+    let input = Vec::<crate::acl::AclEntryInput>::deserialize(value).map_err(|_| {
         JsonError::invalid("ACL must be an array of objects with entity and role strings")
     })?;
     crate::acl::parse_entries(kind, input).map_err(JsonError::from)
@@ -186,7 +257,7 @@ pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry
 pub(crate) fn parse_acl_body(
     bytes: &[u8],
     kind: AclKind,
-    operation: &AclOperation,
+    write: &AclWrite,
 ) -> Result<AclBody, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
@@ -215,9 +286,9 @@ pub(crate) fn parse_acl_body(
     };
     let body_entity = string("entity")?;
     let role = string("role")?;
-    let entity = match operation {
-        AclOperation::Insert => body_entity.ok_or_else(|| required("entity"))?,
-        AclOperation::Patch(path) | AclOperation::Update(path) => {
+    let entity = match write {
+        AclWrite::Insert => body_entity.ok_or_else(|| required("entity"))?,
+        AclWrite::Patch(path) | AclWrite::Update(path) => {
             if body_entity.as_ref().is_some_and(|entity| entity != path) {
                 return Err(JsonError::invalid(format!(
                     "Body entity must match the path entity {path}; omit entity or send {path}"
@@ -225,10 +296,9 @@ pub(crate) fn parse_acl_body(
             }
             path.clone()
         }
-        _ => unreachable!("only mutations carry a body"),
     };
     let entity = parse_entity(&entity)?;
-    if role.is_none() && !matches!(operation, AclOperation::Patch(_)) {
+    if role.is_none() && !matches!(write, AclWrite::Patch(_)) {
         return Err(required("role"));
     }
     let role = role
@@ -257,75 +327,136 @@ fn entity_fields(resource: &mut Map<String, Value>, entity: &Entity) {
     }
 }
 
-/// The resource that owns rendered entries, with the version their etags carry.
+/// The resource that owns rendered entries, at the version their etags carry.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct AclOwner<'a> {
-    pub kind: AclKind,
-    pub bucket: &'a str,
-    /// Object name and generation for object ACLs.
-    pub object: Option<(&'a str, i64)>,
-    pub metageneration: i64,
+pub(crate) enum AclOwner<'a> {
+    Bucket {
+        bucket: &'a str,
+        metageneration: i64,
+    },
+    /// Default object ACL entries describe future objects, so they name no resource.
+    DefaultObject { metageneration: i64 },
+    Object {
+        bucket: &'a str,
+        name: &'a str,
+        generation: i64,
+        metageneration: i64,
+    },
+}
+
+impl<'a> AclOwner<'a> {
+    /// The owner of the entries a read or change of `target` returned at `metageneration`.
+    pub(crate) fn of(target: &'a AclTarget<i64>, metageneration: i64) -> Self {
+        match target {
+            AclTarget::Bucket(bucket) => Self::Bucket {
+                bucket,
+                metageneration,
+            },
+            AclTarget::DefaultObject(_) => Self::DefaultObject { metageneration },
+            AclTarget::Object {
+                bucket,
+                name,
+                generation,
+            } => Self::Object {
+                bucket,
+                name,
+                generation: *generation,
+                metageneration,
+            },
+        }
+    }
+
+    /// The resource ID of an entry; `None` for default object ACL entries, which describe
+    /// future objects.
+    pub(crate) fn entry_id(self, entity: &Entity) -> Option<String> {
+        match self {
+            Self::Bucket { bucket, .. } => Some(format!("{bucket}/{entity}")),
+            Self::DefaultObject { .. } => None,
+            Self::Object {
+                bucket,
+                name,
+                generation,
+                ..
+            } => Some(format!("{bucket}/{name}/{generation}/{entity}")),
+        }
+    }
+
+    pub(crate) fn etag(self) -> String {
+        match self {
+            Self::Bucket { metageneration, .. } | Self::DefaultObject { metageneration, .. } => {
+                revision_etag(None, metageneration)
+            }
+            Self::Object {
+                generation,
+                metageneration,
+                ..
+            } => revision_etag(Some(generation), metageneration),
+        }
+    }
+
+    fn resource_kind(self) -> &'static str {
+        match self {
+            Self::Bucket { .. } => "storage#bucketAccessControl",
+            Self::DefaultObject { .. } | Self::Object { .. } => "storage#objectAccessControl",
+        }
+    }
+
+    fn list_kind(self) -> &'static str {
+        match self {
+            Self::Bucket { .. } => "storage#bucketAccessControls",
+            Self::DefaultObject { .. } | Self::Object { .. } => "storage#objectAccessControls",
+        }
+    }
 }
 
 pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &AclEntry) -> Value {
     let base = base_url.trim_end_matches('/');
+    let entity_segment = || encode_segment(entry.entity.as_str()).replace("%40", "@");
     let mut resource = Map::new();
-    let kind = if owner.kind == AclKind::Bucket {
-        "storage#bucketAccessControl"
-    } else {
-        "storage#objectAccessControl"
-    };
-    resource.insert("kind".into(), kind.into());
-    match (owner.kind, owner.object) {
-        (AclKind::Bucket, _) => {
-            resource.insert(
-                "id".into(),
-                format!("{}/{}", owner.bucket, entry.entity).into(),
-            );
+    resource.insert("kind".into(), owner.resource_kind().into());
+    if let Some(id) = owner.entry_id(&entry.entity) {
+        resource.insert("id".into(), id.into());
+    }
+    match owner {
+        AclOwner::Bucket { bucket, .. } => {
             resource.insert(
                 "selfLink".into(),
                 format!(
                     "{base}/storage/v1/b/{}/acl/{}",
-                    encode_segment(owner.bucket),
-                    encode_segment(entry.entity.as_str()).replace("%40", "@")
+                    encode_segment(bucket),
+                    entity_segment()
                 )
                 .into(),
             );
-            resource.insert("bucket".into(), owner.bucket.into());
+            resource.insert("bucket".into(), bucket.into());
         }
-        (AclKind::Object, Some((name, generation))) => {
-            resource.insert(
-                "id".into(),
-                format!("{}/{name}/{generation}/{}", owner.bucket, entry.entity).into(),
-            );
+        AclOwner::Object {
+            bucket,
+            name,
+            generation,
+            ..
+        } => {
             resource.insert(
                 "selfLink".into(),
                 format!(
                     "{base}/storage/v1/b/{}/o/{}/acl/{}",
-                    encode_segment(owner.bucket),
+                    encode_segment(bucket),
                     encode_segment(name),
-                    encode_segment(entry.entity.as_str()).replace("%40", "@")
+                    entity_segment()
                 )
                 .into(),
             );
-            resource.insert("bucket".into(), owner.bucket.into());
+            resource.insert("bucket".into(), bucket.into());
             resource.insert("object".into(), name.into());
             resource.insert("generation".into(), generation.to_string().into());
         }
         // Default object ACL entries describe future objects, so they name no resource.
-        _ => {}
+        AclOwner::DefaultObject { .. } => {}
     }
     resource.insert("entity".into(), entry.entity.as_str().into());
     resource.insert("role".into(), entry.role.as_str().into());
     entity_fields(&mut resource, &entry.entity);
-    resource.insert(
-        "etag".into(),
-        revision_etag(
-            owner.object.map(|(_, generation)| generation),
-            owner.metageneration,
-        )
-        .into(),
-    );
+    resource.insert("etag".into(), owner.etag().into());
     Value::Object(resource)
 }
 
@@ -334,13 +465,8 @@ pub(crate) fn acl_list_resource(
     owner: AclOwner<'_>,
     entries: &[AclEntry],
 ) -> Value {
-    let kind = if owner.kind == AclKind::Bucket {
-        "storage#bucketAccessControls"
-    } else {
-        "storage#objectAccessControls"
-    };
     json!({
-        "kind": kind,
+        "kind": owner.list_kind(),
         "items": entries
             .iter()
             .map(|entry| acl_entry_resource(base_url, owner, entry))
@@ -360,20 +486,19 @@ pub(crate) fn add_bucket_acl_fields(
     let Some(bucket) = resource["name"].as_str().map(str::to_owned) else {
         return;
     };
-    let owner = |kind| AclOwner {
-        kind,
-        bucket: &bucket,
-        object: None,
-        metageneration,
-    };
-    let entries = |kind, entries: &[AclEntry]| {
+    let entries = |owner, entries: &[AclEntry]| {
         entries
             .iter()
-            .map(|entry| acl_entry_resource(base_url, owner(kind), entry))
+            .map(|entry| acl_entry_resource(base_url, owner, entry))
             .collect::<Vec<_>>()
     };
-    resource["acl"] = entries(AclKind::Bucket, acl).into();
-    resource["defaultObjectAcl"] = entries(AclKind::DefaultObject, default_object_acl).into();
+    let bucket_owner = AclOwner::Bucket {
+        bucket: &bucket,
+        metageneration,
+    };
+    let default_owner = AclOwner::DefaultObject { metageneration };
+    resource["acl"] = entries(bucket_owner, acl).into();
+    resource["defaultObjectAcl"] = entries(default_owner, default_object_acl).into();
     resource["owner"] = json!({"entity": Entity::project_team(ProjectTeam::Owners, project)});
 }
 
@@ -391,10 +516,10 @@ pub(crate) fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &
     ) else {
         return;
     };
-    let owner = AclOwner {
-        kind: AclKind::Object,
+    let owner = AclOwner::Object {
         bucket: &bucket,
-        object: Some((&name, generation)),
+        name: &name,
+        generation,
         metageneration,
     };
     resource["acl"] = acl
@@ -453,7 +578,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(request.target, AclTarget::Bucket("bucket".into()));
-        assert_eq!(request.operation, AclOperation::Update("allUsers".into()));
+        assert_eq!(
+            request.operation,
+            AclOperation::Write(AclWrite::Update("allUsers".into()))
+        );
         let request = route(
             Method::GET,
             "/storage/v1/b/bucket/defaultObjectAcl?ifMetagenerationMatch=3&ifMetagenerationNotMatch=2",
@@ -486,6 +614,20 @@ mod tests {
             request.operation,
             AclOperation::Delete("user-liz@example.com".into())
         );
+        // A get matches the decoded path text against stored entities, so one of no valid form
+        // is routed as it is and later reads as not found.
+        let request = route(Method::GET, "/storage/v1/b/bucket/acl/not%20an%20entity")
+            .unwrap()
+            .unwrap();
+        assert_eq!(request.operation, AclOperation::Get("not an entity".into()));
+        assert!(!request.operation.accepts_body());
+        assert_eq!(request.operation.access(), AclAccess::Read);
+        let request = route(Method::POST, "/storage/v1/b/bucket/o/x/acl")
+            .unwrap()
+            .unwrap();
+        assert_eq!(request.operation, AclOperation::Write(AclWrite::Insert));
+        assert!(request.operation.accepts_body());
+        assert_eq!(request.operation.access(), AclAccess::Write);
         for (method, path) in [
             (Method::POST, "/storage/v1/b/bucket/acl/allUsers"),
             (Method::HEAD, "/storage/v1/b/bucket/acl"),
@@ -542,7 +684,7 @@ mod tests {
 
     #[test]
     fn bodies_require_entity_and_role_per_operation() {
-        let insert = AclOperation::Insert;
+        let insert = AclWrite::Insert;
         assert_eq!(
             parse_acl_body(
                 br#"{"entity":"allUsers","role":"READER","kind":"ignored","etag":"x"}"#,
@@ -554,7 +696,7 @@ mod tests {
                 role: Some(crate::acl::AclRole::Reader)
             })
         );
-        let patch = AclOperation::Patch("allUsers".into());
+        let patch = AclWrite::Patch("allUsers".into());
         assert_eq!(
             parse_acl_body(b"{}", AclKind::Object, &patch),
             Ok(AclBody {
@@ -562,7 +704,7 @@ mod tests {
                 role: None
             })
         );
-        let update = AclOperation::Update("allUsers".into());
+        let update = AclWrite::Update("allUsers".into());
         for (body, kind, operation, reason) in [
             (&b"[]"[..], AclKind::Bucket, &insert, "invalid"),
             (b"{", AclKind::Bucket, &insert, "invalid"),
@@ -617,7 +759,7 @@ mod tests {
             parse_acl_body(
                 br#"{"role":"READER"}"#,
                 AclKind::Bucket,
-                &AclOperation::Update("bad".into())
+                &AclWrite::Update("bad".into())
             )
             .is_err()
         );
@@ -629,10 +771,8 @@ mod tests {
             entity: entity.parse().unwrap(),
             role: crate::acl::AclRole::Owner,
         };
-        let bucket = AclOwner {
-            kind: AclKind::Bucket,
+        let bucket = AclOwner::Bucket {
             bucket: "bucket",
-            object: None,
             metageneration: 1,
         };
         assert_eq!(
@@ -644,10 +784,10 @@ mod tests {
                 "projectTeam": {"projectNumber": "123", "team": "owners"}, "etag": "CAE="
             })
         );
-        let object = AclOwner {
-            kind: AclKind::Object,
+        let object = AclOwner::Object {
             bucket: "bucket",
-            object: Some(("dir/a b", 1_700_000_000_000_000)),
+            name: "dir/a b",
+            generation: 1_700_000_000_000_000,
             metageneration: 2,
         };
         assert_eq!(
@@ -661,10 +801,7 @@ mod tests {
                 "etag": "CICA+cDBxIIDEAI="
             })
         );
-        let default = AclOwner {
-            kind: AclKind::DefaultObject,
-            bucket: "bucket",
-            object: None,
+        let default = AclOwner::DefaultObject {
             metageneration: 300,
         };
         assert_eq!(

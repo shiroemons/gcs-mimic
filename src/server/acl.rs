@@ -5,22 +5,16 @@ use super::{JsonCache, State, authorize_bucket, empty_response, json_response_se
 use crate::{
     acl::{AclKind, AclTarget},
     auth::{self, Caller},
+    bucket::{BucketAccess, BucketConditions},
     json::{
         self, JsonError,
-        acl::{AclOperation, AclOwner, AclRequest},
+        acl::{AclAccess, AclOperation, AclOwner, AclRequest},
     },
     storage::{AclChange, AclError, AclProjection, AclState},
 };
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
 use serde_json::Value;
-
-/// Whether an ACL request reads or changes the ACL.
-#[derive(Clone, Copy)]
-enum AclAccess {
-    Read,
-    Write,
-}
 
 fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
     match (kind, access) {
@@ -73,50 +67,18 @@ fn entity_not_found(entity: &str, project_number: &str) -> JsonError {
     )
 }
 
-fn owner<'a>(target: &'a AclTarget, state: &'a AclState) -> AclOwner<'a> {
-    AclOwner {
-        kind: target.kind(),
-        bucket: target.bucket(),
-        object: state
-            .object
-            .as_ref()
-            .map(|(name, generation)| (name.as_str(), *generation)),
-        metageneration: state.metageneration,
-    }
-}
-
-fn read_resource(
-    base: &str,
+/// The ACL a list or get reads, with its errors in the read's wording.
+async fn read(
+    state: &State,
     target: &AclTarget,
-    acl: &AclState,
-    operation: &AclOperation,
-) -> Result<Value, JsonError> {
-    if let AclOperation::Get(entity) = operation {
-        let entry = acl
-            .entries
-            .iter()
-            .find(|entry| entry.entity.as_str() == entity)
-            .ok_or_else(|| {
-                acl_error(
-                    AclError::EntityNotFound {
-                        entity: entity.clone(),
-                        project_number: acl.project_number.clone(),
-                    },
-                    AclAccess::Read,
-                )
-            })?;
-        Ok(json::acl::acl_entry_resource(
-            base,
-            owner(target, acl),
-            entry,
-        ))
-    } else {
-        Ok(json::acl::acl_list_resource(
-            base,
-            owner(target, acl),
-            &acl.entries,
-        ))
-    }
+    conditions: BucketConditions,
+    access: &BucketAccess,
+) -> Result<AclState, JsonError> {
+    state
+        .catalog
+        .read_acl(target.clone(), conditions, access)
+        .await
+        .map_err(|error| naming_object(acl_error(error, AclAccess::Read), target))
 }
 
 pub(super) async fn respond(
@@ -132,10 +94,7 @@ pub(super) async fn respond(
         conditions,
         fields,
     } = operation;
-    let acl_access = match operation {
-        AclOperation::List | AclOperation::Get(_) => AclAccess::Read,
-        _ => AclAccess::Write,
-    };
+    let acl_access = operation.access();
     let access = authorize_bucket(
         state,
         caller,
@@ -143,11 +102,7 @@ pub(super) async fn respond(
         target.bucket(),
     )
     .await?;
-    let mutation = matches!(
-        operation,
-        AclOperation::Insert | AclOperation::Patch(_) | AclOperation::Update(_)
-    );
-    if !mutation
+    if !operation.accepts_body()
         && (request.headers().contains_key("transfer-encoding")
             || request
                 .headers()
@@ -160,17 +115,30 @@ pub(super) async fn respond(
     }
     let mut etag = None;
     let mut value = match &operation {
-        AclOperation::List | AclOperation::Get(_) => {
-            let acl = state
-                .catalog
-                .read_acl(target.clone(), conditions, &access)
-                .await
-                .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
-            etag = Some(json::revision_etag(
-                acl.object.as_ref().map(|(_, generation)| *generation),
-                acl.metageneration,
-            ));
-            read_resource(base, &target, &acl, &operation)?
+        AclOperation::List => {
+            let acl = read(state, &target, conditions, &access).await?;
+            let owner = AclOwner::of(&acl.target, acl.metageneration);
+            etag = Some(owner.etag());
+            json::acl::acl_list_resource(base, owner, &acl.entries)
+        }
+        AclOperation::Get(entity) => {
+            let acl = read(state, &target, conditions, &access).await?;
+            let owner = AclOwner::of(&acl.target, acl.metageneration);
+            etag = Some(owner.etag());
+            let entry = acl
+                .entries
+                .iter()
+                .find(|entry| entry.entity.as_str() == entity)
+                .ok_or_else(|| {
+                    acl_error(
+                        AclError::EntityNotFound {
+                            entity: entity.clone(),
+                            project_number: acl.project_number.clone(),
+                        },
+                        AclAccess::Read,
+                    )
+                })?;
+            json::acl::acl_entry_resource(base, owner, entry)
         }
         AclOperation::Delete(entity) => {
             let (acl, _) = state
@@ -185,19 +153,14 @@ pub(super) async fn respond(
                 .await
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             let mut response = empty_response(StatusCode::NO_CONTENT);
-            if let Ok(etag) = json::revision_etag(
-                acl.object.as_ref().map(|(_, generation)| *generation),
-                acl.metageneration,
-            )
-            .parse()
-            {
+            if let Ok(etag) = AclOwner::of(&acl.target, acl.metageneration).etag().parse() {
                 response.headers_mut().insert("etag", etag);
             }
             return Ok(response);
         }
-        AclOperation::Insert | AclOperation::Patch(_) | AclOperation::Update(_) => {
+        AclOperation::Write(write) => {
             let bytes = json::read_body(request.into_body(), super::RESOURCE_BODY_LIMIT).await?;
-            let body = json::acl::parse_acl_body(&bytes, target.kind(), &operation)?;
+            let body = json::acl::parse_acl_body(&bytes, target.kind(), write)?;
             let (acl, entry) = state
                 .catalog
                 .change_acl(
@@ -213,7 +176,11 @@ pub(super) async fn respond(
             // The catalog returns the entry that every upsert writes.
             let entry = entry
                 .ok_or_else(|| JsonError::service_unavailable("ACL change returned no entry"))?;
-            json::acl::acl_entry_resource(base, owner(&target, &acl), &entry)
+            json::acl::acl_entry_resource(
+                base,
+                AclOwner::of(&acl.target, acl.metageneration),
+                &entry,
+            )
         }
     };
     let mut response = json_response_selected(&mut value, &fields, JsonCache::Unrecorded);

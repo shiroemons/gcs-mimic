@@ -36,20 +36,21 @@ impl AclKind {
     }
 }
 
-/// The resource whose ACL an operation reads or changes.
+/// The resource whose ACL an operation reads or changes. A request names an object generation
+/// as `Option<i64>`, where `None` selects the live one; the state a read returns names the
+/// generation it selected.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AclTarget {
+pub(crate) enum AclTarget<G = Option<i64>> {
     Bucket(String),
     DefaultObject(String),
     Object {
         bucket: String,
         name: String,
-        /// `None` selects the live generation.
-        generation: Option<i64>,
+        generation: G,
     },
 }
 
-impl AclTarget {
+impl<G> AclTarget<G> {
     pub(crate) fn kind(&self) -> AclKind {
         match self {
             Self::Bucket(_) => AclKind::Bucket,

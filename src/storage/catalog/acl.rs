@@ -154,8 +154,8 @@ pub(super) fn publish_object_acl(
 pub(crate) struct AclState {
     pub entries: Vec<AclEntry>,
     pub metageneration: i64,
-    /// Selected object name and generation for object ACLs.
-    pub object: Option<(String, i64)>,
+    /// The target, with the object generation the read or change selected.
+    pub target: AclTarget<i64>,
     /// The number of the owning project, as ACL entity names spell it.
     pub project_number: String,
 }
@@ -315,6 +315,13 @@ impl BucketScope {
         match self {
             Self::Bucket => AclKind::Bucket,
             Self::DefaultObject => AclKind::DefaultObject,
+        }
+    }
+
+    fn target<G>(self, bucket: &str) -> AclTarget<G> {
+        match self {
+            Self::Bucket => AclTarget::Bucket(bucket.to_owned()),
+            Self::DefaultObject => AclTarget::DefaultObject(bucket.to_owned()),
         }
     }
 }
@@ -727,7 +734,11 @@ fn load(
             let state = AclState {
                 entries,
                 metageneration: record.metageneration,
-                object: Some((record.name.clone(), record.generation)),
+                target: AclTarget::Object {
+                    bucket: bucket.to_owned(),
+                    name: record.name.clone(),
+                    generation: record.generation,
+                },
                 project_number: crate::acl::project_number(&row.project),
             };
             Ok((state, Loaded::Object(Box::new(record))))
@@ -751,7 +762,7 @@ fn load_bucket(
     let state = AclState {
         entries,
         metageneration: row.metageneration,
-        object: None,
+        target: scope.target(bucket),
         project_number: crate::acl::project_number(&row.project),
     };
     Ok((state, Loaded::Bucket(scope)))

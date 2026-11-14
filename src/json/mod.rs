@@ -88,6 +88,7 @@ pub(crate) use object_metadata::{
 };
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
+#[cfg(test)]
 pub(crate) use objects::revision_etag;
 #[cfg(test)]
 pub(crate) use objects::route_object;
