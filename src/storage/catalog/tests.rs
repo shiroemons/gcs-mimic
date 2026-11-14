@@ -713,6 +713,53 @@ async fn stored_bucket_location_outside_the_table_is_corruption() {
     catalog.close().await.unwrap();
 }
 
+/// Every release stored an enabled configuration with a terminal class and its update time, and
+/// a disabled one with neither, so any other shape, or a class Autoclass cannot use, is a
+/// corrupt catalog rather than a configuration to report.
+#[tokio::test]
+async fn stored_autoclass_that_disagrees_with_its_state_is_corruption() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+        .await
+        .unwrap();
+    let time = r#"{"secs_since_epoch":1700000000,"nanos_since_epoch":0}"#;
+    for (enabled, class, update_time) in [
+        ("true", "null", time),
+        ("true", r#""NEARLINE""#, "null"),
+        ("false", r#""NEARLINE""#, "null"),
+        ("false", "null", time),
+        ("true", r#""COLDLINE""#, time),
+    ] {
+        let stored = format!(
+            r#"{{"enabled":{enabled},"toggle_time":{time},"terminal_storage_class":{class},"terminal_storage_class_update_time":{update_time}}}"#
+        );
+        catalog
+            .run(move |connection| {
+                sql::exec(
+                    connection,
+                    "UPDATE buckets SET autoclass = ?1 WHERE name = 'bucket'",
+                    [&stored],
+                )?;
+                Ok::<_, CatalogError>(())
+            })
+            .await
+            .unwrap();
+        let error = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap_err();
+        assert!(matches!(error, CatalogError::Corrupt(_)), "{error:?}");
+        let error = catalog
+            .run(|connection| objects::BucketPublication::load(connection, "bucket").map(drop))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, crate::object::ObjectError::Corrupt(_)),
+            "{error:?}"
+        );
+    }
+    catalog.close().await.unwrap();
+}
+
 /// Bucket writes bind `bucket_parameters!` in `bucket_columns!` order, so each parameter must
 /// name the column at its position.
 #[test]

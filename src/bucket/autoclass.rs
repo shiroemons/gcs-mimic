@@ -20,12 +20,62 @@ const REENABLE_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// Stored configuration. A disabled configuration is kept so `toggleTime` records when
 /// Autoclass was turned off; buckets that never enabled Autoclass have no configuration.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "StoredAutoclass")]
 pub(crate) struct Autoclass {
     pub enabled: bool,
     pub toggle_time: SystemTime,
     pub terminal_storage_class: Option<String>,
     pub terminal_storage_class_update_time: Option<SystemTime>,
 }
+
+/// The catalog column's JSON shape, field for field the derive of `Autoclass`.
+#[derive(serde::Deserialize)]
+struct StoredAutoclass {
+    enabled: bool,
+    toggle_time: SystemTime,
+    terminal_storage_class: Option<String>,
+    terminal_storage_class_update_time: Option<SystemTime>,
+}
+
+/// Every writer stores an enabled configuration with a terminal class Autoclass accepts and its
+/// update time, and a disabled one with neither, so a stored value of another shape is corrupt.
+impl TryFrom<StoredAutoclass> for Autoclass {
+    type Error = InconsistentAutoclass;
+
+    fn try_from(stored: StoredAutoclass) -> Result<Self, InconsistentAutoclass> {
+        let consistent = match (
+            stored.enabled,
+            stored.terminal_storage_class.as_deref(),
+            stored.terminal_storage_class_update_time,
+        ) {
+            (true, Some(class), Some(_)) => validate_terminal_storage_class(class).is_ok(),
+            (false, None, None) => true,
+            (true, None, _) | (true, _, None) | (false, Some(_), _) | (false, _, Some(_)) => false,
+        };
+        if !consistent {
+            return Err(InconsistentAutoclass);
+        }
+        Ok(Self {
+            enabled: stored.enabled,
+            toggle_time: stored.toggle_time,
+            terminal_storage_class: stored.terminal_storage_class,
+            terminal_storage_class_update_time: stored.terminal_storage_class_update_time,
+        })
+    }
+}
+
+/// A stored configuration whose enablement disagrees with its terminal class fields, or whose
+/// terminal class Autoclass does not accept.
+#[derive(Debug)]
+pub(crate) struct InconsistentAutoclass;
+
+impl std::fmt::Display for InconsistentAutoclass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("stored autoclass enablement disagrees with its terminal storage class")
+    }
+}
+
+impl std::error::Error for InconsistentAutoclass {}
 
 /// A requested change. `None` fields keep the current value under patch semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

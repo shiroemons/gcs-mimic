@@ -287,8 +287,8 @@ async fn autoclass_rejects_transition_configuration_without_changing_objects_or_
         record.autoclass = Some(crate::bucket::autoclass::Autoclass {
             enabled: true,
             toggle_time: clock.now(),
-            terminal_storage_class: None,
-            terminal_storage_class_update_time: None,
+            terminal_storage_class: Some("NEARLINE".into()),
+            terminal_storage_class_update_time: Some(clock.now()),
         });
         record.lifecycle = vec![incompatible.clone()];
         assert!(catalog.insert_bucket(record.clone()).await.is_err());
