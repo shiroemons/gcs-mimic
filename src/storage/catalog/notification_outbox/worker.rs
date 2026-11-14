@@ -17,7 +17,11 @@ impl Catalog {
         &self,
         config: &crate::config::Config,
     ) -> Result<(), CatalogError> {
-        let runtime = config.notification_runtime().map_err(unavailable)?;
+        // Validation rejects these settings first, so only a configuration built in code fails
+        // here; it keeps the I/O classification startup has always given it.
+        let runtime = config
+            .notification_runtime()
+            .map_err(|error| unavailable(io::Error::new(io::ErrorKind::InvalidInput, error)))?;
         self.configure_notifications(&runtime).await?;
         if let Some(endpoint) = runtime.endpoint {
             self.start_notification_publisher(endpoint)?;

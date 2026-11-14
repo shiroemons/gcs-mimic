@@ -424,7 +424,7 @@ impl Default for Config {
             event_pubsub_topic: String::new(),
             event_bucket: String::new(),
             event_object_prefix: String::new(),
-            event_list: "finalize".into(),
+            event_list: notifications::DEFAULT_EVENT_LIST.into(),
             xml_virtual_host_domains: VirtualHostDomains::default(),
             max_connections: 1024,
             max_grpc_streams: DEFAULT_MAX_GRPC_STREAMS,
