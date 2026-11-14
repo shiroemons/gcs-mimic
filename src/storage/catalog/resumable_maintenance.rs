@@ -220,7 +220,7 @@ impl Catalog {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
             if changed == 1 {
-                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [blob_id])?;
+                super::objects::journal_deletion(&transaction, &blob_id)?;
             }
             transaction.commit()?;
             Ok(changed)

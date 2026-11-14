@@ -11,6 +11,33 @@ pub(in crate::storage::catalog) fn blob_referenced(
     )
 }
 
+/// Journals `id` for deletion. Ignoring a duplicate is right here: the blob may already be
+/// journaled by an earlier retirement in the same transaction or by a retried cleanup.
+pub(in crate::storage::catalog) fn journal_deletion(
+    connection: &Connection,
+    id: &BlobId,
+) -> rusqlite::Result<()> {
+    sql::exec(
+        connection,
+        "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
+        [id],
+    )?;
+    Ok(())
+}
+
+/// Journals a blob nothing else can have journaled; a duplicate is a catalog inconsistency.
+pub(in crate::storage::catalog) fn journal_new_deletion(
+    connection: &Connection,
+    id: &BlobId,
+) -> rusqlite::Result<()> {
+    sql::exec(
+        connection,
+        "INSERT INTO pending_blob_deletions VALUES (?1)",
+        [id],
+    )?;
+    Ok(())
+}
+
 pub(super) const JOURNAL_CONFLICT: &str = "SELECT pending.blob_id FROM pending_blob_deletions AS pending JOIN objects ON objects.blob_id = pending.blob_id ORDER BY pending.blob_id LIMIT 1";
 
 /// Journal rows one reclamation handles between its catalog transactions.
@@ -131,11 +158,7 @@ impl Catalog {
                 if blob_referenced(connection, &id)? {
                     return Ok(Journaled::NOTHING);
                 }
-                sql::exec(
-                    connection,
-                    "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
-                    [id],
-                )?;
+                journal_deletion(connection, &id)?;
                 Ok(Journaled::SOME)
             })
             .await?;
@@ -272,11 +295,7 @@ mod tests {
         let live = catalog
             .run_upload::<_, ObjectError>(|connection| {
                 let id = lookup(connection, "bucket", "live")?.unwrap().blob;
-                sql::exec(
-                    connection,
-                    "INSERT INTO pending_blob_deletions VALUES (?1)",
-                    [id],
-                )?;
+                journal_new_deletion(connection, &id)?;
                 Ok(id)
             })
             .await

@@ -130,13 +130,16 @@ pub(crate) use publication::Versioning;
 pub(super) use publication::{
     BucketPublication, DeletePermission, GenerationAssignment, NewVersion, PublicationDefaults,
     PublicationTime, PublishedVersion, RequestKind, Retired, Retirement, acl_update_error,
-    publish_in_transaction, publish_version, retention_expiration,
+    last_generation, next_generation, publish_in_transaction, publish_version,
+    retention_expiration,
 };
 use publication::{RetirementContext, retire_previous};
 pub(crate) use reader::ObjectReader;
 pub(super) use reader::ReaderData;
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
-pub(super) use reclaim::{Journaled, StagedBlob, blob_referenced, reclaim};
+pub(super) use reclaim::{
+    Journaled, StagedBlob, blob_referenced, journal_deletion, journal_new_deletion, reclaim,
+};
 pub(super) use recovery::recover;
 pub(super) use schema::{GENERATION_SCHEMA, METADATA_SCHEMA, SCHEMA, VERSIONING_SCHEMA, migrate};
 pub(super) use upload::{

@@ -147,11 +147,7 @@ impl Catalog {
             },
         )?;
         sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [&id])?;
-        sql::exec(
-            connection,
-            "INSERT INTO pending_blob_deletions VALUES (?1)",
-            [&id],
-        )?;
+        objects::journal_new_deletion(connection, &id)?;
         sql::exec(
             connection,
             "INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1",

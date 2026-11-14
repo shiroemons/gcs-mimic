@@ -14,8 +14,8 @@
 use super::{
     Catalog,
     objects::{
-        ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions, lookup,
-        object_unavailable, unlink,
+        ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions, journal_deletion,
+        last_generation, lookup, next_generation, object_unavailable, unlink,
     },
     resumable::{ResumableOptions, decode_options, encode_new_options},
     system_time_micros, unix_micros,
@@ -814,11 +814,7 @@ fn unreference(
 ) -> Result<Unreferenced, ObjectError> {
     match backend {
         crate::config::Backend::Memory => {
-            sql::exec(
-                connection,
-                "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
-                [id],
-            )?;
+            journal_deletion(connection, id)?;
             Ok(Unreferenced::Journaled)
         }
         crate::config::Backend::Disk => Ok(Unreferenced::DiskFile(*id)),
@@ -959,11 +955,7 @@ impl Catalog {
             }
             let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now())?;
-            let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])?;
-            let generation = micros.max(
-                last.checked_add(1)
-                    .ok_or_else(|| object_unavailable("generation exhausted"))?,
-            );
+            let generation = next_generation(last_generation(&transaction)?, micros)?;
             sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])?;
             let encoded = encode_new_options(&transaction, &bucket, &options)?;
             sql::exec(&transaction,

@@ -330,7 +330,7 @@ impl Catalog {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason])?;
             if changed == 1 {
-                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id])?;
+                objects::journal_deletion(&transaction, &blob_id)?;
             }
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommit).map_err(object_unavailable)?;

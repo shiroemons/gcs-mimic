@@ -272,6 +272,29 @@ pub(in crate::storage::catalog) enum GenerationAssignment {
     Imported(super::super::admin::Generation),
 }
 
+/// The highest object generation the catalog has handed out, imported generations included.
+pub(in crate::storage::catalog) fn last_generation(
+    connection: &Connection,
+) -> rusqlite::Result<i64> {
+    sql::scalar(
+        connection,
+        "SELECT last_generation FROM object_generation WHERE singleton = 1",
+        [],
+    )
+}
+
+/// The generation an automatically numbered version written at `micros` receives: its write time,
+/// unless an earlier version already took that number or a later one.
+pub(in crate::storage::catalog) fn next_generation(
+    last: i64,
+    micros: i64,
+) -> Result<i64, ObjectError> {
+    let after_last = last
+        .checked_add(1)
+        .ok_or_else(|| object_unavailable("generation exhausted"))?;
+    Ok(micros.max(after_last))
+}
+
 /// A version a publication wrote, what it did to the version it replaced, and what the
 /// preparation produced alongside the record.
 pub(in crate::storage::catalog) struct PublishedVersion<T> {
@@ -312,16 +335,9 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         owner_profile,
         acl,
     } = version;
-    let last: i64 = sql::scalar(
-        transaction,
-        "SELECT last_generation FROM object_generation WHERE singleton = 1",
-        [],
-    )?;
+    let last = last_generation(transaction)?;
     let generation = match assignment {
-        GenerationAssignment::Automatic => micros.max(
-            last.checked_add(1)
-                .ok_or_else(|| object_unavailable("generation exhausted"))?,
-        ),
+        GenerationAssignment::Automatic => next_generation(last, micros)?,
         GenerationAssignment::Imported(generation) => generation.get(),
     };
     let (mut record, prepared) = prepare(generation)?;
@@ -507,11 +523,7 @@ pub(super) fn retire_previous(
             }
             None => {
                 sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
-                sql::exec(
-                    connection,
-                    "INSERT INTO pending_blob_deletions VALUES (?1)",
-                    [id],
-                )?;
+                journal_new_deletion(connection, id)?;
                 Ok(Retired::Journaled)
             }
         },

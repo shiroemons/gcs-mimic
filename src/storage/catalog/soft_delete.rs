@@ -49,12 +49,8 @@ pub(super) fn purge_expired(
     )?.query_map(params![bucket, now], |row| row.get::<_, crate::storage::BlobId>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let removed = ids.len();
-    for id in ids {
-        sql::exec(
-            &transaction,
-            "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
-            [id],
-        )?;
+    for id in &ids {
+        objects::journal_deletion(&transaction, id)?;
     }
     #[cfg(test)]
     super::fault::hit(

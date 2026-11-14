@@ -55,8 +55,15 @@ pub(super) fn notify_on_write<T, E>(
     result
 }
 
+/// How many records the journal retains; a cursor older than that needs a rescan. A literal
+/// macro, so the trimming statements spell the same number with `concat!`.
+macro_rules! journal_capacity {
+    () => {
+        65536
+    };
+}
 #[cfg(test)]
-pub(crate) const MAX_RECORDS: i64 = 65_536;
+pub(crate) const MAX_RECORDS: i64 = journal_capacity!();
 pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE change_journal_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -209,7 +216,11 @@ fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: JournalSeq) 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     sql::validate(
         connection,
-        "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= 65536 AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state",
+        concat!(
+            "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= ",
+            journal_capacity!(),
+            " AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state"
+        ),
         "invalid change journal state",
     )
 }
@@ -279,12 +290,20 @@ pub(super) fn append(
     // Each append evicts at most one record, even inside a larger mutation batch.
     sql::exec(
         connection,
-        "DELETE FROM change_journal WHERE sequence <= (SELECT sequence - 65536 FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)",
+        concat!(
+            "DELETE FROM change_journal WHERE sequence <= (SELECT sequence - ",
+            journal_capacity!(),
+            " FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)"
+        ),
         [],
     )?;
     sql::exec(
         connection,
-        "UPDATE change_journal_state SET floor = max(floor, sequence - 65536) WHERE singleton = 1",
+        concat!(
+            "UPDATE change_journal_state SET floor = max(floor, sequence - ",
+            journal_capacity!(),
+            ") WHERE singleton = 1"
+        ),
         [],
     )?;
     Ok(())

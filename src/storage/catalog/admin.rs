@@ -320,7 +320,17 @@ impl From<FsError> for AdminError {
         }
     }
 }
+/// How long a caller turned away by full admin admission waits before trying again.
+const BUSY_RETRY_AFTER: Duration = Duration::from_secs(1);
+
 impl AdminError {
+    /// Admin admission did not open before the caller's deadline.
+    pub(crate) const fn busy() -> Self {
+        Self::Busy {
+            retry_after: BUSY_RETRY_AFTER,
+        }
+    }
+
     /// Wraps a failure outside the catalog's own classification, keeping it as the source.
     pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Backend(BackendCause::from_error(error))
@@ -466,17 +476,15 @@ impl Catalog {
             return Err(AdminError::Closed);
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            });
+            return Err(AdminError::busy());
         }
         tokio::select! {
             biased;
             _ = shutdown => Err(AdminError::Closed),
             result = tokio::time::timeout_at(deadline, slots.acquire_owned()) => {
-                let permit = result.map_err(|_| AdminError::Busy { retry_after: Duration::from_secs(1) })?.map_err(|_| AdminError::Closed)?;
+                let permit = result.map_err(|_| AdminError::busy())?.map_err(|_| AdminError::Closed)?;
                 if !self.is_healthy() { return Err(AdminError::Closed); }
-                if tokio::time::Instant::now() >= deadline { return Err(AdminError::Busy { retry_after: Duration::from_secs(1) }); }
+                if tokio::time::Instant::now() >= deadline { return Err(AdminError::busy()); }
                 Ok(permit)
             }
         }

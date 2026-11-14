@@ -1,4 +1,19 @@
+use super::open::{ADMIN_READS, ADMIN_UPLOADS, PUBLICATION_REQUESTS, STAGED_HANDLES};
 use super::*;
+use tokio::sync::OwnedSemaphorePermit;
+
+/// Waits until every one of `semaphore`'s `permits` is back, so no holder is still working, and
+/// keeps them so no new holder starts.
+async fn drain(
+    semaphore: &Arc<Semaphore>,
+    permits: u32,
+) -> Result<OwnedSemaphorePermit, CatalogError> {
+    semaphore
+        .clone()
+        .acquire_many_owned(permits)
+        .await
+        .map_err(unavailable)
+}
 
 impl Catalog {
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
@@ -15,41 +30,12 @@ impl Catalog {
         self.0.admin_shutdown.notify_waiters();
         self.0.notification_wake.notify_one();
         self.0.maintenance_wake.notify_one();
-        let _notification_attempt = self
-            .0
-            .notification_attempts
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(unavailable)?;
-        let _publication_requests = self
-            .0
-            .publication_requests
-            .clone()
-            .acquire_many_owned(2)
-            .await
-            .map_err(unavailable)?;
-        let _staged_handles = self
-            .0
-            .staged_handles
-            .clone()
-            .acquire_many_owned(256)
-            .await
-            .map_err(unavailable)?;
-        let _admin_uploads = self
-            .0
-            .admin_uploads
-            .clone()
-            .acquire_many_owned(2)
-            .await
-            .map_err(unavailable)?;
-        let _admin_reads = self
-            .0
-            .admin_reads
-            .clone()
-            .acquire_many_owned(32)
-            .await
-            .map_err(unavailable)?;
+        let _notification_attempt = drain(&self.0.notification_attempts, 1).await?;
+        let _publication_requests =
+            drain(&self.0.publication_requests, PUBLICATION_REQUESTS).await?;
+        let _staged_handles = drain(&self.0.staged_handles, STAGED_HANDLES).await?;
+        let _admin_uploads = drain(&self.0.admin_uploads, ADMIN_UPLOADS).await?;
+        let _admin_reads = drain(&self.0.admin_reads, ADMIN_READS).await?;
         loop {
             let idle = self.0.uploads_idle.notified();
             tokio::pin!(idle);
@@ -66,25 +52,13 @@ impl Catalog {
             }
             idle.await;
         }
-        let _reclamation = self
-            .0
-            .reclamation
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(unavailable)?;
+        let _reclamation = drain(&self.0.reclamation, 1).await?;
         if let Some(pool) = &self.0.read_pool {
             pool.close().await;
         }
         // Remaining handles must not keep the blobs open: ownership of the directory ends here.
         self.0.read_cache.invalidate();
-        let execution = self
-            .0
-            .execution
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(unavailable)?;
+        let execution = drain(&self.0.execution, 1).await?;
         let inner = self.0.clone();
         let closed = self
             .0

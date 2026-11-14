@@ -150,6 +150,14 @@ const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 pub(super) const CATALOG_SCHEMA_VERSION: i64 = 53;
+/// Matches `length(CAST(.. AS BLOB)) <= 65536` on the session, rewrite, notification, appendable,
+/// upload replay and multipart documents (schema versions 7, 11, 28, 34, 35 and 37). Those
+/// schema texts are frozen history: raising this needs a migration such as
+/// `policies::RAISED_BINDINGS_SCHEMA`.
+const MAX_STORED_DOCUMENT_BYTES: usize = 65_536;
+/// Matches `CHECK(deadline = created + 604800000)` on resumable sessions and multipart uploads
+/// (schema versions 7 and 37), whose deadlines are seven days after creation.
+const SESSION_LIFETIME_MILLIS: i64 = 604_800_000;
 // A literal macro lets per-request queries build static SQL with concat!, which
 // the connection's prepared statement cache reuses without formatting.
 macro_rules! bucket_columns {

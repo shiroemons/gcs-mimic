@@ -16,11 +16,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
 #[cfg(test)]
 use std::path::PathBuf;
-use std::{
-    borrow::Cow,
-    fmt,
-    time::{Duration, SystemTime},
-};
+use std::{borrow::Cow, fmt, time::SystemTime};
 
 mod admission;
 #[cfg(test)]
@@ -32,7 +28,6 @@ pub(super) use admission::open;
 pub(super) use writers::WriterGuard;
 use writers::{KeyOrigin, WriterKey};
 
-pub(crate) const SESSION_LIFETIME: Duration = Duration::from_secs(604800);
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_incarnations (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
     incarnation TEXT NOT NULL UNIQUE CHECK(length(incarnation) = 32)
@@ -287,7 +282,7 @@ fn stage_session(
         .ok_or(ObjectError::BucketNotFound)?;
     let created = UnixMillis::try_from(now)?;
     let deadline = created
-        .checked_add_millis(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
+        .checked_add_millis(super::SESSION_LIFETIME_MILLIS)
         .ok_or_else(|| unavailable("upload deadline overflow"))?;
     let encoded = encode_new_options(transaction, &request.bucket, &request.options)?;
     let total = request
@@ -568,7 +563,10 @@ impl Catalog {
             .map(encode_options)
             .transpose()?
             .map(|options| options.to_string());
-        if encoded.as_ref().is_some_and(|v| v.len() > 65536) {
+        if encoded
+            .as_ref()
+            .is_some_and(|v| v.len() > super::MAX_STORED_DOCUMENT_BYTES)
+        {
             return Err(ResumableError::Invalid(
                 "Upload options exceed 64 KiB".into(),
             ));

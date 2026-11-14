@@ -184,9 +184,7 @@ impl Catalog {
     ) -> Result<Activity, AdminError> {
         tokio::time::timeout_at(deadline, self.await_activity(work))
             .await
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?
+            .map_err(|_| AdminError::busy())?
             .map_err(AdminError::from)
     }
 

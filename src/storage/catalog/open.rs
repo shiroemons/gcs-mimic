@@ -7,6 +7,17 @@ use super::*;
 /// statements cost on the order of a megabyte, bounded by this one connection.
 const STATEMENT_CACHE_CAPACITY: usize = 256;
 
+// Capacities of the admission semaphores that `close` drains: it waits for every permit, so the
+// two sides must agree on the count.
+/// Concurrent emulator-only admin uploads.
+pub(super) const ADMIN_UPLOADS: u32 = 2;
+/// Concurrent emulator-only admin reads.
+pub(super) const ADMIN_READS: u32 = 32;
+/// Staged object handles an admin publication may hold open at once.
+pub(super) const STAGED_HANDLES: u32 = 256;
+/// Concurrent admin publication requests.
+pub(super) const PUBLICATION_REQUESTS: u32 = 2;
+
 /// Where a catalog keeps its data, decided once at open.
 pub(super) enum Backing {
     /// A data directory. `resume` is an unfinished import's source digest, verified under the
@@ -422,12 +433,12 @@ impl Catalog {
                 reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Mutex::new(UploadState::default()),
                 uploads_idle: Notify::new(),
-                admin_uploads: Arc::new(Semaphore::new(2)),
-                admin_reads: Arc::new(Semaphore::new(32)),
-                staged_handles: Arc::new(Semaphore::new(256)),
+                admin_uploads: Arc::new(Semaphore::new(ADMIN_UPLOADS as usize)),
+                admin_reads: Arc::new(Semaphore::new(ADMIN_READS as usize)),
+                staged_handles: Arc::new(Semaphore::new(STAGED_HANDLES as usize)),
                 publication_batch: Arc::new(Semaphore::new(1)),
                 seed_commit: Arc::new(Semaphore::new(1)),
-                publication_requests: Arc::new(Semaphore::new(2)),
+                publication_requests: Arc::new(Semaphore::new(PUBLICATION_REQUESTS as usize)),
                 writeback_execution: Arc::new(Semaphore::new(1)),
                 file_workers: admin::FileWorkers::new()?,
                 admin_shutdown: Notify::new(),

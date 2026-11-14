@@ -195,11 +195,7 @@ pub(super) fn discard_transfer(
         .map(|source| source.id)
         .collect();
     if !objects::blob_referenced(&transaction, id)? {
-        sql::exec(
-            &transaction,
-            "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",
-            [id],
-        )?;
+        objects::journal_deletion(&transaction, id)?;
     }
     sql::exec(
         &transaction,

@@ -60,7 +60,7 @@ pub(super) struct CopySource {
 /// How many completions a retry can get back. This is a window over recent uploads, not a quota:
 /// a full table makes room by dropping its oldest record, see [`make_room`].
 const CAPACITY: i64 = 4096;
-const LIFETIME_MICROS: i64 = 600_000_000;
+pub(super) const LIFETIME_MICROS: i64 = 600_000_000;
 pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
     token BLOB PRIMARY KEY CHECK(length(token) = 32),
     request BLOB NOT NULL CHECK(length(request) = 32),
@@ -372,7 +372,7 @@ impl UploadReplay {
             source,
         })
         .map_err(objects::object_unavailable)?;
-        if completion.len() > 65536 {
+        if completion.len() > super::MAX_STORED_DOCUMENT_BYTES {
             return Err(ObjectError::InvalidMetadata);
         }
         let deadline = now

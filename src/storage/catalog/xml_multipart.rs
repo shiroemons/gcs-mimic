@@ -49,7 +49,6 @@ pub(crate) const MAX_PARTS: usize = 10_000;
 const MAX_PART_NUMBER: u16 = 10_000;
 pub(crate) const MAX_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_PART_BYTES: u64 = 5 * 1024 * 1024;
-const LIFETIME_MILLIS: i64 = 604_800_000;
 
 pub(crate) struct Options {
     pub content_type: String,
@@ -239,7 +238,7 @@ impl Catalog {
         };
         let now = UnixMillis::try_from(self.0.clock.now())?;
         let deadline = now
-            .checked_add_millis(LIFETIME_MILLIS)
+            .checked_add_millis(super::SESSION_LIFETIME_MILLIS)
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
             .run(move |connection| {
@@ -256,7 +255,7 @@ impl Catalog {
                 }
                 let encoded =
                     resumable::encode_new_options(&transaction, &target.bucket, &options)?;
-                if encoded.len() > 65536 {
+                if encoded.len() > super::MAX_STORED_DOCUMENT_BYTES {
                     return Err(ObjectError::TooLarge);
                 }
                 let incarnation = bucket_incarnation(&transaction, &target.bucket)?;

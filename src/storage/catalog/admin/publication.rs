@@ -750,9 +750,7 @@ async fn run_batch(
         // Accepted batches retain ownership through shutdown; only new admission is closed.
         tokio::time::timeout_at(deadline, catalog.0.execution.clone().acquire_owned())
             .await
-            .map_err(|_| AdminError::Busy {
-                retry_after: Duration::from_secs(1),
-            })?
+            .map_err(|_| AdminError::busy())?
             .map_err(|_| AdminError::Closed)
     }
     .await;

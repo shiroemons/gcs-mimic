@@ -2,6 +2,54 @@ use super::*;
 use crate::object::{MapPatch, WriteMode};
 use crate::storage::test_fixtures::PERMISSIVE;
 
+/// The Rust limits name the numbers the frozen schema checks; a new catalog's schema must
+/// still carry each one.
+#[tokio::test]
+async fn stored_document_limits_match_their_checks() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let schemas = catalog
+        .run::<_, CatalogError>(|connection| {
+            let mut statement =
+                connection.prepare("SELECT name, sql FROM sqlite_schema WHERE type = 'table'")?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<std::collections::BTreeMap<_, _>>>()?;
+            Ok(rows)
+        })
+        .await
+        .unwrap();
+    let document =
+        |column: &str| format!("length(CAST({column} AS BLOB)) <= {MAX_STORED_DOCUMENT_BYTES}");
+    for (table, column) in [
+        ("resumable_sessions", "options"),
+        ("resumable_sessions", "completion"),
+        ("rewrite_sessions", "response"),
+        ("bucket_notifications", "config"),
+        ("appendable_objects", "options"),
+        ("upload_replays", "completion"),
+        ("xml_multipart_uploads", "options"),
+    ] {
+        assert!(
+            schemas[table].contains(&document(column)),
+            "{table}.{column}"
+        );
+    }
+    for (table, lifetime) in [
+        ("resumable_sessions", SESSION_LIFETIME_MILLIS),
+        ("xml_multipart_uploads", SESSION_LIFETIME_MILLIS),
+        ("upload_replays", upload_replay::LIFETIME_MICROS),
+    ] {
+        assert!(
+            schemas[table].contains(&format!("deadline = created + {lifetime}")),
+            "{table}"
+        );
+    }
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn unknown_catalog_classes_fail_bucket_and_object_read_paths() {
     use crate::object::{ObjectError, UploadChunk};

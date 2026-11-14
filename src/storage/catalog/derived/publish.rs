@@ -80,11 +80,7 @@ where
         .transpose()?
         .flatten();
     let (record, completion) = if let Some(record) = cached {
-        sql::exec(
-            &transaction,
-            "INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)",
-            [id],
-        )?;
+        objects::journal_new_deletion(&transaction, &id)?;
         (record, None)
     } else {
         let (record, completion) = publish_destination(

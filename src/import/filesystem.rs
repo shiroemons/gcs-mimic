@@ -797,10 +797,7 @@ async fn publish(
                 for entry in batch.unattempted {
                     entry.publication.staged.discard().await?;
                 }
-                return Err(AdminError::Busy {
-                    retry_after: Duration::from_secs(1),
-                }
-                .into());
+                return Err(AdminError::busy().into());
             }
             batch.results.pop().ok_or_else(|| {
                 invalid("import publication returned no result; inspect journal before retrying")
@@ -942,13 +939,7 @@ mod error_tests {
         for (error, expected) in [
             (AdminError::Hold.into(), true),
             (AdminError::Invalid("invalid metadata".into()).into(), true),
-            (
-                AdminError::Busy {
-                    retry_after: Duration::from_secs(1),
-                }
-                .into(),
-                false,
-            ),
+            (AdminError::busy().into(), false),
             (
                 AdminError::SourceChanged {
                     fields: vec!["inode".into(), "ctime_ns".into()],
