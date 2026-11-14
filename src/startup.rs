@@ -819,17 +819,25 @@ fn admin_seed_advice(error: &AdminError) -> SeedAdvice {
             }))
         }
         AdminError::SeedProjectMismatch => SeedAdvice::Reason("belongs to another project"),
+        // The catalog enforces these limits while it publishes; each names the setting to raise.
+        AdminError::SeedMetadataBudget { mib } => SeedAdvice::Complete(
+            format!(
+                "seed import: fixture metadata exceeds {mib} MiB; raise max_seed_entries or reduce the tree."
+            )
+            .into(),
+        ),
+        AdminError::TooLarge => SeedAdvice::Complete(Cow::Borrowed(
+            "seed import: a fixture file exceeds max_object_bytes; raise max_object_bytes or use a smaller file.",
+        )),
         AdminError::Busy { .. }
         | AdminError::Closed
         | AdminError::Precondition
-        | AdminError::SeedMetadataBudget { .. }
         | AdminError::SourceChanged { .. }
         | AdminError::Corrupt(_)
         | AdminError::Io(_)
         | AdminError::NotFound
         | AdminError::Invalid(_)
         | AdminError::Checksum
-        | AdminError::TooLarge
         | AdminError::Forbidden
         | AdminError::BodyAborted(_)
         | AdminError::Backend(_) => SeedAdvice::Reason(UNREADABLE_FIXTURE),
@@ -1028,6 +1036,26 @@ mod tests {
             matches!(error.source().unwrap().downcast_ref::<SeedError>(), Some(SeedError::Io(cause)) if cause.kind() == io::ErrorKind::PermissionDenied)
         );
         assert!(error.source().unwrap().source().is_none());
+    }
+
+    #[test]
+    fn seed_limits_the_catalog_enforces_name_the_setting_to_raise() {
+        for (error, message) in [
+            (
+                AdminError::SeedMetadataBudget { mib: 4 },
+                "seed import: fixture metadata exceeds 4 MiB; raise max_seed_entries or reduce the tree.",
+            ),
+            (
+                AdminError::TooLarge,
+                "seed import: a fixture file exceeds max_object_bytes; raise max_object_bytes or use a smaller file.",
+            ),
+        ] {
+            let error = SeedError::Import(Box::new(SeedError::Entry {
+                label: "fixture".into(),
+                source: Box::new(SeedError::Admin(error)),
+            }));
+            assert_eq!(seed_failure(&error), message);
+        }
     }
 
     #[test]
