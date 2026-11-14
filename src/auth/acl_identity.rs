@@ -138,8 +138,8 @@ mod tests {
         ] {
             let policy = crate::auth::Policy {
                 bindings: vec![crate::auth::Binding {
-                    role: "roles/storage.objectViewer".into(),
-                    members: vec![member.into()],
+                    role: "roles/storage.objectViewer".parse().unwrap(),
+                    members: vec![member.parse().unwrap()],
                 }],
                 etag: None,
             };
@@ -192,8 +192,8 @@ mod tests {
         for member in ["user:admin@example.test", "serviceAccount:local:admin-user"] {
             let policy = crate::auth::Policy {
                 bindings: vec![crate::auth::Binding {
-                    role: "roles/storage.objectViewer".into(),
-                    members: vec![member.into()],
+                    role: "roles/storage.objectViewer".parse().unwrap(),
+                    members: vec![member.parse().unwrap()],
                 }],
                 etag: None,
             };

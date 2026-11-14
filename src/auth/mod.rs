@@ -26,7 +26,7 @@ mod signing_keys;
 use signing_keys::SigningKeys;
 pub mod test_signer;
 pub(crate) use policy::PublicAccess;
-pub(crate) use policy::{Binding, Policy};
+pub(crate) use policy::{Binding, Member, MemberRef, Policy};
 pub(crate) use roles::Role;
 
 use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting, TrustedCaller};

@@ -7,8 +7,8 @@
 use super::{Collected, Members, Reason, array, closed_with, error, members, path, value};
 use crate::{
     auth::{
-        Binding, Policy,
-        policy_input::{self, PolicyInput, PolicyInputError},
+        Policy,
+        policy_input::{self, BindingInput, PolicyInput, PolicyInputError},
     },
     diagnostics::{DiagnosticSource, Diagnostics},
 };
@@ -41,7 +41,7 @@ impl IamPolicy {
             bindings: self
                 .bindings
                 .into_iter()
-                .map(|binding| Binding {
+                .map(|binding| BindingInput {
                     role: binding.role,
                     members: binding.members,
                 })
@@ -172,8 +172,8 @@ pub(super) fn check_values(
 }
 
 fn check_role(role: &Value, key: &str, diagnostics: &mut Collected) {
-    let (reason, fix) = match role.as_str().map(policy_input::validate_role) {
-        Some(Ok(())) => return,
+    let (reason, fix) = match role.as_str().map(policy_input::parse_role) {
+        Some(Ok(_)) => return,
         Some(Err(PolicyInputError::UnsupportedInput(_))) => (
             Reason::Unsupported,
             "Basic and custom roles are unsupported; use a predefined Cloud Storage role, for example \"role\":\"roles/storage.objectViewer\".",
@@ -202,8 +202,8 @@ fn check_members(
         return Ok(0);
     };
     for (index, raw) in items.iter().enumerate() {
-        let (reason, fix) = match value(raw)?.as_str().map(policy_input::validate_member) {
-            Some(Ok(())) => continue,
+        let (reason, fix) = match value(raw)?.as_str().map(policy_input::parse_member) {
+            Some(Ok(_)) => continue,
             Some(Err(PolicyInputError::UnsupportedInput(_))) => (
                 Reason::Unsupported,
                 "Groups, domains, deleted and federated principals are unsupported; use allUsers, allAuthenticatedUsers, user:EMAIL, serviceAccount:EMAIL or projectViewer:PROJECT.",

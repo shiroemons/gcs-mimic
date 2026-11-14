@@ -38,8 +38,8 @@ fn overlapping_legacy_roles_keep_the_highest_grant_in_both_orders() {
             bindings: roles
                 .iter()
                 .map(|role| Binding {
-                    role: (*role).into(),
-                    members: vec!["allUsers".into()],
+                    role: (*role).parse().unwrap(),
+                    members: vec!["allUsers".parse().unwrap()],
                 })
                 .collect(),
             etag: None,
@@ -79,8 +79,8 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
             let transaction = connection.transaction().unwrap();
             let mut policy = Policy {
                 bindings: vec![Binding {
-                    role: "roles/storage.legacyBucketWriter".into(),
-                    members: vec!["user:reader".into()],
+                    role: "roles/storage.legacyBucketWriter".parse().unwrap(),
+                    members: vec!["user:reader".parse().unwrap()],
                 }],
                 etag: None,
             };
@@ -110,11 +110,14 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
             ));
             // Reconciliation must also preserve snapshot grants outside modeled operations.
             assert!(union.bindings.iter().any(|binding| {
-                binding.members.contains(&"user:reader".to_owned())
-                    && binding.role.parse::<Role>().is_ok_and(|role| {
-                        role.permissions()
-                            .contains(&"storage.managedFolders.update")
-                    })
+                binding
+                    .members
+                    .iter()
+                    .any(|member| member.as_str() == "user:reader")
+                    && binding
+                        .role
+                        .permissions()
+                        .contains(&"storage.managedFolders.update")
             }));
             let owner = Role::LegacyBucketOwner.permissions();
             for permission in Role::LegacyBucketWriter.permissions() {
@@ -124,13 +127,13 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
                 union
                     .bindings
                     .iter()
-                    .any(|binding| binding.role == "roles/storage.legacyBucketWriter")
+                    .any(|binding| binding.role == Role::LegacyBucketWriter)
             );
             assert!(
                 union
                     .bindings
                     .iter()
-                    .any(|binding| binding.role == "roles/storage.legacyBucketOwner")
+                    .any(|binding| binding.role == Role::LegacyBucketOwner)
             );
             transaction.commit().unwrap();
             Ok(())
@@ -229,9 +232,13 @@ async fn stored_policies_are_refused_as_client_errors_past_their_bounds() {
             let transaction = connection.transaction().unwrap();
             let members = |count: usize, length: usize| Policy {
                 bindings: vec![Binding {
-                    role: "roles/storage.objectViewer".into(),
+                    role: "roles/storage.objectViewer".parse().unwrap(),
                     members: (0..count)
-                        .map(|index| format!("user:{index:04}{}", "x".repeat(length)))
+                        .map(|index| {
+                            format!("user:{index:04}{}", "x".repeat(length))
+                                .parse()
+                                .unwrap()
+                        })
                         .collect(),
                 }],
                 etag: None,

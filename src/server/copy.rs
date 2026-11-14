@@ -546,8 +546,8 @@ mod tests {
                 "bucket",
                 Policy {
                     bindings: vec![Binding {
-                        role: "roles/storage.objectViewer".into(),
-                        members: vec!["user:reader".into()],
+                        role: "roles/storage.objectViewer".parse().unwrap(),
+                        members: vec!["user:reader".parse().unwrap()],
                     }],
                     etag: None,
                 },

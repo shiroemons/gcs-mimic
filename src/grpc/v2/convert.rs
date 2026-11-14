@@ -1,6 +1,7 @@
-use super::pb;
+use super::{iam, pb};
 use crate::{
     acl::{AclEntry, AclKind},
+    auth,
     bucket::{
         BucketRecord, CatalogError,
         autoclass::AutoclassState,
@@ -438,6 +439,31 @@ pub(crate) fn object_acl(
             acl
         })
         .collect()
+}
+
+/// A stored binding as IAM reports it; conditions are not supported, so none is stored.
+impl From<auth::Binding> for iam::Binding {
+    fn from(binding: auth::Binding) -> Self {
+        Self {
+            role: binding.role.as_str().into(),
+            members: binding
+                .members
+                .into_iter()
+                .map(auth::Member::into_string)
+                .collect(),
+            condition: None,
+        }
+    }
+}
+
+/// A requested binding, before the shared policy rules validate it.
+impl From<iam::Binding> for auth::policy_input::BindingInput {
+    fn from(binding: iam::Binding) -> Self {
+        Self {
+            role: binding.role,
+            members: binding.members,
+        }
+    }
 }
 
 #[cfg(test)]

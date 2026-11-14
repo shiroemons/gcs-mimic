@@ -299,8 +299,8 @@ async fn bucket_metadata_rechecks_revocation(mode: WriteMode) {
             "patch-policy",
             Policy {
                 bindings: vec![Binding {
-                    role: "roles/storage.admin".into(),
-                    members: vec!["allUsers".into()],
+                    role: "roles/storage.admin".parse().unwrap(),
+                    members: vec!["allUsers".parse().unwrap()],
                 }],
                 etag: None,
             },

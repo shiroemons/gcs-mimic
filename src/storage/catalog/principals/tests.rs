@@ -77,7 +77,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
     bucket(&catalog, "second-bucket", "project").await;
     let before = catalog.run::<_, CatalogError>(|connection| {
         let transaction = connection.transaction().unwrap();
-        let mut policy = crate::auth::Policy { bindings:vec![crate::auth::Binding { role:"roles/storage.legacyBucketReader".into(), members:vec!["user:local:reader-user".into()] }],etag:None };
+        let mut policy = crate::auth::Policy { bindings:vec![crate::auth::Binding { role:"roles/storage.legacyBucketReader".parse().unwrap(), members:vec!["user:local:reader-user".parse().unwrap()] }],etag:None };
         crate::storage::catalog::policies::store_policy(&transaction, "first-bucket", &mut policy).unwrap();
         for (name, entity) in [("first-bucket", "user-reader@example.test"), ("second-bucket", "user-invalid-id")] {
             transaction.execute("INSERT INTO acl_bucket_entries(bucket,scope,entries) VALUES(?1,'bucket',?2)", params![name, json!([{"entity":entity,"role":"READER"}]).to_string()]).unwrap();
@@ -183,7 +183,7 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
             .bindings
             .iter()
             .flat_map(|binding| &binding.members)
-            .all(|member| member.ends_with(":another-project"))
+            .all(|member| member.as_str().ends_with(":another-project"))
     );
     catalog.close().await.unwrap();
 }

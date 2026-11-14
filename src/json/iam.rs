@@ -1,7 +1,7 @@
 use super::{BucketRequest, Fields, JsonError, Schema, objects::base64, query};
 use crate::auth::{
     Binding, Policy, Role,
-    policy_input::{self, PolicyInput, PolicyInputError},
+    policy_input::{self, PolicyInputError},
 };
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
@@ -113,15 +113,13 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Policy must be an object"))?;
-    let version = match body.get("version") {
-        None => 0,
-        Some(value) => match value.as_i64() {
-            Some(0) => 0,
-            Some(1) => 1,
-            Some(3) => 3,
-            _ => return Err(invalid("Policy version must be 0, 1 or 3")),
-        },
-    };
+    // The version is only checked: a stored policy keeps none.
+    if body
+        .get("version")
+        .is_some_and(|value| !matches!(value.as_i64(), Some(0 | 1 | 3)))
+    {
+        return Err(invalid("Policy version must be 0, 1 or 3"));
+    }
     if body.contains_key("auditConfigs") {
         return Err(JsonError::unsupported("auditConfigs"));
     }
@@ -153,7 +151,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                 .get("role")
                 .and_then(Value::as_str)
                 .ok_or_else(|| invalid("binding role must be a string"))?;
-            policy_input::validate_role(role)?;
+            let role = policy_input::parse_role(role)?;
             // A binding without members grants nothing, and Cloud Storage dropped it from the
             // stored policy without complaint (recorded 2026-10-31).
             let values = binding
@@ -171,24 +169,15 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                     let member = value
                         .as_str()
                         .ok_or_else(|| invalid("member must be a string"))?;
-                    policy_input::validate_member(member)?;
-                    Ok(member.to_owned())
+                    Ok(policy_input::parse_member(member)?)
                 })
                 .collect::<Result<_, JsonError>>()?;
-            bindings.push(Binding {
-                role: role.into(),
-                members,
-            });
+            bindings.push(Binding { role, members });
         }
     }
-    // Validate while parsing too, so mixed shape/semantic errors retain their JSON precedence.
-    PolicyInput {
-        version,
-        bindings,
-        etag,
-    }
-    .into_policy()
-    .map_err(Into::into)
+    // Roles and members are validated while the body is read, so mixed shape and semantic
+    // errors keep their JSON precedence.
+    Ok(Policy::normalized(bindings, etag))
 }
 
 fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {

@@ -2792,8 +2792,11 @@ mod tests {
             entries[0].policy,
             Some(Policy {
                 bindings: vec![crate::auth::Binding {
-                    role: "roles/storage.objectViewer".into(),
-                    members: vec!["allUsers".into(), "user:reader@example.invalid".into()],
+                    role: "roles/storage.objectViewer".parse().unwrap(),
+                    members: vec![
+                        "allUsers".parse().unwrap(),
+                        "user:reader@example.invalid".parse().unwrap()
+                    ],
                 }],
                 etag: None,
             })

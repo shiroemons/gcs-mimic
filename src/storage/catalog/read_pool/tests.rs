@@ -453,8 +453,8 @@ async fn publicly_readable(catalog: &Catalog) -> bool {
 async fn set_members(catalog: &Catalog, role: &str, member: &str) {
     let mut policy = catalog.get_policy("bucket", PERMISSIVE).await.unwrap();
     policy.bindings.push(Binding {
-        role: role.into(),
-        members: vec![member.into()],
+        role: role.parse().unwrap(),
+        members: vec![member.parse().unwrap()],
     });
     catalog
         .set_policy("bucket", policy, PERMISSIVE)

@@ -9,7 +9,7 @@ use crate::{
         AclKind, AclRole, Entity, EntityRef, parse_entity, project_number, project_private,
         validate_entries,
     },
-    auth::{Binding, Policy, Role},
+    auth::{Binding, Member, MemberRef, Policy, Role},
     storage::catalog::{policies, principals::Profile, unavailable},
 };
 use rusqlite::{Connection, params};
@@ -18,68 +18,53 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
-/// The bucket ACL role a binding's legacy bucket role stands for.
-fn acl_role(role: &str) -> Option<AclRole> {
-    role.parse::<Role>()
-        .ok()
-        .and_then(AclRole::from_bucket_iam_role)
-}
-
-fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> Option<Entity> {
-    match member {
-        "allUsers" => return Some(Entity::all_users()),
-        "allAuthenticatedUsers" => return Some(Entity::all_authenticated_users()),
-        _ => {}
-    }
-    let (kind, id) = member.split_once(':')?;
-    if matches!(kind, "user" | "serviceAccount") {
-        if let Some(principals) = principals {
-            return principals.canonical_acl_entity(id);
-        }
-        return Entity::from_user_id(id);
-    }
-    let entity = match kind {
-        "group" => format!("group-{id}"),
-        "domain" => format!("domain-{id}"),
-        "projectOwner" | "projectEditor" | "projectViewer" => {
-            let team = match kind {
-                "projectOwner" => "owners",
-                "projectEditor" => "editors",
-                _ => "viewers",
+/// The ACL entity a member names, if it forms one within the size cap.
+fn member_entity(member: &Member, project: &str, principals: Option<&Profile>) -> Option<Entity> {
+    let entity = match member.parsed() {
+        MemberRef::AllUsers => return Some(Entity::all_users()),
+        MemberRef::AllAuthenticatedUsers => return Some(Entity::all_authenticated_users()),
+        MemberRef::User(id) | MemberRef::ServiceAccount(id) => {
+            return match principals {
+                Some(principals) => principals.canonical_acl_entity(id),
+                None => Entity::from_user_id(id),
             };
+        }
+        MemberRef::Group(id) => format!("group-{id}"),
+        MemberRef::Domain(id) => format!("domain-{id}"),
+        MemberRef::Project { team, project: id } => {
             let number = if id == project {
                 project_number(project)
             } else {
                 id.into()
             };
-            format!("project-{team}-{number}")
+            format!("project-{}-{number}", team.as_str())
         }
-        _ => return None,
     };
     parse_entity(&entity).ok()
 }
 
-fn iam_member(entity: &Entity, project: &str) -> String {
-    match entity.parsed() {
-        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => entity.as_str().into(),
-        EntityRef::UserEmail(id) | EntityRef::UserId(id) => format!("user:{id}"),
-        EntityRef::GroupEmail(id) | EntityRef::GroupId(id) => format!("group:{id}"),
-        EntityRef::Domain(domain) => format!("domain:{domain}"),
-        EntityRef::ProjectTeam { team, project: id } => {
-            let id = if id == project_number(project) {
+fn iam_member(entity: &Entity, project: &str) -> Member {
+    Member::from(match entity.parsed() {
+        EntityRef::AllUsers => MemberRef::AllUsers,
+        EntityRef::AllAuthenticatedUsers => MemberRef::AllAuthenticatedUsers,
+        EntityRef::UserEmail(id) | EntityRef::UserId(id) => MemberRef::User(id),
+        EntityRef::GroupEmail(id) | EntityRef::GroupId(id) => MemberRef::Group(id),
+        EntityRef::Domain(domain) => MemberRef::Domain(domain),
+        EntityRef::ProjectTeam { team, project: id } => MemberRef::Project {
+            team,
+            project: if id == project_number(project) {
                 project
             } else {
                 id
-            };
-            format!("{}:{id}", team.member_kind())
-        }
-    }
+            },
+        },
+    })
 }
 
 fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) -> Vec<AclEntry> {
     let mut entries: BTreeMap<Entity, AclRole> = BTreeMap::new();
     for binding in &policy.bindings {
-        let Some(role) = acl_role(&binding.role) else {
+        let Some(role) = AclRole::from_bucket_iam_role(binding.role) else {
             continue;
         };
         for member in &binding.members {
@@ -117,14 +102,14 @@ fn merge_stored_grants(
     for entry in entries {
         let role = entry.role.bucket_iam_role();
         let present = policy.bindings.iter().any(|binding| {
-            binding.role == role.as_str()
+            binding.role == role
                 && binding.members.iter().any(|member| {
                     member_entity(member, project, principals).as_ref() == Some(&entry.entity)
                 })
         });
         if !present {
             policy.bindings.push(Binding {
-                role: role.as_str().into(),
+                role,
                 members: vec![iam_member(&entry.entity, project)],
             });
             changed = true;
@@ -168,9 +153,9 @@ pub(super) fn replace_policy(
         }
         return mark_bound(connection, bucket);
     }
-    let mut members: BTreeMap<Entity, Vec<String>> = BTreeMap::new();
+    let mut members: BTreeMap<Entity, Vec<Member>> = BTreeMap::new();
     for binding in &mut policy.bindings {
-        if acl_role(&binding.role).is_some() {
+        if AclRole::from_bucket_iam_role(binding.role).is_some() {
             binding.members.retain(|member| {
                 let Some(entity) = member_entity(member, &row.project, principals) else {
                     return true;
@@ -187,7 +172,7 @@ pub(super) fn replace_policy(
         .bindings
         .retain(|binding| !binding.members.is_empty());
     // Role order is name order, so bindings are appended in the order the names sort.
-    let mut bindings: BTreeMap<Role, Vec<String>> = BTreeMap::new();
+    let mut bindings: BTreeMap<Role, Vec<Member>> = BTreeMap::new();
     for entry in entries {
         if !changed.contains(&entry.entity) {
             continue;
@@ -213,13 +198,10 @@ pub(super) fn replace_policy(
             !policy
                 .bindings
                 .iter()
-                .any(|binding| binding.role == role.as_str() && binding.members.contains(member))
+                .any(|binding| binding.role == role && binding.members.contains(member))
         });
         if !members.is_empty() {
-            policy.bindings.push(Binding {
-                role: role.as_str().into(),
-                members,
-            });
+            policy.bindings.push(Binding { role, members });
         }
     }
     policies::store_policy(connection, bucket, &mut policy)?;

@@ -1,14 +1,22 @@
-use super::{Binding, Policy, Role, roles::GrantLevel};
-use std::{
-    collections::{BTreeSet, HashMap},
-    fmt,
+use super::{
+    Binding, Policy, Role,
+    policy::{Member, MemberRef},
+    roles::GrantLevel,
 };
+use crate::acl::ProjectTeam;
+use std::fmt;
 
 /// Adapter-decoded policy fields, before shared semantic validation.
 pub(crate) struct PolicyInput {
     pub version: i32,
-    pub bindings: Vec<Binding>,
+    pub bindings: Vec<BindingInput>,
     pub etag: Option<String>,
+}
+
+/// One binding as an adapter decoded it, before validation.
+pub(crate) struct BindingInput {
+    pub role: String,
+    pub members: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -37,48 +45,24 @@ impl PolicyInput {
             ));
         }
         let mut count = 0;
-        for binding in &self.bindings {
-            validate_role(&binding.role)?;
+        let mut bindings = Vec::with_capacity(self.bindings.len());
+        for binding in self.bindings {
+            let role = parse_role(&binding.role)?;
             count += binding.members.len();
             validate_principal_count(count)?;
-            for member in &binding.members {
-                validate_member(member)?;
-            }
+            let members = binding
+                .members
+                .iter()
+                .map(|member| parse_member(member))
+                .collect::<Result<_, _>>()?;
+            bindings.push(Binding { role, members });
         }
-        Ok(Policy {
-            bindings: normalized(self.bindings),
-            etag: self.etag,
-        })
+        Ok(Policy::normalized(bindings, self.etag))
     }
 }
 
-/// The bindings Cloud Storage stores for a policy (recorded 2026-11): bindings of one role merge
-/// into the first one's position, members are sorted and de-duplicated, and a binding without
-/// members is dropped.
-fn normalized(bindings: Vec<Binding>) -> Vec<Binding> {
-    let mut positions: HashMap<String, usize> = HashMap::new();
-    let mut roles: Vec<(String, BTreeSet<String>)> = Vec::with_capacity(bindings.len());
-    for binding in bindings {
-        if let Some(&position) = positions.get(&binding.role)
-            && let Some((_, members)) = roles.get_mut(position)
-        {
-            members.extend(binding.members);
-        } else {
-            positions.insert(binding.role.clone(), roles.len());
-            roles.push((binding.role, binding.members.into_iter().collect()));
-        }
-    }
-    roles
-        .into_iter()
-        .filter(|(_, members)| !members.is_empty())
-        .map(|(role, members)| Binding {
-            role,
-            members: members.into_iter().collect(),
-        })
-        .collect()
-}
-
-pub(crate) fn validate_role(role: &str) -> Result<(), PolicyInputError> {
+/// A role a bucket policy may grant.
+pub(crate) fn parse_role(role: &str) -> Result<Role, PolicyInputError> {
     if matches!(role, "roles/owner" | "roles/editor" | "roles/viewer") || custom_role(role) {
         return Err(PolicyInputError::UnsupportedInput(
             "basic or custom role".into(),
@@ -94,7 +78,7 @@ pub(crate) fn validate_role(role: &str) -> Result<(), PolicyInputError> {
             "Role cannot be granted on a bucket".into(),
         ));
     }
-    Ok(())
+    Ok(parsed)
 }
 
 pub(crate) fn validate_principal_count(count: usize) -> Result<(), PolicyInputError> {
@@ -112,9 +96,12 @@ fn custom_role(role: &str) -> bool {
         if !owner.is_empty() && !name.is_empty() && role.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/._-".contains(&byte)))
 }
 
-pub(crate) fn validate_member(member: &str) -> Result<(), PolicyInputError> {
-    if matches!(member, "allUsers" | "allAuthenticatedUsers") {
-        return Ok(());
+/// A member a policy request may name.
+pub(crate) fn parse_member(member: &str) -> Result<Member, PolicyInputError> {
+    match member {
+        "allUsers" => return Ok(Member::from(MemberRef::AllUsers)),
+        "allAuthenticatedUsers" => return Ok(Member::from(MemberRef::AllAuthenticatedUsers)),
+        _ => {}
     }
     let unknown_type = || {
         PolicyInputError::InvalidInput(format!(
@@ -122,13 +109,13 @@ pub(crate) fn validate_member(member: &str) -> Result<(), PolicyInputError> {
         ))
     };
     let (kind, id) = member.split_once(':').ok_or_else(unknown_type)?;
-    if matches!(kind, "projectOwner" | "projectEditor" | "projectViewer") {
+    if let Some(team) = ProjectTeam::from_member_kind(kind) {
         return if !super::valid_project_id(id) {
             Err(PolicyInputError::InvalidInput(
                 "Invalid convenience project".into(),
             ))
         } else {
-            Ok(())
+            Ok(Member::from(MemberRef::Project { team, project: id }))
         };
     }
     if id.is_empty() || !id.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
@@ -137,7 +124,8 @@ pub(crate) fn validate_member(member: &str) -> Result<(), PolicyInputError> {
         ));
     }
     match kind {
-        "user" | "serviceAccount" if id.len() <= 254 => Ok(()),
+        "user" if id.len() <= 254 => Ok(Member::from(MemberRef::User(id))),
+        "serviceAccount" if id.len() <= 254 => Ok(Member::from(MemberRef::ServiceAccount(id))),
         "group" | "domain" | "deleted" => {
             Err(PolicyInputError::UnsupportedInput("principal kind".into()))
         }
@@ -162,10 +150,7 @@ fn convenience_members_and_json_queries_share_project_identifier_rules() {
         assert_eq!(super::valid_project_id(&project), valid);
         assert_eq!(crate::json::validate_project(&project).is_ok(), valid);
         for prefix in ["projectOwner", "projectEditor", "projectViewer"] {
-            assert_eq!(
-                validate_member(&format!("{prefix}:{project}")).is_ok(),
-                valid
-            );
+            assert_eq!(parse_member(&format!("{prefix}:{project}")).is_ok(), valid);
         }
     }
 }
@@ -178,7 +163,7 @@ mod tests {
     fn typed_policies_share_role_member_and_occurrence_validation() {
         let input = |version, role: &str, members: Vec<String>| PolicyInput {
             version,
-            bindings: vec![Binding {
+            bindings: vec![BindingInput {
                 role: role.into(),
                 members,
             }],
@@ -209,22 +194,29 @@ mod tests {
 
     #[test]
     fn policies_merge_roles_and_sort_and_deduplicate_members() {
-        let binding = |role: &str, members: &[&str]| Binding {
+        let input = |role: &str, members: &[&str]| BindingInput {
             role: role.into(),
             members: members.iter().map(|member| (*member).to_owned()).collect(),
+        };
+        let stored = |role, members: &[&str]| Binding {
+            role,
+            members: members
+                .iter()
+                .map(|member| member.parse().unwrap())
+                .collect(),
         };
         let owner = "roles/storage.legacyBucketOwner";
         let viewer = "roles/storage.objectViewer";
         let policy = PolicyInput {
             version: 1,
             bindings: vec![
-                binding(
+                input(
                     owner,
                     &["projectOwner:p", "projectEditor:p", "projectOwner:p"],
                 ),
-                binding(viewer, &["projectViewer:p"]),
-                binding("roles/storage.legacyBucketReader", &[]),
-                binding(viewer, &["projectEditor:p", "projectViewer:p"]),
+                input(viewer, &["projectViewer:p"]),
+                input("roles/storage.legacyBucketReader", &[]),
+                input(viewer, &["projectEditor:p", "projectViewer:p"]),
             ],
             etag: None,
         }
@@ -233,8 +225,11 @@ mod tests {
         assert_eq!(
             policy.bindings,
             [
-                binding(owner, &["projectEditor:p", "projectOwner:p"]),
-                binding(viewer, &["projectEditor:p", "projectViewer:p"]),
+                stored(
+                    Role::LegacyBucketOwner,
+                    &["projectEditor:p", "projectOwner:p"]
+                ),
+                stored(Role::ObjectViewer, &["projectEditor:p", "projectViewer:p"]),
             ]
         );
     }

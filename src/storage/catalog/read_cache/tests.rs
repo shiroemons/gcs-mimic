@@ -272,8 +272,8 @@ async fn a_policy_change_reaches_the_very_next_read() {
     assert!(!reader.publicly_readable);
     let mut policy = catalog.get_policy("bucket", PERMISSIVE).await.unwrap();
     policy.bindings.push(Binding {
-        role: "roles/storage.objectViewer".into(),
-        members: vec!["allUsers".into()],
+        role: "roles/storage.objectViewer".parse().unwrap(),
+        members: vec!["allUsers".parse().unwrap()],
     });
     catalog
         .set_policy("bucket", policy, PERMISSIVE)

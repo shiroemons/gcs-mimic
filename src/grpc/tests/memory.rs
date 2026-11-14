@@ -892,8 +892,8 @@ async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_v
             "memory-grpc",
             crate::auth::Policy {
                 bindings: vec![crate::auth::Binding {
-                    role: "roles/storage.objectCreator".into(),
-                    members: vec!["allUsers".into()],
+                    role: "roles/storage.objectCreator".parse().unwrap(),
+                    members: vec!["allUsers".parse().unwrap()],
                 }],
                 etag: None,
             },

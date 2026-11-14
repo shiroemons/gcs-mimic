@@ -59,15 +59,7 @@ fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&
 fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
     Ok(iam::Policy {
         version: 1,
-        bindings: policy
-            .bindings
-            .into_iter()
-            .map(|b| iam::Binding {
-                role: b.role,
-                members: b.members,
-                condition: None,
-            })
-            .collect(),
+        bindings: policy.bindings.into_iter().map(Into::into).collect(),
         etag: policy
             .etag
             .map(|v| {
@@ -595,14 +587,7 @@ impl Storage {
         };
         let p = auth::policy_input::PolicyInput {
             version: p.version,
-            bindings: p
-                .bindings
-                .into_iter()
-                .map(|binding| auth::Binding {
-                    role: binding.role,
-                    members: binding.members,
-                })
-                .collect(),
+            bindings: p.bindings.into_iter().map(Into::into).collect(),
             etag,
         }
         .into_policy()?;

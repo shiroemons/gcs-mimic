@@ -1611,8 +1611,8 @@ async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
         let current = put(&catalog, "object", b"original").await;
         let policy = Policy {
             bindings: vec![Binding {
-                role: "roles/storage.admin".into(),
-                members: vec!["allUsers".into()],
+                role: "roles/storage.admin".parse().unwrap(),
+                members: vec!["allUsers".parse().unwrap()],
             }],
             etag: None,
         };
@@ -1800,8 +1800,12 @@ async fn revoked_bucket_binding_is_rechecked_inside_operations() {
         let identity = if public { None } else { Some(identity) };
         let granted = Policy {
             bindings: vec![Binding {
-                role: "roles/storage.admin".into(),
-                members: vec![if public { "allUsers" } else { "user:local" }.into()],
+                role: "roles/storage.admin".parse().unwrap(),
+                members: vec![
+                    if public { "allUsers" } else { "user:local" }
+                        .parse()
+                        .unwrap(),
+                ],
             }],
             etag: None,
         };

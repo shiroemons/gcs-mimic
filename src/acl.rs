@@ -287,6 +287,12 @@ impl ProjectTeam {
             .into_iter()
             .find(|candidate| candidate.as_str() == team)
     }
+
+    pub(crate) fn from_member_kind(kind: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.member_kind() == kind)
+    }
 }
 
 /// What an entity names, found once when it was parsed.

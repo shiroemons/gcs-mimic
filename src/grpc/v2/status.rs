@@ -221,10 +221,10 @@ mod tests {
 
     #[test]
     fn unsupported_iam_inputs_offer_supported_policy_members() {
-        use crate::auth::policy_input::{validate_member, validate_role};
+        use crate::auth::policy_input::{parse_member, parse_role};
         for error in [
-            validate_role("roles/owner").unwrap_err(),
-            validate_member("group:team@example.invalid").unwrap_err(),
+            parse_role("roles/owner").unwrap_err(),
+            parse_member("group:team@example.invalid").unwrap_err(),
         ] {
             let status = Status::from(error);
             assert_eq!(status.code(), Code::Unimplemented);

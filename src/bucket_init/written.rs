@@ -182,13 +182,14 @@ fn retention(record: &BucketRecord) -> Option<u64> {
 }
 
 /// What a policy grants: binding order and repeated members do not change who may do what.
+/// Keyed by spelling, as the recorded entry digests hash it.
 fn grants(policy: &Policy) -> BTreeMap<&str, BTreeSet<&str>> {
     let mut grants: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
     for binding in &policy.bindings {
         grants
             .entry(binding.role.as_str())
             .or_default()
-            .extend(binding.members.iter().map(String::as_str));
+            .extend(binding.members.iter().map(crate::auth::Member::as_str));
     }
     grants
 }

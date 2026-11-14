@@ -42,8 +42,8 @@ async fn policy_bindings_migration_keeps_policies_and_lifts_the_size_check() {
         .unwrap();
     let small = Policy {
         bindings: vec![Binding {
-            role: "roles/storage.objectViewer".into(),
-            members: vec!["user:reader@example.invalid".into()],
+            role: "roles/storage.objectViewer".parse().unwrap(),
+            members: vec!["user:reader@example.invalid".parse().unwrap()],
         }],
         etag: None,
     };
@@ -73,9 +73,13 @@ async fn policy_bindings_migration_keeps_policies_and_lifts_the_size_check() {
     );
     let large = Policy {
         bindings: vec![Binding {
-            role: "roles/storage.objectViewer".into(),
+            role: "roles/storage.objectViewer".parse().unwrap(),
             members: (0..1500)
-                .map(|index| format!("user:{index:04}{}", "x".repeat(250)))
+                .map(|index| {
+                    format!("user:{index:04}{}", "x".repeat(250))
+                        .parse()
+                        .unwrap()
+                })
                 .collect(),
         }],
         etag: None,

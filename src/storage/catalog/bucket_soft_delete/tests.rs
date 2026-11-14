@@ -287,8 +287,8 @@ async fn restore_brings_back_iam_and_acl_with_a_new_policy_revision() {
             "policy",
             Policy {
                 bindings: vec![Binding {
-                    role: "roles/storage.objectViewer".into(),
-                    members: vec!["user:reader@example.test".into()],
+                    role: "roles/storage.objectViewer".parse().unwrap(),
+                    members: vec!["user:reader@example.test".parse().unwrap()],
                 }],
                 etag: None,
             },
@@ -386,8 +386,8 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
             "rebound",
             Policy {
                 bindings: vec![Binding {
-                    role: "roles/storage.legacyBucketReader".into(),
-                    members: vec!["user:local:reader".into()],
+                    role: "roles/storage.legacyBucketReader".parse().unwrap(),
+                    members: vec!["user:local:reader".parse().unwrap()],
                 }],
                 etag: None,
             },

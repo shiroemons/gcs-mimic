@@ -1387,8 +1387,8 @@ mod tests {
                     name,
                     crate::auth::Policy {
                         bindings: vec![crate::auth::Binding {
-                            role: "roles/storage.legacyBucketOwner".into(),
-                            members: vec!["allAuthenticatedUsers".into()],
+                            role: "roles/storage.legacyBucketOwner".parse().unwrap(),
+                            members: vec!["allAuthenticatedUsers".parse().unwrap()],
                         }],
                         etag: None,
                     },
@@ -1941,8 +1941,8 @@ mod tests {
                 "public-bucket",
                 crate::auth::Policy {
                     bindings: vec![crate::auth::Binding {
-                        role: "roles/storage.admin".into(),
-                        members: vec!["allUsers".into()],
+                        role: "roles/storage.admin".parse().unwrap(),
+                        members: vec!["allUsers".parse().unwrap()],
                     }],
                     etag: None,
                 },
