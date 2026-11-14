@@ -1991,6 +1991,24 @@ mod tests {
         ));
     }
 
+    /// Diagnostics for several settings come out in native setting name order, not in the order
+    /// the options were given or the settings are declared.
+    #[test]
+    fn diagnostics_follow_native_setting_names() {
+        let args: Vec<String> = ["--scheme", "bad", "--backend", "bad"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let report = Config::preflight(&args, &BTreeMap::new());
+        let keys: Vec<&str> = report
+            .diagnostics
+            .errors
+            .iter()
+            .map(|error| error.key.as_str())
+            .collect();
+        assert_eq!(keys, ["--backend", "--scheme"], "{}", report.diagnostics);
+    }
+
     #[test]
     fn trusted_allowed_hosts_need_the_listener_and_name_dns_hosts() {
         let load = |extra: &[&str]| {
