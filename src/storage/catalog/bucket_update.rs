@@ -287,7 +287,8 @@ fn validate_retention_expiration(
         return Ok(());
     };
     let latest_creation = i64::try_from(
-        253_402_300_799_999_999_i128 - i128::from(policy.retention_period) * 1_000_000,
+        i128::from(crate::clock::RFC3339_MAX_MICROS)
+            - i128::from(policy.retention_period) * 1_000_000,
     )
     .map_err(unavailable)?;
     let invalid: bool = sql::scalar(

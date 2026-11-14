@@ -368,7 +368,7 @@ fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32)
 }
 
 pub(crate) fn is_unset_time(input: &str) -> Result<bool, TimestampError> {
-    Ok(input.is_empty() || parse_timestamp(input)? == -62_135_596_800_000_000)
+    Ok(input.is_empty() || parse_timestamp(input)? == crate::clock::YEAR_ONE_MICROS)
 }
 
 #[cfg(test)]

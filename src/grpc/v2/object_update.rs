@@ -1,6 +1,7 @@
 use super::{bucket_update::acl_entries, pb, status::unsupported};
 use crate::{
     acl::AclKind,
+    clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     object::{
         MapMode, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         retention::{ObjectRetention, RetentionMode},
@@ -113,7 +114,7 @@ pub(super) fn retention(
     let invalid = || {
         Status::invalid_argument("retention.retain_until_time must be a valid protobuf timestamp")
     };
-    if !(-62_135_596_800..=253_402_300_799).contains(&time.seconds) {
+    if !(YEAR_ONE_MICROS / 1_000_000..=RFC3339_MAX_MICROS / 1_000_000).contains(&time.seconds) {
         return Err(invalid());
     }
     let nanos = u32::try_from(time.nanos).map_err(|_| invalid())?;
