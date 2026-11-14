@@ -91,7 +91,7 @@ pub(crate) async fn execute(
         source_access,
         destination,
         source_location,
-        mut replay,
+        replay,
     } = job;
     let CopyBudget {
         config,
@@ -114,9 +114,7 @@ pub(crate) async fn execute(
         .await?;
     }
     let source_record = source.object.clone();
-    if let Some(replay) = &mut replay {
-        replay.bind_source(&source_record);
-    }
+    let replay = replay.map(|replay| replay.bind_source(&source_record));
     let wait = begin_catalog_wait(activity).await;
     let transfer = tokio::time::timeout_at(
         deadline,
@@ -175,7 +173,8 @@ pub(crate) async fn execute(
             Some(deadline.min(catalog_timeout.deadline())),
             replay,
         )
-        .await;
+        .await
+        .map(|published| published.record);
     drop(wait);
     if result.is_ok() {
         owner.disarm();

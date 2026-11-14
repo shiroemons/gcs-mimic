@@ -182,7 +182,8 @@ impl Catalog {
                     |_, _| Ok(()),
                     None,
                 )
-                .await;
+                .await
+                .map(|(record, ())| record);
             drop(owner);
             if let Err(error) = catalog.drain_xml_multipart().await {
                 catalog.multipart_cleanup_failed(error);

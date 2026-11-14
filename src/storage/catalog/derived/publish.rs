@@ -23,23 +23,32 @@ struct TransferPublication<P, C> {
     backend: super::super::BlobBackend,
     clock: std::sync::Arc<dyn crate::clock::Clock>,
     principals: Option<super::super::principals::Profile>,
-    replay: Option<super::super::upload_replay::CopyReplay>,
+    replay: Option<super::super::upload_replay::BoundCopyReplay>,
     prepare: P,
     complete: C,
 }
 
-struct Published {
+struct Published<T> {
     record: ObjectRecord,
     pins: Vec<BlobId>,
+    /// What completion produced; `None` when a replay returned the stored record instead.
+    completion: Option<T>,
 }
 
-fn publish_transfer<P, C>(
+/// A published derived object, and what completion produced unless a replay returned the
+/// stored record instead.
+pub(crate) struct DerivedPublication<T> {
+    pub record: ObjectRecord,
+    pub completion: Option<T>,
+}
+
+fn publish_transfer<P, C, T>(
     connection: &mut Connection,
     request: TransferPublication<P, C>,
-) -> Result<Published, ObjectError>
+) -> Result<Published<T>, ObjectError>
 where
     P: FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError>,
-    C: FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError>,
+    C: FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError>,
 {
     let id = request.id;
     let backend = request.backend.clone();
@@ -70,22 +79,23 @@ where
         .map(|replay| replay.cached(&transaction, micros))
         .transpose()?
         .flatten();
-    let record = if let Some(record) = cached {
+    let (record, completion) = if let Some(record) = cached {
         sql::exec(
             &transaction,
             "INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)",
             [id],
         )?;
-        record
+        (record, None)
     } else {
-        publish_destination(
+        let (record, completion) = publish_destination(
             &transaction,
             request,
             &progress,
             hasher.finish(),
             now,
             micros,
-        )?
+        )?;
+        (record, Some(completion))
     };
     sql::exec(
         &transaction,
@@ -124,20 +134,21 @@ where
         } else {
             pins
         },
+        completion,
     })
 }
 
-fn publish_destination<P, C>(
+fn publish_destination<P, C, T>(
     transaction: &rusqlite::Transaction<'_>,
     request: TransferPublication<P, C>,
     progress: &DerivedTransfer,
     hashes: Hashes,
     now: std::time::SystemTime,
     micros: i64,
-) -> Result<ObjectRecord, ObjectError>
+) -> Result<(ObjectRecord, T), ObjectError>
 where
     P: FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError>,
-    C: FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError>,
+    C: FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError>,
 {
     let TransferPublication {
         id,
@@ -218,11 +229,11 @@ where
             Ok(record)
         },
     )?;
-    complete(transaction, &record)?;
+    let completion = complete(transaction, &record)?;
     if let Some(replay) = replay {
         replay.store(transaction, micros, &record)?;
     }
-    Ok(record)
+    Ok((record, completion))
 }
 
 impl DerivedDestination {
@@ -271,30 +282,38 @@ impl Catalog {
             None,
         )
         .await
+        .map(|(record, ())| record)
     }
 
     /// Adapter-derived fields must use the destination defaults selected by this transaction.
-    pub(crate) async fn publish_derived_prepared(
+    /// Completion's value, computed in the same transaction, returns with the record.
+    pub(crate) async fn publish_derived_prepared<T: Send + 'static>(
         &self,
         id: &BlobId,
         destination: DerivedDestination,
         prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError> + Send + 'static,
         admission_deadline: Option<tokio::time::Instant>,
-    ) -> Result<ObjectRecord, ObjectError> {
-        self.publish_derived_replayed(id, destination, prepare, complete, admission_deadline, None)
-            .await
+    ) -> Result<(ObjectRecord, T), ObjectError> {
+        let published = self
+            .publish_derived_replayed(id, destination, prepare, complete, admission_deadline, None)
+            .await?;
+        // Without a replay binding the publication always runs completion.
+        let completion = published
+            .completion
+            .ok_or_else(|| object_unavailable("missing derived completion"))?;
+        Ok((published.record, completion))
     }
 
-    pub(crate) async fn publish_derived_replayed(
+    pub(crate) async fn publish_derived_replayed<T: Send + 'static>(
         &self,
         id: &BlobId,
         destination: DerivedDestination,
         prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
-        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<T, ObjectError> + Send + 'static,
         admission_deadline: Option<tokio::time::Instant>,
-        replay: Option<super::super::upload_replay::CopyReplay>,
-    ) -> Result<ObjectRecord, ObjectError> {
+        replay: Option<super::super::upload_replay::BoundCopyReplay>,
+    ) -> Result<DerivedPublication<T>, ObjectError> {
         let admission = async {
             let permit = self.continue_object_upload().await?;
             let guard = self.derived_guard(id)?;
@@ -338,7 +357,7 @@ impl Catalog {
             let publication = TransferPublication { id, destination, backend, clock: catalog.0.clock.clone(), principals, replay, prepare, complete };
             let published = catalog.run_upload(move |connection| publish_transfer(connection, publication)).await?;
             catalog.release_transfer(DiscardedTransfer { id, pins: published.pins }).await;
-            Ok::<_, ObjectError>(published.record)
+            Ok::<_, ObjectError>(DerivedPublication { record: published.record, completion: published.completion })
             }.await;
             if result.is_ok() {
                 catalog.reclaim_after_commit().await;

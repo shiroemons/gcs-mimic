@@ -15,7 +15,7 @@ async fn md5_availability_survives_restart_without_component_count() {
     let (catalog, path) = setup().await;
     let original = put(&catalog, "source", b"same bytes").await;
     let transfer = ready(&catalog, "source").await;
-    let record = catalog
+    let (record, ()) = catalog
         .publish_derived_prepared(
             &transfer.id,
             destination("multipart"),
@@ -218,6 +218,40 @@ async fn failed_draft_sync_and_begin_commit_release_unreferenced_files() {
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
     }
+}
+
+/// A request guard returned by the binding schedules cleanup on a Tokio runtime when dropped, so
+/// a begin that fails after binding must drop the binding's value outside the catalog thread.
+#[tokio::test]
+async fn a_binding_of_a_failed_begin_drops_where_a_runtime_can_clean_up() {
+    struct RuntimeOnDrop(std::sync::Arc<std::sync::Mutex<Option<bool>>>);
+    impl Drop for RuntimeOnDrop {
+        fn drop(&mut self) {
+            *self.0.lock().unwrap() = Some(tokio::runtime::Handle::try_current().is_ok());
+        }
+    }
+    let (catalog, path) = setup().await;
+    put(&catalog, "source", b"bytes").await;
+    catalog.inject(
+        Step::DerivedBeginCommit,
+        0,
+        fault::Fault::Io(std::io::ErrorKind::Other),
+    );
+    let dropped = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let bound = dropped.clone();
+    let selected = source(&catalog, "source").await;
+    let result = catalog
+        .begin_derived_with_binding(
+            vec![selected.whole()],
+            5,
+            TransferKind::Continuable,
+            move |_, _| Ok(RuntimeOnDrop(bound)),
+        )
+        .await;
+    assert!(matches!(result, Err(ObjectError::Io(_))));
+    assert_eq!(*dropped.lock().unwrap(), Some(true));
+    catalog.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
 }
 
 #[tokio::test]
@@ -1020,7 +1054,7 @@ async fn request_binding_commits_or_rolls_back_with_transfer_ownership() {
             |connection, transfer| {
                 assert_eq!(inputs(connection, &transfer.id)?.len(), 1);
                 connection.execute("UPDATE startup_seed SET complete = 1", [])?;
-                Err(ObjectError::PreconditionFailed)
+                Err::<(), _>(ObjectError::PreconditionFailed)
             },
         )
         .await;
@@ -1033,7 +1067,7 @@ async fn request_binding_commits_or_rolls_back_with_transfer_ownership() {
             .unwrap()
     );
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
-    let transfer = catalog
+    let (transfer, ()) = catalog
         .begin_derived_with_binding(
             vec![source(&catalog, "source").await.whole()],
             5,

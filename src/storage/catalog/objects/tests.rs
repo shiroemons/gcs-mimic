@@ -434,8 +434,10 @@ async fn replayed_upload_keeps_its_record_when_discard_fails() {
         catalog
             .check_upload_replay(
                 "bucket",
-                "object",
-                Default::default(),
+                super::super::upload_replay::UploadCheck::Object {
+                    name: "object",
+                    conditions: Default::default(),
+                },
                 PERMISSIVE,
                 super::super::upload_replay::ReplayInvocation {
                     token: Some("retry"),

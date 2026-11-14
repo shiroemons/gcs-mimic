@@ -43,7 +43,7 @@ pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{ResumableOptions, SessionId, SessionState};
 pub(crate) use resumable_transfer::{ChunkEnd, ChunkWait, ResumableChunk};
 pub(crate) use upload_replay::UploadAclSnapshot;
-pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
+pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation, UploadCheck};
 
 pub(crate) mod lifecycle;
 mod resumable_maintenance;

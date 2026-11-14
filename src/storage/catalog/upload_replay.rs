@@ -108,6 +108,55 @@ fn hash(bytes: &[u8]) -> Result<[u8; 32], ObjectError> {
         .map_err(objects::object_unavailable)
 }
 
+/// The caller identity a replay token binds; its label and principal are hashed into the
+/// stored request.
+#[derive(Clone, Copy)]
+enum ReplayProfile<'a> {
+    Permissive,
+    StrictAnonymous,
+    StrictPrincipal(&'a str),
+}
+
+impl<'a> ReplayProfile<'a> {
+    /// `None` for administrative access, which cannot replay.
+    fn of(access: &'a BucketAccess) -> Option<Self> {
+        match access {
+            BucketAccess::Permissive => Some(Self::Permissive),
+            BucketAccess::Policy { identity: None, .. } => Some(Self::StrictAnonymous),
+            BucketAccess::Policy {
+                identity: Some(identity),
+                ..
+            } => Some(Self::StrictPrincipal(identity.id())),
+            BucketAccess::Admin(_) => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Permissive => "permissive",
+            Self::StrictAnonymous => "strict-anonymous",
+            Self::StrictPrincipal(_) => "strict-principal",
+        }
+    }
+
+    fn principal(self) -> Option<&'a str> {
+        match self {
+            Self::Permissive | Self::StrictAnonymous => None,
+            Self::StrictPrincipal(principal) => Some(principal),
+        }
+    }
+}
+
+/// The stored digest of a replayable request and the caller identity it binds.
+fn replay_request(request: &str, access: &BucketAccess) -> Result<[u8; 32], ObjectError> {
+    let profile = ReplayProfile::of(access).ok_or(ObjectError::Forbidden)?;
+    hash(
+        serde_json::to_vec(&(request, profile.label(), profile.principal()))
+            .map_err(objects::object_unavailable)?
+            .as_slice(),
+    )
+}
+
 fn invalid() -> ObjectError {
     ObjectError::InvalidFixedMetadata("Idempotency token was reused for a different upload".into())
 }
@@ -121,23 +170,33 @@ pub(super) struct UploadReplay {
     principals: Option<super::principals::Profile>,
 }
 
+/// A copy's replay binding before its source version is resolved.
 #[derive(Clone)]
 pub(crate) struct CopyReplay {
     replay: UploadReplay,
     fingerprint: [u8; 32],
     source_bucket: String,
     source_name: String,
-    source_generation: Option<i64>,
     source_incarnation: Incarnation,
     source_access: BucketAccess,
     destination_bucket: String,
     destination_access: BucketAccess,
 }
 
+/// The binding once the copy's source version is known, which is what a publication records.
+pub(crate) struct BoundCopyReplay {
+    replay: CopyReplay,
+    source_generation: i64,
+}
+
 impl CopyReplay {
-    pub(crate) fn bind_source(&mut self, source: &ObjectRecord) {
-        self.source_generation = Some(source.generation);
+    pub(crate) fn bind_source(self, source: &ObjectRecord) -> BoundCopyReplay {
+        BoundCopyReplay {
+            replay: self,
+            source_generation: source.generation,
+        }
     }
+
     pub(crate) fn acl_snapshot(&self) -> UploadAclSnapshot {
         self.replay.snapshot.clone()
     }
@@ -182,6 +241,16 @@ impl CopyReplay {
         }
         self.replay.replay(connection, now, &self.fingerprint)
     }
+}
+
+impl BoundCopyReplay {
+    pub(super) fn cached(
+        &self,
+        connection: &Connection,
+        now: i64,
+    ) -> Result<Option<ObjectRecord>, ObjectError> {
+        self.replay.cached(connection, now)
+    }
 
     pub(super) fn store(
         &self,
@@ -189,18 +258,17 @@ impl CopyReplay {
         now: i64,
         record: &ObjectRecord,
     ) -> Result<(), ObjectError> {
-        self.replay.store(
+        let copy = &self.replay;
+        copy.replay.store(
             connection,
             now,
-            &self.fingerprint,
+            &copy.fingerprint,
             record,
-            &self.destination_access,
+            &copy.destination_access,
             Some(CopySource {
-                bucket: self.source_bucket.clone(),
-                name: self.source_name.clone(),
-                generation: self
-                    .source_generation
-                    .ok_or_else(|| objects::object_unavailable("Missing copy source generation"))?,
+                bucket: copy.source_bucket.clone(),
+                name: copy.source_name.clone(),
+                generation: self.source_generation,
             }),
         )
     }
@@ -416,9 +484,9 @@ impl Catalog {
         source: CopyReplaySource<'_>,
         invocation: ReplayInvocation<'_>,
     ) -> Result<Option<CopyReplay>, ObjectError> {
-        if invocation.token.is_none() {
+        let Some(raw_token) = invocation.token else {
             return Ok(None);
-        }
+        };
         let source_bucket = source.bucket.to_owned();
         let source_name = source.name.to_owned();
         let source_requested_generation = source.generation;
@@ -426,12 +494,14 @@ impl Catalog {
         let source_query = source_bucket.clone();
         let source_object = source_name.clone();
         let source_authority = source_access.clone();
-        let token = hash(invocation.token.unwrap_or_default().as_bytes())?;
+        let token = hash(raw_token.as_bytes())?;
         let now = unix_micros(self.0.clock.now())?;
-        let (source_incarnation, source_generation): (Incarnation, Option<i64>) = self
+        let source_incarnation: Incarnation = self
             .run(move |connection| {
                 let transaction = connection.transaction()?;
-                let generation = copy_source_generation(
+                // The copy binds its source version once it resolves the source. Here the
+                // caller must be able to read the version a stored completion names.
+                copy_source_generation(
                     &transaction,
                     CopyReplaySource {
                         bucket: &source_query,
@@ -442,36 +512,29 @@ impl Catalog {
                     &token,
                     now,
                 )?;
-                let incarnation = bucket_incarnation(&transaction, &source_query)?;
-                Ok::<_, ObjectError>((incarnation, generation))
+                Ok::<_, ObjectError>(bucket_incarnation(&transaction, &source_query)?)
             })
             .await?;
         let request = serde_json::to_string(&(invocation.request, &source_incarnation))
             .map_err(objects::object_unavailable)?;
-        // No lease is held here, so an exclusive job may have started since the job above.
-        let mut permit = self.wait_object_upload().await?;
-        self.check_upload_replay(
-            bucket,
-            name,
-            conditions,
-            access,
-            ReplayInvocation {
-                token: invocation.token,
-                request: &request,
-            },
-            &mut permit,
-        )
-        .await?;
-        let replay = permit
-            .replay
-            .take()
-            .ok_or_else(|| objects::object_unavailable("Missing copy replay binding"))?;
+        // No lease is held here, so an exclusive job may have started since the job above;
+        // admission waits for it to finish.
+        let _admission = self.wait_object_upload().await?;
+        let replay = self
+            .bind_upload_replay(
+                bucket,
+                UploadCheck::Object { name, conditions },
+                access,
+                raw_token,
+                &request,
+                None,
+            )
+            .await?;
         Ok(Some(CopyReplay {
             replay,
             fingerprint: copy_fingerprint(&request)?,
             source_bucket,
             source_name,
-            source_generation,
             source_incarnation,
             source_access,
             destination_bucket: bucket.to_owned(),
@@ -496,72 +559,110 @@ impl Catalog {
     pub(crate) async fn check_upload_replay(
         &self,
         bucket: &str,
-        name: &str,
-        conditions: ObjectConditions,
+        check: UploadCheck<'_>,
         access: &BucketAccess,
         invocation: ReplayInvocation<'_>,
         permit: &mut UploadGuard,
     ) -> Result<(), ObjectError> {
         let ReplayInvocation { token, request } = invocation;
         let Some(token) = token else {
-            return self.check_upload(bucket, name, conditions, access).await;
+            return match check {
+                UploadCheck::Bucket => self.check_upload_bucket(bucket, access).await,
+                UploadCheck::Object { name, conditions } => {
+                    self.check_upload(bucket, name, conditions, access).await
+                }
+            };
         };
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
-        let access = access.clone();
-        let token = hash(token.as_bytes())?;
-        let expected_incarnation = permit.replay.as_ref().map(|r| r.incarnation);
-        let (profile, principal) = match &access {
-            BucketAccess::Permissive => ("permissive", None),
-            BucketAccess::Policy { identity: None, .. } => ("strict-anonymous", None),
-            BucketAccess::Policy {
-                identity: Some(identity),
-                ..
-            } => ("strict-principal", Some(identity.id())),
-            BucketAccess::Admin(_) => return Err(ObjectError::Forbidden),
-        };
-        let request = hash(
-            serde_json::to_vec(&(request, profile, principal))
-                .map_err(objects::object_unavailable)?
-                .as_slice(),
-        )?;
-        let clock = self.0.clock.clone();
-        let principals = self.0.principals.get().cloned();
+        let expected_incarnation = permit.replay.as_ref().map(|replay| replay.incarnation);
         let replay = self
-            .run(move |connection| {
-                let transaction = connection.transaction()?;
-                let (_, delete_permission) =
-                    objects::authorized_bucket(&transaction, &bucket, &access)?;
-                let incarnation = bucket_incarnation(&transaction, &bucket)?;
-                if expected_incarnation
-                    .as_ref()
-                    .is_some_and(|expected| expected != &incarnation)
-                {
-                    return Err(ObjectError::PreconditionFailed);
-                }
-                let replay = UploadReplay {
-                    token,
-                    request,
-                    incarnation,
-                    snapshot: UploadAclSnapshot::default(),
-                    principals,
-                };
-                let now = unix_micros(clock.now())?;
-                if replay.cached(&transaction, now)?.is_none() {
-                    let previous = objects::lookup(&transaction, &bucket, &name)?;
-                    objects::check_publication(
-                        previous.as_ref(),
-                        conditions,
-                        delete_permission,
-                        clock.now(),
-                    )?;
-                }
-                Ok::<_, ObjectError>(replay)
-            })
+            .bind_upload_replay(bucket, check, access, token, request, expected_incarnation)
             .await?;
         permit.replay = Some(replay);
         Ok(())
     }
+
+    /// The advisory check of an upload whose object name is not known yet.
+    async fn check_upload_bucket(
+        &self,
+        bucket: &str,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
+        let bucket = bucket.to_owned();
+        let access = access.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
+            objects::authorized_bucket(&transaction, &bucket, &access).map(|_| ())
+        })
+        .await
+    }
+
+    /// Checks the upload and binds `token` and `request` to it. A stored completion for the
+    /// token stands in for the object check: the replay returns it instead of publishing.
+    async fn bind_upload_replay(
+        &self,
+        bucket: &str,
+        check: UploadCheck<'_>,
+        access: &BucketAccess,
+        token: &str,
+        request: &str,
+        expected_incarnation: Option<Incarnation>,
+    ) -> Result<UploadReplay, ObjectError> {
+        let bucket = bucket.to_owned();
+        let object = match check {
+            UploadCheck::Bucket => None,
+            UploadCheck::Object { name, conditions } => Some((name.to_owned(), conditions)),
+        };
+        let access = access.clone();
+        let token = hash(token.as_bytes())?;
+        let request = replay_request(request, &access)?;
+        let clock = self.0.clock.clone();
+        let principals = self.0.principals.get().cloned();
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
+            let (_, delete_permission) =
+                objects::authorized_bucket(&transaction, &bucket, &access)?;
+            let incarnation = bucket_incarnation(&transaction, &bucket)?;
+            if expected_incarnation
+                .as_ref()
+                .is_some_and(|expected| expected != &incarnation)
+            {
+                return Err(ObjectError::PreconditionFailed);
+            }
+            let replay = UploadReplay {
+                token,
+                request,
+                incarnation,
+                snapshot: UploadAclSnapshot::default(),
+                principals,
+            };
+            let now = unix_micros(clock.now())?;
+            if replay.cached(&transaction, now)?.is_none()
+                && let Some((name, conditions)) = &object
+            {
+                let previous = objects::lookup(&transaction, &bucket, name)?;
+                objects::check_publication(
+                    previous.as_ref(),
+                    *conditions,
+                    delete_permission,
+                    clock.now(),
+                )?;
+            }
+            Ok::<_, ObjectError>(replay)
+        })
+        .await
+    }
+}
+
+/// What an upload's advisory check covers before its body arrives.
+#[derive(Clone, Copy)]
+pub(crate) enum UploadCheck<'a> {
+    /// The object's name is not known yet: authorize the bucket only.
+    Bucket,
+    /// Authorize the bucket and check the named object against `conditions`.
+    Object {
+        name: &'a str,
+        conditions: ObjectConditions,
+    },
 }
 
 impl UploadGuard {
@@ -576,6 +677,41 @@ mod tests {
     use super::*;
     use crate::object::{MapPatch, ObjectMetadataUpdate, Patch};
     use std::collections::BTreeMap;
+
+    /// Stored replay requests are compared after restarts and upgrades, so the digest of a
+    /// request and its caller identity is fixed for each profile.
+    #[test]
+    fn replay_request_digest_is_stable() {
+        let identity = crate::auth::Identity::from_upload_snapshot(
+            &serde_json::json!({"id":"alice@example.test","projects":{}}),
+        )
+        .unwrap();
+        let policy = |identity| BucketAccess::Policy {
+            identity,
+            permission: crate::auth::Permission::ObjectsCreate,
+            project: None,
+        };
+        let request = r#"{"method":"POST"}"#;
+        for (access, digest) in [
+            (
+                BucketAccess::Permissive,
+                "e6c5f4e4a9f80952421b5720680fe3f0d4913919248322e42dfce70fb02d5c18",
+            ),
+            (
+                policy(None),
+                "cd42ff2972f592f2dde9442ea648a677922e87566169638de79aaee261f58293",
+            ),
+            (
+                policy(Some(identity)),
+                "c1039556e95964c24826b9d1d01d63f1286d955d6091c263b446ac5fe2edbf2d",
+            ),
+        ] {
+            assert_eq!(
+                crate::hashing::encode_lower(&replay_request(request, &access).unwrap()),
+                digest
+            );
+        }
+    }
 
     /// A replayable upload records its ACL once, and a handler can read it only afterwards.
     #[test]

@@ -168,10 +168,12 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
     let result = catalog
         .check_upload_replay(
             "bucket",
-            "profile",
-            crate::object::ObjectConditions {
-                if_generation_match: Some(0),
-                ..Default::default()
+            crate::storage::UploadCheck::Object {
+                name: "profile",
+                conditions: crate::object::ObjectConditions {
+                    if_generation_match: Some(0),
+                    ..Default::default()
+                },
             },
             &access,
             crate::storage::ReplayInvocation {

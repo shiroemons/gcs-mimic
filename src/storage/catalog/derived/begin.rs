@@ -45,19 +45,42 @@ struct BeginTransfer {
     deadline: UnixMillis,
 }
 
-fn begin_transfer(
+/// What a begin decided, and what its binding produced once it ran. The caller drops `bound`
+/// in its own task: a request guard dropped on the catalog thread could not schedule cleanup.
+struct Begun<T> {
+    outcome: Result<DerivedTransfer, CommitFailure<ObjectError>>,
+    bound: Option<T>,
+}
+
+fn begin_transfer<T>(
     connection: &mut Connection,
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
-    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError>,
-) -> Result<DerivedTransfer, CommitFailure<ObjectError>> {
-    let transaction =
-        sql::immediate(connection).map_err(|error| CommitFailure::Rejected(error.into()))?;
-    let transfer =
-        stage_transfer(&transaction, draft, segments, bind).map_err(CommitFailure::Rejected)?;
-    if let Err(error) = transaction.commit() {
+    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError>,
+) -> Begun<T> {
+    let rejected = |error| Begun {
+        outcome: Err(CommitFailure::Rejected(error)),
+        bound: None,
+    };
+    let transaction = match sql::immediate(connection) {
+        Ok(transaction) => transaction,
+        Err(error) => return rejected(error.into()),
+    };
+    let (transfer, bound) = match stage_transfer(&transaction, draft, segments, bind) {
+        Ok(staged) => staged,
+        Err(error) => return rejected(error),
+    };
+    #[cfg(test)]
+    if let Err(error) = fault::hit(&fault::database_dir(&transaction), Step::DerivedBeginCommit) {
+        return Begun {
+            outcome: Err(CommitFailure::Rejected(object_unavailable(error))),
+            bound: Some(bound),
+        };
+    }
+    let outcome = match transaction.commit() {
+        Ok(()) => Ok(transfer),
         // Failed probes retain every possibly committed reference for recovery.
-        return match sql::scalar::<bool>(
+        Err(error) => match sql::scalar::<bool>(
             connection,
             "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
             [&draft.id],
@@ -65,18 +88,21 @@ fn begin_transfer(
             Err(probe) => Err(CommitFailure::Ambiguous(object_unavailable(probe))),
             Ok(true) => Ok(transfer),
             Ok(false) => Err(CommitFailure::Rejected(object_unavailable(error))),
-        };
+        },
+    };
+    Begun {
+        outcome,
+        bound: Some(bound),
     }
-    Ok(transfer)
 }
 
 /// Inserts the transfer and its inputs and binds them; nothing is committed yet.
-fn stage_transfer(
+fn stage_transfer<T>(
     transaction: &rusqlite::Transaction<'_>,
     draft: &BeginTransfer,
     segments: &[DerivedSegment],
-    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError>,
-) -> Result<DerivedTransfer, ObjectError> {
+    bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError>,
+) -> Result<(DerivedTransfer, T), ObjectError> {
     sql::exec(
         transaction,
         "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
@@ -97,11 +123,8 @@ fn stage_transfer(
         created: draft.created.system_time()?,
         deadline: draft.deadline.system_time()?,
     };
-    bind(transaction, &transfer)?;
-    #[cfg(test)]
-    fault::hit(&fault::database_dir(transaction), Step::DerivedBeginCommit)
-        .map_err(object_unavailable)?;
-    Ok(transfer)
+    let bound = bind(transaction, &transfer)?;
+    Ok((transfer, bound))
 }
 
 impl Catalog {
@@ -135,16 +158,19 @@ impl Catalog {
     ) -> Result<DerivedTransfer, ObjectError> {
         self.begin_derived_with_binding(segments, max_bytes, kind, |_, _| Ok(()))
             .await
+            .map(|(transfer, ())| transfer)
     }
 
     /// Request/session bindings commit with transfer ownership, preventing untracked tokens.
-    pub(crate) async fn begin_derived_with_binding(
+    /// The binding's value returns with the transfer; when the begin fails, it drops here, in
+    /// the caller's task, after the begin finished.
+    pub(crate) async fn begin_derived_with_binding<T: Send + 'static>(
         &self,
         mut segments: Vec<DerivedSegment>,
         max_bytes: u64,
         kind: TransferKind,
-        bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError> + Send + 'static,
-    ) -> Result<DerivedTransfer, ObjectError> {
+        bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<T, ObjectError> + Send + 'static,
+    ) -> Result<(DerivedTransfer, T), ObjectError> {
         if segments.is_empty() || segments.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
                 "derived transfer requires 1 to 32 sources".into(),
@@ -165,7 +191,7 @@ impl Catalog {
             TransferKind::Continuable => None,
         };
         let catalog = self.clone();
-        let result = crate::task::spawn_supervised("derived-begin", async move {
+        let (result, bound) = crate::task::spawn_supervised("derived-begin", async move {
             let (_permit, _writer) = (permit, writer);
             let files = backend.clone();
             #[cfg(test)]
@@ -186,11 +212,11 @@ impl Catalog {
             .await
             .map_err(object_unavailable)
             .flatten();
-            let (outcome, returned) = match prepared {
+            let begun = match prepared {
                 Ok(()) => {
                     catalog
                         .run(move |connection| {
-                            let outcome = begin_transfer(
+                            let begun = begin_transfer(
                                 connection,
                                 &BeginTransfer {
                                     id,
@@ -202,16 +228,26 @@ impl Catalog {
                                 &segments,
                                 bind,
                             );
-                            if !matches!(outcome, Err(CommitFailure::Rejected(_))) {
+                            if !matches!(begun.outcome, Err(CommitFailure::Rejected(_))) {
                                 for segment in &mut segments {
                                     segment.source.backend = None;
                                 }
                             }
-                            Ok::<_, ObjectError>((outcome, segments))
+                            Ok::<_, ObjectError>((begun, segments))
                         })
-                        .await?
+                        .await
                 }
-                Err(error) => (Err(CommitFailure::Rejected(error)), segments),
+                Err(error) => Ok((
+                    Begun {
+                        outcome: Err(CommitFailure::Rejected(error)),
+                        bound: None,
+                    },
+                    segments,
+                )),
+            };
+            let (Begun { outcome, bound }, returned) = match begun {
+                Ok(begun) => begun,
+                Err(error) => return (Err(error), None),
             };
             let result = match outcome {
                 Ok(transfer) => Ok(transfer),
@@ -231,14 +267,14 @@ impl Catalog {
                 }
             };
             catalog.0.maintenance_wake.notify_one();
-            result
+            (result, bound)
         })
         .await?;
-        if result.is_ok()
-            && let Some(owner) = &mut owner
-        {
+        let transfer = result?;
+        let bound = bound.ok_or_else(|| object_unavailable("missing derived binding"))?;
+        if let Some(owner) = &mut owner {
             owner.disarm();
         }
-        result
+        Ok((transfer, bound))
     }
 }

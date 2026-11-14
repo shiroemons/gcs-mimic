@@ -16,10 +16,7 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
+use std::time::SystemTime;
 
 pub(crate) use super::rewrite_token::{RewriteBinding, RewriteNames};
 
@@ -548,57 +545,50 @@ impl Catalog {
     ) -> Result<(RewriteToken, super::derived::DerivedRequestGuard), RewriteError> {
         let token = RewriteToken::generate().map_err(object_unavailable)?;
         // shortcut: crash before delivery leaves durable state until expiry; add a delivered marker for eager recovery.
-        let owner = Arc::new(Mutex::new(None));
-        let callback_owner = owner.clone();
         let catalog = self.clone();
-        self.begin_derived_with_binding(
-            segments,
-            max_bytes,
-            super::derived::TransferKind::Continuable,
-            move |connection, transfer| {
-                *callback_owner.lock().map_err(object_unavailable)? =
-                    Some(catalog.guard_derived_request(&transfer.id));
-                if let Some(limit) = catalog.session_limits().active_rewrite {
-                    let count: i64 = sql::scalar(
-                        connection,
-                        "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                        [],
-                    )?;
-                    if count >= i64::from(limit.get()) {
-                        return Err(object_unavailable(BackendFailure::RewriteSessionLimit));
+        let (_, owner) = self
+            .begin_derived_with_binding(
+                segments,
+                max_bytes,
+                super::derived::TransferKind::Continuable,
+                move |connection, transfer| {
+                    if let Some(limit) = catalog.session_limits().active_rewrite {
+                        let count: i64 = sql::scalar(
+                            connection,
+                            "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                            [],
+                        )?;
+                        if count >= i64::from(limit.get()) {
+                            return Err(object_unavailable(BackendFailure::RewriteSessionLimit));
+                        }
                     }
-                }
-                let request = encode(
-                    &start,
-                    incarnation(connection, &start.binding.source_bucket)?,
-                    incarnation(connection, &start.binding.destination_bucket)?,
-                )?;
-                let deadline = UnixMillis::try_from(transfer.deadline)?;
-                sql::exec(
-                    connection,
-                    "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
-                    params![transfer.id, token, request, transfer.total, deadline],
-                )?;
-                let session = sql::row(
-                    connection,
-                    concat!(
-                        "SELECT ",
-                        session_columns!(),
-                        " FROM rewrite_sessions WHERE id=?1"
-                    ),
-                    [&transfer.id],
-                    read,
-                )?;
-                check_source(connection, &session, &start.source_access).map(|_| ())
-            },
-        )
-        .await?;
+                    let request = encode(
+                        &start,
+                        incarnation(connection, &start.binding.source_bucket)?,
+                        incarnation(connection, &start.binding.destination_bucket)?,
+                    )?;
+                    let deadline = UnixMillis::try_from(transfer.deadline)?;
+                    sql::exec(
+                        connection,
+                        "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
+                        params![transfer.id, token, request, transfer.total, deadline],
+                    )?;
+                    let session = sql::row(
+                        connection,
+                        concat!(
+                            "SELECT ",
+                            session_columns!(),
+                            " FROM rewrite_sessions WHERE id=?1"
+                        ),
+                        [&transfer.id],
+                        read,
+                    )?;
+                    check_source(connection, &session, &start.source_access)?;
+                    Ok(catalog.guard_derived_request(&transfer.id))
+                },
+            )
+            .await?;
         self.0.maintenance_wake.notify_one();
-        let owner = owner
-            .lock()
-            .map_err(object_unavailable)?
-            .take()
-            .ok_or_else(|| object_unavailable("missing rewrite request owner"))?;
         Ok((token, owner))
     }
 
@@ -700,9 +690,8 @@ impl Catalog {
             let validate_session = session.clone();
             let completed_session = session.clone();
             let finished_budget = self.session_limits().finished_session_bytes;
-            let (sender, receiver) = tokio::sync::oneshot::channel();
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
-            self.publish_derived_prepared(&id,destination,move |connection,record| {
+            let (_, response) = self.publish_derived_prepared(&id,destination,move |connection,record| {
                 if validate_session.deadline<=UnixMillis::try_from(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
@@ -714,14 +703,10 @@ impl Catalog {
                 let saved=serde_json::to_string(&response).map_err(object_unavailable)?;
                 sql::exec(connection, "UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1", params![session.id,saved])?;
                 trim_finished(connection, &session.id, finished_budget)?;
-                // The stored response remains authoritative if its network receiver disappears.
-                let _=sender.send(response);
-                Ok(())
+                // The stored response stays authoritative if the caller has gone by now.
+                Ok(response)
             },None).await?;
-            return Ok(progress(
-                &completed_session,
-                &receiver.await.map_err(object_unavailable)?,
-            ));
+            return Ok(progress(&completed_session, &response));
         }
         let next = RewriteToken::generate().map_err(object_unavailable)?;
         let response = StoredResponse::Progress {

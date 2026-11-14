@@ -11,7 +11,7 @@ use crate::{
     json::{self, JsonError, UploadRequest},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
     server::{ObjectCtx, stream_upload},
-    storage::{ObjectUpload, ReplayInvocation},
+    storage::{ObjectUpload, ReplayInvocation, UploadCheck},
 };
 use hyper::{
     HeaderMap, Request,
@@ -70,8 +70,10 @@ pub(super) async fn insert(
         .await?;
     ctx.await_catalog(ctx.state.catalog.check_upload_replay(
         &bucket,
-        &name,
-        params.conditions,
+        UploadCheck::Object {
+            name: &name,
+            conditions: params.conditions,
+        },
         &access,
         ReplayInvocation {
             token: token.as_deref(),
@@ -157,21 +159,22 @@ pub(super) async fn multipart(
     }
     let mut permit = ctx.await_catalog(catalog.wait_object_upload()).await?;
     // The final name may be in metadata; check the bucket before reading any body.
-    ctx.await_catalog(catalog.check_upload_replay(
-        &bucket,
-        name.as_deref().unwrap_or(""),
-        if name.is_some() {
-            params.conditions
-        } else {
-            Default::default()
-        },
-        &access,
-        ReplayInvocation {
-            token: token.as_deref(),
-            request: &replay_request,
-        },
-        &mut permit,
-    ))
+    ctx.await_catalog(
+        catalog.check_upload_replay(
+            &bucket,
+            name.as_deref()
+                .map_or(UploadCheck::Bucket, |name| UploadCheck::Object {
+                    name,
+                    conditions: params.conditions,
+                }),
+            &access,
+            ReplayInvocation {
+                token: token.as_deref(),
+                request: &replay_request,
+            },
+            &mut permit,
+        ),
+    )
     .await?;
     let mut multipart = json::Multipart::related(request.into_body(), &boundary);
     let bytes = multipart.metadata().await?;
@@ -189,8 +192,10 @@ pub(super) async fn multipart(
     if !name_known {
         ctx.await_catalog(catalog.check_upload_replay(
             &bucket,
-            &name,
-            params.conditions,
+            UploadCheck::Object {
+                name: &name,
+                conditions: params.conditions,
+            },
             &access,
             ReplayInvocation {
                 token: token.as_deref(),
