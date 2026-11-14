@@ -37,14 +37,11 @@ impl ObjectOwner {
 
     pub(crate) fn preserve_grant(&self, entries: &mut Vec<AclEntry>) {
         let Some(entity) = self.entity() else { return };
-        if let Some(entry) = entries
-            .iter_mut()
-            .find(|entry| entry.entity == entity.as_str())
-        {
+        if let Some(entry) = entries.iter_mut().find(|entry| entry.entity == entity) {
             entry.role = crate::acl::AclRole::Owner;
         } else {
             let grant = AclEntry {
-                entity: entity.into_string(),
+                entity,
                 role: crate::acl::AclRole::Owner,
             };
             // Cloud Storage lists the project owners team first on an object, ahead of the
@@ -62,7 +59,7 @@ impl ObjectOwner {
         let Some(entity) = self.entity() else { return };
         let through_grant = entries
             .iter()
-            .position(|entry| entry.entity == entity.as_str())
+            .position(|entry| entry.entity == entity)
             .and_then(|at| entries.get_mut(..=at));
         if let Some(through_grant) = through_grant {
             through_grant.rotate_right(1);
@@ -76,7 +73,7 @@ impl ObjectOwner {
             return;
         }
         if let Some(entity) = self.entity() {
-            entries.retain(|entry| entry.entity != entity.as_str());
+            entries.retain(|entry| entry.entity != entity);
         }
     }
 }

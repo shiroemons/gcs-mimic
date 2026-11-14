@@ -128,7 +128,7 @@ impl Canonical {
         self.optional(acl.as_ref(), |encoded, entries| {
             encoded.u64(entries.len() as u64);
             for entry in entries {
-                encoded.text(&entry.entity);
+                encoded.text(entry.entity.as_str());
                 encoded.text(entry.role.as_str());
             }
         });
@@ -219,7 +219,7 @@ mod tests {
         let mut metadata =
             crate::storage::catalog::resumable::golden_tests::populated_options().metadata;
         metadata.acl = Some(vec![crate::acl::AclEntry {
-            entity: "allUsers".into(),
+            entity: "allUsers".parse().unwrap(),
             role: crate::acl::AclRole::Reader,
         }]);
         metadata.override_unlocked_retention =

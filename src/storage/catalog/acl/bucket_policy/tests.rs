@@ -145,9 +145,11 @@ async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_
     let (_data, catalog) = fixture().await;
     catalog.run::<_, crate::bucket::CatalogError>(|connection| {
         for case in 0..3 {
+            // A stored entity of no valid form does not decode at all; one stored before the size
+            // cap does, and reconciliation refuses to write it back.
             let entries = match case {
                 0 => (0..100).map(|index| json!({"entity":format!("user-{index}"),"role":"READER"})).collect::<Vec<_>>(),
-                1 => vec![json!({"entity":"user-bad-id","role":"OWNER"})],
+                1 => vec![json!({"entity":format!("project-viewers-{}", "p".repeat(257)),"role":"OWNER"})],
                 _ => vec![json!({"entity":"user-reader","role":"OWNER"})],
             };
             let before_acl = serde_json::to_string(&entries).unwrap();
@@ -194,7 +196,7 @@ async fn repeated_acl_edits_do_not_grow_the_policy() {
             let without_entry = project_private("project");
             let mut with_entry = without_entry.clone();
             with_entry.push(AclEntry {
-                entity: "project-owners-project".into(),
+                entity: "project-owners-project".parse().unwrap(),
                 role: AclRole::Reader,
             });
             let mut sizes = Vec::new();

@@ -1957,11 +1957,11 @@ mod tests {
                 entries,
                 vec![
                     crate::acl::AclEntry {
-                        entity: "project-owners-0".into(),
+                        entity: "project-owners-0".parse().unwrap(),
                         role: crate::acl::AclRole::Owner
                     },
                     crate::acl::AclEntry {
-                        entity: "user-new@example.test".into(),
+                        entity: "user-new@example.test".parse().unwrap(),
                         role: crate::acl::AclRole::Owner
                     },
                 ]

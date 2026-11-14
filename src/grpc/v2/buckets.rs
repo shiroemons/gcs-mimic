@@ -326,10 +326,8 @@ impl Storage {
         use crate::{acl::AclKind, json::acl::AclOwner};
         let name = &bucket.bucket_id;
         bucket.owner = Some(pb::Owner {
-            entity: format!(
-                "project-owners-{}",
-                crate::acl::project_number(&acl.project)
-            ),
+            entity: crate::acl::Entity::project_team(crate::acl::ProjectTeam::Owners, &acl.project)
+                .into_string(),
             entity_id: String::new(),
         });
         if acl.uniform_access {
@@ -1588,7 +1586,7 @@ mod tests {
             stored
                 .bucket
                 .iter()
-                .any(|e| e.entity == "allAuthenticatedUsers")
+                .any(|e| e.entity.as_str() == "allAuthenticatedUsers")
         );
 
         let (bad, _) = reader("not-an-entity");

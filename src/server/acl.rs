@@ -95,7 +95,7 @@ fn read_resource(
         let entry = acl
             .entries
             .iter()
-            .find(|entry| &entry.entity == entity)
+            .find(|entry| entry.entity.as_str() == entity)
             .ok_or_else(|| {
                 acl_error(
                     AclError::EntityNotFound {

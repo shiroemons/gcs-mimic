@@ -290,7 +290,7 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
         .change_acl(
             target.clone(),
             gcs_mimic::storage::AclChange::Upsert {
-                entity: "allUsers".into(),
+                entity: "allUsers".parse().unwrap(),
                 role: Some(crate::acl::AclRole::Reader),
             },
             PERMISSIVE,

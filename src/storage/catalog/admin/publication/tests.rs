@@ -262,7 +262,7 @@ async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
             .unwrap();
         let mut replacement = entry(&admin, &dir.0, "object", b"replacement").await;
         replacement.request.metadata.acl = Some(vec![crate::acl::AclEntry {
-            entity: "allUsers".into(),
+            entity: "allUsers".parse().unwrap(),
             role: if restriction == "invalid" {
                 crate::acl::AclRole::Writer
             } else {

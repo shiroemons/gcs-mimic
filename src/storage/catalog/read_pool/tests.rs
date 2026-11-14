@@ -518,7 +518,7 @@ async fn an_object_acl_for_all_users_makes_an_object_public() {
             Default::default(),
             crate::object::ObjectMetadataUpdate {
                 acl: Some(vec![crate::acl::AclEntry {
-                    entity: "allUsers".into(),
+                    entity: "allUsers".parse().unwrap(),
                     role: crate::acl::AclRole::Reader,
                 }]),
                 ..Default::default()

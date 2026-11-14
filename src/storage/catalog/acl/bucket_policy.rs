@@ -25,17 +25,18 @@ fn acl_role(role: &str) -> Option<AclRole> {
         .and_then(AclRole::from_bucket_iam_role)
 }
 
-fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> Option<String> {
-    if matches!(member, "allUsers" | "allAuthenticatedUsers") {
-        return Some(member.into());
+fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> Option<Entity> {
+    match member {
+        "allUsers" => return Some(Entity::all_users()),
+        "allAuthenticatedUsers" => return Some(Entity::all_authenticated_users()),
+        _ => {}
     }
     let (kind, id) = member.split_once(':')?;
     if matches!(kind, "user" | "serviceAccount") {
         if let Some(principals) = principals {
-            return principals.canonical_acl_entity(id).map(Entity::into_string);
+            return principals.canonical_acl_entity(id);
         }
-        let entity = format!("user-{id}");
-        return parse_entity(&entity).is_ok().then_some(entity);
+        return Entity::from_user_id(id);
     }
     let entity = match kind {
         "group" => format!("group-{id}"),
@@ -55,13 +56,12 @@ fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> O
         }
         _ => return None,
     };
-    parse_entity(&entity).is_ok().then_some(entity)
+    parse_entity(&entity).ok()
 }
 
-fn iam_member(entity: &str, project: &str) -> Result<String, CatalogError> {
-    let parsed = parse_entity(entity)?;
-    Ok(match parsed.parsed() {
-        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => entity.into(),
+fn iam_member(entity: &Entity, project: &str) -> String {
+    match entity.parsed() {
+        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => entity.as_str().into(),
         EntityRef::UserEmail(id) | EntityRef::UserId(id) => format!("user:{id}"),
         EntityRef::GroupEmail(id) | EntityRef::GroupId(id) => format!("group:{id}"),
         EntityRef::Domain(domain) => format!("domain:{domain}"),
@@ -73,11 +73,11 @@ fn iam_member(entity: &str, project: &str) -> Result<String, CatalogError> {
             };
             format!("{}:{id}", team.member_kind())
         }
-    })
+    }
 }
 
 fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) -> Vec<AclEntry> {
-    let mut entries: BTreeMap<String, AclRole> = BTreeMap::new();
+    let mut entries: BTreeMap<Entity, AclRole> = BTreeMap::new();
     for binding in &policy.bindings {
         let Some(role) = acl_role(&binding.role) else {
             continue;
@@ -119,14 +119,13 @@ fn merge_stored_grants(
         let present = policy.bindings.iter().any(|binding| {
             binding.role == role.as_str()
                 && binding.members.iter().any(|member| {
-                    member_entity(member, project, principals).as_deref()
-                        == Some(entry.entity.as_str())
+                    member_entity(member, project, principals).as_ref() == Some(&entry.entity)
                 })
         });
         if !present {
             policy.bindings.push(Binding {
                 role: role.as_str().into(),
-                members: vec![iam_member(&entry.entity, project)?],
+                members: vec![iam_member(&entry.entity, project)],
             });
             changed = true;
         }
@@ -169,7 +168,7 @@ pub(super) fn replace_policy(
         }
         return mark_bound(connection, bucket);
     }
-    let mut members: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut members: BTreeMap<Entity, Vec<String>> = BTreeMap::new();
     for binding in &mut policy.bindings {
         if acl_role(&binding.role).is_some() {
             binding.members.retain(|member| {
@@ -200,7 +199,7 @@ pub(super) fn replace_policy(
             bindings
                 .entry(role)
                 .or_default()
-                .push(iam_member(&entry.entity, &row.project)?);
+                .push(iam_member(&entry.entity, &row.project));
         } else {
             bindings.entry(role).or_default().extend(grantees);
         }
@@ -252,7 +251,7 @@ pub(in super::super) fn replace_from_policy(
     sql::exec(
         connection,
         UPSERT_BUCKET_ENTRIES,
-        params![bucket, "bucket", encoded],
+        params![bucket, BucketScope::Bucket, encoded],
     )?;
     mark_bound(connection, bucket)?;
     Ok(changed)

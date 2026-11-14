@@ -14,7 +14,7 @@ use super::{
 };
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
-    acl::{AclEntry, AclKind, AclRole, AclTarget, MAX_ENTRIES, parse_entity, project_private},
+    acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
     object::{ObjectConditions, ObjectError},
 };
@@ -117,9 +117,7 @@ pub(super) fn publish_object_acl(
                 return Err(ObjectError::UniformAccessPredefinedAcl);
             }
             let entries = predefined.entries(&row.project);
-            if entries
-                .iter()
-                .any(|entry| parse_entity(&entry.entity).is_ok_and(|entity| entity.is_public()))
+            if entries.iter().any(|entry| entry.entity.is_public())
                 && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
             {
                 return Err(ObjectError::PublicAccessPrevention);
@@ -166,12 +164,11 @@ pub(crate) struct AclState {
 pub(crate) enum AclChange {
     /// Insert, update and patch upsert one entity; `None` keeps an existing patch role.
     Upsert {
-        entity: String,
+        entity: Entity,
         role: Option<AclRole>,
     },
-    Delete {
-        entity: String,
-    },
+    /// The path entity, matched by exact text: one of no valid form is simply not found.
+    Delete { entity: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -383,10 +380,10 @@ fn entries_grant(
     mut public: impl FnMut() -> Result<crate::auth::PublicAccess, CatalogError>,
 ) -> Result<bool, CatalogError> {
     let mut cached = None;
+    // An entity stored before the size cap names a value longer than any principal's, so it
+    // matches no caller.
     for entry in entries.iter().filter(|entry| allows(entry.role)) {
-        let Ok(entity) = parse_entity(&entry.entity) else {
-            continue;
-        };
+        let entity = &entry.entity;
         let access = if entity.is_public() {
             match cached {
                 Some(access) => access,
@@ -638,9 +635,7 @@ pub(super) fn replace_resource_acl(
     }
     let entries = entries.as_slice();
     validate_effective_entries(target.kind(), entries, owner.as_ref())?;
-    if entries
-        .iter()
-        .any(|entry| parse_entity(&entry.entity).is_ok_and(|entity| entity.is_public()))
+    if entries.iter().any(|entry| entry.entity.is_public())
         && policy_public_access(connection, bucket)? == crate::auth::PublicAccess::Prevented
     {
         return Err(CatalogError::PublicAccessPrevention);
@@ -884,7 +879,7 @@ impl Catalog {
             let changed = match change {
                 AclChange::Upsert { entity, role } => {
                     // Public access prevention blocks new public grants, as it does for IAM.
-                    if parse_entity(&entity).is_ok_and(|entity| entity.is_public())
+                    if entity.is_public()
                         && policy_public_access(&transaction, bucket)? == crate::auth::PublicAccess::Prevented
                     {
                         return Err(CatalogError::PublicAccessPrevention.into());
@@ -911,7 +906,7 @@ impl Catalog {
                     let index = state
                         .entries
                         .iter()
-                        .position(|entry| entry.entity == entity)
+                        .position(|entry| entry.entity.as_str() == entity)
                         .ok_or_else(|| AclError::EntityNotFound {
                             entity: entity.clone(),
                             project_number: state.project_number.clone(),

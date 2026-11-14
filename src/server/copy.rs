@@ -479,7 +479,7 @@ mod tests {
             .change_acl(
                 acl.clone(),
                 AclChange::Upsert {
-                    entity: "user-reader".into(),
+                    entity: "user-reader".parse().unwrap(),
                     role: Some(crate::acl::AclRole::Reader),
                 },
                 PERMISSIVE,

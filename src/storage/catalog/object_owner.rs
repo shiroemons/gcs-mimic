@@ -124,25 +124,19 @@ fn reconcile_grant(
     )?;
     let Some(stored) = stored else { return Ok(()) };
     let mut entries = super::acl::decode(&stored, crate::acl::AclKind::Object)?;
-    let Some(index) = entries
-        .iter()
-        .position(|entry| entry.entity == previous.as_str())
-    else {
+    let Some(index) = entries.iter().position(|entry| entry.entity == previous) else {
         return Ok(());
     };
     // An implicit grant follows the stable principal identity without leaving its old alias access.
     entries.remove(index);
     if let Some(entity) = after.entity() {
-        if let Some(existing) = entries
-            .iter_mut()
-            .find(|entry| entry.entity == entity.as_str())
-        {
+        if let Some(existing) = entries.iter_mut().find(|entry| entry.entity == entity) {
             existing.role = crate::acl::AclRole::Owner;
         } else {
             entries.insert(
                 index,
                 crate::acl::AclEntry {
-                    entity: entity.into_string(),
+                    entity,
                     role: crate::acl::AclRole::Owner,
                 },
             );

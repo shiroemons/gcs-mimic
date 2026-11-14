@@ -169,7 +169,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].entity, "user-a@Example.com");
+        assert_eq!(entries[0].entity.as_str(), "user-a@Example.com");
     }
 
     #[test]

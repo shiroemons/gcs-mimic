@@ -67,11 +67,16 @@ impl AclTarget {
     }
 }
 
+/// One ACL grant. Stored rows decode the entity's form; the size cap and the role per kind are
+/// the write policy that [`validate_entries`] applies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AclEntry {
-    pub entity: String,
+    pub entity: Entity,
     pub role: AclRole,
 }
+
+/// Client input keeps its strings, so a malformed entity is reported in Cloud Storage's words
+/// rather than as a malformed list.
 
 #[derive(Deserialize)]
 pub(crate) struct AclEntryInput {
@@ -89,15 +94,12 @@ pub(crate) fn parse_entries(
     let mut entities = std::collections::BTreeSet::new();
     let mut entries = Vec::with_capacity(input.len());
     for entry in input {
-        parse_entity(&entry.entity)?;
+        let entity = parse_entity(&entry.entity)?;
         let role = validate_role(kind, &entry.role)?;
-        if !entities.insert(entry.entity.clone()) {
+        if !entities.insert(entity.clone()) {
             return Err(AclError::DuplicateEntity(entry.entity));
         }
-        entries.push(AclEntry {
-            entity: entry.entity,
-            role,
-        });
+        entries.push(AclEntry { entity, role });
     }
     Ok(entries)
 }
@@ -239,10 +241,13 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
     }
     let mut entities = std::collections::BTreeSet::new();
     for entry in entries {
-        parse_entity(&entry.entity)?;
+        // A typed entity has a valid form; only one stored before the cap can be too long.
+        if entry.entity.as_str().len() > MAX_ENTITY_BYTES {
+            return Err(AclError::EntityTooLong);
+        }
         check_role(kind, entry.role)?;
         if !entities.insert(&entry.entity) {
-            return Err(AclError::DuplicateEntity(entry.entity.clone()));
+            return Err(AclError::DuplicateEntity(entry.entity.as_str().to_owned()));
         }
     }
     Ok(())
@@ -343,6 +348,20 @@ crate::serde_util::serialize_as_str!(Entity);
 const MAX_ENTITY_BYTES: usize = 272;
 
 impl Entity {
+    pub(crate) fn all_users() -> Self {
+        Self {
+            text: "allUsers".into(),
+            scope: Scope::AllUsers,
+        }
+    }
+
+    pub(crate) fn all_authenticated_users() -> Self {
+        Self {
+            text: "allAuthenticatedUsers".into(),
+            scope: Scope::AllAuthenticatedUsers,
+        }
+    }
+
     /// `project-TEAM-NUMBER` for `project`, spelled with the number bucket resources render.
     pub(crate) fn project_team(team: ProjectTeam, project: &str) -> Self {
         Self {
@@ -399,7 +418,7 @@ impl Entity {
         }
     }
 
-    /// The email of a `user-` or `group-` entity.
+    /// The email of a `user-` or `group-` entity: the resource's derived `email` field.
     pub(crate) fn email(&self) -> Option<&str> {
         match self.parsed() {
             EntityRef::UserEmail(email) | EntityRef::GroupEmail(email) => Some(email),
@@ -409,6 +428,47 @@ impl Entity {
             | EntityRef::GroupId(_)
             | EntityRef::Domain(_)
             | EntityRef::ProjectTeam { .. } => None,
+        }
+    }
+
+    /// The ID of a `user-` or `group-` entity: the resource's derived `entityId` field.
+    pub(crate) fn entity_id(&self) -> Option<&str> {
+        match self.parsed() {
+            EntityRef::UserId(id) | EntityRef::GroupId(id) => Some(id),
+            EntityRef::AllUsers
+            | EntityRef::AllAuthenticatedUsers
+            | EntityRef::UserEmail(_)
+            | EntityRef::GroupEmail(_)
+            | EntityRef::Domain(_)
+            | EntityRef::ProjectTeam { .. } => None,
+        }
+    }
+
+    /// The domain of a `domain-` entity: the resource's derived `domain` field.
+    pub(crate) fn domain(&self) -> Option<&str> {
+        match self.parsed() {
+            EntityRef::Domain(domain) => Some(domain),
+            EntityRef::AllUsers
+            | EntityRef::AllAuthenticatedUsers
+            | EntityRef::UserEmail(_)
+            | EntityRef::UserId(_)
+            | EntityRef::GroupEmail(_)
+            | EntityRef::GroupId(_)
+            | EntityRef::ProjectTeam { .. } => None,
+        }
+    }
+
+    /// The team and project of a `project-` entity: the resource's derived `projectTeam` field.
+    pub(crate) fn team(&self) -> Option<(ProjectTeam, &str)> {
+        match self.parsed() {
+            EntityRef::ProjectTeam { team, project } => Some((team, project)),
+            EntityRef::AllUsers
+            | EntityRef::AllAuthenticatedUsers
+            | EntityRef::UserEmail(_)
+            | EntityRef::UserId(_)
+            | EntityRef::GroupEmail(_)
+            | EntityRef::GroupId(_)
+            | EntityRef::Domain(_) => None,
         }
     }
 
@@ -568,15 +628,14 @@ pub(crate) fn project_number(project: &str) -> String {
 
 /// The `projectPrivate` canned ACL used for buckets and objects without stored entries.
 pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
-    let number = project_number(project);
     [
-        ("owners", AclRole::Owner),
-        ("editors", AclRole::Owner),
-        ("viewers", AclRole::Reader),
+        (ProjectTeam::Owners, AclRole::Owner),
+        (ProjectTeam::Editors, AclRole::Owner),
+        (ProjectTeam::Viewers, AclRole::Reader),
     ]
     .into_iter()
     .map(|(team, role)| AclEntry {
-        entity: format!("project-{team}-{number}"),
+        entity: Entity::project_team(team, project),
         role,
     })
     .collect()
@@ -615,15 +674,17 @@ impl PredefinedObjectAcl {
     /// The canned entries apart from the object owner's OWNER grant, which publication adds
     /// from the object's recorded owner. The bucket owner is the owning project's owners team.
     pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
-        let entry = |entity: String, role| AclEntry { entity, role };
-        let owners = || format!("project-owners-{}", project_number(project));
+        let entry = |entity, role| AclEntry { entity, role };
+        let owners = || Entity::project_team(ProjectTeam::Owners, project);
         match self {
-            Self::AuthenticatedRead => vec![entry("allAuthenticatedUsers".into(), AclRole::Reader)],
+            Self::AuthenticatedRead => {
+                vec![entry(Entity::all_authenticated_users(), AclRole::Reader)]
+            }
             Self::BucketOwnerFullControl => vec![entry(owners(), AclRole::Owner)],
             Self::BucketOwnerRead => vec![entry(owners(), AclRole::Reader)],
             Self::Private => Vec::new(),
             Self::ProjectPrivate => project_private(project),
-            Self::PublicRead => vec![entry("allUsers".into(), AclRole::Reader)],
+            Self::PublicRead => vec![entry(Entity::all_users(), AclRole::Reader)],
         }
     }
 }
@@ -696,9 +757,9 @@ impl PredefinedBucketAcl {
     }
 
     pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
-        let entry = |entity: String, role| AclEntry { entity, role };
+        let entry = |entity, role| AclEntry { entity, role };
         let owners = entry(
-            format!("project-owners-{}", project_number(project)),
+            Entity::project_team(ProjectTeam::Owners, project),
             AclRole::Owner,
         );
         match self {
@@ -707,11 +768,11 @@ impl PredefinedBucketAcl {
             Self::AuthenticatedRead => {
                 vec![
                     owners,
-                    entry("allAuthenticatedUsers".into(), AclRole::Reader),
+                    entry(Entity::all_authenticated_users(), AclRole::Reader),
                 ]
             }
-            Self::PublicRead => vec![owners, entry("allUsers".into(), AclRole::Reader)],
-            Self::PublicReadWrite => vec![owners, entry("allUsers".into(), AclRole::Writer)],
+            Self::PublicRead => vec![owners, entry(Entity::all_users(), AclRole::Reader)],
+            Self::PublicReadWrite => vec![owners, entry(Entity::all_users(), AclRole::Writer)],
         }
     }
 }
@@ -767,7 +828,7 @@ mod tests {
         assert_eq!(
             PredefinedObjectAcl::BucketOwnerRead.entries("local"),
             vec![AclEntry {
-                entity: "project-owners-0".into(),
+                entity: "project-owners-0".parse().unwrap(),
                 role: crate::acl::AclRole::Reader
             }]
         );
@@ -994,20 +1055,23 @@ mod tests {
             project_private("123"),
             vec![
                 AclEntry {
-                    entity: "project-owners-123".into(),
+                    entity: "project-owners-123".parse().unwrap(),
                     role: crate::acl::AclRole::Owner
                 },
                 AclEntry {
-                    entity: "project-editors-123".into(),
+                    entity: "project-editors-123".parse().unwrap(),
                     role: crate::acl::AclRole::Owner
                 },
                 AclEntry {
-                    entity: "project-viewers-123".into(),
+                    entity: "project-viewers-123".parse().unwrap(),
                     role: crate::acl::AclRole::Reader
                 },
             ]
         );
-        assert_eq!(project_private("local")[0].entity, "project-owners-0");
+        assert_eq!(
+            project_private("local")[0].entity.as_str(),
+            "project-owners-0"
+        );
         assert_eq!(project_number("99999999999999999999999"), "0");
     }
 }

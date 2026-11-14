@@ -19,7 +19,7 @@ fn malformed_stored_acl_keeps_the_json_error_source() {
 #[test]
 fn public_policy_is_read_only_for_an_eligible_public_grant() {
     let private = [AclEntry {
-        entity: "user-delegate@example.test".into(),
+        entity: "user-delegate@example.test".parse().unwrap(),
         role: AclRole::Owner,
     }];
     assert!(
@@ -33,11 +33,11 @@ fn public_policy_is_read_only_for_an_eligible_public_grant() {
     );
     let public = [
         AclEntry {
-            entity: "allUsers".into(),
+            entity: "allUsers".parse().unwrap(),
             role: AclRole::Reader,
         },
         AclEntry {
-            entity: "allAuthenticatedUsers".into(),
+            entity: "allAuthenticatedUsers".parse().unwrap(),
             role: AclRole::Reader,
         },
     ];
@@ -180,6 +180,56 @@ fn unknown_stored_acl_role_is_catalog_corruption() {
     }
 }
 
+/// Every writer validates entities, so a stored one of no valid form is corruption, as an
+/// unknown stored role is.
+#[test]
+fn invalid_stored_acl_entity_is_catalog_corruption() {
+    for entity in ["user-bad-id", "user-", "nobody", ""] {
+        let encoded = serde_json::json!([{"entity":entity,"role":"READER"}]).to_string();
+        let error = decode(&encoded, AclKind::Bucket).unwrap_err();
+        assert!(matches!(error, CatalogError::Corrupt(_)), "{entity}");
+        assert!(
+            crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()),
+            "{entity}"
+        );
+    }
+}
+
+/// A release before 0.12.0 stored entities past today's 272-byte cap. Such a row still reads,
+/// so its bucket stays usable, while writing the entity back is refused as any request is.
+#[tokio::test]
+async fn oversized_stored_acl_entity_stays_readable() {
+    let oversized = format!("project-viewers-{}", "p".repeat(257));
+    assert_eq!(oversized.len(), 273);
+    let encoded = serde_json::json!([{"entity":oversized,"role":"OWNER"}]).to_string();
+    let entries = decode(&encoded, AclKind::Bucket).unwrap();
+    assert_eq!(entries[0].entity.as_str(), oversized);
+    assert_eq!(serde_json::to_string(&entries).unwrap(), encoded);
+    let data = TestDir::new();
+    let (catalog, _, _) = setup(&data, "memory").await;
+    let refused = catalog
+        .run(move |connection| {
+            replace_resource_acl(
+                connection,
+                ResolvedAclTarget::Bucket {
+                    bucket: "bucket",
+                    scope: BucketScope::Bucket,
+                },
+                &entries,
+                PERMISSIVE,
+                None,
+            )
+        })
+        .await;
+    assert_eq!(
+        refused,
+        Err(CatalogError::InvalidMetadata(
+            crate::acl::AclError::EntityTooLong.to_string()
+        ))
+    );
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn stored_writer_role_is_only_valid_for_bucket_acls() {
     let encoded = r#"[{"entity":"allUsers","role":"WRITER"}]"#;
@@ -257,11 +307,11 @@ async fn owner_entity_upsert_returns_the_preserved_owner_grant() {
         generation: Some(record.generation),
     };
     let upsert = |entity: &str| AclChange::Upsert {
-        entity: entity.into(),
+        entity: entity.parse().unwrap(),
         role: Some(AclRole::Reader),
     };
     let owner_grant = AclEntry {
-        entity: "user-uploader@example.test".into(),
+        entity: "user-uploader@example.test".parse().unwrap(),
         role: AclRole::Owner,
     };
     let (state, changed) = catalog
@@ -275,7 +325,7 @@ async fn owner_entity_upsert_returns_the_preserved_owner_grant() {
     assert_eq!(changed, Some(owner_grant.clone()));
     assert!(state.entries.contains(&owner_grant));
     let reader = AclEntry {
-        entity: "user-reader@example.test".into(),
+        entity: "user-reader@example.test".parse().unwrap(),
         role: AclRole::Reader,
     };
     let (state, changed) = catalog
@@ -321,7 +371,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
             .change_acl(
                 target.clone(),
                 AclChange::Upsert {
-                    entity: "user-delegate@example.test".into(),
+                    entity: "user-delegate@example.test".parse().unwrap(),
                     role: Some(crate::acl::AclRole::Owner),
                 },
                 PERMISSIVE,
@@ -350,7 +400,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
             !snapshot
                 .entries
                 .iter()
-                .any(|entry| entry.entity == "user-uploader@example.test")
+                .any(|entry| entry.entity.as_str() == "user-uploader@example.test")
         );
         assert!(snapshot.matches_resource("bucket", Some("object"), Some(record.generation)));
         assert!(!snapshot.matches_resource("other", Some("object"), Some(record.generation)));

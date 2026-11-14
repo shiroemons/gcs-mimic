@@ -135,7 +135,7 @@ async fn publication_keeps_unset_holds_and_default_object_acl_json() {
         .await
         .unwrap();
     let entries = vec![crate::acl::AclEntry {
-        entity: "allUsers".into(),
+        entity: "allUsers".parse().unwrap(),
         role: crate::acl::AclRole::Reader,
     }];
     catalog
@@ -204,7 +204,7 @@ async fn acl_and_storage_class_keep_catalog_text() {
                 .change_acl(
                     crate::acl::AclTarget::Bucket(name.clone()),
                     acl::AclChange::Upsert {
-                        entity: "allUsers".into(),
+                        entity: "allUsers".parse().unwrap(),
                         role: Some(role.parse().unwrap()),
                     },
                     PERMISSIVE,

@@ -56,7 +56,7 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                 .change_acl(
                     AclTarget::Bucket("time-bucket".into()),
                     AclChange::Upsert {
-                        entity: "user-clock@example.invalid".into(),
+                        entity: "user-clock@example.invalid".parse().unwrap(),
                         role: Some(crate::acl::AclRole::Reader),
                     },
                     PERMISSIVE,

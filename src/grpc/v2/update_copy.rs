@@ -2085,7 +2085,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(stored.objects[0].iter().any(|e| e.entity == "allUsers"));
+        assert!(
+            stored.objects[0]
+                .iter()
+                .any(|e| e.entity.as_str() == "allUsers")
+        );
         assert_code(
             s.update_object(Request::new(acl_request("nobody")), None)
                 .await,

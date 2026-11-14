@@ -916,11 +916,11 @@ mod tests {
             ])),
             acl: Some(vec![
                 crate::acl::AclEntry {
-                    entity: "user-b@example.test".into(),
+                    entity: "user-b@example.test".parse().unwrap(),
                     role: crate::acl::AclRole::Owner,
                 },
                 crate::acl::AclEntry {
-                    entity: "allUsers".into(),
+                    entity: "allUsers".parse().unwrap(),
                     role: crate::acl::AclRole::Reader,
                 },
             ]),

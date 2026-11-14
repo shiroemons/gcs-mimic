@@ -581,7 +581,7 @@ mod tests {
             (AclKind::Object, "OWNER"),
         ] {
             let entry = AclEntry {
-                entity: "allUsers".into(),
+                entity: "allUsers".parse().unwrap(),
                 role: role.parse().unwrap(),
             };
             let value = crate::json::acl::acl_entry_resource(

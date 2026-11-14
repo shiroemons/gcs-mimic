@@ -1724,7 +1724,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
             .change_acl(
                 target.clone(),
                 AclChange::Upsert {
-                    entity: "user-reader".into(),
+                    entity: "user-reader".parse().unwrap(),
                     role: Some(crate::acl::AclRole::Reader),
                 },
                 PERMISSIVE,

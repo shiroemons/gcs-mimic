@@ -13,8 +13,7 @@ use super::{
 };
 use crate::{
     acl::{
-        AclEntry, AclKind, AclRole, AclTarget, EntityRef, parse_entity, project_number,
-        validate_role,
+        AclEntry, AclKind, AclRole, AclTarget, Entity, ProjectTeam, parse_entity, validate_role,
     },
     bucket::BucketConditions,
     config::CompatProfile,
@@ -170,7 +169,7 @@ fn parse_route(
 /// The entity and role a mutation applies; `role` is `None` only for a patch that omits it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclBody {
-    pub entity: String,
+    pub entity: Entity,
     pub role: Option<AclRole>,
 }
 
@@ -228,7 +227,7 @@ pub(crate) fn parse_acl_body(
         }
         _ => unreachable!("only mutations carry a body"),
     };
-    parse_entity(&entity)?;
+    let entity = parse_entity(&entity)?;
     if role.is_none() && !matches!(operation, AclOperation::Patch(_)) {
         return Err(required("role"));
     }
@@ -239,27 +238,22 @@ pub(crate) fn parse_acl_body(
     Ok(AclBody { entity, role })
 }
 
-fn entity_fields(resource: &mut Map<String, Value>, entity: &str) {
-    let Ok(entity) = parse_entity(entity) else {
-        return;
-    };
-    match entity.parsed() {
-        EntityRef::UserEmail(email) | EntityRef::GroupEmail(email) => {
-            resource.insert("email".into(), email.into());
-        }
-        EntityRef::UserId(id) | EntityRef::GroupId(id) => {
-            resource.insert("entityId".into(), id.into());
-        }
-        EntityRef::Domain(domain) => {
-            resource.insert("domain".into(), domain.into());
-        }
-        EntityRef::ProjectTeam { team, project } => {
-            resource.insert(
-                "projectTeam".into(),
-                json!({"projectNumber": project, "team": team.as_str()}),
-            );
-        }
-        EntityRef::AllUsers | EntityRef::AllAuthenticatedUsers => {}
+/// The fields Cloud Storage derives from the entity; an entity has at most one of them.
+fn entity_fields(resource: &mut Map<String, Value>, entity: &Entity) {
+    if let Some(email) = entity.email() {
+        resource.insert("email".into(), email.into());
+    }
+    if let Some(id) = entity.entity_id() {
+        resource.insert("entityId".into(), id.into());
+    }
+    if let Some(domain) = entity.domain() {
+        resource.insert("domain".into(), domain.into());
+    }
+    if let Some((team, project)) = entity.team() {
+        resource.insert(
+            "projectTeam".into(),
+            json!({"projectNumber": project, "team": team.as_str()}),
+        );
     }
 }
 
@@ -293,7 +287,7 @@ pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &Ac
                 format!(
                     "{base}/storage/v1/b/{}/acl/{}",
                     encode_segment(owner.bucket),
-                    encode_segment(&entry.entity).replace("%40", "@")
+                    encode_segment(entry.entity.as_str()).replace("%40", "@")
                 )
                 .into(),
             );
@@ -310,7 +304,7 @@ pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &Ac
                     "{base}/storage/v1/b/{}/o/{}/acl/{}",
                     encode_segment(owner.bucket),
                     encode_segment(name),
-                    encode_segment(&entry.entity).replace("%40", "@")
+                    encode_segment(entry.entity.as_str()).replace("%40", "@")
                 )
                 .into(),
             );
@@ -380,7 +374,7 @@ pub(crate) fn add_bucket_acl_fields(
     };
     resource["acl"] = entries(AclKind::Bucket, acl).into();
     resource["defaultObjectAcl"] = entries(AclKind::DefaultObject, default_object_acl).into();
-    resource["owner"] = json!({"entity": format!("project-owners-{}", project_number(project))});
+    resource["owner"] = json!({"entity": Entity::project_team(ProjectTeam::Owners, project)});
 }
 
 /// Add `acl` to a rendered object resource.
@@ -556,7 +550,7 @@ mod tests {
                 &insert
             ),
             Ok(AclBody {
-                entity: "allUsers".into(),
+                entity: "allUsers".parse().unwrap(),
                 role: Some(crate::acl::AclRole::Reader)
             })
         );
@@ -564,7 +558,7 @@ mod tests {
         assert_eq!(
             parse_acl_body(b"{}", AclKind::Object, &patch),
             Ok(AclBody {
-                entity: "allUsers".into(),
+                entity: "allUsers".parse().unwrap(),
                 role: None
             })
         );
@@ -632,7 +626,7 @@ mod tests {
     #[test]
     fn resources_follow_the_discovery_schemas() {
         let entry = |entity: &str| AclEntry {
-            entity: entity.into(),
+            entity: entity.parse().unwrap(),
             role: crate::acl::AclRole::Owner,
         };
         let bucket = AclOwner {

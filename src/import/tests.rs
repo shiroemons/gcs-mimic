@@ -134,7 +134,7 @@ fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
             assert_eq!(
                 projection.bucket,
                 vec![crate::acl::AclEntry {
-                    entity: "allAuthenticatedUsers".into(),
+                    entity: "allAuthenticatedUsers".parse().unwrap(),
                     role: crate::acl::AclRole::Writer
                 }]
             );
@@ -142,7 +142,7 @@ fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
             assert_eq!(
                 projection.objects[1],
                 vec![crate::acl::AclEntry {
-                    entity: "allUsers".into(),
+                    entity: "allUsers".parse().unwrap(),
                     role: crate::acl::AclRole::Reader
                 }]
             );
