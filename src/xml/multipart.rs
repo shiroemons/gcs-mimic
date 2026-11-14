@@ -11,10 +11,12 @@ use crate::{
     storage::xml_multipart as storage,
 };
 use hyper::{Method, Request, Response, StatusCode, Uri, header::HeaderValue};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
 mod manifest;
 mod render;
+#[cfg(test)]
+mod tests;
 
 const MANIFEST_LIMIT: usize = 2 * 1024 * 1024;
 
@@ -43,80 +45,196 @@ fn xml_text(value: &str) -> Result<(), Error> {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Operation {
-    Begin,
-    Put(u16),
-    Parts,
-    Uploads,
-    Complete,
-    Abort,
+/// The largest part number, which also bounds a part number marker.
+const MAX_PART_NUMBER: u16 = 10_000;
+
+fn out_of_range() -> Error {
+    Error::invalid("Multipart number is out of range")
 }
 
-fn operation(
-    method: &Method,
-    name: &str,
-    query: &mut BTreeMap<String, String>,
-) -> Result<(Operation, String), Error> {
-    let uploads = query.remove("uploads");
-    let id = query.remove("uploadId");
-    let number = query.remove("partNumber");
-    if uploads.as_ref().is_some_and(|value| !value.is_empty())
-        || (uploads.is_some() && id.is_some())
-    {
-        return Err(Error::invalid(
-            "Use uploads or uploadId, with an empty uploads value",
-        ));
+/// A multipart part number, 1 through 10000.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct PartNumber(u16);
+
+impl FromStr for PartNumber {
+    type Err = Error;
+
+    /// Decimal digits only; `u16` holds every allowed value, so one range check suffices.
+    fn from_str(raw: &str) -> Result<Self, Error> {
+        crate::decimal::Grammar::Digits
+            .parse::<u16>(raw)
+            .filter(|number| (1..=MAX_PART_NUMBER).contains(number))
+            .map(Self)
+            .ok_or_else(out_of_range)
     }
-    let operation = match (
-        method,
-        name.is_empty(),
-        uploads.is_some(),
-        id.is_some(),
-        number.as_deref(),
-    ) {
-        (&Method::POST, false, true, false, None) => Operation::Begin,
-        (&Method::GET, true, true, false, None) => Operation::Uploads,
-        (&Method::GET, false, false, true, None) => Operation::Parts,
-        (&Method::POST, false, false, true, None) => Operation::Complete,
-        (&Method::DELETE, false, false, true, None) => Operation::Abort,
-        (&Method::PUT, false, false, true, Some(number)) => Operation::Put(
-            u16::try_from(integer(number, 1, 10000)?)
-                .map_err(|_| Error::invalid("Multipart number is out of range"))?,
-        ),
-        _ => {
+}
+
+impl PartNumber {
+    fn get(self) -> u16 {
+        self.0
+    }
+}
+
+/// A listing request.
+enum Listing {
+    /// `GET /BUCKET?uploads`.
+    Uploads,
+    /// `GET /BUCKET/OBJECT?uploadId=ID`.
+    Parts { upload_id: String },
+}
+
+/// A request that writes or ends an upload.
+enum Write {
+    /// `POST /BUCKET/OBJECT?uploads`.
+    Begin,
+    /// `PUT /BUCKET/OBJECT?uploadId=ID&partNumber=N`.
+    Part {
+        upload_id: String,
+        number: PartNumber,
+    },
+    /// `POST /BUCKET/OBJECT?uploadId=ID`.
+    Complete { upload_id: String },
+    /// `DELETE /BUCKET/OBJECT?uploadId=ID`.
+    Abort { upload_id: String },
+}
+
+/// One XML multipart request, decided from its method, object name and query.
+enum Operation {
+    List(Listing),
+    Write(Write),
+}
+
+impl Operation {
+    /// Checks the `uploads` and `uploadId` combination, then the method and query, then a part
+    /// number, then the upload ID, so a PUT with a bad part number and a bad upload ID names
+    /// the part number.
+    fn parse(
+        method: &Method,
+        name: &str,
+        query: &mut BTreeMap<String, String>,
+    ) -> Result<Self, Error> {
+        let uploads = query.remove("uploads");
+        let id = query.remove("uploadId");
+        let number = query.remove("partNumber");
+        if uploads.as_ref().is_some_and(|value| !value.is_empty())
+            || (uploads.is_some() && id.is_some())
+        {
             return Err(Error::invalid(
-                "Invalid multipart method or query combination",
+                "Use uploads or uploadId, with an empty uploads value",
             ));
         }
-    };
-    if id
-        .as_ref()
-        .is_some_and(|value| value.is_empty() || value.len() > 1024)
-    {
+        Ok(
+            match (method, name.is_empty(), uploads.is_some(), id, number) {
+                (&Method::POST, false, true, None, None) => Self::Write(Write::Begin),
+                (&Method::GET, true, true, None, None) => Self::List(Listing::Uploads),
+                (&Method::GET, false, false, Some(id), None) => Self::List(Listing::Parts {
+                    upload_id: upload_id(id)?,
+                }),
+                (&Method::POST, false, false, Some(id), None) => Self::Write(Write::Complete {
+                    upload_id: upload_id(id)?,
+                }),
+                (&Method::DELETE, false, false, Some(id), None) => Self::Write(Write::Abort {
+                    upload_id: upload_id(id)?,
+                }),
+                (&Method::PUT, false, false, Some(id), Some(number)) => {
+                    let number = number.parse::<PartNumber>()?;
+                    Self::Write(Write::Part {
+                        upload_id: upload_id(id)?,
+                        number,
+                    })
+                }
+                _ => {
+                    return Err(Error::invalid(
+                        "Invalid multipart method or query combination",
+                    ));
+                }
+            },
+        )
+    }
+
+    fn permission(&self) -> crate::auth::Permission {
+        match self {
+            Self::Write(Write::Begin | Write::Part { .. } | Write::Complete { .. }) => {
+                crate::auth::Permission::MultipartCreate
+            }
+            Self::List(Listing::Parts { .. }) => crate::auth::Permission::MultipartListParts,
+            Self::List(Listing::Uploads) => crate::auth::Permission::MultipartList,
+            Self::Write(Write::Abort { .. }) => crate::auth::Permission::MultipartAbort,
+        }
+    }
+}
+
+impl Write {
+    fn framing(&self) -> put::Framing {
+        match self {
+            Self::Abort { .. } => put::Framing::OptionalEmpty,
+            Self::Begin | Self::Part { .. } | Self::Complete { .. } => put::Framing::Required,
+        }
+    }
+
+    fn max_body(&self, config: &crate::config::Config) -> u64 {
+        match self {
+            Self::Part { .. } => config.max_object_bytes.min(storage::MAX_PART_BYTES),
+            Self::Complete { .. } => MANIFEST_LIMIT as u64,
+            Self::Begin | Self::Abort { .. } => 0,
+        }
+    }
+
+    fn metadata(&self) -> InitiationMetadata {
+        match self {
+            Self::Begin => InitiationMetadata::Accepted,
+            Self::Part { .. } | Self::Complete { .. } | Self::Abort { .. } => {
+                InitiationMetadata::Refused
+            }
+        }
+    }
+}
+
+/// Whether a request may carry object metadata headers, which only initiation stores.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InitiationMetadata {
+    Accepted,
+    Refused,
+}
+
+/// An upload ID of 1 through 1024 bytes.
+fn upload_id(id: String) -> Result<String, Error> {
+    if id.is_empty() || id.len() > 1024 {
         return Err(Error::invalid("Invalid uploadId"));
     }
-    Ok((operation, id.unwrap_or_default()))
+    Ok(id)
 }
 
-fn integer(raw: &str, min: u32, max: u32) -> Result<u32, Error> {
-    crate::decimal::Grammar::Digits
-        .parse::<u32>(raw)
-        .filter(|value| (min..=max).contains(value))
-        .ok_or_else(|| Error::invalid("Multipart number is out of range"))
-}
-
-fn numeric(
-    query: &mut BTreeMap<String, String>,
-    name: &str,
-    default: u32,
-    max: u32,
-) -> Result<u32, Error> {
+/// `part-number-marker`, 0 through 10000. A marker is not a part number: 0 starts the list.
+fn part_marker(query: &mut BTreeMap<String, String>) -> Result<u16, Error> {
     query
-        .remove(name)
-        .map(|value| integer(&value, 0, max))
+        .remove("part-number-marker")
+        .map(|value| {
+            crate::decimal::Grammar::Digits
+                .parse::<u16>(&value)
+                .filter(|marker| *marker <= MAX_PART_NUMBER)
+                .ok_or_else(out_of_range)
+        })
         .transpose()
-        .map(|value| value.unwrap_or(default))
+        .map(Option::unwrap_or_default)
+}
+
+/// `max-parts` or `max-uploads`: at most 1000 entries, 1000 when absent, never zero.
+fn page_limit(query: &mut BTreeMap<String, String>, name: &str) -> Result<usize, Error> {
+    let limit = query
+        .remove(name)
+        .map(|value| {
+            crate::decimal::Grammar::Digits
+                .parse::<u32>(&value)
+                .ok_or_else(out_of_range)
+        })
+        .transpose()?
+        .unwrap_or(1000)
+        .min(1000) as usize;
+    if limit == 0 {
+        return Err(Error::invalid(format!("{name} must be positive")));
+    }
+    Ok(limit)
 }
 
 fn remaining(query: &BTreeMap<String, String>) -> Result<(), Error> {
@@ -129,7 +247,8 @@ fn remaining(query: &BTreeMap<String, String>) -> Result<(), Error> {
 fn request_headers(
     request: &Request<RequestBody>,
     max: u64,
-    operation: Operation,
+    framing: put::Framing,
+    metadata: InitiationMetadata,
 ) -> Result<put::Headers, Error> {
     for name in request.headers().keys() {
         let name = name.as_str();
@@ -138,7 +257,7 @@ fn request_headers(
                 "multipart preconditions and invocation-token replay",
             ));
         }
-        if !matches!(operation, Operation::Begin)
+        if metadata == InitiationMetadata::Refused
             && (name.starts_with("x-goog-meta-")
                 || matches!(
                     name,
@@ -154,10 +273,6 @@ fn request_headers(
         }
     }
     let signing = put::Signing::of(request);
-    let framing = match operation {
-        Operation::Parts | Operation::Uploads | Operation::Abort => put::Framing::OptionalEmpty,
-        Operation::Begin | Operation::Put(_) | Operation::Complete => put::Framing::Required,
-    };
     let headers = put::headers(request.headers(), max, signing, framing)?;
     // Only object PUT enforces the range; accepting it here would drop the limit silently.
     if headers.length_range.is_some() {
@@ -193,80 +308,93 @@ pub(crate) async fn respond(
         request.uri().query().unwrap_or_default(),
         request.headers(),
     )?;
-    let (operation, id) = operation(request.method(), &path.target.name, &mut query)?;
+    let operation = Operation::parse(request.method(), &path.target.name, &mut query)?;
     xml_text(&path.target.name)?;
-    let permission = match operation {
-        Operation::Begin | Operation::Put(_) | Operation::Complete => {
-            crate::auth::Permission::MultipartCreate
-        }
-        Operation::Parts => crate::auth::Permission::MultipartListParts,
-        Operation::Uploads => crate::auth::Permission::MultipartList,
-        Operation::Abort => crate::auth::Permission::MultipartAbort,
-    };
     let access = ctx
-        .authorize(permission, &path.target.bucket)
+        .authorize(operation.permission(), &path.target.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
-    if matches!(operation, Operation::Uploads | Operation::Parts) {
-        return render::list(request, path, operation, id, query, access, ctx).await;
-    }
-    remaining(&query)?;
-    let max = match operation {
-        Operation::Put(_) => ctx.config.max_object_bytes.min(storage::MAX_PART_BYTES),
-        Operation::Complete => MANIFEST_LIMIT as u64,
-        _ => 0,
-    };
-    let headers = request_headers(&request, max, operation)?;
-    if matches!(operation, Operation::Begin) {
-        if headers.expected != Default::default() {
-            return Err(Error::unsupported(
-                "whole-object checksums during multipart initiation",
-            ));
+    match operation {
+        Operation::List(listing) => render::list(request, path, listing, query, access, ctx).await,
+        Operation::Write(write) => {
+            remaining(&query)?;
+            write_upload(request, path, write, access, ctx).await
         }
-        super::canned_acl::check(
-            headers.metadata.predefined_acl,
-            &path.target.bucket,
-            &access,
-            ctx,
-        )
-        .await?;
-        empty_body(request, headers.sha256).await?;
-        let options = storage::Options {
-            content_type: headers.content_type,
-            metadata: headers.metadata,
-        };
-        let upload = ctx
-            .await_catalog(ctx.state.catalog.begin_xml_multipart(
-                &path.target.bucket,
-                &path.target.name,
-                options,
-                access,
-            ))
-            .await
-            .map_err(|error| storage_error(error, ctx))?;
-        return Ok(response(render::initiate_body(&upload.target)));
     }
-    let target = storage::Target {
+}
+
+/// The upload an object path and upload ID name.
+fn upload_target(path: ReadRequest, upload_id: String) -> storage::Target {
+    storage::Target {
         bucket: path.target.bucket,
         name: path.target.name,
-        id,
-    };
-    match operation {
-        Operation::Put(number) => {
+        id: upload_id,
+    }
+}
+
+async fn write_upload(
+    request: Request<RequestBody>,
+    path: ReadRequest,
+    write: Write,
+    access: crate::bucket::BucketAccess,
+    ctx: ObjectCtx<'_>,
+) -> Result<Response<ResponseBody>, Error> {
+    let headers = request_headers(
+        &request,
+        write.max_body(ctx.config),
+        write.framing(),
+        write.metadata(),
+    )?;
+    match write {
+        Write::Begin => {
+            if headers.expected != Default::default() {
+                return Err(Error::unsupported(
+                    "whole-object checksums during multipart initiation",
+                ));
+            }
+            super::canned_acl::check(
+                headers.metadata.predefined_acl,
+                &path.target.bucket,
+                &access,
+                ctx,
+            )
+            .await?;
+            empty_body(request, headers.sha256).await?;
+            let options = storage::Options {
+                content_type: headers.content_type,
+                metadata: headers.metadata,
+            };
+            let upload = ctx
+                .await_catalog(ctx.state.catalog.begin_xml_multipart(
+                    &path.target.bucket,
+                    &path.target.name,
+                    options,
+                    access,
+                ))
+                .await
+                .map_err(|error| storage_error(error, ctx))?;
+            Ok(response(render::initiate_body(&upload.target)))
+        }
+        Write::Part { upload_id, number } => {
+            let target = upload_target(path, upload_id);
             let lease = ctx
-                .await_session_writer(ctx.state.catalog.lease_xml_part(target, number, access))
+                .await_session_writer(ctx.state.catalog.lease_xml_part(
+                    target,
+                    number.get(),
+                    access,
+                ))
                 .await
                 .map_err(|error| storage_error(error, ctx))?;
             check_customer_key(&request, &lease.upload, ctx)?;
             upload_part(request, lease, headers, ctx).await
         }
-        Operation::Complete => {
-            let lease = whole_upload(target, access, ctx).await?;
+        Write::Complete { upload_id } => {
+            let lease = whole_upload(upload_target(path, upload_id), access, ctx).await?;
             check_customer_key(&request, &lease.upload, ctx)?;
             complete(request, lease, headers, ctx).await
         }
-        Operation::Abort => {
-            let lease = whole_upload(target, access, ctx).await?;
+        Write::Abort { upload_id } => {
+            let lease = whole_upload(upload_target(path, upload_id), access, ctx).await?;
             empty_body(request, headers.sha256).await?;
             ctx.await_catalog(ctx.state.catalog.abort_xml_multipart(lease))
                 .await
@@ -274,9 +402,6 @@ pub(crate) async fn respond(
             let mut response = response(String::new());
             *response.status_mut() = StatusCode::NO_CONTENT;
             Ok(response)
-        }
-        Operation::Begin | Operation::Parts | Operation::Uploads => {
-            Err(Error::invalid("Invalid multipart operation"))
         }
     }
 }

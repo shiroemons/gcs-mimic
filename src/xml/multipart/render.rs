@@ -46,13 +46,17 @@ fn class(upload: &storage::Upload) -> &str {
 pub(super) async fn list(
     request: Request<RequestBody>,
     path: ReadRequest,
-    operation: Operation,
-    id: String,
+    listing: Listing,
     mut query: BTreeMap<String, String>,
     access: BucketAccess,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let headers = request_headers(&request, 0, operation)?;
+    let headers = request_headers(
+        &request,
+        0,
+        put::Framing::OptionalEmpty,
+        InitiationMetadata::Refused,
+    )?;
     if headers.expected != Default::default() {
         return Err(Error::unsupported(
             "checksums on a multipart listing request",
@@ -64,20 +68,12 @@ pub(super) async fn list(
         ));
     }
     empty_body(request, headers.sha256).await?;
-    match operation {
-        Operation::Parts => {
-            let marker = u16::try_from(numeric(&mut query, "part-number-marker", 0, 10000)?)
-                .map_err(|_| Error::invalid("Multipart number is out of range"))?;
-            let limit = numeric(&mut query, "max-parts", 1000, u32::MAX)?.min(1000) as usize;
-            if limit == 0 {
-                return Err(Error::invalid("max-parts must be positive"));
-            }
+    match listing {
+        Listing::Parts { upload_id } => {
+            let marker = part_marker(&mut query)?;
+            let limit = page_limit(&mut query, "max-parts")?;
             remaining(&query)?;
-            let target = storage::Target {
-                bucket: path.target.bucket,
-                name: path.target.name,
-                id,
-            };
+            let target = upload_target(path, upload_id);
             let page = ctx
                 .await_catalog(
                     ctx.state
@@ -94,11 +90,8 @@ pub(super) async fn list(
                 page.more,
             )?))
         }
-        Operation::Uploads => {
-            let limit = numeric(&mut query, "max-uploads", 1000, u32::MAX)?.min(1000) as usize;
-            if limit == 0 {
-                return Err(Error::invalid("max-uploads must be positive"));
-            }
+        Listing::Uploads => {
+            let limit = page_limit(&mut query, "max-uploads")?;
             let prefix = query.remove("prefix").unwrap_or_default();
             let delimiter = query.remove("delimiter").unwrap_or_default();
             let marker = query.remove("key-marker").unwrap_or_default();
@@ -135,7 +128,6 @@ pub(super) async fn list(
                 .map_err(|error| storage_error(error, ctx))?;
             Ok(response(uploads_body(&query, page)?))
         }
-        _ => Err(Error::invalid("Invalid multipart listing operation")),
     }
 }
 

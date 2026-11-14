@@ -14,7 +14,7 @@ enum Scope {
 
 #[derive(Default)]
 struct Part {
-    number: Option<u16>,
+    number: Option<PartNumber>,
     etag: Option<String>,
     text: String,
 }
@@ -46,10 +46,7 @@ impl Part {
     ) -> Result<Scope, Error> {
         Ok(match scope {
             Scope::Number => {
-                self.number = Some(
-                    u16::try_from(integer(self.text.trim(), 1, 10000)?)
-                        .map_err(|_| Error::invalid("Multipart number is out of range"))?,
-                );
+                self.number = Some(self.text.trim().parse()?);
                 Scope::Part
             }
             Scope::Etag => {
@@ -67,7 +64,7 @@ impl Part {
                     ));
                 }
                 parts.push(storage::CompletedPart {
-                    number: self.number.take().ok_or_else(malformed)?,
+                    number: self.number.take().ok_or_else(malformed)?.get(),
                     etag: self.etag.take().ok_or_else(malformed)?,
                 });
                 Scope::Root
