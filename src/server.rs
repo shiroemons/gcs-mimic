@@ -12,7 +12,7 @@ use crate::{
         failure::{BackendFailure, object_unavailable},
     },
     time_limit::TimeLimit,
-    tls::{self, ListenerSecurity},
+    tls::ListenerSecurity,
     xml,
 };
 use handshake::{Handshake, Undetected};
@@ -31,6 +31,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    task::Poll,
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
@@ -792,40 +793,25 @@ async fn claim_catalog_wait(
     }
 }
 
-pub async fn serve(
-    listener: TcpListener,
-    config: impl Into<Arc<Config>>,
-    state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-) -> Result<(), Diagnostics> {
-    let config = config.into();
-    let security =
-        tls::load_server(&config).map_err(|error| Diagnostics::from(error.diagnostic()))?;
-    serve_with_tls(vec![(listener, security)], config, state, shutdown).await
+/// The listeners one server accepts on. They share `max_connections` and every timeout.
+pub enum Listeners {
+    Tcp(TcpListeners),
+    /// A private local socket, served as plain HTTP on a public listener.
+    #[cfg(unix)]
+    Unix(unix::Listener),
 }
 
-pub(crate) async fn serve_with_tls(
-    listeners: Vec<(TcpListener, ListenerSecurity)>,
-    config: impl Into<Arc<Config>>,
-    state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-) -> Result<(), Diagnostics> {
-    serve_with_tls_and_drain(listeners, config, state, shutdown, async { Ok(()) }).await
+impl From<TcpListeners> for Listeners {
+    fn from(listeners: TcpListeners) -> Self {
+        Self::Tcp(listeners)
+    }
 }
 
-pub(crate) async fn serve_with_tls_and_drain(
-    listeners: Vec<(TcpListener, ListenerSecurity)>,
-    config: impl Into<Arc<Config>>,
-    state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-    background_drain: impl Future<Output = io::Result<()>>,
-) -> Result<(), Diagnostics> {
-    let listeners = TcpListeners {
-        public: listeners,
-        trusted: None,
-        grpc: None,
-    };
-    serve_with_grpc_and_drain(listeners, config, state, shutdown, background_drain).await
+#[cfg(unix)]
+impl From<unix::Listener> for Listeners {
+    fn from(listener: unix::Listener) -> Self {
+        Self::Unix(listener)
+    }
 }
 
 /// The TCP listeners of one server. They share `max_connections` and every timeout.
@@ -839,42 +825,129 @@ pub struct TcpListeners {
     pub grpc: Option<TcpListener>,
 }
 
-pub async fn serve_with_grpc_and_drain(
-    listeners: TcpListeners,
+impl TcpListeners {
+    /// One browser-facing listener, without the trusted and gRPC listeners.
+    pub fn public(listener: TcpListener, security: ListenerSecurity) -> Self {
+        Self {
+            public: vec![(listener, security)],
+            trusted: None,
+            grpc: None,
+        }
+    }
+
+    /// The listeners as served: the public ones in order, then the trusted and gRPC ones.
+    fn into_entries(self) -> Result<Vec<Entry>, Diagnostics> {
+        let Self {
+            public,
+            trusted,
+            grpc,
+        } = self;
+        let mut entries: Vec<Entry> = public
+            .into_iter()
+            .map(|(listener, security)| {
+                Entry::Http(
+                    transport::Listener::Tcp(listener),
+                    Serving::public(security),
+                )
+            })
+            .chain(trusted.map(|listener| {
+                Entry::Http(transport::Listener::Tcp(listener), Serving::trusted())
+            }))
+            .collect();
+        if entries.is_empty() {
+            return Err(Diagnostics::startup_failure(&io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "at least one listener is required",
+            )));
+        }
+        entries.extend(grpc.map(Entry::Grpc));
+        Ok(entries)
+    }
+}
+
+/// When a server stops, and the work it waits for once its connections drain.
+pub struct Stop<S, D> {
+    /// Resolves when the server should stop accepting; its error becomes the server's result.
+    pub signal: S,
+    /// Work outside the server, such as directory synchronization, that ends before the catalog
+    /// closes.
+    pub background: D,
+}
+
+impl<S> Stop<S, std::future::Ready<io::Result<()>>> {
+    /// Stops on `signal`, with no background work to wait for.
+    pub fn on(signal: S) -> Self {
+        Self {
+            signal,
+            background: std::future::ready(Ok(())),
+        }
+    }
+}
+
+/// Serves `listeners` until `stop.signal` resolves, then drains the connections, waits for
+/// `stop.background` and closes the catalog.
+pub async fn serve<S, D>(
+    listeners: impl Into<Listeners>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-    background_drain: impl Future<Output = io::Result<()>>,
-) -> Result<(), Diagnostics> {
-    let TcpListeners {
-        public,
-        trusted,
-        grpc,
-    } = listeners;
-    let public = public.into_iter().map(|(listener, security)| {
-        let serving = Serving {
-            security,
-            role: ListenerRole::Public,
-        };
-        (transport::Listener::Tcp(listener), serving)
-    });
-    // Plain HTTP whatever the scheme: the listener is meant for a private container network.
-    let trusted = trusted.map(|listener| {
-        let serving = Serving {
-            security: ListenerSecurity::Plain,
-            role: ListenerRole::Trusted,
-        };
-        (transport::Listener::Tcp(listener), serving)
-    });
-    serve_transports(
-        public.chain(trusted).collect(),
-        grpc,
-        config.into(),
-        state,
-        shutdown,
-        background_drain,
-    )
-    .await
+    stop: Stop<S, D>,
+) -> Result<(), Diagnostics>
+where
+    S: Future<Output = io::Result<()>>,
+    D: Future<Output = io::Result<()>>,
+{
+    let entries = match listeners.into() {
+        Listeners::Tcp(listeners) => listeners.into_entries()?,
+        #[cfg(unix)]
+        Listeners::Unix(listener) => vec![Entry::Http(
+            transport::Listener::Unix(listener),
+            Serving::public(ListenerSecurity::Plain),
+        )],
+    };
+    serve_entries(entries, config.into(), state, stop).await
+}
+
+/// A listener and how its connections are served.
+enum Entry {
+    /// HTTP/1 connections, served as `Serving` says.
+    Http(transport::Listener, Serving),
+    /// The plaintext gRPC listener. gRPC serves its connections itself, and its calls always
+    /// authenticate as on a public listener, so it needs no `Serving`.
+    Grpc(TcpListener),
+}
+
+/// A connection one entry accepted, with what serving it needs.
+enum NewConnection {
+    Http(transport::Stream, Serving),
+    Grpc(tokio::net::TcpStream),
+}
+
+impl Entry {
+    fn poll_accept(&self, cx: &mut std::task::Context<'_>) -> Poll<io::Result<NewConnection>> {
+        match self {
+            Self::Http(listener, serving) => listener
+                .poll_accept(cx)
+                .map_ok(|stream| NewConnection::Http(stream, serving.clone())),
+            Self::Grpc(listener) => {
+                transport::poll_accept_tcp(listener, cx).map_ok(NewConnection::Grpc)
+            }
+        }
+    }
+
+    async fn close(self) -> io::Result<()> {
+        match self {
+            Self::Http(listener, _) => listener.close().await,
+            Self::Grpc(_) => Ok(()),
+        }
+    }
+}
+
+/// What every connection task shares with the server that accepted it.
+#[derive(Clone)]
+struct Shared {
+    state: Arc<State>,
+    config: Arc<Config>,
+    slots: Arc<SlotReclaim>,
 }
 
 /// How the HTTP connections a listener accepts are served.
@@ -885,6 +958,21 @@ struct Serving {
 }
 
 impl Serving {
+    fn public(security: ListenerSecurity) -> Self {
+        Self {
+            security,
+            role: ListenerRole::Public,
+        }
+    }
+
+    /// Plain HTTP whatever the scheme: the listener is meant for a private container network.
+    fn trusted() -> Self {
+        Self {
+            security: ListenerSecurity::Plain,
+            role: ListenerRole::Trusted,
+        }
+    }
+
     /// Selects the protocol of a TCP connection accepted `at`. The wait for its first byte ends
     /// at the header read limit counted from `at`, the limit a silent plain HTTP client has.
     async fn accept_tcp(
@@ -949,69 +1037,32 @@ impl Listening {
     }
 }
 
-#[cfg(unix)]
-pub async fn serve_with_unix_and_drain(
-    listener: unix::Listener,
-    config: impl Into<Arc<Config>>,
-    state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-    background_drain: impl Future<Output = io::Result<()>>,
-) -> Result<(), Diagnostics> {
-    let serving = Serving {
-        security: ListenerSecurity::Plain,
-        role: ListenerRole::Public,
-    };
-    serve_transports(
-        vec![(transport::Listener::Unix(listener), serving)],
-        None,
-        config.into(),
-        state,
-        shutdown,
-        background_drain,
-    )
-    .await
-}
-
-async fn serve_transports(
-    mut listeners: Vec<(transport::Listener, Serving)>,
-    grpc: Option<TcpListener>,
+async fn serve_entries(
+    entries: Vec<Entry>,
     config: Arc<Config>,
     state: Arc<State>,
-    shutdown: impl Future<Output = io::Result<()>>,
-    background_drain: impl Future<Output = io::Result<()>>,
+    stop: Stop<impl Future<Output = io::Result<()>>, impl Future<Output = io::Result<()>>>,
 ) -> Result<(), Diagnostics> {
-    // Connections and requests share one configuration instead of cloning it per request.
-    if listeners.is_empty() {
-        return Err(Diagnostics::startup_failure(&io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "at least one listener is required",
-        )));
-    }
-    let grpc_index = grpc.as_ref().map(|_| listeners.len());
-    if let Some(listener) = grpc {
-        // gRPC serves its connections itself; its calls always authenticate as on a public
-        // listener, so nothing here applies to them.
-        let unused = Serving {
-            security: ListenerSecurity::Plain,
-            role: ListenerRole::Public,
-        };
-        listeners.push((transport::Listener::Tcp(listener), unused));
-    }
+    let Stop {
+        signal: shutdown,
+        background: background_drain,
+    } = stop;
     let (stop, _) = watch::channel(false);
-    let slots = Arc::new(SlotReclaim::default());
-    let max_connections = config.max_connections;
+    // Connections and requests share one configuration instead of cloning it per request.
+    let shared = Shared {
+        state,
+        config,
+        slots: Arc::new(SlotReclaim::default()),
+    };
+    let max_connections = shared.config.max_connections;
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
     // Later clients stay in the listen backlog until this one has a slot, so a full server asks
     // for one idle slot at a time.
     let mut held: Option<HeldClient<'_>> = None;
     let starter = ConnectionStarter {
-        listeners: &listeners,
-        grpc_index,
-        config: &config,
-        state: &state,
+        shared: &shared,
         stop: &stop,
-        slots: &slots,
     };
     let pause = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(pause);
@@ -1027,17 +1078,16 @@ async fn serve_transports(
                     report_connection_task_failure(&error);
                 }
                 if connections.len() < max_connections
-                    && let Some(HeldClient { index, stream, .. }) = held.take()
-                    && let Err(error) = starter.start(&mut connections, index, stream)
+                    && let Some(HeldClient { connection, .. }) = held.take()
                 {
-                    break Err(error);
+                    starter.start(&mut connections, connection);
                 }
             }
-            incoming = std::future::poll_fn(|cx| poll_incoming(&listeners, next_listener, cx)), if held.is_none() && !paused => {
-                let (index, stream) = match incoming {
+            incoming = std::future::poll_fn(|cx| poll_incoming(&entries, next_listener, cx)), if held.is_none() && !paused => {
+                let (index, connection) = match incoming {
                     Ok(incoming) => incoming,
                     Err((index, error)) => {
-                        next_listener = (index + 1) % listeners.len();
+                        next_listener = (index + 1) % entries.len();
                         match transport::classify(&error) {
                             transport::AcceptFailure::Fatal => break Err(error),
                             transport::AcceptFailure::Connection => {},
@@ -1050,11 +1100,11 @@ async fn serve_transports(
                     }
                 };
                 backoff.accepted();
-                next_listener = (index + 1) % listeners.len();
+                next_listener = (index + 1) % entries.len();
                 if connections.len() >= max_connections {
-                    held = Some(HeldClient { index, stream, _request: slots.request() });
-                } else if let Err(error) = starter.start(&mut connections, index, stream) {
-                    break Err(error);
+                    held = Some(HeldClient { connection, _request: shared.slots.request() });
+                } else {
+                    starter.start(&mut connections, connection);
                 }
             }
         }
@@ -1065,10 +1115,11 @@ async fn serve_transports(
         "stopping",
         serde_json::json!({}),
     );
+    let Shared { state, config, .. } = &shared;
     state.ready.store(false, Ordering::Release);
-    let mut listener_cleanups = Vec::with_capacity(listeners.len());
-    for (listener, _) in listeners {
-        listener_cleanups.push(listener.close().await);
+    let mut listener_cleanups = Vec::with_capacity(entries.len());
+    for entry in entries {
+        listener_cleanups.push(entry.close().await);
     }
     stop.send_replace(true);
     let drain_result = drain_connections(&mut connections, config.shutdown_timeout).await;
@@ -1088,54 +1139,44 @@ async fn serve_transports(
 
 /// What the accept loop shares with every connection task it starts.
 struct ConnectionStarter<'a> {
-    listeners: &'a [(transport::Listener, Serving)],
-    grpc_index: Option<usize>,
-    config: &'a Arc<Config>,
-    state: &'a Arc<State>,
+    shared: &'a Shared,
     stop: &'a watch::Sender<bool>,
-    slots: &'a Arc<SlotReclaim>,
 }
 
 impl ConnectionStarter<'_> {
-    fn start(
-        &self,
-        connections: &mut JoinSet<()>,
-        index: usize,
-        stream: transport::Stream,
-    ) -> io::Result<()> {
-        let Some((_, serving)) = self.listeners.get(index) else {
-            return Err(io::Error::other("Accepted connection has no listener"));
-        };
-        let serving = serving.clone();
-        let grpc_index = self.grpc_index;
-        let state = self.state.clone();
-        let config = self.config.clone();
+    fn start(&self, connections: &mut JoinSet<()>, connection: NewConnection) {
+        let shared = self.shared.clone();
         let mut stopping = self.stop.subscribe();
-        let slots = self.slots.clone();
         let accepted_at = tokio::time::Instant::now();
-        let connection = async move {
-            match stream {
-                transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
-                    crate::grpc::serve_connection(stream, &config, state, stopping, &slots).await;
+        let task = async move {
+            match connection {
+                NewConnection::Grpc(stream) => {
+                    crate::grpc::serve_connection(
+                        stream,
+                        &shared.config,
+                        shared.state,
+                        stopping,
+                        &shared.slots,
+                    )
+                    .await;
                 }
-                transport::Stream::Tcp(stream) => {
+                NewConnection::Http(transport::Stream::Tcp(stream), serving) => {
                     let Some(accepted) = serving
-                        .accept_tcp(&stream, accepted_at, &config, &mut stopping)
+                        .accept_tcp(&stream, accepted_at, &shared.config, &mut stopping)
                         .await
                     else {
                         return;
                     };
-                    serve_http(stream, accepted, state, config, stopping, slots).await;
+                    serve_http(stream, accepted, shared, stopping).await;
                 }
                 #[cfg(unix)]
-                transport::Stream::Unix(stream) => {
+                NewConnection::Http(transport::Stream::Unix(stream), serving) => {
                     let accepted = serving.accept_unix(accepted_at);
-                    serve_http(stream, accepted, state, config, stopping, slots).await;
+                    serve_http(stream, accepted, shared, stopping).await;
                 }
             }
         };
-        connections.spawn(with_test_hooks(connection));
-        Ok(())
+        connections.spawn(with_test_hooks(task));
     }
 }
 
@@ -1155,8 +1196,7 @@ pub(crate) struct SlotReclaim {
 
 /// A client accepted while every slot is taken.
 struct HeldClient<'a> {
-    index: usize,
-    stream: transport::Stream,
+    connection: NewConnection,
     _request: SlotRequest<'a>,
 }
 
@@ -1220,39 +1260,39 @@ impl Drop for IdleTurn<'_> {
     }
 }
 
+/// The next connection any entry accepted, polling from `next` so that every entry gets its
+/// turn, with the index of the entry that accepted it.
 fn poll_incoming(
-    listeners: &[(transport::Listener, Serving)],
+    entries: &[Entry],
     next: usize,
     cx: &mut std::task::Context<'_>,
-) -> std::task::Poll<Result<(usize, transport::Stream), (usize, io::Error)>> {
+) -> Poll<Result<(usize, NewConnection), (usize, io::Error)>> {
     if let Some(error) = injected_accept_fault() {
-        return std::task::Poll::Ready(Err((next, error)));
+        return Poll::Ready(Err((next, error)));
     }
-    for (index, (listener, _)) in listeners
+    for (index, entry) in entries
         .iter()
         .enumerate()
         .cycle()
         .skip(next)
-        .take(listeners.len())
+        .take(entries.len())
     {
-        if let std::task::Poll::Ready(result) = listener.poll_accept(cx) {
-            return std::task::Poll::Ready(
+        if let Poll::Ready(result) = entry.poll_accept(cx) {
+            return Poll::Ready(
                 result
-                    .map(|stream| (index, stream))
+                    .map(|connection| (index, connection))
                     .map_err(|error| (index, error)),
             );
         }
     }
-    std::task::Poll::Pending
+    Poll::Pending
 }
 
 async fn serve_http(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     accepted: Accepted,
-    state: Arc<State>,
-    config: Arc<Config>,
+    shared: Shared,
     mut stopping: watch::Receiver<bool>,
-    slots: Arc<SlotReclaim>,
 ) {
     let Accepted {
         handshake,
@@ -1265,11 +1305,11 @@ async fn serve_http(
                 scheme: ConnectionScheme::Http,
                 role,
             };
-            serve_connection(stream, listening, at, state, config, stopping, slots).await;
+            serve_connection(stream, listening, at, shared, stopping).await;
         }
         Handshake::Tls(acceptor) => {
             let handshake = tokio::time::timeout_at(
-                config.tls_handshake_timeout.deadline_from(at),
+                shared.config.tls_handshake_timeout.deadline_from(at),
                 acceptor.accept(stream),
             );
             let stream = tokio::select! {
@@ -1287,10 +1327,7 @@ async fn serve_http(
             };
             // The request head gets its own full limit once the handshake is done.
             let handshaken = tokio::time::Instant::now();
-            serve_connection(
-                stream, listening, handshaken, state, config, stopping, slots,
-            )
-            .await;
+            serve_connection(stream, listening, handshaken, shared, stopping).await;
         }
     }
 }
@@ -1361,11 +1398,14 @@ async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     listening: Listening,
     first_head_from: tokio::time::Instant,
-    state: Arc<State>,
-    config: Arc<Config>,
+    shared: Shared,
     mut stopping: watch::Receiver<bool>,
-    slots: Arc<SlotReclaim>,
 ) {
+    let Shared {
+        state,
+        config,
+        slots,
+    } = shared;
     let limits = ConnectionLimits::new(&config);
     let (activity, progress) = watch::channel(ObjectActivity::default());
     let reads = Arc::new(ReadActivity::default());

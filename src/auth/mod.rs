@@ -1818,9 +1818,10 @@ mod tests {
     async fn object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate() {
         use crate::{
             object::UploadChunk,
-            server::{State, serve},
+            server::{State, Stop, TcpListeners, serve},
             storage::Catalog,
             test_support::TestDir,
+            tls::ListenerSecurity,
         };
         use std::sync::Arc;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1887,16 +1888,16 @@ mod tests {
         });
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let running = tokio::spawn(serve(
-            listener,
+            TcpListeners::public(listener, ListenerSecurity::Plain),
             crate::config::Config {
                 scheme: crate::config::Scheme::Http,
                 ..Default::default()
             },
             state,
-            async {
+            Stop::on(async {
                 stopped.await.unwrap();
                 Ok(())
-            },
+            }),
         ));
         let target = live("acl-permissions", "object");
         for method in ["PATCH", "PUT"] {

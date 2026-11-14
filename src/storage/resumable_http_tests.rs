@@ -17,8 +17,9 @@ use gcs_mimic::{
     auth::{Auth, Registry},
     clock::{Clock, ManualClock},
     config::Config,
-    server::{State, serve},
+    server::{State, Stop, TcpListeners, serve},
     storage::Catalog,
+    tls::ListenerSecurity,
 };
 use serde_json::{Value, json};
 use std::{
@@ -276,10 +277,15 @@ impl Harness {
         let (stop, rx) = oneshot::channel();
         let running = state.clone();
         let server = tokio::spawn(async move {
-            serve(listener, config, running, async {
-                rx.await.unwrap();
-                Ok(())
-            })
+            serve(
+                TcpListeners::public(listener, ListenerSecurity::Plain),
+                config,
+                running,
+                Stop::on(async {
+                    rx.await.unwrap();
+                    Ok(())
+                }),
+            )
             .await
         });
         Self {
@@ -2234,10 +2240,15 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
     let state = h.state.clone();
     h.stop = stop;
     h.server = tokio::spawn(async move {
-        serve(listener, config, state, async {
-            rx.await.unwrap();
-            Ok(())
-        })
+        serve(
+            TcpListeners::public(listener, ListenerSecurity::Plain),
+            config,
+            state,
+            Stop::on(async {
+                rx.await.unwrap();
+                Ok(())
+            }),
+        )
         .await
     });
     let status = h

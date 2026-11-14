@@ -695,11 +695,11 @@ mod tests {
             body_inactivity_timeout: TimeLimit::from_millis(100),
             ..Config::default()
         };
-        let server = tokio::spawn(super::super::serve_with_tls(
-            vec![(listener, crate::tls::ListenerSecurity::Plain)],
+        let server = tokio::spawn(super::super::serve(
+            super::super::TcpListeners::public(listener, crate::tls::ListenerSecurity::Plain),
             config,
             state.clone(),
-            async move { stopped.await.map_err(io::Error::other) },
+            super::super::Stop::on(async move { stopped.await.map_err(io::Error::other) }),
         ));
         let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
         let body = envelope(&[gzip_patch()]).into_body();

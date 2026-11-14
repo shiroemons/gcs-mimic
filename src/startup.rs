@@ -506,24 +506,24 @@ pub(crate) async fn serve(
         trusted,
         grpc,
     } = listeners;
-    match primary {
+    let listeners = match primary {
         PrimaryListener::Tcp(listener) => {
             let mut public = vec![(listener, security)];
             public.extend(http.map(|listener| (listener, gcs_mimic::tls::ListenerSecurity::Plain)));
-            let listeners = server::TcpListeners {
+            server::Listeners::from(server::TcpListeners {
                 public,
                 trusted,
                 grpc,
-            };
-            server::serve_with_grpc_and_drain(listeners, config, state, shutdown, background_drain)
-                .await?;
+            })
         }
         #[cfg(unix)]
-        PrimaryListener::Unix(listener) => {
-            server::serve_with_unix_and_drain(listener, config, state, shutdown, background_drain)
-                .await?;
-        }
-    }
+        PrimaryListener::Unix(listener) => server::Listeners::from(listener),
+    };
+    let stop = server::Stop {
+        signal: shutdown,
+        background: background_drain,
+    };
+    server::serve(listeners, config, state, stop).await?;
     report_stopped();
     Ok(())
 }

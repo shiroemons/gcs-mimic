@@ -163,13 +163,21 @@ impl Listener {
 
     pub(super) fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<Stream>> {
         match self {
-            Self::Tcp(listener) => listener.poll_accept(cx).map_ok(|(stream, _)| {
-                enable_keepalive(&stream);
-                disable_nagle(&stream);
-                Stream::Tcp(stream)
-            }),
+            Self::Tcp(listener) => poll_accept_tcp(listener, cx).map_ok(Stream::Tcp),
             #[cfg(unix)]
             Self::Unix(listener) => listener.poll_accept(cx).map_ok(Stream::Unix),
         }
     }
+}
+
+/// Accepts a TCP connection with the socket options every protocol on it gets.
+pub(super) fn poll_accept_tcp(
+    listener: &TcpListener,
+    cx: &mut Context<'_>,
+) -> Poll<io::Result<TcpStream>> {
+    listener.poll_accept(cx).map_ok(|(stream, _)| {
+        enable_keepalive(&stream);
+        disable_nagle(&stream);
+        stream
+    })
 }

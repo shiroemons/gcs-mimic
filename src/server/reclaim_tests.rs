@@ -143,12 +143,11 @@ impl MixedServer {
             trusted: None,
             grpc: Some(grpc),
         };
-        let task = tokio::spawn(serve_with_grpc_and_drain(
+        let task = tokio::spawn(serve(
             listeners,
             config,
             state,
-            async move { stopped.await.map_err(io::Error::other) },
-            async { Ok(()) },
+            Stop::on(async move { stopped.await.map_err(io::Error::other) }),
         ));
         Self {
             http: http_address,

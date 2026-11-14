@@ -552,9 +552,14 @@ async fn start(
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
-    let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
-        shutdown.await.map_err(std::io::Error::other)
-    }));
+    let listeners =
+        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    let task = tokio::spawn(server::serve(
+        listeners,
+        config,
+        state.clone(),
+        server::Stop::on(async { shutdown.await.map_err(std::io::Error::other) }),
+    ));
     (address, state, stop, task, dir)
 }
 
@@ -1110,9 +1115,14 @@ async fn shutdown_stops_accepting_on_original_listener() {
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
-    let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
-        shutdown.await.map_err(std::io::Error::other)
-    }));
+    let listeners =
+        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    let task = tokio::spawn(server::serve(
+        listeners,
+        config,
+        state.clone(),
+        server::Stop::on(async { shutdown.await.map_err(std::io::Error::other) }),
+    ));
     assert!(
         request(
             address,
@@ -1171,9 +1181,16 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         default_location: config.default_location.clone(),
         auth: Default::default(),
     });
-    server::serve(listener, config, restarted.clone(), async { Ok(()) })
-        .await
-        .unwrap();
+    let listeners =
+        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    server::serve(
+        listeners,
+        config,
+        restarted.clone(),
+        server::Stop::on(async { Ok(()) }),
+    )
+    .await
+    .unwrap();
     assert!(!restarted.is_ready());
     Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
 }
