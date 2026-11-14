@@ -1,5 +1,6 @@
 use super::resource::{OwnerFields, mask_object};
 use super::*;
+use crate::grpc::validate::{ByteRange, RangeError};
 
 /// Cloud Storage names the object and its size when a read starts past the end;
 /// [`read_range`] keeps the generic bound check.
@@ -38,14 +39,14 @@ fn require_content_in_read_mask(mask: Option<&prost_types::FieldMask>) -> Result
     ))
 }
 
-pub(super) fn read_range(size: u64, offset: i64, limit: i64) -> Result<(u64, u64), Status> {
-    if limit < 0 {
-        return Err(Status::invalid_argument(
-            "read_limit must be nonnegative; use 0 to read to the end",
-        ));
-    }
-    validate::resolve_range(size, offset, limit).ok_or_else(|| {
-        Status::out_of_range("read_offset exceeds object size; use 0 or a valid byte offset")
+pub(super) fn read_range(size: u64, offset: i64, limit: i64) -> Result<ByteRange, Status> {
+    validate::resolve_range(size, offset, limit).map_err(|error| match error {
+        RangeError::NegativeLength => {
+            Status::invalid_argument("read_limit must be nonnegative; use 0 to read to the end")
+        }
+        RangeError::StartsPastEnd => {
+            Status::out_of_range("read_offset exceeds object size; use 0 or a valid byte offset")
+        }
     })
 }
 
@@ -98,9 +99,9 @@ impl Storage {
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;
-        let (start, length) = read_range(record.size, r.read_offset, r.read_limit)?;
+        let range = read_range(record.size, r.read_offset, r.read_limit)?;
         reader
-            .set_range(start, length)
+            .set_range(range.start, range.len)
             .await
             .map_err(read_failure)?;
         let mut object = super::super::append::object(&record, finality)?;
@@ -117,9 +118,9 @@ impl Storage {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
             content_range: (r.read_offset != 0 || r.read_limit != 0).then_some(pb::ContentRange {
-                start: crate::grpc::convert::signed(start, "read range start")?,
+                start: crate::grpc::convert::signed(range.start, "read range start")?,
                 end: crate::grpc::convert::signed(
-                    start.checked_add(length).ok_or_else(|| {
+                    range.start.checked_add(range.len).ok_or_else(|| {
                         ObjectError::Corrupt("Stored read range end overflows".into())
                     })?,
                     "read range end",
@@ -207,19 +208,11 @@ impl Storage {
     ) -> Result<Response<pb::ListObjectsResponse>, Status> {
         let r = request.into_inner();
         let bucket = self.bucket_id(&r.parent)?;
-        if r.page_size < 0 {
-            return Err(Status::invalid_argument(
-                "page_size must be nonnegative; use 1000",
-            ));
-        }
+        let limit = validate::page_size(r.page_size)
+            .ok_or_else(|| Status::invalid_argument("page_size must be nonnegative; use 1000"))?;
         if !r.filter.is_empty() {
             return Err(unsupported_for("ListObjects filter", caller));
         }
-        let limit = if r.page_size == 0 {
-            1000
-        } else {
-            usize::try_from(r.page_size).unwrap_or(1000).min(1000)
-        };
         let mut query = crate::storage::ObjectListQuery {
             bucket: bucket.into(),
             prefix: r.prefix,

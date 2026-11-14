@@ -1,7 +1,4 @@
-use crate::{
-    bucket::BucketConditions,
-    object::{ExpectedHashes, ObjectConditions},
-};
+use crate::{bucket::BucketConditions, object::ObjectConditions};
 use tonic::Status;
 
 pub(super) fn lenient_conditions(
@@ -83,30 +80,46 @@ pub(super) fn common<T: Default + PartialEq>(
     Ok(())
 }
 
-pub(super) fn merge_hashes(
-    first: ExpectedHashes,
-    next: ExpectedHashes,
-    message: &str,
-) -> Result<ExpectedHashes, Status> {
-    super::upload::merge_hashes(first, next).map_err(|_| Status::invalid_argument(message))
+/// A byte range resolved against an object's size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ByteRange {
+    pub(super) start: u64,
+    pub(super) len: u64,
 }
 
-pub(super) fn resolve_range(size: u64, offset: i64, limit: i64) -> Option<(u64, u64)> {
-    let limit = u64::try_from(limit).ok()?;
-    let start = if offset < 0 {
-        size.saturating_sub(offset.unsigned_abs())
+/// Why a proto read range selects nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RangeError {
+    NegativeLength,
+    StartsPastEnd,
+}
+
+/// Resolves a proto read range: a negative `offset` counts back from the end and clamps at the
+/// start, and a `limit` of 0 reads to the end. The limit is checked first.
+pub(super) fn resolve_range(size: u64, offset: i64, limit: i64) -> Result<ByteRange, RangeError> {
+    let limit = u64::try_from(limit).map_err(|_| RangeError::NegativeLength)?;
+    let start =
+        u64::try_from(offset).unwrap_or_else(|_| size.saturating_sub(offset.unsigned_abs()));
+    let remaining = size.checked_sub(start).ok_or(RangeError::StartsPastEnd)?;
+    let len = if limit == 0 {
+        remaining
     } else {
-        u64::try_from(offset).ok()?
+        remaining.min(limit)
     };
-    let remaining = size.checked_sub(start)?;
-    Some((
-        start,
-        if limit == 0 {
-            remaining
-        } else {
-            remaining.min(limit)
-        },
-    ))
+    Ok(ByteRange { start, len })
+}
+
+/// The most items one list page returns; proto3's 0 asks for this many.
+pub(super) const MAX_PAGE_SIZE: usize = 1000;
+
+/// A list RPC's page size, or `None` for a negative one, which each API words differently.
+pub(super) fn page_size(raw: i32) -> Option<usize> {
+    let requested = usize::try_from(raw).ok()?;
+    Some(if requested == 0 {
+        MAX_PAGE_SIZE
+    } else {
+        requested.min(MAX_PAGE_SIZE)
+    })
 }
 
 #[cfg(test)]
@@ -152,6 +165,34 @@ mod tests {
             .message(),
             "lenient"
         );
+    }
+
+    #[test]
+    fn read_ranges_resolve_against_the_object_size() {
+        let range = |start, len| ByteRange { start, len };
+        assert_eq!(resolve_range(15, 2, 0), Ok(range(2, 13)));
+        assert_eq!(resolve_range(15, 2, 4), Ok(range(2, 4)));
+        assert_eq!(resolve_range(15, 10, 9), Ok(range(10, 5)));
+        assert_eq!(resolve_range(15, 15, 0), Ok(range(15, 0)));
+        // A negative offset counts back from the end and clamps at the start.
+        assert_eq!(resolve_range(15, -5, 3), Ok(range(10, 3)));
+        assert_eq!(resolve_range(15, -20, 0), Ok(range(0, 15)));
+        assert_eq!(resolve_range(15, i64::MIN, 0), Ok(range(0, 15)));
+        assert_eq!(resolve_range(15, 16, 0), Err(RangeError::StartsPastEnd));
+        assert_eq!(resolve_range(15, 0, -1), Err(RangeError::NegativeLength));
+        // The limit is checked first.
+        assert_eq!(resolve_range(15, 16, -1), Err(RangeError::NegativeLength));
+    }
+
+    #[test]
+    fn page_sizes_default_and_cap_at_the_maximum() {
+        assert_eq!(page_size(0), Some(MAX_PAGE_SIZE));
+        assert_eq!(page_size(1), Some(1));
+        assert_eq!(page_size(1000), Some(1000));
+        assert_eq!(page_size(1001), Some(MAX_PAGE_SIZE));
+        assert_eq!(page_size(i32::MAX), Some(MAX_PAGE_SIZE));
+        assert_eq!(page_size(-1), None);
+        assert_eq!(page_size(i32::MIN), None);
     }
 
     #[test]

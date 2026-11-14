@@ -342,11 +342,12 @@ fn add_ranges(
                 pending.iter().copied(),
             )
         };
-        let (offset, length) =
+        // Both reasons get the same range error.
+        let resolved =
             crate::grpc::validate::resolve_range(size, range.read_offset, range.read_length)
-                .ok_or_else(invalid)?;
-        range.read_offset = i64::try_from(offset).map_err(|_| invalid())?;
-        range.read_length = i64::try_from(length).map_err(|_| invalid())?;
+                .map_err(|_| invalid())?;
+        range.read_offset = i64::try_from(resolved.start).map_err(|_| invalid())?;
+        range.read_length = i64::try_from(resolved.len).map_err(|_| invalid())?;
         queue.push_back(range);
     }
     Ok(())

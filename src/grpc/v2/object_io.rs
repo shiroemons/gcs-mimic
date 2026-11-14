@@ -101,11 +101,7 @@ pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHash
 }
 
 fn merge_hashes(first: ExpectedHashes, next: ExpectedHashes) -> Result<ExpectedHashes, Status> {
-    validate::merge_hashes(
-        first,
-        next,
-        "Conflicting object_checksums; use the same digest in each message",
-    )
+    upload::merge_hashes(first, next).map_err(intake_status)
 }
 
 /// Rejects a data message whose CRC32C differs from its content, with the wording and hex form

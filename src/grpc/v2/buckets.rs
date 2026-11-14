@@ -481,7 +481,7 @@ impl Storage {
                 "Use a nonnegative page_size and a prefix of at most 222 bytes, for example page_size=100",
             )
         };
-        let page_size = usize::try_from(request.page_size).map_err(|_| invalid_list())?;
+        let limit = crate::grpc::validate::page_size(request.page_size).ok_or_else(invalid_list)?;
         if request.prefix.len() > 222 {
             return Err(invalid_list());
         }
@@ -494,11 +494,6 @@ impl Storage {
                 project,
                 &request.prefix,
             )?)
-        };
-        let limit = if page_size == 0 {
-            1000
-        } else {
-            page_size.min(1000)
         };
         let page = self
             .state

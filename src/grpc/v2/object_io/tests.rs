@@ -6,6 +6,7 @@ use super::{
     write::{EndOfStream, MessagePosition},
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, registry};
+use crate::grpc::validate::ByteRange;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use serde_json::json;
@@ -392,9 +393,18 @@ fn grpc_io_range_and_masks() {
         unknown.message(),
         "There is no field for this resource named 'noSuchField'."
     );
-    assert_eq!(read_range(15, -5, 3).unwrap(), (10, 3));
-    assert_eq!(read_range(15, i64::MIN, 0).unwrap(), (0, 15));
-    assert_eq!(read_range(15, 15, 0).unwrap(), (15, 0));
+    assert_eq!(
+        read_range(15, -5, 3).unwrap(),
+        ByteRange { start: 10, len: 3 }
+    );
+    assert_eq!(
+        read_range(15, i64::MIN, 0).unwrap(),
+        ByteRange { start: 0, len: 15 }
+    );
+    assert_eq!(
+        read_range(15, 15, 0).unwrap(),
+        ByteRange { start: 15, len: 0 }
+    );
     assert_code(read_range(15, 16, 0), tonic::Code::OutOfRange);
     assert_code(read_range(15, 0, -1), tonic::Code::InvalidArgument);
     let object = mask_object(
