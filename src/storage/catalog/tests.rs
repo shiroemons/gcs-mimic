@@ -727,7 +727,8 @@ async fn patch_stored_bucket(catalog: &Catalog, name: &str, body: &[u8]) {
 #[tokio::test]
 async fn stored_bucket_row_columns_keep_their_text() {
     let dir = crate::test_support::TestDir::new();
-    let created = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_789);
+    // A whole number of 100 ns, the finest time Windows keeps, so every platform stores it as is.
+    let created = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_700);
     let clock = std::sync::Arc::new(crate::clock::ManualClock::new(created));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
@@ -789,20 +790,20 @@ async fn stored_bucket_row_columns_keep_their_text() {
         (
             "retention_policy",
             stored_text(
-                r#"{"retention_period":3600,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456789},"is_locked":false}"#,
+                r#"{"retention_period":3600,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456700},"is_locked":false}"#,
             ),
         ),
         (
             "soft_delete_policy",
             stored_text(
-                r#"{"retention_duration_seconds":604800,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456789}}"#,
+                r#"{"retention_duration_seconds":604800,"effective_time":{"secs_since_epoch":1700000000,"nanos_since_epoch":123456700}}"#,
             ),
         ),
         ("object_retention_enabled", Integer(0)),
         ("autoclass", Null),
         ("time_created_nanos", Integer(0)),
         ("updated_nanos", Integer(0)),
-        ("generation", Integer(1_700_000_000_123_456_789)),
+        ("generation", Integer(1_700_000_000_123_456_700)),
         ("versioning_configured", Integer(1)),
     ];
     assert_eq!(stored_bucket_row(&catalog, "golden-bucket").await, inserted);
@@ -852,7 +853,7 @@ async fn stored_bucket_row_columns_keep_their_text() {
         ),
         ("time_created_nanos", Integer(0)),
         ("updated_nanos", Integer(0)),
-        ("generation", Integer(1_700_000_000_123_456_790)),
+        ("generation", Integer(1_700_000_000_123_456_701)),
         ("versioning_configured", Integer(0)),
     ];
     assert_eq!(
