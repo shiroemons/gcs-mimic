@@ -10,6 +10,7 @@ mod object_io;
 mod object_update;
 mod routing;
 pub(crate) mod status;
+mod stored;
 #[cfg(test)]
 mod tests;
 mod update_copy;

@@ -357,23 +357,13 @@ impl Storage {
         let progress = self
             .state
             .catalog
-            .continue_rewrite(&token, read, create, |record| {
-                Ok(json!({"proto":prost::Message::encode_to_vec(&convert::object(record)?)}))
-            })
+            .continue_rewrite(&token, read, create, super::stored::rewrite_resource)
             .await
             .map_err(rewrite_error)?;
         let mut resource = progress
             .resource
-            .map(|v| {
-                let proto = v
-                    .get("proto")
-                    .cloned()
-                    .ok_or_else(|| Status::internal("Invalid stored rewrite response"))?;
-                let bytes: Vec<u8> = serde_json::from_value(proto)
-                    .map_err(|_| Status::internal("Invalid stored rewrite response"))?;
-                <pb::Object as prost::Message>::decode(bytes.as_slice())
-                    .map_err(|_| Status::internal("Invalid stored rewrite response"))
-            })
+            .as_ref()
+            .map(super::stored::from_rewrite_resource)
             .transpose()?;
         if let Some(owner) = &mut owner {
             owner.disarm();

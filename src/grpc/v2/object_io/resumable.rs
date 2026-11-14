@@ -1,5 +1,6 @@
 use super::write::{EndOfStream, MessagePosition, Reported, Responses, send_status};
 use super::*;
+use crate::grpc::v2::stored;
 use crate::storage::{ChunkEnd, ChunkWait};
 
 impl Storage {
@@ -92,7 +93,7 @@ impl Storage {
             return Err(object_status(ObjectError::Forbidden));
         }
         let status = if session.state == SessionState::Complete {
-            pb::query_write_status_response::WriteStatus::Resource(decode_completion(
+            pb::query_write_status_response::WriteStatus::Resource(stored::from_completion(
                 session.completion.as_ref(),
             )?)
         } else {
@@ -107,16 +108,6 @@ impl Storage {
     }
 }
 
-fn decode_completion(value: Option<&serde_json::Value>) -> Result<pb::Object, Status> {
-    let bytes: Vec<u8> = serde_json::from_value(
-        value
-            .cloned()
-            .ok_or_else(|| Status::internal("Missing upload completion"))?,
-    )
-    .map_err(|_| Status::internal("Invalid upload completion"))?;
-    pb::Object::decode(bytes.as_slice()).map_err(|_| Status::internal("Invalid upload completion"))
-}
-
 impl Storage {
     /// Completion keeps the publication snapshot and adds only the caller's ACL/owner view.
     async fn completed_resource(
@@ -125,7 +116,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
         bucket: &str,
     ) -> Result<pb::Object, Status> {
-        let mut resource = decode_completion(completion)?;
+        let mut resource = stored::from_completion(completion)?;
         self.add_written_owner_fields(caller, bucket, &mut resource)
             .await?;
         Ok(resource)
@@ -220,14 +211,13 @@ impl Storage {
                     .await
                     .map_err(|_| Status::cancelled("Upload consumer stopped"))
             };
-            let write =
-                self.state
-                    .catalog
-                    .write_resumable_session(lease, chunk, rx, permit, |record| {
-                        let resource = convert::object(record)?;
-                        serde_json::to_value(resource.encode_to_vec())
-                            .map_err(|_| ObjectError::InvalidMetadata)
-                    });
+            let write = self.state.catalog.write_resumable_session(
+                lease,
+                chunk,
+                rx,
+                permit,
+                stored::completion,
+            );
             let (sent, written_record) = tokio::join!(producer, write);
             let completion = written_record.map_err(session_status)?;
             sent?;
