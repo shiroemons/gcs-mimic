@@ -1,6 +1,6 @@
 //! JSON API simple (media) and multipart object uploads.
 
-use super::{Written, idempotency_token};
+use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
@@ -99,7 +99,7 @@ pub(super) async fn insert(
     ))
     .await?;
     let (sender, body) = upload_channel();
-    let acl_snapshot = permit.replay_acl_snapshot();
+    let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = ctx.state.catalog.put_object_prechecked(
         ObjectUpload {
             bucket: &bucket,
@@ -126,15 +126,7 @@ pub(super) async fn insert(
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await
         .map_err(|error| error.into_error::<JsonError>())?;
-    Ok(Written {
-        value: json::object_resource_keyed(
-            &record,
-            ctx.endpoints.api_base_url(),
-            params.projection,
-            key,
-        )?,
-        acl_snapshot,
-    })
+    Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
 pub(super) async fn multipart(
@@ -221,7 +213,7 @@ pub(super) async fn multipart(
     // A part without a type stores none unless the metadata names one.
     let content_type = part_type.unwrap_or_default();
     let (sender, body) = upload_channel();
-    let acl_snapshot = permit.replay_acl_snapshot();
+    let acl = AclSource::from(permit.replay_acl_snapshot());
     let upload = catalog.put_object_prechecked(
         ObjectUpload {
             bucket: &bucket,
@@ -237,15 +229,7 @@ pub(super) async fn multipart(
         permit,
     );
     let record = stream_multipart(ctx, &mut multipart, upload, sender, expected).await?;
-    Ok(Written {
-        value: json::object_resource_keyed(
-            &record,
-            ctx.endpoints.api_base_url(),
-            params.projection,
-            key,
-        )?,
-        acl_snapshot,
-    })
+    Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
 /// Streams the media part into `upload`, then hands over the checksums the trailing parts

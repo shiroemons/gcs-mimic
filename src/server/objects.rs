@@ -14,26 +14,61 @@ use super::{
 use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
+    csek::CustomerKey,
     json::{self, JsonError, ObjectRequest, UploadRequest},
-    object::{ObjectConditions, ObjectError, ObjectTarget},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// A written object's resource and, for a replayed upload, the ACL it recorded.
+/// Where a written object's `projection=full` ACL fields come from.
+enum AclSource {
+    /// The live ACL, read after the write.
+    Live,
+    /// An idempotent upload or copy reports the ACL its first response recorded.
+    Replay(UploadAclSnapshot),
+}
+
+impl From<Option<UploadAclSnapshot>> for AclSource {
+    fn from(snapshot: Option<UploadAclSnapshot>) -> Self {
+        snapshot.map_or(Self::Live, Self::Replay)
+    }
+}
+
+/// A written object's resource and where its ACL fields come from.
 struct Written {
     value: Value,
-    /// An idempotent replay reports the ACL from its first response instead of the live one.
-    acl_snapshot: Option<UploadAclSnapshot>,
+    acl: AclSource,
+}
+
+impl Written {
+    /// The resource of `record`, rendered for the customer key it was written with.
+    fn keyed(
+        record: &ObjectRecord,
+        ctx: ObjectCtx<'_>,
+        projection: json::Projection,
+        key: Option<CustomerKey>,
+        acl: AclSource,
+    ) -> Result<Self, JsonError> {
+        Ok(Self {
+            value: json::object_resource_keyed(
+                record,
+                ctx.endpoints.api_base_url(),
+                projection,
+                key,
+            )?,
+            acl,
+        })
+    }
 }
 
 impl From<Value> for Written {
     fn from(value: Value) -> Self {
         Self {
             value,
-            acl_snapshot: None,
+            acl: AclSource::Live,
         }
     }
 }
@@ -110,7 +145,7 @@ pub(super) async fn respond(
     };
     let mut value = written.value;
     if acl_full {
-        add_acl(ctx, &mut value, written.acl_snapshot).await?;
+        add_acl(ctx, &mut value, written.acl).await?;
     }
     let mut response = json_response_selected(&mut value, &fields, cache);
     if !validator_header {
@@ -167,16 +202,19 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
 async fn add_acl(
     ctx: ObjectCtx<'_>,
     value: &mut Value,
-    snapshot: Option<UploadAclSnapshot>,
+    source: AclSource,
 ) -> Result<(), JsonError> {
-    let Some(snapshot) = snapshot else {
-        return acl::add_full_projection(
-            ctx.state,
-            ctx.caller,
-            value,
-            ctx.endpoints.api_base_url(),
-        )
-        .await;
+    let snapshot = match source {
+        AclSource::Live => {
+            return acl::add_full_projection(
+                ctx.state,
+                ctx.caller,
+                value,
+                ctx.endpoints.api_base_url(),
+            )
+            .await;
+        }
+        AclSource::Replay(snapshot) => snapshot,
     };
     if let Some(snapshot) = snapshot.recorded()? {
         let bucket = value["bucket"]

@@ -1,6 +1,6 @@
 //! JSON API objects derived from stored objects: copy and compose.
 
-use super::{Written, idempotency_token};
+use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
@@ -72,7 +72,7 @@ pub(super) async fn copy(
             },
         ))
         .await?;
-    let acl_snapshot = replay.as_ref().map(CopyReplay::acl_snapshot);
+    let acl = AclSource::from(replay.as_ref().map(CopyReplay::acl_snapshot));
     let cached = if let Some(replay) = &replay {
         ctx.await_catalog(ctx.state.catalog.copy_replay_record(replay))
             .await?
@@ -100,10 +100,7 @@ pub(super) async fn copy(
         destination_key,
     )?;
     json::add_derived_owner(&mut value, &record);
-    Ok(Written {
-        value,
-        acl_snapshot,
-    })
+    Ok(Written { value, acl })
 }
 
 /// A copy that no earlier attempt has completed.
