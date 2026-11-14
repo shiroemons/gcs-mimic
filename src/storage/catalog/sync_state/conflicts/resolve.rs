@@ -264,13 +264,14 @@ impl RootLease {
         #[cfg(test)]
         self.conflict_boundary(fault::Step::ConflictAccepted)
             .await?;
-        let mut generation = selected.generation;
-        if request.action == Action::Restore && !selected.done {
-            generation = Some(
+        let generation = if request.action == Action::Restore && !selected.done {
+            Some(
                 self.restore_copy(&request, &authority, &selected, max_bytes)
                     .await?,
-            );
-        }
+            )
+        } else {
+            selected.generation
+        };
         if !selected.reclaimed {
             self.discard_registered(&request, &authority, &selected)
                 .await?;

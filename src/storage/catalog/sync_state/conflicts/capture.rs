@@ -54,9 +54,8 @@ fn copy(
     if !before.matches(fsutil::stat_identity(source)?) {
         return Err(Error::TargetChanged);
     }
-    let hashes = match outcome {
-        fsutil::HashOutcome::Complete(hashes) => hashes,
-        _ => return Err(Error::TargetChanged),
+    let fsutil::HashOutcome::Complete(hashes) = outcome else {
+        return Err(Error::TargetChanged);
     };
     #[cfg(test)]
     boundary(data, tree, fault::Step::ConflictFlush)?;

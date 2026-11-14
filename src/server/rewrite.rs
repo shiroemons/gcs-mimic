@@ -243,7 +243,7 @@ async fn execute(
         token.clone()
     } else {
         let source = resolve_source(&catalog, &operation, &source_access, keys).await?;
-        let mut destination = destination(&source.object, &operation, &body)?;
+        let mut destination = destination(&source.object, &operation, body.as_ref())?;
         destination.metadata.customer_key_sha256 =
             keys.destination.map(crate::csek::CustomerKey::sha256);
         catalog
@@ -323,9 +323,9 @@ async fn execute(
 fn destination(
     source: &crate::object::ObjectRecord,
     request: &RewriteRequest,
-    body: &Option<Value>,
+    body: Option<&Value>,
 ) -> Result<DerivedDestination, JsonError> {
-    let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
+    let bytes = body.map(Value::to_string).unwrap_or_default();
     let (metadata, class, supplied) = json::derived_metadata(bytes.as_bytes(), source)?;
     // Rewrite ignores a supplied md5Hash: Cloud Storage completed one with a wrong md5Hash using
     // the source's hash (recorded 2026-11-13). A crc32c mismatch still fails.

@@ -1063,8 +1063,7 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
             let mut parts = entry.split(';');
             // `split` always yields at least one item, so the default is never used.
             let encoding = parts.next().unwrap_or_default().trim();
-            let mut allowed = true;
-            if let Some(parameter) = parts.next() {
+            let allowed = if let Some(parameter) = parts.next() {
                 let (name, quality) = parameter.trim().split_once('=').ok_or_else(|| {
                     JsonError::invalid_parameter("Invalid Accept-Encoding quality")
                 })?;
@@ -1084,8 +1083,10 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
                         "Invalid Accept-Encoding quality",
                     ));
                 }
-                allowed = whole == "1" || fraction.bytes().any(|byte| byte != b'0');
-            }
+                whole == "1" || fraction.bytes().any(|byte| byte != b'0')
+            } else {
+                true
+            };
             let selected = if encoding.eq_ignore_ascii_case("gzip") {
                 &mut gzip
             } else if encoding == "*" {

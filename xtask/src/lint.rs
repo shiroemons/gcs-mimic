@@ -26,7 +26,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 9] = [
+pub const CLIPPY_LINTS: [&str; 12] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -38,6 +38,10 @@ pub const CLIPPY_LINTS: [&str; 9] = [
     ALLOW_ATTRIBUTES,
     // The methods in clippy.toml; `[workspace.lints]` allows it so tests may call them.
     "clippy::disallowed_methods",
+    // "Keep the success path flat" and "borrow by default" in AGENTS.md.
+    "clippy::manual_let_else",
+    "clippy::useless_let_if_seq",
+    "clippy::ref_option",
 ];
 
 pub const RATCHETED_CLIPPY_LINTS: [&str; 4] = [

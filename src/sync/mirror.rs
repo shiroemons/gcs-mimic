@@ -1372,7 +1372,7 @@ impl LiveObject<'_> {
                         LiveSource::ProtectedRestore,
                     )
             } else {
-                live_source(&plan.source, captured.clone())?
+                live_source(plan.source.as_ref(), captured.clone())?
             };
             match writeback
                 .begin_live_export(
@@ -1457,10 +1457,10 @@ impl LiveObject<'_> {
 }
 
 fn live_source(
-    source: &Option<File>,
+    source: Option<&File>,
     captured: Option<crate::storage::sync_state::conflicts::CapturedConflict>,
 ) -> io::Result<LiveSource> {
-    let source = source.as_ref().map(File::try_clone).transpose()?;
+    let source = source.map(File::try_clone).transpose()?;
     Ok(match captured {
         Some(conflict) => LiveSource::Preserved {
             source,
@@ -1471,9 +1471,9 @@ fn live_source(
 }
 
 fn retryable(error: &writeback::Error) -> bool {
-    let error = match error {
-        writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
-        _ => return false,
+    let (writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error))) = error
+    else {
+        return false;
     };
     match error {
         AdminError::DiskFull(_) => true,
@@ -1621,9 +1621,10 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     if before.size != record.size {
         return Ok(Target::Conflicting);
     }
-    let hashes = match fsutil::hash_exact(&file, record.size, |_| Ok::<_, io::Error>(()))? {
-        fsutil::HashOutcome::Complete(hashes) => hashes,
-        _ => return Ok(Target::Conflicting),
+    let fsutil::HashOutcome::Complete(hashes) =
+        fsutil::hash_exact(&file, record.size, |_| Ok::<_, io::Error>(()))?
+    else {
+        return Ok(Target::Conflicting);
     };
     let after = fsutil::stat_identity(&file).map_err(fs_error)?;
     let reopened = fsutil::open_regular_at(&directory, name)?;
@@ -1886,12 +1887,9 @@ impl Reconciler<'_> {
                 .map_err(io::Error::other)?;
             let next = page.items.last().map(|entry| entry.bucket.name.clone());
             for entry in page.items {
-                let bucket = match BucketName::new(entry.bucket.name.clone()) {
-                    Ok(bucket) => bucket,
-                    Err(_) => {
-                        summary.unrepresentable += 1;
-                        continue;
-                    }
+                let Ok(bucket) = BucketName::new(entry.bucket.name.clone()) else {
+                    summary.unrepresentable += 1;
+                    continue;
                 };
                 let directory = PathBuf::from(bucket.as_str());
                 if !self

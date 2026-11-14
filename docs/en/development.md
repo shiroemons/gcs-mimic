@@ -392,6 +392,8 @@ cannot express.
 | `clippy::allow_attributes_without_reason` | `#[allow]` or `#[expect]` without a `reason`. |
 | `clippy::allow_attributes` | Any `#[allow]`; use `#[expect]`, which fails once the lint stops firing. |
 | `clippy::disallowed_methods` | The methods listed in `clippy.toml`: unsupervised spawns (`tokio::spawn`, `tokio::task::spawn`, `tokio::task::spawn_local`, `tokio::task::spawn_blocking`, `Handle::spawn_blocking`, `Runtime::spawn_blocking`, `Handle::spawn`, `Runtime::spawn`, `std::thread::spawn`, `std::thread::Builder::spawn`) outside `src/task.rs`, and rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, which prepare their SQL on every call. Calls through a `Transaction` resolve to the `Connection` methods; `Statement` methods from `prepare_cached`, `execute_batch`, `JoinSet::spawn` and scoped threads are not listed. |
+| `clippy::manual_let_else`, `clippy::useless_let_if_seq` | A `match` or `if let` that only unwraps or diverges, which `let else` states; a `let mut` assigned in a following `if` instead of binding the `if`'s value. |
+| `clippy::ref_option` | `&Option<T>` parameters and returns; take or return `Option<&T>`. `avoid-breaking-exported-api = false` in `clippy.toml` applies it to `pub` items too. |
 | `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing; per-file ratchet. |
 | `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss; per-file ratchet. Casts do not themselves panic. |
 | `text::path_attribute` | `#[path]` module attributes. |

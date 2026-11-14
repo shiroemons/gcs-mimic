@@ -634,9 +634,10 @@ fn fingerprint(
             if before.device != fsutil::stat_identity(root)?.device || before.size != item.size {
                 return Err(stale());
             }
-            let hashes = match fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))? {
-                fsutil::HashOutcome::Complete(hashes) => hashes,
-                _ => return Err(stale()),
+            let fsutil::HashOutcome::Complete(hashes) =
+                fsutil::hash_exact(&file, item.size, |_| Ok::<_, io::Error>(()))?
+            else {
+                return Err(stale());
             };
             file.sync_all()?;
             if before != fsutil::stat_identity(&file)?

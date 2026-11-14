@@ -57,12 +57,12 @@ fn open_source(
         ParentError::Io(error) => AdminError::from(error),
         _ => AdminError::Precondition,
     })?;
-    let file = match fsutil::child_regular(
+    let fsutil::RegularChild::File(file) = fsutil::child_regular(
         &directory,
         path.file_name().ok_or(AdminError::Precondition)?,
-    )? {
-        fsutil::RegularChild::File(file) => file,
-        _ => return Err(AdminError::Precondition),
+    )?
+    else {
+        return Err(AdminError::Precondition);
     };
     if fsutil::stat_identity(&file).map_err(fs_error)? != expected {
         return Err(AdminError::Precondition);

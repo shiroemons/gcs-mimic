@@ -99,9 +99,10 @@ fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result
     if before.size != size {
         return Ok(false);
     }
-    let hashes = match fsutil::hash_exact(file, size, |_| Ok::<_, io::Error>(()))? {
-        fsutil::HashOutcome::Complete(hashes) => hashes,
-        _ => return Ok(false),
+    let fsutil::HashOutcome::Complete(hashes) =
+        fsutil::hash_exact(file, size, |_| Ok::<_, io::Error>(()))?
+    else {
+        return Ok(false);
     };
     Ok(before == fsutil::stat_identity(file)? && hashes.md5 == md5 && hashes.crc32c == crc32c)
 }

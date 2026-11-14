@@ -42,13 +42,12 @@ impl Storage {
         let mut first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("InsertObject needs insert_object_spec in its first message")
         })?;
-        let spec = match first.first_message.take() {
-            Some(pb::insert_object_request::FirstMessage::InsertObjectSpec(spec)) => spec,
-            _ => {
-                return Err(unsupported(
-                    "legacy resumable upload; use insert_object_spec or JSON resumable uploads",
-                ));
-            }
+        let Some(pb::insert_object_request::FirstMessage::InsertObjectSpec(spec)) =
+            first.first_message.take()
+        else {
+            return Err(unsupported(
+                "legacy resumable upload; use insert_object_spec or JSON resumable uploads",
+            ));
         };
         projection(spec.projection)?;
         if spec.predefined_acl != 0 {
