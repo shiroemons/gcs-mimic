@@ -1,5 +1,5 @@
 use super::*;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Pages `(value, charge)` rows of `VALUES` with the given limit and budget.
 fn page(sql: &str, limit: usize, budget: usize) -> Page<i64> {
@@ -44,6 +44,56 @@ fn an_oversized_row_fills_an_empty_page_and_a_zero_limit_reads_nothing() {
     let zero = page(ROWS, 0, 100);
     assert!(zero.items.is_empty());
     assert!(!zero.has_more);
+}
+
+/// A scan starts at `''` and resumes from the key's own TEXT, so binding a key that `Ord` sorts
+/// first resumes at the next key in SQLite's order too: no row is skipped or read twice.
+#[test]
+fn cursors_bind_an_empty_start_and_keys_in_sqlite_text_order() {
+    use crate::storage::BlobId;
+    let connection = Connection::open_in_memory().unwrap();
+    let text = |after: &dyn rusqlite::ToSql| -> String {
+        connection
+            .query_row("SELECT ?1", [after], |row| row.get(0))
+            .unwrap()
+    };
+    assert_eq!(text(&After::<BlobId>::Start), "");
+    assert_eq!(text(&After::<String>::Start), "");
+    assert_eq!(text(&After::Key("bucket".to_owned())), "bucket");
+    let mut ids: Vec<BlobId> = [
+        "f0000000000000000000000000000000",
+        "00000000000000000000000000000001",
+        "0a000000000000000000000000000000",
+        "a0000000000000000000000000000000",
+    ]
+    .into_iter()
+    .map(|id| id.parse().unwrap())
+    .collect();
+    ids.sort();
+    connection
+        .execute_batch("CREATE TABLE ids (id TEXT PRIMARY KEY) WITHOUT ROWID")
+        .unwrap();
+    for id in &ids {
+        connection
+            .execute("INSERT INTO ids VALUES (?1)", [id])
+            .unwrap();
+        assert_eq!(text(&After::Key(*id)), id.to_string());
+    }
+    let mut after = After::Start;
+    let mut scanned = Vec::new();
+    while let Some(id) = connection
+        .query_row(
+            "SELECT id FROM ids WHERE id > ?1 ORDER BY id LIMIT 1",
+            [&after],
+            |row| row.get::<_, BlobId>(0),
+        )
+        .optional()
+        .unwrap()
+    {
+        scanned.push(id);
+        after = After::Key(id);
+    }
+    assert_eq!(scanned, ids);
 }
 
 #[test]

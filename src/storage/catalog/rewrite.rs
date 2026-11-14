@@ -686,7 +686,7 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
         let mut failure = None;
-        let mut after = String::new();
+        let mut after = super::After::Start;
         loop {
             let cursor = after.clone();
             let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16")?.query_map(params![now,cursor],|row|row.get::<_,BlobId>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
@@ -694,7 +694,7 @@ impl Catalog {
                 break;
             }
             for id in ids {
-                after = id.to_hex();
+                after = super::After::Key(id);
                 let _guard = match self.claim_writer(WriterKey::Rewrite(id), KeyOrigin::Catalog) {
                     Ok(guard) => guard,
                     Err(ClaimError::Busy) => continue,

@@ -19,30 +19,35 @@ async fn orphan_every_upload(catalog: &Catalog) {
 #[tokio::test]
 async fn expired_uploads_are_found_through_the_deadline_index() {
     let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
-    let plan = catalog
+    let plans = catalog
         .run::<_, CatalogError>(|connection| {
-            let mut statement = connection
-                .prepare(&format!(
-                    "EXPLAIN QUERY PLAN {}",
-                    super::super::maintenance::EXPIRED_PAGE
-                ))
-                .unwrap();
-            let rows = statement
-                .query_map(params![0, 0, ""], |row| row.get::<_, String>(3))
-                .unwrap();
-            Ok(rows.collect::<rusqlite::Result<Vec<_>>>().unwrap())
+            let plan = |sql: &str, params: &[&dyn rusqlite::ToSql]| {
+                let mut statement = connection
+                    .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                    .unwrap();
+                let rows = statement
+                    .query_map(params, |row| row.get::<_, String>(3))
+                    .unwrap();
+                rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+            };
+            Ok([
+                plan(super::super::maintenance::EXPIRED_PAGE, params![0, 0, ""]),
+                plan(super::super::maintenance::EXPIRED_FIRST_PAGE, params![0]),
+            ])
         })
         .await
         .unwrap();
-    assert!(
-        plan.iter()
-            .any(|step| step.contains("xml_multipart_uploads_deadline")),
-        "{plan:?}"
-    );
-    assert!(
-        !plan.iter().any(|step| step.starts_with("SCAN")),
-        "{plan:?}"
-    );
+    for plan in plans {
+        assert!(
+            plan.iter()
+                .any(|step| step.contains("xml_multipart_uploads_deadline")),
+            "{plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|step| step.starts_with("SCAN")),
+            "{plan:?}"
+        );
+    }
     catalog.close().await.unwrap();
 }
 

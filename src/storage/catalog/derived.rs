@@ -1,7 +1,7 @@
 //! Generation-pinned, resumable byte derivation shared by copy, rewrite and compose.
 
 use super::{
-    Catalog, UnixMillis, Work, objects,
+    After, Catalog, UnixMillis, Work, objects,
     resumable::WriterGuard,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     system_time_micros,

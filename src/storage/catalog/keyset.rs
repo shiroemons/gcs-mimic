@@ -39,6 +39,36 @@ pub(super) fn budgeted_page<T>(
     })
 }
 
+/// Where a keyset scan resumes over a TEXT key column whose stored values are never empty
+/// (hex IDs, bucket names). The first page binds `''`, which SQLite orders before every
+/// non-empty TEXT value, so one static `key > ?` statement keeps its index range scan on every
+/// page (`sql::keep_plans_across_bindings` plans each statement once).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) enum After<K> {
+    #[default]
+    Start,
+    Key(K),
+}
+
+/// Keys stored as non-empty TEXT. `Start` binds `''`, `Key` binds the key's own TEXT. Only these
+/// types get a binding: `''` sorts after every INTEGER, so an integer key would skip every row.
+macro_rules! text_cursor {
+    ($($key:ty),+ $(,)?) => {$(
+        impl rusqlite::ToSql for After<$key> {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                match self {
+                    Self::Start => Ok(rusqlite::types::ToSqlOutput::Borrowed(
+                        rusqlite::types::ValueRef::Text(b""),
+                    )),
+                    Self::Key(key) => key.to_sql(),
+                }
+            }
+        }
+    )+};
+}
+
+text_cursor!(crate::storage::BlobId, super::SessionId, String);
+
 /// A page size from 1 to `MAX`, the most the listing that takes it returns at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PageLimit<const MAX: usize>(NonZeroUsize);

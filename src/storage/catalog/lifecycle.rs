@@ -328,7 +328,7 @@ impl Catalog {
             Ok(())
         }).await?;
         let mut outcome = LifecycleCounts::default();
-        let mut after = String::new();
+        let mut after = super::After::Start;
         let mut failure = None;
         loop {
             let cursor = after.clone();
@@ -341,7 +341,7 @@ impl Catalog {
                 break;
             }
             for (bucket, incarnation) in buckets {
-                after.clone_from(&bucket);
+                let name = bucket.clone();
                 let (page, error) = self
                     .sweep_lifecycle_bucket(
                         bucket,
@@ -355,7 +355,7 @@ impl Catalog {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
                         "lifecycle_bucket_failed",
-                        serde_json::json!({"bucket":after,"message":error.to_string()}),
+                        serde_json::json!({"bucket":name,"message":error.to_string()}),
                     );
                     if failure.is_none() {
                         failure = Some(error);
@@ -364,6 +364,7 @@ impl Catalog {
                 if outcome.applied() == ACTION_LIMIT {
                     return failure.map_or(Ok(outcome), Err);
                 }
+                after = super::After::Key(name);
             }
         }
         failure.map_or(Ok(outcome), Err)

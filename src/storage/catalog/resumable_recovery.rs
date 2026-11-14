@@ -1,21 +1,22 @@
-use super::{CatalogError, unavailable};
+use super::{After, CatalogError, SessionId, unavailable};
 use crate::storage::blob_id::BlobId;
 use rusqlite::Connection;
 use std::{fs, io, path::Path};
 
 /// Directory ownership excludes writers; the committed offset is the only acknowledged prefix.
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
-    let mut after = String::new();
+    // Opening validated every stored session ID, so reading them as `SessionId` cannot fail here.
+    let mut after = After::Start;
     loop {
         let rows = connection.prepare_cached("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16")?
-            .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, BlobId>(1)?, row.get::<_, u64>(2)?)))?
+            .query_map([&after], |row| Ok((row.get::<_, SessionId>(0)?, row.get::<_, BlobId>(1)?, row.get::<_, u64>(2)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if rows.is_empty() {
             return Ok(());
         }
         for (id, blob_id, offset) in rows {
             recover_prefix(connection, data_dir, &blob_id, offset)?;
-            after = id;
+            after = After::Key(id);
         }
     }
 }

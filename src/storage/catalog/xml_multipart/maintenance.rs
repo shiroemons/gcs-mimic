@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::{Work, sql};
+use crate::storage::catalog::{After, Work, sql};
 use std::sync::atomic::Ordering;
 
 pub(super) fn retire(connection: &Connection, id: &str) -> Result<(), ObjectError> {
@@ -98,6 +98,8 @@ pub(super) fn pending(connection: &Connection) -> Result<bool, ObjectError> {
 /// Reads one page of expired uploads through the deadline index, so a maintenance pass costs the
 /// uploads that are due rather than every upload.
 pub(super) const EXPIRED_PAGE: &str = "SELECT deadline,id FROM xml_multipart_uploads WHERE deadline<=?1 AND (deadline,id)>(?2,?3) ORDER BY deadline,id LIMIT 128";
+/// The first [`EXPIRED_PAGE`], which has no place to continue after.
+pub(super) const EXPIRED_FIRST_PAGE: &str = "SELECT deadline,id FROM xml_multipart_uploads WHERE deadline<=?1 ORDER BY deadline,id LIMIT 128";
 
 /// Reads one page of uploads whose bucket incarnation is gone. Nothing indexes an upload by its
 /// incarnation, so this walks every upload; only a deleted bucket or an open needs it.
@@ -110,34 +112,34 @@ struct ExpiredUpload {
     id: String,
 }
 
-impl ExpiredUpload {
-    const BEFORE_ALL: Self = Self {
-        deadline: UnixMillis(i64::MIN),
-        id: String::new(),
-    };
-}
-
+/// Reads the expired uploads after `after`, or from the first when it is `None`.
 fn expired(
     connection: &Connection,
     now: UnixMillis,
-    after: &ExpiredUpload,
+    after: Option<&ExpiredUpload>,
 ) -> Result<Vec<ExpiredUpload>, CatalogError> {
-    connection
-        .prepare_cached(EXPIRED_PAGE)
-        .and_then(|mut statement| {
-            statement
-                .query_map(params![now, after.deadline, after.id], |row| {
-                    Ok(ExpiredUpload {
-                        deadline: row.get(0)?,
-                        id: row.get(1)?,
-                    })
-                })?
-                .collect()
+    let read = |row: &rusqlite::Row<'_>| {
+        Ok(ExpiredUpload {
+            deadline: row.get(0)?,
+            id: row.get(1)?,
         })
-        .map_err(super::super::unavailable)
+    };
+    match after {
+        None => connection
+            .prepare_cached(EXPIRED_FIRST_PAGE)
+            .and_then(|mut statement| statement.query_map(params![now], read)?.collect()),
+        Some(after) => connection
+            .prepare_cached(EXPIRED_PAGE)
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params![now, after.deadline, after.id], read)?
+                    .collect()
+            }),
+    }
+    .map_err(super::super::unavailable)
 }
 
-fn orphaned(connection: &Connection, after: &str) -> Result<Vec<String>, CatalogError> {
+fn orphaned(connection: &Connection, after: &After<String>) -> Result<Vec<String>, CatalogError> {
     connection
         .prepare_cached(ORPHANED_PAGE)
         .and_then(|mut statement| statement.query_map([after], |row| row.get(0))?.collect())
@@ -162,7 +164,7 @@ pub(super) fn recover(
     // No request holds an upload yet, so every page retires completely and the next one starts
     // from the beginning again.
     loop {
-        let page = expired(connection, now, &ExpiredUpload::BEFORE_ALL)?;
+        let page = expired(connection, now, None)?;
         if page.is_empty() {
             break;
         }
@@ -171,7 +173,7 @@ pub(super) fn recover(
         }
     }
     loop {
-        let page = orphaned(connection, "")?;
+        let page = orphaned(connection, &After::Start)?;
         if page.is_empty() {
             break;
         }
@@ -187,7 +189,7 @@ pub(super) fn recover(
         reclaim_disk(data_dir, &ids).map_err(super::super::unavailable)?;
         forget(connection, &ids).map_err(super::super::unavailable)?;
     }
-    let mut after = String::new();
+    let mut after = After::Start;
     loop {
         let part:Option<(BlobId,u64)>=sql::row(connection, "SELECT blob_id,size FROM xml_multipart_parts WHERE blob_id>?1 ORDER BY blob_id LIMIT 1", [&after],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let Some((id, size)) = part else { break };
@@ -197,7 +199,7 @@ pub(super) fn recover(
                 "multipart part is missing or truncated",
             ));
         }
-        after = id.to_hex();
+        after = After::Key(id);
     }
     Ok(())
 }
@@ -296,19 +298,19 @@ impl Catalog {
     }
 
     async fn retire_expired(&self, now: UnixMillis) -> Result<(), CatalogError> {
-        let mut after = ExpiredUpload::BEFORE_ALL;
+        let mut after = None;
         loop {
             let catalog = self.clone();
             let last = self
                 .run(move |connection| {
-                    let mut page = expired(connection, now, &after)?;
+                    let mut page = expired(connection, now, after.as_ref())?;
                     catalog
                         .retire_unheld(connection, page.iter().map(|upload| upload.id.as_str()))?;
                     Ok::<_, CatalogError>(page.pop())
                 })
                 .await?;
             match last {
-                Some(last) => after = last,
+                Some(last) => after = Some(last),
                 None => return Ok(()),
             }
         }
@@ -338,7 +340,7 @@ impl Catalog {
     }
 
     async fn scan_for_orphans(&self) -> Result<usize, CatalogError> {
-        let mut after = String::new();
+        let mut after = After::Start;
         let mut held = 0;
         loop {
             let catalog = self.clone();
@@ -352,7 +354,7 @@ impl Catalog {
                 .await?;
             held += skipped;
             match last {
-                Some(last) => after = last,
+                Some(last) => after = After::Key(last),
                 None => return Ok(held),
             }
         }

@@ -1,5 +1,5 @@
 use super::{
-    BlobBackend, Catalog, CatalogError, ResumableError, SessionId, SessionState, UnixMicros,
+    After, BlobBackend, Catalog, CatalogError, ResumableError, SessionId, SessionState, UnixMicros,
     UnixMillis,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     unavailable,
@@ -55,7 +55,7 @@ impl SweepOutcome {
 fn cleanup_page(
     connection: &Connection,
     now: UnixMillis,
-    after: &str,
+    after: &After<SessionId>,
 ) -> Result<Vec<(SessionId, BlobId, UnixMillis)>, CatalogError> {
     // Requests wake maintenance, so this runs per request and must not read every session. Both
     // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
@@ -89,7 +89,7 @@ pub(super) fn recover_due(
     backend: &BlobBackend,
     now: UnixMillis,
 ) -> Result<(), CatalogError> {
-    let mut after = String::new();
+    let mut after = After::Start;
     loop {
         let rows = cleanup_page(connection, now, &after)?;
         if rows.is_empty() {
@@ -97,7 +97,7 @@ pub(super) fn recover_due(
         }
         for (id, blob_id, deadline) in rows {
             clean_record(connection, backend, id, &blob_id, deadline, now)?;
-            after = id.to_hex();
+            after = After::Key(id);
         }
     }
 }
@@ -319,7 +319,7 @@ impl Catalog {
         &self,
         now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
-        let mut after = String::new();
+        let mut after = After::Start;
         let mut sweep = SweepOutcome::default();
         loop {
             let cursor = after.clone();
@@ -336,7 +336,7 @@ impl Catalog {
             let Some(last) = rows.last() else {
                 break;
             };
-            after = last.0.to_hex();
+            after = After::Key(last.0);
             for (id, blob_id, deadline) in rows {
                 // A held session is swept once its request releases it, so this never waits.
                 let writer = match self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {

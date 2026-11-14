@@ -54,15 +54,14 @@ impl Catalog {
                 }
                 return Ok(());
             }
-            let mut after: Option<String> = None;
+            let mut after = super::After::Start;
             loop {
                 let transaction = sql::immediate(connection)?;
-                let query = if after.is_some() {
-                    "SELECT name FROM buckets WHERE name>?1 ORDER BY name LIMIT 1"
-                } else {
-                    "SELECT name FROM buckets WHERE ?1 IS NULL ORDER BY name LIMIT 1"
-                };
-                let bucket: Option<String> = sql::optional_scalar(&transaction, query, [&after])?;
+                let bucket: Option<String> = sql::optional_scalar(
+                    &transaction,
+                    "SELECT name FROM buckets WHERE name>?1 ORDER BY name LIMIT 1",
+                    [&after],
+                )?;
                 let Some(bucket) = bucket else { break };
                 acl::reconcile_bucket_policy(
                     &transaction,
@@ -71,7 +70,7 @@ impl Catalog {
                     unix_micros(clock.now())?,
                 )?;
                 transaction.commit()?;
-                after = Some(bucket);
+                after = super::After::Key(bucket);
             }
             super::object_owner::reconcile(connection, &profile)
         })

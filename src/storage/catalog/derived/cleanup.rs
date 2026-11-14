@@ -110,7 +110,7 @@ impl Catalog {
         now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut failure = self.reclaim_pending().await.err();
-        let mut after = String::new();
+        let mut after = After::Start;
         loop {
             let cursor = after.clone();
             let due = self
@@ -126,7 +126,7 @@ impl Catalog {
                 break;
             }
             for id in due {
-                after = id.to_hex();
+                after = After::Key(id);
                 let _guard = match self.derived_guard(&id) {
                     Ok(guard) => guard,
                     Err(ObjectError::DerivedTransferBusy) => continue,

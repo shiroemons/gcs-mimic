@@ -51,49 +51,61 @@ pub(super) fn reconcile(
     ) {
         return Ok(());
     }
-    let mut after: Option<(String, String, i64)> = None;
+    let mut after: Option<OwnedKey> = None;
     loop {
         let transaction = sql::immediate(connection)?;
-        let query = if after.is_some() {
-            "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND (bucket,name,generation)>(?1,?2,?3) ORDER BY bucket,name,generation LIMIT 1"
-        } else {
-            "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND ?1 IS NULL AND ?2 IS NULL AND ?3 IS NULL ORDER BY bucket,name,generation LIMIT 1"
+        let read_owned = |row: &Row<'_>| {
+            let key = OwnedKey {
+                bucket: row.get(0)?,
+                name: row.get(1)?,
+                generation: row.get(2)?,
+            };
+            Ok((key, read(row, 3)?))
         };
-        let row = sql::row(
-            &transaction,
-            query,
-            params![
-                after.as_ref().map(|key| &key.0),
-                after.as_ref().map(|key| &key.1),
-                after.as_ref().map(|key| key.2)
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    read(row, 3)?,
-                ))
-            },
-        )
+        let row = match &after {
+            None => sql::row(
+                &transaction,
+                "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL ORDER BY bucket,name,generation LIMIT 1",
+                [],
+                read_owned,
+            ),
+            Some(key) => sql::row(
+                &transaction,
+                "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND (bucket,name,generation)>(?1,?2,?3) ORDER BY bucket,name,generation LIMIT 1",
+                params![key.bucket, key.name, key.generation],
+                read_owned,
+            ),
+        }
         .optional()?;
-        let Some((bucket, name, generation, Some(mut owner))) = row else {
+        let Some((key, Some(mut owner))) = row else {
             return Ok(());
         };
         let before = owner.clone();
         canonicalize(&mut owner, Some(profile));
         if owner != before {
-            reconcile_grant(&transaction, (&bucket, &name, generation), &before, &owner)?;
+            reconcile_grant(
+                &transaction,
+                (&key.bucket, &key.name, key.generation),
+                &before,
+                &owner,
+            )?;
             let owner = serde_json::to_string(&owner).map_err(unavailable)?;
             sql::exec(
                 &transaction,
                 "UPDATE objects SET owner=?4 WHERE bucket=?1 AND name=?2 AND generation=?3",
-                params![bucket, name, generation, owner],
+                params![key.bucket, key.name, key.generation, owner],
             )?;
         }
         transaction.commit()?;
-        after = Some((bucket, name, generation));
+        after = Some(key);
     }
+}
+
+/// The object version the owner walk resumes after.
+struct OwnedKey {
+    bucket: String,
+    name: String,
+    generation: i64,
 }
 
 fn reconcile_grant(

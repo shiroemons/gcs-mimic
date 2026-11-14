@@ -62,6 +62,53 @@ async fn begin(catalog: &Catalog) -> Target {
         .target
 }
 
+/// A key marker alone passes every upload of that name; an upload ID marker resumes among them.
+#[tokio::test]
+async fn upload_listing_resumes_after_its_key_and_upload_id_markers() {
+    let (_dir, catalog) = setup(Arc::new(SystemClock)).await;
+    let mut started = Vec::new();
+    for name in ["a", "a", "b"] {
+        let options = Options {
+            content_type: "text/plain".into(),
+            metadata: Default::default(),
+        };
+        let target = catalog
+            .begin_xml_multipart("bucket", name, options, BucketAccess::Permissive)
+            .await
+            .unwrap()
+            .target;
+        started.push((target.name, target.id));
+    }
+    started.sort();
+    let listed = |key_marker: &str, upload_marker: Option<&str>| {
+        let query = UploadQuery {
+            bucket: "bucket".into(),
+            prefix: String::new(),
+            delimiter: String::new(),
+            key_marker: key_marker.into(),
+            upload_marker: upload_marker.map(str::to_owned),
+            limit: 10,
+        };
+        let catalog = catalog.clone();
+        async move {
+            catalog
+                .list_xml_uploads(query, BucketAccess::Permissive)
+                .await
+                .unwrap()
+                .uploads
+                .into_iter()
+                .map(|upload| (upload.target.name, upload.target.id))
+                .collect::<Vec<_>>()
+        }
+    };
+    let first_a = started[0].1.clone();
+    assert_eq!(listed("", None).await, started);
+    assert_eq!(listed("a", None).await, started[2..]);
+    assert_eq!(listed("", Some(&first_a)).await, started);
+    assert_eq!(listed("a", Some(&first_a)).await, started[1..]);
+    catalog.close().await.unwrap();
+}
+
 async fn put(
     catalog: &Catalog,
     target: &Target,

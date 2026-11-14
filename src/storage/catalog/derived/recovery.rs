@@ -8,7 +8,7 @@ const PAGE_SIZE: usize = 128;
     reason = "deferred derived deletions are reclaimed only during open-time recovery"
 )]
 fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
-    let mut after = String::new();
+    let mut after = After::Start;
     let mut failure = None;
     loop {
         let ids = connection
@@ -20,7 +20,7 @@ fn reclaim_derived_deletions(connection: &Connection, data_dir: &Path) -> Result
         let Some(last) = ids.last() else {
             return failure.map_or(Ok(()), Err);
         };
-        after = last.to_hex();
+        after = After::Key(*last);
         for id in ids {
             match objects::reclaim(connection, data_dir, &id) {
                 Ok(()) => {
@@ -53,7 +53,7 @@ pub(in crate::storage::catalog) fn recover(
     now: UnixMillis,
 ) -> Result<(), ObjectError> {
     reclaim_derived_deletions(connection, data_dir)?;
-    let mut after = String::new();
+    let mut after = After::Start;
     loop {
         let page = connection
             .prepare_cached(
@@ -70,7 +70,7 @@ pub(in crate::storage::catalog) fn recover(
         let Some((last, ..)) = page.last() else {
             return Ok(());
         };
-        after = last.to_hex();
+        after = After::Key(*last);
         for (id, ephemeral, deadline) in page {
             if ephemeral || deadline <= now {
                 discard_record(connection, &id)?;

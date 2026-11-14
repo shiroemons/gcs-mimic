@@ -83,19 +83,18 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.execute_batch(SCHEMA)?;
     transaction.execute("INSERT INTO policy_revision VALUES (1, 0)", [])?;
     // Keyset iteration keeps migration memory independent of the number of buckets.
-    let mut after: Option<String> = None;
+    let mut after = super::After::Start;
     loop {
-        let sql = if after.is_some() {
-            "SELECT name, project FROM buckets WHERE name > ?1 ORDER BY name LIMIT 1"
-        } else {
-            "SELECT name, project FROM buckets WHERE ?1 IS NULL ORDER BY name LIMIT 1"
-        };
         let bucket: Option<(String, String)> = transaction
-            .query_row(sql, [&after], |row| Ok((row.get(0)?, row.get(1)?)))
+            .query_row(
+                "SELECT name, project FROM buckets WHERE name > ?1 ORDER BY name LIMIT 1",
+                [&after],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
             .optional()?;
         let Some((name, project)) = bucket else { break };
         insert_policy(&transaction, &name, &Policy::default_for(&project))?;
-        after = Some(name);
+        after = super::After::Key(name);
     }
     transaction.commit().map_err(unavailable)
 }

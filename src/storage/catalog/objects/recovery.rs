@@ -95,7 +95,7 @@ fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<()
 
 /// Every catalog row must name a regular blob file of the recorded size.
 fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
-    let mut after = String::new();
+    let mut after = super::super::After::Start;
     loop {
         let rows = connection
             .prepare_cached(
@@ -118,7 +118,7 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
                     "referenced blob {id} has invalid size or type"
                 )));
             }
-            after = id.to_hex();
+            after = super::super::After::Key(id);
         }
     }
 }

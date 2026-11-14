@@ -21,11 +21,23 @@ mod tests;
 const UPLOAD_PAGE: usize = 128;
 const UPLOAD_SCAN: &str = "SELECT name, id, created FROM xml_multipart_uploads WHERE bucket = ?1 AND (name, id) > (?2, ?3) AND incarnation = ?4 ORDER BY name, id LIMIT ?5";
 
-type Cursor = (String, String);
+/// A place in (name, upload ID) order.
+struct UploadCursor {
+    name: String,
+    id: String,
+}
+
+impl UploadCursor {
+    /// Precedes every upload: stored names and upload IDs are never empty.
+    const START: Self = Self {
+        name: String::new(),
+        id: String::new(),
+    };
+}
 
 struct Page {
     outcome: LifecycleCounts,
-    after: Option<Cursor>,
+    after: Option<UploadCursor>,
     rules: BucketRules,
 }
 
@@ -54,7 +66,7 @@ impl Catalog {
         limit: u64,
     ) -> (LifecycleCounts, Option<CatalogError>) {
         let mut outcome = LifecycleCounts::default();
-        let mut cursor = (String::new(), String::new());
+        let mut cursor = UploadCursor::START;
         let mut rules = BucketRules::Absent;
         loop {
             let bucket = bucket.to_owned();
@@ -97,7 +109,7 @@ impl Catalog {
         &self,
         connection: &mut Connection,
         bucket: &Bucket<'_>,
-        cursor: &Cursor,
+        cursor: &UploadCursor,
         now: SystemTime,
         limit: u64,
         cached: BucketRules,
@@ -124,8 +136,8 @@ impl Catalog {
                 .query_map(
                     params![
                         bucket.name,
-                        cursor.0,
-                        cursor.1,
+                        cursor.name,
+                        cursor.id,
                         bucket.incarnation,
                         UPLOAD_PAGE
                     ],
@@ -139,7 +151,12 @@ impl Catalog {
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             after = (rows.len() == UPLOAD_PAGE)
-                .then(|| rows.last().map(|(name, id, _)| (name.clone(), id.clone())))
+                .then(|| {
+                    rows.last().map(|(name, id, _)| UploadCursor {
+                        name: name.clone(),
+                        id: id.clone(),
+                    })
+                })
                 .flatten();
             for (name, id, created) in rows {
                 outcome.scanned += 1;
