@@ -669,14 +669,11 @@ pub(crate) fn select_object_with_endpoints(
         }
         _ => {
             let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
-            // The root path names the empty bucket, which bucket validation always refuses
-            // afterwards. Its legacy V2 resource has been the Host form, `//`, and stays so.
-            let source = if path.is_empty() {
-                BucketSource::Host
-            } else {
-                BucketSource::Path
-            };
-            (json::decode(bucket, json::Decoding::Path)?, name, source)
+            (
+                json::decode(bucket, json::Decoding::Path)?,
+                name,
+                BucketSource::Path,
+            )
         }
     };
     if public.is_none()

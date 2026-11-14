@@ -356,7 +356,7 @@ fn object_paths_name_their_bucket_source() {
         ),
         ..Config::default()
     };
-    // The public Host's root names the empty bucket as if the Host had chosen it.
+    // The public Host's root names the empty bucket by its path, which validation refuses later.
     for (config, host, path, expected) in [
         (
             &virtual_hosts,
@@ -376,7 +376,7 @@ fn object_paths_name_their_bucket_source() {
             "/object",
             "virtual \"mybucket\"",
         ),
-        (&legacy_public, "storage.local:4443", "/", "virtual \"\""),
+        (&legacy_public, "storage.local:4443", "/", "path style"),
     ] {
         let mut headers = HeaderMap::new();
         headers.insert("host", host.parse().unwrap());

@@ -66,6 +66,20 @@ impl Server {
         Self::start_with_limit(dir, backend, 64 * 1024 * 1024)
     }
     fn start_with_limit(dir: &TestDir, backend: &str, max_bytes: u64) -> Self {
+        Self::start_with_origin(
+            dir,
+            backend,
+            max_bytes,
+            &[
+                "--public-host",
+                "storage.example.invalid",
+                "--xml-virtual-host-domains",
+                "storage.example.invalid",
+            ],
+        )
+    }
+    /// A strict server whose public origin, virtual-host domains and profile `origin` sets.
+    fn start_with_origin(dir: &TestDir, backend: &str, max_bytes: u64, origin: &[&str]) -> Self {
         let identities = common::process::write_identities(
             &dir.0,
             &json!({"identities":[
@@ -87,15 +101,8 @@ impl Server {
                     "--max-object-bytes",
                     &max_bytes.to_string(),
                 ])
-                .args([
-                    "--public-host",
-                    "storage.example.invalid",
-                    "--xml-virtual-host-domains",
-                    "storage.example.invalid",
-                    "--auth-mode",
-                    "strict",
-                    "--identity-file",
-                ])
+                .args(origin)
+                .args(["--auth-mode", "strict", "--identity-file"])
                 .arg(identities),
         )
     }

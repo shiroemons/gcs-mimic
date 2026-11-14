@@ -1008,6 +1008,42 @@ fn goog1_and_aws_legacy_headers_transfer_metadata_and_use_virtual_bucket_resourc
     }
 }
 
+/// Under the fake-gcs-server public origin, the public Host's root path names no bucket, and a
+/// legacy header signature covers it as the path-style resource `/`. The signature verifies, so
+/// the request fails bucket name validation rather than the signature check.
+#[test]
+fn legacy_header_signs_the_public_host_root_as_a_path_style_resource() {
+    let dir = TestDir::new();
+    let server = Server::start_with_origin(
+        &dir,
+        "memory",
+        64 * 1024 * 1024,
+        &[
+            "--compat-profile",
+            "fake-gcs-server",
+            "--public-base-url",
+            "http://storage.example.invalid",
+        ],
+    );
+    let key = server.key("signer@example.invalid");
+    for kind in ["GOOG1", "AWS"] {
+        for method in ["HEAD", "DELETE"] {
+            let signed = header(&key, kind, method, "/", "/", &[]);
+            let reply = send(&server, method, &signed, b"", "storage.example.invalid");
+            let body = String::from_utf8_lossy(&reply.body);
+            assert_eq!(reply.status, 400, "{kind} {method}: {body}");
+            if method == "DELETE" {
+                assert!(
+                    body.contains(
+                        "<Code>InvalidArgument</Code><Message>invalid bucket name</Message>"
+                    ),
+                    "{kind}: {body}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn v2_hmac_query_transfers_get_head_put_delete_on_disk_and_ram_without_v4_derivation() {
     for backend in ["disk", "memory"] {
