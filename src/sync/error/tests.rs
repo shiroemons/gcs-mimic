@@ -278,6 +278,55 @@ fn typed_displaced_and_conflict_failures_decide_retry_and_pause_like_backend_cau
     assert_eq!(capacity.pause_reason(), PauseReason::ConflictCapacity);
 }
 
+/// A native watch that fails while listing the tree hands the listing's failure back inside an
+/// I/O error; the mirror still retries descriptor exhaustion and gives up on an invalid tree.
+#[test]
+fn tree_listing_failures_inside_native_watch_errors_keep_their_retry_decisions() {
+    let watch = |error: AdminError| {
+        SyncError::Root(RootError::from(AdminError::backend(io::Error::other(
+            error,
+        ))))
+    };
+    let exhausted = watch(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE)));
+    assert!(exhausted.is_transient(), "{exhausted:?}");
+    assert!(exhausted.is_watch_retryable(), "{exhausted:?}");
+    let invalid = watch(AdminError::Invalid("tree entry is not valid".into()));
+    assert!(!invalid.is_transient(), "{invalid:?}");
+    assert!(!invalid.is_watch_retryable(), "{invalid:?}");
+}
+
+/// A write-back summary that fails while the observation is read travels inside the catalog's
+/// I/O cause. Contention inside it still makes the pass transient, and the I/O cause that
+/// carries it names the pause.
+#[test]
+fn write_back_summary_failures_inside_catalog_io_causes_retry_and_pause_on_io() {
+    let summary = |error: writeback::Error| {
+        SyncError::Root(RootError::from(AdminError::from(
+            crate::storage::failure::unavailable(io::Error::other(error)),
+        )))
+    };
+    let busy = summary(writeback::Error::Admin(AdminError::Busy {
+        retry_after: std::time::Duration::from_secs(1),
+    }));
+    assert!(busy.is_transient(), "{busy:?}");
+    assert_eq!(busy.pause_reason(), PauseReason::IoFailure);
+    let invalid = summary(writeback::Error::Admin(AdminError::Invalid(
+        "write-back row".into(),
+    )));
+    assert!(!invalid.is_transient(), "{invalid:?}");
+    assert_eq!(invalid.pause_reason(), PauseReason::IoFailure);
+}
+
+/// A catalog connection left unusable by a rollback that met a busy database is contention, so
+/// the mirror retries the pass.
+#[test]
+fn a_busy_rollback_behind_an_unusable_catalog_connection_is_transient() {
+    let error = SyncError::Admin(crate::storage::test_fixtures::unrecovered_busy_connection());
+    assert!(matches!(error, SyncError::Admin(AdminError::Backend(_))));
+    assert!(error.is_transient(), "{error:?}");
+    assert!(error.is_watch_retryable(), "{error:?}");
+}
+
 #[test]
 fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
     for (stop, reason) in [
