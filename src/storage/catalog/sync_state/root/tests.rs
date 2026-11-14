@@ -2,6 +2,27 @@ use super::*;
 use crate::{storage::Catalog, test_support::TestDir};
 use std::{fs, os::unix::fs::symlink, time::Duration};
 
+/// A marker written by any release reads back the same, so its bytes keep the field order and
+/// the lowercase hexadecimal identities, and an uppercase identity is still not a marker.
+#[test]
+fn root_marker_bytes_keep_their_field_order_and_lowercase_identities() {
+    let bytes = br#"{"version":1,"catalog_id":"00112233445566778899aabbccddeeff","root_id":"ffeeddccbbaa99887766554433221100"}"#;
+    let marker = Marker {
+        version: 1,
+        catalog_id: "00112233445566778899aabbccddeeff".parse().unwrap(),
+        root_id: "ffeeddccbbaa99887766554433221100".parse().unwrap(),
+    };
+    assert_eq!(serde_json::to_vec(&marker).unwrap(), bytes);
+    let read: Marker = serde_json::from_slice(bytes).unwrap();
+    assert!(read.catalog_id == marker.catalog_id && read.root_id == marker.root_id);
+    assert!(
+        serde_json::from_slice::<Marker>(
+            br#"{"version":1,"catalog_id":"00112233445566778899AABBCCDDEEFF","root_id":"ffeeddccbbaa99887766554433221100"}"#
+        )
+        .is_err()
+    );
+}
+
 async fn setup() -> (TestDir, TestDir, Catalog) {
     let data = TestDir::new();
     let root = TestDir::new();
