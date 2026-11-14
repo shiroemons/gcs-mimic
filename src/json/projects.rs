@@ -343,16 +343,6 @@ pub(crate) fn hmac_key_list(
     Ok(Value::Object(value))
 }
 
-/// The project number the bucket resource reports for `project`: numeric project identifiers
-/// are their own number; local named projects have no number and report 0.
-pub(crate) fn project_number(project: &str) -> String {
-    if project.bytes().all(|byte| byte.is_ascii_digit()) {
-        project.parse::<u64>().unwrap_or(0).to_string()
-    } else {
-        "0".to_owned()
-    }
-}
-
 /// The deterministic local Cloud Storage service agent, in Google's
 /// `service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com` form.
 pub(crate) fn service_account(project: &str) -> Value {
@@ -365,7 +355,7 @@ pub(crate) fn service_account(project: &str) -> Value {
 pub(crate) fn service_account_email(project: &str) -> String {
     format!(
         "service-{}@gs-project-accounts.iam.gserviceaccount.com",
-        project_number(project)
+        crate::acl::project_number(project)
     )
 }
 

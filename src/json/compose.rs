@@ -240,11 +240,7 @@ fn destination_metadata(
         return Err(JsonError::unsupported_object(key));
     }
     if let MapPatch::Merge(entries) = &metadata.update.metadata
-        && entries
-            .iter()
-            .filter_map(|(key, value)| value.as_ref().map(|value| key.len() + value.len()))
-            .sum::<usize>()
-            > 8192
+        && crate::object::custom_metadata_exceeds(entries, crate::object::RemovedKeys::Ignored)
     {
         return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
     }

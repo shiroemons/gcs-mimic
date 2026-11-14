@@ -44,7 +44,6 @@ mod failure_tests;
 const FORM_CAP: usize = json::RESOURCE_BODY_LIMIT;
 /// What one field's map entry takes beside its name and value.
 const FIELD_ENTRY_CHARGE: usize = 64;
-const CUSTOM_METADATA_CAP: usize = 8192;
 
 /// Cloud Storage reports unmet conditions as InvalidPolicyDocument with this wording.
 fn policy_error(details: impl std::fmt::Display) -> Error {
@@ -548,12 +547,8 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
             custom.insert(key.to_owned(), Some(header_value(field, value)?));
         }
     }
-    if custom
-        .iter()
-        .map(|(key, value)| key.len() + value.as_ref().map_or(0, String::len))
-        .sum::<usize>()
-        > CUSTOM_METADATA_CAP
-    {
+    // Every form value is stored, so no entry is a removal.
+    if crate::object::custom_metadata_exceeds(&custom, crate::object::RemovedKeys::Counted) {
         return Err(Error::new(
             XmlCode::MetadataTooLarge,
             "Custom metadata exceeds 8 KiB.",

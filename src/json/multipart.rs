@@ -790,11 +790,7 @@ pub(crate) fn multipart_metadata_of(
     };
     // A JSON body only merges custom metadata; a replacement comes from an update mask.
     if let MapPatch::Merge(metadata) = &update.metadata
-        && metadata
-            .iter()
-            .filter_map(|(key, value)| value.as_ref().map(|value| key.len() + value.len()))
-            .sum::<usize>()
-            > 8192
+        && crate::object::custom_metadata_exceeds(metadata, crate::object::RemovedKeys::Ignored)
     {
         return Err(JsonError::invalid_argument(
             "Custom metadata exceeds 8192 bytes",

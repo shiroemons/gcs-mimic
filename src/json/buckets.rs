@@ -973,11 +973,7 @@ pub(crate) fn bucket_resource_with_profile(
 ) -> Result<Value, JsonError> {
     // ACL and owner fields are not modeled, so both projections expose the same local subset.
     let (Projection::NoAcl | Projection::Full) = projection;
-    let project_number = if bucket.project.bytes().all(|byte| byte.is_ascii_digit()) {
-        bucket.project.parse::<u64>().unwrap_or(0).to_string()
-    } else {
-        "0".to_owned()
-    };
+    let project_number = crate::acl::project_number(&bucket.project);
     // Fields follow the order of a recorded Cloud Storage response. Fields it did not contain
     // follow `locationType`, in an order that has not been verified.
     let mut value = Map::from_iter([

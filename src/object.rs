@@ -352,6 +352,80 @@ fn encoded_json_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
 /// is 16 KiB.
 const ENCODED_METADATA_LIMIT: usize = 40 * 1024;
 
+/// Cloud Storage's limit on the summed bytes of custom metadata keys and values.
+pub(crate) const CUSTOM_METADATA_LIMIT: usize = 8192;
+
+/// Which entries of a custom metadata change count toward [`CUSTOM_METADATA_LIMIT`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RemovedKeys {
+    /// A removal stores nothing and counts nothing.
+    Ignored,
+    /// A removal counts its key, as the resumable completion check always has.
+    Counted,
+}
+
+/// Whether the entries of a custom metadata change pass [`CUSTOM_METADATA_LIMIT`]. Each entry
+/// counts its key and value bytes; `removed` says whether a removal (`None`) counts its key.
+pub(crate) fn custom_metadata_exceeds(
+    entries: &BTreeMap<String, Option<String>>,
+    removed: RemovedKeys,
+) -> bool {
+    entries
+        .iter()
+        .filter_map(|(key, value)| match (value, removed) {
+            (Some(value), RemovedKeys::Ignored | RemovedKeys::Counted) => {
+                Some(key.len() + value.len())
+            }
+            (None, RemovedKeys::Counted) => Some(key.len()),
+            (None, RemovedKeys::Ignored) => None,
+        })
+        .sum::<usize>()
+        > CUSTOM_METADATA_LIMIT
+}
+
+#[cfg(test)]
+mod custom_metadata_limit_tests {
+    use super::*;
+
+    #[test]
+    fn the_limit_counts_keys_and_values_and_removals_only_when_asked() {
+        let entries = |pairs: &[(&str, Option<usize>)]| {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), value.map(|len| "v".repeat(len))))
+                .collect::<BTreeMap<_, _>>()
+        };
+        for removed in [RemovedKeys::Ignored, RemovedKeys::Counted] {
+            // 8192 bytes exactly are allowed; one more byte is not.
+            assert!(!custom_metadata_exceeds(
+                &entries(&[("k", Some(8191))]),
+                removed
+            ));
+            assert!(custom_metadata_exceeds(
+                &entries(&[("k", Some(8192))]),
+                removed
+            ));
+            assert!(!custom_metadata_exceeds(
+                &entries(&[("a", Some(4095)), ("b", Some(4095))]),
+                removed
+            ));
+            assert!(custom_metadata_exceeds(
+                &entries(&[("a", Some(4095)), ("bb", Some(4095))]),
+                removed
+            ));
+        }
+        // A removal adds only its key, and only where removals count.
+        let with_removal = entries(&[("k", Some(8188)), ("gone", None)]);
+        assert!(!custom_metadata_exceeds(
+            &with_removal,
+            RemovedKeys::Ignored
+        ));
+        assert!(custom_metadata_exceeds(&with_removal, RemovedKeys::Counted));
+        let at_limit = entries(&[("k", Some(8188)), ("one", None)]);
+        assert!(!custom_metadata_exceeds(&at_limit, RemovedKeys::Counted));
+    }
+}
+
 impl ObjectMetadataUpdate {
     /// The fixed metadata fields with their JSON names, in the order errors are reported.
     fn fixed_fields(&self) -> [(&'static str, &Patch<String>); 5] {
@@ -536,7 +610,7 @@ impl ObjectMetadataUpdate {
             .iter()
             .map(|(key, value)| key.len() + value.len())
             .sum::<usize>()
-            > 8192
+            > CUSTOM_METADATA_LIMIT
         {
             return Err(ObjectError::InvalidMetadata);
         }

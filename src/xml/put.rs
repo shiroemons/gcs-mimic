@@ -350,7 +350,6 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         metadata.custom_time = Patch::Set(super::custom_time(value)?);
     }
     let mut custom = BTreeMap::new();
-    let mut custom_bytes = 0usize;
     for name in headers.keys() {
         if let Some(key) = name.as_str().strip_prefix("x-goog-meta-") {
             if key.is_empty() {
@@ -358,12 +357,11 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
             }
             // `name` comes from this map, so the header is present.
             if let Some(value) = single(headers, name.as_str())? {
-                custom_bytes += key.len() + value.len();
                 custom.insert(key.to_owned(), Some(value.to_owned()));
             }
         }
     }
-    if custom_bytes > 8192 {
+    if crate::object::custom_metadata_exceeds(&custom, crate::object::RemovedKeys::Ignored) {
         return Err(Error::new(
             XmlCode::MetadataTooLarge,
             "Custom metadata exceeds 8 KiB.",
