@@ -17,7 +17,8 @@ const WARNED_BUCKET_LIMIT: usize = 64;
 pub struct CorsWarnings(Mutex<BTreeSet<String>>);
 
 impl CorsWarnings {
-    fn first(&self, bucket: &str) -> bool {
+    /// Records `bucket` and says whether this is its first logged fallback.
+    fn claim(&self, bucket: &str) -> bool {
         let mut warned = self
             .0
             .lock()
@@ -38,7 +39,7 @@ pub(crate) fn warn_unconfigured_cors(
     if crate::json::cors::origin(headers).is_none() {
         return;
     }
-    let first = state.xml_cors_warned_buckets.first(bucket);
+    let first = state.xml_cors_warned_buckets.claim(bucket);
     if first {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Warn,
@@ -55,7 +56,7 @@ pub(crate) fn warn_unconfigured_cors(
 /// that works locally would otherwise fail in production without a hint. An explicit allow-all
 /// was chosen knowingly and stays silent.
 pub(crate) fn note_default_cors_fallback(state: &crate::server::State, bucket: &str) {
-    if state.xml_cors_warned_buckets.first(bucket) {
+    if state.xml_cors_warned_buckets.claim(bucket) {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Info,
             "cors_fallback_default",
@@ -79,8 +80,10 @@ pub(crate) fn cors(
     let mut result = HeaderMap::new();
     let one = |name: &str| {
         let mut values = headers.get_all(name).iter();
-        let value = values.next()?;
-        values.next().is_none().then_some(value)?.to_str().ok()
+        let (Some(value), None) = (values.next(), values.next()) else {
+            return None;
+        };
+        value.to_str().ok()
     };
     let Some(origin_value) = crate::json::cors::origin(headers) else {
         return result;
@@ -105,11 +108,12 @@ pub(crate) fn cors(
     if rules.is_empty() && fallback == CorsFallback::AllowAll {
         return allow_all(headers, request, one("access-control-request-headers"));
     }
+    let parsed = SerializedOrigin::parse(origin);
     // The first origin/method match determines the policy, even if its headers deny preflight.
     let Some(rule) = rules.iter().find(|rule| {
         rule.origin
             .iter()
-            .any(|allowed| origin_matches(allowed, origin))
+            .any(|allowed| origin_matches(allowed, origin, parsed.as_ref()))
             && rule
                 .method
                 .iter()
@@ -220,18 +224,15 @@ fn allow_all(
     result
 }
 
-fn origin_matches(allowed: &str, origin: &str) -> bool {
-    if allowed == "*" || allowed == origin {
-        return true;
-    }
-    let (allowed_value, origin_value) = (allowed, origin);
-    let (Ok(allowed), Ok(origin)) = (allowed.parse::<hyper::Uri>(), origin.parse::<hyper::Uri>())
-    else {
-        return false;
-    };
-    for (uri, value) in [(&allowed, allowed_value), (&origin, origin_value)] {
+/// A serialized origin `scheme://authority` that `origin_matches` compares: the text is exactly
+/// the scheme and authority, without userinfo, and any port is a `u16`.
+struct SerializedOrigin(hyper::Uri);
+
+impl SerializedOrigin {
+    fn parse(value: &str) -> Option<Self> {
+        let uri = value.parse::<hyper::Uri>().ok()?;
         let (Some(authority), Some(scheme)) = (uri.authority(), uri.scheme_str()) else {
-            return false;
+            return None;
         };
         if value
             .strip_prefix(scheme)
@@ -243,9 +244,23 @@ fn origin_matches(allowed: &str, origin: &str) -> bool {
                 .rsplit_once(':')
                 .is_some_and(|(_, port)| !port.contains(']') && port.parse::<u16>().is_err())
         {
-            return false;
+            return None;
         }
+        Some(Self(uri))
     }
+}
+
+/// `origin` is the request's Origin as sent; `parsed` is the same value parsed once per request.
+/// A value that is not a strict serialized origin matches only itself or `*`.
+fn origin_matches(allowed: &str, origin: &str, parsed: Option<&SerializedOrigin>) -> bool {
+    if allowed == "*" || allowed == origin {
+        return true;
+    }
+    let (Some(SerializedOrigin(origin)), Some(SerializedOrigin(allowed))) =
+        (parsed, SerializedOrigin::parse(allowed))
+    else {
+        return false;
+    };
     let (Some(allowed_scheme), Some(origin_scheme), Some(allowed_host), Some(host)) = (
         allowed.scheme_str(),
         origin.scheme_str(),
@@ -263,7 +278,7 @@ fn origin_matches(allowed: &str, origin: &str) -> bool {
         })
     };
     if !allowed_scheme.eq_ignore_ascii_case(origin_scheme)
-        || port(&allowed) != port(&origin)
+        || port(&allowed) != port(origin)
         || allowed.path() != "/"
         || allowed.query().is_some()
     {
@@ -286,6 +301,11 @@ fn origin_matches(allowed: &str, origin: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Whether a rule origin allows the request Origin, parsed as `cors` parses it.
+    fn allows(allowed: &str, origin: &str) -> bool {
+        origin_matches(allowed, origin, SerializedOrigin::parse(origin).as_ref())
+    }
 
     fn kind(preflight: bool) -> CorsRequest {
         if preflight {
@@ -443,7 +463,7 @@ mod tests {
             "https://test.example.com",
             "https://nested.test.example.com",
         ] {
-            assert!(origin_matches("https://*.example.com", origin));
+            assert!(allows("https://*.example.com", origin));
         }
         for origin in [
             "http://test.example.com",
@@ -454,9 +474,9 @@ mod tests {
             "https://user@example.com",
             "https://example.com.evil",
         ] {
-            assert!(!origin_matches("https://*.example.com", origin), "{origin}");
+            assert!(!allows("https://*.example.com", origin), "{origin}");
         }
-        assert!(origin_matches(
+        assert!(allows(
             "https://*.example.com:4443",
             "https://test.example.com:4443"
         ));
@@ -473,7 +493,7 @@ mod tests {
             ("ionic://localhost", "ionic://localhost"),
             ("app+local.v1://device:1234", "app+local.v1://device:1234"),
         ] {
-            assert!(origin_matches(allowed, request), "{allowed} {request}");
+            assert!(allows(allowed, request), "{allowed} {request}");
         }
         for (allowed, request) in [
             ("http://app.example:80", "http://app.example:8080"),
@@ -484,7 +504,7 @@ mod tests {
                 "https://mobile.example.com:4443",
             ),
         ] {
-            assert!(!origin_matches(allowed, request), "{allowed} {request}");
+            assert!(!allows(allowed, request), "{allowed} {request}");
         }
     }
 
@@ -534,12 +554,12 @@ mod tests {
     #[test]
     fn unconfigured_warning_is_once_per_bucket_and_bounded() {
         let warned = CorsWarnings::default();
-        assert!(warned.first("bucket-a"));
-        assert!(!warned.first("bucket-a"));
+        assert!(warned.claim("bucket-a"));
+        assert!(!warned.claim("bucket-a"));
         for index in 1..WARNED_BUCKET_LIMIT {
-            assert!(warned.first(&format!("bucket-{index}")));
+            assert!(warned.claim(&format!("bucket-{index}")));
         }
-        assert!(!warned.first("bucket-over-limit"));
+        assert!(!warned.claim("bucket-over-limit"));
         assert_eq!(warned.0.lock().unwrap().len(), WARNED_BUCKET_LIMIT);
     }
 
