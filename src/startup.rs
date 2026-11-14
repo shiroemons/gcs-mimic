@@ -307,12 +307,10 @@ impl ListenerSetting {
 
     /// The address a bound listener accepts on.
     fn local_addr(self, listener: &tokio::net::TcpListener) -> Result<SocketAddr, Diagnostics> {
-        listener
-            .local_addr()
-            .map_err(|error| self.address_unreadable(&error))
+        listener.local_addr().map_err(|_| self.address_unreadable())
     }
 
-    fn address_unreadable(self, error: &io::Error) -> Diagnostics {
+    fn address_unreadable(self) -> Diagnostics {
         let fix = match self {
             Self::Listen => "Cannot inspect listener address; check the local network environment.",
             Self::ListenHttp => {
@@ -321,8 +319,9 @@ impl ListenerSetting {
             Self::TrustedListen => {
                 "Cannot inspect trusted listener address; check the local network environment."
             }
-            // The gRPC listener has no advice of its own, so it gets the generic diagnostic.
-            Self::GrpcListen => return Diagnostics::startup_failure(error),
+            Self::GrpcListen => {
+                "Cannot inspect gRPC listener address; check the local network environment."
+            }
         };
         Diagnostics::error(DiagnosticSource::Listener, self.key(), fix)
     }
@@ -1115,6 +1114,38 @@ mod tests {
                 assert_eq!(error.key, key, "{setting:?}");
                 assert_eq!(error.fix, fix, "{setting:?} {kind:?}");
             }
+        }
+    }
+
+    #[test]
+    fn unreadable_listener_addresses_name_the_listener() {
+        for (setting, key, fix) in [
+            (
+                ListenerSetting::Listen,
+                "listen",
+                "Cannot inspect listener address; check the local network environment.",
+            ),
+            (
+                ListenerSetting::ListenHttp,
+                "listen_http",
+                "Cannot inspect HTTP listener address; check the local network environment.",
+            ),
+            (
+                ListenerSetting::TrustedListen,
+                "trusted_listen",
+                "Cannot inspect trusted listener address; check the local network environment.",
+            ),
+            (
+                ListenerSetting::GrpcListen,
+                "grpc_listen",
+                "Cannot inspect gRPC listener address; check the local network environment.",
+            ),
+        ] {
+            let diagnostics = setting.address_unreadable();
+            let error = only_error(&diagnostics);
+            assert_eq!(error.source, DiagnosticSource::Listener, "{setting:?}");
+            assert_eq!(error.key, key, "{setting:?}");
+            assert_eq!(error.fix, fix, "{setting:?}");
         }
     }
 
