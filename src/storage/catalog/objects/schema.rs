@@ -31,14 +31,6 @@ pub(in crate::storage::catalog) const METADATA_SCHEMA: &str =
     ALTER TABLE objects ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
     PRAGMA user_version = 4;";
 
-pub(in crate::storage::catalog) fn migrate_metadata(
-    connection: &mut Connection,
-) -> Result<(), CatalogError> {
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(METADATA_SCHEMA)?;
-    transaction.commit().map_err(unavailable)
-}
-
 pub(in crate::storage::catalog) const VERSIONING_SCHEMA: &str =
     "ALTER TABLE objects RENAME TO objects_before_versioning;
 CREATE TABLE objects (
@@ -74,14 +66,6 @@ FROM objects_before_versioning;
 DROP TABLE objects_before_versioning;
 CREATE UNIQUE INDEX objects_live ON objects(bucket, name) WHERE time_deleted IS NULL;
 PRAGMA user_version = 9;";
-
-pub(in crate::storage::catalog) fn migrate_versioning(
-    connection: &mut Connection,
-) -> Result<(), CatalogError> {
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(VERSIONING_SCHEMA)?;
-    transaction.commit().map_err(unavailable)
-}
 
 #[expect(
     clippy::disallowed_methods,

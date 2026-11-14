@@ -132,12 +132,14 @@ use connection::ConnectionUnavailable;
 #[cfg(test)]
 use open::immutable_catalog_uri;
 #[cfg(test)]
+use schema::STEPS;
+#[cfg(test)]
 use schema::{
     BUCKET_LIFECYCLE_SCHEMA, BUCKET_RETENTION_SCHEMA, BUCKET_SCHEMA, BUCKET_SETTINGS_SCHEMA,
     BUCKET_UNIFORM_ACCESS_SCHEMA, Migration, OBJECT_HOLDS_CUSTOM_TIME_SCHEMA, SOFT_DELETE_SCHEMA,
     migrate_timestamp_precision,
 };
-use schema::{MIGRATIONS, initialize_catalog, validate_schema, validate_schema_version};
+use schema::{initialize_catalog, upgrade, validate_schema, validate_schema_version};
 
 /// Calls beyond this many wait for admission rather than for the execution permit. Execution
 /// finishes what it has queued even while closing, so this bounds the jobs left to run at

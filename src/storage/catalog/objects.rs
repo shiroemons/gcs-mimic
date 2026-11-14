@@ -138,10 +138,7 @@ pub(super) use reader::ReaderData;
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
 pub(super) use reclaim::{Journaled, StagedBlob, blob_referenced, reclaim};
 pub(super) use recovery::recover;
-pub(super) use schema::{
-    GENERATION_SCHEMA, METADATA_SCHEMA, SCHEMA, VERSIONING_SCHEMA, migrate, migrate_metadata,
-    migrate_versioning,
-};
+pub(super) use schema::{GENERATION_SCHEMA, METADATA_SCHEMA, SCHEMA, VERSIONING_SCHEMA, migrate};
 pub(super) use upload::{
     CommitQueue, OwnerAssignment, PublishIdentity, UploadSink, UploadedBody, write_stream,
 };

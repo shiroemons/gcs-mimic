@@ -6,7 +6,7 @@
 
 use super::sql;
 use super::{
-    Catalog, CatalogError,
+    Catalog,
     derived::{DerivedSource, DerivedSourceSpec},
     objects::{self, ObjectReader, RequestKind},
     read_cache::{self, CachedObject},
@@ -17,7 +17,6 @@ use crate::{
     csek::{CustomerKey, check_data},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, ReadAhead},
 };
-use rusqlite::Connection;
 
 /// Whether to fetch the body's start while opening the object. A stored-gzip response depends on
 /// the bytes and may be chunked or transcoded, which the streaming path decides.
@@ -30,13 +29,6 @@ fn wants_read_ahead(record: &ObjectRecord, read_ahead: ReadAhead) -> bool {
 }
 
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN customer_key_sha256 BLOB CHECK(customer_key_sha256 IS NULL OR length(customer_key_sha256) = 32); PRAGMA user_version = 30;";
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(SCHEMA)?;
-    transaction.commit()?;
-    Ok(())
-}
 
 /// Reads the stored key fingerprint at `index`, `None` for an object without a customer key.
 pub(super) fn read(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<[u8; 32]>> {
@@ -143,6 +135,7 @@ mod tests {
     use super::*;
     use crate::storage::test_fixtures::{PERMISSIVE, body, bucket, live};
     use crate::{csek::CsekError, object::ObjectMetadataUpdate, test_support::TestDir};
+    use rusqlite::Connection;
 
     async fn setup(dir: &TestDir) -> Catalog {
         let catalog = Catalog::open(&dir.0).await.unwrap();

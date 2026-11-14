@@ -712,7 +712,9 @@ fn versioning_migration_copies_named_columns_from_permuted_legacy_table() {
             .collect::<rusqlite::Result<Vec<_>>>()
     };
     let before = connection.query_row(&selected, [], read_values).unwrap();
-    migrate_versioning(&mut connection).unwrap();
+    crate::storage::catalog::Migration::Statements(VERSIONING_SCHEMA)
+        .apply(&mut connection)
+        .unwrap();
     assert_eq!(
         connection.query_row(&selected, [], read_values).unwrap(),
         before
@@ -1231,7 +1233,11 @@ fn metadata_migration_rolls_back_all_columns_and_version_after_late_failure() {
         )
         .unwrap();
     // The final ALTER fails after four successful statements, exercising transaction rollback.
-    assert!(migrate_metadata(&mut connection).is_err());
+    assert!(
+        crate::storage::catalog::Migration::Statements(METADATA_SCHEMA)
+            .apply(&mut connection)
+            .is_err()
+    );
     let after: String = connection
         .query_row(
             "SELECT sql FROM sqlite_schema WHERE name='objects'",

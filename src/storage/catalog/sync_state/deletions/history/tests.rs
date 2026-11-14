@@ -15,14 +15,13 @@ impl RootLease {
 fn automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers() {
     let mut connection = Connection::open_in_memory().unwrap();
     catalog::initialize_catalog(&mut connection).unwrap();
-    for (version, migration) in catalog::MIGRATIONS
-        .iter()
-        .filter(|(version, _)| *version <= 49)
-    {
+    for step in catalog::STEPS.iter().filter(|step| step.version <= 49) {
         let current: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        if current < *version {
+        if current < step.version
+            && let Some(migration) = &step.migration
+        {
             migration.apply(&mut connection).unwrap();
         }
     }

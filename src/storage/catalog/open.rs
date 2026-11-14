@@ -300,11 +300,7 @@ impl Catalog {
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
                 .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")?;
-            for (before, migration) in MIGRATIONS {
-                if version < *before {
-                    migration.apply(&mut connection)?;
-                }
-            }
+            upgrade(&mut connection, version)?;
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
                 crate::diagnostics::emit(

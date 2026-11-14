@@ -1,16 +1,13 @@
 //! Catalog persistence for bucket object-retention enablement and per-object retention.
 
+use crate::object::{
+    ObjectError, ObjectRecord, Patch,
+    retention::{BucketRetention, ObjectRetention, RetentionMode},
+    unix_nanos::UnixNanos,
+};
 use crate::storage::catalog::resumable::InvalidOptions;
 use crate::storage::catalog::sql;
-use crate::{
-    bucket::CatalogError,
-    object::{
-        ObjectError, ObjectRecord, Patch,
-        retention::{BucketRetention, ObjectRetention, RetentionMode},
-        unix_nanos::UnixNanos,
-    },
-};
-use rusqlite::{Connection, Row, Transaction, types::Type};
+use rusqlite::{Row, Transaction, types::Type};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -42,13 +39,6 @@ PRAGMA user_version = 29;";
 /// before it keep reading as whole microseconds.
 pub(in crate::storage) const SUB_MICRO_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN retain_until_sub_micro_nanos INTEGER NOT NULL DEFAULT 0 CHECK(retain_until_sub_micro_nanos BETWEEN 0 AND 999 AND (retain_until_sub_micro_nanos = 0 OR retain_until_time IS NOT NULL));
 PRAGMA user_version = 47;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(SCHEMA)?;
-    transaction.commit()?;
-    Ok(())
-}
 
 /// Where a row holds the retention columns.
 #[derive(Clone, Copy)]
@@ -179,7 +169,9 @@ pub(super) fn validate_publication(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bucket::CatalogError;
     use crate::object::retention::ObjectRetention;
+    use rusqlite::Connection;
 
     fn at(secs: i64, nanos: u32) -> UnixNanos {
         UnixNanos::new(secs, nanos).unwrap()
@@ -192,12 +184,12 @@ mod tests {
     /// catalog, as in every other migration.
     #[test]
     fn migrations_report_a_malformed_schema_as_corrupt() {
-        type Migrate = fn(&mut Connection) -> Result<(), CatalogError>;
-        let migrations: [Migrate; 2] = [migrate, crate::storage::catalog::customer_keys::migrate];
-        for migrate in migrations {
+        for schema in [SCHEMA, crate::storage::catalog::customer_keys::SCHEMA] {
             let mut connection = Connection::open_in_memory().unwrap();
             connection.execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql='invalid schema' WHERE name='buckets'; PRAGMA writable_schema=OFF; PRAGMA schema_version=123;").unwrap();
-            let error = migrate(&mut connection).unwrap_err();
+            let error = crate::storage::catalog::Migration::Statements(schema)
+                .apply(&mut connection)
+                .unwrap_err();
             assert!(matches!(error, CatalogError::Corrupt(_)), "{error:?}");
             assert!(
                 matches!(std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()), Some(rusqlite::Error::SqliteFailure(failure, _)) if failure.code == rusqlite::ErrorCode::DatabaseCorrupt)

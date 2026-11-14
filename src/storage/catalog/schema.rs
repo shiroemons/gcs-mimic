@@ -117,69 +117,146 @@ pub(super) fn validate_schema_version(version: i64, supported: i64) -> Result<()
 }
 
 type StateCheck = fn(&Connection) -> Result<(), CatalogError>;
+type Migrate = fn(&mut Connection) -> Result<(), CatalogError>;
 
-/// Each schema version's statements, applied in order to build the expected catalog, and the
-/// stored-state check that version introduced.
-const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
-    (2, objects::SCHEMA, None),
-    (3, objects::GENERATION_SCHEMA, None),
-    (4, objects::METADATA_SCHEMA, None),
-    (5, SEED_SCHEMA, Some(validate_seed)),
-    (6, policies::SCHEMA, Some(policies::validate)),
-    (7, resumable::SCHEMA, Some(resumable::validate)),
-    (8, BUCKET_SETTINGS_SCHEMA, None),
-    (9, objects::VERSIONING_SCHEMA, None),
-    (10, derived::SCHEMA, None),
-    (11, rewrite::SCHEMA, Some(rewrite::validate)),
-    (12, BUCKET_CORS_SCHEMA, None),
-    (13, BUCKET_PAP_SCHEMA, None),
-    (15, change_journal::SCHEMA, Some(change_journal::validate)),
-    (16, import_journal::SCHEMA, None),
-    (17, sync_state::SCHEMA, Some(sync_state::validate)),
-    (
+/// One schema version: the statements it adds to the expected catalog, the stored-state check it
+/// introduced, and how an older catalog reaches it. Built only through the constructors below,
+/// so a step's statements are named once.
+pub(super) struct Step {
+    pub(super) version: i64,
+    /// `None` for a version that changes only stored data.
+    schema: Option<&'static str>,
+    check: Option<StateCheck>,
+    /// `None` for a version an earlier step's migration writes itself.
+    pub(super) migration: Option<Migration>,
+}
+
+impl Step {
+    /// A version whose statements commit in one transaction.
+    const fn statements(version: i64, schema: &'static str, check: Option<StateCheck>) -> Self {
+        Self {
+            version,
+            schema: Some(schema),
+            check,
+            migration: Some(Migration::Statements(schema)),
+        }
+    }
+
+    /// A version whose upgrade also moves data or seeds rows.
+    const fn migrated(
+        version: i64,
+        schema: &'static str,
+        check: Option<StateCheck>,
+        migrate: Migrate,
+    ) -> Self {
+        Self {
+            version,
+            schema: Some(schema),
+            check,
+            migration: Some(Migration::Function(migrate)),
+        }
+    }
+
+    /// Applied by the previous step's migration: `objects::migrate` creates versions 2 and 3
+    /// together, and no release wrote version 2 alone.
+    const fn applied_by_previous(version: i64, schema: &'static str) -> Self {
+        Self {
+            version,
+            schema: Some(schema),
+            check: None,
+            migration: None,
+        }
+    }
+
+    /// A version that changes only stored data, so the expected schema gains nothing.
+    const fn data_only(version: i64, migrate: Migrate) -> Self {
+        Self {
+            version,
+            schema: None,
+            check: None,
+            migration: Some(Migration::Function(migrate)),
+        }
+    }
+}
+
+/// Every schema version in order. Validation applies each step's statements up to a catalog's
+/// version to build the schema it must have; an upgrade applies each migration above it.
+pub(super) const STEPS: &[Step] = &[
+    Step::migrated(2, objects::SCHEMA, None, objects::migrate),
+    Step::applied_by_previous(3, objects::GENERATION_SCHEMA),
+    Step::statements(4, objects::METADATA_SCHEMA, None),
+    Step::migrated(5, SEED_SCHEMA, Some(validate_seed), migrate_seed),
+    Step::migrated(
+        6,
+        policies::SCHEMA,
+        Some(policies::validate),
+        policies::migrate,
+    ),
+    Step::migrated(
+        7,
+        resumable::SCHEMA,
+        Some(resumable::validate),
+        resumable::migrate,
+    ),
+    Step::statements(8, BUCKET_SETTINGS_SCHEMA, None),
+    Step::statements(9, objects::VERSIONING_SCHEMA, None),
+    Step::statements(10, derived::SCHEMA, None),
+    Step::statements(11, rewrite::SCHEMA, Some(rewrite::validate)),
+    Step::statements(12, BUCKET_CORS_SCHEMA, None),
+    Step::statements(13, BUCKET_PAP_SCHEMA, None),
+    Step::data_only(TIMESTAMP_MICROS_SCHEMA_VERSION, migrate_timestamp_precision),
+    Step::statements(15, change_journal::SCHEMA, Some(change_journal::validate)),
+    Step::statements(16, import_journal::SCHEMA, None),
+    Step::migrated(
+        17,
+        sync_state::SCHEMA,
+        Some(sync_state::validate),
+        sync_state::migrate,
+    ),
+    Step::statements(
         18,
         import_journal::FAILURE_SCHEMA,
         Some(import_journal::validate_failure),
     ),
-    (19, sync_state::root::SCHEMA, None),
-    (20, sync_state::writeback::SCHEMA, None),
-    (21, sync_state::findings::SCHEMA, None),
-    (22, OBJECT_HOLDS_CUSTOM_TIME_SCHEMA, None),
-    (23, BUCKET_UNIFORM_ACCESS_SCHEMA, None),
-    (24, BUCKET_LIFECYCLE_SCHEMA, None),
-    (25, BUCKET_RETENTION_SCHEMA, None),
-    (26, SOFT_DELETE_SCHEMA, None),
-    (27, sync_state::buckets::SCHEMA, None),
-    (28, notifications::SCHEMA, Some(notifications::validate)),
-    (29, objects::retention::SCHEMA, None),
-    (30, customer_keys::SCHEMA, None),
-    (31, bucket_autoclass::SCHEMA, None),
-    (32, hmac_keys::SCHEMA, None),
-    (33, acl::SCHEMA, None),
-    (34, appendable::SCHEMA, None),
-    (35, upload_replay::SCHEMA, Some(upload_replay::validate)),
-    (36, md5_availability::SCHEMA, None),
-    (37, xml_multipart::SCHEMA, Some(xml_multipart::validate)),
-    (
+    Step::statements(19, sync_state::root::SCHEMA, None),
+    Step::statements(20, sync_state::writeback::SCHEMA, None),
+    Step::statements(21, sync_state::findings::SCHEMA, None),
+    Step::statements(22, OBJECT_HOLDS_CUSTOM_TIME_SCHEMA, None),
+    Step::statements(23, BUCKET_UNIFORM_ACCESS_SCHEMA, None),
+    Step::statements(24, BUCKET_LIFECYCLE_SCHEMA, None),
+    Step::statements(25, BUCKET_RETENTION_SCHEMA, None),
+    Step::statements(26, SOFT_DELETE_SCHEMA, None),
+    Step::statements(27, sync_state::buckets::SCHEMA, None),
+    Step::statements(28, notifications::SCHEMA, Some(notifications::validate)),
+    Step::statements(29, objects::retention::SCHEMA, None),
+    Step::statements(30, customer_keys::SCHEMA, None),
+    Step::statements(31, bucket_autoclass::SCHEMA, None),
+    Step::statements(32, hmac_keys::SCHEMA, None),
+    Step::statements(33, acl::SCHEMA, None),
+    Step::statements(34, appendable::SCHEMA, None),
+    Step::statements(35, upload_replay::SCHEMA, Some(upload_replay::validate)),
+    Step::statements(36, md5_availability::SCHEMA, None),
+    Step::statements(37, xml_multipart::SCHEMA, Some(xml_multipart::validate)),
+    Step::statements(
         38,
         notification_outbox::SCHEMA,
         Some(notification_outbox::validate),
     ),
-    (39, bucket_timestamps::SCHEMA, None),
-    (40, sync_state::deletions::SCHEMA, None),
-    (41, sync_state::observation::SCHEMA, None),
-    (42, sync_state::conflicts::SCHEMA, None),
-    (43, acl::POLICY_BINDING_SCHEMA, None),
-    (44, object_owner::SCHEMA, None),
-    (45, bucket_soft_delete::SCHEMA, None),
-    (46, bucket_soft_delete::GENERATION_SCHEMA, None),
-    (47, objects::retention::SUB_MICRO_SCHEMA, None),
-    (48, object_hold::SCHEMA, None),
-    (49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
-    (50, sync_state::deletions::history::SCHEMA, None),
-    (51, policies::RAISED_BINDINGS_SCHEMA, None),
-    (52, admin::initialization::SCHEMA, None),
-    (53, STORAGE_CLASS_UPDATED_SCHEMA, None),
+    Step::statements(39, bucket_timestamps::SCHEMA, None),
+    Step::statements(40, sync_state::deletions::SCHEMA, None),
+    Step::statements(41, sync_state::observation::SCHEMA, None),
+    Step::statements(42, sync_state::conflicts::SCHEMA, None),
+    Step::statements(43, acl::POLICY_BINDING_SCHEMA, None),
+    Step::statements(44, object_owner::SCHEMA, None),
+    Step::statements(45, bucket_soft_delete::SCHEMA, None),
+    Step::statements(46, bucket_soft_delete::GENERATION_SCHEMA, None),
+    Step::statements(47, objects::retention::SUB_MICRO_SCHEMA, None),
+    Step::statements(48, object_hold::SCHEMA, None),
+    Step::statements(49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
+    Step::statements(50, sync_state::deletions::history::SCHEMA, None),
+    Step::statements(51, policies::RAISED_BINDINGS_SCHEMA, None),
+    Step::statements(52, admin::initialization::SCHEMA, None),
+    Step::statements(53, STORAGE_CLASS_UPDATED_SCHEMA, None),
 ];
 
 #[expect(
@@ -206,16 +283,18 @@ fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
 pub(super) fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(BUCKET_SCHEMA)?;
-    for &(introduced, schema, check) in SCHEMA_STEPS {
-        if version < introduced {
+    for step in STEPS {
+        if version < step.version {
             break;
         }
-        expected.execute_batch(schema)?;
-        if let Some(check) = check {
+        if let Some(schema) = step.schema {
+            expected.execute_batch(schema)?;
+        }
+        if let Some(check) = step.check {
             check(connection)?;
         }
         // Version 18 replaced the import journal's validation with the failure journal's.
-        if introduced == 16 && version < 18 {
+        if step.version == 16 && version < 18 {
             import_journal::validate(connection)?;
         }
     }
@@ -277,7 +356,7 @@ fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
 /// One schema upgrade: statements committed in one transaction, or a migration function.
 pub(super) enum Migration {
     Statements(&'static str),
-    Function(fn(&mut Connection) -> Result<(), CatalogError>),
+    Function(Migrate),
 }
 
 impl Migration {
@@ -293,69 +372,39 @@ impl Migration {
     }
 }
 
-/// Upgrades in order; each applies when the catalog's version is below the paired version.
-pub(super) const MIGRATIONS: &[(i64, Migration)] = &[
-    (2, Migration::Function(objects::migrate)),
-    (4, Migration::Function(objects::migrate_metadata)),
-    (5, Migration::Function(migrate_seed)),
-    (6, Migration::Function(policies::migrate)),
-    (7, Migration::Function(resumable::migrate)),
-    (8, Migration::Statements(BUCKET_SETTINGS_SCHEMA)),
-    (9, Migration::Function(objects::migrate_versioning)),
-    (10, Migration::Statements(derived::SCHEMA)),
-    (11, Migration::Statements(rewrite::SCHEMA)),
-    (12, Migration::Statements(BUCKET_CORS_SCHEMA)),
-    (13, Migration::Statements(BUCKET_PAP_SCHEMA)),
-    (
-        TIMESTAMP_MICROS_SCHEMA_VERSION,
-        Migration::Function(migrate_timestamp_precision),
-    ),
-    (15, Migration::Statements(change_journal::SCHEMA)),
-    (16, Migration::Statements(import_journal::SCHEMA)),
-    (17, Migration::Function(sync_state::migrate)),
-    (18, Migration::Statements(import_journal::FAILURE_SCHEMA)),
-    (19, Migration::Statements(sync_state::root::SCHEMA)),
-    (20, Migration::Statements(sync_state::writeback::SCHEMA)),
-    (21, Migration::Statements(sync_state::findings::SCHEMA)),
-    (22, Migration::Statements(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)),
-    (23, Migration::Statements(BUCKET_UNIFORM_ACCESS_SCHEMA)),
-    (24, Migration::Statements(BUCKET_LIFECYCLE_SCHEMA)),
-    (25, Migration::Statements(BUCKET_RETENTION_SCHEMA)),
-    (26, Migration::Statements(SOFT_DELETE_SCHEMA)),
-    (27, Migration::Statements(sync_state::buckets::SCHEMA)),
-    (28, Migration::Statements(notifications::SCHEMA)),
-    (29, Migration::Function(objects::retention::migrate)),
-    (30, Migration::Function(customer_keys::migrate)),
-    (31, Migration::Statements(bucket_autoclass::SCHEMA)),
-    (32, Migration::Statements(hmac_keys::SCHEMA)),
-    (33, Migration::Statements(acl::SCHEMA)),
-    (34, Migration::Statements(appendable::SCHEMA)),
-    (35, Migration::Statements(upload_replay::SCHEMA)),
-    (36, Migration::Statements(md5_availability::SCHEMA)),
-    (37, Migration::Statements(xml_multipart::SCHEMA)),
-    (38, Migration::Statements(notification_outbox::SCHEMA)),
-    (39, Migration::Statements(bucket_timestamps::SCHEMA)),
-    (40, Migration::Statements(sync_state::deletions::SCHEMA)),
-    (41, Migration::Statements(sync_state::observation::SCHEMA)),
-    (42, Migration::Statements(sync_state::conflicts::SCHEMA)),
-    (43, Migration::Statements(acl::POLICY_BINDING_SCHEMA)),
-    (44, Migration::Statements(object_owner::SCHEMA)),
-    (45, Migration::Statements(bucket_soft_delete::SCHEMA)),
-    (
-        46,
-        Migration::Statements(bucket_soft_delete::GENERATION_SCHEMA),
-    ),
-    (
-        47,
-        Migration::Statements(objects::retention::SUB_MICRO_SCHEMA),
-    ),
-    (48, Migration::Statements(object_hold::SCHEMA)),
-    (49, Migration::Statements(BUCKET_VERSIONING_PRESENCE_SCHEMA)),
-    (
-        50,
-        Migration::Statements(sync_state::deletions::history::SCHEMA),
-    ),
-    (51, Migration::Statements(policies::RAISED_BINDINGS_SCHEMA)),
-    (52, Migration::Statements(admin::initialization::SCHEMA)),
-    (53, Migration::Statements(STORAGE_CLASS_UPDATED_SCHEMA)),
-];
+/// Upgrades a catalog at `version`: each step above it applies its migration, in order.
+pub(super) fn upgrade(connection: &mut Connection, version: i64) -> Result<(), CatalogError> {
+    for step in STEPS {
+        if version < step.version
+            && let Some(migration) = &step.migration
+        {
+            migration.apply(connection)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every version from the first migration to the current one has exactly one step, and only
+    /// the two documented exceptions lack statements or a migration of their own.
+    #[test]
+    fn steps_list_every_version_once_with_two_exceptions() {
+        let versions: Vec<i64> = STEPS.iter().map(|step| step.version).collect();
+        assert_eq!(versions, (2..=CATALOG_SCHEMA_VERSION).collect::<Vec<_>>());
+        let data_only: Vec<i64> = STEPS
+            .iter()
+            .filter(|step| step.schema.is_none())
+            .map(|step| step.version)
+            .collect();
+        assert_eq!(data_only, [TIMESTAMP_MICROS_SCHEMA_VERSION]);
+        let applied_by_previous: Vec<i64> = STEPS
+            .iter()
+            .filter(|step| step.migration.is_none())
+            .map(|step| step.version)
+            .collect();
+        assert_eq!(applied_by_previous, [3]);
+    }
+}
