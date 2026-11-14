@@ -2295,7 +2295,8 @@ let s = \"// xtask-lint: allow(text::nope)\";
     /// The Rules table is the one list of what the gate runs and which rules are ratcheted.
     #[test]
     fn every_gate_rule_has_one_row_in_the_development_guide() {
-        let guide = include_str!("../../docs/en/development.md");
+        // A Windows checkout may end lines with CRLF.
+        let guide = include_str!("../../docs/en/development.md").replace("\r\n", "\n");
         let table = guide
             .split_once("#### Rules\n")
             .and_then(|(_, rest)| rest.split_once("\n####"))
