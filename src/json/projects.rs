@@ -4,6 +4,7 @@
 //! project and performs catalog operations. The supported subset is recorded in
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
+use super::page_token::{self, CursorTag};
 use super::query::{Decoding, common, decode, finish, parse_query};
 use super::{Fields, JsonError, Schema};
 use crate::auth::ProjectId;
@@ -15,7 +16,6 @@ use serde_json::{Map, Value, json};
 /// the bucket listing cap.
 const HMAC_KEY_PAGE_CAP: u32 = 1000;
 const MAX_EMAIL_BYTES: usize = 254;
-const MAX_TOKEN_BYTES: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HmacKeyListParams {
@@ -405,52 +405,37 @@ impl From<HmacKeyError> for JsonError {
     }
 }
 
-fn token_scope(params: &HmacKeyListParams) -> Value {
-    json!([
-        "h1",
-        params.project.as_str(),
-        params.service_account_email,
-        params.show_deleted_keys
-    ])
-}
-
-fn checksum(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-    })
-}
-
-/// Tokens detect corruption and reuse with other filters; they are not credentials.
+/// Tokens detect corruption and reuse with other filters; they are not credentials. The tag
+/// leads the nested filter tuple, followed by the last access ID.
 fn encode_list_token(params: &HmacKeyListParams, last_access_id: &str) -> String {
-    let payload = json!([token_scope(params), last_access_id]).to_string();
-    format!(
-        "{}.{:016x}",
-        crate::hashing::encode_lower(payload.as_bytes()),
-        checksum(payload.as_bytes())
-    )
+    page_token::seal(&(
+        (
+            CursorTag::HmacKeys.as_str(),
+            params.project.as_str(),
+            &params.service_account_email,
+            params.show_deleted_keys,
+        ),
+        last_access_id,
+    ))
 }
 
 fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, JsonError> {
-    let invalid = || JsonError::invalid_parameter("Invalid pageToken for this HMAC key listing");
-    if token.len() > MAX_TOKEN_BYTES {
-        return Err(invalid());
+    let ((tag, project, email, show_deleted_keys), last): (
+        (String, String, Option<String>, bool),
+        String,
+    ) = page_token::open(token, page_token::HMAC_TOKEN_MAX_BYTES).ok_or_else(|| {
+        JsonError::invalid_parameter("Invalid pageToken for this HMAC key listing")
+    })?;
+    if tag != CursorTag::HmacKeys.as_str()
+        || project != params.project.as_str()
+        || email != params.service_account_email
+        || show_deleted_keys != params.show_deleted_keys
+    {
+        return Err(JsonError::invalid_parameter(
+            "Invalid pageToken for this HMAC key listing",
+        ));
     }
-    let (encoded, digest) = token.split_once('.').ok_or_else(invalid)?;
-    if encoded.len() % 2 != 0 || digest.len() != 16 || !encoded.is_ascii() {
-        return Err(invalid());
-    }
-    let mut bytes = Vec::with_capacity(encoded.len() / 2);
-    for pair in encoded.as_bytes().as_chunks::<2>().0 {
-        bytes.push(crate::hex::byte(pair).ok_or_else(invalid)?);
-    }
-    if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
-        return Err(invalid());
-    }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    match value.as_array().map(Vec::as_slice) {
-        Some([scope, Value::String(last)]) if *scope == token_scope(params) => Ok(last.clone()),
-        _ => Err(invalid()),
-    }
+    Ok(last)
 }
 
 #[cfg(test)]

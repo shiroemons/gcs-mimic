@@ -2,12 +2,88 @@ use super::{JsonError, validate_bucket_name_for_profile};
 use crate::config::CompatProfile;
 use crate::storage::{ObjectListCursor, ObjectListQuery};
 use crate::{bucket::name::MAX_BUCKET_NAME_BYTES, object::name::MAX_OBJECT_NAME_BYTES};
+use serde::{Serialize, de::DeserializeOwned};
 
-const MAX_TOKEN_BYTES: usize = 4096;
+/// The tag that opens a cursor payload. Each listing has its own, so a cursor cannot be
+/// replayed against another listing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CursorTag {
+    Buckets,
+    /// Buckets of every project: only the legacy gRPC adapter lists without a project.
+    AllProjectBuckets,
+    /// Soft-deleted buckets, which continue after a (name, generation) pair.
+    SoftDeletedBuckets,
+    /// Objects. A token holds only the position of the last entry: Cloud Storage continued
+    /// after that name when a token was reused with another prefix, delimiter or versions flag
+    /// (recorded 2026-11), so the listing parameters are not bound in.
+    Objects,
+    HmacKeys,
+}
 
-/// Version tag of cursors that span every project. Only the legacy gRPC adapter lists without a
-/// project; a distinct tag keeps those cursors from being replayed as one project's cursor.
-const ALL_PROJECTS: &str = "b1*";
+impl CursorTag {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Buckets => "b1",
+            Self::AllProjectBuckets => "b1*",
+            Self::SoftDeletedBuckets => "b1s",
+            Self::Objects => "o3",
+            Self::HmacKeys => "h1",
+        }
+    }
+}
+
+const BUCKET_TOKEN_MAX_BYTES: usize = 4096;
+pub(super) const HMAC_TOKEN_MAX_BYTES: usize = 4096;
+/// Object names reach 1024 bytes and JSON escaping can grow them sixfold before hex doubles
+/// them.
+const OBJECT_TOKEN_MAX_BYTES: usize = 16 * 1024;
+
+/// A token's wire form: the lowercase hex of the payload's compact JSON, `.`, and the 16
+/// lowercase hex digits of the FNV-1a 64 checksum of the same bytes. The checksum detects
+/// corruption; a token is not a credential. A payload is a tuple of strings, booleans and
+/// integers, never a map.
+#[expect(
+    clippy::expect_used,
+    reason = "every payload is a tuple of strings, booleans and integers, which serde_json writes to a Vec without error"
+)]
+pub(super) fn seal(payload: &impl Serialize) -> String {
+    let bytes = serde_json::to_vec(payload).expect("cursor payloads serialize");
+    format!(
+        "{}.{:016x}",
+        crate::hashing::encode_lower(&bytes),
+        fnv1a(&bytes)
+    )
+}
+
+/// The payload of a token whose form and checksum are intact. `max_bytes` bounds the work an
+/// untrusted token can cause.
+pub(super) fn open<T: DeserializeOwned>(token: &str, max_bytes: usize) -> Option<T> {
+    if token.len() > max_bytes {
+        return None;
+    }
+    let (encoded, digest) = token.split_once('.')?;
+    if encoded.len() % 2 != 0 || digest.len() != 16 || !encoded.is_ascii() {
+        return None;
+    }
+    let bytes = encoded
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(crate::hex::byte)
+        .collect::<Option<Vec<u8>>>()?;
+    // `from_str_radix` also takes uppercase digits and a leading `+`, as tokens always have.
+    if u64::from_str_radix(digest, 16).ok()? != fnv1a(&bytes) {
+        return None;
+    }
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    })
+}
 
 /// Tokens detect accidental corruption; they are not authenticated authorization credentials.
 pub(crate) fn encode_page_token(
@@ -16,7 +92,7 @@ pub(crate) fn encode_page_token(
     last_name: &str,
 ) -> Result<String, JsonError> {
     super::query::validate_project(project)?;
-    encode_bucket_cursor("b1", project, prefix, last_name)
+    encode_bucket_cursor(CursorTag::Buckets, project, prefix, last_name)
 }
 
 /// Encodes a cursor for a listing that spans every project the caller may list.
@@ -24,11 +100,11 @@ pub(crate) fn encode_all_projects_page_token(
     prefix: &str,
     last_name: &str,
 ) -> Result<String, JsonError> {
-    encode_bucket_cursor(ALL_PROJECTS, "", prefix, last_name)
+    encode_bucket_cursor(CursorTag::AllProjectBuckets, "", prefix, last_name)
 }
 
 fn encode_bucket_cursor(
-    version: &str,
+    tag: CursorTag,
     project: &str,
     prefix: &str,
     last_name: &str,
@@ -38,9 +114,7 @@ fn encode_bucket_cursor(
     }
     // Native listing must retain cursors for source-only names after a profile switch.
     validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
-    let payload = serde_json::json!([version, project, prefix, last_name]).to_string();
-    let encoded = crate::hashing::encode_lower(payload.as_bytes());
-    Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
+    Ok(seal(&(tag.as_str(), project, prefix, last_name)))
 }
 
 pub(crate) fn decode_page_token(
@@ -48,19 +122,15 @@ pub(crate) fn decode_page_token(
     project: &str,
     prefix: &str,
 ) -> Result<String, JsonError> {
-    decode_bucket_cursor(token, "b1", project, prefix)
+    decode_bucket_cursor(token, CursorTag::Buckets, project, prefix)
 }
 
 pub(crate) fn decode_all_projects_page_token(
     token: &str,
     prefix: &str,
 ) -> Result<String, JsonError> {
-    decode_bucket_cursor(token, ALL_PROJECTS, "", prefix)
+    decode_bucket_cursor(token, CursorTag::AllProjectBuckets, "", prefix)
 }
-
-/// Soft-deleted listings continue after a (name, generation) pair; a distinct version tag
-/// keeps live and soft-deleted cursors from being replayed against each other.
-const SOFT_DELETED: &str = "b1s";
 
 pub(crate) fn encode_soft_deleted_page_token(
     project: &str,
@@ -73,16 +143,13 @@ pub(crate) fn encode_soft_deleted_page_token(
         return Err(invalid());
     }
     validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
-    let payload = serde_json::json!([
-        SOFT_DELETED,
+    Ok(seal(&(
+        CursorTag::SoftDeletedBuckets.as_str(),
         project,
         prefix,
         last_name,
-        last_generation.to_string()
-    ])
-    .to_string();
-    let encoded = crate::hashing::encode_lower(payload.as_bytes());
-    Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
+        last_generation.to_string(),
+    )))
 }
 
 pub(crate) fn decode_soft_deleted_page_token(
@@ -90,76 +157,51 @@ pub(crate) fn decode_soft_deleted_page_token(
     project: &str,
     prefix: &str,
 ) -> Result<(String, i64), JsonError> {
-    let fields = decode_cursor_fields(token)?;
-    let [version, token_project, token_prefix, name, generation] = fields.as_slice() else {
-        return Err(invalid());
-    };
-    if version != SOFT_DELETED
+    let (tag, token_project, token_prefix, name, generation): (
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) = open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
+    if tag != CursorTag::SoftDeletedBuckets.as_str()
         || token_project != project
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
+    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
     let generation = generation.parse::<i64>().map_err(|_| invalid())?;
-    Ok((name.clone(), generation))
-}
-
-fn decode_cursor_fields(token: &str) -> Result<Vec<String>, JsonError> {
-    if token.len() > MAX_TOKEN_BYTES {
-        return Err(invalid());
-    }
-    let (encoded, digest) = token.split_once('.').ok_or_else(invalid)?;
-    if encoded.len() % 2 != 0 || digest.len() != 16 || !encoded.is_ascii() {
-        return Err(invalid());
-    }
-    let mut bytes = Vec::with_capacity(encoded.len() / 2);
-    for pair in encoded.as_bytes().as_chunks::<2>().0 {
-        bytes.push(crate::hex::byte(pair).ok_or_else(invalid)?);
-    }
-    if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
-        return Err(invalid());
-    }
-    serde_json::from_slice(&bytes).map_err(|_| invalid())
+    Ok((name, generation))
 }
 
 fn decode_bucket_cursor(
     token: &str,
-    expected_version: &str,
+    expected: CursorTag,
     project: &str,
     prefix: &str,
 ) -> Result<String, JsonError> {
-    let fields = decode_cursor_fields(token)?;
-    let [version, token_project, token_prefix, name] = fields.as_slice() else {
-        return Err(invalid());
-    };
-    if version != expected_version
+    let (tag, token_project, token_prefix, name): (String, String, String, String) =
+        open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
+    if tag != expected.as_str()
         || token_project != project
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
-    Ok(name.clone())
+    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
+    Ok(name)
 }
 
-/// Version tag of object listing tokens. A token holds only the position of the last entry:
-/// Cloud Storage continued after that name when a token was reused with another prefix,
-/// delimiter or versions flag (recorded 2026-11), so the listing parameters are not bound in.
-const OBJECT_CURSOR: &str = "o3";
-
 pub(crate) fn encode_object_page_token(cursor: &ObjectListCursor) -> String {
-    let payload = serde_json::json!([
-        OBJECT_CURSOR,
-        cursor.name,
+    seal(&(
+        CursorTag::Objects.as_str(),
+        &cursor.name,
         cursor.is_prefix,
-        cursor.generation
-    ])
-    .to_string();
-    let encoded = crate::hashing::encode_lower(payload.as_bytes());
-    format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
+        cursor.generation,
+    ))
 }
 
 /// The longest refused object page token an error repeats.
@@ -181,26 +223,9 @@ pub(crate) fn decode_object_page_token(
             JsonError::invalid(format!("Next page token not valid: {token}"))
         }
     };
-    if token.len() > 16 * 1024 {
-        return Err(invalid());
-    }
-    let (encoded, digest) = token.split_once('.').ok_or_else(invalid)?;
-    if encoded.len() % 2 != 0 || digest.len() != 16 || !encoded.is_ascii() {
-        return Err(invalid());
-    }
-    let bytes = encoded
-        .as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| crate::hex::byte(pair).ok_or_else(invalid))
-        .collect::<Result<Vec<_>, JsonError>>()?;
-    if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
-        return Err(invalid());
-    }
-    let (version, name, is_prefix, generation): (String, String, bool, Option<i64>) =
-        serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if version != OBJECT_CURSOR
+    let (tag, name, is_prefix, generation): (String, String, bool, Option<i64>) =
+        open(token, OBJECT_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
+    if tag != CursorTag::Objects.as_str()
         || name.is_empty()
         || name.len() > MAX_OBJECT_NAME_BYTES
         || generation.is_some_and(|value| value <= 0)
@@ -232,12 +257,6 @@ fn groups(query: &ObjectListQuery, name: &str) -> bool {
 
 fn invalid() -> JsonError {
     JsonError::invalid_parameter("Invalid pageToken for this project and prefix")
-}
-
-fn checksum(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-    })
 }
 
 #[cfg(test)]
@@ -274,7 +293,7 @@ mod tests {
 
     fn forged_token(payload: &str) -> String {
         let encoded = crate::hashing::encode_lower(payload.as_bytes());
-        format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
+        format!("{encoded}.{:016x}", fnv1a(payload.as_bytes()))
     }
 
     #[test]
