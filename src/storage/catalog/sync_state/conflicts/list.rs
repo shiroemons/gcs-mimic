@@ -95,7 +95,7 @@ pub(crate) struct Conflict {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ConflictPage {
-    pub revision: String,
+    pub revision: OpaqueId,
     pub items: Vec<super::Conflict>,
     pub usage: Usage,
     pub next_after: Option<i64>,
@@ -104,7 +104,7 @@ pub(crate) struct ConflictPage {
 impl RootLease {
     pub(crate) async fn conflict_page(
         &self,
-        revision: Option<String>,
+        revision: Option<OpaqueId>,
         after: i64,
         limit: usize,
         authority: ControlAuthority,
@@ -117,7 +117,7 @@ impl RootLease {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
             tx.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO NOTHING")?.execute(params![root,OpaqueId::generate().map_err(AdminError::backend)?])?;
-            let current:String=tx.prepare_cached("SELECT revision FROM sync_conflict_roots WHERE root_id=?1")?.query_row([root],|row|row.get(0))?;
+            let current:OpaqueId=tx.prepare_cached("SELECT revision FROM sync_conflict_roots WHERE root_id=?1")?.query_row([root],|row|row.get(0))?;
             if revision.is_some_and(|revision|revision!=current) {return Err(Error::RevisionMismatch)}
             let usage=total_usage(&tx,root)?;
             let mut statement=tx.prepare_cached("SELECT ordinal,id,revision,owner,bucket,incarnation,name,generation,size,retained,state FROM sync_conflicts WHERE root_id=?1 AND ordinal>?2 AND state!=2 ORDER BY ordinal LIMIT ?3")?;

@@ -161,7 +161,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
     let (reply, approved) = tokio::sync::oneshot::channel();
     commands
         .send(Command::Approve {
-            revision: "00000000000000000000000000000000".into(),
+            revision: "00000000000000000000000000000000".parse().unwrap(),
             reply,
             identity: None,
         })
@@ -380,8 +380,8 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
                 action: crate::storage::sync_state::conflicts::Action::Discard,
                 target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
                     ConflictTarget {
-                        conflict_id: page.items[0].conflict_id.to_string(),
-                        revision: page.items[0].revision.to_string(),
+                        conflict_id: page.items[0].conflict_id,
+                        revision: page.items[0].revision,
                         expected_generation: winner.generation,
                     },
                 ),
@@ -469,8 +469,8 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
                 action: crate::storage::sync_state::conflicts::Action::Restore,
                 target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
                     ConflictTarget {
-                        conflict_id: page.items[0].conflict_id.to_string(),
-                        revision: page.items[0].revision.to_string(),
+                        conflict_id: page.items[0].conflict_id,
+                        revision: page.items[0].revision,
                         expected_generation: 0,
                     },
                 ),
@@ -1486,8 +1486,8 @@ async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root
                 action: crate::storage::sync_state::conflicts::Action::Discard,
                 target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict(
                     ConflictTarget {
-                        conflict_id: "0".repeat(32),
-                        revision: "0".repeat(32),
+                        conflict_id: "0".repeat(32).parse().unwrap(),
+                        revision: "0".repeat(32).parse().unwrap(),
                         expected_generation: record.generation,
                     },
                 ),

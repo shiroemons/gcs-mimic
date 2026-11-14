@@ -1,10 +1,10 @@
-use super::{JsonError, stale};
+use super::{JsonError, OpaqueId, stale};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum SyncCursor {
     Findings { kind: i64, ordinal: i64 },
     Deletions(i64),
-    Conflicts { revision: String, ordinal: i64 },
+    Conflicts { revision: OpaqueId, ordinal: i64 },
 }
 
 impl SyncCursor {
@@ -40,7 +40,7 @@ impl SyncCursor {
             48 => {
                 let (revision, ordinal) = suffix.split_at_checked(32).ok_or_else(stale)?;
                 Ok(Self::Conflicts {
-                    revision: revision.into(),
+                    revision: revision.parse().map_err(|_| stale())?,
                     ordinal: number(ordinal)?,
                 })
             }
@@ -63,7 +63,7 @@ mod tests {
                 ordinal: 10,
             },
             SyncCursor::Conflicts {
-                revision: "ab".repeat(16),
+                revision: "ab".repeat(16).parse().unwrap(),
                 ordinal: 0,
             },
         ] {

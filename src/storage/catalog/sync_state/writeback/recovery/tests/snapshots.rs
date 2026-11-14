@@ -301,9 +301,9 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
                     operation_id: "explicit-discard".into(),
                     action: Action::Discard,
                     target: ResolveTarget::Recovery(RecoveryTarget {
-                        recovery_id: item.token.id.to_string(),
-                        revision: inspected.recovery_revision.to_string(),
-                        target_identity: inspected.target_identity.to_string(),
+                        recovery_id: item.token.id,
+                        revision: inspected.recovery_revision,
+                        target_identity: inspected.target_identity,
                         confirmation: Confirmation::BackupVerified,
                     }),
                 },

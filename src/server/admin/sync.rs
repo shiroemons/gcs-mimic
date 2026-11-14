@@ -344,14 +344,14 @@ async fn approve(
     let body: Approve = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::invalid_argument("Send exactly one string deletion_set revision")
     })?;
-    if !revision(&body.deletion_set) {
+    let Ok(revision) = body.deletion_set.parse::<OpaqueId>() else {
         return Err(JsonError::invalid_argument(
             "deletion_set must be the exact revision from status",
         ));
-    }
+    };
     let (reply, receive) = tokio::sync::oneshot::channel();
     let command = Command::Approve {
-        revision: body.deletion_set,
+        revision,
         reply,
         identity,
     };
@@ -425,22 +425,22 @@ async fn observe<T>(
 enum Page {
     /// The status summary; the query is empty.
     Summary,
-    Deletions(PageQuery),
-    Findings(PageQuery),
+    Deletions(PageQuery<OpaqueId>),
+    /// A findings revision is the session ID followed by the observation revision.
+    Findings(PageQuery<String>),
 }
 
 /// A paged view: the revision it was fetched for, and where the page starts.
-struct PageQuery {
-    revision: String,
+struct PageQuery<R> {
+    revision: R,
     limit: usize,
     after: Option<String>,
 }
 
-/// The paged views a status query may name.
-#[derive(Clone, Copy)]
-enum View {
-    Deletions,
-    Findings,
+/// The paged view a status query names, with the revision it was fetched for.
+enum PagedRevision {
+    Deletions(OpaqueId),
+    Findings(String),
 }
 
 impl Page {
@@ -449,26 +449,23 @@ impl Page {
         if values.is_empty() {
             return Ok(Self::Summary);
         }
-        let view = match values.remove("view").as_deref() {
-            Some("deletions") => View::Deletions,
-            Some("findings") => View::Findings,
+        let revision = values.remove("revision");
+        let revision = match values.remove("view").as_deref() {
+            Some("deletions") => revision
+                .and_then(|value| value.parse().ok())
+                .map(PagedRevision::Deletions),
+            Some("findings") => revision
+                .filter(|value| crate::hex::is_lower(value, 48))
+                .map(PagedRevision::Findings),
             _ => {
                 return Err(JsonError::invalid_argument(
                     "Use view=deletions or view=findings with the corresponding current revision",
                 ));
             }
-        };
-        let revision = values
-            .remove("revision")
-            .filter(|value| match view {
-                View::Deletions => revision(value),
-                View::Findings => crate::hex::is_lower(value, 48),
-            })
-            .ok_or_else(|| {
-                JsonError::invalid_argument(
-                    "A paged view requires its current revision from status",
-                )
-            })?;
+        }
+        .ok_or_else(|| {
+            JsonError::invalid_argument("A paged view requires its current revision from status")
+        })?;
         let limit = parse_limit(values.remove("limit"))?;
         let after = values.remove("cursor");
         if !values.is_empty() {
@@ -476,14 +473,17 @@ impl Page {
                 "Unknown synchronization query parameter",
             ));
         }
-        let query = PageQuery {
-            revision,
-            limit,
-            after,
-        };
-        Ok(match view {
-            View::Deletions => Self::Deletions(query),
-            View::Findings => Self::Findings(query),
+        Ok(match revision {
+            PagedRevision::Deletions(revision) => Self::Deletions(PageQuery {
+                revision,
+                limit,
+                after,
+            }),
+            PagedRevision::Findings(revision) => Self::Findings(PageQuery {
+                revision,
+                limit,
+                after,
+            }),
         })
     }
 }
@@ -636,7 +636,7 @@ async fn status(
                 .deletion_set_for(authority.clone())
                 .await
                 .map_err(|error| root_error(&error))?
-                .filter(|set| query.revision.parse() == Ok(set.revision))
+                .filter(|set| query.revision == set.revision)
                 .ok_or_else(stale)?;
             deletion_page(&root, query, set, authority).await
         }
@@ -697,7 +697,7 @@ fn control_state(
 
 async fn findings_page(
     root: &RootLease,
-    query: &PageQuery,
+    query: &PageQuery<String>,
     revision: &str,
     observation: &Summary,
     authority: ControlAuthority,
@@ -756,7 +756,7 @@ async fn findings_page(
 
 async fn deletion_page(
     root: &RootLease,
-    query: &PageQuery,
+    query: &PageQuery<OpaqueId>,
     set: DeletionSet,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
@@ -800,9 +800,6 @@ async fn deletion_page(
     })
 }
 
-fn revision(value: &str) -> bool {
-    crate::hex::is_lower(value, 32)
-}
 fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, JsonError> {
     render_within_limit(value).ok_or_else(busy)
 }

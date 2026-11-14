@@ -254,7 +254,7 @@ impl RootLease {
 
     pub(crate) async fn approve_deletions(
         &self,
-        revision: String,
+        revision: OpaqueId,
     ) -> Result<DeletionSet, RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;
@@ -262,8 +262,6 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
-            // Text that is not a revision names no deletion set, like a superseded revision.
-            let revision:OpaqueId=revision.parse().map_err(|_|CatalogError::PreconditionFailed)?;
             matching(&transaction,root,revision)?;
             let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}

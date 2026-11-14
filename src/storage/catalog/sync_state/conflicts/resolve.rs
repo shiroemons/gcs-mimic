@@ -27,15 +27,15 @@ pub(crate) enum ResolveTarget {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ConflictTarget {
-    pub conflict_id: String,
-    pub revision: String,
+    pub conflict_id: OpaqueId,
+    pub revision: OpaqueId,
     pub expected_generation: i64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct RecoveryTarget {
-    pub recovery_id: String,
-    pub revision: String,
-    pub target_identity: String,
+    pub recovery_id: OpaqueId,
+    pub revision: OpaqueId,
+    pub target_identity: OpaqueId,
     pub confirmation: Confirmation,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -302,18 +302,14 @@ impl RootLease {
         max_bytes: u64,
     ) -> Result<ResolveOutcome, Error> {
         let ResolveTarget::Conflict(ConflictTarget {
-            conflict_id,
-            revision,
+            conflict_id: target,
+            revision: inspected,
             expected_generation,
-        }) = &request.target
+        }) = request.target
         else {
             return Err(Error::InvalidResolution);
         };
-        let (Ok(target), Ok(inspected)) = (conflict_id.parse::<OpaqueId>(), revision.parse())
-        else {
-            return Err(Error::InvalidResolution);
-        };
-        if *expected_generation < 0 {
+        if expected_generation < 0 {
             return Err(Error::InvalidResolution);
         }
         let root = self.status().root_id;

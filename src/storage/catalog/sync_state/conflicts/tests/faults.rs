@@ -260,8 +260,8 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     operation_id: "snapshot".into(),
                     action: Action::Discard,
                     target: ResolveTarget::Conflict(ConflictTarget {
-                        conflict_id: captured.id.to_string(),
-                        revision: captured.revision.to_string(),
+                        conflict_id: captured.id,
+                        revision: captured.revision,
                         expected_generation: record.generation,
                     }),
                 }
@@ -270,8 +270,8 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     operation_id: "fresh-recovery".into(),
                     action: Action::Discard,
                     target: ResolveTarget::Conflict(ConflictTarget {
-                        conflict_id: state.0.0,
-                        revision: page.items[0].revision.to_string(),
+                        conflict_id: state.0.0.parse().unwrap(),
+                        revision: page.items[0].revision,
                         expected_generation: 0,
                     }),
                 }

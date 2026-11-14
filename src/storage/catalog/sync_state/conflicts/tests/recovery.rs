@@ -26,9 +26,9 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
             operation_id: "workspace-discard".into(),
             action: Action::Discard,
             target: ResolveTarget::Recovery(RecoveryTarget {
-                recovery_id: id.clone(),
-                revision: inspected.recovery_revision.to_string(),
-                target_identity: inspected.target_identity.to_string(),
+                recovery_id: id.parse().unwrap(),
+                revision: inspected.recovery_revision,
+                target_identity: inspected.target_identity,
                 confirmation: Confirmation::BackupVerified,
             }),
         };
@@ -87,8 +87,8 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
                 ..
             }) = &mut fresh_request.target
             {
-                *revision = fresh.recovery_revision.to_string();
-                *target_identity = fresh.target_identity.to_string();
+                *revision = fresh.recovery_revision;
+                *target_identity = fresh.target_identity;
             }
             assert!(
                 fixture
@@ -151,9 +151,9 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
         operation_id: "protected".into(),
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
-            recovery_id: id.clone(),
-            revision: item.recovery_revision.to_string(),
-            target_identity: item.target_identity.to_string(),
+            recovery_id: id.parse().unwrap(),
+            revision: item.recovery_revision,
+            target_identity: item.target_identity,
             confirmation: Confirmation::BackupVerified,
         }),
     };
@@ -198,9 +198,9 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
         operation_id: "reinspected".into(),
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
-            recovery_id: fresh.recovery_id.to_string(),
-            revision: fresh.recovery_revision.to_string(),
-            target_identity: fresh.target_identity.to_string(),
+            recovery_id: fresh.recovery_id,
+            revision: fresh.recovery_revision,
+            target_identity: fresh.target_identity,
             confirmation: Confirmation::BackupVerified,
         }),
     };
@@ -270,9 +270,9 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
                 operation_id: "paired-discard".into(),
                 action: Action::Discard,
                 target: ResolveTarget::Recovery(RecoveryTarget {
-                    recovery_id: id.clone(),
-                    revision: item.recovery_revision.to_string(),
-                    target_identity: item.target_identity.to_string(),
+                    recovery_id: id.parse().unwrap(),
+                    revision: item.recovery_revision,
+                    target_identity: item.target_identity,
                     confirmation: Confirmation::BackupVerified,
                 }),
             };

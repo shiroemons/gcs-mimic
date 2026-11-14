@@ -1,6 +1,7 @@
 //! Revision-bound observations include durable mapping findings and unfinished write-back work.
 
 use super::{
+    OpaqueId,
     conflicts::RecoveryPhase,
     root::{RootError, RootId, RootLease},
     writeback,
@@ -60,17 +61,17 @@ pub(crate) struct Item {
     pub bucket_incarnation: Option<Incarnation>,
     pub generation: Option<i64>,
     pub reason: FindingReason,
-    pub operation_id: Option<String>,
+    pub operation_id: Option<OpaqueId>,
     pub owner_project: Option<String>,
     pub recovery: Option<RecoveryDetails>,
-    pub conflict_id: Option<String>,
-    pub conflict_revision: Option<String>,
+    pub conflict_id: Option<OpaqueId>,
+    pub conflict_revision: Option<OpaqueId>,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct RecoveryDetails {
-    pub recovery_revision: String,
-    pub target_identity: String,
+    pub recovery_revision: OpaqueId,
+    pub target_identity: OpaqueId,
     pub phase: RecoveryPhase,
     pub retained_bytes: u64,
     pub hashes: Option<RetainedHashes>,

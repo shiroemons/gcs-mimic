@@ -172,7 +172,7 @@ fn conflict_states_and_deletion_authorizations_keep_their_stored_integers() {
 #[test]
 fn writeback_and_conflict_findings_spell_their_stored_integers() {
     let connection = Connection::open_in_memory().unwrap();
-    let query = "SELECT 1,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,'revision','identity',CAST('{\"size\":3,\"hashes\":null}' AS BLOB),?3,NULL,NULL";
+    let query = "SELECT 1,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,'0123456789abcdef0123456789abcdef','fedcba9876543210fedcba9876543210',CAST('{\"size\":3,\"hashes\":null}' AS BLOB),?3,NULL,NULL";
     for (category, stored, spelling) in [
         ("writeback", 0, "prepared"),
         ("writeback", 1, "armed"),

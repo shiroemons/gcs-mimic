@@ -113,8 +113,8 @@ impl Fixture {
                     operation_id: operation.into(),
                     action,
                     target: ResolveTarget::Conflict(ConflictTarget {
-                        conflict_id: captured.id.to_string(),
-                        revision: captured.revision.to_string(),
+                        conflict_id: captured.id,
+                        revision: captured.revision,
                         expected_generation: self.winner.generation,
                     }),
                 },
@@ -368,8 +368,8 @@ async fn conflict_restore_stale_generation_and_holds_preserve_quota_and_bytes() 
         operation_id: "stale-generation".into(),
         action: Action::Restore,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: captured.id.to_string(),
-            revision: captured.revision.to_string(),
+            conflict_id: captured.id,
+            revision: captured.revision,
             expected_generation: 0,
         }),
     };
@@ -466,8 +466,8 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
         operation_id: "original-owner".into(),
         action: Action::Restore,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: captured.id.to_string(),
-            revision: captured.revision.to_string(),
+            conflict_id: captured.id,
+            revision: captured.revision,
             expected_generation: 0,
         }),
     };
@@ -641,8 +641,8 @@ async fn conflict_capturing_copy_without_registration_has_an_explicit_discard_re
         operation_id: "partial-discard".into(),
         action: Action::Discard,
         target: ResolveTarget::Conflict(ConflictTarget {
-            conflict_id: page.items[0].conflict_id.to_string(),
-            revision: page.items[0].revision.to_string(),
+            conflict_id: page.items[0].conflict_id,
+            revision: page.items[0].revision,
             expected_generation: 0,
         }),
     };
@@ -788,9 +788,9 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         operation_id: "recovery".into(),
         action: Action::Discard,
         target: ResolveTarget::Recovery(RecoveryTarget {
-            recovery_id: id.clone(),
-            revision: recovery.recovery_revision.to_string(),
-            target_identity: recovery.target_identity.to_string(),
+            recovery_id: id.parse().unwrap(),
+            revision: recovery.recovery_revision,
+            target_identity: recovery.target_identity,
             confirmation: Confirmation::DiscardWithoutBackup,
         }),
     };
@@ -798,7 +798,7 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         target_identity, ..
     }) = &mut request.target
     {
-        *target_identity = "00000000000000000000000000000000".into();
+        *target_identity = "00000000000000000000000000000000".parse().unwrap();
     }
     assert!(matches!(
         fixture
@@ -823,7 +823,7 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
         target_identity, ..
     }) = &mut request.target
     {
-        *target_identity = recovery.target_identity.to_string();
+        *target_identity = recovery.target_identity;
     }
     assert!(
         fixture

@@ -4,6 +4,7 @@ use super::{Reconciliation, SyncError};
 use crate::{
     auth::Identity,
     storage::sync_state::{
+        OpaqueId,
         deletions::DeletionSet,
         root::{RootError, RootLease},
     },
@@ -78,7 +79,7 @@ pub(crate) enum Command {
         identity: Option<Identity>,
     },
     Approve {
-        revision: String,
+        revision: OpaqueId,
         reply: Reply<DeletionSet>,
         identity: Option<Identity>,
     },

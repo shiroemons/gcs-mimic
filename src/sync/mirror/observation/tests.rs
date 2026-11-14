@@ -104,7 +104,7 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
     assert!(matches!(
         controls.admit(
             Command::Approve {
-                revision: "stale".into(),
+                revision: "0".repeat(32).parse().unwrap(),
                 reply,
                 identity: None
             },

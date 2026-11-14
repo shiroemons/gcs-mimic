@@ -181,22 +181,17 @@ impl RootLease {
         authority: ControlAuthority,
     ) -> Result<ResolveOutcome, Error> {
         let ResolveTarget::Recovery(RecoveryTarget {
-            recovery_id,
-            revision,
-            target_identity,
+            recovery_id: id,
+            revision: rev,
+            target_identity: target,
             ..
-        }) = &request.target
+        }) = request.target
         else {
             return Err(Error::InvalidResolution);
         };
-        let (Action::Discard, Ok(id), Ok(rev), Ok(target)) = (
-            request.action,
-            recovery_id.parse::<OpaqueId>(),
-            revision.parse::<OpaqueId>(),
-            target_identity.parse::<OpaqueId>(),
-        ) else {
+        if request.action != Action::Discard {
             return Err(Error::InvalidResolution);
-        };
+        }
         let root = self.status().root_id;
         let req = request.clone();
         let auth = authority.clone();

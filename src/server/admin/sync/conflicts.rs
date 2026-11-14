@@ -12,15 +12,11 @@ pub(super) async fn list(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
     let limit = parse_limit(query.remove("limit"))?;
-    let mut revision = query.remove("revision");
-    if revision
-        .as_ref()
-        .is_some_and(|value| !super::revision(value))
-    {
-        return Err(JsonError::invalid_argument(
-            "revision must be a conflict listing revision",
-        ));
-    }
+    let mut revision = query
+        .remove("revision")
+        .map(|value| value.parse::<OpaqueId>())
+        .transpose()
+        .map_err(|_| JsonError::invalid_argument("revision must be a conflict listing revision"))?;
     let ids = root.status();
     let prefix = cursor_prefix(&ids, session);
     let after = match query.remove("cursor") {
@@ -33,7 +29,7 @@ pub(super) async fn list(
             else {
                 return Err(stale());
             };
-            if revision.as_ref().is_some_and(|value| value != &selected) {
+            if revision.is_some_and(|value| value != selected) {
                 return Err(stale());
             }
             revision = Some(selected);
@@ -65,7 +61,7 @@ pub(super) async fn list(
             .filter(|_| next_after.is_some() || fit == PageFit::Halved)
             .map(|item| {
                 SyncCursor::Conflicts {
-                    revision: revision.clone(),
+                    revision,
                     ordinal: item.ordinal,
                 }
                 .encode(&prefix)
@@ -73,7 +69,7 @@ pub(super) async fn list(
         super::super::encode(&RootDocument::new(
             &ids,
             ConflictsPage {
-                revision: &revision,
+                revision,
                 items,
                 quota: &usage,
                 next_cursor,
@@ -85,7 +81,7 @@ pub(super) async fn list(
 /// A page of `GET /_internal/sync/conflicts`.
 #[derive(Serialize)]
 struct ConflictsPage<'a> {
-    revision: &'a str,
+    revision: OpaqueId,
     items: &'a [Conflict],
     quota: &'a Usage,
     next_cursor: Option<String>,
@@ -126,31 +122,32 @@ fn parse(bytes: &[u8]) -> Result<ResolveRequest, JsonError> {
             "Fields for the other resolution target must be absent, including null fields",
         ));
     }
-    if !revision(&request.revision) {
+    let Ok(revision) = request.revision.parse::<OpaqueId>() else {
         return Err(JsonError::invalid_argument(
             "Use the exact inspected target revision",
         ));
-    }
+    };
+    let id = |value: String| value.parse::<OpaqueId>();
     let target = match (
-        request.conflict_id,
-        request.recovery_id,
+        request.conflict_id.map(id),
+        request.recovery_id.map(id),
         request.expected_generation,
-        request.target_identity,
+        request.target_identity.map(id),
         request.confirmation,
     ) {
-        (Some(id), None, Some(generation), None, None) if revision(&id) && generation >= 0 => {
+        (Some(Ok(id)), None, Some(generation), None, None) if generation >= 0 => {
             ResolveTarget::Conflict(ConflictTarget {
                 conflict_id: id,
-                revision: request.revision,
+                revision,
                 expected_generation: generation,
             })
         }
-        (None, Some(id), None, Some(identity), Some(confirmation))
-            if revision(&id) && revision(&identity) && request.action == Action::Discard =>
+        (None, Some(Ok(id)), None, Some(Ok(identity)), Some(confirmation))
+            if request.action == Action::Discard =>
         {
             ResolveTarget::Recovery(RecoveryTarget {
                 recovery_id: id,
-                revision: request.revision,
+                revision,
                 target_identity: identity,
                 confirmation,
             })
