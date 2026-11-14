@@ -40,7 +40,7 @@ mod upload_replay;
 pub(crate) use resumable::ResumableError;
 #[cfg(test)]
 pub(crate) use resumable::ResumableSession;
-pub(crate) use resumable::{ResumableOptions, SessionState};
+pub(crate) use resumable::{ResumableOptions, SessionId, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
 pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};

@@ -94,9 +94,22 @@ impl ResumableOptions {
     }
 }
 
+crate::storage::opaque_id::opaque_id! {
+    /// A resumable upload session's capability, carried in its session URI as `upload_id`.
+    pub(crate) struct SessionId([u8; 32]);
+    invalid = "invalid upload opaque ID";
+    column = text;
+}
+
+impl SessionId {
+    fn generate() -> Result<Self, getrandom::Error> {
+        crate::storage::opaque_id::random().map(Self)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableSession {
-    pub id: String,
+    pub id: SessionId,
     pub blob_id: BlobId,
     pub bucket: String,
     pub name: String,
@@ -165,12 +178,6 @@ impl SessionLease {
     }
 }
 
-fn random_id<const N: usize>() -> Result<String, CatalogError> {
-    let mut bytes = [0; N];
-    getrandom::fill(&mut bytes).map_err(unavailable)?;
-    Ok(crate::hashing::encode_lower(&bytes))
-}
-
 fn create_session_bytes(catalog: &Catalog, blob_id: &BlobId) -> Result<(), CatalogError> {
     catalog
         .0
@@ -193,7 +200,7 @@ enum CreateFailure {
 }
 
 struct CreateSession {
-    id: String,
+    id: SessionId,
     blob_id: BlobId,
     bucket: String,
     name: String,
@@ -348,7 +355,7 @@ impl Catalog {
             .await
             .map_err(ObjectError::from)?;
         let request = CreateSession {
-            id: random_id::<32>()?,
+            id: SessionId::generate().map_err(unavailable)?,
             blob_id: BlobId::generate().map_err(unavailable)?,
             bucket: bucket.to_owned(),
             name: name.to_owned(),
@@ -381,15 +388,22 @@ impl Catalog {
         }).await.map_err(unavailable)?
     }
 
+    /// The session a client names by the `upload_id` of its session URI. An ID that is not a
+    /// session ID cannot name any session.
     pub(crate) async fn resumable_session(
         &self,
         id: &str,
         bucket: &str,
     ) -> Result<ResumableSession, ResumableError> {
-        if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(ResumableError::NotFound);
-        }
-        let id = id.to_owned();
+        let id = id.parse().map_err(|_| ResumableError::NotFound)?;
+        self.session_by_id(id, bucket).await
+    }
+
+    async fn session_by_id(
+        &self,
+        id: SessionId,
+        bucket: &str,
+    ) -> Result<ResumableSession, ResumableError> {
         let bucket = bucket.to_owned();
         let session = self
             .run(move |connection| {
@@ -425,11 +439,12 @@ impl Catalog {
         id: &str,
         bucket: &str,
     ) -> Result<SessionLease, ResumableError> {
+        let id: SessionId = id.parse().map_err(|_| ResumableError::NotFound)?;
         let guard = self
-            .wait_for_writer(WriterKey::Resumable(id.to_owned()), KeyOrigin::Client)
+            .wait_for_writer(WriterKey::Resumable(id), KeyOrigin::Client)
             .await
             .map_err(CatalogError::from)?;
-        let session = self.resumable_session(id, bucket).await?;
+        let session = self.session_by_id(id, bucket).await?;
         Ok(SessionLease {
             session,
             guard: std::sync::Arc::new(guard),
@@ -437,8 +452,8 @@ impl Catalog {
     }
 
     #[cfg(test)]
-    pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
-        self.claim_writer(WriterKey::Resumable(id.to_owned()), KeyOrigin::Client)
+    pub(super) fn try_resumable_writer(&self, id: SessionId) -> Result<WriterGuard, CatalogError> {
+        self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Client)
             .map_err(CatalogError::from)
     }
 
@@ -508,7 +523,7 @@ impl Catalog {
                 "inconsistent upload offset or total".into(),
             ));
         }
-        let id = lease.session.id.clone();
+        let id = lease.session.id;
         let old = lease.session.offset;
         let now = unix_millis(self.0.clock.now())?;
         let encoded = options.map(|o| encode_options(o).to_string());
@@ -523,7 +538,7 @@ impl Catalog {
             Ok((changed, output))
         }).await?;
         if changed != 1 {
-            self.resumable_session(&lease.session.id, &lease.session.bucket)
+            self.resumable_session(&lease.session.id.to_string(), &lease.session.bucket)
                 .await?;
             return Err(ResumableError::Gone);
         }
@@ -600,15 +615,8 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
 
 pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> {
     use rusqlite::types::Type;
-    let id: String = row.get(0)?;
+    let id: SessionId = row.get(0)?;
     let blob_id: BlobId = row.get(1)?;
-    if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(sql::conversion_error(
-            0,
-            Type::Text,
-            "invalid upload opaque ID",
-        ));
-    }
     let options = serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
         .map_err(|error| sql::conversion_error(5, Type::Text, error))?;
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
@@ -740,7 +748,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 catalog
-                    .resumable_session(&session.id, "bucket")
+                    .resumable_session(&session.id.to_string(), "bucket")
                     .await
                     .unwrap()
                     .state,

@@ -11,7 +11,7 @@ use std::{
 /// Typed namespaces keep unrelated transfer and upload IDs independent.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(in crate::storage::catalog) enum WriterKey {
-    Resumable(String),
+    Resumable(super::SessionId),
     /// A whole XML multipart upload, exclusive of every part of it.
     Multipart(String),
     /// One part of an XML multipart upload, exclusive of its own number and the whole upload.
@@ -429,7 +429,7 @@ mod tests {
         let id = BlobId::generate().unwrap();
         writers.claim(&WriterKey::Derived(id)).unwrap();
         writers.claim(&WriterKey::Rewrite(id)).unwrap();
-        let session = WriterKey::Resumable(id.to_hex());
+        let session = WriterKey::Resumable(format!("{id}{id}").parse().unwrap());
         writers.claim(&session).unwrap();
         writers.claim(&WriterKey::Multipart(id.to_hex())).unwrap();
         assert_eq!(writers.claim(&session), Err(ClaimError::Busy));
@@ -463,7 +463,7 @@ mod tests {
             )
             .await
             .unwrap();
-        (catalog, session.id)
+        (catalog, session.id.to_string())
     }
 
     fn spawn_lock(
@@ -561,7 +561,10 @@ mod tests {
         let (catalog, id) = open(60_000).await;
         let lease = catalog.lock_resumable_session(&id, "bucket").await.unwrap();
         assert!(matches!(
-            catalog.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog),
+            catalog.claim_writer(
+                WriterKey::Resumable(id.parse().unwrap()),
+                KeyOrigin::Catalog
+            ),
             Err(ClaimError::Busy)
         ));
         drop(lease);

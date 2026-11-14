@@ -155,7 +155,7 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                 owner.disarm();
                 let result = catalog
                     .continue_rewrite(
-                        &token,
+                        &token.to_string(),
                         BucketAccess::Permissive,
                         BucketAccess::Permissive,
                         |record| Ok(json!({"generation":record.generation})),

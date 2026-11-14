@@ -66,7 +66,7 @@ async fn sessions_past_the_former_caps_survive_reopening_and_stay_usable() {
     let mut completed = Vec::new();
     for _ in 0..130 {
         let session = create(&catalog, &clock).await.unwrap();
-        let resource = complete(&catalog, &session.id).await;
+        let resource = complete(&catalog, &session.id.to_string()).await;
         completed.push((session.id, resource));
     }
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
@@ -87,20 +87,26 @@ async fn sessions_past_the_former_caps_survive_reopening_and_stay_usable() {
     assert_eq!(session_counts(&dir), (300, 130));
     // Finished sessions still answer status and repeated final requests with their resource.
     for (id, resource) in &completed {
-        let session = catalog.resumable_session(id, "bucket").await.unwrap();
+        let session = catalog
+            .resumable_session(&id.to_string(), "bucket")
+            .await
+            .unwrap();
         assert_eq!(session.state, SessionState::Complete);
         assert_eq!(session.completion.as_ref(), Some(resource));
     }
     // Every active session is still known, and one past the old cap can finish.
     for session in &active {
         let found = catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_eq!(found.state, SessionState::Active);
     }
-    complete(&catalog, &active[299].id).await;
-    assert_eq!(cancel_wire(&catalog, &active[0].id, b"").await, 499);
+    complete(&catalog, &active[299].id.to_string()).await;
+    assert_eq!(
+        cancel_wire(&catalog, &active[0].id.to_string(), b"").await,
+        499
+    );
     create(&catalog, &clock).await.unwrap();
     assert_eq!(session_counts(&dir), (299, 132));
     catalog.close().await.unwrap();
@@ -118,7 +124,7 @@ async fn a_configured_cap_applies_only_to_active_sessions() {
     // Finished records never count against it, or every upload would fail once two had finished.
     for _ in 0..3 {
         let session = create(&catalog, &clock).await.unwrap();
-        complete(&catalog, &session.id).await;
+        complete(&catalog, &session.id.to_string()).await;
     }
     let first = create(&catalog, &clock).await.unwrap();
     create(&catalog, &clock).await.unwrap();
@@ -128,9 +134,9 @@ async fn a_configured_cap_applies_only_to_active_sessions() {
     ));
     assert_eq!(session_counts(&dir), (2, 3));
     // A cancelled session releases its active slot once its staged bytes are reclaimed.
-    assert_eq!(cancel_wire(&catalog, &first.id, b"").await, 499);
+    assert_eq!(cancel_wire(&catalog, &first.id.to_string(), b"").await, 499);
     create(&catalog, &clock).await.unwrap();
-    assert_eq!(cancel_wire(&catalog, &first.id, b"").await, 499);
+    assert_eq!(cancel_wire(&catalog, &first.id.to_string(), b"").await, 499);
     catalog.close().await.unwrap();
 }
 
@@ -146,13 +152,16 @@ async fn cancelled_sessions_awaiting_cleanup_keep_answering_while_new_uploads_pr
         let stage = session.blob_id.staging_path(&dir.0);
         std::fs::remove_file(&stage).unwrap();
         std::fs::create_dir(&stage).unwrap();
-        assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+        assert_eq!(
+            cancel_wire(&catalog, &session.id.to_string(), b"").await,
+            499
+        );
         cancelled.push(session.id);
     }
     create(&catalog, &clock).await.unwrap();
     assert_eq!(session_counts(&dir), (1, 3));
     for id in &cancelled {
-        assert_eq!(cancel_wire(&catalog, id, b"").await, 499);
+        assert_eq!(cancel_wire(&catalog, &id.to_string(), b"").await, 499);
     }
     catalog.close().await.unwrap();
 }

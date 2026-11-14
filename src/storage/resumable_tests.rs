@@ -17,6 +17,40 @@ async fn setup(dir: &TestDir, clock: Arc<ManualClock>) -> Catalog {
     catalog
 }
 
+/// Session IDs are issued in lowercase, so the uppercase spelling of a live session's ID names
+/// no session, as an unknown ID does.
+#[tokio::test]
+async fn an_uppercase_session_id_names_no_session() {
+    let dir = TestDir::new();
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_secs(1000)));
+    let catalog = setup(&dir, clock).await;
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "object",
+            ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    let upper = session.id.to_string().to_ascii_uppercase();
+    assert!(matches!(
+        catalog.resumable_session(&upper, "bucket").await,
+        Err(ResumableError::NotFound)
+    ));
+    assert!(matches!(
+        catalog.cancel_resumable_session(&upper, "bucket").await,
+        Err(ResumableError::NotFound)
+    ));
+    assert!(
+        catalog
+            .resumable_session(&session.id.to_string(), "bucket")
+            .await
+            .is_ok()
+    );
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
     let dir = TestDir::new();
@@ -39,18 +73,20 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         .create_resumable_session("bucket", "../name/日本%", options.clone(), Some(9))
         .await
         .unwrap();
-    assert_eq!(session.id.len(), 64);
+    assert_eq!(session.id.to_hex().len(), 64);
     assert_eq!(session.blob_id.to_hex().len(), 32);
     assert_eq!(
         session.deadline.duration_since(session.created).unwrap(),
         Duration::from_secs(604800)
     );
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     assert!(matches!(
-        catalog.lock_resumable_session(&session.id, "bucket").await,
+        catalog
+            .lock_resumable_session(&session.id.to_string(), "bucket")
+            .await,
         Err(ResumableError::Object(_))
     ));
     assert!(
@@ -70,7 +106,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
         .await
         .unwrap();
     let loaded = catalog
-        .resumable_session(&session.id, "bucket")
+        .resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     assert_eq!(loaded.options, options);
@@ -79,7 +115,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
     clock.set(session.deadline);
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap_err(),
         ResumableError::NotFound
@@ -166,7 +202,7 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
         .await
         .unwrap();
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     std::fs::write(lease.staging_path(), b"ab").unwrap();

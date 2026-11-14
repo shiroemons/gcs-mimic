@@ -1,5 +1,5 @@
 use super::{
-    BlobBackend, Catalog, CatalogError, ResumableError, SessionState, UnixMicros,
+    BlobBackend, Catalog, CatalogError, ResumableError, SessionId, SessionState, UnixMicros,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     unavailable, unix_millis,
 };
@@ -55,7 +55,7 @@ fn cleanup_page(
     connection: &Connection,
     now: i64,
     after: &str,
-) -> Result<Vec<(String, BlobId, i64)>, CatalogError> {
+) -> Result<Vec<(SessionId, BlobId, i64)>, CatalogError> {
     // Requests wake maintenance, so this runs per request and must not read every session. Both
     // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
     // from scanning sessions in id order instead).
@@ -67,7 +67,7 @@ fn cleanup_page(
 fn clean_record(
     connection: &Connection,
     backend: &BlobBackend,
-    id: &str,
+    id: SessionId,
     blob_id: &BlobId,
     deadline: i64,
     now: i64,
@@ -95,8 +95,8 @@ pub(super) fn recover_due(
             return Ok(());
         }
         for (id, blob_id, deadline) in rows {
-            clean_record(connection, backend, &id, &blob_id, deadline, now)?;
-            after = id;
+            clean_record(connection, backend, id, &blob_id, deadline, now)?;
+            after = id.to_hex();
         }
     }
 }
@@ -205,7 +205,7 @@ impl Catalog {
         if lease.session.state != SessionState::Active {
             return Err(ResumableError::Gone);
         }
-        let id = lease.session.id.clone();
+        let id = lease.session.id;
         let now = unix_millis(self.0.clock.now())?;
         let blob_id = lease.session.blob_id;
         let changed = self.run::<_, CatalogError>(move |connection| {
@@ -218,7 +218,7 @@ impl Catalog {
             Ok(changed)
         }).await?;
         if changed != 1 {
-            self.resumable_session(&lease.session.id, &lease.session.bucket)
+            self.resumable_session(&lease.session.id.to_string(), &lease.session.bucket)
                 .await?;
             return Err(ResumableError::Gone);
         }
@@ -332,18 +332,17 @@ impl Catalog {
             let Some(last) = rows.last() else {
                 break;
             };
-            after = last.0.clone();
+            after = last.0.to_hex();
             for (id, blob_id, deadline) in rows {
                 // A held session is swept once its request releases it, so this never waits.
-                let writer =
-                    match self.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog) {
-                        Ok(writer) => Arc::new(writer),
-                        Err(ClaimError::Busy) => continue,
-                        Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
-                            sweep.fail("resumable session", error.into());
-                            continue;
-                        }
-                    };
+                let writer = match self.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {
+                    Ok(writer) => Arc::new(writer),
+                    Err(ClaimError::Busy) => continue,
+                    Err(error @ (ClaimError::Poisoned | ClaimError::Catalog(_))) => {
+                        sweep.fail("resumable session", error.into());
+                        continue;
+                    }
+                };
                 let result = async {
                     self.clean_session_storage(&writer, blob_id).await?;
                     if deadline <= now {

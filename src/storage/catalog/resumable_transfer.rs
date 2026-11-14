@@ -217,7 +217,7 @@ impl Catalog {
             Ok(value) => return Ok(Some(value)),
             Err(error) => error,
         };
-        let id = lease.session.id.clone();
+        let id = lease.session.id;
         let committed = self
             .run_upload(move |connection| {
                 sql::row(
@@ -286,7 +286,7 @@ impl Catalog {
         lease: &SessionLease,
         reason: &'static str,
     ) -> Result<(), ResumableError> {
-        let id = lease.session.id.clone();
+        let id = lease.session.id;
         let blob_id = lease.session.blob_id;
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();

@@ -300,7 +300,7 @@ async fn execute(
             .await
             .map_err(error)?;
         owner = Some(guard);
-        token
+        token.to_string()
     };
     let progress = catalog
         .continue_rewrite(&token, source_access, destination_access, move |record| {

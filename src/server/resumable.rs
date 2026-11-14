@@ -74,7 +74,7 @@ pub(super) async fn initiate(
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
     let id = create_session(ctx, bucket, &name, options, total).await?;
-    let location = session_location(&location_base, &query, &id);
+    let location = session_location(&location_base, &query, id);
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
         "content-type",
@@ -93,7 +93,7 @@ pub(super) async fn initiate(
 
 /// The session URI Cloud Storage returned: the initiation's own query parameters plus the
 /// `upload_id`, sorted by name (recorded for `name`, `ifGenerationMatch` and `uploadType`).
-fn session_location(base: &str, query: &str, id: &str) -> String {
+fn session_location(base: &str, query: &str, id: crate::storage::SessionId) -> String {
     let mut pairs: Vec<&str> = query
         .split('&')
         .filter(|pair| !pair.is_empty() && !pair.starts_with("upload_id="))
@@ -112,7 +112,7 @@ pub(crate) async fn create_session(
     name: &str,
     options: ResumableOptions,
     total: Option<u64>,
-) -> Result<String, JsonError> {
+) -> Result<crate::storage::SessionId, JsonError> {
     let state = ctx.state;
     super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
         .await?;

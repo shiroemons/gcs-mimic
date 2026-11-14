@@ -26,6 +26,7 @@ pub(crate) use catalog::xml_multipart;
 pub(crate) use catalog::CopyReplay;
 pub(crate) use catalog::ResumableChunk;
 pub(crate) use catalog::ResumableError;
+pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState};

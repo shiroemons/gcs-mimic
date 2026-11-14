@@ -61,14 +61,21 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
     let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let session = session(&catalog).await;
     assert!(
-        chunk(&catalog, &session.id, b"part", 0, None, Checkpoint)
-            .await
-            .unwrap()
-            .is_none()
+        chunk(
+            &catalog,
+            &session.id.to_string(),
+            b"part",
+            0,
+            None,
+            Checkpoint
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "test-bucket")
+            .resumable_session(&session.id.to_string(), "test-bucket")
             .await
             .unwrap()
             .offset,
@@ -81,12 +88,19 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
             .unwrap(),
         original
     );
-    let completed = chunk(&catalog, &session.id, b"XXXXtail", 0, Some(8), Finalize)
-        .await
-        .unwrap()
-        .unwrap();
+    let completed = chunk(
+        &catalog,
+        &session.id.to_string(),
+        b"XXXXtail",
+        0,
+        Some(8),
+        Finalize,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let stored = catalog
-        .resumable_session(&session.id, "test-bucket")
+        .resumable_session(&session.id.to_string(), "test-bucket")
         .await
         .unwrap();
     assert_eq!(stored.state, crate::storage::SessionState::Complete);
@@ -108,7 +122,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
     assert_eq!(bytes, b"parttail");
     assert_eq!(
         catalog
-            .cancel_resumable_session(&session.id, "test-bucket")
+            .cancel_resumable_session(&session.id.to_string(), "test-bucket")
             .await,
         Err(ResumableError::Gone)
     );
@@ -120,21 +134,35 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
     let catalog = setup(4096, Off).await;
     let original = put(&catalog, Default::default(), Complete).await.unwrap();
     let session = session(&catalog).await;
-    chunk(&catalog, &session.id, b"part", 0, None, Checkpoint)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &session.id.to_string(),
+        b"part",
+        0,
+        None,
+        Checkpoint,
+    )
+    .await
+    .unwrap();
     let mut reservations = Vec::new();
     while let Ok(stage) = catalog.0.backend.memory().unwrap().stage() {
         reservations.push(stage);
     }
     assert!(
-        chunk(&catalog, &session.id, b"tail", 4, Some(8), Finalize)
-            .await
-            .is_err()
+        chunk(
+            &catalog,
+            &session.id.to_string(),
+            b"tail",
+            4,
+            Some(8),
+            Finalize
+        )
+        .await
+        .is_err()
     );
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "test-bucket")
+            .resumable_session(&session.id.to_string(), "test-bucket")
             .await
             .unwrap()
             .offset,
@@ -153,13 +181,20 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         Ok(())
     }).await.unwrap();
     assert!(
-        chunk(&catalog, &session.id, b"tail", 4, Some(8), Finalize)
-            .await
-            .is_err()
+        chunk(
+            &catalog,
+            &session.id.to_string(),
+            b"tail",
+            4,
+            Some(8),
+            Finalize
+        )
+        .await
+        .is_err()
     );
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "test-bucket")
+            .resumable_session(&session.id.to_string(), "test-bucket")
             .await
             .unwrap()
             .offset,
@@ -174,10 +209,17 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         })
         .await
         .unwrap();
-    chunk(&catalog, &session.id, b"tail", 4, Some(8), Finalize)
-        .await
-        .unwrap()
-        .unwrap();
+    chunk(
+        &catalog,
+        &session.id.to_string(),
+        b"tail",
+        4,
+        Some(8),
+        Finalize,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let result = catalog
         .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
@@ -194,12 +236,12 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
     let catalog = setup(4096, Off).await;
     let active = session(&catalog).await;
     let lease = catalog
-        .lock_resumable_session(&active.id, "test-bucket")
+        .lock_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     assert!(
         catalog
-            .lock_resumable_session(&active.id, "test-bucket")
+            .lock_resumable_session(&active.id.to_string(), "test-bucket")
             .await
             .is_err()
     );
@@ -208,19 +250,28 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
         Err(AdminError::Busy { .. })
     ));
     drop(lease);
-    chunk(&catalog, &active.id, b"part", 0, None, Checkpoint)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &active.id.to_string(),
+        b"part",
+        0,
+        None,
+        Checkpoint,
+    )
+    .await
+    .unwrap();
     catalog
-        .cancel_resumable_session(&active.id, "test-bucket")
+        .cancel_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     assert_eq!(
-        catalog.resumable_session(&active.id, "test-bucket").await,
+        catalog
+            .resumable_session(&active.id.to_string(), "test-bucket")
+            .await,
         Err(ResumableError::Cancelled)
     );
     let expired = session(&catalog).await;
-    let id = expired.id.clone();
+    let id = expired.id;
     catalog
         .run::<_, ObjectError>(move |connection| {
             connection
@@ -236,19 +287,23 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
         .unwrap();
     catalog.maintain_resumable_sessions().await.unwrap();
     assert_eq!(
-        catalog.resumable_session(&expired.id, "test-bucket").await,
+        catalog
+            .resumable_session(&expired.id.to_string(), "test-bucket")
+            .await,
         Err(ResumableError::NotFound)
     );
     let reset = session(&catalog).await;
     catalog.admin(admin::Origin::Seed).reset().await.unwrap();
     assert_eq!(
-        catalog.resumable_session(&reset.id, "test-bucket").await,
+        catalog
+            .resumable_session(&reset.id.to_string(), "test-bucket")
+            .await,
         Err(ResumableError::NotFound)
     );
     catalog.close().await.unwrap();
     assert!(
         catalog
-            .lock_resumable_session(&reset.id, "test-bucket")
+            .lock_resumable_session(&reset.id.to_string(), "test-bucket")
             .await
             .is_err()
     );
@@ -258,11 +313,18 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
 async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_hash_checkpoint() {
     let catalog = setup(200_000, Off).await;
     let active = session(&catalog).await;
-    chunk(&catalog, &active.id, b"part", 0, None, Checkpoint)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &active.id.to_string(),
+        b"part",
+        0,
+        None,
+        Checkpoint,
+    )
+    .await
+    .unwrap();
     let lease = catalog
-        .lock_resumable_session(&active.id, "test-bucket")
+        .lock_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     let options = lease.session.options.clone();
@@ -301,14 +363,21 @@ async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_ha
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&active.id, "test-bucket")
+        .lock_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     assert_eq!(lease.session.offset, 4);
     drop(lease);
-    chunk(&catalog, &active.id, b"tail", 4, Some(8), Finalize)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &active.id.to_string(),
+        b"tail",
+        4,
+        Some(8),
+        Finalize,
+    )
+    .await
+    .unwrap();
     let result = catalog
         .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
@@ -351,9 +420,16 @@ async fn ram_resumable_session_limit_and_expiry_recycle_all_staging_capacity() {
         .unwrap();
     catalog.maintain_resumable_sessions().await.unwrap();
     let next = session(&catalog).await;
-    chunk(&catalog, &next.id, b"parttail", 0, Some(8), Finalize)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &next.id.to_string(),
+        b"parttail",
+        0,
+        Some(8),
+        Finalize,
+    )
+    .await
+    .unwrap();
     catalog.close().await.unwrap();
 }
 
@@ -362,7 +438,7 @@ async fn ram_resumable_close_wakes_a_stalled_body_and_waits_for_owned_cleanup() 
     let catalog = setup(200_000, Off).await;
     let active = session(&catalog).await;
     let lease = catalog
-        .lock_resumable_session(&active.id, "test-bucket")
+        .lock_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     let options = lease.session.options.clone();
@@ -407,11 +483,18 @@ async fn ram_resumable_close_wakes_a_stalled_body_and_waits_for_owned_cleanup() 
 async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_hash_together() {
     let catalog = setup(200_000, Off).await;
     let active = session(&catalog).await;
-    chunk(&catalog, &active.id, b"part", 0, None, Checkpoint)
-        .await
-        .unwrap();
+    chunk(
+        &catalog,
+        &active.id.to_string(),
+        b"part",
+        0,
+        None,
+        Checkpoint,
+    )
+    .await
+    .unwrap();
     let lease = catalog
-        .lock_resumable_session(&active.id, "test-bucket")
+        .lock_resumable_session(&active.id.to_string(), "test-bucket")
         .await
         .unwrap();
     let options = lease.session.options.clone();
@@ -464,14 +547,14 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
     gate.await.unwrap().unwrap();
     let lease = eventually_some_async("the cancelled writer to release the session", || async {
         catalog
-            .lock_resumable_session(&active.id, "test-bucket")
+            .lock_resumable_session(&active.id.to_string(), "test-bucket")
             .await
             .ok()
     })
     .await;
     assert_eq!(lease.session.offset, 8);
     drop(lease);
-    chunk(&catalog, &active.id, b"", 8, Some(8), Finalize)
+    chunk(&catalog, &active.id.to_string(), b"", 8, Some(8), Finalize)
         .await
         .unwrap();
     let result = catalog

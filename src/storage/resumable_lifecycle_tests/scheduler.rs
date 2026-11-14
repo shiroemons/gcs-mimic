@@ -58,7 +58,7 @@ async fn expired_busy_session_wakes_scheduler_when_its_writer_is_released() {
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     *clock.now.lock().unwrap() = session.deadline;
@@ -103,7 +103,7 @@ async fn failed_cleanup_retries_after_writer_release_without_another_request() {
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     fault::arm(

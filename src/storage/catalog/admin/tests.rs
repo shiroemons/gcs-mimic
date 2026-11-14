@@ -218,7 +218,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
     fs::remove_file(&stage).unwrap();
     fs::create_dir(&stage).unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "test-bucket")
+        .lock_resumable_session(&session.id.to_string(), "test-bucket")
         .await
         .unwrap();
     catalog.invalidate_resumable_session(&lease).await.unwrap();
@@ -309,7 +309,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                         )
                         .await
                         .unwrap();
-                    finalize_session(&worker, &session.id, b"new")
+                    finalize_session(&worker, &session.id.to_string(), b"new")
                         .await
                         .unwrap();
                 }
@@ -1476,13 +1476,13 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
         .unwrap();
     fail_retirement_with_disk_full(&catalog).await;
     assert_eq!(
-        finalize_session(&catalog, &session.id, b"hello")
+        finalize_session(&catalog, &session.id.to_string(), b"hello")
             .await
             .unwrap_err(),
         super::super::ResumableError::Object(ObjectError::Io(io::ErrorKind::StorageFull.into()))
     );
     let retained = catalog
-        .resumable_session(&session.id, bucket.as_str())
+        .resumable_session(&session.id.to_string(), bucket.as_str())
         .await
         .unwrap();
     assert_eq!(retained.state, super::super::SessionState::Active);
@@ -1497,7 +1497,7 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
     );
     allow_retirement(&catalog).await;
     assert!(
-        finalize_session(&catalog, &session.id, b"hello")
+        finalize_session(&catalog, &session.id.to_string(), b"hello")
             .await
             .unwrap()
             .is_some()

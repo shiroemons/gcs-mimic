@@ -128,7 +128,7 @@ async fn requests_during_a_running_reset_wait_and_then_see_the_cleared_state() {
             .await
     });
     let locker = catalog.clone();
-    let id = session.id.clone();
+    let id = session.id.to_string();
     let lock =
         tokio::spawn(async move { locker.lock_resumable_session(&id, BUCKET).await.map(drop) });
     let source = catalog.clone();
@@ -259,7 +259,7 @@ async fn a_client_waiting_for_a_session_writer_also_waits_out_an_exclusive_job()
     let locker = catalog.clone();
     let lock = tokio::spawn(async move {
         locker
-            .lock_resumable_session(&session.id, BUCKET)
+            .lock_resumable_session(&session.id.to_string(), BUCKET)
             .await
             .map(drop)
     });
@@ -598,7 +598,9 @@ async fn maintenance_skips_a_writer_while_an_exclusive_job_runs() {
     let (_dir, catalog, _admin) = setup().await;
     let exclusive = exclusive_job_after_the_next_sql(&catalog);
     let claim = catalog.claim_writer(
-        crate::storage::catalog::resumable::writers::WriterKey::Resumable("session".into()),
+        crate::storage::catalog::resumable::writers::WriterKey::Resumable(
+            "0".repeat(64).parse().unwrap(),
+        ),
         crate::storage::catalog::resumable::writers::KeyOrigin::Catalog,
     );
     assert!(matches!(

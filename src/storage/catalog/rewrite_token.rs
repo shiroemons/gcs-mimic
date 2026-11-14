@@ -1,23 +1,16 @@
 use crate::object::ObjectTarget;
 use serde_json::{Map, Value};
 
-/// An unguessable database key: its authoritative request binding stays in the catalog.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RewriteToken(String);
+crate::storage::opaque_id::opaque_id! {
+    /// An unguessable database key: its authoritative request binding stays in the catalog.
+    pub(crate) struct RewriteToken([u8; 32]);
+    invalid = "invalid rewrite token";
+    column = text;
+}
 
 impl RewriteToken {
     pub(crate) fn generate() -> Result<Self, getrandom::Error> {
-        let mut bytes = [0; 32];
-        getrandom::fill(&mut bytes)?;
-        Ok(Self(crate::hashing::encode_lower(&bytes)))
-    }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        crate::hex::is_lower(value, 64).then(|| Self(value.to_owned()))
-    }
-
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+        crate::storage::opaque_id::random().map(Self)
     }
 }
 
@@ -76,15 +69,19 @@ mod tests {
     #[test]
     fn tokens_are_opaque_and_tampering_never_selects_the_original_token() {
         let token = RewriteToken::generate().unwrap();
-        assert_eq!(token.as_str().len(), 64);
-        assert_eq!(RewriteToken::parse(token.as_str()).as_ref(), Some(&token));
+        let text = token.to_string();
+        assert_eq!(text.len(), 64);
+        assert_eq!(text.parse::<RewriteToken>(), Ok(token));
         assert_ne!(token, RewriteToken::generate().unwrap());
         for index in 0..64 {
-            let mut tampered = token.as_str().as_bytes().to_vec();
+            let mut tampered = text.as_bytes().to_vec();
             tampered[index] = if tampered[index] == b'0' { b'1' } else { b'0' };
             assert_ne!(
-                RewriteToken::parse(std::str::from_utf8(&tampered).unwrap()).as_ref(),
-                Some(&token)
+                std::str::from_utf8(&tampered)
+                    .unwrap()
+                    .parse::<RewriteToken>()
+                    .ok(),
+                Some(token)
             );
         }
         for invalid in [
@@ -94,7 +91,7 @@ mod tests {
             &"a".repeat(65),
             &"A".repeat(64),
         ] {
-            assert!(RewriteToken::parse(invalid).is_none());
+            assert!(invalid.parse::<RewriteToken>().is_err());
         }
     }
 

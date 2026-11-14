@@ -47,7 +47,7 @@ async fn resumable_creation_directory_sync_survives_crash_and_power_loss() {
         assert!(session.blob_id.staging_path(&snapshot).is_file());
         let recovered = Catalog::open(&snapshot).await.unwrap();
         let resumed = recovered
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_eq!(resumed.state, SessionState::Active);
@@ -74,7 +74,7 @@ async fn resumable_cleanup_directory_sync_survives_crash_and_power_loss() {
         };
         fault::arm(&data.0, Step::SessionCleanupSynced, 0, fault);
         catalog
-            .cancel_resumable_session(&session.id, "bucket")
+            .cancel_resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_eq!(fault::pending(&data.0), 0);
@@ -84,7 +84,9 @@ async fn resumable_cleanup_directory_sync_survives_crash_and_power_loss() {
         let recovered = Catalog::open(&snapshot).await.unwrap();
         assert!(!session.blob_id.staging_path(&snapshot).exists());
         assert!(matches!(
-            recovered.resumable_session(&session.id, "bucket").await,
+            recovered
+                .resumable_session(&session.id.to_string(), "bucket")
+                .await,
             Err(crate::storage::ResumableError::Cancelled)
         ));
         recovered.close().await.unwrap();
@@ -106,7 +108,7 @@ async fn resumable_cleanup_before_directory_sync_recovers_after_power_loss_and_c
             crash.fault(snapshot.0.clone()),
         );
         catalog
-            .cancel_resumable_session(&session.id, "bucket")
+            .cancel_resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_eq!(fault::pending(&data.0), 0);
@@ -118,7 +120,9 @@ async fn resumable_cleanup_before_directory_sync_recovers_after_power_loss_and_c
         let recovered = Catalog::open(&snapshot.0).await.unwrap();
         assert!(!session.blob_id.staging_path(&snapshot.0).exists());
         assert!(matches!(
-            recovered.resumable_session(&session.id, "bucket").await,
+            recovered
+                .resumable_session(&session.id.to_string(), "bucket")
+                .await,
             Err(crate::storage::ResumableError::Cancelled)
         ));
         recovered.close().await.unwrap();
@@ -150,7 +154,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         );
         ready.await.unwrap();
         let worker = catalog.clone();
-        let id = session.id.clone();
+        let id = session.id.to_string();
         let request =
             tokio::spawn(async move { worker.cancel_resumable_session(&id, "bucket").await });
         eventually_async("the cancellation to become an active upload", || async {
@@ -159,7 +163,7 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         .await;
         request.abort();
         assert!(request.await.unwrap_err().is_cancelled());
-        assert!(catalog.try_resumable_writer(&session.id).is_err());
+        assert!(catalog.try_resumable_writer(session.id).is_err());
         let worker = catalog.clone();
         let close = tokio::spawn(async move { worker.close().await });
         eventually_async("close to stop admission", || async {
@@ -176,7 +180,9 @@ fn cancelled_cleanup_keeps_its_writer_and_directory_ownership_until_close() {
         assert_eq!(fault::catalog_thread_io(&data.0), catalog_io);
         let recovered = Catalog::open(&data.0).await.unwrap();
         assert!(matches!(
-            recovered.resumable_session(&session.id, "bucket").await,
+            recovered
+                .resumable_session(&session.id.to_string(), "bucket")
+                .await,
             Err(crate::storage::ResumableError::Cancelled)
         ));
         recovered.close().await.unwrap();
@@ -231,7 +237,7 @@ async fn failed_cleanup_directory_sync_keeps_the_journal_for_retry() {
         let session = session(&catalog).await;
         fault::arm(&data.0, Step::SessionCleanupSync, 0, Fault::Io(kind));
         catalog
-            .cancel_resumable_session(&session.id, "bucket")
+            .cancel_resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_eq!(
@@ -273,7 +279,9 @@ async fn failed_cleanup_directory_sync_keeps_the_journal_for_retry() {
         catalog.close().await.unwrap();
         let recovered = Catalog::open(&data.0).await.unwrap();
         assert!(matches!(
-            recovered.resumable_session(&session.id, "bucket").await,
+            recovered
+                .resumable_session(&session.id.to_string(), "bucket")
+                .await,
             Err(crate::storage::ResumableError::Cancelled)
         ));
         recovered.close().await.unwrap();

@@ -74,7 +74,7 @@ impl Storage {
             .await
             .map_err(session_status)?;
         Ok(Response::new(pb::StartResumableWriteResponse {
-            upload_id: upload_id(&bucket, &session.id),
+            upload_id: upload_id(&bucket, &session.id.to_string()),
         }))
     }
     pub(in crate::grpc::v2) async fn query_write_status(

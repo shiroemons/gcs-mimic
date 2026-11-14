@@ -94,7 +94,7 @@ async fn md5_availability_survives_restart_without_component_count() {
     owner.disarm();
     let result = catalog
         .continue_rewrite(
-            &token,
+            &token.to_string(),
             BucketAccess::Permissive,
             BucketAccess::Permissive,
             |record| Ok(serde_json::json!({"generation":record.generation})),
@@ -1165,7 +1165,9 @@ async fn injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs() {
     );
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     assert!(matches!(
-        catalog.resumable_session(&session.id, "bucket").await,
+        catalog
+            .resumable_session(&session.id.to_string(), "bucket")
+            .await,
         Err(crate::storage::ResumableError::NotFound)
     ));
     drop(writer);

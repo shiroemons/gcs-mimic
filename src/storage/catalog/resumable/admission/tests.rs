@@ -67,7 +67,7 @@ async fn finished_sessions_stay_inside_a_small_memory_catalog_budget() {
                 .await
                 .unwrap();
             catalog
-                .cancel_resumable_session(&session.id, "bucket")
+                .cancel_resumable_session(&session.id.to_string(), "bucket")
                 .await
                 .unwrap();
         }
@@ -98,7 +98,7 @@ async fn create(catalog: &Catalog, clock: &ManualClock) -> Result<String, Resuma
             None,
         )
         .await
-        .map(|session| session.id)
+        .map(|session| session.id.to_string())
 }
 
 /// The counts admission reads and the counts of the table itself.
@@ -186,7 +186,9 @@ async fn a_held_record_is_stepped_over_and_the_next_oldest_goes_instead() {
     let catalog = open_with_bucket(&dir, &clock).await;
     create(&catalog, &clock).await.unwrap();
     fill_cancelled_sessions(&catalog, WINDOW + 1).await;
-    let held = catalog.try_resumable_writer(&filled_id(1)).unwrap();
+    let held = catalog
+        .try_resumable_writer(filled_id(1).parse().unwrap())
+        .unwrap();
     create(&catalog, &clock).await.unwrap();
     assert_exact(counts(&catalog).await, (2, WINDOW));
     assert_eq!(

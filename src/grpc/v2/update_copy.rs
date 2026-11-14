@@ -501,6 +501,7 @@ impl Storage {
             .catalog
             .begin_rewrite_session(vec![source.whole()], self.max_object_bytes, start)
             .await
+            .map(|(token, guard)| (token.to_string(), guard))
             .map_err(rewrite_error)
     }
     pub(super) async fn lock_bucket_retention_policy(

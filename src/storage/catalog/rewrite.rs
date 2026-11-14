@@ -50,7 +50,7 @@ macro_rules! session_columns {
 
 fn read_session(
     connection: &Connection,
-    token: &str,
+    token: &RewriteToken,
     now: i64,
 ) -> Result<RewriteSession, RewriteError> {
     let session = sql::row(
@@ -75,11 +75,11 @@ fn read_session(
 fn check_continuation(
     connection: &Connection,
     session: &RewriteSession,
-    token: &str,
+    token: &RewriteToken,
     access: (&BucketAccess, &BucketAccess),
     now: i64,
 ) -> Result<Option<super::derived::DerivedTransfer>, ObjectError> {
-    if session.previous_token.as_deref() == Some(token) {
+    if session.previous_token.as_ref() == Some(token) {
         check_incarnations(connection, session)?;
         super::objects::authorize_generation(
             connection,
@@ -137,8 +137,8 @@ pub(crate) struct RewriteStart {
 #[derive(Clone)]
 pub(crate) struct RewriteSession {
     pub id: BlobId,
-    pub token: String,
-    pub previous_token: Option<String>,
+    pub token: RewriteToken,
+    pub previous_token: Option<RewriteToken>,
     pub binding: RewriteBinding,
     pub destination: DerivedDestination,
     source_conditions: ObjectConditions,
@@ -319,7 +319,7 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> 
                     session.offset == session.total && response.get("token").is_none()
                 } else {
                     session.offset < session.total
-                        && response["token"].as_str() == Some(session.token.as_str())
+                        && response["token"].as_str() == Some(session.token.to_hex().as_str())
                 }
         }
     };
@@ -328,11 +328,6 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> 
     } else {
         transfer_id == Some(session.id)
     }) && response_valid
-        && session
-            .previous_token
-            .as_ref()
-            .is_none_or(|token| RewriteToken::parse(token).is_some())
-        && RewriteToken::parse(&session.token).is_some()
         && session.binding.source_generation > 0
         && session.source_metageneration > 0
         && session.offset <= session.total
@@ -486,12 +481,8 @@ impl Catalog {
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
         start: RewriteStart,
-    ) -> Result<(String, super::derived::DerivedRequestGuard), RewriteError> {
-        let token = RewriteToken::generate()
-            .map_err(object_unavailable)?
-            .as_str()
-            .to_owned();
-        let result = token.clone();
+    ) -> Result<(RewriteToken, super::derived::DerivedRequestGuard), RewriteError> {
+        let token = RewriteToken::generate().map_err(object_unavailable)?;
         // shortcut: crash before delivery leaves durable state until expiry; add a delivered marker for eager recovery.
         let owner = Arc::new(Mutex::new(None));
         let callback_owner = owner.clone();
@@ -550,17 +541,19 @@ impl Catalog {
             .map_err(object_unavailable)?
             .take()
             .ok_or_else(|| object_unavailable("missing rewrite request owner"))?;
-        Ok((result, owner))
+        Ok((token, owner))
     }
 
+    /// The session a client names by its `rewriteToken`; text that is not a token is invalid.
     pub(crate) async fn rewrite_session(
         &self,
         token: &str,
     ) -> Result<RewriteSession, RewriteError> {
-        let token = RewriteToken::parse(token)
-            .ok_or(RewriteError::Invalid)?
-            .as_str()
-            .to_owned();
+        let token = token.parse().map_err(|_| RewriteError::Invalid)?;
+        self.session_by_token(token).await
+    }
+
+    async fn session_by_token(&self, token: RewriteToken) -> Result<RewriteSession, RewriteError> {
         let now = unix_millis(self.0.clock.now())?;
         self.run(move |connection| read_session(connection, &token, now))
             .await
@@ -573,7 +566,8 @@ impl Catalog {
         destination_access: BucketAccess,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<RewriteProgress, RewriteError> {
-        let session = self.rewrite_session(token).await?;
+        let token: RewriteToken = token.parse().map_err(|_| RewriteError::Invalid)?;
+        let session = self.session_by_token(token).await?;
         let _guard = self
             .wait_for_writer(WriterKey::Rewrite(session.id), KeyOrigin::Catalog)
             .await
@@ -586,25 +580,24 @@ impl Catalog {
                 .await
                 .map_err(CatalogError::from)?,
         );
-        let selected_token = token.to_owned();
         let now = unix_millis(self.0.clock.now())?;
         let source_check = source_access.clone();
         let destination_check = destination_access.clone();
         let (mut session, source_result) = self
             .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                let checked = read_session(&transaction, &selected_token, now)?;
+                let checked = read_session(&transaction, &token, now)?;
                 let result = check_continuation(
                     &transaction,
                     &checked,
-                    &selected_token,
+                    &token,
                     (&source_check, &destination_check),
                     now,
                 );
                 Ok::<_, RewriteError>((checked, result))
             })
             .await?;
-        let replay = session.previous_token.as_deref() == Some(token);
+        let replay = session.previous_token == Some(token);
         if let Err(error) = source_result {
             if session
                 .response
@@ -676,10 +669,7 @@ impl Catalog {
             )
             .map_err(Into::into);
         }
-        let next = RewriteToken::generate()
-            .map_err(object_unavailable)?
-            .as_str()
-            .to_owned();
+        let next = RewriteToken::generate().map_err(object_unavailable)?;
         let response = json!({"offset":current.offset,"token":next});
         let saved = response.to_string();
         let id = session.id;
@@ -854,7 +844,7 @@ mod tests {
     async fn fixture() -> (Catalog, std::path::PathBuf, Arc<ManualClock>) {
         let directory = std::env::temp_dir().join(format!(
             "gcs-mimic-rewrite-{}",
-            RewriteToken::generate().unwrap().as_str()
+            RewriteToken::generate().unwrap()
         ));
         let clock = Arc::new(ManualClock::new(UNIX_EPOCH + Duration::from_millis(1000)));
         let catalog = Catalog::open_with_clock(&directory, clock.clone())
@@ -903,6 +893,44 @@ mod tests {
         catalog
             .begin_rewrite_session(vec![source.whole()], 8, start)
             .await
+            .map(|(token, guard)| (token.to_string(), guard))
+    }
+
+    /// The token a new session returns is the stored text, and only that spelling selects it.
+    #[tokio::test]
+    async fn issued_rewrite_tokens_are_the_stored_text_and_uppercase_is_invalid() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        catalog
+            .put_object(
+                permissive_upload("bucket", "source", 8),
+                body(vec![bytes::Bytes::from_static(b"contents")]),
+            )
+            .await
+            .unwrap();
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let stored = catalog
+            .run::<_, CatalogError>(|connection| {
+                Ok(sql::scalar::<String>(
+                    connection,
+                    "SELECT token FROM rewrite_sessions",
+                    [],
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(token, stored);
+        assert!(catalog.rewrite_session(&token).await.is_ok());
+        assert!(matches!(
+            catalog.rewrite_session(&token.to_ascii_uppercase()).await,
+            Err(RewriteError::Invalid)
+        ));
+        catalog.close().await.unwrap();
     }
 
     #[tokio::test]

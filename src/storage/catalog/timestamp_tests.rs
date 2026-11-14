@@ -289,7 +289,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             Duration::from_secs(604800)
         );
         let lease = catalog
-            .lock_resumable_session(&session.id, "timestamp-bucket")
+            .lock_resumable_session(&session.id.to_string(), "timestamp-bucket")
             .await
             .unwrap();
         catalog
@@ -410,7 +410,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             .await
             .unwrap();
         let lease = catalog
-            .lock_resumable_session(&session.id, "timestamp-bucket")
+            .lock_resumable_session(&session.id.to_string(), "timestamp-bucket")
             .await
             .unwrap();
         clock.set(UNIX_EPOCH - Duration::from_nanos(nanos));
@@ -489,7 +489,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         clock.set(UNIX_EPOCH);
         catalog.cancel_derived(&transfer.id).await.unwrap();
         catalog
-            .cancel_resumable_session(&session.id, "timestamp-bucket")
+            .cancel_resumable_session(&session.id.to_string(), "timestamp-bucket")
             .await
             .unwrap();
     }
@@ -614,7 +614,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
     );
     assert_eq!(
         catalog
-            .lock_resumable_session(&session.id, "timestamp-0")
+            .lock_resumable_session(&session.id.to_string(), "timestamp-0")
             .await
             .unwrap()
             .session,

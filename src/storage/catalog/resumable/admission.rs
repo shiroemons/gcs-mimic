@@ -105,7 +105,7 @@ fn trim_finished(
     // A completed session owns no staging bytes and never its published blob, which object
     // reclamation tracks. A cancelled one is reclaimable only after its cleanup journal entry
     // is gone; until then maintenance still needs the row.
-    let candidates: Vec<(String, BlobId)> = transaction
+    let candidates: Vec<(super::SessionId, BlobId)> = transaction
         .prepare_cached("SELECT id, blob_id FROM resumable_sessions WHERE state = 'COMPLETE' OR (state = 'CANCELLED' AND NOT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id)) ORDER BY deadline, id LIMIT ?1")?
         .query_map([wanted + TRIM_SLACK], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -113,8 +113,7 @@ fn trim_finished(
         if trimmed.len() == wanted {
             break;
         }
-        let guard = match catalog.claim_writer(WriterKey::Resumable(id.clone()), KeyOrigin::Catalog)
-        {
+        let guard = match catalog.claim_writer(WriterKey::Resumable(id), KeyOrigin::Catalog) {
             Ok(guard) => guard,
             // A request holding the session (such as a finalizer re-reading its outcome) keeps
             // it, and a catalog blocking new work only postpones the trim.

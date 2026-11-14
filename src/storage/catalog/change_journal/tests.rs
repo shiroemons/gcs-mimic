@@ -396,7 +396,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "test-bucket")
+        .lock_resumable_session(&session.id.to_string(), "test-bucket")
         .await
         .unwrap();
     catalog
@@ -509,7 +509,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         policy
     );
     let lease = catalog
-        .lock_resumable_session(&session.id, "test-bucket")
+        .lock_resumable_session(&session.id.to_string(), "test-bucket")
         .await
         .unwrap();
     drop(lease);

@@ -16,7 +16,7 @@ async fn failed_finalization() -> (crate::test_support::TestDir, Catalog, Sessio
         .await
         .unwrap();
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&dir.0);
@@ -41,7 +41,7 @@ fn publication_failure() -> Result<Value, ResumableError> {
 
 async fn assert_restored(catalog: &Catalog, lease: &SessionLease) {
     let session = catalog
-        .resumable_session(&lease.session.id, "bucket")
+        .resumable_session(&lease.session.id.to_string(), "bucket")
         .await
         .unwrap();
     assert_eq!(session.state, SessionState::Active);
@@ -81,7 +81,7 @@ async fn resumable_recovery_failures_preserve_the_checkpoint_for_restart() {
         catalog.close().await.unwrap();
         let reopened = Catalog::open(&dir.0).await.unwrap();
         let lease = reopened
-            .lock_resumable_session(&session.id, "bucket")
+            .lock_resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap();
         assert_restored(&reopened, &lease).await;
@@ -118,7 +118,7 @@ async fn resumable_recovery_crash_and_power_loss_restore_the_acknowledged_prefix
             assert_restored(&catalog, &lease).await;
             let reopened = Catalog::open(&path).await.unwrap();
             let recovered = reopened
-                .lock_resumable_session(&lease.session.id, "bucket")
+                .lock_resumable_session(&lease.session.id.to_string(), "bucket")
                 .await
                 .unwrap();
             assert_restored(&reopened, &recovered).await;
@@ -137,7 +137,7 @@ fn resumable_retention_overflow_returns_the_publication_metadata_error() {
     let mut options = ResumableOptions::new(BucketAccess::Permissive);
     options.content_type = "text/plain".into();
     let session = ResumableSession {
-        id: "0".repeat(64),
+        id: "0".repeat(64).parse().unwrap(),
         blob_id: "0".repeat(32).parse().unwrap(),
         bucket: "bucket".into(),
         name: "object".into(),

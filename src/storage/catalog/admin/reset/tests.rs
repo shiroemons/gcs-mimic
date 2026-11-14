@@ -212,7 +212,11 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
         .unwrap();
     // The forms that never wait report the job; maintenance skips its turn on these.
     assert!(catalog.admit_object_upload().is_err());
-    assert!(catalog.try_resumable_writer("session").is_err());
+    assert!(
+        catalog
+            .try_resumable_writer("0".repeat(64).parse().unwrap())
+            .is_err()
+    );
     // A management call waits for the job instead, and gives up only at its own deadline.
     assert!(matches!(
         catalog
@@ -460,7 +464,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "reset-bucket")
+        .lock_resumable_session(&session.id.to_string(), "reset-bucket")
         .await
         .unwrap();
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
@@ -510,7 +514,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
         .unwrap();
     assert!(
         catalog
-            .resumable_session(&session.id, "reset-bucket")
+            .resumable_session(&session.id.to_string(), "reset-bucket")
             .await
             .is_err()
     );

@@ -103,9 +103,15 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
         .await
         .unwrap();
     let stage = session.blob_id.staging_path(&dir.0);
-    assert_eq!(cancel_wire(&catalog, &session.id, b"nonempty").await, 400);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"nonempty").await,
+        400
+    );
     assert!(stage.exists());
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        499
+    );
     assert!(!stage.exists());
     assert_eq!(
         catalog
@@ -119,17 +125,23 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
             .unwrap(),
         old
     );
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        499
+    );
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap_err(),
         ResumableError::Cancelled
     );
     assert_eq!(cancel_wire(&catalog, &"f".repeat(64), b"").await, 404);
     clock.set(session.deadline);
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 404);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        404
+    );
     catalog.close().await.unwrap();
 }
 
@@ -148,7 +160,10 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
         .unwrap();
     let stage = session.blob_id.staging_path(&dir.0);
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = '{}', total = 0 WHERE id = ?1", [&session.id]).unwrap();
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        410
+    );
     assert!(stage.exists());
     catalog.close().await.unwrap();
 }
@@ -203,7 +218,7 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
         clock.armed.store(true, Ordering::SeqCst);
         assert_eq!(
             catalog
-                .cancel_resumable_session(&session.id, "bucket")
+                .cancel_resumable_session(&session.id.to_string(), "bucket")
                 .await
                 .unwrap_err(),
             if expire {
@@ -233,20 +248,21 @@ async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     assert!(matches!(
         catalog
-            .cancel_resumable_session(&session.id, "bucket")
+            .cancel_resumable_session(&session.id.to_string(), "bucket")
             .await,
         Err(ResumableError::Object(_))
     ));
     assert!(lease.staging_path().exists());
     drop(lease);
+    let id = session.id.to_string();
     let (a, b) = tokio::join!(
-        catalog.cancel_resumable_session(&session.id, "bucket"),
-        catalog.cancel_resumable_session(&session.id, "bucket")
+        catalog.cancel_resumable_session(&id, "bucket"),
+        catalog.cancel_resumable_session(&id, "bucket")
     );
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
     catalog.close().await.unwrap();
@@ -269,7 +285,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     assert_eq!(session.deadline, UNIX_EPOCH + Duration::from_secs(604800));
     clock.set(session.deadline - Duration::from_secs(1));
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     catalog
@@ -278,7 +294,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
         .unwrap();
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
             .deadline,
@@ -287,7 +303,7 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     clock.set(session.deadline);
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap_err(),
         ResumableError::NotFound
@@ -299,11 +315,14 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
             .is_err()
     );
     drop(lease);
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 404);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        404
+    );
     clock.advance(Duration::from_secs(1));
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap_err(),
         ResumableError::NotFound
@@ -365,9 +384,15 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     let stage = session.blob_id.staging_path(&dir.0);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        499
+    );
     assert!(stage.is_dir());
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        499
+    );
     assert!(catalog.resumable_maintenance_error().is_some());
     clock.set(session.deadline);
     assert!(catalog.maintain_resumable_sessions().await.is_err());
@@ -417,7 +442,7 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
         .await
         .unwrap();
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     let catalog_io = crate::storage::catalog::fault::catalog_thread_io(&dir.0);
@@ -504,7 +529,7 @@ async fn prefix(catalog: &Catalog, data: &[u8]) -> gcs_mimic::storage::Resumable
         .await
         .unwrap();
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     std::fs::write(lease.staging_path(), data).unwrap();
@@ -543,14 +568,14 @@ async fn restart_discards_write_before_offset_commit_and_preserves_committed_pre
     assert_eq!(std::fs::read(&stage).unwrap(), b"acknowledged");
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
             .offset,
         12
     );
     let mut lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     std::fs::write(&stage, b"acknowledged-more").unwrap();
@@ -570,7 +595,7 @@ async fn restart_discards_write_before_offset_commit_and_preserves_committed_pre
     assert_eq!(std::fs::read(&stage).unwrap(), b"acknowledged-more");
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
             .offset,
@@ -597,7 +622,7 @@ async fn restart_restores_rename_before_commit_instead_of_deleting_acknowledged_
     assert!(!blob.exists());
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
             .offset,
@@ -651,13 +676,16 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
         .unwrap();
     assert_eq!(
         catalog
-            .resumable_session(&session.id, "bucket")
+            .resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap()
             .completion,
         Some(completion)
     );
-    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
+    assert_eq!(
+        cancel_wire(&catalog, &session.id.to_string(), b"").await,
+        410
+    );
     assert_eq!(std::fs::read(&blob).unwrap(), b"published");
     clock.set(session.deadline);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
@@ -728,7 +756,7 @@ async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs(
     }
     let cancelled = prefix(&catalog, b"cancelled").await;
     catalog
-        .cancel_resumable_session(&cancelled.id, "bucket")
+        .cancel_resumable_session(&cancelled.id.to_string(), "bucket")
         .await
         .unwrap();
     catalog.close().await.unwrap();
@@ -764,7 +792,7 @@ async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs(
         );
         assert_eq!(
             catalog
-                .resumable_session(&session.id, "bucket")
+                .resumable_session(&session.id.to_string(), "bucket")
                 .await
                 .unwrap()
                 .offset,
@@ -790,12 +818,12 @@ async fn writer_lease_is_reacquired_after_drop_and_panic() {
     let catalog = setup(&dir, Arc::new(ManualClock::new(UNIX_EPOCH))).await;
     let session = prefix(&catalog, b"prefix").await;
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     drop(lease);
     let lease = catalog
-        .lock_resumable_session(&session.id, "bucket")
+        .lock_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     let panic = tokio::spawn(async move {
@@ -807,7 +835,7 @@ async fn writer_lease_is_reacquired_after_drop_and_panic() {
     assert!(panic.is_panic());
     drop(
         catalog
-            .lock_resumable_session(&session.id, "bucket")
+            .lock_resumable_session(&session.id.to_string(), "bucket")
             .await
             .unwrap(),
     );
@@ -972,7 +1000,7 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
         .await
         .unwrap();
     catalog
-        .cancel_resumable_session(&session.id, "bucket")
+        .cancel_resumable_session(&session.id.to_string(), "bucket")
         .await
         .unwrap();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
