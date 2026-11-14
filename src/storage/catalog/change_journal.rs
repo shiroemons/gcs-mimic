@@ -178,7 +178,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 pub(super) fn origin(access: &BucketAccess) -> Origin {
     match access {
         BucketAccess::Admin(grant) => grant.origin(),
-        _ => Origin::Api,
+        BucketAccess::Permissive | BucketAccess::Policy { .. } => Origin::Api,
     }
 }
 

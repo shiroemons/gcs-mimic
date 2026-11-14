@@ -49,7 +49,8 @@ impl NotificationMode {
     pub(crate) fn for_access(access: &crate::bucket::BucketAccess) -> Self {
         match access {
             crate::bucket::BucketAccess::Admin(grant) => grant.notification_mode(),
-            _ => Self::Emit,
+            crate::bucket::BucketAccess::Permissive
+            | crate::bucket::BucketAccess::Policy { .. } => Self::Emit,
         }
     }
 }

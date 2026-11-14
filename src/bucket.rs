@@ -573,6 +573,36 @@ mod tests {
         assert!(!ObjectError::OverwriteForbidden(denied()).is_refusal());
     }
 
+    /// Re-scoping changes only the permission a policy access checks; it never gives
+    /// permissive or administrative access a permission to check.
+    #[test]
+    fn with_permission_rescopes_only_policy_access() {
+        use crate::auth::Permission;
+        let identity = crate::auth::Identity::from_upload_snapshot(
+            &serde_json::json!({"id": "writer@example.invalid", "projects": {}}),
+        )
+        .unwrap();
+        for (identity, project) in [(Some(identity), Some("project".to_owned())), (None, None)] {
+            let access = BucketAccess::Policy {
+                identity: identity.clone(),
+                permission: Permission::ObjectsCreate,
+                project: project.clone(),
+            };
+            assert_eq!(
+                access.with_permission(Permission::ObjectsDelete),
+                BucketAccess::Policy {
+                    identity,
+                    permission: Permission::ObjectsDelete,
+                    project,
+                }
+            );
+        }
+        let admin = BucketAccess::Admin(crate::storage::admin::AdminGrant::seed());
+        for access in [BucketAccess::Permissive, admin] {
+            assert_eq!(access.with_permission(Permission::BucketsSetIam), access);
+        }
+    }
+
     #[test]
     fn cors_accepts_rule_counts_and_sizes_above_the_former_64_kib_limit() {
         let long_values = CorsRule {
@@ -741,6 +771,24 @@ pub(crate) enum BucketAccess {
         permission: crate::auth::Permission,
         project: Option<String>,
     },
+}
+
+impl BucketAccess {
+    /// This access re-scoped to `permission`: a policy access checks `permission` for the same
+    /// principal and observed project, while permissive and administrative access stay as they
+    /// are, because no Cloud Storage permission applies to them.
+    pub(crate) fn with_permission(&self, permission: crate::auth::Permission) -> Self {
+        match self {
+            Self::Policy {
+                identity, project, ..
+            } => Self::Policy {
+                identity: identity.clone(),
+                permission,
+                project: project.clone(),
+            },
+            Self::Permissive | Self::Admin(_) => self.clone(),
+        }
+    }
 }
 
 #[cfg(test)]

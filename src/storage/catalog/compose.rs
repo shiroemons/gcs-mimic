@@ -99,11 +99,13 @@ impl ComposePlan {
             return Err(ObjectError::PreconditionFailed);
         }
         if self.disposal == SourceDisposal::Delete {
-            let mut access = self.read_access.clone();
-            if let BucketAccess::Policy { permission, .. } = &mut access {
-                *permission = crate::auth::Permission::ObjectsDelete;
-            }
-            objects::authorized_bucket(connection, &self.bucket, &access)?;
+            objects::authorized_bucket(
+                connection,
+                &self.bucket,
+                &self
+                    .read_access
+                    .with_permission(crate::auth::Permission::ObjectsDelete),
+            )?;
         }
         if self.disposal == SourceDisposal::Keep
             && objects::object_acl_authority(connection, &self.bucket, &self.read_access)?.is_none()
@@ -155,15 +157,6 @@ impl ComposePlan {
     }
 }
 
-/// The read access a compose needs on its sources: the destination grant, narrowed to reads.
-fn source_access(destination: &BucketAccess) -> BucketAccess {
-    let mut access = destination.clone();
-    if let BucketAccess::Policy { permission, .. } = &mut access {
-        *permission = crate::auth::Permission::ObjectsGet;
-    }
-    access
-}
-
 impl Catalog {
     pub(crate) async fn compose_object(
         &self,
@@ -194,7 +187,11 @@ impl Catalog {
                 "Compose requires 1 to 32 sources".into(),
             ));
         }
-        let access = source_access(&destination.access);
+        // The read access a compose needs on its sources: the destination grant, narrowed to
+        // reads.
+        let access = destination
+            .access
+            .with_permission(crate::auth::Permission::ObjectsGet);
         let expected_incarnation = self
             .check_compose_destination(destination.clone(), access.clone(), disposal)
             .await?;
@@ -261,11 +258,11 @@ impl Catalog {
             let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
             if disposal == SourceDisposal::Delete {
-                let mut access = read_access;
-                if let BucketAccess::Policy { permission, .. } = &mut access {
-                    *permission = crate::auth::Permission::ObjectsDelete;
-                }
-                objects::authorized_bucket(&transaction, &destination.bucket, &access)?;
+                objects::authorized_bucket(
+                    &transaction,
+                    &destination.bucket,
+                    &read_access.with_permission(crate::auth::Permission::ObjectsDelete),
+                )?;
             }
             let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
             objects::check_publication(

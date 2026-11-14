@@ -155,17 +155,6 @@ fn claim_failure(error: ClaimError) -> Error {
     }
 }
 
-fn access_for(access: &BucketAccess, permission: Permission) -> BucketAccess {
-    let mut access = access.clone();
-    if let BucketAccess::Policy {
-        permission: value, ..
-    } = &mut access
-    {
-        *value = permission;
-    }
-    access
-}
-
 fn read_upload(row: &rusqlite::Row<'_>) -> rusqlite::Result<Upload> {
     let options: String = row.get(4)?;
     let value = serde_json::from_str(&options)
@@ -247,7 +236,7 @@ impl Catalog {
                 objects::authorized_bucket(
                     &transaction,
                     &target.bucket,
-                    &access_for(&access, Permission::ObjectsCreate),
+                    &access.with_permission(Permission::ObjectsCreate),
                 )?;
                 if options.metadata.storage_class.is_none() {
                     options.metadata.storage_class = Some(storage_class);

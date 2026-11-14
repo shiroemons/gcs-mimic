@@ -243,16 +243,7 @@ impl UploadReplay {
         access: &BucketAccess,
         source: Option<CopySource>,
     ) -> Result<(), ObjectError> {
-        let acl_access = match access {
-            BucketAccess::Policy {
-                identity, project, ..
-            } => BucketAccess::Policy {
-                identity: identity.clone(),
-                project: project.clone(),
-                permission: crate::auth::Permission::ObjectsGetIam,
-            },
-            other => other.clone(),
-        };
+        let acl_access = access.with_permission(crate::auth::Permission::ObjectsGetIam);
         let visible = match objects::authorize_generation(
             connection,
             &record.bucket,

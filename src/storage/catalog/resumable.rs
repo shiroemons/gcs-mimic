@@ -568,7 +568,9 @@ pub(super) fn encode_new_options(
             "SELECT project FROM buckets WHERE name = ?1",
             [bucket],
         )?,
-        _ => None,
+        crate::bucket::BucketAccess::Permissive
+        | crate::bucket::BucketAccess::Admin(_)
+        | crate::bucket::BucketAccess::Policy { identity: None, .. } => None,
     };
     Ok(json!(options::StoredOptions::from_options(o, project.as_deref())).to_string())
 }

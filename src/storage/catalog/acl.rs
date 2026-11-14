@@ -553,32 +553,33 @@ pub(super) fn replace_resource_acl(
 ) -> Result<(), CatalogError> {
     let bucket = target.bucket();
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
-    if let BucketAccess::Policy {
-        identity, project, ..
-    } = access
-    {
-        let mut policy_access = BucketAccess::Policy {
-            identity: identity.clone(),
-            project: project.clone(),
-            permission: if target.kind() == AclKind::Object {
-                crate::auth::Permission::ObjectsSetIam
-            } else {
-                crate::auth::Permission::BucketsSetIam
-            },
+    if matches!(access, BucketAccess::Policy { .. }) {
+        let (write, read) = match target.kind() {
+            AclKind::Object => (
+                crate::auth::Permission::ObjectsSetIam,
+                crate::auth::Permission::ObjectsGetIam,
+            ),
+            AclKind::Bucket | AclKind::DefaultObject => (
+                crate::auth::Permission::BucketsSetIam,
+                crate::auth::Permission::BucketsGetIam,
+            ),
         };
-        match target_access(connection, target, &row.project, &policy_access) {
+        match target_access(
+            connection,
+            target,
+            &row.project,
+            &access.with_permission(write),
+        ) {
             Ok(_) => {}
             // A caller who may only read the ACL can still resend it unchanged; any change
             // stays refused for the permission that writing it needs.
             Err(CatalogError::Denied(denied)) => {
-                if let BucketAccess::Policy { permission, .. } = &mut policy_access {
-                    *permission = if target.kind() == AclKind::Object {
-                        crate::auth::Permission::ObjectsGetIam
-                    } else {
-                        crate::auth::Permission::BucketsGetIam
-                    };
-                }
-                match target_access(connection, target, &row.project, &policy_access) {
+                match target_access(
+                    connection,
+                    target,
+                    &row.project,
+                    &access.with_permission(read),
+                ) {
                     Err(CatalogError::Denied(_)) => return Err(CatalogError::Denied(denied)),
                     other => other?,
                 }
@@ -783,7 +784,7 @@ impl Catalog {
                 Err(error) if error.is_refusal() => {
                     let identity = match &access {
                         BucketAccess::Policy { identity, .. } => identity.as_ref(),
-                        _ => None,
+                        BucketAccess::Permissive | BucketAccess::Admin(_) => None,
                     };
                     if !snapshot
                         .owner
@@ -1018,7 +1019,7 @@ impl Catalog {
                                 Ok(public)
                             })?
                     }
-                    Some(_) => false,
+                    Some(BucketAccess::Permissive | BucketAccess::Admin(_)) => false,
                     None => true,
                 };
                 visible.push(allowed);

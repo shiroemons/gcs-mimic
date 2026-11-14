@@ -89,20 +89,15 @@ pub(super) fn update_in_transaction(
     let pap = update
         .public_access_prevention_enforced
         .unwrap_or(record.public_access_prevention_enforced);
+    // Permissive and administrative access hold no IAM permission to check twice.
     if pap != record.public_access_prevention_enforced
-        && let BucketAccess::Policy {
-            identity, project, ..
-        } = access
+        && matches!(access, BucketAccess::Policy { .. })
     {
         check_access(
             transaction,
             name,
             &record.project,
-            &BucketAccess::Policy {
-                identity: identity.clone(),
-                project: project.clone(),
-                permission: crate::auth::Permission::BucketsSetIam,
-            },
+            &access.with_permission(crate::auth::Permission::BucketsSetIam),
         )?;
     }
     if !conditions.hold(record.metageneration) {

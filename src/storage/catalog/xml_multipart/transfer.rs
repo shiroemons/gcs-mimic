@@ -45,7 +45,7 @@ impl Catalog {
             let retained=catalog.run(move |connection| -> Result<_, Error> {
                 let transaction=connection.transaction().map_err(object_unavailable)?;
                 active(&transaction,&target,&access,now)?;
-                objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
+                objects::authorized_bucket(&transaction,&target.bucket,&access.with_permission(Permission::ObjectsCreate))?;
                 sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable).map_err(Error::from)
             }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
@@ -68,7 +68,7 @@ impl Catalog {
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
                     let now=UnixMillis::try_from(clock.now())?;
                     active(&transaction,&target,&access,now)?;
-                    objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
+                    objects::authorized_bucket(&transaction,&target.bucket,&access.with_permission(Permission::ObjectsCreate))?;
                     let others=sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable)?;
                     others.checked_add(size).filter(|total| *total<=request.max_bytes).ok_or(ObjectError::TooLarge)?;
                     sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,number]).map_err(object_unavailable)?;
@@ -158,7 +158,7 @@ impl Catalog {
                 storage_class: lease.upload.options.metadata.storage_class,
                 expected: Default::default(),
                 conditions: Default::default(),
-                access: access_for(&access, Permission::ObjectsCreate),
+                access: access.with_permission(Permission::ObjectsCreate),
                 component_count: None,
             };
             let result = catalog
@@ -212,7 +212,7 @@ impl Catalog {
             objects::authorized_bucket(
                 &transaction,
                 &target.bucket,
-                &access_for(&access, Permission::ObjectsCreate),
+                &access.with_permission(Permission::ObjectsCreate),
             )?;
             let mut total = 0u64;
             for (index, wanted) in requested.iter().enumerate() {

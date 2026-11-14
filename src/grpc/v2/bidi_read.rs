@@ -90,7 +90,7 @@ impl ReadHandles {
 fn project(access: &BucketAccess) -> Option<&str> {
     match access {
         BucketAccess::Policy { project, .. } => project.as_deref(),
-        _ => None,
+        BucketAccess::Permissive | BucketAccess::Admin(_) => None,
     }
 }
 

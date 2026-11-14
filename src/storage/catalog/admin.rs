@@ -73,6 +73,18 @@ pub(super) fn startup_grant(mode: LocalAdmin) -> Option<AdminGrant> {
     })
 }
 
+#[cfg(test)]
+impl AdminGrant {
+    /// The grant that startup seeding holds when local administration is enabled.
+    pub(crate) fn seed() -> Self {
+        Self {
+            origin: Origin::Seed,
+            notification_mode: crate::notification::NotificationMode::Emit,
+            control: None,
+        }
+    }
+}
+
 impl AdminGrant {
     pub(super) fn authorize(&self, connection: &Connection) -> Result<(), CatalogError> {
         if let Some(scope) = &self.control {
