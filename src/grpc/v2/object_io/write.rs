@@ -50,26 +50,7 @@ impl Storage {
         let mut position = MessagePosition::First;
         let mut stream = input.map(|result| {
             result.and_then(|r| {
-                let message = pb::BidiWriteObjectRequest {
-                    write_offset: r.write_offset,
-                    object_checksums: r.object_checksums,
-                    finish_write: r.finish_write,
-                    common_object_request_params: r.common_object_request_params,
-                    first_message: r.first_message.map(|f| match f {
-                        pb::write_object_request::FirstMessage::UploadId(id) => {
-                            pb::bidi_write_object_request::FirstMessage::UploadId(id)
-                        }
-                        pb::write_object_request::FirstMessage::WriteObjectSpec(spec) => {
-                            pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)
-                        }
-                    }),
-                    data: r
-                        .data
-                        .map(|pb::write_object_request::Data::ChecksummedData(data)| {
-                            pb::bidi_write_object_request::Data::ChecksummedData(data)
-                        }),
-                    ..Default::default()
-                };
+                let message = pb::BidiWriteObjectRequest::from(r);
                 if position == MessagePosition::First {
                     super::super::routing::write(&metadata, message.first_message.as_ref())?;
                     position = MessagePosition::Later;
@@ -81,14 +62,7 @@ impl Storage {
             .receive_write(&mut stream, caller, None, EndOfStream::Required)
             .await?;
         Ok(Response::new(pb::WriteObjectResponse {
-            write_status: Some(match result {
-                pb::bidi_write_object_response::WriteStatus::PersistedSize(n) => {
-                    pb::write_object_response::WriteStatus::PersistedSize(n)
-                }
-                pb::bidi_write_object_response::WriteStatus::Resource(r) => {
-                    pb::write_object_response::WriteStatus::Resource(r)
-                }
-            }),
+            write_status: Some(result.into()),
             ..Default::default()
         }))
     }

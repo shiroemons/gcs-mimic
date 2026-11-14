@@ -228,15 +228,7 @@ fn apply_autoclass(
 }
 
 pub(super) fn cors_rules(cors: &[pb::bucket::Cors]) -> Result<Vec<CorsRule>, Status> {
-    let rules = cors
-        .iter()
-        .map(|rule| CorsRule {
-            origin: rule.origin.clone(),
-            method: rule.method.clone(),
-            response_header: rule.response_header.clone(),
-            max_age_seconds: Some(rule.max_age_seconds),
-        })
-        .collect::<Vec<_>>();
+    let rules = cors.iter().map(CorsRule::from).collect::<Vec<_>>();
     bucket::validate_cors(&rules).map_err(input_error)?;
     Ok(rules)
 }

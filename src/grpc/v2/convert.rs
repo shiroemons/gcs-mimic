@@ -3,7 +3,7 @@ use crate::{
     acl::AclEntry,
     auth,
     bucket::{
-        BucketRecord, CatalogError,
+        BucketRecord, CatalogError, CorsRule,
         autoclass::AutoclassState,
         lifecycle::{
             BucketLifecycle, LifecycleAction, LifecycleDate, LifecycleRule, LifecycleRules,
@@ -14,6 +14,65 @@ use crate::{
 };
 use prost_types::{Duration, Timestamp};
 use serde_json::{Map, Value, json};
+
+/// A requested CORS rule. proto3 cannot omit `max_age_seconds`, so 0 is stored as a set value,
+/// unlike JSON, where the field may be absent.
+impl From<&pb::bucket::Cors> for CorsRule {
+    fn from(rule: &pb::bucket::Cors) -> Self {
+        Self {
+            origin: rule.origin.clone(),
+            method: rule.method.clone(),
+            response_header: rule.response_header.clone(),
+            max_age_seconds: Some(rule.max_age_seconds),
+        }
+    }
+}
+
+/// A stored CORS rule; one without `maxAgeSeconds` reports proto3's 0.
+impl From<&CorsRule> for pb::bucket::Cors {
+    fn from(rule: &CorsRule) -> Self {
+        Self {
+            origin: rule.origin.clone(),
+            method: rule.method.clone(),
+            response_header: rule.response_header.clone(),
+            max_age_seconds: rule.max_age_seconds.unwrap_or_default(),
+        }
+    }
+}
+
+/// WriteObject carries the same fields as a BidiWriteObject message, so both share one receive
+/// path.
+impl From<pb::WriteObjectRequest> for pb::BidiWriteObjectRequest {
+    fn from(request: pb::WriteObjectRequest) -> Self {
+        use pb::{bidi_write_object_request as bidi, write_object_request as write};
+        Self {
+            write_offset: request.write_offset,
+            object_checksums: request.object_checksums,
+            finish_write: request.finish_write,
+            common_object_request_params: request.common_object_request_params,
+            first_message: request.first_message.map(|first| match first {
+                write::FirstMessage::UploadId(id) => bidi::FirstMessage::UploadId(id),
+                write::FirstMessage::WriteObjectSpec(spec) => {
+                    bidi::FirstMessage::WriteObjectSpec(spec)
+                }
+            }),
+            data: request
+                .data
+                .map(|write::Data::ChecksummedData(data)| bidi::Data::ChecksummedData(data)),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<pb::bidi_write_object_response::WriteStatus> for pb::write_object_response::WriteStatus {
+    fn from(status: pb::bidi_write_object_response::WriteStatus) -> Self {
+        use pb::bidi_write_object_response::WriteStatus;
+        match status {
+            WriteStatus::PersistedSize(size) => Self::PersistedSize(size),
+            WriteStatus::Resource(resource) => Self::Resource(resource),
+        }
+    }
+}
 
 /// A retention time as a protobuf timestamp, straight from its seconds and nanoseconds so no
 /// platform clock resolution is involved.
@@ -255,16 +314,7 @@ pub(crate) fn bucket(
             .versioning
             .is_enabled()
             .then_some(pb::bucket::Versioning { enabled: true }),
-        cors: record
-            .cors
-            .iter()
-            .map(|rule| pb::bucket::Cors {
-                origin: rule.origin.clone(),
-                method: rule.method.clone(),
-                response_header: rule.response_header.clone(),
-                max_age_seconds: rule.max_age_seconds.unwrap_or_default(),
-            })
-            .collect(),
+        cors: record.cors.iter().map(pb::bucket::Cors::from).collect(),
         retention_policy,
         soft_delete_policy,
         object_retention: record
@@ -758,6 +808,27 @@ mod tests {
             assert_eq!(status.code(), tonic::Code::Unavailable);
             assert_eq!(status.message(), "Bucket catalog is unavailable");
         }
+    }
+
+    #[test]
+    fn cors_rules_keep_proto3_max_age_asymmetry() {
+        let proto = pb::bucket::Cors {
+            origin: vec!["https://example.com".into()],
+            method: vec!["GET".into()],
+            response_header: vec!["Content-Type".into()],
+            max_age_seconds: 0,
+        };
+        let rule = CorsRule::from(&proto);
+        assert_eq!(rule.origin, proto.origin);
+        assert_eq!(rule.method, proto.method);
+        assert_eq!(rule.response_header, proto.response_header);
+        assert_eq!(rule.max_age_seconds, Some(0));
+        assert_eq!(pb::bucket::Cors::from(&rule), proto);
+        let unset = CorsRule {
+            max_age_seconds: None,
+            ..rule
+        };
+        assert_eq!(pb::bucket::Cors::from(&unset), proto);
     }
 
     #[test]
