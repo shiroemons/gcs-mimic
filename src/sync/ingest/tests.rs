@@ -72,6 +72,7 @@ async fn staging_finishes_while_another_file_worker_is_occupied() {
         root: &root,
         config: &config,
         admin: root.sync_admin(),
+        summary: Reconciliation::default(),
     };
     let staged = tokio::time::timeout(
         Duration::from_secs(2),
@@ -97,6 +98,7 @@ async fn source_recheck_preserves_precondition_when_staging_cleanup_also_fails()
         root: &root,
         config: &config,
         admin: root.sync_admin(),
+        summary: Reconciliation::default(),
     };
     let hook = Arc::new(Hook {
         phase: "staged",

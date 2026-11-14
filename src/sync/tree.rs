@@ -81,6 +81,25 @@ pub(crate) struct TreeEntry {
     pub(crate) directory: bool,
     pub(crate) error: Option<io::ErrorKind>,
 }
+/// The directories of the scan's frames, reopened from the root. `lost` is the first frame that
+/// could not be reopened or was replaced; it is reported as an entry and dropped with the frames
+/// below it.
+struct Reopened {
+    directories: Vec<File>,
+    lost: Option<TreeEntry>,
+}
+impl TreeEntry {
+    /// A directory of the scan that could not be opened or listed, or was replaced; the scan
+    /// reports it with the error and stops descending into it.
+    fn lost_directory(frame: &Frame, error: io::ErrorKind) -> Self {
+        Self {
+            path: frame.path.clone(),
+            identity: None,
+            directory: true,
+            error: Some(error),
+        }
+    }
+}
 impl Frame {
     fn new(path: PathBuf, identity: Option<NodeId>) -> Self {
         Self {
@@ -105,12 +124,9 @@ impl TreeScan {
         self.frames.retain(|frame| !frame.path.starts_with(path));
     }
 
-    fn reopen(
-        &mut self,
-        root: &File,
-        entries: &mut Vec<TreeEntry>,
-    ) -> Result<Vec<File>, AdminError> {
+    fn reopen(&mut self, root: &File) -> Result<Reopened, AdminError> {
         let mut directories: Vec<File> = Vec::with_capacity(self.frames.len());
+        let mut lost = None;
         for (index, frame) in self.frames.iter_mut().enumerate() {
             let opened = if index == 0 {
                 root.try_clone()
@@ -129,12 +145,7 @@ impl TreeScan {
             let file = match opened {
                 Ok(file) => file,
                 Err(error) => {
-                    entries.push(TreeEntry {
-                        path: frame.path.clone(),
-                        identity: None,
-                        directory: true,
-                        error: Some(error.kind()),
-                    });
+                    lost = Some(TreeEntry::lost_directory(frame, error.kind()));
                     self.frames.truncate(index);
                     break;
                 }
@@ -144,24 +155,25 @@ impl TreeScan {
                 .identity
                 .is_some_and(|expected| expected != stat.node())
             {
-                entries.push(TreeEntry {
-                    path: frame.path.clone(),
-                    identity: None,
-                    directory: true,
-                    error: Some(io::ErrorKind::ResourceBusy),
-                });
+                lost = Some(TreeEntry::lost_directory(
+                    frame,
+                    io::ErrorKind::ResourceBusy,
+                ));
                 self.frames.truncate(index);
                 break;
             }
             frame.identity = Some(stat.node());
             directories.push(file);
         }
-        Ok(directories)
+        Ok(Reopened { directories, lost })
     }
 
     pub(crate) fn page(mut self, root: &File) -> Result<(Self, Vec<TreeEntry>), AdminError> {
-        let mut entries = Vec::new();
-        let mut directories = self.reopen(root, &mut entries)?;
+        let Reopened {
+            mut directories,
+            lost,
+        } = self.reopen(root)?;
+        let mut entries: Vec<TreeEntry> = lost.into_iter().collect();
         while entries.len() < 256 {
             let Some(frame) = self.frames.last_mut() else {
                 break;
@@ -178,12 +190,7 @@ impl TreeScan {
                     continue;
                 }
                 Err(error) if error.kind() != io::ErrorKind::InvalidData => {
-                    entries.push(TreeEntry {
-                        path: frame.path.clone(),
-                        identity: None,
-                        directory: true,
-                        error: Some(error.kind()),
-                    });
+                    entries.push(TreeEntry::lost_directory(frame, error.kind()));
                     self.frames.pop();
                     directories.pop();
                     continue;

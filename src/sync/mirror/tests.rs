@@ -94,7 +94,14 @@ async fn external_inventory_defers_unreadable_children_without_stopping_other_fi
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let counts = external_files(&root, &root.sync_admin(), Interrupt::new(&stopping)).await;
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_eq!(counts.unwrap(), (1, 0, 1));
+    assert_eq!(
+        counts.unwrap(),
+        ExternalFiles {
+            only: 1,
+            ignored: 0,
+            unrepresentable: 1,
+        }
+    );
     drop(root);
     catalog.close().await.unwrap();
 }

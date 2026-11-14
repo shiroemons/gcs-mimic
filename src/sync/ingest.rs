@@ -24,8 +24,14 @@ use crate::{
 };
 use std::{fs::File, io, path::PathBuf};
 
+/// A changed regular file selected for ingestion, with what `candidate` already parsed from it.
 struct Candidate {
-    entry: Entry,
+    /// The file below the sync root, for staging and diagnostics.
+    path: PathBuf,
+    /// The same path as the tracked state's key, checked once here.
+    key: SyncPath,
+    /// The identity the tree scan observed; staging requires the file still to have it.
+    identity: FileIdentity,
     bucket: BucketName,
     name: ObjectName,
     binding: SyncBinding,
@@ -86,27 +92,6 @@ fn recheck_source(
     } else {
         Err(AdminError::Precondition)
     }
-}
-
-fn same_stat(fp: &SyncFingerprint, stat: FileIdentity) -> bool {
-    fp.matches_identity(stat)
-}
-
-fn deferred(path: &std::path::Path, reason: impl std::fmt::Display, summary: &mut Reconciliation) {
-    let path = if path.as_os_str().is_empty() {
-        std::path::Path::new(".")
-    } else {
-        path
-    };
-    summary.deferred += 1;
-    diagnostics::emit(
-        LogLevel::Warn,
-        "sync_source_deferred",
-        serde_json::json!({
-            "path":path,"reason":reason.to_string(),
-            "remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"
-        }),
-    );
 }
 
 async fn forget_missing_directories(
@@ -170,13 +155,13 @@ pub(super) async fn rescan_with(
     if writeback.status().await?.stop() != crate::storage::sync_state::writeback::Stop::Ready {
         return Err(SyncError::WritebackUnfinished(Pass::Ingest));
     }
-    let ingest = Ingest {
+    let mut ingest = Ingest {
         catalog,
         root,
         config,
         admin: root.sync_admin(),
+        summary: Reconciliation::default(),
     };
-    let mut summary = Reconciliation::default();
     forget_missing_directories(root, interrupt).await?;
     let mut scan = Scan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
@@ -186,25 +171,23 @@ pub(super) async fn rescan_with(
         let mut blocked = Vec::<PathBuf>::new();
         for entry in entries {
             if interrupt.check() != Interrupted::No {
-                summary.interrupted = true;
-                return Ok(summary);
+                return Ok(ingest.interrupted());
             }
             if blocked.iter().any(|path| entry.path.starts_with(path)) {
                 continue;
             }
             if let Some(error) = entry.error {
-                deferred(&entry.path, error, &mut summary);
+                ingest.defer(&entry.path, error);
                 continue;
             }
             if entry.directory {
-                if ingest.bucket_directory(&entry, &mut summary).await? == BucketDirectory::Blocked
-                {
+                if ingest.bucket_directory(&entry).await? == BucketDirectory::Blocked {
                     scan.skip(&entry.path);
                     blocked.push(entry.path.clone());
                 }
                 continue;
             }
-            if let Some(candidate) = ingest.candidate(entry, &mut summary).await? {
+            if let Some(candidate) = ingest.candidate(entry).await? {
                 candidates.push(candidate);
             }
         }
@@ -217,18 +200,17 @@ pub(super) async fn rescan_with(
                 .await
                 != Interrupted::No
             {
-                summary.interrupted = true;
-                return Ok(summary);
+                return Ok(ingest.interrupted());
             }
         }
         for candidate in candidates {
             if interrupt.check() != Interrupted::No {
-                summary.interrupted = true;
-                return Ok(summary);
+                return Ok(ingest.interrupted());
             }
-            ingest.ingest(candidate, &mut summary).await?;
+            ingest.ingest(candidate).await?;
         }
     }
+    let mut summary = ingest.summary;
     summary.interrupted = interrupt.check() != Interrupted::No;
     if !summary.interrupted {
         clear_missing_observations(root, interrupt).await?;
@@ -284,23 +266,45 @@ struct Ingest<'a> {
     root: &'a RootLease,
     config: &'a Config,
     admin: Admin,
+    /// The counts of this rescan; `rescan_with` returns them.
+    summary: Reconciliation,
 }
 
 impl Ingest<'_> {
-    async fn bucket_directory(
-        &self,
-        entry: &Entry,
-        summary: &mut Reconciliation,
-    ) -> Result<BucketDirectory, SyncError> {
+    /// The counts so far of a rescan that stopped before it finished.
+    fn interrupted(mut self) -> Reconciliation {
+        self.summary.interrupted = true;
+        self.summary
+    }
+
+    /// Counts a file or directory that could not be read this time and says how to restore it.
+    fn defer(&mut self, path: &std::path::Path, reason: impl std::fmt::Display) {
+        let path = if path.as_os_str().is_empty() {
+            std::path::Path::new(".")
+        } else {
+            path
+        };
+        self.summary.deferred += 1;
+        diagnostics::emit(
+            LogLevel::Warn,
+            "sync_source_deferred",
+            serde_json::json!({
+                "path":path,"reason":reason.to_string(),
+                "remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"
+            }),
+        );
+    }
+
+    async fn bucket_directory(&mut self, entry: &Entry) -> Result<BucketDirectory, SyncError> {
         if entry.path.components().count() != 1 {
             return Ok(BucketDirectory::Ready);
         }
         let Some(text) = entry.path.to_str() else {
-            summary.unrepresentable += 1;
+            self.summary.unrepresentable += 1;
             return Ok(BucketDirectory::Ready);
         };
         let Ok(bucket) = BucketName::new(text) else {
-            summary.unrepresentable += 1;
+            self.summary.unrepresentable += 1;
             return Ok(BucketDirectory::Ready);
         };
         if self
@@ -310,8 +314,8 @@ impl Ingest<'_> {
         {
             return Ok(BucketDirectory::Ready);
         }
-        summary.blocked_buckets += 1;
-        summary.deferred += 1;
+        self.summary.blocked_buckets += 1;
+        self.summary.deferred += 1;
         diagnostics::emit(
             LogLevel::Warn,
             "sync_bucket_missing",
@@ -325,24 +329,20 @@ impl Ingest<'_> {
 
     /// Selects a regular file whose observed state differs from its tracked fingerprint;
     /// `None` means it is unchanged or was counted as ignored, unrepresentable or deferred.
-    async fn candidate(
-        &self,
-        entry: Entry,
-        summary: &mut Reconciliation,
-    ) -> Result<Option<Candidate>, SyncError> {
+    async fn candidate(&mut self, entry: Entry) -> Result<Option<Candidate>, SyncError> {
         let (bucket, name) = match mapping::path_to_name(&entry.path) {
             Ok(mapped) => mapped,
             Err(mapping::Reason::Ignored) => {
-                summary.ignored += 1;
+                self.summary.ignored += 1;
                 return Ok(None);
             }
             Err(_) => {
-                summary.unrepresentable += 1;
+                self.summary.unrepresentable += 1;
                 return Ok(None);
             }
         };
         let Some(identity) = entry.identity else {
-            summary.unrepresentable += 1;
+            self.summary.unrepresentable += 1;
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_unsafe_entry",
@@ -354,7 +354,7 @@ impl Ingest<'_> {
         let binding = match self.root.sync_binding(&bucket).await {
             Ok(binding) => binding,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -364,27 +364,29 @@ impl Ingest<'_> {
             .to_str()
             .ok_or(SyncError::Invariant("invalid sync path"))?
             .to_owned();
-        let tracked = match state.get_path(binding.clone(), path.clone()).await {
+        // The tracked state's lookup checks the same spelling, so this fails exactly where it would.
+        let key = SyncPath::try_from(path.clone())?;
+        let tracked = match state.get_path(binding.clone(), path).await {
             Ok(tracked) => tracked,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
         };
-        if tracked
+        if let Some(tracked) = tracked
             .as_ref()
-            .is_some_and(|record| same_stat(&record.fingerprint, identity))
+            .filter(|record| record.fingerprint.matches_identity(identity))
         {
-            let tracked = tracked
-                .as_ref()
-                .ok_or(SyncError::Invariant("missing tracked source"))?;
             if !tracked.fingerprint.racy {
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
             }
-            if self.racy_clean(&entry, tracked, &binding, &name).await? {
-                summary.identical += 1;
+            if self
+                .racy_clean(&entry.path, identity, tracked, &binding, &name)
+                .await?
+            {
+                self.summary.identical += 1;
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
             }
@@ -395,7 +397,7 @@ impl Ingest<'_> {
             Err(error) => return Err(error.into()),
         };
         if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
-            summary.unrepresentable += 1;
+            self.summary.unrepresentable += 1;
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_path_collision",
@@ -404,7 +406,9 @@ impl Ingest<'_> {
             return Ok(None);
         }
         Ok(Some(Candidate {
-            entry,
+            path: entry.path,
+            key,
+            identity,
             bucket,
             name,
             binding,
@@ -415,21 +419,19 @@ impl Ingest<'_> {
 
     async fn racy_clean(
         &self,
-        entry: &Entry,
+        path: &std::path::Path,
+        expected: FileIdentity,
         tracked: &SyncRecord,
         binding: &SyncBinding,
         name: &ObjectName,
     ) -> Result<bool, SyncError> {
-        let Some(expected) = entry.identity else {
-            return Ok(false);
-        };
-        let path = entry.path.clone();
+        let selected = path.to_owned();
         let observed = self
             .root
             .file_job(move |root| {
-                let (file, parent) = open_source(root, &path, expected)?;
+                let (file, parent) = open_source(root, &selected, expected)?;
                 let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
-                recheck_source(root, &path, expected, parent)?;
+                recheck_source(root, &selected, expected, parent)?;
                 Ok(hashes)
             })
             .await;
@@ -447,7 +449,7 @@ impl Ingest<'_> {
             SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
         let update = SyncUpdate::new(
             binding.clone(),
-            SyncPath::try_from(entry.path.to_string_lossy().into_owned())?,
+            SyncPath::try_from(path.to_string_lossy().into_owned())?,
             fingerprint,
         )?;
         match self
@@ -506,20 +508,10 @@ impl Ingest<'_> {
     /// Stages a candidate's bytes with the fingerprint that tracks them; `None` means the
     /// file changed or became unreadable and was deferred.
     async fn stage_update(
-        &self,
-        entry: &Entry,
-        binding: &SyncBinding,
-        summary: &mut Reconciliation,
+        &mut self,
+        candidate: &Candidate,
     ) -> Result<Option<(StagedObject, SyncUpdate)>, SyncError> {
-        let identity = entry
-            .identity
-            .ok_or(SyncError::Invariant("missing observed file identity"))?;
-        let path = entry
-            .path
-            .to_str()
-            .ok_or(SyncError::Invariant("invalid sync path"))?
-            .to_owned();
-        let staged = match self.stage(entry.path.clone(), identity).await {
+        let staged = match self.stage(candidate.path.clone(), candidate.identity).await {
             Ok(staged) => staged,
             Err(RootError::Admin(error))
                 if matches!(
@@ -529,40 +521,45 @@ impl Ingest<'_> {
                         | AdminError::SourceChanged { .. }
                 ) || matches!(&error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::NotFound) =>
             {
-                summary.deferred += 1;
-                self.record_observation(entry, binding, PathStop::SourceChanging)
-                    .await?;
+                self.summary.deferred += 1;
+                self.record_observation(
+                    &candidate.binding,
+                    &candidate.name,
+                    PathStop::SourceChanging,
+                )
+                .await?;
                 return Ok(None);
             }
             Err(RootError::Admin(AdminError::Io(error))) => {
-                deferred(&entry.path, error.kind(), summary);
-                self.record_observation(entry, binding, PathStop::IoFailure)
+                self.defer(&candidate.path, error.kind());
+                self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
                     .await?;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
         };
         let hashes = staged.hashes();
-        if let Ok((_, name)) = mapping::path_to_name(&entry.path) {
-            self.clear_observation(binding.clone(), name).await?;
-        }
+        self.clear_observation(candidate.binding.clone(), candidate.name.clone())
+            .await?;
         let fingerprint =
-            SyncFingerprint::observed(identity, hashes, self.root.observation_time_ns()?);
-        let update = SyncUpdate::new(binding.clone(), SyncPath::try_from(path)?, fingerprint)?;
+            SyncFingerprint::observed(candidate.identity, hashes, self.root.observation_time_ns()?);
+        let update = SyncUpdate::new(
+            candidate.binding.clone(),
+            candidate.key.clone(),
+            fingerprint,
+        )?;
         Ok(Some((staged, update)))
     }
 
     async fn record_observation(
         &self,
-        entry: &Entry,
         binding: &SyncBinding,
+        name: &ObjectName,
         reason: PathStop,
     ) -> Result<(), SyncError> {
-        let (_, name) = mapping::path_to_name(&entry.path)
-            .map_err(|_| SyncError::Invariant("invalid deferred synchronization target"))?;
         match self
             .root
-            .record_path_stop(binding.clone(), name, reason)
+            .record_path_stop(binding.clone(), name.clone(), reason)
             .await
         {
             Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
@@ -587,22 +584,19 @@ impl Ingest<'_> {
         Ok(())
     }
 
-    async fn ingest(
-        &self,
-        candidate: Candidate,
-        summary: &mut Reconciliation,
-    ) -> Result<(), SyncError> {
+    async fn ingest(&mut self, candidate: Candidate) -> Result<(), SyncError> {
+        let Some((staged, update)) = self.stage_update(&candidate).await? else {
+            return Ok(());
+        };
         let Candidate {
-            entry,
+            path,
             bucket,
             name,
             binding,
             tracked,
             live,
+            ..
         } = candidate;
-        let Some((staged, update)) = self.stage_update(&entry, &binding, summary).await? else {
-            return Ok(());
-        };
         let hashes = staged.hashes();
         if let Some(live) = &live {
             let generation = Generation::new(live.generation)?;
@@ -615,8 +609,10 @@ impl Ingest<'_> {
                     .acknowledge(&name, generation, update)
                     .await
                 {
-                    Ok(()) => summary.identical += 1,
-                    Err(AdminError::Precondition | AdminError::NotFound) => summary.deferred += 1,
+                    Ok(()) => self.summary.identical += 1,
+                    Err(AdminError::Precondition | AdminError::NotFound) => {
+                        self.summary.deferred += 1
+                    }
                     Err(error) => return Err(error.into()),
                 }
                 return Ok(());
@@ -629,7 +625,7 @@ impl Ingest<'_> {
                 self.root
                     .record_export_conflict(binding, name, generation)
                     .await?;
-                summary.conflicting += 1;
+                self.summary.conflicting += 1;
                 return Ok(());
             }
         } else if let Some(tracked) = &tracked {
@@ -640,13 +636,13 @@ impl Ingest<'_> {
                 && tracked.fingerprint.crc32c == hashes.crc32c
             {
                 // A native notification can race API deletion before its unchanged output is removed.
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(());
             }
             self.root
                 .record_export_conflict(binding, name, tracked.generation)
                 .await?;
-            summary.conflicting += 1;
+            self.summary.conflicting += 1;
             return Ok(());
         }
         #[cfg(test)]
@@ -655,9 +651,7 @@ impl Ingest<'_> {
             .config
             .seed_content_type
             .for_name(
-                entry
-                    .path
-                    .file_name()
+                path.file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or_default(),
             )
@@ -686,9 +680,9 @@ impl Ingest<'_> {
             .await?;
         for result in result.results {
             match result {
-                Ok(_) => summary.ingested += 1,
+                Ok(_) => self.summary.ingested += 1,
                 Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
-                    summary.deferred += 1
+                    self.summary.deferred += 1
                 }
                 Err(error) => return Err(error.into()),
             }

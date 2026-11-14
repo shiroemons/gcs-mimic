@@ -899,16 +899,17 @@ async fn reconcile_live_object(
     fence: JournalFence,
     summary: &mut Reconciliation,
 ) -> Result<(), SyncError> {
-    let object = LiveObject {
+    let mut object = LiveObject {
         catalog,
         root,
         bucket,
         name,
+        summary,
     };
-    let Some(plan) = object.plan(summary).await? else {
+    let Some(plan) = object.plan().await? else {
         return Ok(());
     };
-    object.export(writeback, fence, plan, summary).await
+    object.export(writeback, fence, plan).await
 }
 
 pub(super) async fn restore_from_catalog(
@@ -919,13 +920,16 @@ pub(super) async fn restore_from_catalog(
 ) -> Result<(), SyncError> {
     let fence = catalog.current_fence().await?;
     let writeback = root.default_writeback().await?;
-    let object = LiveObject {
+    // Restoring a protected deletion reports no counts.
+    let mut uncounted = Reconciliation::default();
+    let mut object = LiveObject {
         catalog,
         root,
         bucket,
         name,
+        summary: &mut uncounted,
     };
-    let Some(plan) = object.plan(&mut Reconciliation::default()).await? else {
+    let Some(plan) = object.plan().await? else {
         return Ok(());
     };
     let Some(source) = plan.source else {
@@ -960,6 +964,8 @@ struct LiveObject<'a> {
     root: &'a RootLease,
     bucket: &'a BucketName,
     name: &'a ObjectName,
+    /// The counts of the pass this object belongs to.
+    summary: &'a mut Reconciliation,
 }
 
 /// Whether the working-tree file already holds the catalog generation's bytes.
@@ -979,27 +985,28 @@ struct LivePlan {
 }
 
 impl LiveObject<'_> {
-    async fn finding(
-        &self,
-        record: &ObjectRecord,
-        reason: Reason,
-        summary: &mut Reconciliation,
-    ) -> Result<(), SyncError> {
-        finding(
-            self.catalog,
-            self.root,
-            self.bucket,
-            self.name,
-            record,
-            reason,
-            summary,
-        )
-        .await
+    /// Records why this object stays out of the working tree and counts it.
+    async fn finding(&mut self, record: &ObjectRecord, reason: Reason) -> Result<(), SyncError> {
+        let binding = self.catalog.sync_state().binding(self.bucket).await?;
+        self.root
+            .record_finding(
+                binding,
+                self.name.clone(),
+                Generation::new(record.generation)?,
+                reason,
+            )
+            .await?;
+        if reason == Reason::Ignored {
+            self.summary.ignored += 1;
+        } else {
+            self.summary.unrepresentable += 1;
+        }
+        Ok(())
     }
 
     /// Reads current state once and decides what to export; `None` means nothing to do now,
     /// with any finding or deferral already counted in `summary`.
-    async fn plan(&self, summary: &mut Reconciliation) -> Result<Option<LivePlan>, SyncError> {
+    async fn plan(&mut self) -> Result<Option<LivePlan>, SyncError> {
         let (catalog, bucket, name) = (self.catalog, self.bucket, self.name);
         let admin = self.root.sync_admin();
         #[cfg(test)]
@@ -1027,7 +1034,7 @@ impl LiveObject<'_> {
             Ok(path) => path,
             Err(reason) => {
                 if let Some(record) = record {
-                    self.finding(&record, reason, summary).await?;
+                    self.finding(&record, reason).await?;
                 }
                 return Ok(None);
             }
@@ -1044,7 +1051,7 @@ impl LiveObject<'_> {
         {
             Ok(tracked) => tracked,
             Err(AdminError::Precondition | AdminError::NotFound) => {
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -1061,7 +1068,7 @@ impl LiveObject<'_> {
                 content: Content::Changed,
             }));
         };
-        let Some(content) = self.check_target(&admin, &record, path, summary).await? else {
+        let Some(content) = self.check_target(&admin, &record, path).await? else {
             return Ok(None);
         };
         let generation = Generation::new(record.generation)?;
@@ -1081,7 +1088,7 @@ impl LiveObject<'_> {
             Ok(Some(reader)) => Some(reader.into_file().await?),
             Ok(None) => None,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -1098,28 +1105,27 @@ impl LiveObject<'_> {
     /// Compares the live object with its working-tree path; `None` means a finding or
     /// deferral was recorded instead of an export.
     async fn check_target(
-        &self,
+        &mut self,
         admin: &Admin,
         record: &ObjectRecord,
         path: PathBuf,
-        summary: &mut Reconciliation,
     ) -> Result<Option<Content>, SyncError> {
         let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
             Ok(collision) => collision,
             Err(AdminError::Precondition | AdminError::NotFound) => {
-                summary.deferred += 1;
+                self.summary.deferred += 1;
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
         };
         if collision {
-            self.finding(record, Reason::Collision, summary).await?;
+            self.finding(record, Reason::Collision).await?;
             return Ok(None);
         }
         let observed = record.clone();
         match file_job_retry(self.root, move |root| inspect(root, &path, &observed)).await? {
             Target::Finding(reason) => {
-                self.finding(record, reason, summary).await?;
+                self.finding(record, reason).await?;
                 Ok(None)
             }
             Target::Identical => Ok(Some(Content::Identical)),
@@ -1128,17 +1134,16 @@ impl LiveObject<'_> {
     }
 
     async fn export(
-        &self,
+        &mut self,
         writeback: &Writeback,
         fence: JournalFence,
         mut plan: LivePlan,
-        summary: &mut Reconciliation,
     ) -> Result<(), SyncError> {
         let (bucket, name) = (self.bucket, self.name);
         #[cfg(test)]
         export_checkpoint("after-get-path").await;
         let Some(mut operation) = self.begin_export(writeback, fence, &plan, None).await? else {
-            summary.deferred += 1;
+            self.summary.deferred += 1;
             return Ok(());
         };
         #[cfg(test)]
@@ -1164,26 +1169,26 @@ impl LiveObject<'_> {
                 }
                 LiveResult::Complete => {
                     if plan.content == Content::Identical {
-                        summary.identical += 1;
+                        self.summary.identical += 1;
                     } else {
                         #[cfg(test)]
                         let _ = LIVE_EXPORTS.try_with(|count| {
                             count.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
                         });
-                        summary.exported += 1;
+                        self.summary.exported += 1;
                     }
                     break;
                 }
                 LiveResult::Obsolete => {
-                    summary.deferred += 1;
+                    self.summary.deferred += 1;
                     break;
                 }
                 LiveResult::Conflict => {
-                    summary.conflicting += 1;
+                    self.summary.conflicting += 1;
                     if !preserved {
                         let Some(retry) = self.preserve_export(writeback, fence, &mut plan).await?
                         else {
-                            summary.deferred += 1;
+                            self.summary.deferred += 1;
                             return Ok(());
                         };
                         operation = retry;
@@ -1569,31 +1574,6 @@ pub(super) async fn hierarchy_collision(
     Ok(!page.items.is_empty())
 }
 
-async fn finding(
-    catalog: &Catalog,
-    root: &RootLease,
-    bucket: &BucketName,
-    name: &ObjectName,
-    record: &ObjectRecord,
-    reason: Reason,
-    summary: &mut Reconciliation,
-) -> Result<(), SyncError> {
-    let binding = catalog.sync_state().binding(bucket).await?;
-    root.record_finding(
-        binding,
-        name.clone(),
-        Generation::new(record.generation)?,
-        reason,
-    )
-    .await?;
-    if reason == Reason::Ignored {
-        summary.ignored += 1;
-    } else {
-        summary.unrepresentable += 1;
-    }
-    Ok(())
-}
-
 fn concurrent_change(error: &writeback::Error) -> bool {
     match error {
         writeback::Error::Admin(AdminError::Precondition | AdminError::NotFound) => true,
@@ -1670,6 +1650,8 @@ struct Reconciler<'a> {
     admin: Admin,
     writeback: Writeback,
     fence: JournalFence,
+    /// The counts of this pass; `reconcile_with` completes and returns them.
+    summary: Reconciliation,
 }
 
 async fn reconcile_until(
@@ -1700,25 +1682,24 @@ async fn reconcile_with(
     if writeback.status().await?.stop() != Stop::Ready {
         return Err(SyncError::WritebackUnfinished(Pass::Reconcile));
     }
-    let reconciler = Reconciler {
+    let mut reconciler = Reconciler {
         catalog,
         root,
         interrupt,
         admin: root.sync_admin(),
         writeback: writeback.clone(),
         fence,
+        summary: Reconciliation::default(),
     };
-    let mut summary = Reconciliation::default();
-    if reconciler.buckets(&mut summary).await? == Step::Stopped
-        || interrupt.check() != Interrupted::No
-    {
-        summary.interrupted = true;
-        return Ok(summary);
+    if reconciler.buckets().await? == Step::Stopped || interrupt.check() != Interrupted::No {
+        reconciler.summary.interrupted = true;
+        return Ok(reconciler.summary);
     }
     let external = external_files(root, &reconciler.admin, interrupt).await?;
-    summary.external_only = external.0;
-    summary.ignored += external.1;
-    summary.unrepresentable += external.2;
+    let mut summary = reconciler.summary;
+    summary.external_only = external.only;
+    summary.ignored += external.ignored;
+    summary.unrepresentable += external.unrepresentable;
     summary.interrupted = interrupt.check() != Interrupted::No;
     let end = catalog.current_fence().await?;
     if baseline == BaselineGate::Allowed
@@ -1741,10 +1722,9 @@ impl Reconciler<'_> {
     }
 
     async fn live_object(
-        &self,
+        &mut self,
         bucket: &BucketName,
         name: &ObjectName,
-        summary: &mut Reconciliation,
     ) -> Result<(), SyncError> {
         reconcile_live_object(
             self.catalog,
@@ -1753,12 +1733,12 @@ impl Reconciler<'_> {
             bucket,
             name,
             self.fence,
-            summary,
+            &mut self.summary,
         )
         .await
     }
 
-    async fn buckets(&self, summary: &mut Reconciliation) -> Result<Step, SyncError> {
+    async fn buckets(&mut self) -> Result<Step, SyncError> {
         let mut after = None;
         loop {
             if self.stopped() {
@@ -1768,19 +1748,19 @@ impl Reconciler<'_> {
             let next = page.items.last().map(|entry| entry.bucket.name.clone());
             for entry in page.items {
                 let Ok(bucket) = BucketName::new(entry.bucket.name.clone()) else {
-                    summary.unrepresentable += 1;
+                    self.summary.unrepresentable += 1;
                     continue;
                 };
                 let directory = PathBuf::from(bucket.as_str());
                 if !self.root.remember_sync_bucket(&bucket).await? {
-                    summary.deferred += 1;
+                    self.summary.deferred += 1;
                     continue;
                 }
                 if !create_directory(self.root, directory).await? {
-                    summary.unrepresentable += 1;
+                    self.summary.unrepresentable += 1;
                 }
-                if self.objects(&bucket, summary).await? == Step::Stopped
-                    || self.tracked_deletions(&bucket, summary).await? == Step::Stopped
+                if self.objects(&bucket).await? == Step::Stopped
+                    || self.tracked_deletions(&bucket).await? == Step::Stopped
                 {
                     return Ok(Step::Stopped);
                 }
@@ -1792,16 +1772,12 @@ impl Reconciler<'_> {
         }
     }
 
-    async fn objects(
-        &self,
-        bucket: &BucketName,
-        summary: &mut Reconciliation,
-    ) -> Result<Step, SyncError> {
+    async fn objects(&mut self, bucket: &BucketName) -> Result<Step, SyncError> {
         let mut query = ObjectListQuery::default();
         loop {
             let objects = self.admin.list_objects(bucket, query.clone(), 256).await?;
             for record in objects.items {
-                if self.object(bucket, &record, summary).await? == Step::Stopped {
+                if self.object(bucket, &record).await? == Step::Stopped {
                     return Ok(Step::Stopped);
                 }
             }
@@ -1813,25 +1789,20 @@ impl Reconciler<'_> {
     }
 
     async fn object(
-        &self,
+        &mut self,
         bucket: &BucketName,
         record: &ObjectRecord,
-        summary: &mut Reconciliation,
     ) -> Result<Step, SyncError> {
         if self.stopped() {
             return Ok(Step::Stopped);
         }
         let name = ObjectName::new(record.name.clone())?;
-        self.live_object(bucket, &name, summary).await?;
+        self.live_object(bucket, &name).await?;
         Ok(Step::Continue)
     }
 
     /// Reconciles tracked paths whose objects no longer exist, exporting their deletion.
-    async fn tracked_deletions(
-        &self,
-        bucket: &BucketName,
-        summary: &mut Reconciliation,
-    ) -> Result<Step, SyncError> {
+    async fn tracked_deletions(&mut self, bucket: &BucketName) -> Result<Step, SyncError> {
         let binding = self.root.sync_binding(bucket).await?;
         let mut after_path: Option<String> = None;
         loop {
@@ -1851,7 +1822,7 @@ impl Reconciler<'_> {
                 after_path = Some(record.path);
                 let name = ObjectName::new(record.name)?;
                 match self.admin.get_object(bucket, &name, None).await {
-                    Err(AdminError::NotFound) => self.live_object(bucket, &name, summary).await?,
+                    Err(AdminError::NotFound) => self.live_object(bucket, &name).await?,
                     Ok(_) => {}
                     Err(error) => return Err(error.into()),
                 }
@@ -1860,12 +1831,20 @@ impl Reconciler<'_> {
     }
 }
 
+/// Files the working tree holds that no live object accounts for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ExternalFiles {
+    only: u64,
+    ignored: u64,
+    unrepresentable: u64,
+}
+
 async fn external_files(
     root: &RootLease,
     admin: &Admin,
     interrupt: Interrupt<'_>,
-) -> Result<(u64, u64, u64), SyncError> {
-    let mut counts = (0, 0, 0);
+) -> Result<ExternalFiles, SyncError> {
+    let mut counts = ExternalFiles::default();
     let mut scan = super::tree::TreeScan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, page) = root.file_job(move |root| scan.page(root)).await?;
@@ -1878,7 +1857,7 @@ async fn external_files(
                 if kind == io::ErrorKind::ResourceBusy {
                     return Err(io::Error::from(kind).into());
                 }
-                counts.2 += 1;
+                counts.unrepresentable += 1;
                 continue;
             }
             if entry.directory {
@@ -1900,13 +1879,13 @@ async fn external_files(
                         .and_then(|name| name.to_str())
                         .is_some_and(crate::source_tree::is_ignored_regular_file)
                     {
-                        counts.1 += 1;
+                        counts.ignored += 1;
                     } else {
-                        counts.0 += 1;
+                        counts.only += 1;
                     }
                 }
             } else {
-                counts.2 += 1;
+                counts.unrepresentable += 1;
             }
         }
     }
