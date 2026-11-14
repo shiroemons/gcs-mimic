@@ -453,4 +453,19 @@ mod tests {
             assert!(NotificationConfig::from_stored(stored).is_err(), "{stored}");
         }
     }
+
+    /// The catalog keeps this text in `bucket_notifications.config`, so its keys, their order
+    /// and the order of event types must not change.
+    #[test]
+    fn stored_configs_keep_their_bytes() {
+        let mut config = config(&["OBJECT_DELETE", "OBJECT_FINALIZE"]);
+        config.payload_format = "NONE".into();
+        config.custom_attributes.insert("b".into(), "2".into());
+        config.custom_attributes.insert("a".into(), "1".into());
+        config.object_name_prefix = "logs/".into();
+        assert_eq!(
+            config.to_stored(),
+            r#"{"topic":"//pubsub.googleapis.com/projects/p/topics/topic","payload_format":"NONE","event_types":["OBJECT_DELETE","OBJECT_FINALIZE"],"custom_attributes":{"a":"1","b":"2"},"object_name_prefix":"logs/"}"#
+        );
+    }
 }
