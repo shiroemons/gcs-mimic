@@ -157,6 +157,64 @@ async fn import_batch_rejects_missing_hashes_and_nonreplace_modes_before_binding
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
 }
 
+/// An import publishes the source's own identity; a body staged with synchronization state
+/// would record a tracked path the import never owned, so the batch refuses it untouched.
+#[tokio::test]
+async fn import_batch_rejects_bodies_staged_with_synchronization_state() {
+    use crate::storage::sync_state::{SyncFingerprint, SyncPath, SyncUpdate};
+    let (dir, catalog, admin, source) = setup(3).await;
+    bucket(&admin, &source).await;
+    let progress = catalog.import_journal().progress().await.unwrap();
+    let binding = catalog
+        .sync_state()
+        .binding(&BucketName::new("test-bucket").unwrap())
+        .await
+        .unwrap();
+    let valid = entry(&dir, &admin, 2, "valid", b"valid").await;
+    let mut item = entry(&dir, &admin, 3, "object", b"imported").await;
+    let hashes = item.publication.staged.hashes();
+    let update = SyncUpdate::new(
+        binding,
+        SyncPath::try_from("test-bucket/object".to_owned()).unwrap(),
+        SyncFingerprint {
+            size: item.publication.staged.size(),
+            mtime_ns: 1,
+            ctime_ns: 1,
+            inode: 1,
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+            racy: true,
+        },
+    )
+    .unwrap();
+    item.publication.staged = item.publication.staged.with_sync_state(update);
+    let result = admin
+        .publish_import_objects(source.clone(), 1, vec![valid, item])
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(AdminError::Invalid(
+            "imported publications cannot carry synchronization state".into()
+        ))
+    );
+    assert_eq!(catalog.import_journal().progress().await.unwrap(), progress);
+    for name in ["valid", "object"] {
+        assert_eq!(
+            admin
+                .get_object(
+                    &BucketName::new("test-bucket").unwrap(),
+                    &ObjectName::new(name).unwrap(),
+                    None
+                )
+                .await,
+            Err(AdminError::NotFound),
+            "{name}"
+        );
+    }
+    catalog.close().await.unwrap();
+    assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
 #[tokio::test]
 async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix() {
     let (dir, catalog, admin, source) = setup(2).await;

@@ -202,14 +202,12 @@ impl SeedBatch {
                 + request.content_type.len()
                 + metadata_size(&request.metadata)?,
         )?;
-        let mut staged = self
+        // The batch owns one activity/admission lease; individual 256-handle permits must not deadlock a larger tree.
+        let staged = self
             .admin
             .stage_from_file(source, request.expected, request.max_bytes)
-            .await?;
-        // The batch owns one activity/admission lease; individual 256-handle permits must not deadlock a larger tree.
-        staged.permit.take();
-        staged.activity.take();
-        staged.batch_ownership = Some(self.request.clone());
+            .await?
+            .into_batch(self.request.clone());
         self.entries.push(BatchPublication {
             bucket,
             name,
@@ -306,10 +304,7 @@ async fn prepare_entry(
     crate::task::spawn_supervised("seed-prepare-object", async move {
         let _activity = catalog.activity()?;
         let staged = &mut entry.staged;
-        let id = staged
-            .id
-            .as_ref()
-            .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?;
+        let id = staged.blob_id();
         let source = id.staging_path(&catalog.0.data_dir);
         let destination = id.blob_path(&catalog.0.data_dir);
         #[cfg(test)]
@@ -422,13 +417,7 @@ fn commit(
             continue;
         }
         publish_entry(&transaction, entry, &batch.admin.grant, clock)?;
-        published.push(
-            entry
-                .staged
-                .id
-                .as_ref()
-                .ok_or_else(|| AdminError::Invalid("resolved staging handle".into()))?,
-        );
+        published.push(entry.staged.blob_id());
         if previous.is_some() {
             counts.replaced += 1;
         } else {
@@ -451,7 +440,7 @@ fn commit(
         let selected: Vec<_> = batch
             .entries
             .iter()
-            .filter_map(|entry| entry.staged.id.map(BlobId::to_hex))
+            .map(|entry| entry.staged.blob_id().to_hex())
             .collect();
         if let Err(error) = batch
             .admin
@@ -473,7 +462,7 @@ fn commit(
 fn confirmed(
     connection: &Connection,
     batch: &SeedBatch,
-    ids: &[&BlobId],
+    ids: &[BlobId],
     epoch: Option<i64>,
 ) -> Result<bool, AdminError> {
     let (complete, current): (bool, i64) = sql::row(connection, "SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(objects_error)?;

@@ -134,7 +134,7 @@ async fn cleanup_snapshot(crash: crate::storage::catalog::fault::Crash, sync: Di
         )
         .await
         .unwrap();
-    let id = staged.id.unwrap();
+    let id = staged.blob_id();
     catalog.0.backend.publish_draft(&id).unwrap();
     let snapshot = crate::test_support::TestDir::new();
     catalog.inject(Step::AfterCommit, 0, crash.fault(snapshot.0.clone()));
@@ -199,7 +199,7 @@ async fn cleanup_directory_sync_failure_reaches_discard_and_drop() {
             )
             .await
             .unwrap();
-        let id = staged.id.unwrap();
+        let id = staged.blob_id();
         catalog.0.backend.publish_draft(&id).unwrap();
         catalog.inject(Step::AdminCleanupSync, 0, Fault::Io(io::ErrorKind::Other));
         if explicit {
@@ -936,7 +936,8 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
     });
     let stage = dir.0.join("snapshot");
     FORCE_COPY.set(true);
-    let (size, hashes) = stage_file(&input, &stage, ExpectedHashes::default(), 200_000).unwrap();
+    let Staged { size, hashes } =
+        stage_file(&input, &stage, ExpectedHashes::default(), 200_000).unwrap();
     assert_eq!(size, bytes.len() as u64);
     assert_eq!(hashes.crc32c, crc32c::crc32c(&fs::read(stage).unwrap()));
     let input = source(&dir.0, &bytes);
