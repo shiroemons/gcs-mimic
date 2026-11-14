@@ -1016,6 +1016,45 @@ mod tests {
         storage.state.catalog.put_object(upload, rx).await.unwrap()
     }
 
+    /// Rewrite sessions store these parameters, and a continued call must produce the same
+    /// ones to match its token, so their keys, order and spelling are persisted state.
+    #[test]
+    fn rewrite_tokens_bind_the_stored_parameter_spelling() {
+        let parameters = |r: &pb::RewriteObjectRequest| {
+            check_rewrite_request(r).unwrap();
+            Value::Object(rewrite_parameters(r)).to_string()
+        };
+        let full = pb::RewriteObjectRequest {
+            source_generation: 7,
+            max_bytes_rewritten_per_call: 2 * 1_048_576,
+            if_generation_match: Some(0),
+            if_generation_not_match: Some(2),
+            if_metageneration_match: Some(3),
+            if_metageneration_not_match: Some(4),
+            if_source_generation_match: Some(5),
+            if_source_generation_not_match: Some(6),
+            if_source_metageneration_match: Some(8),
+            if_source_metageneration_not_match: Some(9),
+            ..Default::default()
+        };
+        assert_eq!(
+            parameters(&full),
+            r#"{"sourceGeneration":"7","maxBytesRewrittenPerCall":"2097152","ifGenerationMatch":"0","ifGenerationNotMatch":"2","ifMetagenerationMatch":"3","ifMetagenerationNotMatch":"4","ifSourceGenerationMatch":"5","ifSourceGenerationNotMatch":"6","ifSourceMetagenerationMatch":"8","ifSourceMetagenerationNotMatch":"9"}"#
+        );
+        // proto3's 0 is absent for the generation and the per-call limit.
+        assert_eq!(parameters(&pb::RewriteObjectRequest::default()), "{}");
+        let large = pb::RewriteObjectRequest {
+            source_generation: i64::MAX,
+            max_bytes_rewritten_per_call: i64::MAX - i64::MAX % 1_048_576,
+            if_metageneration_match: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(
+            parameters(&large),
+            r#"{"sourceGeneration":"9223372036854775807","maxBytesRewrittenPerCall":"9223372036853727232","ifMetagenerationMatch":"1"}"#
+        );
+    }
+
     #[test]
     fn grpc_bucket_masks_preserve_resets_and_omitted_parent_fields() {
         let bucket = pb::Bucket::default();
