@@ -1,7 +1,7 @@
 use super::{Catalog, unavailable, unix_micros};
 use crate::{
     bucket::CatalogError,
-    notification::{Endpoint, Topic, publisher::InvalidEndpoint},
+    notification::{Endpoint, Topic},
     task::TaskHealth,
 };
 use std::{
@@ -156,14 +156,8 @@ async fn attempt(
 /// read boundary: a damaged row is retried like a failed delivery and never blocks the rows
 /// queued after it.
 fn queued_topic(stored: &str) -> io::Result<Topic> {
-    Topic::from_canonical(stored).ok_or_else(|| {
-        if stored.parse::<Topic>().is_ok() {
-            // A relative name reads as a rejected endpoint, as before delivery took a topic.
-            InvalidEndpoint.into()
-        } else {
-            io::Error::new(io::ErrorKind::InvalidInput, "invalid Pub/Sub topic")
-        }
-    })
+    Topic::from_canonical(stored)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid Pub/Sub topic"))
 }
 
 #[cfg(test)]
@@ -175,6 +169,18 @@ mod tests {
         test_support::{TestDir, joined},
         time_limit::TimeLimit,
     };
+
+    /// The outbox stores only full topic names, so a row with a relative one is damaged, and
+    /// the retry it causes names the topic rather than the emulator endpoint.
+    #[test]
+    fn a_damaged_queued_topic_is_reported_as_an_invalid_topic() {
+        for stored in ["projects/p/topics/topic", "not a topic"] {
+            let error = queued_topic(stored).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{stored}");
+            assert_eq!(error.to_string(), "invalid Pub/Sub topic", "{stored}");
+        }
+        assert!(queued_topic("//pubsub.googleapis.com/projects/p/topics/topic").is_ok());
+    }
 
     /// Enough failed passes turn readiness off, so a reset must not count as one.
     #[tokio::test]
