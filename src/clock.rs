@@ -52,6 +52,7 @@ impl Clock for ManualClock {
 pub(crate) const RFC3339_MIN_MICROS: i64 = -62_167_219_200_000_000;
 /// 9999-12-31T23:59:59.999999Z.
 pub(crate) const RFC3339_MAX_MICROS: i64 = 253_402_300_799_999_999;
+pub(crate) const MICROS_PER_SECOND: i64 = 1_000_000;
 /// 0001-01-01T00:00:00Z: Go's zero `time.Time`, which a fake-gcs-server export writes for an
 /// unset time, and the earliest protobuf `Timestamp`.
 pub(crate) const YEAR_ONE_MICROS: i64 = -62_135_596_800_000_000;

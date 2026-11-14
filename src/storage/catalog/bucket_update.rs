@@ -96,23 +96,7 @@ pub(super) fn update_in_transaction(
         access,
         mode,
     } = change;
-    let mut record = select_bucket(transaction, name)?.ok_or(CatalogError::NotFound)?;
-    check_access(transaction, name, &record.project, access)?;
-    let pap = update
-        .public_access_prevention
-        .unwrap_or(record.public_access_prevention);
-    // Permissive and administrative access hold no IAM permission to check twice.
-    if pap != record.public_access_prevention && matches!(access, BucketAccess::Policy { .. }) {
-        check_access(
-            transaction,
-            name,
-            &record.project,
-            &access.with_permission(crate::auth::Permission::BucketsSetIam),
-        )?;
-    }
-    if !conditions.hold(record.metageneration) {
-        return Err(CatalogError::PreconditionFailed);
-    }
+    let mut record = authorize_update(transaction, name, &update, conditions, access)?;
     // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
     // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
     if matches!(mode, WriteMode::Patch) && update.is_empty() {
@@ -146,7 +130,17 @@ pub(super) fn update_in_transaction(
             "A bucket can have at most 64 labels".into(),
         ));
     }
-    let lifecycle = apply_plain_settings(&mut record, &mut update)?;
+    let lifecycle = apply_plain_settings(
+        &mut record,
+        PlainSettings {
+            storage_class: update.storage_class,
+            versioning: update.versioning,
+            default_event_based_hold: update.default_event_based_hold,
+            public_access_prevention: update.public_access_prevention,
+            cors: update.cors,
+            lifecycle: update.lifecycle,
+        },
+    )?;
     record.metageneration = record
         .metageneration
         .checked_add(1)
@@ -178,6 +172,35 @@ pub(super) fn update_in_transaction(
         name,
         None,
     )?;
+    Ok(record)
+}
+
+/// Reads the bucket an update changes and checks that `access` may change it as `update` asks
+/// and that `conditions` hold.
+fn authorize_update(
+    transaction: &rusqlite::Transaction<'_>,
+    name: &str,
+    update: &BucketMetadataUpdate,
+    conditions: BucketConditions,
+    access: &BucketAccess,
+) -> Result<BucketRecord, CatalogError> {
+    let record = select_bucket(transaction, name)?.ok_or(CatalogError::NotFound)?;
+    check_access(transaction, name, &record.project, access)?;
+    let pap = update
+        .public_access_prevention
+        .unwrap_or(record.public_access_prevention);
+    // Permissive and administrative access hold no IAM permission to check twice.
+    if pap != record.public_access_prevention && matches!(access, BucketAccess::Policy { .. }) {
+        check_access(
+            transaction,
+            name,
+            &record.project,
+            &access.with_permission(crate::auth::Permission::BucketsSetIam),
+        )?;
+    }
+    if !conditions.hold(record.metageneration) {
+        return Err(CatalogError::PreconditionFailed);
+    }
     Ok(record)
 }
 
@@ -278,7 +301,7 @@ fn validate_retention_expiration(
     };
     let latest_creation = i64::try_from(
         i128::from(crate::clock::RFC3339_MAX_MICROS)
-            - i128::from(policy.retention_period) * 1_000_000,
+            - i128::from(policy.retention_period) * i128::from(crate::clock::MICROS_PER_SECOND),
     )
     .map_err(unavailable)?;
     let invalid: bool = sql::scalar(
@@ -309,7 +332,7 @@ fn apply_retention_policy(
         }
         RetentionPolicyUpdate::RemoveUnlocked if locked => return Ok(()),
         RetentionPolicyUpdate::Remove | RetentionPolicyUpdate::RemoveUnlocked => None,
-        RetentionPolicyUpdate::Set(period) => Some(period),
+        RetentionPolicyUpdate::Set(period) => Some(period.seconds()),
     };
     if let Some(policy) = record
         .retention_policy
@@ -322,12 +345,6 @@ fn apply_retention_policy(
         record.retention_policy = None;
         return Ok(());
     };
-    if !(1..3_155_760_000).contains(&period) {
-        return Err(CatalogError::InvalidMetadata(
-            "Retention policy must have a retention period greater than 0 and less than 100 years."
-                .into(),
-        ));
-    }
     if record
         .retention_policy
         .as_ref()
@@ -365,29 +382,38 @@ fn lock_retention_policy(
     Ok(())
 }
 
-/// Applies the settings that only validate and replace a stored value, and tells whether the
-/// lifecycle column must be written.
+/// The settings that only validate and replace a stored value, moved out of the update.
+struct PlainSettings {
+    storage_class: Option<crate::bucket::StorageClass>,
+    versioning: Option<crate::bucket::VersioningUpdate>,
+    default_event_based_hold: Option<bool>,
+    public_access_prevention: Option<crate::bucket::PublicAccessPrevention>,
+    cors: Option<Vec<crate::bucket::CorsRule>>,
+    lifecycle: Option<crate::bucket::lifecycle::LifecycleRules>,
+}
+
+/// Applies the plain settings and tells whether the lifecycle column must be written.
 fn apply_plain_settings(
     record: &mut BucketRecord,
-    update: &mut BucketMetadataUpdate,
+    settings: PlainSettings,
 ) -> Result<LifecycleColumn, CatalogError> {
-    if let Some(class) = update.storage_class.take() {
+    if let Some(class) = settings.storage_class {
         record.storage_class = class;
     }
-    if let Some(versioning) = update.versioning {
+    if let Some(versioning) = settings.versioning {
         record.versioning = versioning.apply(record.versioning);
     }
-    if let Some(hold) = update.default_event_based_hold {
+    if let Some(hold) = settings.default_event_based_hold {
         record.default_event_based_hold = hold;
     }
-    if let Some(prevention) = update.public_access_prevention {
+    if let Some(prevention) = settings.public_access_prevention {
         record.public_access_prevention = prevention;
     }
-    if let Some(cors) = update.cors.take() {
+    if let Some(cors) = settings.cors {
         validate_cors(&cors)?;
         record.cors = cors;
     }
-    let Some(lifecycle) = update.lifecycle.take() else {
+    let Some(lifecycle) = settings.lifecycle else {
         return Ok(LifecycleColumn::Keep);
     };
     record.lifecycle = lifecycle.into();

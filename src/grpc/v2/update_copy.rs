@@ -2286,7 +2286,9 @@ mod tests {
                     lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(vec![
                         json!({"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}),
                     ])),
-                    retention_policy: RetentionPolicyUpdate::Set(3600),
+                    retention_policy: RetentionPolicyUpdate::Set(
+                        crate::bucket::RetentionPeriod::try_from(3600).unwrap(),
+                    ),
                     ..Default::default()
                 },
                 Default::default(),

@@ -166,7 +166,7 @@ pub(crate) enum RetentionPolicyUpdate {
     #[default]
     Keep,
     /// Sets the period in seconds; a locked policy may only grow.
-    Set(u64),
+    Set(RetentionPeriod),
     /// Removes the policy (null, a policy without a period, or an empty policy in a PUT); a
     /// locked policy refuses.
     Remove,
@@ -496,11 +496,31 @@ impl TryFrom<i64> for SoftDeleteRetention {
     }
 }
 
-pub(crate) fn retention_period(seconds: i64) -> Result<u64, CatalogError> {
-    u64::try_from(seconds)
-        .ok()
-        .filter(|value| (1..3_155_760_000).contains(value))
-        .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
+/// A bucket retention period Cloud Storage accepts, in seconds: more than zero and less than
+/// 100 years of 365.25 days.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RetentionPeriod(std::num::NonZeroU64);
+
+impl RetentionPeriod {
+    /// The exclusive upper bound, 100 years of 365.25 days.
+    pub(crate) const LIMIT_SECONDS: u64 = 3_155_760_000;
+
+    pub(crate) fn seconds(self) -> u64 {
+        self.0.get()
+    }
+}
+
+impl TryFrom<i64> for RetentionPeriod {
+    type Error = CatalogError;
+
+    fn try_from(seconds: i64) -> Result<Self, CatalogError> {
+        u64::try_from(seconds)
+            .ok()
+            .filter(|seconds| *seconds < Self::LIMIT_SECONDS)
+            .and_then(std::num::NonZeroU64::new)
+            .map(Self)
+            .ok_or_else(|| CatalogError::InvalidMetadata(RETENTION_RANGE_MESSAGE.into()))
+    }
 }
 
 /// A bucket's own public access prevention setting. The parent project can still prevent public
@@ -595,6 +615,26 @@ mod tests {
             assert!(!ObjectError::from(other).is_refusal());
         }
         assert!(!ObjectError::OverwriteForbidden(denied()).is_refusal());
+    }
+
+    #[test]
+    fn retention_period_accepts_one_second_to_just_under_a_century() {
+        let limit = i64::try_from(RetentionPeriod::LIMIT_SECONDS).unwrap();
+        for seconds in [1, 3600, limit - 1] {
+            assert_eq!(
+                RetentionPeriod::try_from(seconds).unwrap().seconds(),
+                u64::try_from(seconds).unwrap()
+            );
+        }
+        for seconds in [i64::MIN, -1, 0, limit, i64::MAX] {
+            assert_eq!(
+                RetentionPeriod::try_from(seconds),
+                Err(CatalogError::InvalidMetadata(
+                    RETENTION_RANGE_MESSAGE.into()
+                )),
+                "{seconds}"
+            );
+        }
     }
 
     /// Each setting keeps its own pair of stored columns. A bucket that enabled versioning before
@@ -728,7 +768,7 @@ impl fmt::Display for CatalogError {
             Self::RetentionPolicyLocked(period) => write!(
                 formatter,
                 "Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least {period} seconds or extend it, for example {{\"retentionPolicy\":{{\"retentionPeriod\":\"{}\"}}}}",
-                period.saturating_add(1).min(3_155_759_999)
+                period.saturating_add(1).min(RetentionPeriod::LIMIT_SECONDS - 1)
             ),
             Self::RetentionPolicyNotSet => formatter.write_str("No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600"),
             Self::Io(kind) => write!(formatter, "catalog I/O: {kind}"),

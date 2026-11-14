@@ -137,7 +137,9 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 .retention_policy
                 .as_ref()
                 .and_then(|policy| policy.retention_duration)
-                .map(|duration| bucket::retention_period(duration.seconds).map_err(input_error))
+                .map(|duration| {
+                    bucket::RetentionPeriod::try_from(duration.seconds).map_err(input_error)
+                })
                 .transpose()?;
             update.retention_policy = match period {
                 Some(period) => RetentionPolicyUpdate::Set(period),

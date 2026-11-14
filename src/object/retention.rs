@@ -7,7 +7,9 @@
 use super::{ObjectError, ObjectRecord, unix_nanos::UnixNanos};
 use std::time::{Duration, SystemTime};
 
-/// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now.
+/// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now. The
+/// bucket retention period has the same bound, `RetentionPeriod::LIMIT_SECONDS`, by a rule of its
+/// own.
 pub(crate) const MAX_RETENTION: Duration = Duration::from_secs(3_155_760_000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

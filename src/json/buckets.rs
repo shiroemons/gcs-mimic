@@ -1,9 +1,9 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
-    RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket,
-    StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning, VersioningUpdate,
-    cors_from_value, cors_value, valid_label, validate_storage_class,
+    RETENTION_RANGE_MESSAGE, RetentionPeriod, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE,
+    SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning,
+    VersioningUpdate, cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
 use crate::config::CompatProfile;
@@ -297,9 +297,8 @@ pub(crate) fn parse_insert_with_profile(
         ),
         retention_policy: parse_retention_period(body.get("retentionPolicy"))?
             .value()
-            .copied()
-            .map(|retention_period| crate::bucket::RetentionPolicy {
-                retention_period,
+            .map(|period| crate::bucket::RetentionPolicy {
+                retention_period: period.seconds(),
                 effective_time: now,
                 is_locked: false,
             }),
@@ -690,7 +689,7 @@ fn parse_soft_delete_retention(
 
 /// The retention period of a bucket policy: an absent member or an empty policy (which Cloud
 /// Storage treated as no change) keeps the policy; null or a policy without a period clears it.
-fn parse_retention_period(value: Option<&Value>) -> Result<Patch<u64>, JsonError> {
+fn parse_retention_period(value: Option<&Value>) -> Result<Patch<RetentionPeriod>, JsonError> {
     let Some(value) = value else {
         return Ok(Patch::Keep);
     };
@@ -706,7 +705,7 @@ fn parse_retention_period(value: Option<&Value>) -> Result<Patch<u64>, JsonError
     let Some(period) = policy.get("retentionPeriod").filter(|v| !v.is_null()) else {
         return Ok(Patch::Clear);
     };
-    crate::bucket::retention_period(int64_setting(period)?)
+    RetentionPeriod::try_from(int64_setting(period)?)
         .map(Patch::Set)
         .map_err(Into::into)
 }
