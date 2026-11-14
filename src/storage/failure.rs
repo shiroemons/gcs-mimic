@@ -366,6 +366,8 @@ impl StorageCause for io::Error {
     }
 }
 
+/// A storage failure keeps its own classification and cause: wrapping an unavailable failure
+/// again would repeat its "catalog unavailable" prefix and hide the cause from log allowlists.
 impl StorageCause for CatalogError {
     fn into_cause(self) -> BackendCause {
         BackendCause::from_error(self)
@@ -375,11 +377,13 @@ impl StorageCause for CatalogError {
         match self {
             Self::Corrupt(cause) => Classified::Corrupt(cause),
             Self::Io(cause) => Classified::Io(cause),
+            Self::Unavailable(cause) => Classified::Unavailable(cause),
             error => Classified::Unavailable(BackendCause::from_error(error)),
         }
     }
 }
 
+/// Classified like [`CatalogError`], so both enums map each other's storage failures alike.
 impl StorageCause for ObjectError {
     fn into_cause(self) -> BackendCause {
         BackendCause::from_error(self)
@@ -389,6 +393,7 @@ impl StorageCause for ObjectError {
         match self {
             Self::Corrupt(cause) => Classified::Corrupt(cause),
             Self::Io(cause) => Classified::Io(cause),
+            Self::Unavailable(cause) => Classified::Unavailable(cause),
             error => Classified::Unavailable(BackendCause::from_error(error)),
         }
     }

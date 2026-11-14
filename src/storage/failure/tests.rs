@@ -331,6 +331,35 @@ fn classification_passes_through_already_classified_errors() {
     assert_eq!(nested.to_string(), "catalog unavailable: bucket not found");
 }
 
+/// A failure already classified as unavailable keeps its own cause through every mapping, so
+/// its text names the unavailable catalog once and log allowlists can still recognize it.
+#[test]
+fn unavailable_failures_pass_through_with_one_prefix_and_their_cause() {
+    let cause = || BackendCause::with_source("offline", BackendFailure::CatalogClosed);
+    let catalog = || CatalogError::Unavailable(cause());
+    let object = || ObjectError::Unavailable(cause());
+    for error in [unavailable(catalog()), unavailable(object())] {
+        assert_eq!(error, CatalogError::Unavailable("offline".into()));
+        assert_eq!(error.to_string(), "catalog unavailable: offline");
+        assert_eq!(
+            error.source().map(ToString::to_string),
+            Some(BackendFailure::CatalogClosed.to_string())
+        );
+    }
+    for error in [
+        object_unavailable(object()),
+        object_unavailable(catalog()),
+        ObjectError::from(catalog()),
+    ] {
+        assert_eq!(error, ObjectError::Unavailable("offline".into()));
+        assert_eq!(error.to_string(), "catalog unavailable: offline");
+        assert_eq!(
+            error.source().map(ToString::to_string),
+            Some(BackendFailure::CatalogClosed.to_string())
+        );
+    }
+}
+
 #[test]
 fn catalog_from_conversion_preserves_backend_classification_and_cause_chain() {
     let cases: [fn() -> CatalogError; 5] = [

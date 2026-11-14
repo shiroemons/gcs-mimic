@@ -1064,6 +1064,8 @@ impl From<crate::bucket::CatalogError> for ObjectError {
             crate::bucket::CatalogError::PublicAccessPrevention => Self::PublicAccessPrevention,
             crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
             crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
+            // The same mapping as `object_unavailable`, which keeps an unavailable cause as is.
+            crate::bucket::CatalogError::Unavailable(reason) => Self::Unavailable(reason),
             error => Self::Unavailable(BackendCause::from_error(error)),
         }
     }
