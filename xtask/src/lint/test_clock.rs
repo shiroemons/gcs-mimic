@@ -7,7 +7,7 @@
 //! `Instant::now()` call in a test file is counted; no file may gain one, and a file that loses
 //! one must lower its recorded count so the gain cannot return.
 
-use super::{mask, production_file};
+use super::{mask, production_file, rust_files};
 use std::{collections::BTreeMap, fmt::Write as _, fs, path::Path};
 
 pub(super) const FILE: &str = "xtask/test-clock-baseline.txt";
@@ -47,32 +47,14 @@ pub(super) fn calls(text: &str) -> Vec<usize> {
 /// Per-file call lines for every test file under `src/` and `tests/`.
 pub(super) fn scan(root: &Path) -> Result<BTreeMap<String, Vec<usize>>, String> {
     let mut found = BTreeMap::new();
-    let mut pending = vec![root.join("src"), root.join("tests")];
-    while let Some(directory) = pending.pop() {
-        for entry in
-            fs::read_dir(&directory).map_err(|e| format!("{}: {e}", directory.display()))?
-        {
-            let path = entry.map_err(|e| e.to_string())?.path();
-            if path.is_dir() {
-                pending.push(path);
-                continue;
-            }
-            let Ok(relative) = path.strip_prefix(root) else {
-                continue;
-            };
-            let relative = relative
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/");
-            if !test_file(&relative) {
-                continue;
-            }
-            let text = fs::read_to_string(&path).map_err(|e| format!("{relative}: {e}"))?;
-            let lines = calls(&text);
-            if !lines.is_empty() {
-                found.insert(relative, lines);
-            }
+    for (relative, path) in rust_files(root, &["src", "tests"])? {
+        if !test_file(&relative) {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|e| format!("{relative}: {e}"))?;
+        let lines = calls(&text);
+        if !lines.is_empty() {
+            found.insert(relative, lines);
         }
     }
     Ok(found)

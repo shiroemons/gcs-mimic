@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
     ops::Range,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -519,9 +519,11 @@ pub fn production_file(path: &str) -> bool {
         && name != "test_support.rs"
 }
 
-fn scan_tree(root: &Path) -> Result<Scan> {
+/// Every `.rs` file under the given repository directories, as sorted
+/// (repository-relative `/`-separated path, filesystem path) pairs.
+fn rust_files(root: &Path, directories: &[&str]) -> Result<Vec<(String, PathBuf)>> {
     let mut files = Vec::new();
-    let mut pending = vec![root.join("src")];
+    let mut pending: Vec<PathBuf> = directories.iter().map(|dir| root.join(dir)).collect();
     while let Some(directory) = pending.pop() {
         for entry in
             fs::read_dir(&directory).map_err(|e| format!("{}: {e}", directory.display()))?
@@ -535,15 +537,22 @@ fn scan_tree(root: &Path) -> Result<Scan> {
                     .map(|c| c.as_os_str().to_string_lossy())
                     .collect::<Vec<_>>()
                     .join("/");
-                if production_file(&relative) {
+                if relative.ends_with(".rs") {
                     files.push((relative, path));
                 }
             }
         }
     }
     files.sort();
+    Ok(files)
+}
+
+fn scan_tree(root: &Path) -> Result<Scan> {
     let mut scan = Scan::default();
-    for (relative, path) in files {
+    for (relative, path) in rust_files(root, &["src"])? {
+        if !production_file(&relative) {
+            continue;
+        }
         let text = fs::read_to_string(&path).map_err(|e| format!("{relative}: {e}"))?;
         scan.extend(scan_source(&relative, &text));
     }
@@ -559,13 +568,13 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
     let mut problems = Vec::new();
     for comment in comments {
         match parse_suppression(&text[comment.clone()]) {
-            None => {}
-            Some(Err(message)) => problems.push(Problem {
+            Comment::Plain => {}
+            Comment::Rejected(message) => problems.push(Problem {
                 file: file.to_owned(),
                 line: line_index(text, comment.start) + 1,
                 message,
             }),
-            Some(Ok(rules)) => suppressions.push(Suppression {
+            Comment::Suppresses(rules) => suppressions.push(Suppression {
                 comment: line_index(text, comment.start),
                 target: suppression_target(&masked, comment.start),
                 used: vec![false; rules.len()],
@@ -636,56 +645,69 @@ fn suppression_target(masked: &str, offset: usize) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
-/// Parses one line comment (including its `//`). `None` when it is not a suppression;
-/// otherwise the suppressed rules, or why the comment is rejected.
-pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String>, String>> {
-    let body = comment.strip_prefix("//")?;
+/// What a line comment means to the gate.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Comment {
+    /// An ordinary comment or a doc comment.
+    Plain,
+    /// `// xtask-lint: ..` that is malformed, names an unknown rule or lacks a reason.
+    Rejected(String),
+    Suppresses(Vec<String>),
+}
+
+/// Parses one line comment (including its `//`).
+pub fn parse_suppression(comment: &str) -> Comment {
+    let Some(body) = comment.strip_prefix("//") else {
+        return Comment::Plain;
+    };
     // Doc comments document; they never suppress.
     if body.starts_with('/') || body.starts_with('!') {
-        return None;
+        return Comment::Plain;
     }
-    let rest = body.trim_start().strip_prefix(SUPPRESSION_MARKER)?;
+    let Some(rest) = body.trim_start().strip_prefix(SUPPRESSION_MARKER) else {
+        return Comment::Plain;
+    };
     let malformed = || {
-        Err(format!(
+        Comment::Rejected(format!(
             "malformed suppression; expected `{SUPPRESSION_SYNTAX}`"
         ))
     };
     let Some(rest) = rest.trim_start().strip_prefix("allow(") else {
-        return Some(malformed());
+        return malformed();
     };
     let Some((list, after)) = rest.split_once(')') else {
-        return Some(malformed());
+        return malformed();
     };
     let rules: Vec<String> = list.split(',').map(|r| r.trim().to_owned()).collect();
     if rules.iter().any(String::is_empty) {
-        return Some(malformed());
+        return malformed();
     }
     for rule in &rules {
         // Compiler lints already reject stale or reasonless expectations themselves.
         if !rule.starts_with("text::") {
-            return Some(Err(format!(
+            return Comment::Rejected(format!(
                 "`{rule}` cannot be suppressed by a comment; use `#[expect({rule}, reason = \"...\")]`"
-            )));
+            ));
         }
         if !TEXT_RULES.contains(&rule.as_str()) {
-            return Some(Err(format!(
+            return Comment::Rejected(format!(
                 "unknown rule `{rule}`; suppressible rules: {}",
                 TEXT_RULES.join(", ")
-            )));
+            ));
         }
     }
     let after = after.trim();
     let reason = match after.strip_prefix("--") {
         Some(reason) => reason.trim(),
         None if after.is_empty() => "",
-        None => return Some(malformed()),
+        None => return malformed(),
     };
     if reason.chars().count() < MIN_REASON_CHARS {
-        return Some(Err(format!(
+        return Comment::Rejected(format!(
             "suppression needs a reason of at least {MIN_REASON_CHARS} characters after ` -- `"
-        )));
+        ));
     }
-    Some(Ok(rules))
+    Comment::Suppresses(rules)
 }
 
 /// Raw text-rule findings in production code, before suppressions.
@@ -1945,10 +1967,10 @@ let s = \"// xtask-lint: allow(text::nope)\";
 ";
         let scan = scan_source("src/a.rs", text);
         assert_eq!(scan.problems, []);
-        assert_eq!(parse_suppression("// ordinary"), None);
+        assert_eq!(parse_suppression("// ordinary"), Comment::Plain);
         assert_eq!(
             parse_suppression("//xtask-lint: allow( text::format_sql ) --   ten chars!  "),
-            Some(Ok(vec![FORMAT_SQL.to_owned()]))
+            Comment::Suppresses(vec![FORMAT_SQL.to_owned()])
         );
     }
 
