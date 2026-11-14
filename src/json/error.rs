@@ -30,9 +30,17 @@ const NO_SUCH_OBJECT: &str = "No such object: ";
 /// appears twice in the response, so past this it would make the answer larger than the request.
 const QUOTED_BODY_LIMIT: usize = 64 * 1024;
 
+/// What a JSON parse error quotes: the parser's reason, the input it shows and the column of
+/// the caret under it.
+struct ParseContext {
+    reason: String,
+    shown: String,
+    column: usize,
+}
+
 /// Where Cloud Storage's parser expected the `:` after the first key and what it said.
 /// The first key may be bare, as in the recorded `{not json` and `oops` inputs.
-fn missing_colon(text: &str) -> Option<(String, String, usize)> {
+fn missing_colon(text: &str) -> Option<ParseContext> {
     let chars: Vec<char> = text.chars().collect();
     let skip_space = |mut index: usize| {
         while chars.get(index).is_some_and(|c| c.is_whitespace()) {
@@ -45,11 +53,11 @@ fn missing_colon(text: &str) -> Option<(String, String, usize)> {
         index = skip_space(index + 1);
         // An object that ends right after its brace has no key yet (recorded for `{`).
         if index == chars.len() {
-            return Some((
-                "Unexpected end of string. Expected an object key or }.".to_owned(),
-                String::new(),
-                0,
-            ));
+            return Some(ParseContext {
+                reason: "Unexpected end of string. Expected an object key or }.".to_owned(),
+                shown: String::new(),
+                column: 0,
+            });
         }
     }
     let key_start = index;
@@ -70,17 +78,17 @@ fn missing_colon(text: &str) -> Option<(String, String, usize)> {
     let index = skip_space(index);
     match chars.get(index) {
         Some(':') => None,
-        Some(_) => Some((
-            "Expected : between key:value pair.".to_owned(),
-            text.to_owned(),
-            index,
-        )),
+        Some(_) => Some(ParseContext {
+            reason: "Expected : between key:value pair.".to_owned(),
+            shown: text.to_owned(),
+            column: index,
+        }),
         // At the end of the input the quoted context starts at the key (recorded for `{oops`).
-        None => Some((
-            "Unexpected end of string. Expected : between key:value pair.".to_owned(),
-            chars.iter().skip(key_start).collect(),
-            chars.len() - key_start,
-        )),
+        None => Some(ParseContext {
+            reason: "Unexpected end of string. Expected : between key:value pair.".to_owned(),
+            shown: chars.iter().skip(key_start).collect(),
+            column: chars.len() - key_start,
+        }),
     }
 }
 
@@ -486,26 +494,30 @@ impl JsonError {
                 .with_kind(ErrorKind::MalformedJson);
         }
         let text = String::from_utf8_lossy(input);
-        let (reason, shown, column) = missing_colon(&text).unwrap_or_else(|| {
+        let ParseContext {
+            reason,
+            shown,
+            column,
+        } = missing_colon(&text).unwrap_or_else(|| {
             // A body that ends inside a value is reported with an empty context line (recorded
             // 2026-10-31 for bucket bodies truncated after a key).
             if cause.is_eof() {
-                return (
-                    "Unexpected end of string. Expected a value.".to_owned(),
-                    String::new(),
-                    0,
-                );
+                return ParseContext {
+                    reason: "Unexpected end of string. Expected a value.".to_owned(),
+                    shown: String::new(),
+                    column: 0,
+                };
             }
-            (
-                cause
+            ParseContext {
+                reason: cause
                     .to_string()
                     .split(" at line ")
                     .next()
                     .unwrap_or_default()
                     .to_owned(),
-                text.to_string(),
-                cause.column().saturating_sub(1),
-            )
+                shown: text.to_string(),
+                column: cause.column().saturating_sub(1),
+            }
         });
         Self::invalid(format!(
             "Parse Error: {reason}\n{shown}\n{}^",

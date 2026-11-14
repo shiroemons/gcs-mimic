@@ -82,6 +82,30 @@ fn only_a_nonzero_suffix_of_an_empty_object_is_an_empty_suffix() {
     assert!(!RangeRequest::Whole.is_suffix_of_empty(0));
 }
 
+/// A range that starts at or past the end, or any range of an empty object other than an
+/// ignored suffix, is unsatisfiable; the JSON API answers it with 416.
+#[test]
+fn unsatisfiable_ranges_are_their_own_error() {
+    for (range, size) in [("10-", 10), ("10-20", 10), ("0-", 0), ("-0", 0), ("0-0", 0)] {
+        assert_eq!(
+            RangeRequest::Single(range).resolve(size),
+            Err(UnsatisfiableRange),
+            "{range} of {size}"
+        );
+    }
+    assert_eq!(RangeRequest::Single("9-").resolve(10), Ok(Some((9, 1))));
+    assert_eq!(RangeRequest::Single("-5").resolve(0), Ok(None));
+    let error = JsonError::from(UnsatisfiableRange);
+    assert_eq!(
+        (error.status, error.reason, error.message.as_str()),
+        (
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "requestedRangeNotSatisfiable",
+            "The requested Range cannot be satisfied"
+        )
+    );
+}
+
 #[track_caller]
 fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")
@@ -707,45 +731,17 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
     assert!(validate_object_get_headers(&headers).is_ok());
     let headers = header_map([("x-goog-meta-example", "value")]);
     assert_eq!(
-        parse_object_upload_headers(&headers, Default::default())
-            .unwrap_err()
-            .status,
+        upload_content_type(&headers).unwrap_err().status,
         StatusCode::BAD_REQUEST
     );
 }
 
 #[test]
 fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions() {
+    // The upload header check takes no preconditions, so a token is judged the same whichever
+    // conditions the query carries.
     let headers = header_map([("x-goog-gcs-idempotency-token", "opaque, token=1")]);
-    for generation in [i64::MIN, -1, 0, 1, i64::MAX] {
-        assert!(
-            parse_object_upload_headers(
-                &headers,
-                ObjectConditions {
-                    if_generation_match: Some(generation),
-                    ..Default::default()
-                }
-            )
-            .is_ok()
-        );
-    }
-    for conditions in [
-        ObjectConditions::default(),
-        ObjectConditions {
-            if_generation_not_match: Some(0),
-            ..Default::default()
-        },
-        ObjectConditions {
-            if_metageneration_match: Some(1),
-            ..Default::default()
-        },
-        ObjectConditions {
-            if_metageneration_not_match: Some(2),
-            ..Default::default()
-        },
-    ] {
-        assert!(parse_object_upload_headers(&headers, conditions).is_ok());
-    }
+    assert!(upload_content_type(&headers).is_ok());
     for values in [
         vec![""],
         vec![" \t"],
@@ -757,21 +753,12 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
                 .iter()
                 .map(|&value| ("x-goog-gcs-idempotency-token", value)),
         );
-        for generation in [None, Some(0), Some(1)] {
-            let error = parse_object_upload_headers(
-                &headers,
-                ObjectConditions {
-                    if_generation_match: generation,
-                    ..Default::default()
-                },
-            )
-            .unwrap_err();
-            assert_eq!(
-                (error.status, error.reason),
-                (StatusCode::BAD_REQUEST, "invalidParameter"),
-                "{values:?}: generation {generation:?}"
-            );
-        }
+        let error = upload_content_type(&headers).unwrap_err();
+        assert_eq!(
+            (error.status, error.reason),
+            (StatusCode::BAD_REQUEST, "invalidParameter"),
+            "{values:?}"
+        );
         let error = validate_object_get_headers(&headers).unwrap_err();
         assert_eq!(
             (error.status, error.reason),
@@ -784,9 +771,9 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
 #[test]
 fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
     assert_eq!(
-        parse_object_upload_headers(&HeaderMap::new(), Default::default()).unwrap(),
+        upload_content_type(&HeaderMap::new()).unwrap(),
         // No Content-Type stores none.
-        (String::new(), ExpectedHashes::default())
+        String::new()
     );
     for combined in [true, false] {
         let mut entries = vec![("content-type", "text/plain; charset=utf-8")];
@@ -804,11 +791,8 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
         let headers = header_map(entries);
         // Media uploads do not examine the header; resumable initiation still reads it.
         assert_eq!(
-            parse_object_upload_headers(&headers, Default::default()).unwrap(),
-            (
-                "text/plain; charset=utf-8".to_owned(),
-                ExpectedHashes::default()
-            ),
+            upload_content_type(&headers).unwrap(),
+            "text/plain; charset=utf-8",
             "combined: {combined}"
         );
         assert_eq!(
@@ -853,10 +837,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
             "{value}"
         );
         // The media-upload parser never looks at the header.
-        assert!(
-            parse_object_upload_headers(&headers, Default::default()).is_ok(),
-            "{value}"
-        );
+        assert!(upload_content_type(&headers).is_ok(), "{value}");
     }
     // Upload routes parse customer-supplied keys themselves; incomplete keys are rejected there.
     for (name, value, reason) in [
@@ -877,10 +858,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         ),
     ] {
         let headers = header_map([(name, value)]);
-        assert!(
-            parse_object_upload_headers(&headers, Default::default()).is_ok(),
-            "{name}"
-        );
+        assert!(upload_content_type(&headers).is_ok(), "{name}");
         let error = super::request_key(&headers).unwrap_err();
         assert_eq!(
             (error.status, error.reason),
@@ -895,9 +873,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, "AES256")]);
         assert_eq!(
-            parse_object_upload_headers(&headers, Default::default())
-                .unwrap_err()
-                .reason,
+            upload_content_type(&headers).unwrap_err().reason,
             "badRequest",
             "{name}"
         );
@@ -910,9 +886,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let headers = header_map([(name, value)]);
         assert_eq!(
-            parse_object_upload_headers(&headers, Default::default())
-                .unwrap_err()
-                .status,
+            upload_content_type(&headers).unwrap_err().status,
             StatusCode::BAD_REQUEST,
             "{name}"
         );
@@ -926,16 +900,13 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         "text/plain, text/html",
     ] {
         let headers = header_map([("content-type", value)]);
-        assert!(
-            parse_object_upload_headers(&headers, Default::default()).is_err(),
-            "{value}"
-        );
+        assert!(upload_content_type(&headers).is_err(), "{value}");
     }
     let headers = header_map([
         ("content-type", "text/plain"),
         ("content-type", "text/html"),
     ]);
-    assert!(parse_object_upload_headers(&headers, Default::default()).is_err());
+    assert!(upload_content_type(&headers).is_err());
     let headers = header_map([
         ("x-goog-hash", "crc32c=AQIDBA=="),
         ("x-goog-hash", "crc32c=AQIDBA=="),
@@ -953,9 +924,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         let headers = header_map([(key, "\"value\"")]);
         assert!(validate_object_get_headers(&headers).is_ok(), "{key}");
         assert_eq!(
-            parse_object_upload_headers(&headers, Default::default())
-                .unwrap_err()
-                .status,
+            upload_content_type(&headers).unwrap_err().status,
             StatusCode::BAD_REQUEST,
             "{key}"
         );

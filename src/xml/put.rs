@@ -101,7 +101,7 @@ pub(super) fn headers(
     if let Some((range, size)) = length_range.zip(declared_size) {
         range.check(size)?;
     }
-    let (content_type, expected) = content_type_and_hashes(headers, conditions)?;
+    let (content_type, expected) = content_type_and_hashes(headers)?;
     let metadata = metadata(headers)?;
     let sha256 = if signing == Signing::Streaming {
         Ok(None)
@@ -282,14 +282,13 @@ fn empty_request_framing_keeps_header_validation() {
 
 pub(super) fn content_type_and_hashes(
     headers: &HeaderMap,
-    conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), Error> {
     let mut selected = HeaderMap::new();
     if let Some(content_type) = headers.get("content-type") {
         single(headers, "content-type")?;
         selected.insert("content-type", content_type.clone());
     }
-    let (content_type, _) = json::parse_object_upload_headers(&selected, conditions)?;
+    let content_type = json::upload_content_type(&selected)?;
     // The JSON parser stores no type for an upload without one; XML objects default it.
     let content_type = if content_type.is_empty() {
         "application/octet-stream".to_owned()

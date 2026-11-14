@@ -31,8 +31,11 @@ pub(super) async fn initiate(
     let ObjectCtx { config, .. } = ctx;
     let response_fields =
         json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
-    let (mime, expected, total) =
-        resumable::headers(request.headers(), params, config.max_object_bytes)?;
+    let resumable::UploadHeaders {
+        mime,
+        expected,
+        total,
+    } = resumable::headers(request.headers(), config.max_object_bytes)?;
     let key = json::request_key(request.headers())?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);

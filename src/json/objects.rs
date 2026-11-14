@@ -632,12 +632,10 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonErr
     Ok(())
 }
 
-/// Parse upload metadata without consuming or collecting the body. Callers read the
-/// destination customer-supplied key separately with [`super::request_key`].
-pub(crate) fn parse_object_upload_headers(
-    headers: &HeaderMap,
-    _conditions: ObjectConditions,
-) -> Result<(String, ExpectedHashes), JsonError> {
+/// The `Content-Type` an upload stores, checked with the rest of its headers without consuming
+/// or collecting the body. Callers read the destination customer-supplied key separately with
+/// [`super::request_key`].
+pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
     if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
@@ -648,7 +646,7 @@ pub(crate) fn parse_object_upload_headers(
             mime.parse()
                 .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
         );
-        parse_object_upload_headers(&advisory, ObjectConditions::default())?;
+        upload_content_type(&advisory)?;
     }
     // `Content-MD5` is not examined: Cloud Storage stored a JSON upload whose header named the
     // wrong digest (recorded 200 with the computed hashes).
@@ -692,8 +690,8 @@ pub(crate) fn parse_object_upload_headers(
     }
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
     // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
-    // multipart metadata `crc32c`/`md5Hash` (below) is verified on this route.
-    Ok((content_type.to_owned(), ExpectedHashes::default()))
+    // multipart metadata `crc32c`/`md5Hash` is verified on this route.
+    Ok(content_type.to_owned())
 }
 
 /// The hashes a resumable initiation declares with `X-Goog-Hash`. Recorded JSON media uploads
@@ -827,7 +825,9 @@ impl RangeRequest<'_> {
                 .is_some_and(|suffix| suffix != 0)
     }
 
-    pub(crate) fn resolve(self, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
+    /// The `(offset, length)` the range selects, or `None` for a range the read ignores and
+    /// answers with the whole object.
+    pub(crate) fn resolve(self, size: u64) -> Result<Option<(u64, u64)>, UnsatisfiableRange> {
         let Self::Single(range) = self else {
             return Ok(None);
         };
@@ -864,13 +864,33 @@ impl RangeRequest<'_> {
             (first, last.min(size.saturating_sub(1)))
         };
         if size == 0 || offset >= size {
-            return Err(JsonError::new(
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                "requestedRangeNotSatisfiable",
-                "The requested Range cannot be satisfied",
-            ));
+            return Err(UnsatisfiableRange);
         }
         Ok(Some((offset, end - offset + 1)))
+    }
+}
+
+/// A single range that starts at or past the end of the object, or any range of an empty
+/// object other than a suffix `resolve` ignores.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnsatisfiableRange;
+
+impl std::fmt::Display for UnsatisfiableRange {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the requested range cannot be satisfied")
+    }
+}
+
+impl std::error::Error for UnsatisfiableRange {}
+
+/// Cloud Storage's JSON answer: 416 `requestedRangeNotSatisfiable`.
+impl From<UnsatisfiableRange> for JsonError {
+    fn from(UnsatisfiableRange: UnsatisfiableRange) -> Self {
+        Self::new(
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "requestedRangeNotSatisfiable",
+            "The requested Range cannot be satisfied",
+        )
     }
 }
 

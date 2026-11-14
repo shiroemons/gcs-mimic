@@ -480,8 +480,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
                 .map_err(|_| Error::invalid("Invalid Content-Type form field."))?,
         );
     }
-    let (content_type, _) =
-        json::parse_object_upload_headers(&selected, ObjectConditions::default())?;
+    let content_type = json::upload_content_type(&selected)?;
     let content_type = if content_type.is_empty() {
         "application/octet-stream".to_owned()
     } else {

@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectInsertParams, Projection, checksum, multipart::MultipartMetadata,
-    multipart_metadata_of, parse_object_upload_headers,
+    multipart_metadata_of, upload_content_type,
 };
 use crate::{
     bucket::BucketAccess,
@@ -89,11 +89,18 @@ pub(crate) fn unsigned(value: &str) -> Result<u64, JsonError> {
         .map_err(|_| JsonError::invalid_parameter("Upload integer overflow"))
 }
 
-pub(crate) fn headers(
-    headers: &HeaderMap,
-    params: ObjectInsertParams,
-    max: u64,
-) -> Result<(String, ExpectedHashes, Option<u64>), JsonError> {
+/// What a resumable initiation declares in its headers.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UploadHeaders {
+    /// `X-Upload-Content-Type`, or `application/octet-stream` when absent or empty.
+    pub(crate) mime: String,
+    /// The `X-Goog-Hash` digests, which this route keeps verifying.
+    pub(crate) expected: ExpectedHashes,
+    /// `X-Upload-Content-Length`.
+    pub(crate) total: Option<u64>,
+}
+
+pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, JsonError> {
     for name in headers.keys() {
         if name.as_str().starts_with("x-goog-upload-") {
             return Err(JsonError::unsupported_object(name.as_str()));
@@ -117,15 +124,13 @@ pub(crate) fn headers(
         mime.parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
     );
-    let hashes = super::objects::declared_hashes(&clean)?;
-    let (mime, _) = parse_object_upload_headers(
-        &clean,
-        crate::object::ObjectConditions {
-            if_generation_match: Some(0),
-            ..params.conditions
-        },
-    )?;
-    Ok((mime, hashes, total))
+    let expected = super::objects::declared_hashes(&clean)?;
+    let mime = upload_content_type(&clean)?;
+    Ok(UploadHeaders {
+        mime,
+        expected,
+        total,
+    })
 }
 
 /// What a resumable upload's initiation request declares outside its metadata body: the URL
@@ -280,13 +285,7 @@ pub(crate) fn final_options(
             clean.remove(name);
         }
     }
-    parse_object_upload_headers(
-        &clean,
-        crate::object::ObjectConditions {
-            if_generation_match: Some(0),
-            ..Default::default()
-        },
-    )?;
+    upload_content_type(&clean)?;
     // An equal value agrees with the initiation's declaration; a different one conflicts.
     checksum::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
         options

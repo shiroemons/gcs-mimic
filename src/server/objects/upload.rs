@@ -55,8 +55,9 @@ pub(super) async fn insert(
     let mut metadata = crate::object::ObjectMetadataUpdate::default();
     json::declare_content_encoding(&mut metadata, content_encoding)?;
     let max_bytes = ctx.config.max_object_bytes;
-    let (content_type, expected) =
-        json::parse_object_upload_headers(request.headers(), params.conditions)?;
+    let content_type = json::upload_content_type(request.headers())?;
+    // A media upload verifies no declared hash; see `upload_content_type`.
+    let expected = ExpectedHashes::default();
     let key = json::request_key(request.headers())?;
     let token = idempotency_token(request.headers())?;
     let replay_request = replay_binding(&request, ctx, key);
@@ -144,7 +145,7 @@ pub(super) async fn multipart(
     }
     let max_bytes = ctx.config.max_object_bytes;
     let catalog = &ctx.state.catalog;
-    let (_, expected) = json::parse_object_upload_headers(request.headers(), params.conditions)?;
+    json::upload_content_type(request.headers())?;
     let key = json::request_key(request.headers())?;
     let boundary = json::multipart_boundary(request.headers())?;
     let token = idempotency_token(request.headers())?;
@@ -179,7 +180,7 @@ pub(super) async fn multipart(
         name,
         update: mut metadata,
         expected,
-    } = json::multipart_metadata(&bytes, name, expected)?;
+    } = json::multipart_metadata(&bytes, name, ExpectedHashes::default())?;
     json::declare_content_encoding(&mut metadata, content_encoding)?;
     crate::server::retention_access::authorize_upload(ctx.state, &access, &bucket, &metadata)
         .await?;

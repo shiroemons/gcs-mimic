@@ -101,7 +101,7 @@ fn options(
         return Err(Error::invalid("x-goog-resumable must be start."));
     }
     let conditions = put::conditions(headers)?;
-    let (content_type, expected) = put::content_type_and_hashes(headers, conditions)?;
+    let (content_type, expected) = put::content_type_and_hashes(headers)?;
     let mut options = ResumableOptions::new(access);
     options.content_type = content_type;
     options.expected = expected;

@@ -178,7 +178,7 @@ async fn read(
     }
     let range = match requested_range.resolve(record.size) {
         Ok(range) => range,
-        Err(error) if error.status == StatusCode::RANGE_NOT_SATISFIABLE => {
+        Err(json::UnsatisfiableRange) => {
             return Ok(range_error(
                 request,
                 headers,
@@ -186,7 +186,6 @@ async fn read(
                 ctx.state.clock.now(),
             ));
         }
-        Err(error) => return Err(error.into()),
     };
     if let Some((offset, length)) = range {
         if !head {
