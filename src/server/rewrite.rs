@@ -1,7 +1,7 @@
 use super::RequestBody as Incoming;
 use super::*;
 use crate::{
-    json::rewrite::{RewriteRequest, RewriteSide},
+    json::rewrite::RewriteRequest,
     object::ObjectConditions,
     storage::{
         DerivedDestination,
@@ -53,7 +53,7 @@ async fn authorize_source(
     {
         return Ok(());
     }
-    let requested = operation.number("sourceGeneration");
+    let requested = operation.source_generation;
     let generation = if let Some(token) = &operation.token {
         match catalog.rewrite_session(token).await {
             Ok(session)
@@ -198,10 +198,8 @@ async fn resolve_source(
     access: &BucketAccess,
     keys: Keys,
 ) -> Result<crate::storage::DerivedSource, JsonError> {
-    let target = operation
-        .names
-        .source_at(operation.number("sourceGeneration"));
-    let conditions = operation.conditions(RewriteSide::Source);
+    let target = operation.names.source_at(operation.source_generation);
+    let conditions = operation.source_conditions;
     catalog
         .resolve_derived_source_keyed(target, conditions, access, keys.source)
         .await
@@ -250,7 +248,7 @@ async fn execute(
             .check_upload(
                 &names.destination.bucket,
                 &names.destination.name,
-                operation.conditions(RewriteSide::Destination),
+                operation.conditions,
                 &destination_access,
             )
             .await?;
@@ -268,12 +266,7 @@ async fn execute(
                 .unwrap_or(destination_bucket.storage_class)
                 != source.object.storage_class;
         let budget = if multiple {
-            operation
-                .number("maxBytesRewrittenPerCall")
-                .map(u64::try_from)
-                .transpose()
-                .map_err(crate::storage::failure::object_unavailable)?
-                .unwrap_or(8 * 1024 * 1024)
+            operation.max_bytes_per_call.unwrap_or(8 * 1024 * 1024)
         } else {
             u64::MAX
         };
@@ -289,7 +282,7 @@ async fn execute(
         let start = RewriteStart {
             binding,
             destination,
-            source_conditions: operation.conditions(RewriteSide::Source),
+            source_conditions: operation.source_conditions,
             source_metageneration: source.object.metageneration,
             source_access: source_access.clone(),
             source_key_sha256: keys.source.map(crate::csek::CustomerKey::sha256),
@@ -348,7 +341,7 @@ fn destination(
             md5: Some(source.md5),
             crc32c: Some(source.crc32c),
         },
-        conditions: request.conditions(RewriteSide::Destination),
+        conditions: request.conditions,
         access: BucketAccess::Permissive,
     })
 }

@@ -1,6 +1,8 @@
 use super::{
-    Decoding, Fields, JsonError, Schema, decode, integer::take_long, parse_query, query,
-    validate_bucket_name_for_profile, validate_object_name,
+    Decoding, Fields, JsonError, Schema, decode,
+    integer::take_long,
+    objects::{ConditionKeys, take_conditions},
+    parse_query, query, validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
     config::CompatProfile,
@@ -10,55 +12,21 @@ use crate::{
 use hyper::{Method, Uri};
 use serde_json::{Map, Value, json};
 
-/// Which object a rewrite precondition applies to: `ifSource*` parameters guard the source and
-/// the unprefixed ones guard the destination.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RewriteSide {
-    Source,
-    Destination,
-}
-
 pub(crate) struct RewriteRequest {
     pub(crate) names: RewriteNames,
     pub(crate) token: Option<String>,
+    /// `sourceGeneration`: positive when present.
+    pub(crate) source_generation: Option<i64>,
+    /// The `ifSource*` preconditions, which guard the source.
+    pub(crate) source_conditions: ObjectConditions,
+    /// The unprefixed preconditions, which guard the destination.
+    pub(crate) conditions: ObjectConditions,
+    /// `maxBytesRewrittenPerCall`: a positive multiple of 1 MiB.
+    pub(crate) max_bytes_per_call: Option<u64>,
+    /// The parameters a rewrite token binds, by their JSON API names, as the session stores
+    /// them: numbers in canonical decimal, every other bound parameter as sent, keys in
+    /// ascending order. The text and the order are part of the stored session bytes.
     pub(crate) parameters: Map<String, Value>,
-}
-
-impl RewriteRequest {
-    pub(crate) fn number(&self, key: &str) -> Option<i64> {
-        self.parameters
-            .get(key)
-            .and_then(Value::as_str)
-            .and_then(|value| value.parse().ok())
-    }
-    pub(crate) fn conditions(&self, side: RewriteSide) -> ObjectConditions {
-        let [
-            generation_match,
-            generation_not_match,
-            metageneration_match,
-            metageneration_not_match,
-        ] = if side == RewriteSide::Source {
-            [
-                "ifSourceGenerationMatch",
-                "ifSourceGenerationNotMatch",
-                "ifSourceMetagenerationMatch",
-                "ifSourceMetagenerationNotMatch",
-            ]
-        } else {
-            [
-                "ifGenerationMatch",
-                "ifGenerationNotMatch",
-                "ifMetagenerationMatch",
-                "ifMetagenerationNotMatch",
-            ]
-        };
-        ObjectConditions {
-            if_generation_match: self.number(generation_match),
-            if_generation_not_match: self.number(generation_not_match),
-            if_metageneration_match: self.number(metageneration_match),
-            if_metageneration_not_match: self.number(metageneration_not_match),
-        }
-    }
 }
 
 pub(crate) fn route(
@@ -159,34 +127,43 @@ fn parse(
             return Err(JsonError::unsupported_object(key));
         }
     }
-    for key in [
-        "sourceGeneration",
-        "ifSourceGenerationMatch",
-        "ifSourceGenerationNotMatch",
-        "ifSourceMetagenerationMatch",
-        "ifSourceMetagenerationNotMatch",
-        "ifGenerationMatch",
-        "ifGenerationNotMatch",
-        "ifMetagenerationMatch",
-        "ifMetagenerationNotMatch",
-        "maxBytesRewrittenPerCall",
+    let source_generation = take_long(&mut remaining, "sourceGeneration")?;
+    if source_generation.is_some_and(|generation| generation <= 0) {
+        return Err(JsonError::invalid_parameter("Invalid sourceGeneration"));
+    }
+    let source_conditions = take_conditions(&mut remaining, ConditionKeys::Source)?;
+    let conditions = take_conditions(&mut remaining, ConditionKeys::Plain)?;
+    let max_bytes = take_long(&mut remaining, "maxBytesRewrittenPerCall")?;
+    let max_bytes_per_call = max_bytes.map(byte_budget).transpose()?;
+    // The binding spells each number in canonical decimal, so `007` binds as `7`.
+    for (key, number) in [
+        ("sourceGeneration", source_generation),
+        (
+            "ifSourceGenerationMatch",
+            source_conditions.if_generation_match,
+        ),
+        (
+            "ifSourceGenerationNotMatch",
+            source_conditions.if_generation_not_match,
+        ),
+        (
+            "ifSourceMetagenerationMatch",
+            source_conditions.if_metageneration_match,
+        ),
+        (
+            "ifSourceMetagenerationNotMatch",
+            source_conditions.if_metageneration_not_match,
+        ),
+        ("ifGenerationMatch", conditions.if_generation_match),
+        ("ifGenerationNotMatch", conditions.if_generation_not_match),
+        ("ifMetagenerationMatch", conditions.if_metageneration_match),
+        (
+            "ifMetagenerationNotMatch",
+            conditions.if_metageneration_not_match,
+        ),
+        ("maxBytesRewrittenPerCall", max_bytes),
     ] {
-        if let Some(number) = take_long(&mut remaining, key)? {
-            if key == "sourceGeneration" && number <= 0 {
-                return Err(JsonError::invalid_parameter(format!("Invalid {key}")));
-            }
-            if key == "maxBytesRewrittenPerCall" {
-                if number <= 0 {
-                    return Err(JsonError::invalid(
-                        "maxBytesRewrittenPerCall must be a positive value",
-                    ));
-                }
-                if number % 1_048_576 != 0 {
-                    return Err(JsonError::invalid(
-                        "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
-                    ));
-                }
-            }
+        if let Some(number) = number {
             parameters.insert(key.into(), number.to_string());
         }
     }
@@ -198,11 +175,30 @@ fn parse(
     Ok(RewriteRequest {
         names,
         token,
+        source_generation,
+        source_conditions,
+        conditions,
+        max_bytes_per_call,
         parameters: parameters
             .into_iter()
             .map(|(key, value)| (key, Value::String(value)))
             .collect(),
     })
+}
+
+/// `maxBytesRewrittenPerCall`, which must be a positive multiple of 1 MiB.
+fn byte_budget(number: i64) -> Result<u64, JsonError> {
+    if number <= 0 {
+        return Err(JsonError::invalid(
+            "maxBytesRewrittenPerCall must be a positive value",
+        ));
+    }
+    if number % 1_048_576 != 0 {
+        return Err(JsonError::invalid(
+            "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
+        ));
+    }
+    Ok(number.unsigned_abs())
 }
 
 pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
@@ -281,6 +277,49 @@ mod tests {
                 .is_ok()
             );
         }
+    }
+
+    /// The numbers a rewrite reads keep their side: `ifSource*` guards the source.
+    #[test]
+    fn rewrite_numbers_are_parsed_once_into_typed_fields() {
+        let uri = "/storage/v1/b/source-bucket/o/a/rewriteTo/b/destination-bucket/o/c?sourceGeneration=5&ifSourceGenerationMatch=6&ifSourceGenerationNotMatch=7&ifSourceMetagenerationMatch=8&ifSourceMetagenerationNotMatch=-0&ifGenerationMatch=007&ifGenerationNotMatch=-3&ifMetagenerationMatch=10&ifMetagenerationNotMatch=11&maxBytesRewrittenPerCall=2097152";
+        let request = route(&Method::POST, &uri.parse().unwrap(), CompatProfile::Native)
+            .unwrap()
+            .unwrap();
+        assert_eq!(request.source_generation, Some(5));
+        assert_eq!(
+            request.source_conditions,
+            ObjectConditions {
+                if_generation_match: Some(6),
+                if_generation_not_match: Some(7),
+                if_metageneration_match: Some(8),
+                if_metageneration_not_match: Some(0),
+            }
+        );
+        assert_eq!(
+            request.conditions,
+            ObjectConditions {
+                if_generation_match: Some(7),
+                if_generation_not_match: Some(-3),
+                if_metageneration_match: Some(10),
+                if_metageneration_not_match: Some(11),
+            }
+        );
+        assert_eq!(request.max_bytes_per_call, Some(2_097_152));
+        let bare = route(
+            &Method::POST,
+            &"/storage/v1/b/source-bucket/o/a/rewriteTo/b/destination-bucket/o/c"
+                .parse()
+                .unwrap(),
+            CompatProfile::Native,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(bare.source_generation, None);
+        assert_eq!(bare.source_conditions, ObjectConditions::default());
+        assert_eq!(bare.conditions, ObjectConditions::default());
+        assert_eq!(bare.max_bytes_per_call, None);
+        assert!(bare.parameters.is_empty());
     }
 
     #[test]
