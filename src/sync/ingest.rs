@@ -70,6 +70,24 @@ fn open_source(
     Ok((file, fsutil::stat_identity(&directory)?))
 }
 
+/// The second half of reading a source: re-resolves `path` below `root` and fails with
+/// `Precondition` unless it still names the unchanged file `expected` in the directory `parent`.
+/// `open_source` took both identities before the read, so a file or any of its ancestors
+/// replaced or renamed while it was read is detected.
+fn recheck_source(
+    root: &File,
+    path: &std::path::Path,
+    expected: FileIdentity,
+    parent: FileIdentity,
+) -> Result<(), AdminError> {
+    let (_, current) = open_source(root, path, expected)?;
+    if current.node() == parent.node() {
+        Ok(())
+    } else {
+        Err(AdminError::Precondition)
+    }
+}
+
 fn same_stat(fp: &SyncFingerprint, stat: FileIdentity) -> bool {
     fp.matches_identity(stat)
 }
@@ -411,10 +429,7 @@ impl Ingest<'_> {
             .file_job(move |root| {
                 let (file, parent) = open_source(root, &path, expected)?;
                 let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
-                let (_, current) = open_source(root, &path, expected)?;
-                if parent.node() != current.node() {
-                    return Err(AdminError::Precondition);
-                }
+                recheck_source(root, &path, expected, parent)?;
                 Ok(hashes)
             })
             .await;
@@ -473,13 +488,7 @@ impl Ingest<'_> {
         checkpoint("staged").await;
         let checked = self
             .root
-            .file_job(move |root| {
-                let (_, current) = open_source(root, &selected, identity)?;
-                if current.node() != directory.node() {
-                    return Err(AdminError::Precondition);
-                }
-                Ok(())
-            })
+            .file_job(move |root| recheck_source(root, &selected, identity, directory))
             .await;
         if let Err(error) = checked {
             if let Err(cleanup) = staged.discard().await {
