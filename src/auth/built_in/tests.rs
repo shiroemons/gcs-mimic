@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{
-    BUCKETS_CREATE, BUCKETS_SET_IAM, Caller, ListenerRole, OBJECTS_CREATE, OBJECTS_GET, roles,
+    BUCKETS_CREATE, BUCKETS_SET_IAM, Caller, ListenerRole, OBJECTS_CREATE, OBJECTS_GET,
 };
 use serde_json::json;
 
@@ -20,7 +20,6 @@ fn admin() -> serde_json::Value {
 fn every_implicit_role_is_in_the_pinned_snapshot() {
     for built_in in [BuiltIn::TestSigner, BuiltIn::TrustedApp] {
         let role = built_in.role();
-        assert!(roles::permissions(role).is_some(), "{role}");
         assert_eq!(built_in.grants(&projects(&["p"])).len(), 1, "{role}");
     }
 }

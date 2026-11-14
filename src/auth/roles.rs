@@ -8,6 +8,11 @@
 //!
 //! Grant levels record each role's lowest grantable resource; managed-folder roles also apply
 //! to buckets. Each permission list is sorted and unique so lookups can binary search.
+//!
+//! Stored bucket policies name roles from this table, so removing a role needs a migration of
+//! the policies that hold it; a stored role outside the table reads as corruption.
+
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GrantLevel {
@@ -16,11 +21,65 @@ pub(crate) enum GrantLevel {
     ManagedFolder,
 }
 
-pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
+/// Generates [`Role`] from one table row per role: its variant, name, lowest grant level and
+/// `storage.*` permissions.
+macro_rules! roles {
+    ($((
+        $variant:ident => $name:literal,
+        $level:ident,
+        [$($permission:literal),* $(,)?] $(,)?
+    )),+ $(,)?) => {
+        /// A pinned predefined Cloud Storage role. `Editor` and `Viewer` are
+        /// `roles/storage.editor` and `roles/storage.viewer`, not the basic roles. Variants are
+        /// declared in name order, which a unit test checks, so the derived order is the names'.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub(crate) enum Role {
+            $($variant),+
+        }
+
+        impl Role {
+            /// Every role, in name order.
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name),+
+                }
+            }
+
+            /// The lowest resource the role can be granted on.
+            pub(crate) fn level(self) -> GrantLevel {
+                match self {
+                    $(Self::$variant => GrantLevel::$level),+
+                }
+            }
+
+            /// Sorted and unique, so a lookup may binary search.
+            pub(crate) fn permissions(self) -> &'static [&'static str] {
+                match self {
+                    $(Self::$variant => &[$($permission),*]),+
+                }
+            }
+        }
+
+        impl std::str::FromStr for Role {
+            type Err = UnknownRole;
+
+            fn from_str(name: &str) -> Result<Self, Self::Err> {
+                match name {
+                    $($name => Ok(Self::$variant),)+
+                    _ => Err(UnknownRole),
+                }
+            }
+        }
+    };
+}
+
+roles! {
     (
-        "roles/storage.admin",
-        GrantLevel::Bucket,
-        &[
+        Admin => "roles/storage.admin",
+        Bucket,
+        [
             "storage.anywhereCaches.create",
             "storage.anywhereCaches.disable",
             "storage.anywhereCaches.get",
@@ -90,9 +149,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.annotationGeneratorService",
-        GrantLevel::ManagedFolder,
-        &[
+        AnnotationGeneratorService => "roles/storage.annotationGeneratorService",
+        ManagedFolder,
+        [
             "storage.objects.createContext",
             "storage.objects.deleteContext",
             "storage.objects.get",
@@ -102,14 +161,14 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.bucketViewer",
-        GrantLevel::Bucket,
-        &["storage.buckets.get", "storage.buckets.list"],
+        BucketViewer => "roles/storage.bucketViewer",
+        Bucket,
+        ["storage.buckets.get", "storage.buckets.list"],
     ),
     (
-        "roles/storage.editor",
-        GrantLevel::ManagedFolder,
-        &[
+        Editor => "roles/storage.editor",
+        ManagedFolder,
+        [
             "storage.buckets.create",
             "storage.buckets.delete",
             "storage.buckets.list",
@@ -136,9 +195,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.expressModeServiceInput",
-        GrantLevel::ManagedFolder,
-        &[
+        ExpressModeServiceInput => "roles/storage.expressModeServiceInput",
+        ManagedFolder,
+        [
             "storage.objects.create",
             "storage.objects.delete",
             "storage.objects.list",
@@ -146,18 +205,18 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.expressModeServiceOutput",
-        GrantLevel::ManagedFolder,
-        &[
+        ExpressModeServiceOutput => "roles/storage.expressModeServiceOutput",
+        ManagedFolder,
+        [
             "storage.objects.delete",
             "storage.objects.get",
             "storage.objects.list",
         ],
     ),
     (
-        "roles/storage.expressModeUserAccess",
-        GrantLevel::Project,
-        &[
+        ExpressModeUserAccess => "roles/storage.expressModeUserAccess",
+        Project,
+        [
             "storage.buckets.get",
             "storage.buckets.list",
             "storage.multipartUploads.abort",
@@ -173,9 +232,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.folderAdmin",
-        GrantLevel::ManagedFolder,
-        &[
+        FolderAdmin => "roles/storage.folderAdmin",
+        ManagedFolder,
+        [
             "storage.folders.create",
             "storage.folders.delete",
             "storage.folders.get",
@@ -209,9 +268,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.hmacKeyAdmin",
-        GrantLevel::Project,
-        &[
+        HmacKeyAdmin => "roles/storage.hmacKeyAdmin",
+        Project,
+        [
             "storage.hmacKeys.create",
             "storage.hmacKeys.delete",
             "storage.hmacKeys.get",
@@ -220,14 +279,14 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.insightsCollectorService",
-        GrantLevel::Bucket,
-        &["storage.buckets.get", "storage.buckets.getObjectInsights"],
+        InsightsCollectorService => "roles/storage.insightsCollectorService",
+        Bucket,
+        ["storage.buckets.get", "storage.buckets.getObjectInsights"],
     ),
     (
-        "roles/storage.legacyBucketOwner",
-        GrantLevel::Bucket,
-        &[
+        LegacyBucketOwner => "roles/storage.legacyBucketOwner",
+        Bucket,
+        [
             "storage.anywhereCaches.create",
             "storage.anywhereCaches.disable",
             "storage.anywhereCaches.get",
@@ -278,9 +337,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.legacyBucketReader",
-        GrantLevel::Bucket,
-        &[
+        LegacyBucketReader => "roles/storage.legacyBucketReader",
+        Bucket,
+        [
             "storage.buckets.get",
             "storage.folders.get",
             "storage.folders.list",
@@ -291,9 +350,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.legacyBucketWriter",
-        GrantLevel::Bucket,
-        &[
+        LegacyBucketWriter => "roles/storage.legacyBucketWriter",
+        Bucket,
+        [
             "storage.buckets.get",
             "storage.folders.create",
             "storage.folders.delete",
@@ -318,9 +377,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.legacyObjectOwner",
-        GrantLevel::ManagedFolder,
-        &[
+        LegacyObjectOwner => "roles/storage.legacyObjectOwner",
+        ManagedFolder,
+        [
             "storage.objects.createContext",
             "storage.objects.deleteContext",
             "storage.objects.get",
@@ -333,14 +392,14 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.legacyObjectReader",
-        GrantLevel::ManagedFolder,
-        &["storage.objects.get"],
+        LegacyObjectReader => "roles/storage.legacyObjectReader",
+        ManagedFolder,
+        ["storage.objects.get"],
     ),
     (
-        "roles/storage.objectAdmin",
-        GrantLevel::ManagedFolder,
-        &[
+        ObjectAdmin => "roles/storage.objectAdmin",
+        ManagedFolder,
+        [
             "storage.folders.create",
             "storage.folders.delete",
             "storage.folders.get",
@@ -372,9 +431,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.objectCreator",
-        GrantLevel::ManagedFolder,
-        &[
+        ObjectCreator => "roles/storage.objectCreator",
+        ManagedFolder,
+        [
             "storage.folders.create",
             "storage.managedFolders.create",
             "storage.multipartUploads.abort",
@@ -385,9 +444,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.objectUser",
-        GrantLevel::ManagedFolder,
-        &[
+        ObjectUser => "roles/storage.objectUser",
+        ManagedFolder,
+        [
             "storage.folders.create",
             "storage.folders.delete",
             "storage.folders.get",
@@ -415,9 +474,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.objectViewer",
-        GrantLevel::ManagedFolder,
-        &[
+        ObjectViewer => "roles/storage.objectViewer",
+        ManagedFolder,
+        [
             "storage.folders.get",
             "storage.folders.list",
             "storage.managedFolders.get",
@@ -427,9 +486,9 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
         ],
     ),
     (
-        "roles/storage.viewer",
-        GrantLevel::ManagedFolder,
-        &[
+        Viewer => "roles/storage.viewer",
+        ManagedFolder,
+        [
             "storage.buckets.list",
             "storage.buckets.listEffectiveTags",
             "storage.buckets.listTagBindings",
@@ -444,17 +503,30 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
             "storage.intelligenceConfigs.get",
         ],
     ),
-];
-
-/// Look up a role by exact name; unknown roles, including basic roles, return `None`.
-pub(crate) fn permissions(role: &str) -> Option<&'static [&'static str]> {
-    definition(role).map(|(_, permissions)| permissions)
 }
 
-pub(crate) fn definition(role: &str) -> Option<(GrantLevel, &'static [&'static str])> {
-    let index = PREDEFINED_ROLES
-        .binary_search_by(|(name, _, _)| name.cmp(&role))
-        .ok()?;
-    let (_, level, permissions) = PREDEFINED_ROLES.get(index)?;
-    Some((*level, permissions))
+impl Role {
+    pub(crate) fn grants(self, permission: super::Permission) -> bool {
+        self.permissions()
+            .binary_search(&permission.as_str())
+            .is_ok()
+    }
 }
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A role name outside the pinned snapshot, including the basic roles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnknownRole;
+
+impl fmt::Display for UnknownRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("not a pinned predefined Cloud Storage role")
+    }
+}
+
+impl std::error::Error for UnknownRole {}

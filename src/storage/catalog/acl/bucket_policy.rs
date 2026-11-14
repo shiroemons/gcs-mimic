@@ -6,8 +6,8 @@ use super::{
 };
 use crate::storage::catalog::sql;
 use crate::{
-    acl::{AclKind, AclRole, bucket_iam_role, project_number, project_private, validate_entries},
-    auth::{Binding, Policy},
+    acl::{AclKind, AclRole, project_number, project_private, validate_entries},
+    auth::{Binding, Policy, Role},
     storage::catalog::{policies, principals::Profile, unavailable},
 };
 use rusqlite::{Connection, params};
@@ -16,13 +16,11 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
+/// The bucket ACL role a binding's legacy bucket role stands for.
 fn acl_role(role: &str) -> Option<AclRole> {
-    match role {
-        "roles/storage.legacyBucketReader" => Some(AclRole::Reader),
-        "roles/storage.legacyBucketWriter" => Some(AclRole::Writer),
-        "roles/storage.legacyBucketOwner" => Some(AclRole::Owner),
-        _ => None,
-    }
+    role.parse::<Role>()
+        .ok()
+        .and_then(AclRole::from_bucket_iam_role)
 }
 
 fn member_entity(member: &str, project: &str, principals: Option<&Profile>) -> Option<String> {
@@ -119,9 +117,9 @@ fn merge_stored_grants(
     validate_entries(AclKind::Bucket, entries)?;
     let mut changed = false;
     for entry in entries {
-        let role = bucket_iam_role(entry.role);
+        let role = entry.role.bucket_iam_role();
         let present = policy.bindings.iter().any(|binding| {
-            binding.role == role
+            binding.role == role.as_str()
                 && binding.members.iter().any(|member| {
                     member_entity(member, project, principals).as_deref()
                         == Some(entry.entity.as_str())
@@ -129,7 +127,7 @@ fn merge_stored_grants(
         });
         if !present {
             policy.bindings.push(Binding {
-                role: role.into(),
+                role: role.as_str().into(),
                 members: vec![iam_member(&entry.entity, project)?],
             });
             changed = true;
@@ -191,12 +189,13 @@ pub(super) fn replace_policy(
     policy
         .bindings
         .retain(|binding| !binding.members.is_empty());
-    let mut bindings: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    // Role order is name order, so bindings are appended in the order the names sort.
+    let mut bindings: BTreeMap<Role, Vec<String>> = BTreeMap::new();
     for entry in entries {
         if !changed.contains(&entry.entity) {
             continue;
         }
-        let role = bucket_iam_role(entry.role);
+        let role = entry.role.bucket_iam_role();
         // An ACL edit must not turn a stable IAM local ID into its changeable user alias.
         let grantees = members.remove(&entry.entity).unwrap_or_default();
         if grantees.is_empty() {
@@ -217,11 +216,11 @@ pub(super) fn replace_policy(
             !policy
                 .bindings
                 .iter()
-                .any(|binding| binding.role == role && binding.members.contains(member))
+                .any(|binding| binding.role == role.as_str() && binding.members.contains(member))
         });
         if !members.is_empty() {
             policy.bindings.push(Binding {
-                role: role.into(),
+                role: role.as_str().into(),
                 members,
             });
         }

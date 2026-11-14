@@ -4,6 +4,7 @@
 //! `projectPrivate` canned ACL derived from the owning project, which is the documented default
 //! for a bucket created without `predefinedAcl` and its default object ACL.
 
+use crate::auth::Role;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
@@ -160,11 +161,21 @@ impl TryFrom<String> for AclRole {
     }
 }
 
-pub(crate) fn bucket_iam_role(role: AclRole) -> &'static str {
-    match role {
-        AclRole::Reader => "roles/storage.legacyBucketReader",
-        AclRole::Writer => "roles/storage.legacyBucketWriter",
-        AclRole::Owner => "roles/storage.legacyBucketOwner",
+impl AclRole {
+    /// The legacy bucket IAM role that holds the same authority as this bucket ACL role.
+    pub(crate) fn bucket_iam_role(self) -> Role {
+        match self {
+            Self::Reader => Role::LegacyBucketReader,
+            Self::Writer => Role::LegacyBucketWriter,
+            Self::Owner => Role::LegacyBucketOwner,
+        }
+    }
+
+    /// The bucket ACL role a legacy bucket IAM role stands for; `None` for every other role.
+    pub(crate) fn from_bucket_iam_role(role: Role) -> Option<Self> {
+        [Self::Reader, Self::Writer, Self::Owner]
+            .into_iter()
+            .find(|acl| acl.bucket_iam_role() == role)
     }
 }
 

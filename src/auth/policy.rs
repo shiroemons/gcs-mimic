@@ -1,4 +1,4 @@
-use super::{Identity, Permission, roles};
+use super::{Identity, Permission, Role};
 use serde_json::{Value, json};
 
 #[derive(Debug)]
@@ -78,8 +78,10 @@ impl Policy {
         public_access: PublicAccess,
     ) -> bool {
         self.bindings.iter().any(|binding| {
-            roles::permissions(&binding.role)
-                .is_some_and(|permissions| permissions.binary_search(&permission.as_str()).is_ok())
+            binding
+                .role
+                .parse::<Role>()
+                .is_ok_and(|role| role.grants(permission))
                 && binding.members.iter().any(|member| {
                     (matches!(public_access, PublicAccess::Allowed)
                         && (member == "allUsers"

@@ -371,10 +371,7 @@ pub(super) fn bucket_granted(
     entries_grant(
         &entries,
         identity,
-        |role| {
-            crate::auth::roles::permissions(crate::acl::bucket_iam_role(role))
-                .is_some_and(|permissions| permissions.binary_search(&permission.as_str()).is_ok())
-        },
+        |role| role.bucket_iam_role().grants(permission),
         || super::policies::policy_public_access(connection, bucket),
     )
 }

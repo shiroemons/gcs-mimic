@@ -1,7 +1,4 @@
-use super::{
-    Binding, Policy,
-    roles::{self, GrantLevel},
-};
+use super::{Binding, Policy, Role, roles::GrantLevel};
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
@@ -87,12 +84,12 @@ pub(crate) fn validate_role(role: &str) -> Result<(), PolicyInputError> {
             "basic or custom role".into(),
         ));
     }
-    let Some((level, _)) = roles::definition(role) else {
+    let Ok(parsed) = role.parse::<Role>() else {
         return Err(PolicyInputError::InvalidInput(format!(
             "Role {role} is not supported for this resource."
         )));
     };
-    if level == GrantLevel::Project {
+    if parsed.level() == GrantLevel::Project {
         return Err(PolicyInputError::InvalidInput(
             "Role cannot be granted on a bucket".into(),
         ));

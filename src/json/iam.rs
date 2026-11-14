@@ -1,8 +1,7 @@
 use super::{BucketRequest, Fields, JsonError, Schema, objects::base64, query};
 use crate::auth::{
-    Binding, Policy,
+    Binding, Policy, Role,
     policy_input::{self, PolicyInput, PolicyInputError},
-    roles::PREDEFINED_ROLES,
 };
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
@@ -78,9 +77,9 @@ pub(crate) fn check_testable_permission(
     permission: &str,
 ) -> Result<crate::auth::Permission, JsonError> {
     let Ok(parsed) = crate::auth::Permission::try_from(permission) else {
-        if PREDEFINED_ROLES
+        if Role::ALL
             .iter()
-            .any(|(_, _, names)| names.contains(&permission))
+            .any(|role| role.permissions().contains(&permission))
         {
             return Err(JsonError::unsupported(&format!(
                 "permission {permission}; use a supported operation permission such as storage.objects.get"

@@ -5,7 +5,7 @@
 //! always wins over the implicit grants.
 
 use super::{
-    GrantSource, Identity, ProjectGrant, Registry, RegistryError, acl_identity, test_signer,
+    GrantSource, Identity, ProjectGrant, Registry, RegistryError, Role, acl_identity, test_signer,
 };
 use crate::config::TrustedCaller;
 use std::{
@@ -39,10 +39,10 @@ impl BuiltIn {
     /// public, so it gets the least role that covers signed GET and PUT, overwrites and what
     /// Rails also does (delete, list and metadata updates): `objectUser` administers no IAM
     /// policy or ACL.
-    pub(crate) fn role(self) -> &'static str {
+    pub(crate) fn role(self) -> Role {
         match self {
-            Self::TestSigner => "roles/storage.objectUser",
-            Self::TrustedApp => "roles/storage.admin",
+            Self::TestSigner => Role::ObjectUser,
+            Self::TrustedApp => Role::Admin,
         }
     }
 
@@ -62,15 +62,12 @@ impl BuiltIn {
     /// explicit `roles/storage.admin`, so they never open sync controls, which the identity
     /// document alone can grant.
     fn grants(self, projects: &BTreeSet<String>) -> BTreeMap<String, ProjectGrant> {
-        // The roles above are in the pinned snapshot, which a unit test proves; a role missing
-        // from it would grant nothing rather than something else.
         projects
             .iter()
-            .filter_map(|project| {
+            .map(|project| {
                 let mut grant = ProjectGrant::default();
-                grant
-                    .add_role(self.role(), GrantSource::Implicit)
-                    .map(|()| (project.clone(), grant))
+                grant.add_role(self.role(), GrantSource::Implicit);
+                (project.clone(), grant)
             })
             .collect()
     }

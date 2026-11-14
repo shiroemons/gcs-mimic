@@ -27,6 +27,7 @@ use signing_keys::SigningKeys;
 pub mod test_signer;
 pub(crate) use policy::PublicAccess;
 pub(crate) use policy::{Binding, Policy};
+pub(crate) use roles::Role;
 
 use crate::config::{AuthProfile, DocumentKind, DocumentSource, Form, Setting, TrustedCaller};
 use hyper::{HeaderMap, header::AUTHORIZATION};
@@ -167,9 +168,9 @@ impl ProjectGrant {
         self.permissions.insert(permission);
     }
 
-    /// Adds what the predefined `role` grants; `None` for a role outside the pinned snapshot.
-    fn add_role(&mut self, role: &str, source: GrantSource) -> Option<()> {
-        let expanded = roles::permissions(role)?;
+    /// Adds what the predefined `role` grants.
+    fn add_role(&mut self, role: Role, source: GrantSource) {
+        let expanded = role.permissions();
         self.any_storage_permission |= !expanded.is_empty();
         for permission in Permission::ALL {
             if expanded.contains(&permission.as_str()) {
@@ -177,10 +178,9 @@ impl ProjectGrant {
             }
         }
         self.explicit_storage_admin |= match source {
-            GrantSource::Declared => role == "roles/storage.admin",
+            GrantSource::Declared => role == Role::Admin,
             GrantSource::Implicit => false,
         };
-        Some(())
     }
 }
 
@@ -1072,11 +1072,12 @@ fn parse_project_roles(
             if !names.insert(role) {
                 return Err(error(format!("project {project:?}: duplicate role {role}")));
             }
-            granted.add_role(role, GrantSource::Declared).ok_or_else(|| {
+            let role = role.parse::<Role>().map_err(|_| {
                 error(format!(
                     "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
                 ))
             })?;
+            granted.add_role(role, GrantSource::Declared);
         }
     }
     Ok(permissions)
@@ -1955,25 +1956,28 @@ mod tests {
         catalog.close().await.unwrap();
     }
 
+    /// Role order must be name order: stored policies list bindings in the order a map keyed by
+    /// role yields them, which used to be the names' order.
     #[test]
     fn role_snapshot_is_sorted_unique_storage_permission_data() {
-        let names: Vec<_> = roles::PREDEFINED_ROLES
-            .iter()
-            .map(|(name, _, _)| *name)
-            .collect();
+        let names: Vec<_> = Role::ALL.iter().map(|role| role.as_str()).collect();
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]), "{names:?}");
-        for (role, _, permissions) in roles::PREDEFINED_ROLES {
-            assert!(role.starts_with("roles/storage."), "{role}");
+        assert!(Role::ALL.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(Role::ALL.len(), 20);
+        for &role in Role::ALL {
+            let permissions = role.permissions();
+            assert!(role.as_str().starts_with("roles/storage."), "{role}");
             assert!(!permissions.is_empty(), "{role}");
             assert!(
                 permissions.windows(2).all(|pair| pair[0] < pair[1]),
                 "{role} permissions must be sorted and unique"
             );
-            for permission in *permissions {
+            for permission in permissions {
                 assert!(permission.starts_with("storage."), "{role}: {permission}");
                 assert_eq!(permission.split('.').count(), 3, "{role}: {permission}");
             }
-            assert_eq!(roles::permissions(role), Some(*permissions));
+            assert_eq!(role.as_str().parse::<Role>(), Ok(role));
+            assert_eq!(role.to_string(), role.as_str());
         }
         for basic in [
             "roles/owner",
@@ -1981,20 +1985,20 @@ mod tests {
             "roles/viewer",
             "roles/storage.",
         ] {
-            assert_eq!(roles::permissions(basic), None);
+            assert_eq!(basic.parse::<Role>(), Err(roles::UnknownRole), "{basic}");
         }
     }
 
     #[test]
     fn evaluation_is_driven_by_snapshot_data() {
         // Grant every role in its own project and check each permission only via the data.
-        let projects: Vec<_> = (0..roles::PREDEFINED_ROLES.len())
+        let projects: Vec<_> = (0..Role::ALL.len())
             .map(|index| format!("project-{index}"))
             .collect();
-        let project_roles: serde_json::Map<_, _> = roles::PREDEFINED_ROLES
+        let project_roles: serde_json::Map<_, _> = Role::ALL
             .iter()
             .zip(&projects)
-            .map(|((role, _, _), project)| (project.clone(), serde_json::json!([role])))
+            .map(|(role, project)| (project.clone(), serde_json::json!([role.as_str()])))
             .collect();
         let registry = Registry::parse(
             serde_json::json!({ "identities": [{
@@ -2007,11 +2011,11 @@ mod tests {
         )
         .unwrap();
         let identity = &registry.identities[0];
-        for (index, (_, _, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
+        for (index, role) in Role::ALL.iter().enumerate() {
             for permission in Permission::ALL {
                 assert_eq!(
                     identity.allows(*permission, &projects[index]),
-                    permissions.contains(&permission.as_str()),
+                    role.permissions().contains(&permission.as_str()),
                     "{index} {permission}"
                 );
             }
@@ -2036,11 +2040,8 @@ mod tests {
 
     #[test]
     fn notable_role_consequences_follow_the_snapshot() {
-        let has = |role: &str, permission: Permission| {
-            roles::permissions(role)
-                .unwrap()
-                .contains(&permission.as_str())
-        };
+        let has =
+            |role: &str, permission: Permission| role.parse::<Role>().unwrap().grants(permission);
         assert!(!has("roles/storage.objectViewer", BUCKETS_GET));
         assert!(has("roles/storage.objectViewer", OBJECTS_GET));
         assert!(has("roles/storage.objectCreator", OBJECTS_CREATE));
@@ -2409,10 +2410,7 @@ mod tests {
     #[tokio::test]
     async fn a_registry_past_the_former_count_limits_loads_and_authenticates_its_last_entry() {
         const COUNT: usize = 1000;
-        let roles: Vec<_> = roles::PREDEFINED_ROLES
-            .iter()
-            .map(|(role, _, _)| *role)
-            .collect();
+        let roles: Vec<_> = Role::ALL.iter().map(|role| role.as_str()).collect();
         let tokens: Vec<_> = (0..COUNT).map(|n| format!("extra-{n}")).collect();
         let projects: serde_json::Map<_, _> = (0..COUNT)
             .map(|n| (format!("project-{n}"), serde_json::json!(roles)))
