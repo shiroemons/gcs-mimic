@@ -34,7 +34,8 @@ use std::{
 };
 
 mod policy;
-use policy::Version;
+use super::put::length_range::LengthRange;
+use policy::{Credentials, PolicyForm};
 #[cfg(test)]
 mod failure_tests;
 
@@ -90,8 +91,15 @@ struct Form {
     filename: Option<String>,
 }
 
+/// A form part's field name, lowercased, and the file name it sent, if any.
+#[derive(Debug, PartialEq, Eq)]
+struct PartName {
+    name: String,
+    filename: Option<String>,
+}
+
 /// Parse `form-data; name="..."; filename="..."`. Field names compare case-insensitively.
-fn disposition(headers: &HeaderMap) -> Result<(String, Option<String>), Error> {
+fn disposition(headers: &HeaderMap) -> Result<PartName, Error> {
     let malformed = || {
         Error::invalid("Each form part requires Content-Disposition: form-data; name=\"FIELD\".")
     };
@@ -159,7 +167,10 @@ fn disposition(headers: &HeaderMap) -> Result<(String, Option<String>), Error> {
         };
     }
     let name = name.filter(|name| !name.is_empty()).ok_or_else(malformed)?;
-    Ok((name.to_ascii_lowercase(), filename))
+    Ok(PartName {
+        name: name.to_ascii_lowercase(),
+        filename,
+    })
 }
 
 async fn read_form<B: Body<Data = Bytes> + Unpin>(
@@ -180,7 +191,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
                 "The form requires a file field; send it as the last form field.",
             ));
         }
-        let (name, filename) = disposition(&parser.part_headers().await?)?;
+        let PartName { name, filename } = disposition(&parser.part_headers().await?)?;
         if name == "file" {
             return Ok(Form { fields, filename });
         }
@@ -268,25 +279,14 @@ fn check_policy_window(
     Ok(())
 }
 
-/// Check every condition against the submitted form and require a condition for every
-/// field. Returns the inclusive content-length-range, if any.
-///
-/// `signed_at` is the x-goog-date of a verified signature. It is absent when policy
-/// credentials are ignored (permissive mode with `signed_urls=ignore`).
-fn check_policy(
-    encoded: &str,
-    fields: &BTreeMap<String, String>,
-    bucket: &str,
-    now: SystemTime,
-    signed_at: Option<SystemTime>,
-    version: Version,
-) -> Result<Option<(u64, u64)>, Error> {
+/// The decoded policy document: a JSON object with only `expiration` and `conditions`.
+fn policy_document(encoded: &str) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
     let document = decode_base64(encoded)
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .ok_or_else(|| policy_error("The policy field must be base64-encoded UTF-8 JSON."))?;
-    let document = document
-        .as_object()
-        .ok_or_else(|| policy_error("The policy document must be a JSON object."))?;
+    let serde_json::Value::Object(document) = document else {
+        return Err(policy_error("The policy document must be a JSON object."));
+    };
     if let Some(key) = document
         .keys()
         .find(|key| !matches!(key.as_str(), "expiration" | "conditions"))
@@ -295,25 +295,73 @@ fn check_policy(
             "Unsupported policy document field {key}."
         )));
     }
-    check_policy_window(document, now, signed_at)?;
-    let conditions = document
-        .get("conditions")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| policy_error("The policy conditions must be an array."))?;
-    let mut covered = BTreeSet::new();
-    let mut range = None;
-    for condition in conditions {
-        let unsupported = || policy_error(format!("Unsupported policy condition {condition}."));
-        let (operator, field, expected) = match condition {
+    Ok(document)
+}
+
+/// A policy condition's comparison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Operator {
+    Eq,
+    StartsWith,
+}
+
+impl Operator {
+    fn parse(raw: &str) -> Option<Self> {
+        if raw.eq_ignore_ascii_case("eq") {
+            Some(Self::Eq)
+        } else if raw.eq_ignore_ascii_case("starts-with") {
+            Some(Self::StartsWith)
+        } else {
+            None
+        }
+    }
+
+    /// The spelling a failed condition reports.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Eq => "eq",
+            Self::StartsWith => "starts-with",
+        }
+    }
+
+    fn matches(self, actual: &str, expected: &str) -> bool {
+        match self {
+            Self::Eq => actual == expected,
+            Self::StartsWith => actual.starts_with(expected),
+        }
+    }
+}
+
+/// One parsed policy condition.
+enum Condition<'p> {
+    /// `{"field": "value"}`, `["eq", "$field", "value"]` or `["starts-with", "$field", "prefix"]`;
+    /// the field name is lowercase, as form field names are.
+    Compare {
+        operator: Operator,
+        field: String,
+        expected: &'p str,
+    },
+    /// `["content-length-range", min, max]`, an inclusive file size.
+    ContentLength(LengthRange),
+}
+
+impl<'p> Condition<'p> {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only an object or an array states a condition; every other JSON value is unsupported"
+    )]
+    fn parse(value: &'p serde_json::Value) -> Result<Self, Error> {
+        let unsupported = || policy_error(format!("Unsupported policy condition {value}."));
+        match value {
             serde_json::Value::Object(entry) if entry.len() == 1 => {
-                let Some((field, value)) = entry.iter().next() else {
+                let Some((field, expected)) = entry.iter().next() else {
                     return Err(unsupported());
                 };
-                (
-                    "eq",
-                    field.to_ascii_lowercase(),
-                    value.as_str().ok_or_else(unsupported)?,
-                )
+                Ok(Self::Compare {
+                    operator: Operator::Eq,
+                    field: field.to_ascii_lowercase(),
+                    expected: expected.as_str().ok_or_else(unsupported)?,
+                })
             }
             serde_json::Value::Array(items) => {
                 let [operator, field, expected] = items.as_slice() else {
@@ -321,89 +369,148 @@ fn check_policy(
                 };
                 let operator = operator.as_str().ok_or_else(unsupported)?;
                 if operator.eq_ignore_ascii_case("content-length-range") {
-                    let (min, max) = field
+                    let range = field
                         .as_u64()
                         .zip(expected.as_u64())
-                        .filter(|(min, max)| min <= max)
+                        .and_then(|(min, max)| LengthRange::new(min, max))
                         .ok_or_else(unsupported)?;
-                    if range.replace((min, max)).is_some() {
-                        return Err(policy_error(
-                            "The policy document has more than one content-length-range condition.",
-                        ));
-                    }
-                    covered.insert("content-length".to_owned());
-                    continue;
+                    return Ok(Self::ContentLength(range));
                 }
-                let operator = if operator.eq_ignore_ascii_case("eq") {
-                    "eq"
-                } else if operator.eq_ignore_ascii_case("starts-with") {
-                    "starts-with"
-                } else {
-                    return Err(unsupported());
-                };
+                let operator = Operator::parse(operator).ok_or_else(unsupported)?;
                 let field = field
                     .as_str()
                     .and_then(|field| field.strip_prefix('$'))
                     .filter(|field| !field.is_empty())
                     .ok_or_else(unsupported)?;
-                (
+                Ok(Self::Compare {
                     operator,
-                    field.to_ascii_lowercase(),
-                    expected.as_str().ok_or_else(unsupported)?,
-                )
+                    field: field.to_ascii_lowercase(),
+                    expected: expected.as_str().ok_or_else(unsupported)?,
+                })
             }
-            _ => return Err(unsupported()),
-        };
-        // The bucket condition applies to the request target, whether or not a field names it.
-        let actual = if field == "bucket" {
-            bucket
-        } else {
-            fields
-                .get(&field)
-                .ok_or_else(|| policy_error(format!("Missing key: {field}")))?
-        };
-        let matched = if operator == "eq" {
-            actual == expected
-        } else {
-            actual.starts_with(expected)
-        };
-        if !matched {
-            return Err(policy_error(format!(
-                "Policy condition failed: [\"{operator}\", \"${field}\", {}]",
-                serde_json::Value::from(expected)
-            )));
+            _ => Err(unsupported()),
         }
-        covered.insert(field);
     }
-    if version == Version::V4 && !covered.contains("bucket") {
-        return Err(policy_error(
-            "The policy document requires a bucket condition.",
-        ));
-    }
-    if let Some(field) = fields
-        .keys()
-        .find(|field| !version.unconditioned(field) && !covered.contains(*field))
-    {
-        return Err(policy_error(format!(
-            "Form field {field} has no policy condition."
-        )));
-    }
-    Ok(range)
 }
 
+/// The fields and size range the conditions checked so far cover.
+#[derive(Default)]
+struct Coverage {
+    fields: BTreeSet<String>,
+    range: Option<LengthRange>,
+}
+
+impl Coverage {
+    fn apply(
+        &mut self,
+        condition: Condition<'_>,
+        fields: &BTreeMap<String, String>,
+        bucket: &str,
+    ) -> Result<(), Error> {
+        match condition {
+            Condition::ContentLength(range) => {
+                if self.range.replace(range).is_some() {
+                    return Err(policy_error(
+                        "The policy document has more than one content-length-range condition.",
+                    ));
+                }
+                self.fields.insert("content-length".to_owned());
+            }
+            Condition::Compare {
+                operator,
+                field,
+                expected,
+            } => {
+                // The bucket condition applies to the request target, whether or not a field
+                // names it.
+                let actual = if field == "bucket" {
+                    bucket
+                } else {
+                    fields
+                        .get(&field)
+                        .ok_or_else(|| policy_error(format!("Missing key: {field}")))?
+                };
+                if !operator.matches(actual, expected) {
+                    return Err(policy_error(format!(
+                        "Policy condition failed: [\"{}\", \"${field}\", {}]",
+                        operator.as_str(),
+                        serde_json::Value::from(expected)
+                    )));
+                }
+                self.fields.insert(field);
+            }
+        }
+        Ok(())
+    }
+
+    /// The V4 bucket condition, then a condition for every field that needs one.
+    fn finish(
+        self,
+        credentials: &Credentials<'_>,
+        fields: &BTreeMap<String, String>,
+    ) -> Result<Option<LengthRange>, Error> {
+        if credentials.requires_bucket_condition() && !self.fields.contains("bucket") {
+            return Err(policy_error(
+                "The policy document requires a bucket condition.",
+            ));
+        }
+        if let Some(field) = fields
+            .keys()
+            .find(|field| !credentials.unconditioned(field) && !self.fields.contains(*field))
+        {
+            return Err(policy_error(format!(
+                "Form field {field} has no policy condition."
+            )));
+        }
+        Ok(self.range)
+    }
+}
+
+/// Check every condition against the submitted form and require a condition for every
+/// field. Returns the inclusive content-length-range, if any.
+///
+/// `signed_at` is the x-goog-date of a verified signature. It is absent when policy
+/// credentials are ignored (permissive mode with `signed_urls=ignore`).
+fn check_policy(
+    policy: &PolicyForm<'_>,
+    fields: &BTreeMap<String, String>,
+    bucket: &str,
+    now: SystemTime,
+    signed_at: Option<SystemTime>,
+) -> Result<Option<LengthRange>, Error> {
+    let document = policy_document(policy.document)?;
+    check_policy_window(&document, now, signed_at)?;
+    let conditions = document
+        .get("conditions")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| policy_error("The policy conditions must be an array."))?;
+    let mut coverage = Coverage::default();
+    for value in conditions {
+        // Parse and check one condition at a time: an earlier failed condition is reported
+        // before a later unsupported one.
+        coverage.apply(Condition::parse(value)?, fields, bucket)?;
+    }
+    coverage.finish(&policy.credentials, fields)
+}
+
+/// What a successful form upload answers, from `success_action_redirect` or
+/// `success_action_status`.
 pub(super) enum Success {
-    Status(StatusCode),
+    NoContent,
+    Ok,
+    /// 201 with the `PostResponse` document.
+    Created,
     /// The validated `success_action_redirect`, already in its `Location` header form.
     Redirect(HeaderValue),
 }
 
-struct Plan {
+struct Plan<'f> {
     name: String,
     content_type: String,
     metadata: ObjectMetadataUpdate,
     declared_length: Option<u64>,
     success: Success,
-    version: Option<Version>,
+    policy: Option<PolicyForm<'f>>,
 }
 
 fn header_value(field: &str, value: &str) -> Result<String, Error> {
@@ -420,19 +527,13 @@ fn header_value(field: &str, value: &str) -> Result<String, Error> {
 
 /// Map form fields onto the shared upload request. Unknown or unsupported fields fail
 /// instead of being stored or ignored.
-fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
+fn plan<'f>(form: &'f Form, bucket: &str) -> Result<Plan<'f>, Error> {
     let fields = &form.fields;
     for name in fields.keys() {
         match name.as_str() {
             "key"
             | "bucket"
-            | "policy"
-            | "googleaccessid"
-            | "signature"
-            | "x-goog-algorithm"
-            | "x-goog-credential"
-            | "x-goog-date"
-            | "x-goog-signature"
+            | policy::POLICY
             | "success_action_status"
             | "success_action_redirect"
             | "content-type"
@@ -441,11 +542,12 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             | "content-encoding"
             | "content-length"
             | super::CUSTOM_TIME => {}
+            name if policy::V2_FIELDS.contains(&name) || policy::V4_FIELDS.contains(&name) => {}
             name if name.len() > "x-goog-meta-".len() && name.starts_with("x-goog-meta-") => {}
             name => return Err(Error::unsupported(&format!("POST form field {name}"))),
         }
     }
-    let version = Version::select(fields)?;
+    let policy = PolicyForm::select(fields)?;
     if fields.get("bucket").is_some_and(|value| value != bucket) {
         return Err(Error::invalid(
             "The bucket form field must match the bucket in the request URL.",
@@ -499,7 +601,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
         metadata: form_metadata(fields)?,
         declared_length,
         success,
-        version,
+        policy,
     })
 }
 
@@ -518,9 +620,9 @@ fn success_action(fields: &BTreeMap<String, String>) -> Result<Success, Error> {
         return Ok(Success::Redirect(location));
     }
     match fields.get("success_action_status").map(String::as_str) {
-        None | Some("204") => Ok(Success::Status(StatusCode::NO_CONTENT)),
-        Some("200") => Ok(Success::Status(StatusCode::OK)),
-        Some("201") => Ok(Success::Status(StatusCode::CREATED)),
+        None | Some("204") => Ok(Success::NoContent),
+        Some("200") => Ok(Success::Ok),
+        Some("201") => Ok(Success::Created),
         Some(_) => Err(Error::invalid(
             "success_action_status must be 200, 201 or 204.",
         )),
@@ -589,26 +691,22 @@ pub(crate) async fn respond(
         metadata,
         declared_length,
         success,
-        version,
+        policy,
     } = plan(&form, &bucket)?;
     let fields = &form.fields;
-    let caller = authenticate(ctx, &headers, fields, version).await?;
-    let range = fields
-        .get("policy")
+    let caller = authenticate(ctx, &headers, policy.as_ref()).await?;
+    let range = policy
+        .as_ref()
         .map(|policy| {
             // A verified signature leaves no caller in permissive mode, so ask the profile.
-            let signed_at = (state.auth.signed_urls() == auth::SignedUrls::Verify
-                && version == Some(Version::V4))
-            .then(|| signature::parse_timestamp(&fields["x-goog-date"]).ok())
-            .flatten();
-            check_policy(
-                policy,
-                fields,
-                &bucket,
-                state.clock.now(),
-                signed_at,
-                version.ok_or_else(|| Error::invalid("Missing policy version."))?,
-            )
+            let verifying = state.auth.signed_urls() == auth::SignedUrls::Verify;
+            let signed_at = match &policy.credentials {
+                Credentials::V4 { date, .. } => verifying
+                    .then(|| signature::parse_timestamp(date).ok())
+                    .flatten(),
+                Credentials::V2 { .. } => None,
+            };
+            check_policy(policy, fields, &bucket, state.clock.now(), signed_at)
         })
         .transpose()?
         .flatten();
@@ -654,11 +752,10 @@ pub(crate) async fn respond(
 async fn authenticate<'a>(
     ctx: RequestCtx<'a>,
     headers: &HeaderMap,
-    fields: &BTreeMap<String, String>,
-    version: Option<Version>,
+    policy: Option<&PolicyForm<'_>>,
 ) -> Result<Option<Caller<'a>>, Error> {
     let state = ctx.state;
-    let Some(policy) = fields.get("policy") else {
+    let Some(policy) = policy else {
         return state
             .auth
             .authenticate_request(headers, None, state.clock.as_ref(), ctx.listener)
@@ -670,37 +767,40 @@ async fn authenticate<'a>(
             "Send either a policy form or an Authorization header, not both.",
         ));
     }
-    if version == Some(Version::V2) {
-        return state
+    match &policy.credentials {
+        Credentials::V2 {
+            access_id,
+            signature,
+        } => state
             .auth
-            .authenticate_policy_v2(
+            .authenticate_policy_v2(&state.catalog, access_id, signature, policy.document)
+            .await
+            .map_err(signature_error),
+        Credentials::V4 {
+            algorithm,
+            credential,
+            date,
+            signature,
+        } => state
+            .auth
+            .authenticate_policy(
                 &state.catalog,
-                &fields["googleaccessid"],
-                &fields["signature"],
-                policy,
+                algorithm,
+                credential,
+                date,
+                signature,
+                policy.document,
             )
             .await
-            .map_err(signature_error);
+            .map_err(signature_error),
     }
-    state
-        .auth
-        .authenticate_policy(
-            &state.catalog,
-            &fields["x-goog-algorithm"],
-            &fields["x-goog-credential"],
-            &fields["x-goog-date"],
-            &fields["x-goog-signature"],
-            policy,
-        )
-        .await
-        .map_err(signature_error)
 }
 
 /// The file sizes a form allows: the policy's inclusive content-length-range and the
 /// Content-Length form field.
 #[derive(Clone, Copy)]
 struct FileLimits {
-    range: Option<(u64, u64)>,
+    range: Option<LengthRange>,
     declared_length: Option<u64>,
 }
 
@@ -725,7 +825,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
                 .checked_add(bytes.len() as u64)
                 .filter(|size| *size <= max_bytes)
                 .ok_or_else(|| storage_error(ObjectError::TooLarge, None))?;
-            if range.is_some_and(|(_, max)| size > max) {
+            if range.is_some_and(|range| size > range.max()) {
                 return Err(Error::new(
                     XmlCode::EntityTooLarge,
                     "The file exceeds the policy content-length-range maximum.",
@@ -741,7 +841,7 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
                 "The file field must be the last field in the form.",
             ));
         }
-        if range.is_some_and(|(min, _)| size < min) {
+        if range.is_some_and(|range| size < range.min()) {
             return Err(Error::new(
                 XmlCode::EntityTooSmall,
                 "The file is smaller than the policy content-length-range minimum.",
@@ -761,6 +861,12 @@ async fn stream_file<B: Body<Data = Bytes> + Unpin>(
             DriveError::Upload(error) => storage_error(error, caller),
             DriveError::Producer(error) => error,
         })
+}
+
+fn status_response(status: StatusCode, body: String) -> Response<ResponseBody> {
+    let mut response = boxed(Response::new(Full::new(Bytes::from(body))));
+    *response.status_mut() = status;
+    response
 }
 
 /// The `PostResponse` that `success_action_status=201` answers, which escapes quotes.
@@ -792,26 +898,27 @@ pub(super) fn success_response(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    let (status, body, content_type) = match success {
-        Success::Redirect(_) => (StatusCode::SEE_OTHER, String::new(), None),
-        Success::Status(StatusCode::CREATED) => (
-            StatusCode::CREATED,
-            post_response_document(record, &etag, api_base_url),
-            Some("application/xml; charset=UTF-8"),
-        ),
-        Success::Status(status) => (status, String::new(), None),
+    let mut response = match success {
+        Success::NoContent => status_response(StatusCode::NO_CONTENT, String::new()),
+        Success::Ok => status_response(StatusCode::OK, String::new()),
+        Success::Created => {
+            let body = post_response_document(record, &etag, api_base_url);
+            let content_length = HeaderValue::from(body.len());
+            let mut response = status_response(StatusCode::CREATED, body);
+            let headers = response.headers_mut();
+            headers.insert(
+                "content-type",
+                HeaderValue::from_static("application/xml; charset=UTF-8"),
+            );
+            headers.insert("content-length", content_length);
+            response
+        }
+        Success::Redirect(location) => {
+            let mut response = status_response(StatusCode::SEE_OTHER, String::new());
+            response.headers_mut().insert("location", location);
+            response
+        }
     };
-    let content_length = HeaderValue::from(body.len());
-    let mut response = boxed(Response::new(Full::new(Bytes::from(body))));
-    *response.status_mut() = status;
-    if let Success::Redirect(location) = success {
-        response.headers_mut().insert("location", location);
-    }
-    if let Some(content_type) = content_type {
-        let headers = response.headers_mut();
-        headers.insert("content-type", HeaderValue::from_static(content_type));
-        headers.insert("content-length", content_length);
-    }
     super::move_headers(
         &mut media,
         response.headers_mut(),
@@ -884,6 +991,24 @@ mod tests {
         (error.status(), error.code.as_str(), error.message)
     }
 
+    /// Checks `encoded` as the policy of a form with these fields and their credentials, and
+    /// returns its content-length-range as `(min, max)`.
+    fn check(
+        encoded: &str,
+        fields: &BTreeMap<String, String>,
+        bucket: &str,
+        now: SystemTime,
+        signed_at: Option<SystemTime>,
+    ) -> Result<Option<(u64, u64)>, Error> {
+        let credentials = PolicyForm::select(fields).unwrap().unwrap().credentials;
+        let policy = PolicyForm {
+            document: encoded,
+            credentials,
+        };
+        check_policy(&policy, fields, bucket, now, signed_at)
+            .map(|range| range.map(|range| (range.min(), range.max())))
+    }
+
     #[test]
     fn policy_accepts_go_and_ruby_sdk_documents_with_any_utc_offset() {
         for expiration in [
@@ -893,7 +1018,7 @@ mod tests {
         ] {
             let encoded = policy(expiration, sdk_conditions());
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4).unwrap(),
+                check(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap(),
                 None,
                 "{expiration}"
             );
@@ -905,27 +1030,17 @@ mod tests {
         let seven_days = "2026-11-05T00:00:00Z";
         let encoded = policy(seven_days, sdk_conditions());
         let fields = sdk_fields();
-        check_policy(&encoded, &fields, "b", at(NOW), Some(at(NOW)), Version::V4).unwrap();
-        check_policy(
-            &encoded,
-            &fields,
-            "b",
-            at(NOW - 900),
-            Some(at(NOW)),
-            Version::V4,
-        )
-        .unwrap();
+        check(&encoded, &fields, "b", at(NOW), Some(at(NOW))).unwrap();
+        check(&encoded, &fields, "b", at(NOW - 900), Some(at(NOW))).unwrap();
         // The permissive profile ignores credentials, so only the policy expiration applies.
         let beyond = policy("2026-11-05T00:00:01Z", sdk_conditions());
-        check_policy(&beyond, &fields, "b", at(NOW), None, Version::V4).unwrap();
+        check(&beyond, &fields, "b", at(NOW), None).unwrap();
         for (encoded, now, expected) in [
             (&beyond, NOW, "no more than 7 days"),
             (&encoded, NOW - 901, "Policy not yet valid"),
         ] {
-            let (status, code, message) = details(
-                check_policy(encoded, &fields, "b", at(now), Some(at(NOW)), Version::V4)
-                    .unwrap_err(),
-            );
+            let (status, code, message) =
+                details(check(encoded, &fields, "b", at(now), Some(at(NOW))).unwrap_err());
             assert_eq!(
                 (status, code),
                 (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
@@ -937,15 +1052,14 @@ mod tests {
     #[test]
     fn policy_rejects_expiry_at_the_exact_instant_and_malformed_documents() {
         let encoded = policy("2026-10-29T00:00:00Z", sdk_conditions());
-        let (status, code, message) = details(
-            check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4).unwrap_err(),
-        );
+        let (status, code, message) =
+            details(check(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap_err());
         assert_eq!(
             (status, code),
             (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
         );
         assert!(message.contains("Policy expired"), "{message}");
-        check_policy(&encoded, &sdk_fields(), "b", at(NOW - 1), None, Version::V4).unwrap();
+        check(&encoded, &sdk_fields(), "b", at(NOW - 1), None).unwrap();
         for encoded in [
             "not base64".to_owned(),
             base64(b"[]"),
@@ -957,7 +1071,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4)
+                check(&encoded, &sdk_fields(), "b", at(NOW), None)
                     .unwrap_err()
                     .code
                     .as_str(),
@@ -980,13 +1094,12 @@ mod tests {
             "image/"
         ]));
         conditions.push(serde_json::json!(["eq", "$x-goog-meta-owner", "alice"]));
-        check_policy(
+        check(
             &policy(expiration, conditions.clone()),
             &form,
             "b",
             at(NOW),
             None,
-            Version::V4,
         )
         .unwrap();
         let cases: Vec<(Vec<serde_json::Value>, &str, &str)> = vec![
@@ -1044,17 +1157,52 @@ mod tests {
             ),
         ];
         for (conditions, bucket, expected) in cases {
-            let error = check_policy(
+            let error = check(
                 &policy(expiration, conditions),
                 &form,
                 bucket,
                 at(NOW),
                 None,
-                Version::V4,
             )
             .unwrap_err();
             assert_eq!(error.code.as_str(), "InvalidPolicyDocument");
             assert!(error.message.contains(expected), "{}", error.message);
+        }
+    }
+
+    /// Each condition is parsed and checked before the next one is read, so the first bad
+    /// condition names the error whichever way it is bad.
+    #[test]
+    fn an_earlier_failed_condition_is_reported_before_a_later_unsupported_one() {
+        let expiration = "2026-10-30T00:00:00Z";
+        let failed = serde_json::json!({"key": "other.txt"});
+        let unsupported = serde_json::json!(["ends-with", "$key", "txt"]);
+        for (conditions, expected) in [
+            (
+                vec![failed.clone(), unsupported.clone()],
+                "Policy condition failed: [\"eq\", \"$key\", \"other.txt\"]",
+            ),
+            (
+                vec![unsupported, failed],
+                "Unsupported policy condition [\"ends-with\",\"$key\",\"txt\"].",
+            ),
+        ] {
+            let conditions = [sdk_conditions(), conditions].concat();
+            let (status, code, message) = details(
+                check(
+                    &policy(expiration, conditions),
+                    &sdk_fields(),
+                    "b",
+                    at(NOW),
+                    None,
+                )
+                .unwrap_err(),
+            );
+            assert_eq!(
+                (status, code),
+                (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
+            );
+            assert!(message.ends_with(expected), "{message}");
         }
     }
 
@@ -1066,13 +1214,12 @@ mod tests {
         let mut conditions = sdk_conditions();
         conditions.push(serde_json::json!(["content-length-range", 1, 10]));
         assert_eq!(
-            check_policy(
+            check(
                 &policy(expiration, conditions.clone()),
                 &form,
                 "b",
                 at(NOW),
                 None,
-                Version::V4,
             )
             .unwrap(),
             Some((1, 10))
@@ -1085,17 +1232,10 @@ mod tests {
         ] {
             let conditions = [conditions.clone(), vec![range.clone()]].concat();
             assert_eq!(
-                check_policy(
-                    &policy(expiration, conditions),
-                    &form,
-                    "b",
-                    at(NOW),
-                    None,
-                    Version::V4
-                )
-                .unwrap_err()
-                .code
-                .as_str(),
+                check(&policy(expiration, conditions), &form, "b", at(NOW), None,)
+                    .unwrap_err()
+                    .code
+                    .as_str(),
                 "InvalidPolicyDocument",
                 "{range}"
             );
@@ -1111,24 +1251,21 @@ mod tests {
 
     #[test]
     fn plan_maps_documented_fields_and_rejects_unsupported_ones() {
-        let planned = plan(
-            &form(
-                &[
-                    ("key", "uploads/${filename}"),
-                    ("bucket", "b"),
-                    ("content-type", "text/plain"),
-                    ("cache-control", "no-cache"),
-                    ("content-disposition", "inline"),
-                    ("content-encoding", "identity"),
-                    ("x-goog-custom-time", "2026-10-20T01:02:03Z"),
-                    ("x-goog-meta-owner", "alice"),
-                    ("success_action_status", "201"),
-                ],
-                Some("photo.png"),
-            ),
-            "b",
-        )
-        .unwrap();
+        let documented = form(
+            &[
+                ("key", "uploads/${filename}"),
+                ("bucket", "b"),
+                ("content-type", "text/plain"),
+                ("cache-control", "no-cache"),
+                ("content-disposition", "inline"),
+                ("content-encoding", "identity"),
+                ("x-goog-custom-time", "2026-10-20T01:02:03Z"),
+                ("x-goog-meta-owner", "alice"),
+                ("success_action_status", "201"),
+            ],
+            Some("photo.png"),
+        );
+        let planned = plan(&documented, "b").unwrap();
         assert_eq!(planned.name, "uploads/photo.png");
         assert_eq!(planned.content_type, "text/plain");
         assert_eq!(
@@ -1139,31 +1276,23 @@ mod tests {
             planned.metadata.metadata,
             MapPatch::Merge(BTreeMap::from([("owner".into(), Some("alice".into()))]))
         );
-        assert!(matches!(
-            planned.success,
-            Success::Status(StatusCode::CREATED)
-        ));
-        let defaults = plan(&form(&[("key", "a")], None), "b").unwrap();
+        assert!(matches!(planned.success, Success::Created));
+        let minimal = form(&[("key", "a")], None);
+        let defaults = plan(&minimal, "b").unwrap();
         assert_eq!(defaults.content_type, "application/octet-stream");
-        assert!(matches!(
-            defaults.success,
-            Success::Status(StatusCode::NO_CONTENT)
-        ));
-        let redirect = plan(
-            &form(
-                &[
-                    ("key", "a"),
-                    (
-                        "success_action_redirect",
-                        "https://example.invalid/done?x=1",
-                    ),
-                    ("success_action_status", "201"),
-                ],
-                None,
-            ),
-            "b",
-        )
-        .unwrap();
+        assert!(matches!(defaults.success, Success::NoContent));
+        let redirecting = form(
+            &[
+                ("key", "a"),
+                (
+                    "success_action_redirect",
+                    "https://example.invalid/done?x=1",
+                ),
+                ("success_action_status", "201"),
+            ],
+            None,
+        );
+        let redirect = plan(&redirecting, "b").unwrap();
         assert!(
             matches!(redirect.success, Success::Redirect(url) if url == "https://example.invalid/done?x=1")
         );
@@ -1215,11 +1344,17 @@ mod tests {
         };
         assert_eq!(
             parse("form-data; name=\"Content-Type\"").unwrap(),
-            ("content-type".into(), None)
+            PartName {
+                name: "content-type".into(),
+                filename: None
+            }
         );
         assert_eq!(
             parse("Form-Data; name=file; filename=\"a \\\"b\\\";c.txt\"").unwrap(),
-            ("file".into(), Some("a \"b\";c.txt".into()))
+            PartName {
+                name: "file".into(),
+                filename: Some("a \"b\";c.txt".into())
+            }
         );
         for value in [
             "attachment; name=\"key\"",

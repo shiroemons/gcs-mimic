@@ -94,6 +94,19 @@ impl<'a> TryFrom<&'a str> for LengthRange {
 }
 
 impl LengthRange {
+    /// A policy's inclusive `content-length-range`, which JSON states as two unsigned numbers.
+    pub(crate) fn new(min: u64, max: u64) -> Option<Self> {
+        (min <= max).then_some(Self { min, max })
+    }
+
+    pub(crate) fn min(self) -> u64 {
+        self.min
+    }
+
+    pub(crate) fn max(self) -> u64 {
+        self.max
+    }
+
     pub(crate) fn from_headers(headers: &HeaderMap) -> Result<Option<Self>, Error> {
         let Some(value) = single(headers, HEADER)? else {
             return Ok(None);

@@ -124,12 +124,8 @@ async fn copy_result_document() {
 #[tokio::test]
 async fn post_response_escapes_quotes() {
     let record = object_record("bucket", "a\"b'c<d>&e", at());
-    let response = post::success_response(
-        post::Success::Status(StatusCode::CREATED),
-        &record,
-        "http://localhost:4443/",
-    )
-    .unwrap();
+    let response =
+        post::success_response(post::Success::Created, &record, "http://localhost:4443/").unwrap();
     assert_eq!(
         body_text(response).await,
         "<?xml version='1.0' encoding='UTF-8'?><PostResponse><Location>http://localhost:4443/bucket/a%22b%27c%3Cd%3E%26e</Location><Bucket>bucket</Bucket><Key>a&quot;b&apos;c&lt;d&gt;&amp;e</Key><ETag>&quot;03030303030303030303030303030303&quot;</ETag></PostResponse>"

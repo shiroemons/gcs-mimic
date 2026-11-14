@@ -251,8 +251,8 @@ async fn hmac_policy_backend_failure_retains_cause_and_never_returns_anonymous()
     fixture.state.catalog.close().await.unwrap();
     for variant in [Variant::V4Hmac, Variant::V2Hmac] {
         let fields = fixture.fields(variant);
-        let version = Version::select(&fields).unwrap();
-        let error = authenticate(fixture.ctx(), &HeaderMap::new(), &fields, version)
+        let policy = PolicyForm::select(&fields).unwrap();
+        let error = authenticate(fixture.ctx(), &HeaderMap::new(), policy.as_ref())
             .await
             .unwrap_err();
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);

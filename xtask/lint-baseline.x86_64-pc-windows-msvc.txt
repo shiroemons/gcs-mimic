@@ -34,6 +34,5 @@ clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1
 clippy::wildcard_enum_match_arm	src/xml/document.rs	1
 clippy::wildcard_enum_match_arm	src/xml/mod.rs	1
 clippy::wildcard_enum_match_arm	src/xml/multipart/manifest.rs	2
-clippy::wildcard_enum_match_arm	src/xml/post.rs	1
 clippy::wildcard_enum_match_arm	src/xml/put.rs	3
 clippy::wildcard_enum_match_arm	src/xml/put/length_range.rs	1
