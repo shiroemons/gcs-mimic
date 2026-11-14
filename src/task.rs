@@ -388,8 +388,10 @@ fn report_panic(name: &'static str, payload: &(dyn Any + Send)) {
 
 fn panic_message(payload: &(dyn Any + Send)) -> &str {
     payload
+        // xtask-lint: allow(text::downcast) -- panic payloads arrive as Box<dyn Any + Send>
         .downcast_ref::<&str>()
         .copied()
+        // xtask-lint: allow(text::downcast) -- panic payloads arrive as Box<dyn Any + Send>
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
         .unwrap_or("non-string panic payload")
 }

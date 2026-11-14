@@ -59,7 +59,15 @@ pub const RATCHETED_CLIPPY_LINTS: [&str; 8] = [
 ];
 
 const STATIC_STR_ERROR: &str = "text::static_str_error";
-pub const RATCHETED_TEXT_RULES: [&str; 1] = [STATIC_STR_ERROR];
+const JSON_MACRO_VALUE: &str = "text::json_macro_value";
+const DOWNCAST: &str = "text::downcast";
+const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
+pub const RATCHETED_TEXT_RULES: [&str; 4] = [
+    STATIC_STR_ERROR,
+    JSON_MACRO_VALUE,
+    DOWNCAST,
+    DIAGNOSTICS_IN_IO_ERROR,
+];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
@@ -77,7 +85,7 @@ const STRINGIFIED_ERROR: &str = "text::stringified_error";
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 9] = [
+pub const TEXT_RULES: [&str; 12] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -87,6 +95,9 @@ pub const TEXT_RULES: [&str; 9] = [
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
     STATIC_STR_ERROR,
+    JSON_MACRO_VALUE,
+    DOWNCAST,
+    DIAGNOSTICS_IN_IO_ERROR,
 ];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
@@ -785,7 +796,123 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in stringified_errors(text, masked) {
         add(STRINGIFIED_ERROR, offset);
     }
+    for offset in json_macro_values(masked) {
+        add(JSON_MACRO_VALUE, offset);
+    }
+    for offset in downcasts(masked) {
+        add(DOWNCAST, offset);
+    }
+    for offset in diagnostics_in_io_errors(masked) {
+        add(DIAGNOSTICS_IN_IO_ERROR, offset);
+    }
     findings
+}
+
+/// Index just past the group opening at `i`, counting only `()`, `[]` and `{}`; unlike
+/// [`close_group`] it crosses expressions that compare with `<` and `>`.
+fn close_expression(bytes: &[u8], i: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (j, byte) in bytes.iter().enumerate().skip(i) {
+        match byte {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(j + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Offsets of `json!(expr)` whose whole argument is not a JSON literal: the macro expands it
+/// to `to_value(&expr).unwrap()`, a panic `clippy::unwrap_used` cannot see in an external
+/// macro. The leaves inside an object or array literal are not checked.
+fn json_macro_values(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for offset in words(masked, "json") {
+        let bang = skip_space(bytes, offset + "json".len());
+        if bytes.get(bang) != Some(&b'!') {
+            continue;
+        }
+        let open = skip_space(bytes, bang + 1);
+        if !matches!(bytes.get(open), Some(b'(' | b'[' | b'{')) {
+            continue;
+        }
+        let Some(close) = close_expression(bytes, open) else {
+            continue;
+        };
+        if !json_literal(masked[open + 1..close - 1].trim()) {
+            offsets.push(offset);
+        }
+    }
+    offsets
+}
+
+/// Whether the macro builds a `json!` argument without `to_value`: an object or array
+/// literal, a string or number literal, `null`, `true` or `false`. Masking keeps the quotes
+/// of a string literal, so its first byte is still `"` (or `r` of a raw string).
+fn json_literal(argument: &str) -> bool {
+    let unsigned = argument.strip_prefix('-').map_or(argument, str::trim_start);
+    matches!(
+        unsigned.bytes().next(),
+        Some(b'{' | b'[' | b'"' | b'0'..=b'9')
+    ) || argument.starts_with("r\"")
+        || argument.starts_with("r#")
+        || matches!(argument, "null" | "true" | "false")
+}
+
+/// Offsets of `.downcast_ref`, `.downcast_mut` and `.downcast` calls, which recover a concrete
+/// type from a type-erased error or `Any`. A typed error carries its cases in an enum; a panic
+/// payload (`Box<dyn Any + Send>`) is the legitimate use and takes a reasoned suppression.
+fn downcasts(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for (dot, _) in masked.match_indices('.') {
+        let start = skip_space(bytes, dot + 1);
+        let name = ident_at(masked, start);
+        if !matches!(name, "downcast" | "downcast_ref" | "downcast_mut") {
+            continue;
+        }
+        if matches!(
+            bytes.get(skip_space(bytes, start + name.len())),
+            Some(b'(' | b':')
+        ) {
+            offsets.push(start);
+        }
+    }
+    offsets
+}
+
+/// Offsets of `io::Error::other(..)` and `io::Error::new(..)` calls whose arguments name
+/// `Diagnostics`. Startup diagnostics travel in their own error type, so no caller has to
+/// downcast an `io::Error` to find the operator's advice. `map_err(io::Error::other)` on a
+/// `Result<_, Diagnostics>` names no type and is not seen.
+fn diagnostics_in_io_errors(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for constructor in ["other", "new"] {
+        for offset in words(masked, constructor) {
+            if !masked[..offset].ends_with("io::Error::") {
+                continue;
+            }
+            let open = skip_space(bytes, offset + constructor.len());
+            if bytes.get(open) != Some(&b'(') {
+                continue;
+            }
+            let Some(close) = close_expression(bytes, open) else {
+                continue;
+            };
+            if words(&masked[open..close], "Diagnostics").next().is_some() {
+                offsets.push(offset);
+            }
+        }
+    }
+    offsets.sort_unstable();
+    offsets
 }
 
 /// Offsets of `#[..]` and `#![..]` attributes that allow or expect `clippy::too_many_arguments`,
@@ -1797,6 +1924,69 @@ struct ParseError(String);
             .filter(|(r, _)| r == rule)
             .map(|(_, line)| line)
             .collect()
+    }
+
+    #[test]
+    fn json_macro_values_are_found_when_the_whole_argument_is_not_a_literal() {
+        let text = "\
+let a = json!(value);
+let b = serde_json::json!(Stored { value });
+let c = json!(&options);
+let d = json!({\"a\": value});
+let e = json!([1, 2]);
+let f = json!(\"text\");
+let g = json!(null);
+let h = json!(-1);
+let i = json ! (x.to_string());
+// json!(comment)
+let j = \"json!(string)\";
+let k = json!(r#\"raw\"#);
+#[cfg(test)]
+mod tests { fn t() { json!(x); } }
+";
+        assert_eq!(lines_of(JSON_MACRO_VALUE, text), [1, 2, 3, 9]);
+    }
+
+    #[test]
+    fn downcasts_are_found_as_method_calls() {
+        let text = "\
+let a = error.downcast_ref::<CatalogError>();
+let b = source
+    .downcast_mut::<io::Error>();
+let c = payload.downcast::<String>();
+let d = cause.downcast_ref();
+fn downcast_ref(&self) {}
+let e = self.downcast_count;
+// error.downcast_ref::<X>()
+let f = \".downcast_ref::<X>()\";
+let g = <dyn Any>::downcast_ref::<u8>(&x);
+";
+        assert_eq!(lines_of(DOWNCAST, text), [1, 3, 4, 5]);
+        let suppressed = "\
+// xtask-lint: allow(text::downcast) -- panic payloads arrive as Box<dyn Any + Send>
+let message = payload.downcast_ref::<String>();
+";
+        let scan = scan_source("src/a.rs", suppressed);
+        assert_eq!(scan.problems, []);
+        assert!(scan.findings.is_empty());
+        assert_eq!(scan.suppressed.len(), 1);
+    }
+
+    #[test]
+    fn diagnostics_wrapped_in_io_errors_are_found() {
+        let text = "\
+let a = std::io::Error::other(Diagnostics::error(source, key, fix));
+let b = io::Error::new(
+    error.kind(),
+    Diagnostics { source, key },
+);
+let c = io::Error::other(format!(\"Diagnostics {x}\"));
+let d = Diagnostics::error(source, key, fix);
+let e = io::Error::other(cause);
+let f = fmt::Error::new(Diagnostics::x());
+let g = io::Error::other(DiagnosticsLike::new());
+";
+        assert_eq!(lines_of(DIAGNOSTICS_IN_IO_ERROR, text), [1, 2]);
     }
 
     #[test]

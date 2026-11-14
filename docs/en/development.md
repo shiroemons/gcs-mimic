@@ -408,6 +408,9 @@ cannot express.
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
 | `text::allow_too_many_arguments` | `#[allow]`, `#[expect]` or `cfg_attr` of `clippy::too_many_arguments`, including attributes split over several lines. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
+| `text::json_macro_value` | `json!(expr)` whose whole argument is not a JSON literal: it expands to `to_value(&expr).unwrap()`; per-file ratchet. Build the value with `Value::from`, or with `serde_json::to_value` and a typed error. |
+| `text::downcast` | `.downcast_ref`, `.downcast_mut` and `.downcast` calls that recover a type from a type-erased value; per-file ratchet. A panic payload takes a reasoned suppression. |
+| `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type; per-file ratchet. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
@@ -426,8 +429,14 @@ helpers, and a `Result<_, String>` hidden behind another alias is not counted.
 was written, so it misses a write and a sync in different functions and
 reports a socket write followed by a file sync. `text::string_error_variant`
 checks only the listed variant names, so a variant that names rejected client
-input, such as `InvalidTopic(String)`, may keep its message. Review still
-applies the written rules where the tool cannot.
+input, such as `InvalidTopic(String)`, may keep its message.
+`text::json_macro_value` checks only the whole argument, not the leaves inside
+an object or array literal. `text::downcast` sees method calls, not
+`<dyn Any>::downcast_ref(..)`, and cannot tell a panic payload from an error.
+`text::diagnostics_in_io_error` sees only a `Diagnostics` named inside the
+call's arguments, not `map_err(io::Error::other)` on a
+`Result<_, Diagnostics>`. Review still applies the written rules where the
+tool cannot.
 
 New error types must not be `&'static str`, even for rejected client input:
 strings do not implement `Error` and cannot preserve a cause chain. Use a
