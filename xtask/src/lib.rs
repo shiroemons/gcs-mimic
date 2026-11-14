@@ -13,6 +13,50 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, String>;
+
+/// A text that names no member of a closed set; the caller says which set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnknownName;
+
+/// A closed set of names read from JSON or the command line: `ALL` in declaration order,
+/// `as_str`, `FromStr` and `Display`, so a value is parsed once and matched exhaustively.
+/// `FromStr` searches `ALL` by `as_str`, so parsing and printing cannot disagree.
+macro_rules! named {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        $vis enum $name { $($variant),+ }
+
+        impl $name {
+            /// Every value, in declaration order.
+            $vis const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            $vis const fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $text),+ }
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = $crate::UnknownName;
+
+            fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
+                Self::ALL
+                    .iter()
+                    .copied()
+                    .find(|value| value.as_str() == text)
+                    .ok_or($crate::UnknownName)
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
+}
+pub(crate) use named;
+
 const MAX_JSON_BYTES: u64 = 8 * 1024 * 1024;
 const KINDS: [&str; 3] = ["api_operation", "behavior", "project_requirement"];
 const STATUSES: [&str; 6] = [

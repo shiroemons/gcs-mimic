@@ -1,9 +1,12 @@
+use crate::{UnknownName, named};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     io::Read,
     path::Path,
     process::{Command, Stdio},
+    str::FromStr,
 };
 mod clients;
 mod images;
@@ -13,6 +16,51 @@ pub use images::update_images;
 
 type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
+
+named! {
+    /// Ecosystems whose pins live in a registry manifest checked by `check_registry_sdk`.
+    pub(crate) enum RegistryEcosystem { Npm => "npm", Pypi => "pypi", Composer => "composer" }
+}
+
+named! {
+    /// Standalone client graphs checked by `clients::check`.
+    pub(crate) enum ClientEcosystem { Cargo => "cargo", Maven => "maven", Nuget => "nuget" }
+}
+
+/// `sdk_ecosystems[].ecosystem` of the dependency ledger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Ecosystem {
+    Go,
+    Ruby,
+    Registry(RegistryEcosystem),
+    Client(ClientEcosystem),
+}
+
+impl FromStr for Ecosystem {
+    type Err = UnknownName;
+
+    fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
+        match text {
+            "go" => Ok(Self::Go),
+            "ruby" => Ok(Self::Ruby),
+            _ => text
+                .parse()
+                .map(Self::Registry)
+                .or_else(|UnknownName| text.parse().map(Self::Client)),
+        }
+    }
+}
+
+impl fmt::Display for Ecosystem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Go => f.write_str("go"),
+            Self::Ruby => f.write_str("ruby"),
+            Self::Registry(ecosystem) => ecosystem.fmt(f),
+            Self::Client(ecosystem) => ecosystem.fmt(f),
+        }
+    }
+}
 
 fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String> {
     let (status, body) = fetch_response(url, headers, include_headers)?;
@@ -388,15 +436,10 @@ fn latest_stable_go(
 }
 
 fn check_go(root: &Path, scope: &Value) -> Result<bool> {
-    if text(scope, "ecosystem")? != "go"
-        || !matches!(
-            text(scope, "manifest")?,
-            "sdk-tests/go/go.mod"
-                | "sdk-scorecard/go/go.mod"
-                | "go/go.mod"
-                | "go/sourceexport/go.mod"
-        )
-    {
+    if !matches!(
+        text(scope, "manifest")?,
+        "sdk-tests/go/go.mod" | "sdk-scorecard/go/go.mod" | "go/go.mod" | "go/sourceexport/go.mod"
+    ) {
         return Err("unsupported SDK ecosystem or manifest".into());
     }
     let module = go_mod(
@@ -640,7 +683,7 @@ fn compare(label: &str, current: &str, latest: &str) -> bool {
 
 /// A package-registry SDK manifest the daily check reads.
 struct RegistryManifest {
-    ecosystem: &'static str,
+    ecosystem: RegistryEcosystem,
     manifest: &'static str,
     /// Exact runtime pin beside the manifest, checked against the newest stable release.
     runtime_pin: Option<&'static str>,
@@ -671,57 +714,60 @@ impl ReleaseLine {
 // lockfiles, so every one is declared and checked even when their pins agree.
 const REGISTRY_MANIFESTS: &[RegistryManifest] = &[
     RegistryManifest {
-        ecosystem: "npm",
+        ecosystem: RegistryEcosystem::Npm,
         manifest: "sdk-scorecard/node/package.json",
         runtime_pin: None,
         line: ReleaseLine::Newest,
     },
     RegistryManifest {
-        ecosystem: "npm",
+        ecosystem: RegistryEcosystem::Npm,
         manifest: "sdk-tests/node/package.json",
         runtime_pin: None,
         line: ReleaseLine::Newest,
     },
     // The Node.js suite also runs against the previous major line of @google-cloud/storage.
     RegistryManifest {
-        ecosystem: "npm",
+        ecosystem: RegistryEcosystem::Npm,
         manifest: "sdk-tests/node/storage-8/package.json",
         runtime_pin: None,
         line: ReleaseLine::Major(8),
     },
     RegistryManifest {
-        ecosystem: "npm",
+        ecosystem: RegistryEcosystem::Npm,
         manifest: "sdk-tests/testcontainers/node/package.json",
         runtime_pin: None,
         line: ReleaseLine::Newest,
     },
     RegistryManifest {
-        ecosystem: "pypi",
+        ecosystem: RegistryEcosystem::Pypi,
         manifest: "sdk-scorecard/python/pyproject.toml",
         runtime_pin: Some("sdk-scorecard/python/.python-version"),
         line: ReleaseLine::Newest,
     },
     RegistryManifest {
-        ecosystem: "pypi",
+        ecosystem: RegistryEcosystem::Pypi,
         manifest: "sdk-tests/python/pyproject.toml",
         runtime_pin: Some("sdk-tests/python/.python-version"),
         line: ReleaseLine::Newest,
     },
     RegistryManifest {
-        ecosystem: "composer",
+        ecosystem: RegistryEcosystem::Composer,
         manifest: "sdk-scorecard/php/composer.json",
         runtime_pin: None,
         line: ReleaseLine::Newest,
     },
     RegistryManifest {
-        ecosystem: "composer",
+        ecosystem: RegistryEcosystem::Composer,
         manifest: "sdk-tests/php/composer.json",
         runtime_pin: None,
         line: ReleaseLine::Newest,
     },
 ];
 
-fn registry_manifest(ecosystem: &str, manifest: &str) -> Result<&'static RegistryManifest> {
+fn registry_manifest(
+    ecosystem: RegistryEcosystem,
+    manifest: &str,
+) -> Result<&'static RegistryManifest> {
     REGISTRY_MANIFESTS
         .iter()
         .find(|entry| entry.ecosystem == ecosystem && entry.manifest == manifest)
@@ -765,18 +811,18 @@ fn check_python_runtime(root: &Path, scope: &Value, pin: &str) -> Result<bool> {
     ))
 }
 
-fn registry_pins(source: &str, ecosystem: &str) -> Result<BTreeMap<String, String>> {
+fn registry_pins(source: &str, ecosystem: RegistryEcosystem) -> Result<BTreeMap<String, String>> {
     let pins: BTreeMap<String, String> = match ecosystem {
-        "npm" => serde_json::from_value(json(source)?["dependencies"].clone())
+        RegistryEcosystem::Npm => serde_json::from_value(json(source)?["dependencies"].clone())
             .map_err(|e| e.to_string())?,
-        "composer" => {
+        RegistryEcosystem::Composer => {
             let mut pins: BTreeMap<String, String> =
                 serde_json::from_value(json(source)?["require"].clone())
                     .map_err(|e| e.to_string())?;
             pins.remove("php");
             pins
         }
-        "pypi" => {
+        RegistryEcosystem::Pypi => {
             // The Python harnesses deliberately use a single JSON-compatible array of exact pins.
             let entries: Vec<String> = serde_json::from_value(json(
                 source
@@ -796,7 +842,6 @@ fn registry_pins(source: &str, ecosystem: &str) -> Result<BTreeMap<String, Strin
             }
             pins
         }
-        _ => return Err("unsupported registry SDK ecosystem".into()),
     };
     if pins.is_empty()
         || pins.iter().any(|(name, pin)| {
@@ -814,20 +859,20 @@ fn registry_pins(source: &str, ecosystem: &str) -> Result<BTreeMap<String, Strin
 
 fn latest_registry_dependency(
     source: &str,
-    ecosystem: &str,
+    ecosystem: RegistryEcosystem,
     name: &str,
     line: ReleaseLine,
 ) -> Result<String> {
     let metadata = json(source)?;
     let releases: Vec<String> = match ecosystem {
-        "npm" => metadata["versions"]
+        RegistryEcosystem::Npm => metadata["versions"]
             .as_object()
             .ok_or("missing npm versions")?
             .iter()
             .filter(|(_, release)| release["dist"]["integrity"].is_string())
             .map(|(pin, _)| pin.clone())
             .collect(),
-        "pypi" => metadata["releases"]
+        RegistryEcosystem::Pypi => metadata["releases"]
             .as_object()
             .ok_or("missing PyPI releases")?
             .iter()
@@ -838,7 +883,7 @@ fn latest_registry_dependency(
             })
             .map(|(pin, _)| pin.clone())
             .collect(),
-        "composer" => metadata["packages"][name]
+        RegistryEcosystem::Composer => metadata["packages"][name]
             .as_array()
             .ok_or("missing Packagist releases")?
             .iter()
@@ -848,7 +893,6 @@ fn latest_registry_dependency(
                     .map(|pin| pin.trim_start_matches('v').to_owned())
             })
             .collect(),
-        _ => return Err("unsupported registry SDK ecosystem".into()),
     };
     releases
         .into_iter()
@@ -859,14 +903,13 @@ fn latest_registry_dependency(
         .ok_or("no stable SDK dependency release".into())
 }
 
-fn check_registry_sdk(root: &Path, scope: &Value) -> Result<bool> {
-    let ecosystem = text(scope, "ecosystem")?;
+fn check_registry_sdk(root: &Path, scope: &Value, ecosystem: RegistryEcosystem) -> Result<bool> {
     let entry = registry_manifest(ecosystem, text(scope, "manifest")?)?;
     let pins = registry_pins(
         &std::fs::read_to_string(root.join(entry.manifest)).map_err(|e| e.to_string())?,
         ecosystem,
     )?;
-    if ecosystem == "npm" {
+    if ecosystem == RegistryEcosystem::Npm {
         let lock = std::fs::read_to_string(
             root.join(entry.manifest)
                 .with_file_name("package-lock.json"),
@@ -896,10 +939,9 @@ fn check_registry_sdk(root: &Path, scope: &Value) -> Result<bool> {
             return Err(format!("SDK dependency snapshot mismatch: {name}"));
         }
         let url = match ecosystem {
-            "npm" => format!("https://registry.npmjs.org/{name}"),
-            "pypi" => format!("https://pypi.org/pypi/{name}/json"),
-            "composer" => format!("https://repo.packagist.org/p2/{name}.json"),
-            _ => unreachable!(),
+            RegistryEcosystem::Npm => format!("https://registry.npmjs.org/{name}"),
+            RegistryEcosystem::Pypi => format!("https://pypi.org/pypi/{name}/json"),
+            RegistryEcosystem::Composer => format!("https://repo.packagist.org/p2/{name}.json"),
         };
         let latest =
             latest_registry_dependency(&fetch(&url, &[], false)?, ecosystem, &name, entry.line)?;
@@ -1382,6 +1424,21 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
             .map_err(|e| e.to_string())?
             .as_secs()
     );
+    let mut drift = check_rust_toolchain(root)?;
+    let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
+    drift |= check_github_actions(root, &status)?;
+    drift |= check_docker_images(root, &status, scope)?;
+    drift |= check_apt_packages(root, &status, scope)?;
+    if scope == Scope::Release {
+        println!("SDK ecosystems: SKIPPED development-only inputs");
+        return Ok(drift);
+    }
+    drift |= check_sdk_ecosystems(root, &status)?;
+    Ok(drift)
+}
+
+/// The pinned toolchain and every direct crate of the workspace against their newest releases.
+fn check_rust_toolchain(root: &Path) -> Result<bool> {
     let pin = scalar(
         &std::fs::read_to_string(root.join("rust-toolchain.toml")).map_err(|e| e.to_string())?,
         "channel",
@@ -1416,7 +1473,13 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         )?)?;
         drift |= compare(&name, versions.first().unwrap(), &latest);
     }
-    let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
+    Ok(drift)
+}
+
+/// Each pinned action against the commit of its latest release, after every workflow that
+/// uses it is checked to pin that same commit.
+fn check_github_actions(root: &Path, status: &Value) -> Result<bool> {
+    let mut drift = false;
     for action in status["github_actions"]
         .as_array()
         .ok_or("missing github_actions")?
@@ -1456,6 +1519,12 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         }
         drift |= compare(repo, pinned, sha);
     }
+    Ok(drift)
+}
+
+/// Each pinned image digest against its registry, after the scripts and workflows that run
+/// it are checked to carry the same pin.
+fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
     // Every script that runs a pinned image must be read, or its pin could drift unnoticed.
     let mut container_sources = String::new();
     for script in [
@@ -1475,6 +1544,7 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
             container_sources.push_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
         }
     }
+    let mut drift = false;
     for image in status["docker"]["digests"]
         .as_array()
         .ok_or("missing Docker inputs")?
@@ -1506,31 +1576,35 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
             registry_manifest_source(image, |url| fetch(url, &[], false))?;
         drift |= check_image_tags(image, &manifest_source, &headers)?;
     }
-    drift |= check_apt_packages(root, &status, scope)?;
-    if scope == Scope::Release {
-        println!("SDK ecosystems: SKIPPED development-only inputs");
-        return Ok(drift);
-    }
+    Ok(drift)
+}
+
+/// Every declared SDK manifest against its registry, after the declarations are checked to
+/// cover each manifest the repository keeps exactly once.
+fn check_sdk_ecosystems(root: &Path, status: &Value) -> Result<bool> {
     let scopes = status["sdk_ecosystems"]
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
     let mut ecosystems = BTreeSet::new();
     let mut manifests = BTreeSet::new();
+    let mut drift = false;
     for scope in scopes {
-        let ecosystem = text(scope, "ecosystem")?;
+        let declared = text(scope, "ecosystem")?;
         if !manifests.insert(text(scope, "manifest")?) {
             return Err("duplicate SDK manifest".into());
         }
+        let ecosystem: Ecosystem = declared
+            .parse()
+            .map_err(|UnknownName| format!("unsupported SDK ecosystem: {declared}"))?;
         ecosystems.insert(ecosystem);
         drift |= match ecosystem {
-            "go" => check_go(root, scope)?,
-            "ruby" => check_ruby(root, scope)?,
-            "npm" | "pypi" | "composer" => check_registry_sdk(root, scope)?,
-            "cargo" | "maven" | "nuget" => clients::check(root, scope)?,
-            _ => return Err(format!("unsupported SDK ecosystem: {ecosystem}")),
+            Ecosystem::Go => check_go(root, scope)?,
+            Ecosystem::Ruby => check_ruby(root, scope)?,
+            Ecosystem::Registry(registry) => check_registry_sdk(root, scope, registry)?,
+            Ecosystem::Client(client) => clients::check(root, scope, client)?,
         };
     }
-    if !ecosystems.contains("go") || !ecosystems.contains("ruby") {
+    if !ecosystems.contains(&Ecosystem::Go) || !ecosystems.contains(&Ecosystem::Ruby) {
         return Err("expected the declared Go and Ruby SDK ecosystems".into());
     }
     missing_registry_manifests(&manifests)?;
@@ -1573,17 +1647,25 @@ mod tests {
     fn registry_pins_come_from_actual_manifests() {
         let python = registry_pins(
             "dependencies = [\"google-cloud-storage==3.17.1\", \"cryptography==50.0.2\"]",
-            "pypi",
+            RegistryEcosystem::Pypi,
         )
         .unwrap();
         assert_eq!(python["google-cloud-storage"], "3.17.1");
         assert_eq!(python.len(), 2);
-        assert!(registry_pins("dependencies = [\"x>=1.0.0\"]", "pypi").is_err());
-        assert!(registry_pins("dependencies = [\"x==1.0.0\", \"x==1.0.0\"]", "pypi").is_err());
-        assert!(registry_pins(r#"{"dependencies":{"x":"^1.0.0"}}"#, "npm").is_err());
+        assert!(registry_pins("dependencies = [\"x>=1.0.0\"]", RegistryEcosystem::Pypi).is_err());
+        assert!(
+            registry_pins(
+                "dependencies = [\"x==1.0.0\", \"x==1.0.0\"]",
+                RegistryEcosystem::Pypi
+            )
+            .is_err()
+        );
+        assert!(
+            registry_pins(r#"{"dependencies":{"x":"^1.0.0"}}"#, RegistryEcosystem::Npm).is_err()
+        );
         let node = registry_pins(
             r#"{"engines":{"node":">=24"},"dependencies":{"@google-cloud/storage":"8.4.0","google-auth-library":"11.3.2"}}"#,
-            "npm",
+            RegistryEcosystem::Npm,
         )
         .unwrap();
         assert_eq!(node["google-auth-library"], "11.3.2");
@@ -1591,7 +1673,7 @@ mod tests {
         assert_eq!(
             registry_pins(
                 r#"{"require":{"php":"^8.5","google/cloud-storage":"2.6.1"}}"#,
-                "composer"
+                RegistryEcosystem::Composer
             )
             .unwrap()
             .len(),
@@ -1602,32 +1684,44 @@ mod tests {
     #[test]
     fn registry_manifests_cover_the_scorecard_and_official_suites_only() {
         for (ecosystem, manifest) in [
-            ("npm", "sdk-scorecard/node/package.json"),
-            ("npm", "sdk-tests/node/package.json"),
-            ("npm", "sdk-tests/node/storage-8/package.json"),
-            ("pypi", "sdk-scorecard/python/pyproject.toml"),
-            ("pypi", "sdk-tests/python/pyproject.toml"),
-            ("composer", "sdk-scorecard/php/composer.json"),
-            ("composer", "sdk-tests/php/composer.json"),
+            (RegistryEcosystem::Npm, "sdk-scorecard/node/package.json"),
+            (RegistryEcosystem::Npm, "sdk-tests/node/package.json"),
+            (
+                RegistryEcosystem::Npm,
+                "sdk-tests/node/storage-8/package.json",
+            ),
+            (
+                RegistryEcosystem::Pypi,
+                "sdk-scorecard/python/pyproject.toml",
+            ),
+            (RegistryEcosystem::Pypi, "sdk-tests/python/pyproject.toml"),
+            (
+                RegistryEcosystem::Composer,
+                "sdk-scorecard/php/composer.json",
+            ),
+            (RegistryEcosystem::Composer, "sdk-tests/php/composer.json"),
         ] {
             assert!(registry_manifest(ecosystem, manifest).is_ok(), "{manifest}");
         }
         assert_eq!(
-            registry_manifest("pypi", "sdk-tests/python/pyproject.toml")
+            registry_manifest(RegistryEcosystem::Pypi, "sdk-tests/python/pyproject.toml")
                 .unwrap()
                 .runtime_pin,
             Some("sdk-tests/python/.python-version")
         );
         assert_eq!(
-            registry_manifest("npm", "sdk-tests/node/storage-8/package.json")
-                .unwrap()
-                .line,
+            registry_manifest(
+                RegistryEcosystem::Npm,
+                "sdk-tests/node/storage-8/package.json"
+            )
+            .unwrap()
+            .line,
             ReleaseLine::Major(8)
         );
         for (ecosystem, manifest) in [
-            ("npm", "sdk-tests/python/pyproject.toml"),
-            ("composer", "../composer.json"),
-            ("pypi", "sdk-tests/other/pyproject.toml"),
+            (RegistryEcosystem::Npm, "sdk-tests/python/pyproject.toml"),
+            (RegistryEcosystem::Composer, "../composer.json"),
+            (RegistryEcosystem::Pypi, "sdk-tests/other/pyproject.toml"),
         ] {
             assert!(
                 registry_manifest(ecosystem, manifest).is_err(),
@@ -1643,6 +1737,30 @@ mod tests {
                 .unwrap_err()
                 .contains("sdk-tests/php/composer.json")
         );
+    }
+
+    #[test]
+    fn sdk_ecosystems_parse_once_and_print_as_declared() {
+        for (text, ecosystem) in [
+            ("go", Ecosystem::Go),
+            ("ruby", Ecosystem::Ruby),
+            ("npm", Ecosystem::Registry(RegistryEcosystem::Npm)),
+            ("pypi", Ecosystem::Registry(RegistryEcosystem::Pypi)),
+            ("composer", Ecosystem::Registry(RegistryEcosystem::Composer)),
+            ("cargo", Ecosystem::Client(ClientEcosystem::Cargo)),
+            ("maven", Ecosystem::Client(ClientEcosystem::Maven)),
+            ("nuget", Ecosystem::Client(ClientEcosystem::Nuget)),
+        ] {
+            assert_eq!(text.parse::<Ecosystem>(), Ok(ecosystem));
+            assert_eq!(ecosystem.to_string(), text);
+        }
+        for unknown in ["gradle", "", "Go", " npm"] {
+            assert_eq!(
+                unknown.parse::<Ecosystem>(),
+                Err(UnknownName),
+                "{unknown:?}"
+            );
+        }
     }
 
     #[test]
@@ -1667,21 +1785,44 @@ mod tests {
 
     #[test]
     fn registry_release_selection_excludes_prereleases_and_unavailable_files() {
-        assert_eq!(latest_registry_dependency(r#"{"versions":{"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0-rc.1":{"dist":{"integrity":"sha512-test"}},"9.0.0":{}}}"#, "npm", "storage", ReleaseLine::Newest).unwrap(), "8.4.0");
-        assert_eq!(latest_registry_dependency(r#"{"releases":{"3.17.1":[{"yanked":false}],"4.0.0":[{"yanked":true}],"4.0.1":[],"4.1.0rc1":[{"yanked":false}]}}"#, "pypi", "storage", ReleaseLine::Newest).unwrap(), "3.17.1");
-        assert_eq!(latest_registry_dependency(r#"{"packages":{"google/cloud-storage":[{"version":"v3.0.0-RC1"},{"version":"v2.6.1"},{"version":"v2.5.0"}]}}"#, "composer", "google/cloud-storage", ReleaseLine::Newest).unwrap(), "2.6.1");
-        assert!(latest_registry_dependency("{}", "pypi", "storage", ReleaseLine::Newest).is_err());
+        assert_eq!(latest_registry_dependency(r#"{"versions":{"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0-rc.1":{"dist":{"integrity":"sha512-test"}},"9.0.0":{}}}"#, RegistryEcosystem::Npm, "storage", ReleaseLine::Newest).unwrap(), "8.4.0");
+        assert_eq!(latest_registry_dependency(r#"{"releases":{"3.17.1":[{"yanked":false}],"4.0.0":[{"yanked":true}],"4.0.1":[],"4.1.0rc1":[{"yanked":false}]}}"#, RegistryEcosystem::Pypi, "storage", ReleaseLine::Newest).unwrap(), "3.17.1");
+        assert_eq!(latest_registry_dependency(r#"{"packages":{"google/cloud-storage":[{"version":"v3.0.0-RC1"},{"version":"v2.6.1"},{"version":"v2.5.0"}]}}"#, RegistryEcosystem::Composer, "google/cloud-storage", ReleaseLine::Newest).unwrap(), "2.6.1");
+        assert!(
+            latest_registry_dependency(
+                "{}",
+                RegistryEcosystem::Pypi,
+                "storage",
+                ReleaseLine::Newest
+            )
+            .is_err()
+        );
         // A major line keeps a previous-major manifest current while a newer major exists.
         let npm = r#"{"versions":{"8.3.0":{"dist":{"integrity":"sha512-test"}},"8.4.0":{"dist":{"integrity":"sha512-test"}},"9.0.0":{"dist":{"integrity":"sha512-test"}}}}"#;
         assert_eq!(
-            latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Newest).unwrap(),
+            latest_registry_dependency(npm, RegistryEcosystem::Npm, "storage", ReleaseLine::Newest)
+                .unwrap(),
             "9.0.0"
         );
         assert_eq!(
-            latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Major(8)).unwrap(),
+            latest_registry_dependency(
+                npm,
+                RegistryEcosystem::Npm,
+                "storage",
+                ReleaseLine::Major(8)
+            )
+            .unwrap(),
             "8.4.0"
         );
-        assert!(latest_registry_dependency(npm, "npm", "storage", ReleaseLine::Major(7)).is_err());
+        assert!(
+            latest_registry_dependency(
+                npm,
+                RegistryEcosystem::Npm,
+                "storage",
+                ReleaseLine::Major(7)
+            )
+            .is_err()
+        );
     }
 
     #[test]

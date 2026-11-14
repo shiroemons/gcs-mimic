@@ -1,7 +1,8 @@
 //! Additional client graphs stay outside the application dependency graph.
 
 use super::{
-    Result, compare, direct_crate_resolutions, fetch, index_path, json, latest_crate, text, version,
+    ClientEcosystem, Result, compare, direct_crate_resolutions, fetch, index_path, json,
+    latest_crate, text, version,
 };
 use serde_json::Value;
 use std::{
@@ -32,24 +33,23 @@ pub(super) fn snapshot_pins(scope: &Value, pins: &BTreeMap<String, String>) -> R
 
 /// Standalone client graphs: the official SDK suites and their scorecard probes keep separate
 /// manifests and lockfiles, so each one is checked even when the pins agree.
-pub(super) const MANIFESTS: &[(&str, &str)] = &[
-    ("cargo", "sdk-tests/rust/Cargo.toml"),
-    ("cargo", "sdk-scorecard/rust/Cargo.toml"),
-    ("maven", "sdk-tests/java/pom.xml"),
-    ("maven", "sdk-scorecard/java/pom.xml"),
-    ("nuget", "sdk-tests/dotnet/Scenario.csproj"),
-    ("nuget", "sdk-scorecard/dotnet/Probe.csproj"),
+pub(super) const MANIFESTS: &[(ClientEcosystem, &str)] = &[
+    (ClientEcosystem::Cargo, "sdk-tests/rust/Cargo.toml"),
+    (ClientEcosystem::Cargo, "sdk-scorecard/rust/Cargo.toml"),
+    (ClientEcosystem::Maven, "sdk-tests/java/pom.xml"),
+    (ClientEcosystem::Maven, "sdk-scorecard/java/pom.xml"),
+    (ClientEcosystem::Nuget, "sdk-tests/dotnet/Scenario.csproj"),
+    (ClientEcosystem::Nuget, "sdk-scorecard/dotnet/Probe.csproj"),
 ];
 
-pub(super) fn check(root: &Path, scope: &Value) -> Result<bool> {
-    let declared = (text(scope, "ecosystem")?, text(scope, "manifest")?);
-    if !MANIFESTS.contains(&declared) {
+pub(super) fn check(root: &Path, scope: &Value, ecosystem: ClientEcosystem) -> Result<bool> {
+    if !MANIFESTS.contains(&(ecosystem, text(scope, "manifest")?)) {
         return Err("unsupported additional SDK manifest".into());
     }
-    match declared.0 {
-        "cargo" => cargo(root, scope),
-        "maven" => maven(root, scope),
-        _ => nuget(root, scope),
+    match ecosystem {
+        ClientEcosystem::Cargo => cargo(root, scope),
+        ClientEcosystem::Maven => maven(root, scope),
+        ClientEcosystem::Nuget => nuget(root, scope),
     }
 }
 
