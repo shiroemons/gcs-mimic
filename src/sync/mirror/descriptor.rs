@@ -64,9 +64,10 @@ mod tests {
     #[test]
     fn descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion() {
         for errno in [libc::EMFILE, libc::ENFILE] {
-            let error = SyncError::from(std::io::Error::other(std::io::Error::from_raw_os_error(
-                errno,
-            )));
+            // A root file job that ran out of descriptors, as the mirror receives it.
+            let error = SyncError::Root(crate::storage::sync_state::root::RootError::Admin(
+                crate::storage::admin::AdminError::from(std::io::Error::from_raw_os_error(errno)),
+            ));
             let value = diagnostic(&error, serde_json::json!({"reason":"failed"}));
             assert!(value["descriptor_limit"]["soft"].as_u64().is_some());
             assert!(value["descriptor_limit"]["hard"].as_u64().is_some());

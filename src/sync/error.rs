@@ -4,6 +4,7 @@ use crate::{
     bucket::CatalogError,
     storage::{
         admin::AdminError,
+        failure::{Link, TypedSource, chain},
         sync_state::{
             conflicts,
             observation::PauseReason,
@@ -63,31 +64,28 @@ pub(crate) enum Cause<'a> {
 }
 
 impl<'a> Cause<'a> {
-    /// The one place that turns a chain back into types. The typed layers reach each other only
-    /// through `source()`, and `BackendCause`/`IoCause` keep their sources as `dyn Error`.
-    /// Write-back carries conflict-store and displaced-installation failures as its own typed
-    /// variants, but a synchronization failure can still reach a chain inside a backend cause,
-    /// and the decisions below must still see what that wrapper holds. These downcasts can go
-    /// once no layer erases synchronization failures into backend causes.
-    fn of(error: &'a (dyn Error + 'static)) -> Self {
-        if let Some(error) = error.downcast_ref::<AdminError>() {
-            Self::Admin(error)
-        } else if let Some(error) = error.downcast_ref::<RootError>() {
-            Self::Root(error)
-        } else if let Some(error) = error.downcast_ref::<writeback::Error>() {
-            Self::Writeback(error)
-        } else if let Some(error) = error.downcast_ref::<conflicts::Error>() {
-            Self::Conflict(error)
-        } else if let Some(stop) = error.downcast_ref::<Stop>() {
-            Self::Stop(*stop)
-        } else if let Some(error) = error.downcast_ref::<CatalogError>() {
-            Self::Catalog(error)
-        } else if let Some(error) = error.downcast_ref::<rusqlite::Error>() {
-            Self::Sqlite(error)
-        } else if let Some(error) = error.downcast_ref::<io::Error>() {
-            Self::Io(error)
-        } else {
-            Self::Other
+    /// What one link of the typed chain decides. Backend and I/O causes keep their sources as
+    /// typed links, so a synchronization failure carried inside a backend cause still reaches
+    /// these decisions. Every link is listed, so a new one must choose whether it decides.
+    fn of(link: Link<'a>) -> Self {
+        match link {
+            Link::Admin(error) => Self::Admin(error),
+            Link::Root(error) => Self::Root(error),
+            Link::Writeback(error) => Self::Writeback(error),
+            Link::Conflict(error) => Self::Conflict(error),
+            Link::Stop(stop) => Self::Stop(*stop),
+            Link::Catalog(error) => Self::Catalog(error),
+            Link::Sqlite(error) => Self::Sqlite(error),
+            Link::Io(error) => Self::Io(error),
+            Link::Failure(_)
+            | Link::Exhausted(_)
+            | Link::Context(_)
+            | Link::Object(_)
+            | Link::Connection(_)
+            | Link::Executor(_)
+            | Link::Rollback(_)
+            | Link::Resume(_)
+            | Link::Leaf(_) => Self::Other,
         }
     }
 
@@ -188,12 +186,11 @@ impl<'a> Cause<'a> {
 }
 
 impl SyncError {
-    /// The failures below this one, outermost first, ending with whatever storage keeps as an
-    /// erased source.
+    /// The failures below this one, outermost first, ending with failures no decision reads.
     pub(crate) fn causes(&self) -> impl Iterator<Item = Cause<'_>> {
-        Error::source(self)
+        self.typed_source()
             .into_iter()
-            .flat_map(crate::error::causes)
+            .flat_map(chain)
             .map(Cause::of)
     }
 
@@ -237,7 +234,7 @@ impl SyncError {
 
 /// Retry a write-back step that failed under descriptor or memory pressure.
 pub(super) fn resource_pressure(error: &AdminError) -> bool {
-    crate::error::causes(error)
+    chain(Link::Admin(error))
         .map(Cause::of)
         .any(|cause| matches!(cause, Cause::Io(error) if transient_io(error)))
 }
@@ -288,14 +285,20 @@ impl fmt::Display for SyncError {
 
 impl Error for SyncError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for SyncError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Admin(error) => Some(error),
-            Self::Root(error) => Some(error),
-            Self::Writeback(error) => Some(error),
-            Self::Conflict(error) => Some(error),
-            Self::Io(error) => Some(error),
-            Self::Recovery(stop) => Some(stop),
-            Self::Panicked(error) => Some(error),
+            Self::Admin(error) => Some(Link::Admin(error)),
+            Self::Root(error) => Some(Link::Root(error)),
+            Self::Writeback(error) => Some(Link::Writeback(error)),
+            Self::Conflict(error) => Some(Link::Conflict(error)),
+            Self::Io(error) => Some(Link::Io(error)),
+            Self::Recovery(stop) => Some(Link::Stop(stop)),
+            Self::Panicked(error) => Some(Link::Leaf(error)),
             Self::RescanStopped(_) | Self::WritebackUnfinished(_) | Self::Invariant(_) => None,
         }
     }

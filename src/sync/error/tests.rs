@@ -1,5 +1,6 @@
 use super::*;
 use crate::error::Report;
+use crate::storage::failure::{IoCause, Source};
 
 fn admin() -> AdminError {
     AdminError::from(io::Error::new(
@@ -64,6 +65,35 @@ fn typed_failures_report_the_text_of_their_former_io_wrappers() {
         Report(&SyncError::Root(root())).to_string(),
         "synchronization root: admin operation failed: administrative operation: Io(PermissionDenied): denied fixture"
     );
+}
+
+/// The decisions read the typed chain and reports read `source()`; both visit the same errors,
+/// node for node.
+#[test]
+fn typed_causes_visit_every_source_node() {
+    for error in [
+        SyncError::Admin(admin()),
+        SyncError::Root(root()),
+        SyncError::Writeback(export_failure()),
+        SyncError::Conflict(conflict()),
+        SyncError::Io(native()),
+        SyncError::Recovery(Stop::IoFailure),
+        SyncError::Panicked(panicked()),
+        nested(writeback::Error::Displaced(Box::new(export_failure()))),
+    ] {
+        let typed: Vec<_> = error
+            .typed_source()
+            .into_iter()
+            .flat_map(chain)
+            .map(Link::as_error)
+            .collect();
+        let plain: Vec<_> =
+            std::iter::successors(Error::source(&error), |&cause| cause.source()).collect();
+        assert_eq!(typed.len(), plain.len(), "{error:?}");
+        for (typed, plain) in typed.into_iter().zip(plain) {
+            assert!(std::ptr::addr_eq(typed, plain), "{typed} is not {plain}");
+        }
+    }
 }
 
 /// Failures that had only a message keep it word for word, both alone and behind the public
@@ -152,7 +182,7 @@ fn only_contention_and_timeouts_are_transient() {
             "database is locked".into(),
         ))),
         SyncError::Io(io::Error::from(io::ErrorKind::TimedOut)),
-        SyncError::Io(io::Error::other(io::Error::from(
+        wrapped(AdminError::backend(io::Error::from(
             io::ErrorKind::Interrupted,
         ))),
     ] {
@@ -180,56 +210,52 @@ fn descriptor_and_memory_pressure_below_write_back_is_transient() {
     }
 }
 
+/// A failure that storage carries inside a backend cause, below another typed layer.
+fn nested(error: impl Into<Source>) -> SyncError {
+    SyncError::Root(RootError::Admin(AdminError::backend(error)))
+}
+
 #[test]
-fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
+fn nested_typed_failures_keep_retry_classification_and_pause_reasons() {
     for error in [
-        io::Error::other(AdminError::Busy {
+        nested(AdminError::Busy {
             retry_after: std::time::Duration::from_secs(1),
         }),
-        io::Error::other(CatalogError::Unavailable("database is locked".into())),
-        io::Error::other(rusqlite::Error::SqliteFailure(
+        nested(CatalogError::Unavailable("database is locked".into())),
+        nested(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
             None,
         )),
-        io::Error::other(rusqlite::Error::SqliteFailure(
+        nested(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
             None,
         )),
-        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
-        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
-        io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
+        nested(io::Error::from(io::ErrorKind::Interrupted)),
+        nested(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
+        nested(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
     ] {
-        let nested = SyncError::Io(io::Error::other(error));
-        assert!(nested.is_transient(), "{nested:?}");
-        assert!(nested.is_watch_retryable(), "{nested:?}");
+        assert!(error.is_transient(), "{error:?}");
+        assert!(error.is_watch_retryable(), "{error:?}");
     }
-    let denied = SyncError::Io(io::Error::other(io::Error::other(io::Error::from(
-        io::ErrorKind::PermissionDenied,
-    ))));
+    let denied = nested(io::Error::from(io::ErrorKind::PermissionDenied));
     assert!(denied.is_watch_retryable());
     assert!(!denied.is_transient());
     for (error, reason) in [
         (
-            io::Error::other(writeback::Error::Capacity),
+            nested(writeback::Error::Capacity),
             PauseReason::ConflictCapacity,
         ),
         (
-            io::Error::other(writeback::Error::Protected),
+            nested(writeback::Error::Protected),
             PauseReason::RecoveryRequired,
         ),
         (
-            io::Error::other(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
+            nested(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
             PauseReason::IoFailure,
         ),
-        (
-            io::Error::other(AdminError::Forbidden),
-            PauseReason::ObserverFailure,
-        ),
+        (nested(AdminError::Forbidden), PauseReason::ObserverFailure),
     ] {
-        assert_eq!(
-            SyncError::Io(io::Error::other(error)).pause_reason(),
-            reason
-        );
+        assert_eq!(error.pause_reason(), reason, "{error:?}");
     }
 }
 
@@ -267,7 +293,7 @@ fn typed_displaced_and_conflict_failures_decide_retry_and_pause_like_backend_cau
     };
     for error in [
         SyncError::Writeback(displaced()),
-        SyncError::Io(io::Error::other(displaced())),
+        SyncError::Admin(AdminError::backend(displaced())),
     ] {
         assert!(error.is_transient(), "{error:?}");
         assert!(error.is_watch_retryable(), "{error:?}");
@@ -298,9 +324,9 @@ fn tree_listing_failures_inside_native_watch_errors_keep_their_retry_decisions()
 #[test]
 fn write_back_summary_failures_inside_catalog_io_causes_retry_and_pause_on_io() {
     let summary = |error: writeback::Error| {
-        SyncError::Root(RootError::from(AdminError::from(
-            crate::storage::failure::unavailable(io::Error::other(error)),
-        )))
+        SyncError::Root(RootError::from(AdminError::from(CatalogError::Io(
+            IoCause::other(error),
+        ))))
     };
     let busy = summary(writeback::Error::Admin(AdminError::Busy {
         retry_after: std::time::Duration::from_secs(1),

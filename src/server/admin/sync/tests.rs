@@ -20,13 +20,13 @@ use http_body_util::BodyExt;
 use serde_json::json;
 use std::{fs, io, time::Duration};
 
-/// A control failure whose typed cause arrives behind a native I/O error.
-fn failed_behind_io(error: impl std::error::Error + Send + Sync + 'static) -> ControlError {
-    ControlError::Failed(SyncError::Io(io::Error::other(error)))
+/// A control failure whose typed cause arrives inside a backend cause, as storage carries it.
+fn failed_behind_backend_cause(error: impl Into<crate::storage::failure::Source>) -> ControlError {
+    ControlError::Failed(SyncError::Admin(AdminError::backend(error)))
 }
 
 #[test]
-fn nested_io_control_errors_keep_status_and_text() {
+fn nested_control_errors_keep_status_and_text() {
     for error in [
         RootError::Admin(crate::storage::admin::AdminError::Forbidden),
         RootError::Admin(crate::storage::admin::AdminError::Precondition),
@@ -37,7 +37,7 @@ fn nested_io_control_errors_keep_status_and_text() {
     ] {
         let label = format!("{error:?}");
         let expected = root_error(&error);
-        let actual = control_error(&failed_behind_io(error));
+        let actual = control_error(&failed_behind_backend_cause(error));
         assert_eq!(actual.status, expected.status, "{label}");
         assert_eq!(actual.message, expected.message, "{label}");
     }
@@ -79,7 +79,9 @@ fn storage_failures_require_capacity_or_access_repairs() {
             ),
             (
                 "nested control",
-                control_error(&failed_behind_io(AdminError::from(io::Error::from(kind)))),
+                control_error(&failed_behind_backend_cause(AdminError::from(
+                    io::Error::from(kind),
+                ))),
             ),
         ] {
             assert_eq!(
@@ -95,7 +97,7 @@ fn storage_failures_require_capacity_or_access_repairs() {
 
 #[test]
 fn corrupt_control_causes_require_restoring_the_data_directory() {
-    let actual = control_error(&failed_behind_io(
+    let actual = control_error(&failed_behind_backend_cause(
         crate::storage::admin::AdminError::Corrupt("corrupt".into()),
     ));
     assert_eq!(actual.status, StatusCode::SERVICE_UNAVAILABLE);
@@ -282,7 +284,7 @@ fn queued_native_authority_and_condition_errors_keep_their_http_status() {
         StatusCode::CONFLICT
     );
     assert_eq!(
-        control_error(&failed_behind_io(
+        control_error(&failed_behind_backend_cause(
             crate::storage::admin::AdminError::Forbidden
         ))
         .status,

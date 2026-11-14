@@ -85,6 +85,8 @@ pub(crate) enum Link<'a> {
     Root(&'a RootError),
     Writeback(&'a writeback::Error),
     Conflict(&'a conflicts::Error),
+    /// The write-back stop that recovery left in place; only a synchronization failure holds it.
+    Stop(&'a writeback::Stop),
     Connection(&'a ConnectionUnavailable),
     Executor(&'a ExecutorError),
     Rollback(&'a RollbackError),
@@ -107,6 +109,7 @@ impl<'a> Link<'a> {
             Self::Root(error) => error,
             Self::Writeback(error) => error,
             Self::Conflict(error) => error,
+            Self::Stop(stop) => stop,
             Self::Connection(error) => error,
             Self::Executor(error) => error,
             Self::Rollback(error) => error,
@@ -118,7 +121,7 @@ impl<'a> Link<'a> {
     /// The next link: the error `as_error().source()` returns, by type.
     pub(crate) fn source(self) -> Option<Link<'a>> {
         match self {
-            Self::Failure(_) => None,
+            Self::Failure(_) | Self::Stop(_) => None,
             Self::Exhausted(error) => error.typed_source(),
             Self::Context(error) => error.typed_source(),
             Self::Catalog(error) => error.typed_source(),
