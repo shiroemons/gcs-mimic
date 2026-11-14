@@ -159,6 +159,11 @@ mod tests {
     }
 
     #[test]
+    fn counts_calls_after_block_comments_with_multibyte_text() {
+        assert_eq!(calls("/* é */ sleep(d);"), [1]);
+    }
+
+    #[test]
     fn covers_test_files_but_not_production_or_the_shared_helpers() {
         assert!(test_file("tests/it_protocol/object_http.rs"));
         assert!(test_file("src/storage/resumable_http_tests.rs"));

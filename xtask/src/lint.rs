@@ -1199,11 +1199,14 @@ fn mask_with_comments(text: &str) -> (String, Vec<Range<usize>>) {
             b'/' if bytes.get(i + 1) == Some(&b'*') => {
                 let mut depth = 0usize;
                 let mut j = i;
+                // Compare bytes: `j` advances one byte at a time and can stop inside a
+                // multi-byte character, where slicing `text` would panic.
                 while j < bytes.len() {
-                    if text[j..].starts_with("/*") {
+                    let rest = &bytes[j..];
+                    if rest.starts_with(b"/*") {
                         depth += 1;
                         j += 2;
-                    } else if text[j..].starts_with("*/") {
+                    } else if rest.starts_with(b"*/") {
                         depth -= 1;
                         j += 2;
                         if depth == 0 {
@@ -1432,6 +1435,27 @@ mod tests {
         assert!(!masked.contains("fn x"));
         assert!(masked.contains("'a: loop {}"));
         assert!(mask("let s = \"é\\\"}\"; let t = 'é';").ends_with("let t = '  ';"));
+    }
+
+    #[test]
+    fn masking_survives_multibyte_text_in_block_comments() {
+        for text in [
+            "/* café */ fn a() {}",
+            "/* é /* ü */ ö */ fn a() {}",
+            "/* 日本語",
+        ] {
+            assert_eq!(mask(text).len(), text.len(), "{text}");
+        }
+        for comment in ["/* café */", "/* é /* ü */ ö */"] {
+            assert_eq!(
+                mask(&format!("{comment} fn a() {{}}")),
+                format!("{} fn a() {{}}", " ".repeat(comment.len()))
+            );
+        }
+        assert_eq!(
+            rules("src/a.rs", "/* é */\nfn a() -> Result<(), String> {}\n"),
+            [(STRING_ERROR_RESULT.to_owned(), 2)]
+        );
     }
 
     #[test]
