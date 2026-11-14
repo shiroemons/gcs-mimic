@@ -10,7 +10,7 @@ use crate::storage::{
 use crate::{
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
-    storage::failure::BackendCause,
+    storage::failure::{BackendCause, object_unavailable},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Value, json};
@@ -490,15 +490,23 @@ impl Catalog {
             .map_err(CatalogError::from)
     }
 
+    /// A lease from another catalog is a server-side mix-up that no client request can cause, so
+    /// it fails as unavailable instead of as an invalid request.
+    fn check_lease_owner(&self, lease: &SessionLease) -> Result<(), ResumableError> {
+        if std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
+            Ok(())
+        } else {
+            Err(ResumableError::Object(object_unavailable(
+                "Session belongs to another catalog",
+            )))
+        }
+    }
+
     pub(crate) async fn prepare_resumable_status(
         &self,
         lease: &SessionLease,
     ) -> Result<(), ResumableError> {
-        if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
-            return Err(ResumableError::Invalid(
-                "Session belongs to another catalog".into(),
-            ));
-        }
+        self.check_lease_owner(lease)?;
         drop(
             super::transfer_io::Output::open(self, &lease.session.blob_id, lease.session.offset)
                 .await?,
@@ -537,11 +545,7 @@ impl Catalog {
         options: Option<&ResumableOptions>,
         mut output: Option<super::transfer_io::Output>,
     ) -> Result<Option<super::transfer_io::Output>, ResumableError> {
-        if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
-            return Err(ResumableError::Invalid(
-                "Session belongs to another catalog".into(),
-            ));
-        }
+        self.check_lease_owner(lease)?;
         if self.0.clock.now() >= lease.session.deadline {
             return Err(ResumableError::NotFound);
         }

@@ -246,6 +246,54 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
     catalog.close().await.unwrap();
 }
 
+/// A lease belongs to the catalog that issued it. Handing it to another catalog is a server-side
+/// inconsistency, so it fails as unavailable rather than blaming the client's request.
+#[tokio::test]
+async fn a_lease_handed_to_another_catalog_is_unavailable() {
+    let clock = Arc::new(ManualClock::new(UNIX_EPOCH));
+    let (issuing_dir, other_dir) = (TestDir::new(), TestDir::new());
+    let issuing = setup(&issuing_dir, clock.clone()).await;
+    let other = setup(&other_dir, clock).await;
+    let session = issuing
+        .create_resumable_session(
+            "bucket",
+            "name",
+            ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            Some(4),
+        )
+        .await
+        .unwrap();
+    let mut lease = issuing
+        .lock_resumable_session(&session.id.to_string(), "bucket")
+        .await
+        .unwrap();
+    let status = other.prepare_resumable_status(&lease).await;
+    assert!(
+        matches!(
+            status,
+            Err(ResumableError::Object(
+                gcs_mimic::object::ObjectError::Unavailable(_)
+            ))
+        ),
+        "{status:?}"
+    );
+    let checkpoint = other
+        .checkpoint_resumable_session(&mut lease, 0, Some(4))
+        .await;
+    assert!(
+        matches!(
+            checkpoint,
+            Err(ResumableError::Object(
+                gcs_mimic::object::ObjectError::Unavailable(_)
+            ))
+        ),
+        "{checkpoint:?}"
+    );
+    drop(lease);
+    other.close().await.unwrap();
+    issuing.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn previous_schema_migrates_and_invalid_session_options_are_rejected_read_only() {
     let dir = TestDir::new();
