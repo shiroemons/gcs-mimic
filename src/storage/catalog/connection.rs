@@ -43,7 +43,9 @@ impl From<ConnectionUnavailable> for CatalogError {
     fn from(error: ConnectionUnavailable) -> Self {
         match error {
             ConnectionUnavailable::Closed => unavailable(BackendFailure::CatalogClosed),
-            error => unavailable(error),
+            error @ (ConnectionUnavailable::Panicked | ConnectionUnavailable::Unrecovered(_)) => {
+                unavailable(error)
+            }
         }
     }
 }
@@ -54,7 +56,9 @@ impl From<ConnectionUnavailable> for crate::object::ObjectError {
         use crate::storage::failure::object_unavailable;
         match error {
             ConnectionUnavailable::Closed => object_unavailable(BackendFailure::CatalogClosed),
-            error => object_unavailable(error),
+            error @ (ConnectionUnavailable::Panicked | ConnectionUnavailable::Unrecovered(_)) => {
+                object_unavailable(error)
+            }
         }
     }
 }

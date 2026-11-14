@@ -263,7 +263,7 @@ fn later_generation_sql(source: ListSource) -> &'static str {
             visible_soft_deleted!(),
             ")"
         ),
-        _ => concat!(
+        ListSource::Live | ListSource::Versions => concat!(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?4 AND ",
             visible_live!(),
             ")"

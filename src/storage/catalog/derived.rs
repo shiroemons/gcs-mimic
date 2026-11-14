@@ -170,7 +170,9 @@ impl Catalog {
         self.claim_writer(WriterKey::Derived(*id), KeyOrigin::Catalog)
             .map_err(|error| match error {
                 ClaimError::Busy => ObjectError::DerivedTransferBusy,
-                error => CatalogError::from(error).into(),
+                error @ (ClaimError::Poisoned | ClaimError::Catalog(_)) => {
+                    CatalogError::from(error).into()
+                }
             })
     }
 }

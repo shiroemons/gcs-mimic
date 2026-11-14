@@ -22,7 +22,12 @@ fn publication_error(error: Error) -> ObjectError {
     match error {
         Error::NoSuchUpload => ObjectError::DerivedTransferNotFound,
         Error::Object(error) => error,
-        error => ObjectError::Unavailable(crate::storage::failure::BackendCause::from_error(error)),
+        error @ (Error::InvalidPart
+        | Error::InvalidPartOrder
+        | Error::PartTooSmall
+        | Error::Busy) => {
+            ObjectError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+        }
     }
 }
 
