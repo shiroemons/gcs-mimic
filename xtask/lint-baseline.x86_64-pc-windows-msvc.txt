@@ -15,13 +15,11 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/acl.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/admin.rs	2
 clippy::wildcard_enum_match_arm	src/storage/catalog/admin/publication.rs	3
 clippy::wildcard_enum_match_arm	src/storage/catalog/import_journal.rs	1
-clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts.rs	2
-clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts/capture.rs	2
+clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts.rs	1
+clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts/capture.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/conflicts/resolve.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/deletions.rs	1
-clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/root.rs	2
-clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/writeback.rs	1
-clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/writeback/live_export.rs	1
+clippy::wildcard_enum_match_arm	src/storage/catalog/sync_state/root.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4
 clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1

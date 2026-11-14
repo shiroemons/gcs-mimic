@@ -103,11 +103,7 @@ impl RootLease {
                         root,
                         std::path::Path::new(parents),
                         crate::sync::tree::ParentOpen::Existing,
-                    )
-                    .map_err(|error| match error {
-                        crate::sync::tree::ParentError::Io(error) => Error::from(error),
-                        _ => Error::TargetChanged,
-                    })?;
+                    )?;
                     match fsutil::child_regular(&directory, name.as_ref())? {
                         fsutil::RegularChild::File(file) => Ok(file),
                         _ => Err(Error::TargetChanged),

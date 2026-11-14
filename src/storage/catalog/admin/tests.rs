@@ -12,6 +12,28 @@ use std::{fs, time::Duration};
 
 const BATCH: usize = 1000;
 
+/// A record's location is a canonical table name whose type follows from it, so a definition
+/// of every location type keeps the canonical name and its type.
+#[test]
+fn bucket_definition_requires_matching_canonical_location_and_type() {
+    use crate::bucket::LocationKind;
+    for (location, kind) in [
+        ("us", LocationKind::MultiRegion),
+        ("asia-northeast1", LocationKind::Region),
+        ("NAM4", LocationKind::DualRegion),
+    ] {
+        let input = serde_json::json!({"name":"example-bucket", "location":location}).to_string();
+        let record = crate::json::parse_insert(input.as_bytes(), "project", std::time::UNIX_EPOCH)
+            .expect("supported location");
+        let definition = BucketDefinition::new(record).unwrap();
+        assert_eq!(
+            definition.record().location.as_str(),
+            location.to_ascii_uppercase()
+        );
+        assert_eq!(definition.record().location.kind(), kind);
+    }
+}
+
 #[test]
 fn administrative_diagnostics_keep_their_existing_messages() {
     for (error, expected) in [

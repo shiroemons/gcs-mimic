@@ -141,7 +141,13 @@ impl std::error::Error for RootError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Admin(error) => Some(error),
-            _ => None,
+            Self::InUse
+            | Self::Unsupported
+            | Self::RootChanged
+            | Self::MissingMarker
+            | Self::InvalidMarker
+            | Self::ForeignMarker
+            | Self::ReinitializeDenied => None,
         }
     }
 }

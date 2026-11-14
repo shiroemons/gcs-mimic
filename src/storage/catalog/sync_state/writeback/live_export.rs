@@ -222,11 +222,7 @@ fn install_target(
         root,
         std::path::Path::new(parents),
         crate::sync::tree::ParentOpen::Create,
-    )
-    .map_err(|error| match error {
-        crate::sync::tree::ParentError::Io(error) => Error::from(error),
-        _ => stale(),
-    })?;
+    )?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
     let retained = entry(workspace, selected.token.id)?;
     let already_installed = match staged {

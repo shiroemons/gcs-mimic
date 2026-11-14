@@ -138,7 +138,19 @@ impl std::error::Error for Error {
         match self {
             Self::Admin(error) => Some(error),
             Self::Root(error) => Some(error),
-            _ => None,
+            Self::Capacity | Self::RecoveryRequired | Self::Protected | Self::WorkspaceChanged => {
+                None
+            }
+        }
+    }
+}
+/// A parent chain that no longer resolves means the target changed under this operation.
+impl From<crate::sync::tree::ParentError> for Error {
+    fn from(error: crate::sync::tree::ParentError) -> Self {
+        use crate::sync::tree::ParentError;
+        match error {
+            ParentError::Io(error) => error.into(),
+            ParentError::Finding(_) | ParentError::Missing => stale(),
         }
     }
 }
@@ -528,8 +540,7 @@ fn parent(root: &File, path: &str, sync: ParentSync) -> Result<Option<File>, Err
     ) {
         Ok(directory) => directory,
         Err(ParentError::Missing) => return Ok(None),
-        Err(ParentError::Finding(_)) => return Err(stale()),
-        Err(ParentError::Io(error)) => return Err(error.into()),
+        Err(error) => return Err(error.into()),
     };
     if sync == ParentSync::Sync {
         directory.sync_all()?;

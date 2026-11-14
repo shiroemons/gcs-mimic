@@ -114,7 +114,21 @@ impl std::error::Error for Error {
         match self {
             Self::Admin(error) => Some(error),
             Self::Root(error) => Some(error),
-            _ => None,
+            Self::Capacity
+            | Self::RevisionMismatch
+            | Self::TargetChanged
+            | Self::OperationIdReused
+            | Self::InvalidResolution => None,
+        }
+    }
+}
+/// A parent chain that no longer resolves means the captured target changed.
+impl From<crate::sync::tree::ParentError> for Error {
+    fn from(error: crate::sync::tree::ParentError) -> Self {
+        use crate::sync::tree::ParentError;
+        match error {
+            ParentError::Io(error) => error.into(),
+            ParentError::Finding(_) | ParentError::Missing => Self::TargetChanged,
         }
     }
 }
