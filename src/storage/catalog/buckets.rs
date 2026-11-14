@@ -347,44 +347,46 @@ pub(in crate::storage) fn select_bucket(
         .optional()
 }
 
+/// Reads every column by name, so a query may select the bucket columns in any order and add
+/// its own.
 pub(super) fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
-    let labels: String = row.get(5)?;
     Ok(BucketRecord {
         soft_delete_policy: row
-            .get::<_, Option<String>>(16)?
-            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(16, Type::Text, e)))
-            .transpose()?,
+            .get::<_, Option<sql::Json<_>>>("soft_delete_policy")?
+            .map(|json| json.0),
         retention_policy: row
-            .get::<_, Option<String>>(15)?
-            .map(|v| serde_json::from_str(&v).map_err(|e| sql::conversion_error(15, Type::Text, e)))
-            .transpose()?,
-        name: row.get(0)?,
-        project: row.get(1)?,
-        location: row.get(2)?,
-        location_type: row.get(3)?,
-        storage_class: row.get(4)?,
-        autoclass: bucket_autoclass::read(row)?,
-        labels: serde_json::from_str(&labels)
-            .map_err(|e| sql::conversion_error(5, Type::Text, e))?,
-        lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
-            .map_err(|e| sql::conversion_error(14, Type::Text, e))?,
-        metageneration: row.get(6)?,
+            .get::<_, Option<sql::Json<_>>>("retention_policy")?
+            .map(|json| json.0),
+        name: row.get("name")?,
+        project: row.get("project")?,
+        location: row.get("location")?,
+        location_type: row.get("location_type")?,
+        storage_class: row.get("storage_class")?,
+        autoclass: row
+            .get::<_, Option<sql::Json<_>>>("autoclass")?
+            .map(|json| json.0),
+        labels: row.get::<_, sql::Json<_>>("labels")?.0,
+        lifecycle: row.get::<_, sql::Json<_>>("lifecycle")?.0,
+        metageneration: row.get("metageneration")?,
         generation: row.get("generation")?,
-        time_created: bucket_timestamps::read(row, row.get(7)?, "time_created_nanos")?,
-        updated: bucket_timestamps::read(row, row.get(8)?, "updated_nanos")?,
-        object_retention_enabled: row.get(17)?,
-        versioning_enabled: row.get(9)?,
+        time_created: bucket_timestamps::read(row, "time_created", "time_created_nanos")?,
+        updated: bucket_timestamps::read(row, "updated", "updated_nanos")?,
+        object_retention_enabled: row.get("object_retention_enabled")?,
+        versioning_enabled: row.get("versioning_enabled")?,
         versioning_configured: row.get("versioning_configured")?,
-        default_event_based_hold: row.get(10)?,
-        public_access_prevention_enforced: row.get(12)?,
+        default_event_based_hold: row.get("default_event_based_hold")?,
+        public_access_prevention_enforced: row.get("public_access_prevention_enforced")?,
         uniform_bucket_level_access_locked_time: row
-            .get::<_, Option<i64>>(13)?
+            .get::<_, Option<i64>>("uniform_bucket_level_access_locked_time")?
             .map(system_time_micros)
             .transpose()?,
-        cors: cors_from_value(
-            &serde_json::from_str(&row.get::<_, String>(11)?)
-                .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
-        )
-        .map_err(|e| sql::conversion_error(11, Type::Text, e))?,
+        cors: read_cors(row)?,
     })
+}
+
+/// The `cors` column holds the JSON resource form; rules it does not accept are corrupt.
+fn read_cors(row: &Row<'_>) -> rusqlite::Result<Vec<crate::bucket::CorsRule>> {
+    let index = row.as_ref().column_index("cors")?;
+    let value = row.get::<_, sql::Json<serde_json::Value>>(index)?.0;
+    cors_from_value(&value).map_err(|error| sql::conversion_error(index, Type::Text, error))
 }

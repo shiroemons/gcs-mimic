@@ -152,18 +152,21 @@ pub(super) fn bucket_list_page(
     })
 }
 
+/// Columns whose text a listed bucket expands, and how much each byte costs once decoded.
+const CHARGED_COLUMNS: [(&str, usize); 8] = [
+    ("name", 8),
+    ("project", 8),
+    ("location", 8),
+    ("location_type", 8),
+    ("storage_class", 8),
+    ("labels", 16),
+    ("cors", 64),
+    ("lifecycle", 64),
+];
+
 pub(super) fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
     let mut charge = 4096usize;
-    for (column, multiplier) in [
-        (0, 8),
-        (1, 8),
-        (2, 8),
-        (3, 8),
-        (4, 8),
-        (5, 16),
-        (11, 64),
-        (14, 64),
-    ] {
+    for (column, multiplier) in CHARGED_COLUMNS {
         let bytes = row.get_ref(column)?.as_str().map_err(unavailable)?.len();
         charge = charge.saturating_add(bytes.saturating_mul(multiplier));
     }

@@ -124,6 +124,75 @@ pub(super) fn conversion_error(
     rusqlite::Error::FromSqlConversionFailure(index, kind, error.into())
 }
 
+/// A value stored as JSON text. Decoding failures surface as `FromSqlConversionFailure` for the
+/// column (classified as corrupt, with the serde error as the source); encoding failures as
+/// `ToSqlConversionFailure` (unavailable), as the hand-written `map_err(unavailable)` did.
+pub(super) struct Json<T>(pub(super) T);
+
+impl<T: serde::de::DeserializeOwned> FromSql for Json<T> {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        serde_json::from_str(value.as_str()?)
+            .map(Self)
+            .map_err(|error| rusqlite::types::FromSqlError::Other(Box::new(error)))
+    }
+}
+
+impl<T: serde::Serialize> rusqlite::ToSql for Json<T> {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        serde_json::to_string(&self.0)
+            .map(rusqlite::types::ToSqlOutput::from)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::{Json, scalar};
+    use crate::bucket::CatalogError;
+    use rusqlite::Connection;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn json_columns_round_trip_and_report_corruption_with_the_serde_source() {
+        let connection = Connection::open_in_memory().unwrap();
+        let labels = BTreeMap::from([("b".to_owned(), "2".to_owned()), ("a".into(), "1".into())]);
+        assert_eq!(
+            scalar::<String>(&connection, "SELECT ?1", [Json(&labels)]).unwrap(),
+            r#"{"a":"1","b":"2"}"#
+        );
+        assert_eq!(
+            scalar::<Json<BTreeMap<String, String>>>(&connection, "SELECT ?1", [Json(&labels)])
+                .unwrap()
+                .0,
+            labels
+        );
+        assert!(
+            scalar::<Option<Json<Vec<u8>>>>(&connection, "SELECT NULL", [])
+                .unwrap()
+                .is_none()
+        );
+
+        let error = scalar::<Json<Vec<u8>>>(&connection, "SELECT 'broken'", [])
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, _)
+        ));
+        let error = super::super::unavailable(error);
+        assert!(matches!(error, CatalogError::Corrupt(_)), "{error:?}");
+        assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+
+        // JSON objects need string keys, so this map cannot be encoded.
+        let unencodable = BTreeMap::from([(vec![1_u8], 1_u8)]);
+        let error = scalar::<String>(&connection, "SELECT ?1", [Json(&unencodable)]).unwrap_err();
+        assert!(matches!(error, rusqlite::Error::ToSqlConversionFailure(_)));
+        let error = super::super::unavailable(error);
+        assert!(matches!(error, CatalogError::Unavailable(_)), "{error:?}");
+        assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+    }
+}
+
 pub(super) fn row<T>(
     connection: &Connection,
     sql: &'static str,

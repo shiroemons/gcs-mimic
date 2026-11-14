@@ -42,20 +42,11 @@ impl BucketPublication {
             connection,
             "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold, json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
             [bucket],
-            |row| Ok((row.get(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, bool>(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| Ok((row.get(0)?, row.get::<_, Option<sql::Json<_>>>(1)?, row.get::<_, bool>(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
         ).optional()?.ok_or(ObjectError::BucketNotFound)?;
-        let autoclass = autoclass
-            .map(|value| serde_json::from_str(&value))
-            .transpose()
-            .map_err(|error| {
-                ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
-                    format!("bucket autoclass: {error}"),
-                    error,
-                ))
-            })?;
         Ok(Self {
             default_class,
-            autoclass,
+            autoclass: autoclass.map(|json| json.0),
             versioning: if versioning {
                 Versioning::Enabled
             } else {

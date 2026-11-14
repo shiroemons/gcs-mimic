@@ -10,9 +10,16 @@ pub(super) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN time_created_nan
 ALTER TABLE buckets ADD COLUMN updated_nanos INTEGER NOT NULL DEFAULT 0 CHECK(typeof(updated_nanos)='integer' AND updated_nanos BETWEEN 0 AND 999);
 PRAGMA user_version=39;";
 
-pub(super) fn read(row: &Row<'_>, micros: i64, column: &str) -> rusqlite::Result<SystemTime> {
-    let index = row.as_ref().column_index(column)?;
-    let remainder: u64 = row.get(column)?;
+/// The time a bucket row stores as whole microseconds in `column` and the nanoseconds past them
+/// in `nanos_column`.
+pub(super) fn read(
+    row: &Row<'_>,
+    column: &str,
+    nanos_column: &str,
+) -> rusqlite::Result<SystemTime> {
+    let micros: i64 = row.get(column)?;
+    let index = row.as_ref().column_index(nanos_column)?;
+    let remainder: u64 = row.get(index)?;
     if remainder > 999 {
         return Err(sql::conversion_error(
             index,

@@ -7,22 +7,11 @@ use crate::bucket::{
     lifecycle::{LifecycleRule, validate_location},
 };
 use crate::storage::catalog::sql;
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use std::time::SystemTime;
 
 pub(super) const SCHEMA: &str =
     "ALTER TABLE buckets ADD COLUMN autoclass TEXT; PRAGMA user_version = 31;";
-
-/// Read by column name so the bucket column list can grow independently.
-pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Option<Autoclass>> {
-    let index = row.as_ref().column_index("autoclass")?;
-    row.get::<_, Option<String>>(index)?
-        .map(|value| {
-            serde_json::from_str(&value)
-                .map_err(|error| sql::conversion_error(index, Type::Text, error))
-        })
-        .transpose()
-}
 
 fn store(
     transaction: &Transaction<'_>,
@@ -117,13 +106,11 @@ pub(crate) fn object_storage_class(
         connection,
         "SELECT autoclass FROM buckets WHERE name = ?1",
         [bucket],
-        |row| row.get::<_, Option<String>>(0),
+        |row| row.get::<_, Option<sql::Json<Autoclass>>>(0),
     )
     .optional()?
     .flatten()
-    .map(|value| serde_json::from_str::<Autoclass>(&value))
-    .transpose()
-    .map_err(|error| CatalogError::Corrupt(format!("bucket autoclass: {error}").into()))?;
+    .map(|json| json.0);
     Ok(autoclass::object_storage_class(
         config.as_ref(),
         requested,
