@@ -12,6 +12,7 @@ use crate::{
     storage::{
         admin::AdminError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
+        import_journal::ResumeError,
         memory::BlobError,
         sync_state::{conflicts, root::RootError, writeback},
     },
@@ -33,6 +34,8 @@ pub(crate) enum Source {
     Conflict(conflicts::Error),
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
+    /// A journal refusal that an import resume names to the operator.
+    Resume(ResumeError),
     /// A failure no storage, sync or adapter decision reads.
     Leaf(Leaf),
 }
@@ -57,6 +60,7 @@ impl Source {
             Self::Conflict(error) => Link::Conflict(error),
             Self::Connection(error) => Link::Connection(error),
             Self::Executor(error) => Link::Executor(error),
+            Self::Resume(error) => Link::Resume(error),
             Self::Leaf(Leaf(error)) => Link::Leaf(&**error),
         }
     }
@@ -84,6 +88,7 @@ pub(crate) enum Link<'a> {
     Connection(&'a ConnectionUnavailable),
     Executor(&'a ExecutorError),
     Rollback(&'a RollbackError),
+    Resume(&'a ResumeError),
     /// A failure no decision reads, or any error below one, an I/O error or an SQLite error.
     Leaf(&'a (dyn Error + 'static)),
 }
@@ -105,6 +110,7 @@ impl<'a> Link<'a> {
             Self::Connection(error) => error,
             Self::Executor(error) => error,
             Self::Rollback(error) => error,
+            Self::Resume(error) => error,
             Self::Leaf(error) => error,
         }
     }
@@ -124,6 +130,7 @@ impl<'a> Link<'a> {
             Self::Connection(error) => error.typed_source(),
             Self::Executor(error) => error.typed_source(),
             Self::Rollback(error) => error.typed_source(),
+            Self::Resume(error) => error.typed_source(),
             // Neither standard error nor a leaf holds a typed failure.
             Self::Io(error) => Error::source(error).map(Self::Leaf),
             Self::Sqlite(error) => Error::source(error).map(Self::Leaf),
@@ -144,6 +151,15 @@ impl<'a> Link<'a> {
     pub(crate) fn memory_budget(self) -> Option<MemoryBudget> {
         if let Self::Exhausted(exhausted) = self {
             Some(exhausted.budget)
+        } else {
+            None
+        }
+    }
+
+    /// The import journal refusal this link is, if it is one.
+    pub(crate) fn resume_refusal(self) -> Option<&'a ResumeError> {
+        if let Self::Resume(refusal) = self {
+            Some(refusal)
         } else {
             None
         }
@@ -197,6 +213,7 @@ typed_sources!(
     Conflict(conflicts::Error),
     Connection(ConnectionUnavailable),
     Executor(ExecutorError),
+    Resume(ResumeError),
 );
 
 /// A RAM blob failure is the budget it exhausted or the I/O error it met.
@@ -246,7 +263,6 @@ leaf_sources!(
     crate::storage::opaque_id::InvalidOpaqueId,
     crate::storage::admin::NestedFileJob,
     crate::storage::catalog::resumable::InvalidOptions,
-    crate::storage::import_journal::ResumeError,
     crate::storage::xml_multipart::Error,
 );
 

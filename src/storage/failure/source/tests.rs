@@ -45,7 +45,32 @@ fn every_source_shows_the_held_error() {
     assert_delegates(|| conflicts::Error::Admin(AdminError::Backend(closed())));
     assert_delegates(|| ConnectionUnavailable::Closed);
     assert_delegates(|| ExecutorError::Closed);
+    assert_delegates(|| ResumeError::Catalog(CatalogError::Unavailable(closed())));
+    assert_delegates(permanently_failed);
     assert_delegates(|| serde_json::from_str::<u8>("not json").unwrap_err());
+}
+
+fn permanently_failed() -> ResumeError {
+    ResumeError::PermanentlyFailed {
+        reason: crate::storage::import_journal::JournalFailure::ElementRejected,
+    }
+}
+
+/// A resume reads the journal's refusal back from the catalog failure that carries it, and a
+/// catalog failure the journal met is not a refusal.
+#[test]
+fn resume_refusals_are_found_in_the_catalog_failures_that_carry_them() {
+    let refused = CatalogError::from(permanently_failed());
+    assert!(matches!(
+        chain(Link::Catalog(&refused)).find_map(Link::resume_refusal),
+        Some(ResumeError::PermanentlyFailed { .. })
+    ));
+    let failed = CatalogError::from(ResumeError::Catalog(CatalogError::Unavailable(closed())));
+    assert!(
+        chain(Link::Catalog(&failed))
+            .find_map(Link::resume_refusal)
+            .is_none()
+    );
 }
 
 /// The typed chain from `first` visits exactly the errors `source()` returns, node for node.
@@ -110,6 +135,9 @@ fn typed_chains_visit_every_source_node() {
         ConnectionUnavailable::Closed.into(),
         ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite_busy())).into(),
         ExecutorError::Closed.into(),
+        ResumeError::Catalog(CatalogError::Unavailable(closed())).into(),
+        permanently_failed().into(),
+        BackendCause::from_error(permanently_failed()).into(),
         crate::fsutil::FsError::Io(io::Error::other("below a leaf")).into(),
     ];
     for source in &sources {

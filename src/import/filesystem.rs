@@ -453,13 +453,13 @@ async fn run(
 }
 
 /// Names the refusal a resume reports. `Catalog::resume_import` carries the journal's refusal
-/// inside a catalog failure, so this is where its type comes back.
+/// as a typed source of a catalog failure, so this is where it is read back.
 fn resume_error(error: CatalogError) -> ImportError {
     if matches!(error, CatalogError::PreconditionFailed) {
         return ImportError::OtherImport;
     }
-    let refusal = crate::error::causes(&error)
-        .find_map(|cause| cause.downcast_ref::<ResumeError>())
+    let refusal = crate::storage::failure::chain(crate::storage::failure::Link::Catalog(&error))
+        .find_map(crate::storage::failure::Link::resume_refusal)
         .and_then(|refusal| match refusal {
             ResumeError::PermanentlyFailed { reason } => Some(ResumeError::PermanentlyFailed {
                 reason: reason.clone(),

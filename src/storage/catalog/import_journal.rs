@@ -6,7 +6,10 @@
 )]
 
 use super::{Catalog, admin::AdminError, unavailable};
-use crate::bucket::CatalogError;
+use crate::{
+    bucket::CatalogError,
+    storage::failure::{Link, TypedSource},
+};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{error::Error, fmt};
 
@@ -235,8 +238,14 @@ impl fmt::Display for ResumeError {
 
 impl Error for ResumeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for ResumeError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Catalog(error) => Some(error),
+            Self::Catalog(error) => Some(Link::Catalog(error)),
             Self::PermanentlyFailed { .. } => None,
             #[cfg(not(unix))]
             Self::MissingLock => None,
