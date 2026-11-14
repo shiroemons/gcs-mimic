@@ -332,19 +332,11 @@ impl BlobBackend {
             .open(&path)?;
         #[cfg(all(test, unix))]
         super::fault::file_created(&path);
-        let synced = (|| -> io::Result<()> {
-            file.sync_all()?;
-            #[cfg(test)]
-            super::fault::file_synced(root, &file.metadata()?);
-            #[cfg(unix)]
-            {
-                #[cfg(test)]
-                hit_io(root, super::fault::Step::SessionCreateSync)?;
-                objects::sync_dir(&root.join("staging"))?;
-            }
-            Ok(())
-        })();
-        if let Err(error) = synced {
+        if let Err(error) = sync_new_draft(
+            &file,
+            #[cfg(any(test, unix))]
+            root,
+        ) {
             drop(file);
             fs::remove_file(path)?;
             return Err(error);
@@ -437,6 +429,20 @@ pub(super) fn restore_disk_draft(root: &Path, id: &BlobId) -> io::Result<()> {
     let stage = id.staging_path(root);
     if !stage.try_exists()? {
         fs::rename(id.blob_path(root), stage)?;
+    }
+    Ok(())
+}
+
+/// Makes a new resumable draft durable: the file first, then its entry in the staging directory.
+fn sync_new_draft(file: &fs::File, #[cfg(any(test, unix))] root: &Path) -> io::Result<()> {
+    file.sync_all()?;
+    #[cfg(test)]
+    super::fault::file_synced(root, &file.metadata()?);
+    #[cfg(unix)]
+    {
+        #[cfg(test)]
+        hit_io(root, super::fault::Step::SessionCreateSync)?;
+        objects::sync_dir(&root.join("staging"))?;
     }
     Ok(())
 }
