@@ -44,8 +44,6 @@ clippy::wildcard_enum_match_arm	src/storage/catalog/hmac_keys.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/import_journal.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/objects/list.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/objects/publication.rs	1
-clippy::wildcard_enum_match_arm	src/storage/catalog/objects/recovery.rs	1
-clippy::wildcard_enum_match_arm	src/storage/catalog/objects/upload/group_commit.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/resumable.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/resumable/writers.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/rewrite.rs	2

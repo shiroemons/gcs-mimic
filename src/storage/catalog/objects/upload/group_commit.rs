@@ -6,7 +6,7 @@
 //! durable. Nothing waits for a batch to fill: a lone upload commits as soon as the writer is free.
 
 use super::*;
-use crate::storage::failure::{Classified, StorageCause};
+use crate::storage::failure::StorageCause;
 use std::{
     collections::VecDeque,
     panic::AssertUnwindSafe,
@@ -202,13 +202,7 @@ fn publish_isolated(
 /// Gives every upload of a failed batch the batch's failure.
 fn shared(failure: ObjectError, uploads: usize) -> Vec<Outcome> {
     // Storage failures keep their own cause; anything else is wrapped as unavailable.
-    let failure = match failure {
-        ObjectError::Corrupt(cause) => Classified::Corrupt(cause),
-        ObjectError::Io(cause) => Classified::Io(cause),
-        ObjectError::Unavailable(cause) => Classified::Unavailable(cause),
-        failure => failure.classify(),
-    };
-    std::iter::repeat_n(failure, uploads)
+    std::iter::repeat_n(failure.classify(), uploads)
         .map(|failure| Err(failure.into()))
         .collect()
 }

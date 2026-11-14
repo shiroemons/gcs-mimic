@@ -30,10 +30,7 @@ pub(in crate::storage::catalog) fn recover(
         verify_referenced_blobs(connection, data_dir)?;
         remove_orphan_blobs(connection, data_dir)
     };
-    recover().map_err(|error| match error {
-        ObjectError::Unavailable(reason) => CatalogError::Unavailable(reason),
-        error => unavailable(error),
-    })
+    recover().map_err(unavailable)
 }
 
 /// Removes staging entries no active upload or derived transfer still owns.
