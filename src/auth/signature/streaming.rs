@@ -9,7 +9,7 @@ pub(crate) const STREAMING_PAYLOAD: &str = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
 pub(super) fn validate(
     method: &Method,
     headers: &HeaderMap,
-    algorithm: verify::Algorithm,
+    algorithm: v4::Algorithm,
     signing: v4::Signing,
 ) -> Result<bool, Failure> {
     let header = matches!(signing, v4::Signing::Header);
@@ -39,7 +39,7 @@ pub(super) fn validate(
         .ok_or(Failure::Malformed)?;
     if !header
         || *method != Method::PUT
-        || algorithm != verify::Algorithm::AwsHmac
+        || algorithm != v4::Algorithm::AwsHmac
         || headers
             .keys()
             .any(|name| name.as_str().starts_with("x-goog-"))
@@ -69,19 +69,13 @@ pub(crate) struct Streaming {
 }
 
 impl Streaming {
-    fn new(secret: &str, prepared: &verify::Prepared) -> Self {
-        let mut key = hmac::Key::new(hmac::HMAC_SHA256, format!("AWS4{secret}").as_bytes());
-        for part in prepared.scope.split('/') {
-            key = hmac::Key::new(
-                hmac::HMAC_SHA256,
-                hmac::sign(&key, part.as_bytes()).as_ref(),
-            );
-        }
+    /// The chunk chain under the seed's signing key, starting from the seed signature.
+    fn new(key: hmac::Key, scope: &verify::V4Scope, seed: &[u8]) -> Self {
         Self {
             key,
-            date: prepared.date.clone(),
-            scope: prepared.scope.clone(),
-            previous: prepared.signature.clone(),
+            date: scope.date.clone(),
+            scope: scope.scope.clone(),
+            previous: seed.to_vec(),
         }
     }
 
@@ -111,18 +105,23 @@ impl Auth {
         clock: &dyn Clock,
     ) -> Result<(Option<Caller<'a>>, Streaming), VerificationError> {
         let prepared = v4::prepare(method, uri, headers, clock.now())?;
-        if prepared.algorithm != verify::Algorithm::AwsHmac
+        // Only an AWS HMAC signature chains chunk signatures.
+        let verify::Scheme::HmacV4(scope) = &prepared.scheme else {
+            return Err(Failure::Malformed.into());
+        };
+        if scope.family != v4::Family::Aws
             || headers
                 .get("x-amz-content-sha256")
                 .is_none_or(|value| value != STREAMING_PAYLOAD)
         {
             return Err(Failure::Malformed.into());
         }
-        let (caller, key) = self.verification_key(catalog, &prepared).await?;
-        let verify::Key::Hmac(secret) = key else {
-            return Err(Failure::Malformed.into());
-        };
-        let state = Streaming::new(&secret, &prepared);
+        // Only a signed aws-chunked upload asks for a key while signatures are ignored.
+        let signers = self
+            .signers()
+            .ok_or(Failure::UnknownSigner(KeyLookup::Ignored))?;
+        let (caller, secret) = verify::hmac_secret(catalog, &signers, &prepared.signer).await?;
+        let state = Streaming::new(scope.signing_key(&secret), scope, &prepared.signature);
         // The seed signs the canonical request; the chunk chain starts from the seed signature
         // alone, so a lenient host form does not change how chunks verify.
         verify::verify_host_forms(
@@ -167,11 +166,21 @@ mod tests {
         .unwrap()
     }
 
+    /// The chunk chain the published demonstration credentials start from the seed.
+    fn published_chain(prepared: &verify::Prepared) -> Streaming {
+        let verify::Scheme::HmacV4(scope) = &prepared.scheme else {
+            panic!("the published seed is a V4 HMAC signature");
+        };
+        // Published demonstration credentials, never an emulator-created secret.
+        let key = scope.signing_key("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        Streaming::new(key, scope, &prepared.signature)
+    }
+
     #[test]
     fn a_lenient_seed_signature_may_omit_the_request_port_and_chunks_still_chain() {
         // The published seed signs Host without a port; this request adds one.
         let prepared = published_seed("s3.amazonaws.com:4443");
-        let mut state = Streaming::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", &prepared);
+        let mut state = published_chain(&prepared);
         let seed = |host_port| {
             verify::verify_host_forms(host_port, &prepared, |message| {
                 hmac::verify(&state.key, message.as_bytes(), &prepared.signature).is_ok()
@@ -194,8 +203,7 @@ mod tests {
     #[tokio::test]
     async fn published_aws_streaming_seed_and_three_chunk_signatures_match_exactly() {
         let prepared = published_seed("s3.amazonaws.com");
-        // Published demonstration credentials, never an emulator-created secret.
-        let mut state = Streaming::new("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", &prepared);
+        let mut state = published_chain(&prepared);
         hmac::verify(&state.key, prepared.message.as_bytes(), &prepared.signature).unwrap();
         for (size, signature) in [
             (

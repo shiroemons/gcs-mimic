@@ -21,13 +21,7 @@ impl Auth {
             catalog,
             v4::Prepared {
                 signer: signer.into(),
-                date: String::new(),
-                algorithm: if signers.keys().contains(signer) {
-                    v4::Algorithm::Rsa
-                } else {
-                    v4::Algorithm::LegacyHmacSha1
-                },
-                scope: String::new(),
+                scheme: verify::v2_scheme(signers.keys(), signer),
                 message: policy.into(),
                 // A policy signs the submitted document, never Host.
                 portless: None,
@@ -52,19 +46,17 @@ impl Auth {
         if policy.len() > 64 * 1024 || credential.len() > 1024 {
             return Err(Failure::Malformed.into());
         }
-        let algorithm = match algorithm {
-            ALGORITHM => v4::Algorithm::Rsa,
-            "GOOG4-HMAC-SHA256" => v4::Algorithm::GoogleHmac,
-            _ => return Err(Failure::Malformed.into()),
+        let algorithm = match algorithm.parse() {
+            Ok(algorithm @ (v4::Algorithm::Rsa | v4::Algorithm::GoogleHmac)) => algorithm,
+            // A policy form names only the Google algorithms.
+            Ok(v4::Algorithm::AwsHmac) | Err(_) => return Err(Failure::Malformed.into()),
         };
         parse_timestamp(date).map_err(|_| Failure::Malformed)?;
         let credential =
             v4::CredentialScope::parse(credential, date, ["storage", "goog4_request"])?;
         let prepared = v4::Prepared {
             signer: credential.signer.into(),
-            date: String::new(),
-            algorithm,
-            scope: credential.scope.into(),
+            scheme: algorithm.scheme(date, credential.scope),
             message: policy.into(),
             portless: None,
             signature: unhex(signature)?,

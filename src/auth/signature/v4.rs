@@ -1,20 +1,29 @@
 //! V4 wire parsing shared by Google RSA, Google HMAC and interoperable AWS HMAC.
 
-pub(super) use super::verify::{Algorithm, Prepared};
+pub(super) use super::verify::Prepared;
+use super::verify::{Scheme, V4Scope};
 use super::*;
 use std::str::FromStr;
 
 #[cfg(test)]
 mod tests;
 
-/// Which naming of the V4 query parameters a signer used.
+/// Which naming of the V4 parameters, headers and key prefix a signer used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Family {
+pub(super) enum Family {
     Google,
     Aws,
 }
 
 impl Family {
+    /// The prefix the V4 signing key puts before the secret.
+    pub(super) const fn key_prefix(self) -> &'static str {
+        match self {
+            Self::Google => "GOOG4",
+            Self::Aws => "AWS4",
+        }
+    }
+
     const fn other(self) -> Self {
         match self {
             Self::Google => Self::Aws,
@@ -150,8 +159,18 @@ impl FromStr for V4Parameter {
     }
 }
 
-impl Algorithm {
-    fn parse(raw: &str) -> Result<Self, Failure> {
+/// A V4 signing algorithm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Algorithm {
+    Rsa,
+    GoogleHmac,
+    AwsHmac,
+}
+
+impl FromStr for Algorithm {
+    type Err = Failure;
+
+    fn from_str(raw: &str) -> Result<Self, Failure> {
         match raw {
             ALGORITHM => Ok(Self::Rsa),
             "GOOG4-HMAC-SHA256" => Ok(Self::GoogleHmac),
@@ -159,21 +178,34 @@ impl Algorithm {
             _ => Err(Failure::Malformed),
         }
     }
+}
 
-    fn family(self) -> Family {
+impl Algorithm {
+    pub(super) fn family(self) -> Family {
         match self {
             Self::AwsHmac => Family::Aws,
-            Self::Rsa | Self::GoogleHmac | Self::LegacyHmacSha1 => Family::Google,
+            Self::Rsa | Self::GoogleHmac => Family::Google,
         }
     }
 
-    /// The algorithm's name in a V4 string to sign; the legacy V2 algorithm has none.
-    fn name(self) -> Result<&'static str, Failure> {
+    /// The name a V4 string to sign starts with.
+    pub(super) const fn name(self) -> &'static str {
         match self {
-            Self::Rsa => Ok(ALGORITHM),
-            Self::GoogleHmac => Ok("GOOG4-HMAC-SHA256"),
-            Self::AwsHmac => Ok("AWS4-HMAC-SHA256"),
-            Self::LegacyHmacSha1 => Err(Failure::Malformed),
+            Self::Rsa => ALGORITHM,
+            Self::GoogleHmac => "GOOG4-HMAC-SHA256",
+            Self::AwsHmac => "AWS4-HMAC-SHA256",
+        }
+    }
+
+    /// How a signature by this algorithm verifies, given its date and credential scope.
+    pub(super) fn scheme(self, date: &str, scope: &str) -> Scheme {
+        match self {
+            Self::Rsa => Scheme::Rsa,
+            Self::GoogleHmac | Self::AwsHmac => Scheme::HmacV4(V4Scope {
+                family: self.family(),
+                date: date.to_owned(),
+                scope: scope.to_owned(),
+            }),
         }
     }
 }
@@ -310,7 +342,7 @@ pub(super) fn prepare(
     } else {
         "UNSIGNED-PAYLOAD".into()
     };
-    let name = algorithm.name()?;
+    let name = algorithm.name();
     let scope = credential.scope;
     let canonical =
         |host| canonical_with_payload(method, uri, headers, &query, signed, &payload, host);
@@ -320,9 +352,7 @@ pub(super) fn prepare(
     let without_port = canonical(CanonicalHost::WithoutPort)?;
     Ok(Prepared {
         signer: credential.signer.into(),
-        date: date.into(),
-        algorithm,
-        scope: scope.to_owned(),
+        scheme: algorithm.scheme(date, scope),
         message: string_to_sign(name, date, scope, &as_sent),
         portless: (without_port != as_sent)
             .then(|| string_to_sign(name, date, scope, &without_port)),
@@ -439,7 +469,7 @@ impl<'a> TryFrom<&'a BTreeMap<String, String>> for Fields<'a> {
             signed_headers,
             signature,
         } = values;
-        let algorithm = Algorithm::parse(algorithm.ok_or(Failure::Malformed)?)?;
+        let algorithm: Algorithm = algorithm.ok_or(Failure::Malformed)?.parse()?;
         let family = algorithm.family();
         if sent_family != Some(family) {
             return Err(Failure::Malformed);
@@ -462,7 +492,7 @@ impl<'a> TryFrom<&'a HeaderMap> for Fields<'a> {
     fn try_from(headers: &'a HeaderMap) -> Result<Self, Self::Error> {
         let raw = single(headers, "authorization")?.ok_or(Failure::Malformed)?;
         let (algorithm, fields) = raw.split_once(' ').ok_or(Failure::Malformed)?;
-        let algorithm = Algorithm::parse(algorithm)?;
+        let algorithm: Algorithm = algorithm.parse()?;
         let mut parsed = BTreeMap::new();
         for field in fields.split(',') {
             let (name, value) = field.trim().split_once('=').ok_or(Failure::Malformed)?;

@@ -3,8 +3,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use crate::auth::SigningKeys;
 
-mod legacy;
+pub(super) mod legacy;
 pub(crate) use legacy::xml_query;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,7 @@ pub(super) fn is_v2(query: Option<&str>) -> bool {
     decoded_query_names(query).any(|key| signing_param(&key) == Some(SigningParams::V2))
 }
 
+/// A path-style V2 query signature by a signer without a registered RSA key.
 #[cfg(test)]
 pub(super) fn prepare(
     method: &Method,
@@ -41,19 +43,25 @@ pub(super) fn prepare(
     headers: &HeaderMap,
     now: SystemTime,
 ) -> Result<v4::Prepared, Failure> {
-    prepare_resource(method, uri, headers, now, &Resource::PathStyle)
+    prepare_query(
+        method,
+        uri,
+        headers,
+        now,
+        &Resource::PathStyle,
+        &SigningKeys::default(),
+    )
 }
 
-pub(super) fn prepare_resource(
+/// A V2 query signature, which `keys` decide to verify with RSA or HMAC.
+pub(super) fn prepare_query(
     method: &Method,
     uri: &Uri,
     headers: &HeaderMap,
     now: SystemTime,
     resource: &Resource,
+    keys: &SigningKeys,
 ) -> Result<v4::Prepared, Failure> {
-    if has_legacy_header(headers) {
-        return legacy::prepare(method, uri, headers, now, resource);
-    }
     let (query, deadline) = query_fields(uri)?;
     if headers.contains_key("authorization") {
         return Err(Failure::Malformed);
@@ -61,11 +69,10 @@ pub(super) fn prepare_resource(
     if now >= deadline {
         return Err(Failure::Expired);
     }
+    let signer = required(&query, "GoogleAccessId")?;
     Ok(v4::Prepared {
-        signer: required(&query, "GoogleAccessId")?.into(),
-        date: String::new(),
-        algorithm: v4::Algorithm::Rsa,
-        scope: String::new(),
+        signer: signer.into(),
+        scheme: verify::v2_scheme(keys, signer),
         message: string_to_sign(
             method,
             uri,

@@ -42,7 +42,7 @@ fn query_and_header_profiles_keep_their_documented_canonical_differences() {
         );
         if kind == "GOOG1" {
             input.remove("authorization");
-            let query=super::super::prepare_resource(&Method::GET,&"/bucket/object?response-content-type=text%2Fplain&uploadId=a%2Fb&prefix=ignored&GoogleAccessId=key&Expires=1175139620&Signature=AAAAAAAAAAAAAAAAAAAAAAAAAAA%3D".parse().unwrap(),&input,now,&Resource::PathStyle).unwrap();
+            let query=super::super::prepare_query(&Method::GET,&"/bucket/object?response-content-type=text%2Fplain&uploadId=a%2Fb&prefix=ignored&GoogleAccessId=key&Expires=1175139620&Signature=AAAAAAAAAAAAAAAAAAAAAAAAAAA%3D".parse().unwrap(),&input,now,&Resource::PathStyle,&SigningKeys::default()).unwrap();
             assert_eq!(
                 query.message,
                 "GET\n\n\n1175139620\nx-goog-meta-k:a b,c\n/bucket/object?uploadId=a%2Fb"

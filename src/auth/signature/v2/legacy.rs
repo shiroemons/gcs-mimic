@@ -30,7 +30,8 @@ pub(crate) fn xml_query(
     Ok(query)
 }
 
-pub(super) fn prepare(
+/// A `GOOG1` or `AWS` header signature, which always verifies with HMAC-SHA1.
+pub(in crate::auth::signature) fn prepare(
     method: &Method,
     uri: &Uri,
     headers: &HeaderMap,
@@ -105,9 +106,7 @@ pub(super) fn prepare(
     }
     Ok(v4::Prepared {
         signer: signer.into(),
-        date: String::new(),
-        algorithm: v4::Algorithm::LegacyHmacSha1,
-        scope: String::new(),
+        scheme: verify::Scheme::HmacSha1,
         message: string_to_sign(
             method,
             uri,

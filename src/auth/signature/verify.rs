@@ -7,6 +7,7 @@ use crate::{
     bucket::CatalogError,
     storage::{Catalog, failure::BackendCause},
 };
+use ring::hmac;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -51,19 +52,51 @@ impl Default for Verifiers {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Algorithm {
+/// How a prepared signature is checked once its signer's key is known.
+pub(super) enum Scheme {
+    /// RSASSA-PKCS1-v1_5 SHA-256 against the signer's public keys: V4 `GOOG4-RSA-SHA256`, and V2
+    /// query or policy signatures by a signer with a registered key.
     Rsa,
-    GoogleHmac,
-    AwsHmac,
-    LegacyHmacSha1,
+    /// HMAC-SHA256 under a key derived from the secret and the V4 credential scope.
+    HmacV4(V4Scope),
+    /// HMAC-SHA1 under the literal UTF-8 secret: every legacy V2 HMAC signature.
+    HmacSha1,
+}
+
+/// The V4 credential scope an HMAC signing key derives from.
+pub(super) struct V4Scope {
+    pub(super) family: v4::Family,
+    /// `X-Goog-Date` or `X-Amz-Date`; aws-chunked chunk signatures repeat it.
+    pub(super) date: String,
+    /// `DATE/REGION/SERVICE/REQUEST`.
+    pub(super) scope: String,
+}
+
+impl V4Scope {
+    /// The family prefix and the literal UTF-8 secret, then one HMAC round per scope
+    /// component. The API returns a base64-looking secret, but its text is the input.
+    pub(super) fn signing_key(&self, secret: &str) -> hmac::Key {
+        let prefixed = format!("{}{secret}", self.family.key_prefix());
+        self.scope.split('/').fold(
+            hmac::Key::new(hmac::HMAC_SHA256, prefixed.as_bytes()),
+            |key, component| {
+                hmac::Key::new(
+                    hmac::HMAC_SHA256,
+                    hmac::sign(&key, component.as_bytes()).as_ref(),
+                )
+            },
+        )
+    }
+}
+
+/// The legacy V2 formats use SHA-1 with the literal, underived UTF-8 secret.
+fn legacy_hmac_key(secret: &str) -> hmac::Key {
+    hmac::Key::new(hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, secret.as_bytes())
 }
 
 pub(super) struct Prepared {
     pub signer: String,
-    pub date: String,
-    pub algorithm: Algorithm,
-    pub scope: String,
+    pub scheme: Scheme,
     pub message: String,
     /// For a V4 signature over a Host that names an explicit port, the string to sign with that
     /// port removed from the canonical host. Signatures that do not cover Host have none.
@@ -103,9 +136,47 @@ impl From<Failure> for VerificationError {
     }
 }
 
+/// The key a signature verifies against, resolved for its scheme.
 pub(super) enum Key {
     Rsa(Arc<[PublicKey]>),
-    Hmac(String),
+    /// An HMAC key whose algorithm the scheme fixed: SHA-1 for legacy V2, SHA-256 for V4.
+    Hmac(hmac::Key),
+}
+
+impl Key {
+    fn verify(&self, message: &str, signature: &[u8]) -> bool {
+        match self {
+            Self::Rsa(keys) => keys
+                .iter()
+                .any(|key| key.verify(message.as_bytes(), signature)),
+            Self::Hmac(key) => hmac::verify(key, message.as_bytes(), signature).is_ok(),
+        }
+    }
+}
+
+/// A V2 signer with a registered RSA key signs with RSA; any other access ID names an HMAC
+/// key. RSA failure never retries with HMAC.
+pub(super) fn v2_scheme(keys: &SigningKeys, signer: &str) -> Scheme {
+    if keys.contains(signer) {
+        Scheme::Rsa
+    } else {
+        Scheme::HmacSha1
+    }
+}
+
+/// The ACTIVE HMAC secret an access ID names, and whom it makes the caller. The ACTIVE key
+/// alone is enough when a verified signature authorizes nothing by identity.
+pub(super) async fn hmac_secret<'a>(
+    catalog: &Catalog,
+    signers: &Signers<'a>,
+    access_id: &str,
+) -> Result<(Option<Caller<'a>>, String), VerificationError> {
+    let (signer, secret) = catalog
+        .active_hmac_key(access_id)
+        .await
+        .map_err(VerificationError::Catalog)?
+        .ok_or_else(|| signers.unknown(access_id))?;
+    Ok((signers.caller(&signer)?, secret))
 }
 
 /// Where a signed request's RSA keys come from, and whom a verified signature makes the caller.
@@ -189,20 +260,15 @@ impl Auth {
             return Ok(None);
         };
         v4::bounded(uri, headers)?;
+        let now = clock.now();
         let prepared = match kind {
-            SignatureKind::V2Query | SignatureKind::LegacyHeader => {
-                let mut prepared =
-                    v2::prepare_resource(method, uri, headers, clock.now(), resource)?;
-                prepared.algorithm = if kind == SignatureKind::V2Query
-                    && signers.keys().contains(&prepared.signer)
-                {
-                    Algorithm::Rsa
-                } else {
-                    Algorithm::LegacyHmacSha1
-                };
-                prepared
+            SignatureKind::V2Query => {
+                v2::prepare_query(method, uri, headers, now, resource, signers.keys())?
             }
-            SignatureKind::V4 => v4::prepare(method, uri, headers, clock.now())?,
+            SignatureKind::LegacyHeader => {
+                v2::legacy::prepare(method, uri, headers, now, resource)?
+            }
+            SignatureKind::V4 => v4::prepare(method, uri, headers, now)?,
         };
         self.verify_prepared(catalog, prepared).await
     }
@@ -218,40 +284,43 @@ impl Auth {
         self.verifiers
             .run(move || {
                 verify_host_forms(host_port, &prepared, |message| {
-                    verify(&key, &prepared, message)
+                    key.verify(message, &prepared.signature)
                 })
             })
             .await??;
         Ok(caller)
     }
 
-    /// RSA keys come from the active signers; HMAC keys from the catalog, whose ACTIVE key
-    /// alone is enough when a verified signature authorizes nothing by identity.
-    pub(super) async fn verification_key<'a>(
+    /// RSA keys come from the active signers; HMAC keys from the catalog.
+    async fn verification_key<'a>(
         &'a self,
         catalog: &Catalog,
         prepared: &Prepared,
     ) -> Result<(Option<Caller<'a>>, Key), VerificationError> {
-        // Only a signed aws-chunked upload asks for a key while signatures are ignored.
+        // Every caller has checked that signatures are verified; this keeps the same answer.
         let signers = self
             .signers()
             .ok_or(Failure::UnknownSigner(KeyLookup::Ignored))?;
-        if prepared.algorithm == v4::Algorithm::Rsa {
-            let keys = signers
-                .keys()
-                .get(&prepared.signer)
-                .ok_or_else(|| signers.unknown(&prepared.signer))?;
-            return Ok((
-                signers.caller(&prepared.signer)?,
-                Key::Rsa(Arc::clone(keys)),
-            ));
+        match &prepared.scheme {
+            Scheme::Rsa => {
+                let keys = signers
+                    .keys()
+                    .get(&prepared.signer)
+                    .ok_or_else(|| signers.unknown(&prepared.signer))?;
+                Ok((
+                    signers.caller(&prepared.signer)?,
+                    Key::Rsa(Arc::clone(keys)),
+                ))
+            }
+            Scheme::HmacSha1 => {
+                let (caller, secret) = hmac_secret(catalog, &signers, &prepared.signer).await?;
+                Ok((caller, Key::Hmac(legacy_hmac_key(&secret))))
+            }
+            Scheme::HmacV4(scope) => {
+                let (caller, secret) = hmac_secret(catalog, &signers, &prepared.signer).await?;
+                Ok((caller, Key::Hmac(scope.signing_key(&secret))))
+            }
         }
-        let (signer, secret) = catalog
-            .active_hmac_key(&prepared.signer)
-            .await
-            .map_err(VerificationError::Catalog)?
-            .ok_or_else(|| signers.unknown(&prepared.signer))?;
-        Ok((signers.caller(&signer)?, Key::Hmac(secret)))
     }
 }
 
@@ -264,7 +333,7 @@ impl HostPortPolicy {
             Self::Exact => SignedHostPort::Exact,
             Self::Lenient => SignedHostPort::Lenient,
             Self::LenientForTestSigner
-                if prepared.algorithm == Algorithm::Rsa && prepared.signer == test_signer::ID =>
+                if matches!(prepared.scheme, Scheme::Rsa) && prepared.signer == test_signer::ID =>
             {
                 SignedHostPort::Lenient
             }
@@ -316,46 +385,21 @@ fn warn_portless_host() {
     }
 }
 
-fn verify(key: &Key, prepared: &v4::Prepared, message: &str) -> bool {
-    match key {
-        Key::Rsa(keys) => keys
-            .iter()
-            .any(|key| key.verify(message.as_bytes(), &prepared.signature)),
-        Key::Hmac(secret) => {
-            // The legacy V2 formats use SHA-1 with the literal, underived UTF-8 secret.
-            if prepared.algorithm == Algorithm::LegacyHmacSha1 {
-                let key = ring::hmac::Key::new(
-                    ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
-                    secret.as_bytes(),
-                );
-                return ring::hmac::verify(&key, message.as_bytes(), &prepared.signature).is_ok();
-            }
-            let prefix = match prepared.algorithm {
-                Algorithm::GoogleHmac => "GOOG4",
-                Algorithm::AwsHmac => "AWS4",
-                Algorithm::Rsa | Algorithm::LegacyHmacSha1 => return false,
-            };
-            // The API returns a base64-looking secret, but the V4 input is its literal UTF-8.
-            let mut key = ring::hmac::Key::new(
-                ring::hmac::HMAC_SHA256,
-                format!("{prefix}{secret}").as_bytes(),
-            );
-            for component in prepared.scope.split('/') {
-                let tag = ring::hmac::sign(&key, component.as_bytes());
-                key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, tag.as_ref());
-            }
-            ring::hmac::verify(&key, message.as_bytes(), &prepared.signature).is_ok()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Verifies the string to sign over the request as sent, which the published vectors cover.
     fn verify(key: Key, prepared: &Prepared) -> bool {
-        super::verify(&key, prepared, &prepared.message)
+        key.verify(&prepared.message, &prepared.signature)
+    }
+
+    /// The key a V4 HMAC signature verifies against for `secret`.
+    fn v4_key(prepared: &Prepared, secret: &str) -> Key {
+        let Scheme::HmacV4(scope) = &prepared.scheme else {
+            panic!("not a V4 HMAC signature");
+        };
+        Key::Hmac(scope.signing_key(secret))
     }
 
     #[tokio::test]
@@ -476,7 +520,7 @@ mod tests {
                 .parse()
                 .unwrap(),
         );
-        let prepared = v2::prepare_resource(
+        let prepared = v2::legacy::prepare(
             &Method::GET,
             &"/photos/puppy.jpg".parse().unwrap(),
             &headers,
@@ -488,8 +532,9 @@ mod tests {
             prepared.message,
             "GET\n\n\nTue, 27 Mar 2007 19:36:42 +0000\n/awsexamplebucket1/photos/puppy.jpg"
         );
+        assert!(matches!(prepared.scheme, Scheme::HmacSha1));
         assert!(verify(
-            Key::Hmac("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into()),
+            Key::Hmac(legacy_hmac_key("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")),
             &prepared
         ));
     }
@@ -517,6 +562,7 @@ mod tests {
                 Err(Failure::Expired)
             ));
         }
+        // A signer without a registered RSA key names an HMAC key.
         let mut prepared = v2::prepare(
             &Method::GET,
             &uri,
@@ -524,43 +570,37 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1175139600),
         )
         .unwrap();
-        prepared.algorithm = Algorithm::LegacyHmacSha1;
+        assert!(matches!(prepared.scheme, Scheme::HmacSha1));
         assert_eq!(
             prepared.message,
             "GET\n\n\n1175139620\n/awsexamplebucket1/photos/puppy.jpg"
         );
+        let key = || Key::Hmac(legacy_hmac_key("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"));
         // The archive changed the bucket but retained the older bucket's query signature.
-        assert!(!verify(
-            Key::Hmac("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into()),
-            &prepared
-        ));
+        assert!(!verify(key(), &prepared));
         // Independently generated with OpenSSL against the archive's literal new-bucket input.
         prepared.signature = v2::decode_signature("1No4mq5ETf02z8aet9voy6gui6E=").unwrap();
-        assert!(verify(
-            Key::Hmac("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into()),
-            &prepared
-        ));
+        assert!(verify(key(), &prepared));
         prepared.message.push('x');
-        assert!(!verify(
-            Key::Hmac("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into()),
-            &prepared
-        ));
+        assert!(!verify(key(), &prepared));
     }
 
     #[test]
     fn legacy_policy_hmac_sha1_matches_rfc2202_without_v4_derivation() {
-        let mut prepared = Prepared {
+        let prepared = Prepared {
             signer: String::new(),
-            date: String::new(),
-            algorithm: Algorithm::LegacyHmacSha1,
-            scope: String::new(),
+            scheme: Scheme::HmacSha1,
             message: "what do ya want for nothing?".into(),
             portless: None,
             signature: unhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79").unwrap(),
         };
-        assert!(verify(Key::Hmac("Jefe".into()), &prepared));
-        prepared.algorithm = Algorithm::GoogleHmac;
-        assert!(!verify(Key::Hmac("Jefe".into()), &prepared));
+        assert!(verify(Key::Hmac(legacy_hmac_key("Jefe")), &prepared));
+        let derived = V4Scope {
+            family: v4::Family::Google,
+            date: String::new(),
+            scope: String::new(),
+        };
+        assert!(!verify(Key::Hmac(derived.signing_key("Jefe")), &prepared));
     }
 
     /// Public AWS documentation example credentials, never an emulator-created secret.
@@ -600,9 +640,9 @@ mod tests {
     #[test]
     fn published_aws_s3_header_vector_verifies_without_a_local_signer() {
         let prepared = published_aws_header_request("examplebucket.s3.amazonaws.com");
-        assert!(verify(Key::Hmac(AWS_EXAMPLE_SECRET.into()), &prepared));
+        assert!(verify(v4_key(&prepared, AWS_EXAMPLE_SECRET), &prepared));
         assert!(!verify(
-            Key::Hmac("incorrect public fixture".into()),
+            v4_key(&prepared, "incorrect public fixture"),
             &prepared
         ));
     }
@@ -610,14 +650,15 @@ mod tests {
     #[test]
     fn lenient_host_port_retries_an_hmac_signature_only_without_the_request_port() {
         use SignedHostPort::{Exact, Lenient};
-        let secret = Key::Hmac(AWS_EXAMPLE_SECRET.into());
         let prepare = published_aws_header_request;
+        let unported = prepare("examplebucket.s3.amazonaws.com");
+        // Every request below signs with the same credential scope.
+        let key = v4_key(&unported, AWS_EXAMPLE_SECRET);
         let check = |host_port, prepared: &Prepared| {
             verify_host_forms(host_port, prepared, |message| {
-                super::verify(&secret, prepared, message)
+                key.verify(message, &prepared.signature)
             })
         };
-        let unported = prepare("examplebucket.s3.amazonaws.com");
         assert!(unported.portless.is_none());
         for host_port in [Exact, Lenient] {
             assert_eq!(check(host_port, &unported), Ok(()));
@@ -643,7 +684,7 @@ mod tests {
         use HostPortPolicy::{Exact, Lenient, LenientForTestSigner};
         let hmac = || published_aws_header_request("examplebucket.s3.amazonaws.com:4443");
         let rsa = |signer: &str| Prepared {
-            algorithm: Algorithm::Rsa,
+            scheme: Scheme::Rsa,
             signer: signer.to_owned(),
             ..hmac()
         };
