@@ -1,5 +1,5 @@
 use super::*;
-use crate::sync::control::{WaitFence, WaitReason, WaitResult};
+use crate::sync::control::{WaitReason, WaitResult};
 
 impl LiveControl<'_> {
     pub(super) async fn wait(
@@ -11,12 +11,21 @@ impl LiveControl<'_> {
             if result.reason != WaitReason::SourceChanging {
                 return Ok(result);
             }
-            let mut stopping = self.stopping.clone();
+            let mut stopping = self.scope.stopping.clone();
             tokio::select! {
                 _=tokio::time::sleep_until(deadline)=>return Ok(WaitResult::timeout()),
                 _=stopping.changed()=>return Ok(WaitResult::result(WaitReason::Stopped,result.journal_fence,result.reconciliation)),
                 ()=tokio::time::sleep(Duration::from_millis(super::super::SETTLE_MS))=>{},
             }
+        }
+    }
+
+    /// Why an interrupted wait ended: the server is stopping, or the wait's deadline passed.
+    fn interruption(&self) -> WaitReason {
+        if *self.scope.stopping.borrow() {
+            WaitReason::Stopped
+        } else {
+            WaitReason::Timeout
         }
     }
 
@@ -27,37 +36,21 @@ impl LiveControl<'_> {
         if tokio::time::Instant::now() >= deadline {
             return Ok(WaitResult::timeout());
         }
-        let mut summary = ingest_external_with(
-            self.catalog,
-            self.root,
-            self.config,
-            self.writeback,
-            Interrupt {
-                stopping: self.stopping,
-                deadline: Some(deadline),
-            },
-            self.ingest_complete,
-            self.baseline_complete,
-        )
-        .await?;
+        let interrupt = Interrupt {
+            stopping: self.scope.stopping,
+            deadline: Some(deadline),
+        };
+        let mut summary =
+            ingest_external_with(self.scope, interrupt, &mut self.state.baseline).await?;
         if summary.interrupted {
-            return Ok(WaitResult::result(
-                if *self.stopping.borrow() {
-                    WaitReason::Stopped
-                } else {
-                    WaitReason::Timeout
-                },
-                None,
-                Some(summary),
-            ));
+            return Ok(WaitResult::result(self.interruption(), None, Some(summary)));
         }
-        let fence = self.catalog.current_fence().await?;
+        let fence = self.scope.catalog.current_fence().await?;
         #[cfg(test)]
         export_checkpoint("wait-fence").await;
-        let writeback = self.writeback;
         let mut reason = WaitReason::Ready;
-        while *self.cursor != fence {
-            if *self.stopping.borrow() {
+        while self.state.cursor != fence {
+            if *self.scope.stopping.borrow() {
                 reason = WaitReason::Stopped;
                 break;
             }
@@ -66,8 +59,9 @@ impl LiveControl<'_> {
                 break;
             }
             let page = match self
+                .scope
                 .catalog
-                .read_changes(*self.cursor, Some(fence), 256)
+                .read_changes(self.state.cursor, Some(fence), 256)
                 .await?
             {
                 ChangeRead::Rescan { .. } => {
@@ -78,14 +72,11 @@ impl LiveControl<'_> {
             };
             let next = page.next;
             let replay = replay_page_with(
-                self.catalog,
-                self.root,
-                writeback,
+                self.scope.catalog,
+                self.scope.root,
+                self.scope.writeback,
                 page,
-                Interrupt {
-                    stopping: self.stopping,
-                    deadline: Some(deadline),
-                },
+                interrupt,
             )
             .await?;
             summary.exported += replay.exported;
@@ -94,29 +85,19 @@ impl LiveControl<'_> {
             summary.deferred += replay.deferred;
             if replay.interrupted {
                 return Ok(WaitResult::result(
-                    if *self.stopping.borrow() {
-                        WaitReason::Stopped
-                    } else {
-                        WaitReason::Timeout
-                    },
-                    Some(WaitFence {
-                        sequence: fence.sequence.get(),
-                        epoch: fence.revision,
-                    }),
+                    self.interruption(),
+                    Some(fence.into()),
                     Some(summary),
                 ));
             }
-            *self.cursor = next;
+            self.state.cursor = next;
         }
         if reason == WaitReason::Ready {
             reason = self.observed_wait_reason(&summary, deadline).await?;
         }
         Ok(WaitResult::result(
             reason,
-            Some(WaitFence {
-                sequence: fence.sequence.get(),
-                epoch: fence.revision,
-            }),
+            Some(fence.into()),
             Some(summary),
         ))
     }
@@ -126,8 +107,8 @@ impl LiveControl<'_> {
         summary: &Reconciliation,
         deadline: tokio::time::Instant,
     ) -> Result<WaitReason, SyncError> {
-        let observation = self.root.observation().await?;
-        let deletion = self.root.deletion_set().await?;
+        let observation = self.scope.root.observation().await?;
+        let deletion = self.scope.root.deletion_set().await?;
         Ok(if tokio::time::Instant::now() >= deadline {
             WaitReason::Timeout
         } else if summary.deferred > 0 {

@@ -112,7 +112,7 @@ impl DirectoryWatch {
         stopping: &tokio::sync::watch::Receiver<bool>,
         health: &crate::task::TaskHealth,
     ) -> Result<(), SyncError> {
-        let mut delay = RETRY_DELAY_MIN;
+        let mut backoff = MIRROR_BACKOFF;
         let mut failures = 0;
         let mut stopping = stopping.clone();
         loop {
@@ -136,6 +136,7 @@ impl DirectoryWatch {
                     if failures >= 3 {
                         return Err(error);
                     }
+                    let delay = backoff.next_delay();
                     diagnostics::emit(
                         LogLevel::Error,
                         "sync_watch_retry",
@@ -151,7 +152,6 @@ impl DirectoryWatch {
                         _ = stopping.changed() => return Ok(()),
                         () = tokio::time::sleep(delay) => {},
                     }
-                    delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
                 }
                 Err(error) => return Err(error),
             }
@@ -192,6 +192,50 @@ const RETRY_DELAY_MIN: Duration = if cfg!(test) {
 /// The retry delay cap, also the run length after which a failure starts the backoff over.
 const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
 
+/// A retry delay that doubles after each consecutive failure, up to `max`.
+#[derive(Clone, Copy, Debug)]
+struct Backoff {
+    first: Duration,
+    max: Duration,
+    next: Duration,
+    retries: u32,
+}
+
+impl Backoff {
+    const fn new(first: Duration, max: Duration) -> Self {
+        Self {
+            first,
+            max,
+            next: first,
+            retries: 0,
+        }
+    }
+
+    /// The wait before the next retry; the one after it is twice as long, up to `max`.
+    fn next_delay(&mut self) -> Duration {
+        let delay = self.next;
+        self.next = delay.saturating_mul(2).min(self.max);
+        self.retries = self.retries.saturating_add(1);
+        delay
+    }
+
+    /// How many retries this backoff has scheduled.
+    fn retries(&self) -> u32 {
+        self.retries
+    }
+
+    /// Starts over, after a run that had recovered.
+    fn reset(&mut self) {
+        *self = Self::new(self.first, self.max);
+    }
+}
+
+/// The mirror's restart and watch-rebuild backoff.
+const MIRROR_BACKOFF: Backoff = Backoff::new(RETRY_DELAY_MIN, RETRY_DELAY_MAX);
+/// A failed export step waits 1 s, then 2 s; a third failure pauses synchronization.
+const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);
+const EXPORT_RETRIES: u32 = 2;
+
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
     let config = config.clone();
     let runtime = tokio::runtime::Handle::current();
@@ -209,7 +253,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     let health = crate::task::TaskHealth::default();
     catalog.watch_background_task(health.clone());
     crate::task::spawn_thread("sync-mirror", move || {
-        let mut delay = RETRY_DELAY_MIN;
+        let mut backoff = MIRROR_BACKOFF;
         let mut resume = None;
         let mut controls = observation::Controls::default();
         loop {
@@ -258,14 +302,15 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 if resume.is_none() {
                     break;
                 }
-                delay = RETRY_DELAY_MIN;
+                backoff.reset();
                 continue;
             }
             health.pass_failed();
             // A run that lasted longer than the cap had recovered, so its failure starts over.
             if started.elapsed() >= RETRY_DELAY_MAX {
-                delay = RETRY_DELAY_MIN;
+                backoff.reset();
             }
+            let delay = backoff.next_delay();
             descriptor::retrying(&error, delay);
             let stopped = runtime.block_on(async {
                 tokio::select! {
@@ -276,7 +321,6 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
             if stopped {
                 break;
             }
-            delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
         }
         controls.stop();
         drop(requests);
@@ -374,22 +418,18 @@ async fn run_live_config(
 ) -> Result<(), SyncError> {
     let (catalog, root, config, health) = (run.catalog, run.root, run.config, run.health);
     let Initialized {
-        mut cursor,
+        mut state,
         mut watcher,
-        mut ingest_complete,
-        mut baseline_complete,
         writeback,
     } = initialize_live(run, stopping).await?;
-    let mut publication = None;
+    let mut unsettled = observation::Unsettled::new();
     if controls.has_waiters() {
         watcher.continue_quiet();
-        publication = Some(root.begin_observation_publication().await?);
-        root.invalidate_deletions().await?;
+        unsettled.unsettle(root).await?;
     }
-    let mut quiet = observation::Quiet::Unverified;
     while !*stopping.borrow() {
-        observation::refresh(root, &mut watcher, &mut quiet, &mut publication, controls).await?;
-        let request = controls.ready(&watcher, quiet).or_else(|| {
+        observation::refresh(root, &mut watcher, &mut unsettled, controls).await?;
+        let request = controls.ready(&watcher, unsettled.quiet).or_else(|| {
             if controls.available() {
                 requests.try_recv().ok()
             } else {
@@ -397,34 +437,34 @@ async fn run_live_config(
             }
         });
         if let Some(request) = request {
-            let Some(request) = controls.admit(request, &watcher, quiet) else {
+            let Some(request) = controls.admit(request, &watcher, unsettled.quiet) else {
                 continue;
             };
             let Some(request) = controls.running(request, stopping) else {
                 break;
             };
             LiveControl {
-                catalog,
-                root,
-                config,
-                writeback: &writeback,
-                stopping,
-                ingest_complete: &mut ingest_complete,
-                baseline_complete: &mut baseline_complete,
-                cursor: &mut cursor,
+                scope: LiveScope {
+                    catalog,
+                    root,
+                    config,
+                    writeback: &writeback,
+                    stopping,
+                },
+                state: &mut state,
             }
-            .handle(request, quiet, &mut watcher)
+            .handle(request, unsettled.quiet, &mut watcher)
             .await?;
             continue;
         }
-        let page = match catalog.read_changes(cursor, None, 256).await? {
+        let page = match catalog.read_changes(state.cursor, None, 256).await? {
             ChangeRead::Rescan { fence } => {
-                cursor = fence;
+                state.cursor = fence;
                 let summary = reconcile_with(
                     catalog,
                     root,
                     Interrupt::new(stopping),
-                    ingest_complete,
+                    state.baseline.gate,
                     &writeback,
                 )
                 .await?;
@@ -442,25 +482,24 @@ async fn run_live_config(
                 observed = watcher.next_observation() => {
                     match observed? {
                         observation::Observed::Pending => {
-                            quiet=observation::Quiet::Unverified;
-                            publication=Some(root.begin_observation_publication().await?);
-                            root.invalidate_deletions().await?;
+                            unsettled.quiet=observation::Quiet::Unverified;
+                            unsettled.unsettle(root).await?;
                             #[cfg(test)]
                             export_checkpoint("observation-invalidated").await;
                         }
                         observation::Observed::Settled(observed,settled) => {
                             if settled==observation::Quiet::Established {controls.settled();}
-                            quiet=settled;
+                            unsettled.quiet=settled;
                             if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                             if *stopping.borrow() {break}
-                            let history=watcher.history_scan(quiet);
-                            let summary=ingest_external(catalog,root,config,&writeback,stopping,&mut ingest_complete,&mut baseline_complete).await?;
+                            let history=watcher.history_scan(unsettled.quiet);
+                            let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
+                            let summary=ingest_external(scope,&mut state.baseline).await?;
                             history.finish(root,&summary).await;
-                            publication.take();
-                            if quiet==observation::Quiet::Capped {
+                            unsettled.settle();
+                            if unsettled.quiet==observation::Quiet::Capped {
                                 if watcher.pending.is_none() {watcher.continue_quiet();}
-                                publication=Some(root.begin_observation_publication().await?);
-                                root.invalidate_deletions().await?;
+                                unsettled.unsettle(root).await?;
                             }
                             diagnostics::emit(LogLevel::Info,"sync_ingested",&summary);
                             health.pass_succeeded();
@@ -469,15 +508,16 @@ async fn run_live_config(
                 }
                 ()=controls.expired()=>{controls.expire(root,config).await?;}
                 Some(request) = requests.recv(), if controls.available() => {
-                    let Some(request)=controls.admit(request,&watcher,quiet) else {continue};
+                    let Some(request)=controls.admit(request,&watcher,unsettled.quiet) else {continue};
                     let Some(request)=controls.running(request,stopping) else {break};
-                    LiveControl {catalog,root,config,writeback:&writeback,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request,quiet,&mut watcher).await?;
+                    let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
+                    LiveControl {scope,state:&mut state}.handle(request,unsettled.quiet,&mut watcher).await?;
                 }
-                result = catalog.wait_for_changes(cursor) => { result?; }
+                result = catalog.wait_for_changes(state.cursor) => { result?; }
             }
             continue;
         }
-        cursor = page.next;
+        state.cursor = page.next;
         let summary = replay_page(catalog, root, &writeback, page, stopping).await?;
         diagnostics::emit(LogLevel::Info, "sync_exported", &summary);
         health.pass_succeeded();
@@ -550,10 +590,8 @@ async fn replay_page_with(
 }
 
 struct Initialized {
-    cursor: JournalFence,
+    state: LiveState,
     watcher: DirectoryWatch,
-    ingest_complete: BaselineGate,
-    baseline_complete: bool,
     writeback: Writeback,
 }
 
@@ -615,10 +653,14 @@ async fn initialize_live(
     #[cfg(test)]
     export_checkpoint("observation-ready").await;
     Ok(Initialized {
-        cursor,
+        state: LiveState {
+            cursor,
+            baseline: BaselineProgress {
+                gate: ingest_complete,
+                complete: baseline_complete,
+            },
+        },
         watcher,
-        ingest_complete,
-        baseline_complete,
         writeback,
     })
 }
@@ -634,40 +676,29 @@ async fn recover_writeback(root: &RootLease) -> Result<Writeback, SyncError> {
 }
 
 async fn ingest_external(
-    catalog: &Catalog,
-    root: &RootLease,
-    config: &Config,
-    writeback: &Writeback,
-    stopping: &tokio::sync::watch::Receiver<bool>,
-    ingest_complete: &mut BaselineGate,
-    baseline_complete: &mut bool,
+    scope: LiveScope<'_>,
+    baseline: &mut BaselineProgress,
 ) -> Result<Reconciliation, SyncError> {
-    ingest_external_with(
+    ingest_external_with(scope, Interrupt::new(scope.stopping), baseline).await
+}
+async fn ingest_external_with(
+    scope: LiveScope<'_>,
+    interrupt: Interrupt<'_>,
+    baseline: &mut BaselineProgress,
+) -> Result<Reconciliation, SyncError> {
+    let LiveScope {
         catalog,
         root,
         config,
         writeback,
-        Interrupt::new(stopping),
-        ingest_complete,
-        baseline_complete,
-    )
-    .await
-}
-async fn ingest_external_with(
-    catalog: &Catalog,
-    root: &RootLease,
-    config: &Config,
-    writeback: &Writeback,
-    interrupt: Interrupt<'_>,
-    ingest_complete: &mut BaselineGate,
-    baseline_complete: &mut bool,
-) -> Result<Reconciliation, SyncError> {
+        ..
+    } = scope;
     let _publication = root.begin_observation_publication().await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    *ingest_complete = BaselineGate::after_ingest(&summary);
-    if !*baseline_complete
-        && *ingest_complete == BaselineGate::Allowed
+    baseline.gate = BaselineGate::after_ingest(&summary);
+    if !baseline.complete
+        && baseline.gate == BaselineGate::Allowed
         && interrupt.check() == Interrupted::No
     {
         // Nested control rescans otherwise retain reconciliation state on the observer's stack.
@@ -679,11 +710,11 @@ async fn ingest_external_with(
             writeback,
         ))
         .await?;
-        *baseline_complete = merged.baseline_complete;
+        baseline.complete = merged.baseline_complete;
         summary.interrupted |= merged.interrupted;
     }
     root.revalidate().await?;
-    summary.baseline_complete = *baseline_complete;
+    summary.baseline_complete = baseline.complete;
     summary.interrupted |= interrupt.check() != Interrupted::No;
     if summary.interrupted {
         return Ok(summary);
@@ -712,29 +743,42 @@ async fn observe_deletions(
     Ok(())
 }
 
-struct LiveControl<'a> {
+/// What the live observer knows about the baseline: whether the latest ingest lets a
+/// reconciliation complete it, and whether one already has.
+#[derive(Clone, Copy, Debug)]
+struct BaselineProgress {
+    gate: BaselineGate,
+    complete: bool,
+}
+
+/// State a live run carries from one control to the next.
+struct LiveState {
+    cursor: JournalFence,
+    baseline: BaselineProgress,
+}
+
+/// What every control of one live run borrows. Each request copies it with its own scoped root.
+#[derive(Clone, Copy)]
+struct LiveScope<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     config: &'a Config,
     writeback: &'a Writeback,
     stopping: &'a tokio::sync::watch::Receiver<bool>,
-    ingest_complete: &'a mut BaselineGate,
-    baseline_complete: &'a mut bool,
-    cursor: &'a mut JournalFence,
+}
+
+struct LiveControl<'a> {
+    scope: LiveScope<'a>,
+    state: &'a mut LiveState,
 }
 impl LiveControl<'_> {
     async fn rescan(&mut self) -> Result<Reconciliation, SyncError> {
-        let writeback = recover_writeback(self.root).await?;
-        let summary = ingest_external(
-            self.catalog,
-            self.root,
-            self.config,
-            &writeback,
-            self.stopping,
-            self.ingest_complete,
-            self.baseline_complete,
-        )
-        .await?;
+        let writeback = recover_writeback(self.scope.root).await?;
+        let scope = LiveScope {
+            writeback: &writeback,
+            ..self.scope
+        };
+        let summary = ingest_external(scope, &mut self.state.baseline).await?;
         Ok(summary)
     }
 
@@ -754,22 +798,20 @@ impl LiveControl<'_> {
                 | Command::Wait { identity, .. }
                 | Command::Resolve { identity, .. } => identity.clone(),
             };
-            let scoped = self.root.with_authority(
+            let scoped = self.scope.root.with_authority(
                 crate::storage::sync_state::authority::ControlAuthority::new(
-                    self.config.seed_project.clone(),
+                    self.scope.config.seed_project.clone(),
                     identity,
                 ),
             );
-            let writeback = self.writeback.with_root(&scoped)?;
+            let writeback = self.scope.writeback.with_root(&scoped)?;
             let mut control = LiveControl {
-                catalog: self.catalog,
-                root: &scoped,
-                config: self.config,
-                writeback: &writeback,
-                stopping: self.stopping,
-                ingest_complete: self.ingest_complete,
-                baseline_complete: self.baseline_complete,
-                cursor: self.cursor,
+                scope: LiveScope {
+                    root: &scoped,
+                    writeback: &writeback,
+                    ..self.scope
+                },
+                state: &mut *self.state,
             };
             control.handle_with_history(request, history).await
         })
@@ -791,12 +833,13 @@ impl LiveControl<'_> {
                 identity,
             } => {
                 let authority = crate::storage::sync_state::authority::ControlAuthority::new(
-                    self.config.seed_project.clone(),
+                    self.scope.config.seed_project.clone(),
                     identity,
                 );
                 let result = self
+                    .scope
                     .root
-                    .resolve_conflict(request, authority, self.config.max_object_bytes)
+                    .resolve_conflict(request, authority, self.scope.config.max_object_bytes)
                     .await;
                 let _ = reply.send(result);
             }
@@ -807,8 +850,9 @@ impl LiveControl<'_> {
                 ..
             } => {
                 let result = match self
+                    .scope
                     .root
-                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .authorize_controls(self.scope.config.seed_project.clone(), identity)
                     .await
                 {
                     Ok(()) => match self.wait(deadline).await {
@@ -816,7 +860,7 @@ impl LiveControl<'_> {
                             if let (Some(history), Some(summary)) =
                                 (history, &result.reconciliation)
                             {
-                                history.finish(self.root, summary).await;
+                                history.finish(self.scope.root, summary).await;
                             }
                             Ok(result)
                         }
@@ -828,14 +872,15 @@ impl LiveControl<'_> {
             }
             Command::Rescan { reply, identity } => {
                 let summary = match self
+                    .scope
                     .root
-                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .authorize_controls(self.scope.config.seed_project.clone(), identity)
                     .await
                 {
                     Ok(()) => match self.rescan().await {
                         Ok(summary) => {
                             if let Some(history) = history {
-                                history.finish(self.root, &summary).await;
+                                history.finish(self.scope.root, &summary).await;
                             }
                             Ok(summary)
                         }
@@ -852,7 +897,7 @@ impl LiveControl<'_> {
                     .filter(|error| !error.is_transient())
                     .map(SyncError::pause_reason);
                 let paused = if let Some(reason) = stop {
-                    self.root.observation_pause(Some(reason)).await
+                    self.scope.root.observation_pause(Some(reason)).await
                 } else {
                     Ok(())
                 };
@@ -868,11 +913,13 @@ impl LiveControl<'_> {
                 identity,
             } => {
                 let approved = match self
+                    .scope
                     .root
-                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .authorize_controls(self.scope.config.seed_project.clone(), identity)
                     .await
                 {
                     Ok(()) => self
+                        .scope
                         .root
                         .approve_deletions(revision)
                         .await
@@ -882,7 +929,13 @@ impl LiveControl<'_> {
                 let set = approved.as_ref().ok().cloned();
                 let _ = reply.send(approved);
                 if let Some(set) = set {
-                    super::deletion::execute(self.catalog, self.root, set, self.stopping).await?;
+                    super::deletion::execute(
+                        self.scope.catalog,
+                        self.scope.root,
+                        set,
+                        self.scope.stopping,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1217,7 +1270,7 @@ impl LiveObject<'_> {
         plan: &LivePlan,
         captured: Option<crate::storage::sync_state::conflicts::CapturedConflict>,
     ) -> Result<Option<LiveExport>, SyncError> {
-        let mut seconds = 1;
+        let mut retry = EXPORT_BACKOFF;
         let mut protected = false;
         loop {
             let source = if protected {
@@ -1251,7 +1304,7 @@ impl LiveObject<'_> {
                     protected = true;
                 }
                 Err(error) if retryable(&error) => {
-                    if !wait_retry(&error, &mut seconds, self.root).await {
+                    if !wait_retry(&error, &mut retry, self.root).await {
                         return Err(error.into());
                     }
                 }
@@ -1375,22 +1428,22 @@ fn retryable(error: &writeback::Error) -> bool {
     }
 }
 
-async fn wait_retry(error: &writeback::Error, seconds: &mut u64, root: &RootLease) -> bool {
-    if *seconds >= 4 {
+async fn wait_retry(error: &writeback::Error, retry: &mut Backoff, root: &RootLease) -> bool {
+    if retry.retries() >= EXPORT_RETRIES {
         return false;
     }
     #[cfg(test)]
     export_checkpoint("retry").await;
+    let delay = retry.next_delay();
     diagnostics::emit(
         LogLevel::Error,
         "sync_export_retry",
         serde_json::json!({
-            "reason":crate::error::Report(error).to_string(),"retry_seconds":*seconds,
+            "reason":crate::error::Report(error).to_string(),"retry_seconds":delay.as_secs(),
             "remedy":"A transient failure is retried twice. Persistent failure pauses synchronization; free disk space or restore permissions, inspect retained work and request a rescan"
         }),
     );
-    let delay = std::time::Duration::from_secs(*seconds);
-    let completed = if let Some(mut stopping) = root.stop_signal() {
+    if let Some(mut stopping) = root.stop_signal() {
         if *stopping.borrow() {
             return false;
         }
@@ -1398,9 +1451,7 @@ async fn wait_retry(error: &writeback::Error, seconds: &mut u64, root: &RootLeas
     } else {
         tokio::time::sleep(delay).await;
         true
-    };
-    *seconds = (*seconds * 2).min(30);
-    completed
+    }
 }
 
 async fn file_job_retry<T: Send + 'static>(
@@ -1442,13 +1493,13 @@ async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
     root: &RootLease,
     mut operation: impl FnMut() -> F,
 ) -> Result<T, SyncError> {
-    let mut seconds = 1;
+    let mut retry = EXPORT_BACKOFF;
     loop {
         // Keep nested export futures off the mirror worker's bounded thread stack.
         match Box::pin(operation()).await {
             Ok(result) => return Ok(result),
             Err(error) if retryable(&error) => {
-                if !wait_retry(&error, &mut seconds, root).await {
+                if !wait_retry(&error, &mut retry, root).await {
                     return Err(error.into());
                 }
             }

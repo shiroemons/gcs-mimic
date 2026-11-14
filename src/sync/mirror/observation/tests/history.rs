@@ -50,21 +50,34 @@ impl Fixture {
         );
         fixture
     }
+    fn scope<'a>(&'a self, stopping: &'a tokio::sync::watch::Receiver<bool>) -> LiveScope<'a> {
+        LiveScope {
+            catalog: &self.catalog,
+            root: &self.root,
+            config: &self.config,
+            writeback: &self.writeback,
+            stopping,
+        }
+    }
+    /// A live run's state at the current journal position, with a complete baseline.
+    async fn state(&self) -> LiveState {
+        LiveState {
+            cursor: self.catalog.current_fence().await.unwrap(),
+            baseline: BaselineProgress {
+                gate: BaselineGate::Allowed,
+                complete: true,
+            },
+        }
+    }
     async fn scan(&mut self) {
         let (_stop, stopping) = tokio::sync::watch::channel(false);
-        let mut gate = BaselineGate::Allowed;
-        let mut baseline = self.root.observation().await.unwrap().baseline_complete;
-        ingest_external(
-            &self.catalog,
-            &self.root,
-            &self.config,
-            &self.writeback,
-            &stopping,
-            &mut gate,
-            &mut baseline,
-        )
-        .await
-        .unwrap();
+        let mut baseline = BaselineProgress {
+            gate: BaselineGate::Allowed,
+            complete: self.root.observation().await.unwrap().baseline_complete,
+        };
+        ingest_external(self.scope(&stopping), &mut baseline)
+            .await
+            .unwrap();
     }
     async fn quiet(&self) -> DirectoryWatch {
         let mut watcher = DirectoryWatch::new(&self.root).await.unwrap();
@@ -88,18 +101,10 @@ async fn changes_during_a_scan_preserve_history_and_guard_the_next_deletion_wave
     let mut watcher = fixture.quiet().await;
     let witness = watcher.watch.notification_witness().unwrap();
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
-    let mut cursor = fixture.catalog.current_fence().await.unwrap();
+    let mut state = fixture.state().await;
     let mut control = LiveControl {
-        catalog: &fixture.catalog,
-        root: &fixture.root,
-        config: &fixture.config,
-        writeback: &fixture.writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: fixture.scope(&stopping),
+        state: &mut state,
     };
     let hook = std::sync::Arc::new(crate::sync::Hook {
         phase: "history-scanned",
@@ -162,18 +167,10 @@ async fn queued_native_events_cannot_reuse_an_old_quiet_flag_for_history_reset()
         .unwrap();
     drop(ready);
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
-    let mut cursor = fixture.catalog.current_fence().await.unwrap();
+    let mut state = fixture.state().await;
     let mut control = LiveControl {
-        catalog: &fixture.catalog,
-        root: &fixture.root,
-        config: &fixture.config,
-        writeback: &fixture.writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: fixture.scope(&stopping),
+        state: &mut state,
     };
     let (reply, response) = tokio::sync::oneshot::channel();
     control
@@ -215,18 +212,10 @@ async fn history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan() {
             .contains("history reset blocked")
     );
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
-    let mut cursor = fixture.catalog.current_fence().await.unwrap();
+    let mut state = fixture.state().await;
     let mut control = LiveControl {
-        catalog: &fixture.catalog,
-        root: &fixture.root,
-        config: &fixture.config,
-        writeback: &fixture.writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: fixture.scope(&stopping),
+        state: &mut state,
     };
     let (reply, response) = tokio::sync::oneshot::channel();
     control
@@ -278,18 +267,10 @@ async fn explicit_rescan_requires_verified_quiet_before_clearing_history() {
     let fixture = Fixture::new().await;
     let mut watcher = fixture.quiet().await;
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
-    let mut cursor = fixture.catalog.current_fence().await.unwrap();
+    let mut state = fixture.state().await;
     let mut control = LiveControl {
-        catalog: &fixture.catalog,
-        root: &fixture.root,
-        config: &fixture.config,
-        writeback: &fixture.writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: fixture.scope(&stopping),
+        state: &mut state,
     };
     let (reply, response) = tokio::sync::oneshot::channel();
     control

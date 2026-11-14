@@ -137,16 +137,19 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
     }
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     let mut writeback = root.default_writeback().await.unwrap();
-    let mut gate = BaselineGate::Deferred;
-    let mut baseline = false;
+    let mut baseline = BaselineProgress {
+        gate: BaselineGate::Deferred,
+        complete: false,
+    };
     catalog.enable_change_journal().await.unwrap();
     ingest_external(
-        &catalog,
-        &root,
-        &config,
-        &writeback,
-        &stopping,
-        &mut gate,
+        LiveScope {
+            catalog: &catalog,
+            root: &root,
+            config: &config,
+            writeback: &writeback,
+            stopping: &stopping,
+        },
         &mut baseline,
     )
     .await
@@ -156,12 +159,13 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             fs::remove_file(tree.0.join(format!("test-bucket/{index:03}"))).unwrap();
         }
         let summary = ingest_external(
-            &catalog,
-            &root,
-            &config,
-            &writeback,
-            &stopping,
-            &mut gate,
+            LiveScope {
+                catalog: &catalog,
+                root: &root,
+                config: &config,
+                writeback: &writeback,
+                stopping: &stopping,
+            },
             &mut baseline,
         )
         .await
@@ -180,12 +184,13 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
         assert!(!root.deletion_set().await.unwrap().unwrap().guarded);
         let summary = ingest_external(
-            &catalog,
-            &root,
-            &config,
-            &writeback,
-            &stopping,
-            &mut gate,
+            LiveScope {
+                catalog: &catalog,
+                root: &root,
+                config: &config,
+                writeback: &writeback,
+                stopping: &stopping,
+            },
             &mut baseline,
         )
         .await
@@ -211,12 +216,13 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             fs::write(tree.0.join(format!("test-bucket/{index:03}")), b"body").unwrap();
         }
         ingest_external(
-            &catalog,
-            &root,
-            &config,
-            &writeback,
-            &stopping,
-            &mut gate,
+            LiveScope {
+                catalog: &catalog,
+                root: &root,
+                config: &config,
+                writeback: &writeback,
+                stopping: &stopping,
+            },
             &mut baseline,
         )
         .await

@@ -238,16 +238,19 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
         .unwrap();
     fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
     let writeback = root.default_writeback().await.unwrap();
-    let mut gate = BaselineGate::Allowed;
-    let mut complete = true;
+    let mut baseline = BaselineProgress {
+        gate: BaselineGate::Allowed,
+        complete: true,
+    };
     ingest_external(
-        &catalog,
-        &root,
-        &Config::default(),
-        &writeback,
-        &stop.subscribe(),
-        &mut gate,
-        &mut complete,
+        LiveScope {
+            catalog: &catalog,
+            root: &root,
+            config: &Config::default(),
+            writeback: &writeback,
+            stopping: &stop.subscribe(),
+        },
+        &mut baseline,
     )
     .await
     .unwrap();
@@ -1577,19 +1580,23 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
     fs::rename(&workspace, tree.0.join("retained-workspace")).unwrap();
     fs::create_dir(&workspace).unwrap();
     let config = Config::default();
-    let mut cursor = catalog.current_fence().await.unwrap();
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
+    let mut state = LiveState {
+        cursor: catalog.current_fence().await.unwrap(),
+        baseline: BaselineProgress {
+            gate: BaselineGate::Allowed,
+            complete: true,
+        },
+    };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let mut control = LiveControl {
-        catalog: &catalog,
-        root: &root,
-        config: &config,
-        writeback: &writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: LiveScope {
+            catalog: &catalog,
+            root: &root,
+            config: &config,
+            writeback: &writeback,
+            stopping: &stopping,
+        },
+        state: &mut state,
     };
     let (reply, result) = tokio::sync::oneshot::channel();
     let error = control
@@ -1610,6 +1617,25 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
     catalog.close().await.unwrap();
 }
 
+/// Each retry waits twice as long as the one before, up to the cap, and a reset starts over.
+/// Export steps wait 1 s and then 2 s before a third failure pauses synchronization.
+#[test]
+fn retry_backoff_doubles_up_to_its_cap_and_starts_over_after_a_reset() {
+    let mut backoff = Backoff::new(Duration::from_millis(10), Duration::from_millis(70));
+    for expected in [10, 20, 40, 70, 70] {
+        assert_eq!(backoff.next_delay(), Duration::from_millis(expected));
+    }
+    assert_eq!(backoff.retries(), 5);
+    backoff.reset();
+    assert_eq!(backoff.retries(), 0);
+    assert_eq!(backoff.next_delay(), Duration::from_millis(10));
+
+    let mut export = EXPORT_BACKOFF;
+    assert_eq!(export.next_delay(), Duration::from_secs(1));
+    assert_eq!(export.next_delay(), Duration::from_secs(2));
+    assert_eq!(export.retries(), EXPORT_RETRIES);
+}
+
 #[test]
 fn only_typed_transient_io_failures_are_retried() {
     assert!(!retryable(&writeback::Error::Admin(AdminError::Io(
@@ -1627,20 +1653,24 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
     reconcile(&catalog, &root).await.unwrap();
     fs::write(tree.0.join("test-bucket/new-source"), b"unsettled").unwrap();
     let config = Config::default();
-    let mut cursor = catalog.current_fence().await.unwrap();
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
+    let mut state = LiveState {
+        cursor: catalog.current_fence().await.unwrap(),
+        baseline: BaselineProgress {
+            gate: BaselineGate::Allowed,
+            complete: true,
+        },
+    };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let writeback = root.default_writeback().await.unwrap();
     let mut control = LiveControl {
-        catalog: &catalog,
-        root: &root,
-        config: &config,
-        writeback: &writeback,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: LiveScope {
+            catalog: &catalog,
+            root: &root,
+            config: &config,
+            writeback: &writeback,
+            stopping: &stopping,
+        },
+        state: &mut state,
     };
     let result = tokio::time::timeout(
         Duration::from_millis(500),
@@ -1658,7 +1688,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
             .await,
         Err(AdminError::NotFound)
     ));
-    assert_eq!(gate, BaselineGate::Deferred);
+    assert_eq!(state.baseline.gate, BaselineGate::Deferred);
     drop(writeback);
     drop(root);
     catalog.close().await.unwrap();
@@ -1670,21 +1700,26 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
     catalog.enable_change_journal().await.unwrap();
     let config = Config::default();
     assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
-    let mut cursor = catalog.current_fence().await.unwrap();
+    let cursor = catalog.current_fence().await.unwrap();
     publish_origin(&catalog, &bucket, b"captured", Origin::Api).await;
-    let mut gate = BaselineGate::Allowed;
-    let mut baseline = true;
+    let mut state = LiveState {
+        cursor,
+        baseline: BaselineProgress {
+            gate: BaselineGate::Allowed,
+            complete: true,
+        },
+    };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let writeback = root.default_writeback().await.unwrap();
     let mut control = LiveControl {
-        writeback: &writeback,
-        catalog: &catalog,
-        root: &root,
-        config: &config,
-        stopping: &stopping,
-        ingest_complete: &mut gate,
-        baseline_complete: &mut baseline,
-        cursor: &mut cursor,
+        scope: LiveScope {
+            catalog: &catalog,
+            root: &root,
+            config: &config,
+            writeback: &writeback,
+            stopping: &stopping,
+        },
+        state: &mut state,
     };
     assert!(
         control

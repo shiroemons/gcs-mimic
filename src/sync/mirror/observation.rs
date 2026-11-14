@@ -4,10 +4,33 @@ use crate::source_tree::watch::Change;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
+#[derive(Clone, Copy)]
 pub(super) struct Pending {
     change: Change,
     quiet: tokio::time::Instant,
     limit: tokio::time::Instant,
+}
+impl Pending {
+    /// A change first seen at `now`: it settles after one quiet interval, and at the latest
+    /// after ten.
+    fn new(change: Change, now: tokio::time::Instant) -> Self {
+        let settle = Duration::from_millis(super::super::SETTLE_MS);
+        Self {
+            change,
+            quiet: now + settle,
+            limit: now + settle * 10,
+        }
+    }
+
+    /// How the change settled once its deadline passed.
+    fn settled(self) -> Observed {
+        let quiet = if self.quiet <= self.limit {
+            Quiet::Established
+        } else {
+            Quiet::Capped
+        };
+        Observed::Settled(self.change, quiet)
+    }
 }
 pub(super) enum Observed {
     Pending,
@@ -26,18 +49,13 @@ impl DirectoryWatch {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("native observation generation exhausted"))?;
         let now = tokio::time::Instant::now();
-        let settle = Duration::from_millis(super::super::SETTLE_MS);
         if let Some(pending) = &mut self.pending {
             if change == Change::Structure {
                 pending.change = change;
             }
-            pending.quiet = now + settle;
+            pending.quiet = now + Duration::from_millis(super::super::SETTLE_MS);
         } else {
-            self.pending = Some(Pending {
-                change,
-                quiet: now + settle,
-                limit: now + settle * 10,
-            });
+            self.pending = Some(Pending::new(change, now));
         }
         Ok(())
     }
@@ -63,37 +81,24 @@ impl DirectoryWatch {
         }
     }
     pub(super) fn continue_quiet(&mut self) {
-        let now = tokio::time::Instant::now();
-        let settle = Duration::from_millis(super::super::SETTLE_MS);
-        self.pending = Some(Pending {
-            change: Change::Content,
-            quiet: now + settle,
-            limit: now + settle * 10,
-        });
+        self.pending = Some(Pending::new(Change::Content, tokio::time::Instant::now()));
     }
     pub(super) async fn next_observation(&mut self) -> io::Result<Observed> {
-        if self.pending.is_none() {
-            let change = self.watch.changed().await?;
-            self.record(change)?;
-            return Ok(Observed::Pending);
-        }
         loop {
-            let pending = self
-                .pending
-                .as_ref()
-                .ok_or_else(|| io::Error::other("missing pending observation"))?;
-            let deadline = pending.quiet.min(pending.limit);
+            let Some(pending) = self.pending else {
+                let change = self.watch.changed().await?;
+                self.record(change)?;
+                return Ok(Observed::Pending);
+            };
             tokio::select! {
                 change=self.watch.changed()=>{
                     self.record(change?)?;
                     // A continuously readable native queue must still let the actor poll control requests.
                     tokio::task::yield_now().await;
                 }
-                ()=tokio::time::sleep_until(deadline)=>{
-                    let pending=self.pending.take().ok_or_else(||io::Error::other("missing pending observation"))?;
-                    let change=pending.change;
-                    let quiet=if pending.quiet<=pending.limit {Quiet::Established} else {Quiet::Capped};
-                    return Ok(Observed::Settled(change,quiet));
+                ()=tokio::time::sleep_until(pending.quiet.min(pending.limit))=>{
+                    self.pending=None;
+                    return Ok(pending.settled());
                 }
             }
         }
@@ -136,23 +141,63 @@ impl HistoryScan<'_> {
     }
 }
 
+/// How the observer holds native changes that it has not ingested yet: whether a quiet interval
+/// followed them, and the publication that keeps readers on the last complete deletion set.
+pub(super) struct Unsettled {
+    pub(super) quiet: Quiet,
+    publication: Option<crate::storage::sync_state::observation::Publication>,
+}
+
+/// Whether `Unsettled::publish` started the publication or found one held.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Publishing {
+    Started,
+    Held,
+}
+
+impl Unsettled {
+    pub(super) fn new() -> Self {
+        Self {
+            quiet: Quiet::Unverified,
+            publication: None,
+        }
+    }
+
+    /// Starts the publication unless one is held.
+    async fn publish(&mut self, root: &RootLease) -> Result<Publishing, SyncError> {
+        if self.publication.is_some() {
+            return Ok(Publishing::Held);
+        }
+        self.publication = Some(root.begin_observation_publication().await?);
+        Ok(Publishing::Started)
+    }
+
+    /// Holds the publication and invalidates deletion candidates the change may have made stale.
+    pub(super) async fn unsettle(&mut self, root: &RootLease) -> Result<(), SyncError> {
+        self.publish(root).await?;
+        root.invalidate_deletions().await?;
+        Ok(())
+    }
+
+    /// Releases the publication once the change is ingested.
+    pub(super) fn settle(&mut self) {
+        self.publication = None;
+    }
+}
+
 pub(super) async fn refresh(
     root: &RootLease,
     watcher: &mut DirectoryWatch,
-    quiet: &mut Quiet,
-    publication: &mut Option<crate::storage::sync_state::observation::Publication>,
+    unsettled: &mut Unsettled,
     controls: &Controls,
 ) -> Result<(), SyncError> {
     let changed = watcher.poll_changes()?;
     if watcher.pending.is_some() {
-        if changed || *quiet == Quiet::Established {
-            *quiet = Quiet::Unverified;
+        if changed || unsettled.quiet == Quiet::Established {
+            unsettled.quiet = Quiet::Unverified;
         }
         controls.changing();
-        let started = publication.is_none();
-        if started {
-            *publication = Some(root.begin_observation_publication().await?);
-        }
+        let started = unsettled.publish(root).await? == Publishing::Started;
         if changed || started {
             root.invalidate_deletions().await?;
             #[cfg(test)]

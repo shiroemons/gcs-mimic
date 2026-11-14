@@ -3,10 +3,13 @@
 use super::{Reconciliation, SyncError};
 use crate::{
     auth::Identity,
-    storage::sync_state::{
-        OpaqueId,
-        deletions::DeletionSet,
-        root::{RootError, RootLease},
+    storage::{
+        change_journal::JournalFence,
+        sync_state::{
+            OpaqueId,
+            deletions::DeletionSet,
+            root::{RootError, RootLease},
+        },
     },
 };
 use std::{
@@ -115,6 +118,14 @@ pub(crate) enum WaitReason {
 pub(crate) struct WaitFence {
     pub sequence: u64,
     pub epoch: i64,
+}
+impl From<JournalFence> for WaitFence {
+    fn from(fence: JournalFence) -> Self {
+        Self {
+            sequence: fence.sequence.get(),
+            epoch: fence.revision,
+        }
+    }
 }
 impl WaitResult {
     pub(crate) fn result(
