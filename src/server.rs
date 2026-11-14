@@ -1455,6 +1455,8 @@ impl ConnectionService {
             }
         };
         let timeout_reply = DeadlineReply::new(&request, &config, endpoints.snapshot());
+        let mut request = request;
+        let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
         let format =
             json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
         let ctx = RequestCtx {
@@ -1479,7 +1481,11 @@ impl ConnectionService {
                 biased;
                 response = json::with_format(
                     format,
-                    routing::respond(request.map(|body| RequestBody::transport(body, activity.clone())), ctx),
+                    routing::respond_classified(
+                        request.map(|body| RequestBody::transport(body, activity.clone())),
+                        target,
+                        ctx,
+                    ),
                 ) => response,
                 expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
             },

@@ -4,6 +4,7 @@
 //! claim overlapping paths, so the routes are tried in a fixed sequence.
 
 use super::RequestBody as Incoming;
+use super::admin::AdminRoute;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, acl, anonymous_error, boxed, buckets, empty_response,
     notifications, objects, probe, project_resources, resumable, rewrite, unknown_route,
@@ -12,42 +13,130 @@ use super::{
 use crate::{
     auth::Caller,
     bucket::{BucketAccess, CatalogError},
-    config::{CompatProfile, CorsFallback, CorsFallbackChoice},
+    config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
 
-/// Which API family claimed a request, known only once the router has chosen.
+/// How the server reads one request target. Decided once, before the timeout reply and the
+/// router look at it, so the two can never disagree about which API answers.
+pub(super) enum Target {
+    /// The authority fails XML addressing: a Host the configured domains require is missing, or
+    /// disagrees with an absolute-form target. Only the XML API addresses by Host, so it answers.
+    Unaddressable(xml::Error),
+    /// A management route under `/_internal`; it carries no API envelope.
+    Admin(AdminRoute),
+    /// `/batch/storage/v1`; each part is classified on its own.
+    Batch,
+    /// An XML bucket operation without an object path: `GET /`, or `PUT /{name}` with a name
+    /// the profile rejects, which the XML API refuses itself.
+    XmlBucket,
+    /// An XML path that selects a bucket and object name.
+    XmlObject(xml::ObjectPath),
+    /// Everything else: the JSON API, probes and unknown routes.
+    Json,
+}
+
+/// Which API's envelope wraps a routed response.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Family {
-    Undecided,
     Json,
     Xml,
 }
 
-/// The JSON API fields apply only to requests the JSON router claimed: a virtual-host or
-/// path-style XML request can share the `/storage/v1/` path prefix with an object name.
+impl Target {
+    /// Rewrites the Discovery resumable path in place, then classifies the final target.
+    ///
+    /// Whether to rewrite is decided from the selection of the original target. A selection
+    /// fails only on the Host, the authority and the signed query, never on the path, so an
+    /// unaddressable target is answered as such without a rewrite: rewriting would select the
+    /// same error, and the error response reads no part of the target.
+    pub(super) fn classify<B>(
+        request: &mut Request<B>,
+        config: &Config,
+        endpoints: &EndpointSnapshot,
+    ) -> Self {
+        let selected = match xml::select_object_with_endpoints(
+            request.uri(),
+            request.headers(),
+            config,
+            endpoints,
+        ) {
+            Ok(selected) => selected,
+            Err(error) => return Self::Unaddressable(error),
+        };
+        let selected = match protocol_upload(request, selected.as_ref()) {
+            Some((uri, kind)) => {
+                *request.uri_mut() = uri;
+                request.extensions_mut().insert(kind);
+                // The rewritten path is reserved for the JSON API, so this selects nothing.
+                match xml::select_object_with_endpoints(
+                    request.uri(),
+                    request.headers(),
+                    config,
+                    endpoints,
+                ) {
+                    Ok(selected) => selected,
+                    Err(error) => return Self::Unaddressable(error),
+                }
+            }
+            None => selected,
+        };
+        if let Some(object) = selected {
+            return Self::XmlObject(object);
+        }
+        let path = request.uri().path();
+        if let Some(route) = AdminRoute::parse(path) {
+            Self::Admin(route)
+        } else if path == "/batch/storage/v1" {
+            Self::Batch
+        } else if xml::buckets::matches(request.method(), request.uri(), None) {
+            Self::XmlBucket
+        } else {
+            Self::Json
+        }
+    }
+
+    /// `None` for management and batch responses, which carry no API envelope.
+    fn envelope(&self) -> Option<Family> {
+        match self {
+            Self::Unaddressable(_) | Self::XmlBucket | Self::XmlObject(_) => Some(Family::Xml),
+            Self::Json => Some(Family::Json),
+            Self::Admin(_) | Self::Batch => None,
+        }
+    }
+}
+
+/// Classifies and answers one request, as a batch part is. The connection classifies the
+/// request itself before its timeout reply is chosen, and then calls `respond_classified`.
 pub(super) async fn respond(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    if let Some((uri, kind)) = resumable_protocol_path(&request, ctx) {
-        *request.uri_mut() = uri;
-        request.extensions_mut().insert(kind);
-    }
+    let target = Target::classify(&mut request, ctx.config, ctx.endpoints.snapshot());
+    respond_classified(request, target, ctx).await
+}
+
+/// The JSON API fields apply only to requests the JSON router claimed: a virtual-host or
+/// path-style XML request can share the `/storage/v1/` path prefix with an object name.
+pub(super) async fn respond_classified(
+    request: Request<Incoming>,
+    target: Target,
+    ctx: RequestCtx<'_>,
+) -> Response<ResponseBody> {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let call = json::EnvelopeCall::of_request(&request);
-    let mut family = Family::Undecided;
-    let mut response = route(request, ctx, &mut family).await;
+    let family = target.envelope();
+    let mut response = route(request, target, ctx).await;
     match family {
-        Family::Json => {
+        Some(Family::Json) => {
             json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
         }
-        Family::Xml => xml::envelope::apply(&method, ctx.state.clock.now(), &mut response),
-        Family::Undecided => {}
+        Some(Family::Xml) => xml::envelope::apply(&method, ctx.state.clock.now(), &mut response),
+        None => {}
     }
     response
 }
@@ -68,9 +157,10 @@ enum ProtocolUpload {
 /// `upload/storage/v1/b/{bucket}/o` in a bucket called `resumable`, so only a path-style POST of
 /// exactly that shape with an `uploadType` query parameter, which XML requests never send, is
 /// taken; it is rewritten to `/upload/storage/v1/b/{bucket}/o` with the same query.
-fn resumable_protocol_path(
-    request: &Request<Incoming>,
-    ctx: RequestCtx<'_>,
+/// `selected` is what the XML API would select at the original target.
+fn protocol_upload<B>(
+    request: &Request<B>,
+    selected: Option<&xml::ObjectPath>,
 ) -> Option<(hyper::Uri, ProtocolUpload)> {
     const PREFIX: &str = "/resumable/upload/storage/v1/b/";
     let uri = request.uri();
@@ -82,14 +172,6 @@ fn resumable_protocol_path(
         return None;
     }
     // A virtual-hosted request names an object; only the path-style reading is the JSON path.
-    let selected = xml::select_object_with_endpoints(
-        uri,
-        request.headers(),
-        ctx.config,
-        ctx.endpoints.snapshot(),
-    )
-    .ok()
-    .flatten();
     if selected.is_some_and(|object| {
         object.bucket != "resumable"
             || Some(object.name()) != uri.path().strip_prefix("/resumable/")
@@ -115,67 +197,36 @@ fn is_unsupported_protocol_upload(request: &Request<Incoming>) -> bool {
     request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Other)
 }
 
-/// Wraps CORS headers around the routed response. CORS never authorizes a request.
 async fn route(
-    mut request: Request<Incoming>,
+    request: Request<Incoming>,
+    target: Target,
     ctx: RequestCtx<'_>,
-    family: &mut Family,
 ) -> Response<ResponseBody> {
-    let selected = match xml::select_object_with_endpoints(
-        request.uri(),
-        request.headers(),
-        ctx.config,
-        ctx.endpoints.snapshot(),
-    ) {
-        Ok(selected) => selected,
-        Err(error) => {
-            *family = Family::Xml;
-            return boxed(error.response(xml::ErrorBody::for_method(request.method())));
+    match target {
+        Target::Unaddressable(error) => {
+            boxed(error.response(xml::ErrorBody::for_method(request.method())))
         }
-    };
-    if selected.is_none()
-        && let Some(route) = super::admin::AdminRoute::parse(request.uri().path())
-    {
-        return super::admin::respond(route, request, ctx).await;
+        Target::Admin(route) => super::admin::respond(route, request, ctx).await,
+        Target::Batch => super::batch::respond(request, ctx).await,
+        Target::XmlBucket => route_xml(request, ctx, None).await,
+        Target::XmlObject(object) => route_xml(request, ctx, Some(object)).await,
+        Target::Json => route_json(request, ctx).await,
     }
-    if selected.is_none() && request.uri().path() == "/batch/storage/v1" {
-        return super::batch::respond(request, ctx).await;
-    }
-    let xml_bucket = xml::buckets::matches(request.method(), request.uri(), selected.as_ref());
-    *family = if selected.is_none() && !xml_bucket {
-        Family::Json
-    } else {
-        Family::Xml
-    };
-    // Only resumable initiation is served on the Discovery protocol path. Other upload types
-    // answer before a method override or upload Content-Encoding is read, as JSON with CORS.
-    if is_unsupported_protocol_upload(&request) {
-        *family = Family::Json;
-        return respond_json_cors(request, ctx).await;
-    }
-    if (selected.is_some() || xml_bucket)
-        && request.headers().contains_key("x-http-method-override")
-    {
+}
+
+/// Wraps CORS headers around the routed XML response. CORS never authorizes a request.
+async fn route_xml(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    selected: Option<xml::ObjectPath>,
+) -> Response<ResponseBody> {
+    if request.headers().contains_key("x-http-method-override") {
         return boxed(
             xml::Error::from(JsonError::invalid_argument(
                 "Method override is supported only by the JSON API",
             ))
             .response(xml::ErrorBody::for_method(request.method())),
         );
-    }
-    if let Err(error) = super::ingress::override_method(&mut request) {
-        return boxed(error.into_response());
-    }
-    let request = match if selected.is_none() && !xml_bucket {
-        super::ingress::decode_metadata(request, ctx).await
-    } else {
-        Ok(request)
-    } {
-        Ok(request) => request,
-        Err(error) => return boxed(error.into_response()),
-    };
-    if selected.is_none() && json::cors::is_route(request.uri()) {
-        return respond_json_cors(request, ctx).await;
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
     if selected.as_ref().is_some_and(|object| {
@@ -184,6 +235,26 @@ async fn route(
         return respond_xml_cors(request, ctx, selected).await;
     }
     respond_routed(request, ctx, selected).await
+}
+
+/// Wraps CORS headers around the routed JSON response. CORS never authorizes a request.
+async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Response<ResponseBody> {
+    // Only resumable initiation is served on the Discovery protocol path. Other upload types
+    // answer before a method override or upload Content-Encoding is read, as JSON with CORS.
+    if is_unsupported_protocol_upload(&request) {
+        return respond_json_cors(request, ctx).await;
+    }
+    if let Err(error) = super::ingress::override_method(&mut request) {
+        return boxed(error.into_response());
+    }
+    let request = match super::ingress::decode_metadata(request, ctx).await {
+        Ok(request) => request,
+        Err(error) => return boxed(error.into_response()),
+    };
+    if json::cors::is_route(request.uri()) {
+        return respond_json_cors(request, ctx).await;
+    }
+    respond_routed(request, ctx, None).await
 }
 
 async fn respond_json_cors(
@@ -793,6 +864,95 @@ async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<By
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::VirtualHostDomains;
+
+    fn classify(
+        config: &Config,
+        method: Method,
+        target: &str,
+        host: &str,
+    ) -> (Target, Request<()>) {
+        let endpoints = EndpointSnapshot::explicit(
+            "http://localhost:4443",
+            config.public_base_url.clone(),
+            config.xml_virtual_host_domains.clone(),
+        );
+        let mut request = Request::builder()
+            .method(method)
+            .uri(target)
+            .header("host", host)
+            .body(())
+            .unwrap();
+        let target = Target::classify(&mut request, config, &endpoints);
+        (target, request)
+    }
+
+    #[test]
+    fn discovery_resumable_path_is_rewritten_and_answered_by_the_json_api() {
+        let (target, request) = classify(
+            &Config::default(),
+            Method::POST,
+            "/resumable/upload/storage/v1/b/bucket/o?uploadType=resumable",
+            "localhost:4443",
+        );
+        assert!(matches!(target, Target::Json));
+        assert_eq!(
+            request.uri(),
+            "/upload/storage/v1/b/bucket/o?uploadType=resumable"
+        );
+        assert!(request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Resumable));
+    }
+
+    #[test]
+    fn a_bucket_named_resumable_keeps_its_xml_object_path() {
+        // Without `uploadType` the path names an object in the bucket `resumable`.
+        let (target, request) = classify(
+            &Config::default(),
+            Method::POST,
+            "/resumable/upload/storage/v1/b/bucket/o",
+            "localhost:4443",
+        );
+        let Target::XmlObject(object) = target else {
+            panic!("expected an XML object path");
+        };
+        assert_eq!(object.bucket, "resumable");
+        assert_eq!(object.name(), "upload/storage/v1/b/bucket/o");
+        assert_eq!(request.uri(), "/resumable/upload/storage/v1/b/bucket/o");
+        assert!(request.extensions().get::<ProtocolUpload>().is_none());
+    }
+
+    #[test]
+    fn targets_without_an_object_path_are_classified_by_route() {
+        let config = Config::default();
+        let host = "localhost:4443";
+        let (root, _) = classify(&config, Method::GET, "/", host);
+        assert!(matches!(root, Target::XmlBucket));
+        let (admin, _) = classify(&config, Method::POST, "/_internal/reset", host);
+        assert!(matches!(admin, Target::Admin(AdminRoute::Reset)));
+        let (batch, _) = classify(&config, Method::POST, "/batch/storage/v1", host);
+        assert!(matches!(batch, Target::Batch));
+        let (json, _) = classify(&config, Method::GET, "/storage/v1/b/bucket/o", host);
+        assert!(matches!(json, Target::Json));
+        assert!(root.envelope() == Some(Family::Xml));
+        assert!(json.envelope() == Some(Family::Json));
+        assert!(admin.envelope().is_none() && batch.envelope().is_none());
+    }
+
+    #[test]
+    fn an_authority_that_disagrees_with_host_is_unaddressable_before_any_rewrite() {
+        let config = Config {
+            xml_virtual_host_domains: VirtualHostDomains::of(&["storage.example.test"]),
+            ..Config::default()
+        };
+        let target = "http://bucket.storage.example.test/resumable/upload/storage/v1/b/b/o?uploadType=resumable";
+        let (classified, request) = classify(&config, Method::POST, target, "other.example.test");
+        let Target::Unaddressable(error) = classified else {
+            panic!("expected an unaddressable target");
+        };
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(request.uri(), target);
+        assert!(request.extensions().get::<ProtocolUpload>().is_none());
+    }
 
     #[test]
     fn cors_lookup_failure_withholds_backend_details_outside_the_allow_list() {
