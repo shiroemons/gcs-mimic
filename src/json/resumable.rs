@@ -1,12 +1,12 @@
 use super::{
-    JsonError, ObjectInsertParams, Projection, multipart::MultipartMetadata, multipart_metadata_of,
-    parse_object_upload_headers,
+    JsonError, ObjectInsertParams, Projection, checksum, multipart::MultipartMetadata,
+    multipart_metadata_of, parse_object_upload_headers,
 };
 use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
     decimal::Grammar,
-    object::{ExpectedHashes, MapPatch, ObjectError},
+    object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectError},
     storage::ResumableOptions,
 };
 use hyper::{HeaderMap, Method, Uri};
@@ -287,36 +287,18 @@ pub(crate) fn final_options(
             ..Default::default()
         },
     )?;
-    for value in headers.get_all("x-goog-hash") {
-        let value = value
-            .to_str()
-            .map_err(|_| JsonError::invalid_parameter("Invalid x-goog-hash"))?;
-        for entry in value.split(',') {
-            let (algorithm, value) = entry
-                .trim()
-                .split_once('=')
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid x-goog-hash"))?;
-            match algorithm {
-                "md5" => {
-                    let md5 = super::objects::decode_hash(value)?;
-                    if options.expected.md5.is_some_and(|v| v != md5) {
-                        return Err(JsonError::invalid_parameter("Conflicting MD5 declarations"));
-                    }
-                    options.expected.md5 = Some(md5);
-                }
-                "crc32c" => {
-                    let crc = u32::from_be_bytes(super::objects::decode_hash(value)?);
-                    if options.expected.crc32c.is_some_and(|v| v != crc) {
-                        return Err(JsonError::invalid_parameter(
-                            "Conflicting CRC32C declarations",
-                        ));
-                    }
-                    options.expected.crc32c = Some(crc);
-                }
-                _ => return Err(JsonError::unsupported_object("x-goog-hash algorithm")),
-            }
-        }
-    }
+    // An equal value agrees with the initiation's declaration; a different one conflicts.
+    checksum::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
+        options
+            .expected
+            .agree(checksum::decode(algorithm, value)?)
+            .map_err(|ChecksumConflict(algorithm)| {
+                JsonError::invalid_parameter(format!(
+                    "Conflicting {} declarations",
+                    algorithm.name()
+                ))
+            })
+    })?;
     if !custom.is_empty() {
         let resource = serde_json::Map::from_iter([(
             "metadata".to_owned(),

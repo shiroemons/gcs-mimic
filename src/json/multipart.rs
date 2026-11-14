@@ -1,5 +1,5 @@
-use super::{JsonError, ObjectMetadataRequest, object_metadata_from_map};
-use crate::object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch};
+use super::{JsonError, ObjectMetadataRequest, checksum, object_metadata_from_map};
+use crate::object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
@@ -803,26 +803,21 @@ fn merge_hashes(
     values: &mut serde_json::Map<String, serde_json::Value>,
     mut expected: ExpectedHashes,
 ) -> Result<ExpectedHashes, JsonError> {
-    for key in ["md5Hash", "crc32c"] {
-        if let Some(value) = values.remove(key) {
-            let value = value
-                .as_str()
-                .ok_or_else(|| JsonError::invalid_parameter("Checksum must be a base64 string"))?;
-            if key == "md5Hash" {
-                let value = super::objects::decode_hash(value)?;
-                if expected.md5.is_some_and(|old| old != value) {
-                    return Err(JsonError::invalid_parameter("Conflicting MD5 checksums"));
-                }
-                expected.md5 = Some(value);
-            } else {
-                let value = u32::from_be_bytes(super::objects::decode_hash(value)?);
-                if expected.crc32c.is_some_and(|old| old != value) {
-                    return Err(JsonError::invalid_parameter("Conflicting CRC32C checksums"));
-                }
-                expected.crc32c = Some(value);
-            }
-        }
-    }
+    // An equal value agrees with the caller's declaration; a different one conflicts.
+    checksum::take_resource_hashes(
+        values,
+        || JsonError::invalid_parameter(checksum::NOT_BASE64),
+        |declared| {
+            expected
+                .agree(declared)
+                .map_err(|ChecksumConflict(algorithm)| {
+                    JsonError::invalid_parameter(format!(
+                        "Conflicting {} checksums",
+                        algorithm.name()
+                    ))
+                })
+        },
+    )?;
     Ok(expected)
 }
 

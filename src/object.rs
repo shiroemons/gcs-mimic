@@ -688,10 +688,120 @@ pub(crate) struct HashMismatch {
     pub calculated: Vec<u8>,
 }
 
+/// A digest algorithm an upload can declare.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HashAlgorithm {
     Crc32c,
     Md5,
+}
+
+impl HashAlgorithm {
+    /// The algorithm's name as conflict messages spell it.
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Crc32c => "CRC32C",
+            Self::Md5 => "MD5",
+        }
+    }
+}
+
+/// One declared digest of an object's bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Checksum {
+    Md5([u8; 16]),
+    Crc32c(u32),
+}
+
+/// A second, different value for a digest already declared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ChecksumConflict(pub(crate) HashAlgorithm);
+
+impl fmt::Display for ChecksumConflict {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "conflicting {} declarations", self.0.name())
+    }
+}
+
+impl std::error::Error for ChecksumConflict {}
+
+impl ExpectedHashes {
+    /// Whether a digest of `algorithm` is declared.
+    pub(crate) fn declares(&self, algorithm: HashAlgorithm) -> bool {
+        match algorithm {
+            HashAlgorithm::Crc32c => self.crc32c.is_some(),
+            HashAlgorithm::Md5 => self.md5.is_some(),
+        }
+    }
+
+    /// Records `checksum`, replacing any earlier value of its algorithm.
+    pub(crate) fn set(&mut self, checksum: Checksum) {
+        match checksum {
+            Checksum::Md5(digest) => self.md5 = Some(digest),
+            Checksum::Crc32c(digest) => self.crc32c = Some(digest),
+        }
+    }
+
+    /// Records `checksum`; an earlier value of its algorithm must be equal.
+    pub(crate) fn agree(&mut self, checksum: Checksum) -> Result<(), ChecksumConflict> {
+        let conflicts = match checksum {
+            Checksum::Md5(digest) => self.md5.is_some_and(|declared| declared != digest),
+            Checksum::Crc32c(digest) => self.crc32c.is_some_and(|declared| declared != digest),
+        };
+        if conflicts {
+            return Err(ChecksumConflict(checksum.algorithm()));
+        }
+        self.set(checksum);
+        Ok(())
+    }
+}
+
+impl Checksum {
+    pub(crate) const fn algorithm(self) -> HashAlgorithm {
+        match self {
+            Self::Md5(_) => HashAlgorithm::Md5,
+            Self::Crc32c(_) => HashAlgorithm::Crc32c,
+        }
+    }
+}
+
+#[cfg(test)]
+mod expected_hashes_tests {
+    use super::*;
+
+    #[test]
+    fn a_declared_digest_is_replaced_by_set_and_must_agree_otherwise() {
+        let mut hashes = ExpectedHashes::default();
+        assert!(!hashes.declares(HashAlgorithm::Md5));
+        assert!(!hashes.declares(HashAlgorithm::Crc32c));
+        hashes.set(Checksum::Md5([1; 16]));
+        assert!(hashes.declares(HashAlgorithm::Md5));
+        assert!(!hashes.declares(HashAlgorithm::Crc32c));
+        hashes.set(Checksum::Md5([2; 16]));
+        assert_eq!(hashes.md5, Some([2; 16]));
+        // An equal value agrees and a first value is recorded; neither touches the other.
+        assert_eq!(hashes.agree(Checksum::Md5([2; 16])), Ok(()));
+        assert_eq!(hashes.agree(Checksum::Crc32c(7)), Ok(()));
+        assert_eq!(
+            hashes,
+            ExpectedHashes {
+                md5: Some([2; 16]),
+                crc32c: Some(7),
+            }
+        );
+        for (different, algorithm) in [
+            (Checksum::Md5([3; 16]), HashAlgorithm::Md5),
+            (Checksum::Crc32c(8), HashAlgorithm::Crc32c),
+        ] {
+            assert_eq!(hashes.agree(different), Err(ChecksumConflict(algorithm)));
+        }
+        // A conflict leaves the declared values as they were.
+        assert_eq!(hashes.md5, Some([2; 16]));
+        assert_eq!(hashes.crc32c, Some(7));
+        assert_eq!(
+            ChecksumConflict(HashAlgorithm::Crc32c).to_string(),
+            "conflicting CRC32C declarations"
+        );
+    }
 }
 
 /// A compose component that could not be used. Cloud Storage names the component in both

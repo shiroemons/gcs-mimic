@@ -145,19 +145,16 @@ pub(crate) fn derived_metadata_of(
     // Cloud Storage ignores a supplied size (recorded 2026-11-13: a rewrite body with a wrong
     // size completes with the source's size).
     parsed.unchanged.remove("size");
+    // Starts empty, so nothing can conflict.
     let mut expected = ExpectedHashes::default();
-    for key in ["md5Hash", "crc32c"] {
-        if let Some(value) = parsed.unchanged.remove(key) {
-            let value = value
-                .as_str()
-                .ok_or_else(|| JsonError::invalid_argument("Checksum must be a base64 string"))?;
-            if key == "md5Hash" {
-                expected.md5 = Some(super::objects::decode_hash(value)?);
-            } else {
-                expected.crc32c = Some(u32::from_be_bytes(super::objects::decode_hash(value)?));
-            }
-        }
-    }
+    super::checksum::take_resource_hashes(
+        &mut parsed.unchanged,
+        || JsonError::invalid_argument(super::checksum::NOT_BASE64),
+        |declared| {
+            expected.set(declared);
+            Ok(())
+        },
+    )?;
     if let Some((key, _)) = parsed.unchanged.iter().next() {
         return Err(JsonError::unsupported_object(key));
     }

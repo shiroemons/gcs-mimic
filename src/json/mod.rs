@@ -11,6 +11,7 @@
 pub(crate) mod acl;
 mod body;
 mod buckets;
+mod checksum;
 pub mod compose;
 pub(crate) mod cors;
 mod csek;
@@ -52,6 +53,7 @@ pub(crate) use buckets::{
     soft_deleted_bucket_list, soft_deleted_bucket_resource, storage_layout_resource,
     validate_bucket_name,
 };
+pub(crate) use checksum::decode_hash;
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{
     DerivedMetadata, DestinationLocation, derived_component_count, derived_metadata,
@@ -90,9 +92,8 @@ pub(crate) use objects::revision_etag;
 #[cfg(test)]
 pub(crate) use objects::route_object;
 pub(crate) use objects::{
-    EtagConditions, Gunzip, Transcoding, base64, decode_hash, object_double_compressed,
-    object_etag, object_media_negotiable, object_media_transcoding,
-    validate_read_condition_headers,
+    EtagConditions, Gunzip, Transcoding, base64, object_double_compressed, object_etag,
+    object_media_negotiable, object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,

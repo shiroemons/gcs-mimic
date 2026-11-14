@@ -1,6 +1,7 @@
 use super::{
     JsonError, Projection, WriteMode,
     buckets::{encode_segment, timestamp},
+    checksum::{self, each_declared_hash},
     integer::take_long,
     query::{
         BUCKET_PATH, BucketCheck, Decoding, MAX_OBJECT_SEGMENT_BYTES, boolean, decode, parse_query,
@@ -699,29 +700,16 @@ pub(crate) fn parse_object_upload_headers(
 /// ignored the header, but the resumable route was not recorded, so it keeps verifying.
 pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, JsonError> {
     let mut hashes = ExpectedHashes::default();
-    for header in headers.get_all("x-goog-hash") {
-        let header = header
-            .to_str()
-            .map_err(|_| JsonError::invalid_parameter("Invalid x-goog-hash header"))?;
-        for hash in header.split(',') {
-            let (algorithm, value) = hash
-                .trim()
-                .split_once('=')
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid x-goog-hash header"))?;
-            match algorithm {
-                "md5" if hashes.md5.is_none() => hashes.md5 = Some(decode_hash(value)?),
-                "crc32c" if hashes.crc32c.is_none() => {
-                    hashes.crc32c = Some(u32::from_be_bytes(decode_hash(value)?))
-                }
-                "md5" | "crc32c" => {
-                    return Err(JsonError::invalid_parameter(
-                        "Duplicate x-goog-hash algorithm",
-                    ));
-                }
-                _ => return Err(JsonError::unsupported_object("x-goog-hash algorithm")),
-            }
+    // A repeated algorithm is refused even with an equal value, before it is decoded.
+    each_declared_hash(headers, "Invalid x-goog-hash header", |algorithm, value| {
+        if hashes.declares(algorithm) {
+            return Err(JsonError::invalid_parameter(
+                "Duplicate x-goog-hash algorithm",
+            ));
         }
-    }
+        hashes.set(checksum::decode(algorithm, value)?);
+        Ok(())
+    })?;
     Ok(hashes)
 }
 
@@ -1240,17 +1228,3 @@ pub(crate) fn revision_etag(generation: Option<i64>, metageneration: i64) -> Str
 }
 
 pub(crate) use crate::base64::encode as base64;
-
-pub(crate) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
-    let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
-    if raw.len() != N.div_ceil(3) * 4 {
-        return Err(invalid());
-    }
-    crate::base64::decode(
-        raw,
-        crate::base64::Alphabet::Standard,
-        crate::base64::Padding::Required,
-    )
-    .and_then(|bytes| bytes.try_into().ok())
-    .ok_or_else(invalid)
-}
