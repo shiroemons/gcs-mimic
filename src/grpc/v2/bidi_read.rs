@@ -1,6 +1,7 @@
 use super::{
     ResponseStream, Storage,
     mask::ReadMask,
+    object_io::naming_object,
     pb,
     routing::{Route, Routes},
     status::unsupported,
@@ -9,7 +10,6 @@ use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     grpc::{generated::google::rpc::Status as RpcStatus, validate},
-    json::JsonError,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{Finality, ObjectReader},
 };
@@ -188,7 +188,7 @@ impl Storage {
                 ) {
                     self.state.grpc_read_handles.remove(entry.token);
                 }
-                super::access_status(JsonError::from(error).naming_object(bucket, object), caller)
+                super::access_status(naming_object(bucket, object)(error), caller)
             })?;
         let size = record.size.min(entry.size);
         reader
@@ -249,9 +249,7 @@ impl Storage {
             let (record, reader, finality) = self
                 .open_readable(target, conditions, &access)
                 .await
-                .map_err(|e| {
-                    super::access_status(JsonError::from(e).naming_object(bucket, object), caller)
-                })?;
+                .map_err(|e| super::access_status(naming_object(bucket, object)(e), caller))?;
             let selected = Selected {
                 size: record.size,
                 record,
@@ -550,6 +548,7 @@ mod tests {
     use super::*;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
+    use crate::json::JsonError;
     use crate::storage::test_fixtures::PERMISSIVE;
     use std::sync::Arc;
 

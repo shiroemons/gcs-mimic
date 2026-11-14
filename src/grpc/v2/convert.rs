@@ -308,7 +308,10 @@ impl std::fmt::Display for ObjectConversionError {
 impl std::error::Error for ObjectConversionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidCustomTime(error) | Self::Storage(error) => Some(error),
+            Self::InvalidCustomTime(error) => Some(error),
+            // A transparent wrapper: its message is the storage error's, so the chain goes on
+            // with that error's cause instead of repeating the message.
+            Self::Storage(error) => error.source(),
         }
     }
 }
@@ -322,7 +325,11 @@ impl From<ObjectError> for ObjectConversionError {
 impl From<ObjectConversionError> for tonic::Status {
     fn from(error: ObjectConversionError) -> Self {
         match error {
-            ObjectConversionError::InvalidCustomTime(_) => Self::internal(INVALID_CUSTOM_TIME),
+            error @ ObjectConversionError::InvalidCustomTime(_) => {
+                let mut status = Self::internal(INVALID_CUSTOM_TIME);
+                status.set_source(std::sync::Arc::new(error));
+                status
+            }
             ObjectConversionError::Storage(error) => error.into(),
         }
     }
@@ -767,10 +774,16 @@ mod tests {
             },
         ] {
             let error = object(&invalid).unwrap_err();
+            // The storage error is wrapped transparently: the chain continues with its cause,
+            // the integer conversion, instead of repeating its message.
+            let ObjectConversionError::Storage(storage) = &error else {
+                panic!("{error:?}");
+            };
+            assert_eq!(error.to_string(), storage.to_string());
             assert!(
                 std::error::Error::source(&error)
                     .unwrap()
-                    .is::<ObjectError>()
+                    .is::<std::num::TryFromIntError>()
             );
             assert!(matches!(ObjectError::from(error), ObjectError::Corrupt(_)));
             assert_eq!(
@@ -781,12 +794,21 @@ mod tests {
                 tonic::Code::Unavailable
             );
         }
+        let corrupt_time = ObjectRecord {
+            custom_time: Some("corrupt".into()),
+            ..record
+        };
+        // The client sees only the fixed message; the status keeps the conversion error for logs.
+        let status = tonic::Status::from(object(&corrupt_time).unwrap_err());
+        assert_eq!(status.code(), tonic::Code::Internal);
+        assert_eq!(status.message(), INVALID_CUSTOM_TIME);
+        let cause = std::error::Error::source(&status).unwrap();
         assert!(matches!(
-            object(&ObjectRecord {
-                custom_time: Some("corrupt".into()),
-                ..record
-            })
-            .map_err(ObjectError::from),
+            cause.downcast_ref::<ObjectConversionError>(),
+            Some(ObjectConversionError::InvalidCustomTime(_))
+        ));
+        assert!(matches!(
+            object(&corrupt_time).map_err(ObjectError::from),
             Err(ObjectError::InvalidMetadata)
         ));
     }

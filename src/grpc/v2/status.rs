@@ -156,10 +156,12 @@ fn unsupported_with_remedy(message: String, remedy: &str) -> Status {
     with_detail(
         Code::Unimplemented,
         message,
-        "type.googleapis.com/google.rpc.ErrorInfo",
+        ERROR_INFO_TYPE,
         info.encode_to_vec(),
     )
 }
+
+const ERROR_INFO_TYPE: &str = "type.googleapis.com/google.rpc.ErrorInfo";
 
 /// The domain Cloud Storage puts in the `ErrorInfo` of a rejected request. It names the service,
 /// not the endpoint the client dialed, so an emulator on another host keeps the same value.
@@ -167,7 +169,7 @@ const ERROR_DOMAIN: &str = "storage.googleapis.com";
 
 /// An `INVALID_ARGUMENT` status that carries one `google.rpc.ErrorInfo`, as Cloud Storage does
 /// for malformed resource names.
-pub(crate) fn invalid_with_reason(message: String, reason: &str) -> Status {
+pub(crate) fn invalid_with_reason(message: impl Into<String>, reason: &str) -> Status {
     let info = ErrorInfo {
         reason: reason.into(),
         domain: ERROR_DOMAIN.into(),
@@ -175,24 +177,25 @@ pub(crate) fn invalid_with_reason(message: String, reason: &str) -> Status {
     };
     with_detail(
         Code::InvalidArgument,
-        message,
-        "type.googleapis.com/google.rpc.ErrorInfo",
+        message.into(),
+        ERROR_INFO_TYPE,
         info.encode_to_vec(),
     )
 }
 
 /// An `INVALID_ARGUMENT` status that carries a `google.rpc.BadRequest` with one field violation
 /// whose description repeats the message, as Cloud Storage does for an empty object name.
-pub(crate) fn invalid_field(message: &str) -> Status {
+pub(crate) fn invalid_field(message: impl Into<String>) -> Status {
+    let message = message.into();
     let violation = BadRequest {
         field_violations: vec![bad_request::FieldViolation {
-            description: message.into(),
+            description: message.clone(),
             ..Default::default()
         }],
     };
     with_detail(
         Code::InvalidArgument,
-        message.into(),
+        message,
         "type.googleapis.com/google.rpc.BadRequest",
         violation.encode_to_vec(),
     )

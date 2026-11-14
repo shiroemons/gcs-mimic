@@ -46,19 +46,31 @@ pub(super) fn object_status(error: ObjectError) -> Status {
     error.into()
 }
 
-/// [`object_status`] for an RPC that names one object: Cloud Storage repeats `<bucket>/<object>`
-/// in its not-found message over gRPC.
-pub(super) fn named_object_status<'a>(
+/// Maps the error of an RPC that names one object with Cloud Storage's `<bucket>/<object>`
+/// not-found wording; an unsupported setting keeps JSON's description.
+pub(super) fn naming_object<'a>(
     bucket: &'a str,
     name: &'a str,
 ) -> impl Fn(ObjectError) -> Status + 'a {
     move |error| {
-        if matches!(error, ObjectError::UnsupportedMetadata(_)) {
-            return object_status(error);
-        }
         json::JsonError::from(error)
             .naming_object(bucket, name)
             .into()
+    }
+}
+
+/// [`naming_object`] with the Storage v2 wording for unsupported metadata.
+pub(super) fn named_object_status<'a>(
+    bucket: &'a str,
+    name: &'a str,
+) -> impl Fn(ObjectError) -> Status + 'a {
+    let named = naming_object(bucket, name);
+    move |error| {
+        if matches!(error, ObjectError::UnsupportedMetadata(_)) {
+            object_status(error)
+        } else {
+            named(error)
+        }
     }
 }
 

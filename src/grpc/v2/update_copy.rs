@@ -10,7 +10,7 @@ use crate::{
         RetentionPolicyUpdate,
     },
     grpc::validate::{self, strict_bucket_conditions, strict_conditions},
-    json::{self, JsonError},
+    json,
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
     server::authorize_bucket,
     storage::{
@@ -762,7 +762,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(|e| Status::from(JsonError::from(e).naming_object(bucket, name)))?;
+            .map_err(super::object_io::naming_object(bucket, name))?;
         Ok(Response::new(self.written_object(&record, caller).await?))
     }
     pub(super) async fn compose_object(
@@ -929,6 +929,7 @@ mod tests {
     use crate::grpc::test_support::{
         self as fixtures, assert_code, assert_unsupported, caller, registry,
     };
+    use crate::json::JsonError;
     use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::{
         auth::Auth,
