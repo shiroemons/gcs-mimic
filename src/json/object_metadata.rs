@@ -33,7 +33,7 @@ impl ObjectMetadataRequest {
             .and_then(|value| match value {
                 Value::String(text) => text.parse::<i64>().ok(),
                 Value::Number(number) => number.as_i64(),
-                _ => None,
+                Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => None,
             });
         Ok(ObjectTarget {
             generation,

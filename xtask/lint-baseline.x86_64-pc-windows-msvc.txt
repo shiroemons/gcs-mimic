@@ -8,10 +8,8 @@ clippy::wildcard_enum_match_arm	src/grpc/v2/object_io/write.rs	1
 clippy::wildcard_enum_match_arm	src/import/reader.rs	2
 clippy::wildcard_enum_match_arm	src/import/snapshot.rs	2
 clippy::wildcard_enum_match_arm	src/json/acl.rs	1
-clippy::wildcard_enum_match_arm	src/json/derived_metadata.rs	1
 clippy::wildcard_enum_match_arm	src/json/fields.rs	1
 clippy::wildcard_enum_match_arm	src/json/notifications.rs	1
-clippy::wildcard_enum_match_arm	src/json/object_metadata.rs	1
 clippy::wildcard_enum_match_arm	src/server/admin/sync.rs	2
 clippy::wildcard_enum_match_arm	src/server/admin/sync/conflicts.rs	1
 clippy::wildcard_enum_match_arm	src/server/buckets.rs	1

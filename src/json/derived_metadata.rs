@@ -54,7 +54,7 @@ pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, JsonError>
         Value::Object(fields) => fields.iter().all(|(key, value)| {
             key == "metadata" && (value.is_null() || value.as_object().is_some_and(Map::is_empty))
         }),
-        _ => false,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => false,
     };
     Ok((!inherits).then_some(value))
 }
