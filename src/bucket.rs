@@ -1,6 +1,6 @@
 //! Transport-independent bucket state shared by the catalog and protocol adapters.
 
-use crate::storage::failure::{BackendCause, IoCause};
+use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
 use std::{
     collections::BTreeMap,
     fmt,
@@ -822,10 +822,16 @@ impl CatalogError {
 
 impl std::error::Error for CatalogError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for CatalogError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Io(cause) => cause.source(),
-            Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
-            Self::Metadata(error) => Some(error),
+            Self::Io(cause) => cause.typed_source(),
+            Self::Corrupt(cause) | Self::Unavailable(cause) => cause.typed_source(),
+            Self::Metadata(error) => Some(Link::Leaf(error)),
             Self::AuthenticationAlreadyConfigured
             | Self::AlreadyExists
             | Self::NotFound

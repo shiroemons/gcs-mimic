@@ -3,6 +3,7 @@
 
 use super::{CatalogId, SyncState, catalog_id};
 use crate::storage::catalog::sql;
+use crate::storage::failure::{Link, TypedSource};
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError, NodeId},
@@ -139,8 +140,14 @@ impl std::fmt::Display for RootError {
 }
 impl std::error::Error for RootError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for RootError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Admin(error) => Some(error),
+            Self::Admin(error) => Some(Link::Admin(error)),
             Self::InUse
             | Self::Unsupported
             | Self::RootChanged

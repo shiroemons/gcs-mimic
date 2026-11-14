@@ -11,7 +11,7 @@ use crate::{
     object::ObjectError,
     storage::{
         admin::AdminError,
-        catalog::{ConnectionUnavailable, ExecutorError},
+        catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
         sync_state::{conflicts, root::RootError, writeback},
     },
 };
@@ -40,8 +40,55 @@ pub(crate) enum Source {
 pub(crate) struct Leaf(Box<dyn Error + Send + Sync>);
 
 impl Source {
+    /// The held error as the first link of its chain.
+    pub(crate) fn link(&self) -> Link<'_> {
+        match self {
+            Self::Failure(error) => Link::Failure(error),
+            Self::Exhausted(error) => Link::Exhausted(error),
+            Self::Context(error) => Link::Context(error),
+            Self::Io(error) => Link::Io(error),
+            Self::Sqlite(error) => Link::Sqlite(error),
+            Self::Catalog(error) => Link::Catalog(error),
+            Self::Object(error) => Link::Object(error),
+            Self::Admin(error) => Link::Admin(error),
+            Self::Root(error) => Link::Root(error),
+            Self::Writeback(error) => Link::Writeback(error),
+            Self::Conflict(error) => Link::Conflict(error),
+            Self::Connection(error) => Link::Connection(error),
+            Self::Executor(error) => Link::Executor(error),
+            Self::Leaf(Leaf(error)) => Link::Leaf(&**error),
+        }
+    }
+
     /// The held error itself, so a `source()` chain sees its own type and text.
     pub(crate) fn as_error(&self) -> &(dyn Error + 'static) {
+        self.link().as_error()
+    }
+}
+
+/// One error of a failure's `source()` chain, by type.
+#[derive(Clone, Copy)]
+pub(crate) enum Link<'a> {
+    Failure(&'a BackendFailure),
+    Exhausted(&'a MemoryExhausted),
+    Context(&'a BackendCause),
+    Io(&'a io::Error),
+    Sqlite(&'a rusqlite::Error),
+    Catalog(&'a CatalogError),
+    Object(&'a ObjectError),
+    Admin(&'a AdminError),
+    Root(&'a RootError),
+    Writeback(&'a writeback::Error),
+    Conflict(&'a conflicts::Error),
+    Connection(&'a ConnectionUnavailable),
+    Executor(&'a ExecutorError),
+    Rollback(&'a RollbackError),
+    /// A failure no decision reads, or any error below one, an I/O error or an SQLite error.
+    Leaf(&'a (dyn Error + 'static)),
+}
+
+impl<'a> Link<'a> {
+    pub(crate) fn as_error(self) -> &'a (dyn Error + 'static) {
         match self {
             Self::Failure(error) => error,
             Self::Exhausted(error) => error,
@@ -56,9 +103,52 @@ impl Source {
             Self::Conflict(error) => error,
             Self::Connection(error) => error,
             Self::Executor(error) => error,
-            Self::Leaf(Leaf(error)) => &**error,
+            Self::Rollback(error) => error,
+            Self::Leaf(error) => error,
         }
     }
+
+    /// The next link: the error `as_error().source()` returns, by type.
+    pub(crate) fn source(self) -> Option<Link<'a>> {
+        match self {
+            Self::Failure(_) => None,
+            Self::Exhausted(error) => error.typed_source(),
+            Self::Context(error) => error.typed_source(),
+            Self::Catalog(error) => error.typed_source(),
+            Self::Object(error) => error.typed_source(),
+            Self::Admin(error) => error.typed_source(),
+            Self::Root(error) => error.typed_source(),
+            Self::Writeback(error) => error.typed_source(),
+            Self::Conflict(error) => error.typed_source(),
+            Self::Connection(error) => error.typed_source(),
+            Self::Executor(error) => error.typed_source(),
+            Self::Rollback(error) => error.typed_source(),
+            // Neither standard error nor a leaf holds a typed failure.
+            Self::Io(error) => Error::source(error).map(Self::Leaf),
+            Self::Sqlite(error) => Error::source(error).map(Self::Leaf),
+            Self::Leaf(error) => error.source().map(Self::Leaf),
+        }
+    }
+
+    /// The fixed backend failure this link is, if it is one.
+    pub(crate) fn failure(self) -> Option<BackendFailure> {
+        if let Self::Failure(failure) = self {
+            Some(*failure)
+        } else {
+            None
+        }
+    }
+}
+
+/// An error whose `source()` is derived from this typed link, so decisions that read the chain
+/// by type and reports that read it through `source()` see the same errors.
+pub(crate) trait TypedSource {
+    fn typed_source(&self) -> Option<Link<'_>>;
+}
+
+/// `first` and every link below it, outermost first.
+pub(crate) fn chain(first: Link<'_>) -> impl Iterator<Item = Link<'_>> {
+    std::iter::successors(Some(first), |link| link.source())
 }
 
 impl fmt::Display for Source {

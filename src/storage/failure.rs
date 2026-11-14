@@ -18,7 +18,7 @@ use std::{
 mod kind;
 pub(crate) use kind::BackendFailure;
 mod source;
-pub(crate) use source::Source;
+pub(crate) use source::{Link, Source, TypedSource, chain};
 
 /// The message and optional underlying error of an unavailable or corrupt backend.
 ///
@@ -65,12 +65,19 @@ impl BackendCause {
         &self.message
     }
 
+    /// The fixed failure this cause reports, however many typed layers describe it.
     pub(crate) fn failure(&self) -> Option<BackendFailure> {
-        crate::error::causes(self).find_map(|error| error.downcast_ref::<BackendFailure>().copied())
+        chain(Link::Context(self)).find_map(Link::failure)
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.as_deref().map(Source::as_error)
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for BackendCause {
+    fn typed_source(&self) -> Option<Link<'_>> {
+        self.source.as_deref().map(Source::link)
     }
 }
 
@@ -145,7 +152,7 @@ impl IoCause {
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.as_deref().map(Source::as_error)
+        self.typed_source().map(Link::as_error)
     }
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
@@ -155,6 +162,12 @@ impl IoCause {
                 .downcast_ref::<MemoryExhausted>()
                 .map(|exhausted| exhausted.budget)
         })
+    }
+}
+
+impl TypedSource for IoCause {
+    fn typed_source(&self) -> Option<Link<'_>> {
+        self.source.as_deref().map(Source::link)
     }
 }
 
@@ -200,9 +213,13 @@ impl fmt::Display for MemoryExhausted {
 
 impl Error for MemoryExhausted {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source
-            .as_ref()
-            .map(|error| error as &(dyn Error + 'static))
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for MemoryExhausted {
+    fn typed_source(&self) -> Option<Link<'_>> {
+        self.source.as_ref().map(Link::Sqlite)
     }
 }
 

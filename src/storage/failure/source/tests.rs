@@ -47,3 +47,97 @@ fn every_source_shows_the_held_error() {
     assert_delegates(|| ExecutorError::Closed);
     assert_delegates(|| serde_json::from_str::<u8>("not json").unwrap_err());
 }
+
+/// The typed chain from `first` visits exactly the errors `source()` returns, node for node.
+fn assert_chain_matches(first: Link<'_>) {
+    let typed: Vec<_> = chain(first).map(Link::as_error).collect();
+    let plain: Vec<_> =
+        std::iter::successors(Some(first.as_error()), |&error| error.source()).collect();
+    let report = crate::error::Report(first.as_error()).to_string();
+    assert_eq!(typed.len(), plain.len(), "{report}");
+    for (typed, plain) in typed.into_iter().zip(plain) {
+        assert!(
+            std::ptr::addr_eq(typed, plain),
+            "{typed} is not {plain} in {report}"
+        );
+    }
+}
+
+fn admin_backend() -> AdminError {
+    AdminError::Backend(closed())
+}
+
+#[test]
+fn typed_chains_visit_every_source_node() {
+    let io_cause = || crate::storage::failure::IoCause::from(io::Error::other("disk failed"));
+    let decoding = rusqlite::Error::FromSqlConversionFailure(
+        0,
+        rusqlite::types::Type::Text,
+        Box::new(io::Error::other("bad column")),
+    );
+    let sources: Vec<Source> = vec![
+        BackendFailure::CatalogClosed.into(),
+        MemoryExhausted {
+            budget: MemoryBudget::Catalog,
+            source: Some(sqlite_busy()),
+        }
+        .into(),
+        BackendCause::from_error(closed()).into(),
+        io::Error::other(io::Error::other("inner")).into(),
+        decoding.into(),
+        CatalogError::Io(io_cause()).into(),
+        CatalogError::Corrupt(closed()).into(),
+        CatalogError::Unavailable(closed()).into(),
+        CatalogError::Metadata(crate::metadata_error::MetadataError::EmptyLanguage).into(),
+        ObjectError::Io(io_cause()).into(),
+        ObjectError::Metadata(crate::metadata_error::MetadataError::EmptyLanguage).into(),
+        ObjectError::BodyAborted(closed()).into(),
+        ObjectError::Corrupt(closed()).into(),
+        ObjectError::Unavailable(closed()).into(),
+        crate::storage::failure::object_context("staging cleanup", io::Error::other("disk")).into(),
+        admin_backend().into(),
+        AdminError::Corrupt(closed()).into(),
+        AdminError::BodyAborted(closed()).into(),
+        AdminError::Io(io_cause()).into(),
+        AdminError::DiskFull(io::Error::from(io::ErrorKind::StorageFull).into()).into(),
+        RootError::Admin(admin_backend()).into(),
+        writeback::Error::Admin(admin_backend()).into(),
+        writeback::Error::Root(RootError::Admin(admin_backend())).into(),
+        writeback::Error::Conflict(conflicts::Error::Admin(admin_backend())).into(),
+        writeback::Error::Displaced(Box::new(writeback::Error::Admin(admin_backend()))).into(),
+        conflicts::Error::Admin(admin_backend()).into(),
+        conflicts::Error::Root(RootError::Admin(admin_backend())).into(),
+        ConnectionUnavailable::Closed.into(),
+        ConnectionUnavailable::Unrecovered(RollbackError::Rollback(sqlite_busy())).into(),
+        ExecutorError::Closed.into(),
+        crate::fsutil::FsError::Io(io::Error::other("below a leaf")).into(),
+    ];
+    for source in &sources {
+        assert_chain_matches(source.link());
+    }
+}
+
+/// Backend guidance is found through every typed layer that carries a fixed failure.
+#[test]
+fn fixed_failures_are_found_below_typed_layers() {
+    let causes = [
+        BackendCause::from_error(admin_backend()),
+        BackendCause::from_error(RootError::Admin(admin_backend())),
+        BackendCause::from_error(writeback::Error::Displaced(Box::new(
+            writeback::Error::Conflict(conflicts::Error::Admin(admin_backend())),
+        ))),
+        BackendCause::from_error(ConnectionUnavailable::Closed),
+        BackendCause::from_error(ExecutorError::Closed),
+        BackendCause::from_error(ObjectError::Unavailable(BackendCause::from_error(
+            CatalogError::Unavailable(closed()),
+        ))),
+    ];
+    for cause in causes {
+        assert_eq!(
+            cause.failure(),
+            Some(BackendFailure::CatalogClosed),
+            "{cause}"
+        );
+    }
+    assert_eq!(BackendCause::from_error(sqlite_busy()).failure(), None);
+}

@@ -2,7 +2,7 @@
 
 use crate::{
     bucket::StorageClass,
-    storage::failure::{BackendCause, IoCause},
+    storage::failure::{BackendCause, IoCause, Link, TypedSource},
 };
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 use unix_nanos::UnixNanos;
@@ -1022,11 +1022,17 @@ impl fmt::Display for ObjectError {
 
 impl std::error::Error for ObjectError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for ObjectError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Io(cause) => cause.source(),
-            Self::Metadata(error) => Some(error),
+            Self::Io(cause) => cause.typed_source(),
+            Self::Metadata(error) => Some(Link::Leaf(error)),
             Self::BodyAborted(cause) | Self::Corrupt(cause) | Self::Unavailable(cause) => {
-                cause.source()
+                cause.typed_source()
             }
             Self::BucketNotFound
             | Self::ObjectNotFound

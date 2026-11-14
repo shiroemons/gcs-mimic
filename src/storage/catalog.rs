@@ -126,7 +126,7 @@ pub(super) use buckets::select_bucket;
 use buckets::{
     BucketCreation, Cors, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
 };
-pub(in crate::storage) use connection::ConnectionUnavailable;
+pub(in crate::storage) use connection::{ConnectionUnavailable, RollbackError};
 pub(in crate::storage) use executor::ExecutorError;
 use keyset::After;
 pub(crate) use keyset::{Page, PageLimit};

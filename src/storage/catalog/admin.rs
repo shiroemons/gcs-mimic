@@ -17,7 +17,7 @@
 
 use super::{Catalog, Incarnation, Work, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
-use crate::storage::failure::{BackendCause, IoCause};
+use crate::storage::failure::{BackendCause, IoCause, Link, TypedSource};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
@@ -280,11 +280,16 @@ impl fmt::Display for AdminError {
 }
 impl std::error::Error for AdminError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+impl TypedSource for AdminError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
             Self::BodyAborted(cause) | Self::Backend(cause) | Self::Corrupt(cause) => {
-                cause.source()
+                cause.typed_source()
             }
-            Self::Io(cause) | Self::DiskFull(cause) => cause.source(),
+            Self::Io(cause) | Self::DiskFull(cause) => cause.typed_source(),
             Self::Busy { .. }
             | Self::Closed
             | Self::Precondition

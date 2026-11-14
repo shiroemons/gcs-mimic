@@ -7,6 +7,7 @@
 //! execution permit, or a read slot on a pooled reader, gives each thread one job at a time, so
 //! the queue holds at most one job in practice.
 
+use crate::storage::failure::{Link, TypedSource};
 use tokio::sync::{mpsc, oneshot};
 
 /// What the thread does after a job: closing the catalog runs the last job.
@@ -37,8 +38,16 @@ impl std::fmt::Display for ExecutorError {
 
 impl std::error::Error for ExecutorError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for ExecutorError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Closed => Some(&crate::storage::failure::BackendFailure::CatalogClosed),
+            Self::Closed => Some(Link::Failure(
+                &crate::storage::failure::BackendFailure::CatalogClosed,
+            )),
             Self::Panicked => None,
         }
     }

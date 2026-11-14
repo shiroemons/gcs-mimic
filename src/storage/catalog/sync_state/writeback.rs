@@ -12,6 +12,7 @@ use super::{
 };
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
+use crate::storage::failure::{Link, TypedSource};
 use crate::{
     bucket::CatalogError,
     fsutil::{self, NodeId},
@@ -147,11 +148,16 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+impl TypedSource for Error {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Admin(error) => Some(error),
-            Self::Root(error) => Some(error),
-            Self::Conflict(error) => Some(error),
-            Self::Displaced(error) => Some(error.as_ref()),
+            Self::Admin(error) => Some(Link::Admin(error)),
+            Self::Root(error) => Some(Link::Root(error)),
+            Self::Conflict(error) => Some(Link::Conflict(error)),
+            Self::Displaced(error) => Some(Link::Writeback(error)),
             Self::Capacity | Self::RecoveryRequired | Self::Protected | Self::WorkspaceChanged => {
                 None
             }

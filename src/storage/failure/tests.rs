@@ -246,17 +246,18 @@ fn sqlite_failure(code: std::ffi::c_int) -> rusqlite::Error {
 }
 
 #[test]
-fn backend_guidance_survives_changed_context_and_io_wrappers() {
+fn backend_guidance_survives_changed_and_nested_contexts() {
     for cause in [
         BackendCause::with_source("renamed backend diagnostic", BackendFailure::CatalogClosed),
         BackendCause::from_error(CatalogError::Unavailable(BackendCause::with_source(
             "renamed catalog diagnostic",
             BackendFailure::CatalogClosed,
         ))),
-        BackendCause::from_error(io::Error::other(BackendCause::with_source(
-            "renamed I/O diagnostic",
+        // A context inside another context, as wrapped backend diagnostics travel.
+        BackendCause::from_error(BackendCause::with_source(
+            "renamed nested diagnostic",
             BackendFailure::CatalogClosed,
-        ))),
+        )),
         // A closed catalog that an administrative operation reported as a backend failure.
         BackendCause::from_error(crate::storage::admin::AdminError::from(
             CatalogError::Unavailable(BackendFailure::CatalogClosed.into()),

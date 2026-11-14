@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::failure::{Link, TypedSource};
 
 /// Why an operation could not run on the shared catalog connection.
 #[derive(Debug)]
@@ -24,9 +25,15 @@ impl std::fmt::Display for ConnectionUnavailable {
 
 impl std::error::Error for ConnectionUnavailable {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for ConnectionUnavailable {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Unrecovered(error) => Some(error),
-            Self::Closed => Some(&BackendFailure::CatalogClosed),
+            Self::Unrecovered(error) => Some(Link::Rollback(error)),
+            Self::Closed => Some(Link::Failure(&BackendFailure::CatalogClosed)),
             Self::Panicked => None,
         }
     }
@@ -85,8 +92,14 @@ impl std::fmt::Display for RollbackError {
 
 impl std::error::Error for RollbackError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.typed_source().map(Link::as_error)
+    }
+}
+
+impl TypedSource for RollbackError {
+    fn typed_source(&self) -> Option<Link<'_>> {
         match self {
-            Self::Rollback(error) => Some(error),
+            Self::Rollback(error) => Some(Link::Sqlite(error)),
             Self::StillOpen => None,
             #[cfg(test)]
             Self::Injected => None,
