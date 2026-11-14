@@ -44,8 +44,23 @@ pub fn set_log_level(level: LogLevel) {
     LOG_LEVEL.store(level as u8, Ordering::Relaxed);
 }
 
+/// The threshold [`set_log_level`] stored. It is the only writer, so the stored value always
+/// names a level; anything else would hide all but errors.
+fn configured_level() -> LogLevel {
+    let stored = LOG_LEVEL.load(Ordering::Relaxed);
+    [
+        LogLevel::Debug,
+        LogLevel::Info,
+        LogLevel::Warn,
+        LogLevel::Error,
+    ]
+    .into_iter()
+    .find(|level| *level as u8 == stored)
+    .unwrap_or(LogLevel::Error)
+}
+
 pub fn enabled(level: LogLevel) -> bool {
-    (level as u8) >= LOG_LEVEL.load(Ordering::Relaxed)
+    level >= configured_level()
 }
 
 #[derive(Serialize)]
@@ -58,12 +73,12 @@ struct Event<'a, T> {
 
 fn write_event(
     mut writer: impl Write,
-    threshold: u8,
+    threshold: LogLevel,
     level: LogLevel,
     event: &str,
     fields: impl Serialize,
 ) -> io::Result<()> {
-    if (level as u8) < threshold {
+    if level < threshold {
         return Ok(());
     }
     serde_json::to_writer(
@@ -81,7 +96,7 @@ fn write_event(
 pub fn emit(level: LogLevel, event: &str, fields: impl Serialize) {
     let _ = write_event(
         io::stderr().lock(),
-        LOG_LEVEL.load(Ordering::Relaxed),
+        configured_level(),
         level,
         event,
         fields,
@@ -179,7 +194,7 @@ impl Diagnostics {
             records.sort_by(|a, b| (a.source, &a.key).cmp(&(b.source, &b.key)));
             write_event(
                 &mut writer,
-                LogLevel::Debug as u8,
+                LogLevel::Debug,
                 level,
                 "diagnostics",
                 serde_json::json!({"diagnostics": records}),
@@ -285,7 +300,7 @@ mod tests {
                 let mut bytes = Vec::new();
                 write_event(
                     &mut bytes,
-                    threshold as u8,
+                    threshold,
                     level,
                     "operation",
                     serde_json::json!({"message":"line\n\"quoted\""}),

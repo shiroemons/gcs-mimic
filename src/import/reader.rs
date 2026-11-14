@@ -12,7 +12,7 @@ use crate::{
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
     object::{generation::Generation, name::ObjectName, retention::ObjectRetention},
-    source_tree::{self, WalkError, Walker},
+    source_tree::{self, WalkEntry, WalkError, Walker},
     storage::failure::BackendCause,
 };
 use serde::Serialize;
@@ -371,18 +371,12 @@ impl BodyStream {
         &mut self,
         buffer: &'a mut [u8; 65_536],
     ) -> Result<&'a [u8], ImportFailure> {
-        let limit = usize::try_from(
-            self.max_bytes
-                .saturating_sub(self.read)
-                .saturating_add(1)
-                .min(buffer.len() as u64),
-        )
-        .map_err(io::Error::other)?;
-        let length = self.source.file().read(
-            buffer
-                .get_mut(..limit)
-                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
-        )?;
+        // One byte past the cap is enough to see that the body grew.
+        let length = self
+            .source
+            .file()
+            .take(self.max_bytes.saturating_sub(self.read).saturating_add(1))
+            .read(buffer)?;
         self.read = self.read.checked_add(length as u64).ok_or_else(|| {
             ImportFailure::corrupt(
                 CorruptField::Size,
@@ -1098,7 +1092,11 @@ pub(super) fn scan(
         body_buffer: options.verify_bodies.then(|| Box::new([0; 65_536])),
     };
     for entry in walk {
-        let (path, metadata, depth) = entry.map_err(walk_failure)?;
+        let WalkEntry {
+            path,
+            metadata,
+            depth,
+        } = entry.map_err(walk_failure)?;
         let report = &mut *scan.report;
         report.summary.entries += 1;
         if depth == 0 && metadata.is_dir() {

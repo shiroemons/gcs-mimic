@@ -1182,7 +1182,7 @@ impl LiveObject<'_> {
                 Ok(None)
             }
             Target::Identical => Ok(Some(Content::Identical)),
-            _ => Ok(Some(Content::Changed)),
+            Target::Absent | Target::Conflicting => Ok(Some(Content::Changed)),
         }
     }
 

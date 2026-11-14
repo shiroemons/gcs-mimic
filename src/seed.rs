@@ -5,7 +5,8 @@ use crate::{
     config::Config,
     object::ExpectedHashes,
     source_tree::{
-        LARGE_TREE_ENTRIES, TreeLimits, WalkError, Walker, is_os_metadata, warn_large_tree,
+        LARGE_TREE_ENTRIES, TreeLimits, WalkEntry, WalkError, Walker, is_os_metadata,
+        warn_large_tree,
     },
     storage::{
         Catalog,
@@ -25,7 +26,7 @@ use tokio::sync::mpsc;
 mod error;
 pub use error::SeedError;
 
-type Entry = Result<(PathBuf, std::fs::Metadata, usize), SeedError>;
+type Entry = Result<WalkEntry, SeedError>;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -192,7 +193,11 @@ async fn import_directory(
                 return Err(SeedError::WalkStopped);
             }
         };
-        let (path, metadata, depth) = entry?;
+        let WalkEntry {
+            path,
+            metadata,
+            depth,
+        } = entry?;
         walked += 1;
         // A chosen limit already says how large a tree may be.
         if walked == LARGE_TREE_ENTRIES + 1 && limits.entries.is_none() {

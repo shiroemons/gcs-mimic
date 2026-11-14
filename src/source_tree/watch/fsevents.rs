@@ -9,6 +9,35 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+// FSEventStreamEventFlags, as named in FSEvents.h.
+const EVENT_MUST_SCAN_SUB_DIRS: u32 = 0x0000_0001;
+const EVENT_USER_DROPPED: u32 = 0x0000_0002;
+const EVENT_KERNEL_DROPPED: u32 = 0x0000_0004;
+const EVENT_IDS_WRAPPED: u32 = 0x0000_0008;
+const EVENT_HISTORY_DONE: u32 = 0x0000_0010;
+const EVENT_ROOT_CHANGED: u32 = 0x0000_0020;
+const EVENT_ITEM_INODE_META_MOD: u32 = 0x0000_0400;
+const EVENT_ITEM_CHANGE_OWNER: u32 = 0x0000_4000;
+const EVENT_ITEM_XATTR_MOD: u32 = 0x0000_8000;
+const EVENT_ITEM_IS_DIR: u32 = 0x0002_0000;
+/// History this stream can no longer replay in order, or a changed root: both need a fresh stream.
+const STREAM_RESET: u32 = EVENT_MUST_SCAN_SUB_DIRS
+    | EVENT_USER_DROPPED
+    | EVENT_KERNEL_DROPPED
+    | EVENT_IDS_WRAPPED
+    | EVENT_ROOT_CHANGED;
+/// Directory metadata changes that can revoke access without another event.
+const DIRECTORY_ACCESS: u32 =
+    EVENT_ITEM_INODE_META_MOD | EVENT_ITEM_CHANGE_OWNER | EVENT_ITEM_XATTR_MOD;
+// FSEventStreamCreateFlags, as named in FSEvents.h.
+const CREATE_NO_DEFER: u32 = 0x0000_0002;
+const CREATE_WATCH_ROOT: u32 = 0x0000_0004;
+const CREATE_FILE_EVENTS: u32 = 0x0000_0010;
+/// kFSEventStreamEventIdSinceNow: report only events after the stream starts.
+const SINCE_NOW: u64 = u64::MAX;
+/// kCFStringEncodingUTF8 from CFString.h.
+const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
 type Callback =
     unsafe extern "C" fn(*const c_void, *mut c_void, usize, *mut c_void, *const u32, *const u64);
 #[repr(C)]
@@ -143,7 +172,7 @@ fn ignored(root: &[u8], path: &[u8]) -> bool {
 
 fn needs_access_check(flags: u32) -> bool {
     // Ownership may revoke access without a separate inode-metadata notification.
-    flags & 0x2f != 0 || flags & 0x20000 != 0 && flags & 0xc400 != 0
+    flags & STREAM_RESET != 0 || flags & EVENT_ITEM_IS_DIR != 0 && flags & DIRECTORY_ACCESS != 0
 }
 
 #[test]
@@ -180,7 +209,7 @@ unsafe extern "C" fn callback(
                 *flags.add(index),
             )
         };
-        if flags & 0x10 != 0 || ignored(&context.root, path) {
+        if flags & EVENT_HISTORY_DONE != 0 || ignored(&context.root, path) {
             continue;
         }
         // Overflow/root changes need a fresh stream; directory permission changes require a fresh access check.
@@ -271,8 +300,16 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     // SAFETY: bytes is a live UTF-8 path; CoreFoundation copies this input into a newly retained string.
     let string = CfObject(allocated(
-        unsafe { CFStringCreateWithBytes(std::ptr::null(), bytes.as_ptr(), length, 0x08000100, 0) }
-            .cast_mut(),
+        unsafe {
+            CFStringCreateWithBytes(
+                std::ptr::null(),
+                bytes.as_ptr(),
+                length,
+                CF_STRING_ENCODING_UTF8,
+                0,
+            )
+        }
+        .cast_mut(),
     )?);
     let value = string.0.as_ptr().cast_const();
     // SAFETY: the single live CFString and standard retaining callbacks define a valid one-element array.
@@ -308,9 +345,9 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<
             callback,
             &mut info,
             array.0.as_ptr(),
-            u64::MAX,
+            SINCE_NOW,
             0.05,
-            0x16,
+            CREATE_NO_DEFER | CREATE_WATCH_ROOT | CREATE_FILE_EVENTS,
         )
     })?;
     // SAFETY: a null attributes value creates a new serial queue with this static label.

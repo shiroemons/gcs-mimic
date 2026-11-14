@@ -338,28 +338,24 @@ pub fn execute(
         .max_blocking_threads(2)
         .enable_all()
         .build()?;
-    let imported = runtime.block_on(run(
-        &options,
-        source_identity(&options, source),
-        start,
-        &baseline,
-        &mut output,
-        &mut diagnostics,
-    ));
+    let mut attempt = |options: &Options| {
+        runtime.block_on(run(
+            options,
+            source_identity(options, source),
+            start,
+            &baseline,
+            &mut output,
+            &mut diagnostics,
+        ))
+    };
+    let imported = attempt(&options);
     // A refused resume changed nothing, so the destination can still be what an earlier release
     // started when it had other defaults.
     if start == ImportStart::Resume
         && matches!(imported, Err(ImportError::OtherImport))
         && let Some(former) = options.with_former_defaults()
     {
-        return runtime.block_on(run(
-            &former,
-            source_identity(&former, source),
-            start,
-            &baseline,
-            &mut output,
-            &mut diagnostics,
-        ));
+        return attempt(&former);
     }
     imported
 }

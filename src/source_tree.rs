@@ -159,28 +159,43 @@ impl Walker {
             .extend(children.into_iter().rev().map(|path| (path, depth)));
         Ok(())
     }
+
+    /// Reads one popped entry and queues a directory's children below it.
+    fn visit(&mut self, path: PathBuf, depth: usize) -> Result<WalkEntry, WalkError> {
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.is_dir() {
+            if let Some(limit) = self.limits.depth
+                && depth > limit.get()
+            {
+                return Err(WalkError::DepthLimit { limit });
+            }
+            self.children(&path, depth + 1)?;
+        }
+        Ok(WalkEntry {
+            path,
+            metadata,
+            depth,
+        })
+    }
+}
+
+/// One entry of a walk: its absolute path, its metadata, and how many directories below the root it is.
+#[derive(Debug)]
+pub struct WalkEntry {
+    pub path: PathBuf,
+    pub metadata: fs::Metadata,
+    pub depth: usize,
 }
 
 impl Iterator for Walker {
-    type Item = Result<(PathBuf, fs::Metadata, usize), WalkError>;
+    type Item = Result<WalkEntry, WalkError>;
     fn next(&mut self) -> Option<Self::Item> {
         self.started = true;
         if self.failed {
             return None;
         }
         let (path, depth) = self.pending.pop()?;
-        let result = (|| {
-            let metadata = fs::symlink_metadata(&path)?;
-            if metadata.is_dir() {
-                if let Some(limit) = self.limits.depth
-                    && depth > limit.get()
-                {
-                    return Err(WalkError::DepthLimit { limit });
-                }
-                self.children(&path, depth + 1)?;
-            }
-            Ok((path, metadata, depth))
-        })();
+        let result = self.visit(path, depth);
         self.failed = result.is_err();
         Some(result)
     }
@@ -202,8 +217,8 @@ mod tests {
         );
         let observed: Vec<_> = walk
             .map(Result::unwrap)
-            .filter(|(_, _, depth)| *depth == 0)
-            .map(|(path, _, _)| path)
+            .filter(|entry| entry.depth == 0)
+            .map(|entry| entry.path)
             .collect();
         assert_eq!(observed, roots);
     }
