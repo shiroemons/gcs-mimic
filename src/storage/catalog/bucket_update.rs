@@ -154,13 +154,14 @@ pub(super) fn update_in_transaction(
         })
         .transpose()?;
     store_bucket(transaction, &record, updated, lifecycle)?;
-    for (target, entries) in [
-        (acl::ResolvedAclTarget::Bucket(name), update.acl),
-        (
-            acl::ResolvedAclTarget::DefaultObject(name),
-            update.default_object_acl,
-        ),
+    for (scope, entries) in [
+        (acl::BucketScope::Bucket, update.acl),
+        (acl::BucketScope::DefaultObject, update.default_object_acl),
     ] {
+        let target = acl::ResolvedAclTarget::Bucket {
+            bucket: name,
+            scope,
+        };
         if let Some(entries) = entries {
             acl::replace_resource_acl(transaction, target, &entries, access, principals)?;
         }

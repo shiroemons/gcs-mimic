@@ -245,6 +245,61 @@ async fn setup(data: &TestDir, backend: &str) -> (Catalog, Auth, crate::object::
     (catalog, auth, record)
 }
 
+/// An upsert of the owner's own entity answers with the OWNER grant that ownership keeps,
+/// not the role the change asked for; any other entity keeps the role it asked for.
+#[tokio::test]
+async fn owner_entity_upsert_returns_the_preserved_owner_grant() {
+    let data = TestDir::new();
+    let (catalog, _, record) = setup(&data, "memory").await;
+    let target = AclTarget::Object {
+        bucket: "bucket".into(),
+        name: "object".into(),
+        generation: Some(record.generation),
+    };
+    let upsert = |entity: &str| AclChange::Upsert {
+        entity: entity.into(),
+        role: Some(AclRole::Reader),
+    };
+    let owner_grant = AclEntry {
+        entity: "user-uploader@example.test".into(),
+        role: AclRole::Owner,
+    };
+    let (state, changed) = catalog
+        .change_acl(
+            target.clone(),
+            upsert("user-uploader@example.test"),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed, Some(owner_grant.clone()));
+    assert!(state.entries.contains(&owner_grant));
+    let reader = AclEntry {
+        entity: "user-reader@example.test".into(),
+        role: AclRole::Reader,
+    };
+    let (state, changed) = catalog
+        .change_acl(
+            target.clone(),
+            upsert("user-reader@example.test"),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed, Some(reader.clone()));
+    assert!(state.entries.contains(&reader) && state.entries.contains(&owner_grant));
+    let delete = AclChange::Delete {
+        entity: "user-reader@example.test".into(),
+    };
+    let (state, changed) = catalog
+        .change_acl(target, delete, PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(changed, None);
+    assert!(!state.entries.contains(&reader));
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_owner_to_incarnation()
 {

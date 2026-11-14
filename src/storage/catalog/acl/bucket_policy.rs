@@ -1,7 +1,8 @@
 //! Legacy bucket IAM roles and bucket ACLs are two views of the same authority.
 
 use super::{
-    AclEntry, CatalogError, Entity, UPSERT_BUCKET_ENTRIES, bucket_row, stored_bucket_entries,
+    AclEntry, BucketScope, CatalogError, Entity, UPSERT_BUCKET_ENTRIES, bucket_row,
+    stored_bucket_entries,
 };
 use crate::storage::catalog::sql;
 use crate::{
@@ -145,7 +146,7 @@ pub(super) fn replace_policy(
 ) -> Result<(), CatalogError> {
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
     let mut policy = policies::read_policy(connection, bucket)?;
-    let previous = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
+    let previous = stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
         .unwrap_or_else(|| project_private(&row.project));
     let initialized = if row.policy_bound {
         false
@@ -238,7 +239,7 @@ pub(in super::super) fn replace_from_policy(
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
     let entries = policy_entries(policy, &row.project, principals);
     validate_entries(AclKind::Bucket, &entries)?;
-    let mut current = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
+    let mut current = stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
         .unwrap_or_else(|| project_private(&row.project));
     let stored_order = current.clone();
     current.sort_by(|left, right| left.entity.cmp(&right.entity));
@@ -270,7 +271,7 @@ pub(in super::super) fn reconcile(
     let mut policy = policies::read_policy(connection, bucket)?;
     let changed = if row.policy_bound {
         false
-    } else if let Some(entries) = stored_bucket_entries(connection, bucket, AclKind::Bucket)? {
+    } else if let Some(entries) = stored_bucket_entries(connection, bucket, BucketScope::Bucket)? {
         merge_stored_grants(&mut policy, &entries, &row.project, Some(principals))?
     } else {
         false

@@ -105,7 +105,7 @@ pub(super) fn publish_object_acl(
     let row = bucket_row(connection, bucket)?.ok_or(ObjectError::BucketNotFound)?;
     let mut entries = match mode {
         PublicationAcl::InheritDefault => {
-            let stored = stored_bucket_entries(connection, bucket, AclKind::DefaultObject)?;
+            let stored = stored_bucket_entries(connection, bucket, BucketScope::DefaultObject)?;
             if stored.is_none() && record.owner.is_none() {
                 return Ok(());
             }
@@ -301,19 +301,40 @@ fn invalid_stored(error: impl std::error::Error + Send + Sync + 'static) -> Cata
     ))
 }
 
+/// `acl_bucket_entries.scope`: which of a bucket's two ACLs a row holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BucketScope {
+    Bucket,
+    DefaultObject,
+}
+
+sql::text_enum!(BucketScope, "invalid stored ACL scope", {
+    Bucket => "bucket",
+    DefaultObject => "defaultObject",
+});
+
+impl BucketScope {
+    fn kind(self) -> AclKind {
+        match self {
+            Self::Bucket => AclKind::Bucket,
+            Self::DefaultObject => AclKind::DefaultObject,
+        }
+    }
+}
+
 fn stored_bucket_entries(
     connection: &Connection,
     bucket: &str,
-    kind: AclKind,
+    scope: BucketScope,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     sql::row(
         connection,
         "SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2",
-        params![bucket, scope(kind)],
+        params![bucket, scope],
         |row| row.get::<_, String>(0),
     )
     .optional()?
-    .map(|entries| decode(&entries, kind))
+    .map(|entries| decode(&entries, scope.kind()))
     .transpose()
 }
 
@@ -325,8 +346,9 @@ fn bucket_projection(
     let default = || project_private(&row.project);
     Ok(AclProjection {
         uniform_access: row.uniform_access,
-        bucket: stored_bucket_entries(connection, bucket, AclKind::Bucket)?.unwrap_or_else(default),
-        default_object: stored_bucket_entries(connection, bucket, AclKind::DefaultObject)?
+        bucket: stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
+            .unwrap_or_else(default),
+        default_object: stored_bucket_entries(connection, bucket, BucketScope::DefaultObject)?
             .unwrap_or_else(default),
         bucket_metageneration: row.metageneration,
         objects: Vec::new(),
@@ -343,7 +365,7 @@ pub(super) fn bucket_granted(
     identity: Option<&crate::auth::Identity>,
     permission: crate::auth::Permission,
 ) -> Result<bool, CatalogError> {
-    let entries = stored_bucket_entries(connection, bucket, AclKind::Bucket)?
+    let entries = stored_bucket_entries(connection, bucket, BucketScope::Bucket)?
         .unwrap_or_else(|| project_private(project));
     // Bucket ACL roles are the same authority as legacy bucket IAM, including under UBLA.
     entries_grant(
@@ -479,20 +501,12 @@ fn stored_object_entries(
         .transpose()
 }
 
-fn scope(kind: AclKind) -> &'static str {
-    if kind == AclKind::Bucket {
-        "bucket"
-    } else {
-        "defaultObject"
-    }
-}
-
 /// The resource a metadata mutation replaces ACLs on. Unlike [`AclTarget`], an object target
 /// carries the generation the mutation already selected, so no live-generation lookup remains.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ResolvedAclTarget<'a> {
-    Bucket(&'a str),
-    DefaultObject(&'a str),
+    /// A bucket's own ACL or its default object ACL.
+    Bucket { bucket: &'a str, scope: BucketScope },
     Object {
         bucket: &'a str,
         name: &'a str,
@@ -503,17 +517,14 @@ pub(super) enum ResolvedAclTarget<'a> {
 impl<'a> ResolvedAclTarget<'a> {
     fn kind(self) -> AclKind {
         match self {
-            Self::Bucket(_) => AclKind::Bucket,
-            Self::DefaultObject(_) => AclKind::DefaultObject,
+            Self::Bucket { scope, .. } => scope.kind(),
             Self::Object { .. } => AclKind::Object,
         }
     }
 
     fn bucket(self) -> &'a str {
         match self {
-            Self::Bucket(bucket) | Self::DefaultObject(bucket) | Self::Object { bucket, .. } => {
-                bucket
-            }
+            Self::Bucket { bucket, .. } | Self::Object { bucket, .. } => bucket,
         }
     }
 }
@@ -536,7 +547,9 @@ fn target_access(
                 ObjectError::BucketNotFound => CatalogError::NotFound,
                 error => unavailable(error),
             }),
-        other => check_access(connection, other.bucket(), project, access).map(|_| ()),
+        ResolvedAclTarget::Bucket { bucket, .. } => {
+            check_access(connection, bucket, project, access).map(|_| ())
+        }
     }
 }
 
@@ -586,7 +599,9 @@ pub(super) fn replace_resource_acl(
                         ResolvedAclTarget::Object {
                             name, generation, ..
                         } => stored_object_entries(connection, bucket, name, generation)?,
-                        _ => stored_bucket_entries(connection, bucket, target.kind())?,
+                        ResolvedAclTarget::Bucket { scope, .. } => {
+                            stored_bucket_entries(connection, bucket, scope)?
+                        }
                     }
                     .unwrap_or_else(|| project_private(&row.project));
                     if let ResolvedAclTarget::Object {
@@ -619,7 +634,7 @@ pub(super) fn replace_resource_acl(
         ResolvedAclTarget::Object {
             name, generation, ..
         } => super::object_owner::selected(connection, bucket, name, generation)?,
-        _ => None,
+        ResolvedAclTarget::Bucket { .. } => None,
     };
     if let Some(owner) = &owner {
         owner.preserve_grant(&mut entries);
@@ -651,15 +666,37 @@ pub(super) fn replace_resource_acl(
                 params![bucket, name, generation, entries],
             )?;
         }
-        _ => {
+        ResolvedAclTarget::Bucket { scope, .. } => {
             sql::exec(
                 connection,
                 UPSERT_BUCKET_ENTRIES,
-                params![bucket, scope(target.kind()), entries],
+                params![bucket, scope, entries],
             )?;
         }
     }
     Ok(())
+}
+
+/// What `load` selected besides the state: the bucket row's scope, or the object record.
+enum Loaded {
+    Bucket(BucketScope),
+    Object(Box<crate::object::ObjectRecord>),
+}
+
+impl Loaded {
+    fn kind(&self) -> AclKind {
+        match self {
+            Self::Bucket(scope) => scope.kind(),
+            Self::Object(_) => AclKind::Object,
+        }
+    }
+
+    fn owner(&self) -> Option<&crate::object::owner::ObjectOwner> {
+        match self {
+            Self::Bucket(_) => None,
+            Self::Object(record) => record.owner.as_ref(),
+        }
+    }
 }
 
 /// Authorize, reject uniform access and select the target inside the caller's transaction.
@@ -667,24 +704,13 @@ fn load(
     connection: &Connection,
     target: &AclTarget,
     access: &BucketAccess,
-) -> Result<(AclState, Option<crate::object::ObjectRecord>), AclError> {
+) -> Result<(AclState, Loaded), AclError> {
     let bucket = target.bucket();
     let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
-    Ok(match target {
-        AclTarget::Bucket(_) | AclTarget::DefaultObject(_) => {
-            check_access(connection, bucket, &row.project, access)?;
-            if row.uniform_access {
-                return Err(AclError::UniformAccess);
-            }
-            let entries = stored_bucket_entries(connection, bucket, target.kind())?
-                .unwrap_or_else(|| project_private(&row.project));
-            let state = AclState {
-                entries,
-                metageneration: row.metageneration,
-                object: None,
-                project_number: crate::acl::project_number(&row.project),
-            };
-            (state, None)
+    match target {
+        AclTarget::Bucket(_) => load_bucket(connection, bucket, &row, BucketScope::Bucket, access),
+        AclTarget::DefaultObject(_) => {
+            load_bucket(connection, bucket, &row, BucketScope::DefaultObject, access)
         }
         AclTarget::Object {
             name, generation, ..
@@ -712,27 +738,41 @@ fn load(
                 object: Some((record.name.clone(), record.generation)),
                 project_number: crate::acl::project_number(&row.project),
             };
-            (state, Some(record))
+            Ok((state, Loaded::Object(Box::new(record))))
         }
-    })
+    }
 }
 
-fn encode_changed_entries(
+fn load_bucket(
+    connection: &Connection,
+    bucket: &str,
+    row: &BucketRow,
+    scope: BucketScope,
+    access: &BucketAccess,
+) -> Result<(AclState, Loaded), AclError> {
+    check_access(connection, bucket, &row.project, access)?;
+    if row.uniform_access {
+        return Err(AclError::UniformAccess);
+    }
+    let entries = stored_bucket_entries(connection, bucket, scope)?
+        .unwrap_or_else(|| project_private(&row.project));
+    let state = AclState {
+        entries,
+        metageneration: row.metageneration,
+        object: None,
+        project_number: crate::acl::project_number(&row.project),
+    };
+    Ok((state, Loaded::Bucket(scope)))
+}
+
+/// Keeps the owner's grant, validates the list and encodes it for its row.
+fn encode_entries(
     state: &mut AclState,
     owner: Option<&crate::object::owner::ObjectOwner>,
-    changed: &mut Option<AclEntry>,
     kind: AclKind,
 ) -> Result<String, CatalogError> {
     if let Some(owner) = owner {
         owner.preserve_grant(&mut state.entries);
-        if let Some(entry) = changed {
-            *entry = state
-                .entries
-                .iter()
-                .find(|current| current.entity == entry.entity)
-                .cloned()
-                .ok_or_else(|| unavailable("changed ACL entry is absent"))?;
-        }
     }
     validate_effective_entries(kind, &state.entries, owner)?;
     // Persist the owner position so later inserts follow every existing grant.
@@ -842,9 +882,9 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = sql::immediate(connection).map_err(unavailable)?;
-            let (mut state, record) = load(&transaction, &target, &access)?;
+            let (mut state, loaded) = load(&transaction, &target, &access)?;
             let bucket = target.bucket();
-            let mut changed = match change {
+            let changed = match change {
                 AclChange::Upsert { entity, role } => {
                     // Public access prevention blocks new public grants, as it does for IAM.
                     if Entity::parse(&entity).is_ok_and(Entity::is_public)
@@ -858,17 +898,17 @@ impl Catalog {
                         (None, Some(entry)) => entry.role,
                         (None, None) => return Err(AclError::RoleRequired),
                     };
-                    let entry = AclEntry { entity, role };
+                    let entry = AclEntry { entity: entity.clone(), role };
                     match existing {
-                        Some(existing) => *existing = entry.clone(),
+                        Some(existing) => *existing = entry,
                         None => {
                             if state.entries.len() >= MAX_ENTRIES {
                                 return Err(AclError::TooManyEntries);
                             }
-                            state.entries.push(entry.clone());
+                            state.entries.push(entry);
                         }
                     }
-                    Some(entry)
+                    Some(entity)
                 }
                 AclChange::Delete { entity } => {
                     let index = state
@@ -883,18 +923,29 @@ impl Catalog {
                     None
                 }
             };
-            let entries = encode_changed_entries(&mut state, record.as_ref().and_then(|record| record.owner.as_ref()), &mut changed, target.kind())?;
+            let entries = encode_entries(&mut state, loaded.owner(), loaded.kind())?;
+            // The owner's grant may have replaced the role the change asked for.
+            let changed = changed
+                .map(|entity| {
+                    state
+                        .entries
+                        .iter()
+                        .find(|entry| entry.entity == entity)
+                        .cloned()
+                        .ok_or_else(|| unavailable("changed ACL entry is absent"))
+                })
+                .transpose()?;
             let micros = unix_micros(clock.now())?;
             state.metageneration = state
                 .metageneration
                 .checked_add(1)
                 .ok_or_else(|| unavailable("metageneration exhausted"))?;
-            match record {
-                None => {
-                    if target.kind() == AclKind::Bucket {
+            match loaded {
+                Loaded::Bucket(scope) => {
+                    if scope == BucketScope::Bucket {
                         bucket_policy::replace_policy(&transaction, bucket, &state.entries, principals.as_ref())?;
                     }
-                    sql::exec(&transaction, UPSERT_BUCKET_ENTRIES, params![bucket, scope(target.kind()), entries])
+                    sql::exec(&transaction, UPSERT_BUCKET_ENTRIES, params![bucket, scope, entries])
                         .map_err(unavailable)?;
                     sql::exec(&transaction,
                             "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1", params![bucket, state.metageneration, micros])
@@ -907,7 +958,7 @@ impl Catalog {
                         None,
                     )?;
                 }
-                Some(mut record) => {
+                Loaded::Object(mut record) => {
                     sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
                         .map_err(unavailable)?;
                     sql::exec(&transaction,

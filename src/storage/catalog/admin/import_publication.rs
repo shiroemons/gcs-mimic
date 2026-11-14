@@ -61,7 +61,10 @@ impl Admin {
                     if let Some(entries) = &acl {
                         super::super::acl::replace_resource_acl(
                             &transaction,
-                            super::super::acl::ResolvedAclTarget::Bucket(&record.name),
+                            super::super::acl::ResolvedAclTarget::Bucket {
+                                bucket: &record.name,
+                                scope: super::super::acl::BucketScope::Bucket,
+                            },
                             entries,
                             &BucketAccess::Admin(AdminGrant {
                                 control: None,
