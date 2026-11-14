@@ -78,12 +78,26 @@ pub(crate) fn json_locks(value: &Value) -> Option<String> {
     }
 }
 
-/// Every JSON document in a body: one value, or newline-delimited messages.
+/// Every JSON object or array in a body, wherever it starts: one document,
+/// newline-delimited messages, or the JSON part of a multipart body. A fragment
+/// that does not decode is skipped one byte at a time, so text after it is still
+/// inspected; the service may read a body more leniently than this parser.
 fn json_documents(text: &str) -> Vec<Value> {
-    serde_json::Deserializer::from_str(text)
-        .into_iter::<Value>()
-        .map_while(std::result::Result::ok)
-        .collect()
+    let mut documents = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(['{', '[']) {
+        let candidate = &rest[start..];
+        let mut stream = serde_json::Deserializer::from_str(candidate).into_iter::<Value>();
+        rest = match stream.next() {
+            Some(Ok(value)) => {
+                documents.push(value);
+                &candidate[stream.byte_offset()..]
+            }
+            // `{` and `[` are one byte, so the next character starts right after it.
+            Some(Err(_)) | None => &candidate[1..],
+        };
+    }
+    documents
 }
 
 fn key_is_predefined_acl(key: &str) -> bool {
@@ -425,6 +439,50 @@ mod tests {
             &[],
             None
         )));
+    }
+
+    #[test]
+    fn json_inside_multipart_and_after_garbage_is_inspected() {
+        let multipart = |metadata: &str| {
+            format!(
+                "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n\
+                 --gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--\r\n"
+            )
+        };
+        let upload = |body: &str| {
+            http(
+                "POST",
+                "/upload/storage/v1/b/x/o?uploadType=multipart",
+                &[("Content-Type", "multipart/related; boundary=gcsmimicdiff")],
+                Some(body),
+            )
+        };
+        assert!(refused(&upload(&multipart(
+            "{\"name\":\"o\",\"retention\":{\"mode\":\"Locked\",\"retainUntilTime\":\"2030-01-01T00:00:00Z\"}}"
+        ))));
+        assert!(refused(&http(
+            "PATCH",
+            "/b/x",
+            &[],
+            Some("{bad}\n{\"isLocked\":true}")
+        )));
+        // An unclosed outer document still holds a complete inner one.
+        assert!(refused(&http(
+            "PATCH",
+            "/b/x",
+            &[],
+            Some("{\"a\": {\"iamConfiguration\":{\"publicAccessPrevention\":\"inherited\"}}")
+        )));
+        assert!(!refused(&http("PATCH", "/b/x", &[], Some("{not json"))));
+        assert!(!refused(&http(
+            "PUT",
+            "/x/y",
+            &[("Content-Type", "text/plain")],
+            Some("hello [world]")
+        )));
+        assert!(!refused(&upload(&multipart(
+            "{\"name\":\"o\",\"metadata\":{\"k\":\"v\"},\"contentType\":\"text/plain\"}"
+        ))));
     }
 
     #[test]
