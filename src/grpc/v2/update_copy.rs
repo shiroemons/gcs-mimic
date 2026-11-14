@@ -9,9 +9,12 @@ use crate::{
         BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError,
         RetentionPolicyUpdate,
     },
-    grpc::validate::{self, strict_bucket_conditions, strict_conditions},
+    grpc::validate::{self, NegativeGeneration, strict_bucket_conditions, strict_conditions},
     json,
-    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
+    object::{
+        ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget,
+        generation::{Generation, InvalidGeneration},
+    },
     server::authorize_bucket,
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
@@ -23,6 +26,7 @@ use crate::{
     },
 };
 use serde_json::{Map, Value, json};
+use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
 /// How often an update tries when the bucket changes between the lifecycle check and the write.
@@ -144,7 +148,14 @@ fn rewrite_error(e: RewriteError) -> Status {
     }
 }
 
-fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<(), Status> {
+/// The rewrite options a token binds, from their proto3 integers (0 is absent).
+#[derive(Clone, Copy, Debug)]
+struct RewriteOptions {
+    source_generation: Option<Generation>,
+    max_bytes_per_call: Option<NonZeroU64>,
+}
+
+fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions, Status> {
     common(r.common_object_request_params.as_ref())?;
     if !r.destination_kms_key.is_empty()
         || !r.destination_predefined_acl.is_empty()
@@ -159,49 +170,64 @@ fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<(), Status> {
             "RewriteObject encryption/ACL/checksums; omit these options",
         ));
     }
-    if r.source_generation < 0
-        || r.max_bytes_rewritten_per_call < 0
-        || r.max_bytes_rewritten_per_call % 1_048_576 != 0
-    {
-        return Err(Status::invalid_argument(
+    let invalid = || {
+        Status::invalid_argument(
             "source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576",
-        ));
-    }
-    Ok(())
+        )
+    };
+    let source_generation = validate::selected_generation(r.source_generation)
+        .map_err(|NegativeGeneration| invalid())?;
+    let max_bytes_per_call = u64::try_from(r.max_bytes_rewritten_per_call)
+        .ok()
+        .filter(|bytes| bytes % 1_048_576 == 0)
+        .ok_or_else(invalid)?;
+    Ok(RewriteOptions {
+        source_generation,
+        max_bytes_per_call: NonZeroU64::new(max_bytes_per_call),
+    })
 }
 
-/// The request parameters a rewrite token binds, in their JSON API names.
-fn rewrite_parameters(r: &pb::RewriteObjectRequest) -> Map<String, Value> {
+/// The request parameters a rewrite token binds, in their JSON API names and decimal strings.
+fn rewrite_parameters(r: &pb::RewriteObjectRequest, options: RewriteOptions) -> Map<String, Value> {
+    let decimal = |value: Option<i64>| value.map(|value| value.to_string());
     let mut parameters = Map::new();
-    for (key, v) in [
+    for (key, value) in [
         (
             "sourceGeneration",
-            (r.source_generation != 0).then_some(r.source_generation),
+            options
+                .source_generation
+                .map(|generation| generation.to_string()),
         ),
         (
             "maxBytesRewrittenPerCall",
-            (r.max_bytes_rewritten_per_call != 0).then_some(r.max_bytes_rewritten_per_call),
+            options.max_bytes_per_call.map(|bytes| bytes.to_string()),
         ),
-        ("ifGenerationMatch", r.if_generation_match),
-        ("ifGenerationNotMatch", r.if_generation_not_match),
-        ("ifMetagenerationMatch", r.if_metageneration_match),
-        ("ifMetagenerationNotMatch", r.if_metageneration_not_match),
-        ("ifSourceGenerationMatch", r.if_source_generation_match),
+        ("ifGenerationMatch", decimal(r.if_generation_match)),
+        ("ifGenerationNotMatch", decimal(r.if_generation_not_match)),
+        ("ifMetagenerationMatch", decimal(r.if_metageneration_match)),
+        (
+            "ifMetagenerationNotMatch",
+            decimal(r.if_metageneration_not_match),
+        ),
+        (
+            "ifSourceGenerationMatch",
+            decimal(r.if_source_generation_match),
+        ),
         (
             "ifSourceGenerationNotMatch",
-            r.if_source_generation_not_match,
+            decimal(r.if_source_generation_not_match),
         ),
         (
             "ifSourceMetagenerationMatch",
-            r.if_source_metageneration_match,
+            decimal(r.if_source_metageneration_match),
         ),
         (
             "ifSourceMetagenerationNotMatch",
-            r.if_source_metageneration_not_match,
+            decimal(r.if_source_metageneration_not_match),
         ),
     ] {
-        if let Some(v) = v {
-            parameters.insert(key.to_owned(), json!(v.to_string()));
+        if let Some(value) = value {
+            parameters.insert(key.to_owned(), Value::from(value));
         }
     }
     parameters
@@ -271,8 +297,7 @@ impl<'a> RewriteTarget<'a> {
 /// A rewrite request without a token, after validation and name resolution.
 struct NewRewrite<'a> {
     target: RewriteTarget<'a>,
-    source_generation: i64,
-    max_bytes_rewritten_per_call: i64,
+    options: RewriteOptions,
     source_conditions: ObjectConditions,
     destination_conditions: ObjectConditions,
     parameters: Map<String, Value>,
@@ -287,7 +312,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let (metadata, _, r) = request.into_parts();
-        check_rewrite_request(&r)?;
+        let options = check_rewrite_request(&r)?;
         let sc = strict_conditions(r.source_conditions())?;
         let dc = strict_conditions(ObjectConditions::from(&r))?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
@@ -299,7 +324,7 @@ impl Storage {
                 "Rewrite destination metadata must omit name and bucket; use destination_name and destination_bucket",
             ));
         }
-        let parameters = rewrite_parameters(&r);
+        let parameters = rewrite_parameters(&r, options);
         let session = if r.rewrite_token.is_empty() {
             None
         } else {
@@ -348,8 +373,7 @@ impl Storage {
             None => {
                 let new = NewRewrite {
                     target,
-                    source_generation: r.source_generation,
-                    max_bytes_rewritten_per_call: r.max_bytes_rewritten_per_call,
+                    options,
                     source_conditions: sc,
                     destination_conditions: dc,
                     parameters,
@@ -402,15 +426,14 @@ impl Storage {
                     destination_bucket: db,
                     destination_object: dn,
                 },
-            source_generation,
-            max_bytes_rewritten_per_call,
+            options,
             source_conditions: sc,
             destination_conditions: dc,
             parameters,
             metadata: body,
             resource,
         } = new;
-        let generation = (source_generation != 0).then_some(source_generation);
+        let generation = options.source_generation.map(Generation::get);
         let source = self
             .state
             .catalog
@@ -447,10 +470,9 @@ impl Storage {
             .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
         let multiple = source_bucket.location != destination_bucket.location
             || class.unwrap_or(destination_bucket.storage_class) != source.object.storage_class;
-        // Zero asks for the default; validation already rejected a negative limit.
+        // An absent limit asks for the default.
         let budget = if multiple {
-            std::num::NonZeroU64::new(max_bytes_rewritten_per_call.cast_unsigned())
-                .unwrap_or(DEFAULT_REWRITE_BUDGET)
+            options.max_bytes_per_call.unwrap_or(DEFAULT_REWRITE_BUDGET)
         } else {
             UNLIMITED_REWRITE_BUDGET
         };
@@ -733,11 +755,10 @@ impl Storage {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
-        if o.generation < 0 {
-            return Err(Status::invalid_argument(
-                "generation must be positive or omitted",
-            ));
-        }
+        let generation =
+            validate::selected_generation(o.generation).map_err(|NegativeGeneration| {
+                Status::invalid_argument("generation must be positive or omitted")
+            })?;
         let paths = mask(r.update_mask.as_ref())?;
         let mut update = super::object_update::from_proto(&o, paths)?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
@@ -755,7 +776,7 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata(
-                ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation)),
+                ObjectTarget::new(bucket, name, generation.map(Generation::get)),
                 c,
                 update,
                 |_| Ok(()),
@@ -794,11 +815,10 @@ impl Storage {
             .iter()
             .map(|s| {
                 names::object(&s.name)?;
-                if s.generation < 0 {
-                    return Err(Status::invalid_argument(
-                        "source generation must be positive or omitted",
-                    ));
-                }
+                let generation =
+                    validate::selected_generation(s.generation).map_err(|NegativeGeneration| {
+                        Status::invalid_argument("source generation must be positive or omitted")
+                    })?;
                 let preconditions = strict_conditions(
                     s.object_preconditions
                         .as_ref()
@@ -807,7 +827,7 @@ impl Storage {
                 )?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
-                    generation: (s.generation != 0).then_some(s.generation),
+                    generation: generation.map(Generation::get),
                     if_generation_match: preconditions.if_generation_match,
                 })
             })
@@ -902,16 +922,16 @@ impl Storage {
                 "RestoreObject ACL/token; use copy_source_acl=false and omit restore_token",
             ));
         }
-        if r.generation <= 0 {
-            return Err(Status::invalid_argument(
+        let generation = Generation::try_from(r.generation).map_err(|InvalidGeneration| {
+            Status::invalid_argument(
                 "generation is required; select a positive soft-deleted generation",
-            ));
-        }
+            )
+        })?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let c = strict_conditions(ObjectConditions::from(&r))?;
-        let target = ObjectTarget::new(bucket, name, r.generation);
+        let target = ObjectTarget::new(bucket, name, generation.get());
         let access = RestoreAccess {
             restore: &restore,
             create: &create,
@@ -1021,8 +1041,8 @@ mod tests {
     #[test]
     fn rewrite_tokens_bind_the_stored_parameter_spelling() {
         let parameters = |r: &pb::RewriteObjectRequest| {
-            check_rewrite_request(r).unwrap();
-            Value::Object(rewrite_parameters(r)).to_string()
+            let options = check_rewrite_request(r).unwrap();
+            Value::Object(rewrite_parameters(r, options)).to_string()
         };
         let full = pb::RewriteObjectRequest {
             source_generation: 7,

@@ -1,4 +1,7 @@
-use crate::{bucket::BucketConditions, object::ObjectConditions};
+use crate::{
+    bucket::BucketConditions,
+    object::{ObjectConditions, generation::Generation},
+};
 use tonic::Status;
 
 pub(super) fn lenient_conditions(
@@ -63,11 +66,26 @@ fn metageneration_only(conditions: BucketConditions) -> ObjectConditions {
     }
 }
 
-pub(super) fn generation(value: i64, message: &str) -> Result<Option<i64>, Status> {
-    if value < 0 {
-        return Err(Status::invalid_argument(message));
+/// A proto3 `int64` that selects an object version was negative; each API words the rejection
+/// itself.
+#[derive(Debug)]
+pub(super) struct NegativeGeneration;
+
+impl std::fmt::Display for NegativeGeneration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("generation is negative")
     }
-    Ok((value != 0).then_some(value))
+}
+
+impl std::error::Error for NegativeGeneration {}
+
+/// A proto3 `int64` that selects an object version. 0 is the field's absent value and selects
+/// the live object; a negative value selects nothing.
+pub(super) fn selected_generation(raw: i64) -> Result<Option<Generation>, NegativeGeneration> {
+    if raw < 0 {
+        return Err(NegativeGeneration);
+    }
+    Ok(Generation::try_from(raw).ok())
 }
 
 pub(super) fn common<T: Default + PartialEq>(
@@ -165,6 +183,21 @@ mod tests {
             .message(),
             "lenient"
         );
+    }
+
+    #[test]
+    fn selected_generations_take_zero_as_the_live_object() {
+        assert_eq!(selected_generation(0).unwrap(), None);
+        assert_eq!(
+            selected_generation(1).unwrap().map(Generation::get),
+            Some(1)
+        );
+        assert_eq!(
+            selected_generation(i64::MAX).unwrap().map(Generation::get),
+            Some(i64::MAX)
+        );
+        assert!(selected_generation(-1).is_err());
+        assert!(selected_generation(i64::MIN).is_err());
     }
 
     #[test]

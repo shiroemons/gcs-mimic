@@ -9,8 +9,11 @@ use super::{
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    grpc::{generated::google::rpc::Status as RpcStatus, validate},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    grpc::{
+        generated::google::rpc::Status as RpcStatus,
+        validate::{self, NegativeGeneration},
+    },
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
     storage::{Finality, ObjectReader},
 };
 use prost::Message;
@@ -113,10 +116,11 @@ fn check_handle_project(expected: Option<&str>, access: &BucketAccess) -> Result
     deprecated,
     reason = "the deprecated read_mask field must still be rejected when a client sets it"
 )]
-fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
+fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<Option<Generation>, Status> {
     const MESSAGE: &str =
         "Generation conditions must be nonnegative; use generation 0 for the live object";
-    validate::generation(spec.generation, MESSAGE)?;
+    let generation = validate::selected_generation(spec.generation)
+        .map_err(|NegativeGeneration| Status::invalid_argument(MESSAGE))?;
     validate::lenient_conditions(ObjectConditions::from(spec), MESSAGE)?;
     if spec
         .common_object_request_params
@@ -145,13 +149,14 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
             "BidiReadObject preconditions with read_handle; reopen without read_handle to apply conditions",
         ));
     }
-    Ok(())
+    Ok(generation)
 }
 
 impl Storage {
     async fn resume_read_handle(
         &self,
         spec: &pb::BidiReadObjectSpec,
+        generation: Option<Generation>,
         access: &BucketAccess,
         caller: Option<Caller<'_>>,
     ) -> Result<(Selected, HandleToken), Status> {
@@ -171,7 +176,7 @@ impl Storage {
         check_handle_project(entry.project.as_deref(), access)?;
         if entry.bucket != bucket
             || entry.name != object
-            || (spec.generation != 0 && spec.generation != entry.generation)
+            || generation.is_some_and(|generation| generation.get() != entry.generation)
         {
             return Err(Status::invalid_argument(
                 "Read handle does not match bucket, object or generation; use the original object or reopen without read_handle",
@@ -229,7 +234,7 @@ impl Storage {
                 "First message requires read_object_spec; specify bucket and object",
             )
         })?;
-        validate_spec(&spec)?;
+        let generation = validate_spec(&spec)?;
         super::routing::check(
             &metadata,
             Routes::Request(&[Route::Bucket(Some(spec.bucket.as_str()))]),
@@ -238,14 +243,11 @@ impl Storage {
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (mut selected, token) = if resumed {
-            self.resume_read_handle(&spec, &access, caller).await?
+            self.resume_read_handle(&spec, generation, &access, caller)
+                .await?
         } else {
             let conditions = ObjectConditions::from(&spec);
-            let target = ObjectTarget::new(
-                bucket,
-                object,
-                (spec.generation != 0).then_some(spec.generation),
-            );
+            let target = ObjectTarget::new(bucket, object, generation.map(Generation::get));
             let (record, reader, finality) = self
                 .open_readable(target, conditions, &access)
                 .await
@@ -601,6 +603,11 @@ mod tests {
         Arc::new(crate::server::State::for_test(catalog, Auth::permissive()))
     }
 
+    /// The generation BidiReadObject parses from `spec` before resuming its handle.
+    fn issued_generation(spec: &pb::BidiReadObjectSpec) -> Option<Generation> {
+        validate_spec(spec).unwrap()
+    }
+
     async fn issued_spec(
         state: &Arc<crate::server::State>,
         object: &str,
@@ -655,11 +662,15 @@ mod tests {
             .unwrap();
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         assert_code(
-            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            storage
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .await,
             tonic::Code::NotFound,
         );
         assert_code(
-            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            storage
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .await,
             tonic::Code::FailedPrecondition,
         );
         state.catalog.close().await.unwrap();
@@ -711,7 +722,9 @@ mod tests {
         clock.advance(std::time::Duration::from_secs(600));
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         assert_code(
-            storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+            storage
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .await,
             tonic::Code::FailedPrecondition,
         );
         state.catalog.close().await.unwrap();
@@ -760,7 +773,9 @@ mod tests {
                 .await
                 .unwrap();
             let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
-            let resumed = storage.resume_read_handle(&spec, PERMISSIVE, None).await;
+            let resumed = storage
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .await;
             if versioned {
                 let (mut opened, _) = resumed.unwrap();
                 assert_eq!(
@@ -790,7 +805,9 @@ mod tests {
                     .await
                     .unwrap();
                 assert_code(
-                    storage.resume_read_handle(&spec, PERMISSIVE, None).await,
+                    storage
+                        .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                        .await,
                     tonic::Code::NotFound,
                 );
             }
@@ -805,7 +822,7 @@ mod tests {
         let spec = issued_spec(&states[0], "object").await;
         let reconnected = storage_with(states[0].clone(), 1024);
         let (mut resumed, token) = reconnected
-            .resume_read_handle(&spec, PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
             .await
             .unwrap();
         assert_eq!(
@@ -819,7 +836,9 @@ mod tests {
         );
         let other = storage_with(states[1].clone(), 1024);
         assert_code(
-            other.resume_read_handle(&spec, PERMISSIVE, None).await,
+            other
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .await,
             tonic::Code::FailedPrecondition,
         );
         drop(resumed);
@@ -882,7 +901,7 @@ mod tests {
         writer.flush().await.unwrap();
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         let (mut opened, _) = storage
-            .resume_read_handle(&spec, PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
             .await
             .unwrap();
         assert_eq!(opened.size, 10);
@@ -907,7 +926,7 @@ mod tests {
             .await
             .unwrap();
         let (mut opened, _) = storage
-            .resume_read_handle(&spec, PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
             .await
             .unwrap();
         assert_eq!(

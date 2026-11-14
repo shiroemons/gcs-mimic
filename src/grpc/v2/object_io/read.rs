@@ -122,7 +122,8 @@ impl Storage {
         }
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
-        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
+        let target =
+            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         let (record, finality) = self
             .get_readable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
@@ -150,7 +151,8 @@ impl Storage {
         let mask = ReadMask::from(r.read_mask.as_ref());
         require_content_in_read_mask(mask)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
-        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
+        let target =
+            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         let (record, mut reader, finality) = self
             .open_readable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await

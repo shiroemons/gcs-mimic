@@ -10,7 +10,7 @@ text::immediately_invoked_closure	src/storage/catalog/admin/publication.rs	1
 text::immediately_invoked_closure	src/storage/catalog/sync_state/writeback.rs	2
 text::json_macro_value	src/bucket.rs	1
 text::json_macro_value	src/bucket_init.rs	1
-text::json_macro_value	src/grpc/v2/update_copy.rs	2
+text::json_macro_value	src/grpc/v2/update_copy.rs	1
 text::json_macro_value	src/import/filesystem.rs	2
 text::json_macro_value	src/json/buckets.rs	4
 text::json_macro_value	src/json/csek.rs	2

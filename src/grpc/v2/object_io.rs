@@ -6,11 +6,12 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::{
         upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
-        validate,
+        validate::{self, NegativeGeneration},
     },
     json,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk,
+        generation::Generation,
     },
     storage::{
         Finality, ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState,
@@ -99,11 +100,10 @@ pub(super) fn conditions(conditions: ObjectConditions) -> Result<ObjectCondition
     )
 }
 
-fn generation(value: i64) -> Result<Option<i64>, Status> {
-    validate::generation(
-        value,
-        "generation must be positive, or 0 to select the live object",
-    )
+fn generation(value: i64) -> Result<Option<Generation>, Status> {
+    validate::selected_generation(value).map_err(|NegativeGeneration| {
+        Status::invalid_argument("generation must be positive, or 0 to select the live object")
+    })
 }
 
 pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
@@ -169,7 +169,8 @@ impl Storage {
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
-        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
+        let target =
+            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         self.delete_including_appendable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;

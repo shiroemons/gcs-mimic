@@ -23,9 +23,15 @@ pub mod pb {
 use crate::{
     auth::{BUCKETS_LIST, Caller, ListenerRole},
     bucket::{BucketAccess, BucketConditions, CatalogError},
-    grpc::{v2::status::unsupported, validate},
+    grpc::{
+        v2::status::unsupported,
+        validate::{self, NegativeGeneration},
+    },
     json,
-    object::{MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch},
+    object::{
+        MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
+        generation::Generation,
+    },
     server::State,
 };
 use prost::Message;
@@ -116,11 +122,10 @@ fn bucket_conditions(conditions: BucketConditions) -> Result<BucketConditions, S
     validate::lenient_bucket_conditions(conditions, NEGATIVE_PRECONDITION)
 }
 
-fn generation(value: i64) -> Result<Option<i64>, Status> {
-    validate::generation(
-        value,
-        "generation must be positive or 0 for the live object",
-    )
+fn generation(value: i64) -> Result<Option<Generation>, Status> {
+    validate::selected_generation(value).map_err(|NegativeGeneration| {
+        Status::invalid_argument("generation must be positive or 0 for the live object")
+    })
 }
 
 fn limit(value: i32) -> Result<usize, Status> {
@@ -317,7 +322,7 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata(
-                ObjectTarget::new(bucket, name, generation(selected)?),
+                ObjectTarget::new(bucket, name, generation(selected)?.map(Generation::get)),
                 conditions,
                 update,
                 move |record| {
@@ -543,7 +548,11 @@ impl pb::storage_server::Storage for Storage {
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
-        let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
+        let target = ObjectTarget::new(
+            &r.bucket,
+            &r.object,
+            generation(r.generation)?.map(Generation::get),
+        );
         let record = self
             .state
             .catalog
@@ -568,7 +577,11 @@ impl pb::storage_server::Storage for Storage {
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
-        let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
+        let target = ObjectTarget::new(
+            &r.bucket,
+            &r.object,
+            generation(r.generation)?.map(Generation::get),
+        );
         self.state
             .catalog
             .delete_object(target, conditions(ObjectConditions::from(&r))?, &access)
@@ -723,7 +736,7 @@ impl pb::storage_server::Storage for Storage {
                 )?;
                 Ok(crate::object::ComposeSource {
                     name: s.name,
-                    generation: generation(s.generation)?,
+                    generation: generation(s.generation)?.map(Generation::get),
                     if_generation_match: preconditions.if_generation_match,
                 })
             })

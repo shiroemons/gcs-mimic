@@ -13,7 +13,10 @@ use super::{
 use crate::{
     auth::{Caller, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+        generation::{Generation, InvalidGeneration},
+    },
     storage::{AppendError, AppendWriter, Finality, ObjectReader},
 };
 use tonic::{
@@ -230,14 +233,15 @@ impl Storage {
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
                 let (bucket, name) = self.object_name(&spec.bucket, &spec.object)?;
-                if spec.generation <= 0 {
-                    return Err(Status::invalid_argument(
-                        "append_object_spec.generation is required; use the generation returned when the appendable object was created",
-                    ));
-                }
+                let generation =
+                    Generation::try_from(spec.generation).map_err(|InvalidGeneration| {
+                        Status::invalid_argument(
+                            "append_object_spec.generation is required; use the generation returned when the appendable object was created",
+                        )
+                    })?;
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
                 let conditions = conditions(ObjectConditions::from(&spec))?;
-                let target = ObjectTarget::new(bucket, name, spec.generation);
+                let target = ObjectTarget::new(bucket, name, generation.get());
                 let writer = self
                     .state
                     .catalog
