@@ -4,7 +4,7 @@ use super::objects::object_unavailable as objects_error;
 use super::*;
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
-use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
+use crate::{fsutil, hashing::Hasher};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
@@ -870,26 +870,66 @@ async fn run_batch(
             Ok((outcome, entries))
         })
         .await?;
-    let (results, attempted, exceeded) = match outcome {
-        Ok(outcome) => outcome,
+    let committed = match outcome {
+        Ok(committed) => committed,
         Err(error) => {
             cleanup_entries(entries).await?;
-            return Err(AdminError::from(error));
+            return Err(error.into());
         }
     };
     // Any element may have replaced a version in a bucket that retains deletions.
     catalog.0.maintenance_wake.notify_one();
-    let unattempted = entries.split_off(attempted);
+    let unattempted = entries.split_off(committed.results.len());
     cleanup_entries(entries).await?;
     catalog.reclaim_after_commit().await;
     Ok(BatchResult {
-        results,
+        results: committed.results,
         unattempted,
-        budget_exceeded: exceeded,
+        budget_exceeded: committed.budget_exceeded,
     })
 }
 
-type CommittedBatch = (Vec<Result<ObjectRecord, AdminError>>, usize, bool);
+/// Why a publication batch failed as a whole.
+enum BatchError {
+    /// The catalog failed; it is classified like any other storage failure when it leaves the
+    /// batch.
+    Store(ObjectError),
+    /// An element failed in a way that aborts the batch; already classified.
+    Element(AdminError),
+}
+
+impl From<ObjectError> for BatchError {
+    fn from(error: ObjectError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl From<rusqlite::Error> for BatchError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.into())
+    }
+}
+
+impl From<CatalogError> for BatchError {
+    fn from(error: CatalogError) -> Self {
+        Self::Store(error.into())
+    }
+}
+
+impl From<BatchError> for AdminError {
+    fn from(error: BatchError) -> Self {
+        match error {
+            BatchError::Store(error) => error.into(),
+            BatchError::Element(error) => error,
+        }
+    }
+}
+
+/// The attempted prefix of a batch; `results.len()` elements were attempted.
+struct Committed {
+    results: Vec<Result<ObjectRecord, AdminError>>,
+    budget_exceeded: bool,
+}
 
 fn commit_batch(
     connection: &mut Connection,
@@ -898,7 +938,7 @@ fn commit_batch(
     clock: &dyn Clock,
     budget: Duration,
     import: Option<&ImportBatch>,
-) -> Result<CommittedBatch, ObjectError> {
+) -> Result<Committed, BatchError> {
     let transaction = sql::immediate(connection)?;
     let started = std::time::Instant::now();
     if let Some(import) = import {
@@ -933,7 +973,7 @@ fn commit_batch(
                     )?;
                     results.push(Err(error));
                 }
-                error => return Err(objects_error_admin(error)),
+                error => return Err(BatchError::Element(error)),
             },
         }
     }
@@ -949,17 +989,10 @@ fn commit_batch(
         )?;
     }
     transaction.commit()?;
-    let attempted = results.len();
-    Ok((results, attempted, started.elapsed() > budget))
-}
-
-fn objects_error_admin(error: AdminError) -> ObjectError {
-    match error {
-        AdminError::DiskFull(cause) => ObjectError::Io(cause),
-        AdminError::Io(cause) => ObjectError::Io(cause),
-        AdminError::Corrupt(cause) => ObjectError::Corrupt(cause),
-        error => ObjectError::Unavailable(BackendCause::from_error(error)),
-    }
+    Ok(Committed {
+        results,
+        budget_exceeded: started.elapsed() > budget,
+    })
 }
 
 /// Checks the request's metadata, size limit and declared hashes against the staged body.
