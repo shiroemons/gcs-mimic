@@ -44,11 +44,13 @@ pub const CLIPPY_LINTS: [&str; 12] = [
     "clippy::ref_option",
 ];
 
-pub const RATCHETED_CLIPPY_LINTS: [&str; 4] = [
+pub const RATCHETED_CLIPPY_LINTS: [&str; 5] = [
     "clippy::indexing_slicing",
     "clippy::string_slice",
     "clippy::cast_possible_truncation",
     "clippy::cast_sign_loss",
+    // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
+    "clippy::wildcard_enum_match_arm",
 ];
 
 const STATIC_STR_ERROR: &str = "text::static_str_error";

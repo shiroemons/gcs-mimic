@@ -396,6 +396,7 @@ cannot express.
 | `clippy::ref_option` | `&Option<T>` parameters and returns; take or return `Option<&T>`. `avoid-breaking-exported-api = false` in `clippy.toml` applies it to `pub` items too. |
 | `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing; per-file ratchet. |
 | `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss; per-file ratchet. Casts do not themselves panic. |
+| `clippy::wildcard_enum_match_arm` | `_` arms on an enum, which let a new variant compile without a decision; per-file ratchet. A deliberate wildcard takes a reasoned `#[expect]` on the statement or function. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types; per-file ratchet. |
@@ -534,6 +535,14 @@ one, `unfulfilled_lint_expectations` fails the `-D warnings` run. This was
 verified on Rust 1.99.1 with a scratch crate. `cargo check` and `cargo build`
 do not run Clippy lints, so they report neither case. The gate's `-W` run
 does not count a call covered by a fulfilled `#[expect]`.
+
+`clippy::wildcard_enum_match_arm` reports the `match` expression, so its
+`#[expect]` goes on the statement that holds the `match` (a `let` or an
+expression statement) or on the enclosing function; Rust 1.100.0 honors both.
+Use it for a wildcard that should absorb new variants, or for a foreign or
+`#[non_exhaustive]` enum such as `io::ErrorKind`. A predicate over a few
+variants of a project enum reads better as `matches!`, which the lint does not
+see inside the macro.
 
 Code that only unit tests use is compiled under the same `cfg` as those
 tests, for example `#[cfg(all(test, unix))]`, instead of staying in production

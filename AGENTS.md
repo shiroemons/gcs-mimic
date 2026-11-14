@@ -71,7 +71,7 @@ Write the code an experienced Rust engineer would approve in review, following t
 - Keep the success path flat with `?`, `let else` and `let` chains, and bind the value of an `if` or `match` instead of assigning a `mut` across branches. Nesting and late assignment hide which path does the work.
 - Use an iterator adapter when it names the intent (`any`, `find`, `filter_map`, `collect`), and a plain `for` over the collection when the body mutates or has side effects. Separate finding from changing: keep multi-line closures out of `for` headers, and join two collections through a lookup rather than nested loops. Both hide what the loop is for.
 - Implement standard traits (`From`, `TryFrom`, `FromStr`, `Display`, `Default`, `IntoIterator`) instead of ad-hoc conversion functions, and name methods by the guidelines' `as_`, `to_` and `into_` cost conventions, without a `get_` prefix. Callers then get the conversions for free and the name states the cost.
-- Match exhaustively, without a `_` arm, on an enum whose new variants must each be handled. The compiler then lists every site to update.
+- Match exhaustively, without a `_` arm, on an enum whose new variants must each be handled. The compiler then lists every site to update. `cargo xtask lint` ratchets `clippy::wildcard_enum_match_arm`: a wildcard that should absorb new variants, or one on a foreign or `#[non_exhaustive]` enum, takes `#[expect(clippy::wildcard_enum_match_arm, reason = "...")]` on the statement or function that holds the `match`.
 
 ## Access and URLs
 

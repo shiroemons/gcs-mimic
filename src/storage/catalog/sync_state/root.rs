@@ -104,6 +104,10 @@ impl From<CatalogError> for RootError {
     }
 }
 impl From<io::Error> for RootError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "io::ErrorKind is non_exhaustive; every kind but Unsupported is a storage failure"
+    )]
     fn from(error: io::Error) -> Self {
         match error.kind() {
             io::ErrorKind::Unsupported => Self::Unsupported,

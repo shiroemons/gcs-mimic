@@ -796,6 +796,10 @@ pub fn sign_policy(policy: &str, private_key: &[u8]) -> Result<String, SigningEr
 fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, SigningError> {
     let key = PrivateKeyDer::from_pem_slice(private_key)
         .map_err(|_| SigningError::UnsupportedPrivateKey)?;
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "PrivateKeyDer is non_exhaustive; only PKCS #8 and PKCS #1 hold RSA keys"
+    )]
     let key = match key {
         PrivateKeyDer::Pkcs8(key) => signature::RsaKeyPair::from_pkcs8(key.secret_pkcs8_der()),
         PrivateKeyDer::Pkcs1(key) => signature::RsaKeyPair::from_der(key.secret_pkcs1_der()),

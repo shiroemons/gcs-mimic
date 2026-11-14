@@ -127,6 +127,10 @@ fn failure(error: &SeedError) -> JsonError {
 
 /// Reading the tree can succeed once a file settles or a resource frees up, but some failures
 /// follow from the fixture tree itself and repeat on every attempt.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "io::ErrorKind is non_exhaustive, and every other kind may pass on a retry"
+)]
 fn io_failure(kind: std::io::ErrorKind) -> JsonError {
     match kind {
         std::io::ErrorKind::InvalidFilename => JsonError::invalid(
