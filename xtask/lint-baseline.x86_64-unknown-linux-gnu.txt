@@ -14,7 +14,6 @@ clippy::wildcard_enum_match_arm	src/server/chunk_body.rs	1
 clippy::wildcard_enum_match_arm	src/server/objects.rs	1
 clippy::wildcard_enum_match_arm	src/server/routing.rs	1
 clippy::wildcard_enum_match_arm	src/source_tree.rs	1
-clippy::wildcard_enum_match_arm	src/startup.rs	2
 clippy::wildcard_enum_match_arm	src/storage/catalog/acl.rs	1
 clippy::wildcard_enum_match_arm	src/storage/catalog/admin.rs	2
 clippy::wildcard_enum_match_arm	src/storage/catalog/admin/publication.rs	3

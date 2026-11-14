@@ -7,11 +7,12 @@ use gcs_mimic::{
     diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
     seed::{SeedError, SeedOutcome},
     server::{self, State},
-    storage::{Catalog, DataDirState},
+    storage::{Catalog, DataDirState, MemoryBudget, admin::AdminError},
     time_limit::TimeLimit,
 };
 use serde::Serialize;
 use std::{
+    borrow::Cow,
     future::Future,
     io,
     net::SocketAddr,
@@ -403,10 +404,7 @@ async fn open_catalog(
             catalog.apply_session_limits(config);
             catalog.configure_lifecycle(config);
         }
-        opened.map_err(|error| match error {
-            CatalogError::NewerSchema { version, supported } => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
-            _ => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
-        })
+        opened.map_err(|error| catalog_open_failure(&error))
     };
     tokio::pin!(opening);
     // Dropping this borrowed wait keeps the pinned owner alive for the required recovery drain.
@@ -418,6 +416,32 @@ async fn open_catalog(
             Ok(PhaseResult::Stopped)
         }
     }
+}
+
+/// The diagnostic for a catalog that could not be opened. Only a newer schema has its own remedy.
+fn catalog_open_failure(error: &CatalogError) -> Diagnostics {
+    let fix: Cow<'static, str> = match error {
+        CatalogError::NewerSchema { version, supported } => format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.").into(),
+        CatalogError::Io(_)
+        | CatalogError::Corrupt(_)
+        | CatalogError::Unavailable(_)
+        // Request outcomes that opening never produces share the same advice.
+        | CatalogError::AuthenticationAlreadyConfigured
+        | CatalogError::AlreadyExists
+        | CatalogError::NotFound
+        | CatalogError::NotEmpty
+        | CatalogError::RestoreConflict
+        | CatalogError::PreconditionFailed
+        | CatalogError::PublicAccessPrevention
+        | CatalogError::Denied(_)
+        | CatalogError::Forbidden
+        | CatalogError::RetentionPolicyLocked(_)
+        | CatalogError::RetentionPolicyNotSet
+        | CatalogError::InvalidMetadata(_)
+        | CatalogError::Metadata(_)
+        | CatalogError::UnsupportedMetadata(_) => Cow::Borrowed("catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
+    };
+    Diagnostics::error(DiagnosticSource::Catalog, "data_dir", fix)
 }
 
 async fn configure_catalog_policy(
@@ -720,24 +744,69 @@ fn ready_event(
     })
 }
 
-fn seed_failure(error: &SeedError) -> String {
-    use gcs_mimic::storage::admin::AdminError;
-    let reason = match error {
-        SeedError::Import(source) | SeedError::Entry { source, .. } => return seed_failure(source),
-        SeedError::Admin(AdminError::Hold) => {
-            return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
+/// The reason a seed failure has when nothing more specific explains it.
+const UNREADABLE_FIXTURE: &str = "unreadable or invalid fixture input";
+
+/// What the seed diagnostic says about a failure.
+enum SeedAdvice {
+    /// A complete message that names its own remedy.
+    Complete(Cow<'static, str>),
+    /// A short reason, followed by the shared advice to correct the fixtures.
+    Reason(&'static str),
+}
+
+impl SeedAdvice {
+    fn into_fix(self) -> String {
+        match self {
+            Self::Complete(message) => message.into_owned(),
+            Self::Reason(reason) => format!(
+                "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
+            ),
         }
+    }
+}
+
+fn seed_failure(error: &SeedError) -> String {
+    seed_advice(error).into_fix()
+}
+
+fn seed_advice(error: &SeedError) -> SeedAdvice {
+    match error {
+        SeedError::Import(source) | SeedError::Entry { source, .. } => seed_advice(source),
+        SeedError::Admin(error) => admin_seed_advice(error),
         // These name the configured limit and the setting that changes it.
         SeedError::DepthLimit { .. }
         | SeedError::EntryLimit { .. }
         | SeedError::BucketLimit { .. } => {
-            return format!("seed import: {error}.");
+            SeedAdvice::Complete(format!("seed import: {error}.").into())
         }
+        // The walk opens absolute paths; without a depth limit nothing else stops at this length.
+        SeedError::Io(error) if error.kind() == io::ErrorKind::InvalidFilename => {
+            SeedAdvice::Reason("a fixture path exceeds this platform's path length limit")
+        }
+        SeedError::BucketName(_) => SeedAdvice::Reason("Invalid bucket name"),
+        SeedError::ObjectName(_) => SeedAdvice::Reason("Invalid object name"),
+        SeedError::FileLimit => SeedAdvice::Reason("max_object_bytes"),
+        SeedError::Overlap => SeedAdvice::Reason("must not overlap"),
+        SeedError::UnsupportedFile => SeedAdvice::Reason("only regular files"),
+        SeedError::NotDirectory => SeedAdvice::Reason("not a symlink"),
+        SeedError::NonUtf8Name => SeedAdvice::Reason("must be UTF-8"),
+        SeedError::Io(_)
+        | SeedError::RelativePath(_)
+        | SeedError::WalkStopped
+        | SeedError::MissingRoot => SeedAdvice::Reason(UNREADABLE_FIXTURE),
+    }
+}
+
+fn admin_seed_advice(error: &AdminError) -> SeedAdvice {
+    match error {
+        AdminError::Hold => SeedAdvice::Complete(Cow::Borrowed(
+            "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.",
+        )),
         // No entry limit stops a seed before this. Only the storage that ran out has a remedy:
         // a disk backend has no RAM budget to raise, and a memory backend no data directory.
-        SeedError::Admin(AdminError::DiskFull(cause)) => {
-            use gcs_mimic::storage::MemoryBudget;
-            return match cause.memory_budget() {
+        AdminError::DiskFull(cause) => {
+            SeedAdvice::Complete(Cow::Borrowed(match cause.memory_budget() {
                 None => {
                     "seed import: storage capacity exhausted; free space in the data directory before restarting."
                 }
@@ -747,26 +816,24 @@ fn seed_failure(error: &SeedError) -> String {
                 Some(MemoryBudget::Catalog) => {
                     "seed import: storage capacity exhausted; restart with a larger memory_catalog_max_bytes or a smaller seed tree."
                 }
-            }
-            .into();
+            }))
         }
-        // The walk opens absolute paths; without a depth limit nothing else stops at this length.
-        SeedError::Io(error) if error.kind() == io::ErrorKind::InvalidFilename => {
-            "a fixture path exceeds this platform's path length limit"
-        }
-        SeedError::BucketName(_) => "Invalid bucket name",
-        SeedError::ObjectName(_) => "Invalid object name",
-        SeedError::FileLimit => "max_object_bytes",
-        SeedError::Overlap => "must not overlap",
-        SeedError::UnsupportedFile => "only regular files",
-        SeedError::NotDirectory => "not a symlink",
-        SeedError::NonUtf8Name => "must be UTF-8",
-        SeedError::Admin(AdminError::SeedProjectMismatch) => "belongs to another project",
-        _ => "unreadable or invalid fixture input",
-    };
-    format!(
-        "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
-    )
+        AdminError::SeedProjectMismatch => SeedAdvice::Reason("belongs to another project"),
+        AdminError::Busy { .. }
+        | AdminError::Closed
+        | AdminError::Precondition
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::Io(_)
+        | AdminError::NotFound
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::Forbidden
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => SeedAdvice::Reason(UNREADABLE_FIXTURE),
+    }
 }
 
 async fn bind_configured_listener(
@@ -915,6 +982,14 @@ mod tests {
                 "unreadable or invalid fixture input",
             ),
             (
+                SeedError::MissingRoot,
+                "unreadable or invalid fixture input",
+            ),
+            (
+                SeedError::Admin(AdminError::Closed),
+                "unreadable or invalid fixture input",
+            ),
+            (
                 SeedError::Io(io::ErrorKind::InvalidFilename.into()),
                 "a fixture path exceeds this platform's path length limit",
             ),
@@ -953,6 +1028,33 @@ mod tests {
             matches!(error.source().unwrap().downcast_ref::<SeedError>(), Some(SeedError::Io(cause)) if cause.kind() == io::ErrorKind::PermissionDenied)
         );
         assert!(error.source().unwrap().source().is_none());
+    }
+
+    #[test]
+    fn catalog_open_failures_name_a_newer_schema_and_share_other_advice() {
+        let diagnostics = catalog_open_failure(&CatalogError::NewerSchema {
+            version: 9,
+            supported: 8,
+        });
+        let error = only_error(&diagnostics);
+        assert_eq!(error.source, DiagnosticSource::Catalog);
+        assert_eq!(error.key, "data_dir");
+        assert!(
+            error.fix.starts_with(
+                "catalog schema version 9 was written by a newer gcs-mimic release; this release reads schema 8 and older"
+            ),
+            "{}",
+            error.fix
+        );
+        let diagnostics = catalog_open_failure(&CatalogError::from(io::Error::from(
+            io::ErrorKind::PermissionDenied,
+        )));
+        let error = only_error(&diagnostics);
+        assert_eq!(error.key, "data_dir");
+        assert_eq!(
+            error.fix,
+            "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."
+        );
     }
 
     #[test]
