@@ -110,7 +110,7 @@ impl Body for CheckedBody {
                     ))))
                 }
             }
-            frame => frame,
+            frame @ (Poll::Ready(Some(_)) | Poll::Pending) => frame,
         }
     }
 }

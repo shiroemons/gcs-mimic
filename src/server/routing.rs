@@ -419,6 +419,10 @@ async fn bucket_has_cors(state: &super::State, bucket: &str) -> bool {
 /// The fields of a failed CORS rule lookup. The cause passes through the same allow-list as
 /// client-visible backend errors, because catalog messages may embed SQL values.
 fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every other catalog error is logged by its display text through the same allow-list"
+    )]
     let cause = match error {
         CatalogError::Unavailable(cause) => json::safe_backend_cause(cause.message()).to_owned(),
         CatalogError::Io(cause) => format!("catalog I/O: {cause}"),
