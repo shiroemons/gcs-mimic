@@ -193,9 +193,7 @@ pub(super) async fn resolve(
 pub(in crate::server::admin) fn error(error: conflicts::Error) -> JsonError {
     match error {
         conflicts::Error::Root(error) => root_error(&error),
-        conflicts::Error::Admin(crate::storage::admin::AdminError::Forbidden) => {
-            crate::auth::AuthFailure::Forbidden.into()
-        }
+        conflicts::Error::Admin(error) => admin_failure(&error),
         conflicts::Error::RevisionMismatch => JsonError::new(
             StatusCode::CONFLICT,
             "recovery_revision_mismatch",
@@ -216,22 +214,36 @@ pub(in crate::server::admin) fn error(error: conflicts::Error) -> JsonError {
             "invalid_recovery_resolution",
             "Use exactly one inspected target and its supported action",
         ),
-        conflicts::Error::Admin(
-            crate::storage::admin::AdminError::Precondition
-            | crate::storage::admin::AdminError::NotFound
-            | crate::storage::admin::AdminError::Hold,
-        ) => stale(),
         conflicts::Error::Capacity => JsonError::new(
             StatusCode::CONFLICT,
             "conflict_capacity",
             "Resolve retained conflicts before retrying; no source body was discarded",
         ),
-        conflicts::Error::Admin(crate::storage::admin::AdminError::DiskFull(_)) => JsonError::new(
+    }
+}
+
+/// A resolution is idempotent by operation ID, so a failure a retry may clear asks for the same ID.
+fn admin_failure(error: &AdminError) -> JsonError {
+    match error {
+        AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
+        AdminError::Precondition | AdminError::NotFound | AdminError::Hold => stale(),
+        AdminError::DiskFull(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting pending synchronization data, then retry the same operation ID",
         ),
-        conflicts::Error::Admin(_) => JsonError::new(
+        AdminError::Busy { .. }
+        | AdminError::Closed
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::Io(_)
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "io_failure",
             "Preserve retained bytes, restore storage access and retry the same operation ID",

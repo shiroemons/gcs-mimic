@@ -335,7 +335,17 @@ pub(super) fn failure(error: AdminError) -> JsonError {
             "backendError",
             "Fixture publication waited longer than catalog_wait_timeout_ms for other catalog work and made no changes; retry after that work completes, or raise catalog_wait_timeout_ms (0 disables it)",
         ),
-        _ => (
+        // Seed-only refusals cannot reach a fixture, and a changed source, a closing catalog or a
+        // storage failure is the server's state, not the request's.
+        AdminError::DiskFull(_)
+        | AdminError::Closed
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::Io(_)
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "backendError",
             "Fixture publication failed; inspect local storage and retry",

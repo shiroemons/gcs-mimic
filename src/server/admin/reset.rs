@@ -106,7 +106,22 @@ pub(super) fn failure(error: &AdminError) -> JsonError {
             "conflict",
             "Reset made no changes because an import is incomplete; complete or repair the import first",
         ),
-        _ => JsonError::service_unavailable(
+        // Reset can only say that it changed nothing or that it cannot confirm what it changed.
+        AdminError::DiskFull(_)
+        | AdminError::Closed
+        | AdminError::Hold
+        | AdminError::SeedProjectMismatch
+        | AdminError::SeedMetadataBudget { .. }
+        | AdminError::SourceChanged { .. }
+        | AdminError::Corrupt(_)
+        | AdminError::Io(_)
+        | AdminError::NotFound
+        | AdminError::Invalid(_)
+        | AdminError::Checksum
+        | AdminError::TooLarge
+        | AdminError::Forbidden
+        | AdminError::BodyAborted(_)
+        | AdminError::Backend(_) => JsonError::service_unavailable(
             "Reset could not confirm completion; inspect local storage and instance state before retrying",
         ),
     }
