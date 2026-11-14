@@ -29,20 +29,20 @@ pub(super) fn apply(config: &mut Config, setting: Setting, value: &str) -> Resul
 impl ConfigurationReport {
     pub(super) fn check_backend(&mut self, settings: &Settings) {
         if self.config.backend != Backend::Memory {
-            for key in ["memory_max_bytes", "memory_catalog_max_bytes"] {
-                if let Some(input) = settings.get(key) {
+            for setting in [Setting::MemoryMaxBytes, Setting::MemoryCatalogMaxBytes] {
+                if let Some(input) = settings.get(&setting) {
                     self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                         "RAM byte limits require backend=memory; remove them or select the memory backend"));
-                    self.invalid.insert(key.into());
+                    self.invalid.insert(setting);
                 }
             }
             return;
         }
-        for key in ["sync_dir", "sync_reinitialize"] {
-            if let Some(input) = settings.get(key) {
+        for setting in [Setting::SyncDir, Setting::SyncReinitialize] {
+            if let Some(input) = settings.get(&setting) {
                 self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                     "backend=memory does not support directory sync; remove this setting or use backend=disk"));
-                self.invalid.insert(key.into());
+                self.invalid.insert(setting);
             }
         }
     }

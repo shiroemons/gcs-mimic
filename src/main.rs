@@ -294,7 +294,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     gcs_mimic::diagnostics::set_log_level(report.config.log_level);
     // Validate supplied TLS material before touching the catalog, seed or listener.
     let mut security = tls::ListenerSecurity::Plain;
-    if report.valid(&["scheme", "tls_cert", "tls_key"]) {
+    if report.tls_settings_valid() {
         match tls::load_server(&report.config) {
             Ok(value) => security = value,
             Err(error) => report.diagnostics.errors.push(error.diagnostic()),
@@ -302,7 +302,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     }
     // Load the registry before binding so a bad identity document never reaches readiness.
     let mut auth = report.load_auth();
-    if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
+    if report.default_seed_settings_valid() {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
     }

@@ -179,7 +179,10 @@ fn naming_both_settings_of_a_document_fails_and_names_both() {
         assert!(errors[0].fix.contains(&file_setting), "{errors:?}");
         assert!(errors[0].fix.contains(&inline_setting), "{errors:?}");
         assert!(!errors[0].fix.contains("secret-token"));
-        assert!(!report.valid(&[&file_setting, &inline_setting]));
+        assert!(!report.valid(&[
+            file_setting.parse().unwrap(),
+            inline_setting.parse().unwrap()
+        ]));
         if inline == "--identities" {
             assert_eq!(report.auth_profile(), None);
         }

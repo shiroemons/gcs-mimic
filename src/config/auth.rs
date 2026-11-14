@@ -242,34 +242,26 @@ impl ConfigurationReport {
     /// signature setting never claims what the profile does not do.
     pub(super) fn check_profile_pairing(&mut self, settings: &Settings) {
         match AuthProfile::select(&self.config) {
-            Ok(profile) if !self.any_invalid_setting(&PROFILE_SETTINGS) => {
+            Ok(profile) if !self.any_invalid(&PROFILE_SETTINGS) => {
                 self.auth_profile = Some(profile);
             }
             Ok(_) => {}
             Err(mismatches) => {
                 for mismatch in mismatches {
-                    if self.any_invalid_setting(mismatch.depends_on()) {
+                    if self.any_invalid(mismatch.depends_on()) {
                         continue;
                     }
-                    if let Some(input) = settings.get(mismatch.reported_at().as_str()) {
+                    if let Some(input) = settings.get(&mismatch.reported_at()) {
                         self.diagnostics.errors.push(Diagnostic::new(
                             input.source,
                             &input.key,
                             mismatch.fix(),
                         ));
                     }
-                    for setting in mismatch.invalidates() {
-                        self.invalid.insert(setting.as_str().to_owned());
-                    }
+                    self.invalid.extend(mismatch.invalidates());
                 }
             }
         }
-    }
-
-    fn any_invalid_setting(&self, settings: &[Setting]) -> bool {
-        settings
-            .iter()
-            .any(|setting| self.invalid.contains(setting.as_str()))
     }
 
     /// The profile to load, when the authentication settings are valid; only tests read it,
@@ -380,7 +372,7 @@ impl ConfigurationReport {
             // Without a document nothing declares the signer, so only test_signer enables it.
             (None, None) => return,
         };
-        if let Some(input) = self.settings.get(setting.as_str()) {
+        if let Some(input) = self.settings.get(&setting) {
             self.diagnostics.warnings.push(Diagnostic::new(
                 input.source,
                 &input.key,
@@ -404,7 +396,7 @@ impl ConfigurationReport {
                 "is not a registered identity; declare it in identity_file or identities".to_owned()
             }
         };
-        if self.valid(&[Setting::AdminPrincipal.as_str()])
+        if self.valid(&[Setting::AdminPrincipal])
             && let (Some(principal), Some(principals)) =
                 (&self.config.admin_principal, auth.principals())
             && !principals.iter().any(|identity| identity.id() == principal)
@@ -416,7 +408,7 @@ impl ConfigurationReport {
             ));
         }
         // Only strict mode loads a trusted principal; elsewhere validation rejected the setting.
-        if self.valid(&[Setting::TrustedPrincipal.as_str()])
+        if self.valid(&[Setting::TrustedPrincipal])
             && let Some(principal) = self.config.trusted_principal.as_deref()
             && auth.principals().is_some()
             && auth.trusted_principal() != Some(principal)
@@ -442,7 +434,7 @@ impl ConfigurationReport {
     fn implicit_projects(&mut self) -> BTreeSet<String> {
         let mut projects = BTreeSet::new();
         // Conflicting or invalid document settings were already reported, and nothing loads them.
-        if self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
+        if self.valid(&[Setting::BucketsFile, Setting::Buckets])
             && let Some(source) = &self.config.buckets
         {
             match crate::bucket_init::parse_document(source, self.config.max_buckets_per_batch) {

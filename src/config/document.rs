@@ -127,11 +127,13 @@ impl DocumentKind {
     }
 }
 
-/// Whether a config file member named `key` may hold a document instead of a string.
-pub(super) fn holds_document(key: &str) -> bool {
-    DocumentKind::ALL
-        .into_iter()
-        .any(|kind| kind.setting(Form::Inline).as_str() == key)
+/// Whether a config file member that names `setting` may hold a document instead of a string.
+pub(super) fn holds_document(setting: Option<Setting>) -> bool {
+    setting.is_some_and(|setting| {
+        DocumentKind::ALL
+            .into_iter()
+            .any(|kind| kind.setting(Form::Inline) == setting)
+    })
 }
 
 /// The document text a config file member supplies: the object as written, so that repeated
@@ -150,20 +152,22 @@ impl ConfigurationReport {
     /// precedence to resolve. Both settings become invalid, so nothing loads either one.
     pub(super) fn check_document_sources(&mut self, settings: &Settings) {
         for kind in DocumentKind::ALL {
-            let file = kind.setting(Form::File).as_str();
-            let inline = kind.setting(Form::Inline).as_str();
-            if settings.contains_key(file)
-                && let Some(input) = settings.get(inline)
+            let file = kind.setting(Form::File);
+            let inline = kind.setting(Form::Inline);
+            if settings.contains_key(&file)
+                && let Some(input) = settings.get(&inline)
             {
                 self.diagnostics.errors.push(Diagnostic::new(
                     input.source,
                     &input.key,
                     format!(
-                        "{inline} and {file} both supply the {}; keep only one of them.",
+                        "{} and {} both supply the {}; keep only one of them.",
+                        inline.as_str(),
+                        file.as_str(),
                         kind.noun()
                     ),
                 ));
-                self.invalid.extend([file, inline].map(str::to_owned));
+                self.invalid.extend([file, inline]);
             }
         }
     }

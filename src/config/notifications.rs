@@ -106,25 +106,30 @@ impl Config {
     }
 }
 
+/// The settings the event publishing runtime reads, in the order a diagnostic looks for the one
+/// to name.
+const EVENT_SETTINGS: [Setting; 6] = [
+    Setting::PubsubEmulatorHost,
+    Setting::EventPubsubProjectId,
+    Setting::EventPubsubTopic,
+    Setting::EventBucket,
+    Setting::EventObjectPrefix,
+    Setting::EventList,
+];
+
 impl ConfigurationReport {
     pub(super) fn check_notifications(&mut self, settings: &Settings) {
-        let keys = [
-            "pubsub_emulator_host",
-            "event_pubsub_project_id",
-            "event_pubsub_topic",
-            "event_bucket",
-            "event_object_prefix",
-            "event_list",
-        ];
-        if self.any_invalid(&keys) {
+        if self.any_invalid(&EVENT_SETTINGS) {
             return;
         }
         if let Err(error) = self.config.notification_runtime() {
-            let input = keys.iter().find_map(|key| settings.get(*key));
-            let (source, key) = input
-                .map_or((DiagnosticSource::Config, "event_pubsub_topic"), |input| {
-                    (input.source, input.key.as_str())
-                });
+            let input = EVENT_SETTINGS
+                .iter()
+                .find_map(|setting| settings.get(setting));
+            let (source, key) = input.map_or(
+                (DiagnosticSource::Config, Setting::EventPubsubTopic.as_str()),
+                |input| (input.source, input.key.as_str()),
+            );
             self.diagnostics
                 .errors
                 .push(Diagnostic::new(source, key, error.to_string()));

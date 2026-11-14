@@ -84,6 +84,21 @@ super::string_enum! {
     UNKNOWN_SETTING
 }
 
+/// Settings order by native name: validation applies them and reports their diagnostics in this
+/// order, as it did when the map was keyed by the name itself. Declaration order instead groups
+/// them for the help text, so it cannot be derived.
+impl Ord for Setting {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl PartialOrd for Setting {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Setting {
     const fn bounds(self) -> Option<(u64, u64)> {
         match self {
@@ -170,6 +185,13 @@ impl Setting {
     pub(super) fn time_limit(self, value: &str) -> Result<TimeLimit, SettingFix> {
         self.integer(value).map(TimeLimit::from_millis)
     }
+
+    /// Whether the setting does nothing without `sync_dir`, so that naming it alone is a mistake.
+    /// The prefix keeps a future `sync_*` setting covered without an edit here.
+    pub(super) fn requires_sync_dir(self) -> bool {
+        self.as_str().starts_with("sync_")
+            || matches!(self, Self::MaxSyncEntries | Self::MaxSyncDepth)
+    }
 }
 
 /// A setting name as one source writes it, so that a fix can be copied back into that source:
@@ -205,11 +227,4 @@ impl fmt::Display for Spelled<'_> {
         f.write_str(prefix)?;
         self.name.chars().try_for_each(|c| f.write_char(map(c)))
     }
-}
-
-/// Whether a setting does nothing without `sync_dir`, so that naming it alone is a mistake.
-pub(super) fn requires_sync_dir(name: &str) -> bool {
-    name.starts_with("sync_")
-        || name == Setting::MaxSyncEntries.as_str()
-        || name == Setting::MaxSyncDepth.as_str()
 }

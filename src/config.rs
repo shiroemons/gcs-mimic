@@ -575,12 +575,13 @@ impl Config {
     }
 }
 
-/// Effective settings by native name, after config file, environment and CLI precedence.
-type Settings = BTreeMap<String, Input>;
+/// Effective settings, after config file, environment and CLI precedence.
+type Settings = BTreeMap<Setting, Input>;
 
 /// Reads the config file selected by `--config` or `GCS_MIMIC_CONFIG` into `inputs` and
-/// returns the file keys whose values had an unsupported JSON type.
-fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
+/// returns the settings whose file values had an unsupported JSON type. A member that names no
+/// setting is still diagnosed, but no check asks whether it is valid, so it is not returned.
+fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<Setting> {
     let mut invalid_file_fields = BTreeSet::new();
     let selector = inputs
         .entries
@@ -604,7 +605,8 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
     match read_config(&selector.value) {
         Ok(values) => {
             for (key, value) in values {
-                let text = member_text(&key, &value);
+                let setting = key.parse::<Setting>().ok();
+                let text = member_text(setting, &value);
                 if !inputs.push(Input {
                     source: DiagnosticSource::Config,
                     key: key.clone(),
@@ -616,8 +618,8 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     break;
                 }
                 if text.is_none() {
-                    invalid_file_fields.insert(key.clone());
-                    let fix = member_fix(&key);
+                    invalid_file_fields.extend(setting);
+                    let fix = member_fix(setting);
                     inputs.diagnostics.errors.push(Diagnostic::new(
                         DiagnosticSource::Config,
                         key,
@@ -673,8 +675,8 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
                 ));
             }
             match input.setting() {
-                Ok(_) => {
-                    settings.insert(input.name.clone(), input.clone());
+                Ok(setting) => {
+                    settings.insert(setting, input.clone());
                 }
                 Err(rejection) => inputs.diagnostics.errors.push(Diagnostic::new(
                     source,
@@ -691,8 +693,7 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
 /// caller applies it to a candidate copy and keeps the copy only on success.
 /// `value` is borrowed: an inline document may be 1 GiB, and only the setting that stores it
 /// needs its own copy.
-fn apply_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
-    let setting = key.parse::<Setting>().map_err(|_| unknown_setting())?;
+fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(), SettingFix> {
     match setting {
         Setting::Backend | Setting::MemoryMaxBytes | Setting::MemoryCatalogMaxBytes => {
             storage::apply(config, setting, value)
@@ -1070,7 +1071,7 @@ fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
 pub struct ConfigurationReport {
     pub config: Config,
     pub diagnostics: Diagnostics,
-    invalid: BTreeSet<String>,
+    invalid: BTreeSet<Setting>,
     /// Set by validation only when the authentication settings are valid and agree.
     auth_profile: Option<AuthProfile>,
     /// The inputs validation read, so that a diagnostic after loading can still name the one
@@ -1079,18 +1080,36 @@ pub struct ConfigurationReport {
 }
 
 impl ConfigurationReport {
-    pub fn valid(&self, keys: &[&str]) -> bool {
-        !keys.iter().any(|key| self.invalid.contains(*key))
+    pub(crate) fn valid(&self, settings: &[Setting]) -> bool {
+        !self.any_invalid(settings)
     }
 
-    fn any_invalid(&self, keys: &[&str]) -> bool {
-        !self.valid(keys)
+    fn any_invalid(&self, settings: &[Setting]) -> bool {
+        settings
+            .iter()
+            .any(|setting| self.invalid.contains(setting))
+    }
+
+    /// Whether the settings that select the TLS identity are valid, so that loading it can fail
+    /// only on the files themselves.
+    pub fn tls_settings_valid(&self) -> bool {
+        self.valid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey])
+    }
+
+    /// Whether the directories that adopting `default_seed_dir` compares are valid.
+    pub fn default_seed_settings_valid(&self) -> bool {
+        self.valid(&[
+            Setting::DataDir,
+            Setting::SeedDir,
+            Setting::DefaultSeedDir,
+            Setting::SyncDir,
+        ])
     }
 
     fn apply_settings(&mut self, settings: &Settings) {
-        for (key, input) in settings {
+        for (&setting, input) in settings {
             if let Some(invalid) = input.invalid {
-                self.invalid.insert(key.clone());
+                self.invalid.insert(setting);
                 if invalid == InputError::Encoding {
                     self.diagnostics.errors.push(Diagnostic::new(
                         input.source,
@@ -1100,14 +1119,14 @@ impl ConfigurationReport {
                 }
                 continue;
             }
-            if key == "config" {
+            if setting == Setting::Config {
                 continue;
             }
             let mut candidate = self.config.clone();
-            match apply_setting(&mut candidate, key, &input.value) {
+            match apply_setting(&mut candidate, setting, &input.value) {
                 Ok(()) => self.config = candidate,
                 Err(SettingFix(fix)) => {
-                    self.invalid.insert(key.clone());
+                    self.invalid.insert(setting);
                     self.diagnostics
                         .errors
                         .push(Diagnostic::new(input.source, &input.key, fix));
@@ -1145,11 +1164,10 @@ impl ConfigurationReport {
 
     /// The mode only changes what a buckets document does, so naming it without one is a mistake.
     fn check_buckets_mode(&mut self, settings: &Settings) {
-        let mode = Setting::BucketsMode.as_str();
         if self.config.buckets.is_none()
-            && self.valid(&[Setting::BucketsFile.as_str(), Setting::Buckets.as_str()])
-            && let Some(input) = settings.get(mode)
-            && self.invalid.insert(mode.to_owned())
+            && self.valid(&[Setting::BucketsFile, Setting::Buckets])
+            && let Some(input) = settings.get(&Setting::BucketsMode)
+            && self.invalid.insert(Setting::BucketsMode)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
@@ -1161,12 +1179,12 @@ impl ConfigurationReport {
 
     fn check_sync(&mut self, settings: &Settings) {
         let config = &self.config;
-        if config.sync_dir.is_none() && !self.invalid.contains("sync_dir") {
-            for input in settings
-                .values()
-                .filter(|input| setting::requires_sync_dir(&input.name))
+        if config.sync_dir.is_none() && !self.invalid.contains(&Setting::SyncDir) {
+            for (&setting, input) in settings
+                .iter()
+                .filter(|(setting, _)| setting.requires_sync_dir())
             {
-                if self.invalid.insert(input.name.clone()) {
+                if self.invalid.insert(setting) {
                     self.diagnostics.errors.push(Diagnostic::new(
                         input.source,
                         &input.key,
@@ -1176,43 +1194,42 @@ impl ConfigurationReport {
             }
         }
         if config.backend == Backend::Disk
-            && !self.any_invalid(&["sync_dir", "data_dir", "seed_dir"])
+            && !self.any_invalid(&[Setting::SyncDir, Setting::DataDir, Setting::SeedDir])
             && let Some(root) = &config.sync_dir
             && let Err(error) =
                 crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
         {
-            let (source, key) = settings
-                .get("sync_dir")
-                .map_or((DiagnosticSource::Config, "sync_dir"), |input| {
-                    (input.source, input.key.as_str())
-                });
-            self.invalid.insert("sync_dir".into());
+            let (source, key) = settings.get(&Setting::SyncDir).map_or(
+                (DiagnosticSource::Config, Setting::SyncDir.as_str()),
+                |input| (input.source, input.key.as_str()),
+            );
+            self.invalid.insert(Setting::SyncDir);
             self.diagnostics
                 .errors
                 .push(Diagnostic::new(source, key, error.to_string()));
         }
         if config.compat_profile == CompatProfile::FakeGcsServer
-            && let Some(input) = settings.get("default_location")
-            && !self.invalid.contains("default_location")
+            && let Some(input) = settings.get(&Setting::DefaultLocation)
+            && !self.invalid.contains(&Setting::DefaultLocation)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
                 "default_location requires compat_profile=native; use --compat-profile native --default-location EU or remove the default_location setting.",
             ));
-            self.invalid.insert("default_location".into());
+            self.invalid.insert(Setting::DefaultLocation);
         }
         if config.compat_profile == CompatProfile::FakeGcsServer
             && !config.local_creator_email.is_empty()
-            && let Some(input) = settings.get("local_creator_email")
-            && !self.invalid.contains("local_creator_email")
+            && let Some(input) = settings.get(&Setting::LocalCreatorEmail)
+            && !self.invalid.contains(&Setting::LocalCreatorEmail)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
                 "local_creator_email requires compat_profile=native; the fake-gcs-server profile never records a creator. Use --compat-profile native or remove the setting.",
             ));
-            self.invalid.insert("local_creator_email".into());
+            self.invalid.insert(Setting::LocalCreatorEmail);
         }
         // Strict mode records the registered caller, so a creator address would be silently unused.
         // A permissive identity document that only verifies signatures leaves the creator in use.
@@ -1220,23 +1237,23 @@ impl ConfigurationReport {
             || (config.identities.is_some()
                 && config.effective_signed_urls() == SignedUrls::Ignore))
             && !config.local_creator_email.is_empty()
-            && let Some(input) = settings.get("local_creator_email")
-            && !self.invalid.contains("local_creator_email")
+            && let Some(input) = settings.get(&Setting::LocalCreatorEmail)
+            && !self.invalid.contains(&Setting::LocalCreatorEmail)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
                 "local_creator_email applies only to auth_mode=permissive; strict mode records the registered caller as owner. Remove the setting or use permissive mode.",
             ));
-            self.invalid.insert("local_creator_email".into());
+            self.invalid.insert(Setting::LocalCreatorEmail);
         }
         // Zero is what the fake-gcs-server profile does anyway, so only a positive request conflicts.
         if config.compat_profile == CompatProfile::FakeGcsServer
             && config.default_soft_delete_retention_seconds.is_some()
-            && let Some(input) = settings.get("default_soft_delete_retention_seconds")
+            && let Some(input) = settings.get(&Setting::DefaultSoftDeleteRetentionSeconds)
             && !self
                 .invalid
-                .contains("default_soft_delete_retention_seconds")
+                .contains(&Setting::DefaultSoftDeleteRetentionSeconds)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
@@ -1244,7 +1261,7 @@ impl ConfigurationReport {
                 "default_soft_delete_retention_seconds requires compat_profile=native; the fake-gcs-server profile never applies a default soft delete policy. Use --compat-profile native or remove the setting.",
             ));
             self.invalid
-                .insert("default_soft_delete_retention_seconds".into());
+                .insert(Setting::DefaultSoftDeleteRetentionSeconds);
         }
     }
 
@@ -1261,48 +1278,52 @@ impl ConfigurationReport {
             Scheme::Auto | Scheme::Https | Scheme::Both => None,
         };
         if let Some(fix) = plain_only {
-            if self.invalid.contains("scheme") {
+            if self.invalid.contains(&Setting::Scheme) {
                 return;
             }
-            for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
-                if let Some(input) = settings.get(name)
-                    && !self.invalid.contains(name)
+            for setting in [
+                Setting::TlsCert,
+                Setting::TlsKey,
+                Setting::TlsHandshakeTimeoutMs,
+            ] {
+                if let Some(input) = settings.get(&setting)
+                    && !self.invalid.contains(&setting)
                 {
                     self.diagnostics
                         .errors
                         .push(Diagnostic::new(input.source, &input.key, fix));
-                    self.invalid.insert(name.into());
+                    self.invalid.insert(setting);
                 }
             }
             return;
         }
         if config.tls_cert.is_some() != config.tls_key.is_some()
-            && !self.any_invalid(&["scheme", "tls_cert", "tls_key"])
+            && !self.any_invalid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey])
         {
-            let name = if config.tls_cert.is_some() {
-                "tls_cert"
+            let setting = if config.tls_cert.is_some() {
+                Setting::TlsCert
             } else {
-                "tls_key"
+                Setting::TlsKey
             };
-            if let Some(input) = settings.get(name) {
+            if let Some(input) = settings.get(&setting) {
                 self.diagnostics.errors.push(Diagnostic::new(
                     input.source,
                     &input.key,
                     "tls_cert and tls_key must be supplied together; provide both PEM paths.",
                 ));
             }
-            self.invalid.insert(name.into());
+            self.invalid.insert(setting);
         }
     }
 
     /// Without a gRPC listener the limit would silently do nothing, and a typo in the listener's
     /// setting would hide behind it.
     fn check_grpc_streams(&mut self, settings: &Settings) {
-        if let Some(input) = settings.get("max_grpc_streams")
-            && !self.invalid.contains("max_grpc_streams")
-            && !settings.contains_key("grpc_listen")
+        if let Some(input) = settings.get(&Setting::MaxGrpcStreams)
+            && !self.invalid.contains(&Setting::MaxGrpcStreams)
+            && !settings.contains_key(&Setting::GrpcListen)
         {
-            self.invalid.insert("max_grpc_streams".into());
+            self.invalid.insert(Setting::MaxGrpcStreams);
             self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                 "max_grpc_streams requires grpc_listen; remove it or set --grpc-listen, for example 127.0.0.1:4444."));
         }
@@ -1316,9 +1337,14 @@ impl ConfigurationReport {
                 Some(
                     "unix_socket serves plain HTTP and requires scheme=auto or http; advertised HTTP(S) origins remain independent.",
                 )
-            } else if ["listen", "listen_http", "grpc_listen", "trusted_listen"]
-                .iter()
-                .any(|key| settings.contains_key(*key))
+            } else if [
+                Setting::Listen,
+                Setting::ListenHttp,
+                Setting::GrpcListen,
+                Setting::TrustedListen,
+            ]
+            .iter()
+            .any(|setting| settings.contains_key(setting))
             {
                 Some(
                     "unix_socket cannot be combined with explicit listen, listen_http, grpc_listen or trusted_listen settings; remove the TCP settings.",
@@ -1327,16 +1353,16 @@ impl ConfigurationReport {
                 None
             };
             if let Some(fix) = fix
-                && let Some(input) = settings.get("unix_socket")
+                && let Some(input) = settings.get(&Setting::UnixSocket)
             {
-                self.invalid.insert("unix_socket".into());
+                self.invalid.insert(Setting::UnixSocket);
                 self.diagnostics
                     .errors
                     .push(Diagnostic::new(input.source, &input.key, fix));
             }
             return;
         }
-        if self.any_invalid(&["scheme", "listen", "listen_http"]) {
+        if self.any_invalid(&[Setting::Scheme, Setting::Listen, Setting::ListenHttp]) {
             return;
         }
         let config = &self.config;
@@ -1351,24 +1377,24 @@ impl ConfigurationReport {
             None
         };
         if let Some(fix) = fix {
-            let name = if settings.contains_key("listen_http") {
-                "listen_http"
+            let setting = if settings.contains_key(&Setting::ListenHttp) {
+                Setting::ListenHttp
             } else {
-                "listen"
+                Setting::Listen
             };
-            if let Some(input) = settings.get(name) {
+            if let Some(input) = settings.get(&setting) {
                 self.diagnostics
                     .errors
                     .push(Diagnostic::new(input.source, &input.key, fix));
             }
-            self.invalid.insert("listen_http".into());
+            self.invalid.insert(Setting::ListenHttp);
         }
     }
 
     fn check_public_base_url(&mut self, settings: &Settings) {
         let config = &mut self.config;
-        if !self.invalid.contains("public_base_url")
-            && let Some(input) = settings.get("public_base_url")
+        if !self.invalid.contains(&Setting::PublicBaseUrl)
+            && let Some(input) = settings.get(&Setting::PublicBaseUrl)
             && let Some(origin) = config.public_base_url.as_ref()
         {
             if let Some(domain) = origin.dns_name() {
@@ -1377,7 +1403,7 @@ impl ConfigurationReport {
                     if config.xml_virtual_host_domains.len() == 32 {
                         self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                             "public_base_url and xml_virtual_host_domains must contain at most 32 distinct DNS names; remove a domain or reuse one already configured."));
-                        self.invalid.insert("public_base_url".into());
+                        self.invalid.insert(Setting::PublicBaseUrl);
                     } else {
                         config.xml_virtual_host_domains.push(domain);
                         config
@@ -1394,21 +1420,24 @@ impl ConfigurationReport {
 
     fn check_api_base_url(&mut self, settings: &Settings) {
         let config = &self.config;
-        if !self.any_invalid(&["api_base_url", "xml_virtual_host_domains", "listen"])
-            && config
-                .effective_api_base_url(config.listen)
-                .parse::<hyper::Uri>()
-                .ok()
-                .and_then(|api| api.authority().cloned())
-                .is_some_and(|a| {
-                    crate::xml::bucket_for_authority(a.as_str(), &config.xml_virtual_host_domains)
-                        .is_some()
-                })
+        if !self.any_invalid(&[
+            Setting::ApiBaseUrl,
+            Setting::XmlVirtualHostDomains,
+            Setting::Listen,
+        ]) && config
+            .effective_api_base_url(config.listen)
+            .parse::<hyper::Uri>()
+            .ok()
+            .and_then(|api| api.authority().cloned())
+            .is_some_and(|a| {
+                crate::xml::bucket_for_authority(a.as_str(), &config.xml_virtual_host_domains)
+                    .is_some()
+            })
         {
             let input = settings
-                .get("api_base_url")
-                .or_else(|| settings.get("xml_virtual_host_domains"))
-                .or_else(|| settings.get("public_base_url"));
+                .get(&Setting::ApiBaseUrl)
+                .or_else(|| settings.get(&Setting::XmlVirtualHostDomains))
+                .or_else(|| settings.get(&Setting::PublicBaseUrl));
             if let Some(input) = input {
                 self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."));
             }
@@ -1418,8 +1447,8 @@ impl ConfigurationReport {
     fn check_auth(&mut self, settings: &Settings) {
         self.check_admin_auth(settings);
         let config = &self.config;
-        if let Some(input) = settings.get("admin_principal")
-            && !self.invalid.contains("admin_principal")
+        if let Some(input) = settings.get(&Setting::AdminPrincipal)
+            && !self.invalid.contains(&Setting::AdminPrincipal)
         {
             let fix = if config.auth_mode != AuthMode::Strict {
                 Some("admin_principal requires auth_mode=strict; remove it or select strict mode.")
@@ -1434,7 +1463,7 @@ impl ConfigurationReport {
                 self.diagnostics
                     .errors
                     .push(Diagnostic::new(input.source, &input.key, fix));
-                self.invalid.insert("admin_principal".into());
+                self.invalid.insert(Setting::AdminPrincipal);
             }
         }
         self.check_profile_pairing(settings);
@@ -1446,18 +1475,18 @@ impl ConfigurationReport {
     /// claim an effect it does not have.
     fn check_trusted_listener(&mut self, settings: &Settings) {
         self.check_trusted_allowed_hosts(settings);
-        let listen = Setting::TrustedListen.as_str();
-        let principal = Setting::TrustedPrincipal.as_str();
+        let listen = Setting::TrustedListen;
+        let principal = Setting::TrustedPrincipal;
         let named = (
-            settings.contains_key(listen),
-            settings.contains_key(principal),
+            settings.contains_key(&listen),
+            settings.contains_key(&principal),
         );
         let collision = self.trusted_listen_collision();
         let rejected = match (self.config.auth_mode, named, collision) {
             (_, (false, false), _) => return,
-            (AuthMode::Permissive, _, _) if self.valid(&["auth_mode"]) => [listen, principal]
-                .map(|name| {
-                    (name, format!("{name} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode."))
+            (AuthMode::Permissive, _, _) if self.valid(&[Setting::AuthMode]) => [listen, principal]
+                .map(|setting| {
+                    (setting, format!("{} requires auth_mode=strict; in permissive mode every request is already allowed, so a trusted listener changes nothing. Remove it or select strict mode.", setting.as_str()))
                 })
                 .to_vec(),
             (AuthMode::Strict, (false, true), _) => vec![(principal, "trusted_principal requires trusted_listen; set --trusted-listen IP:PORT for the application's servers or remove the setting.".to_owned())],
@@ -1465,9 +1494,9 @@ impl ConfigurationReport {
             // An invalid auth_mode was already reported, and a valid strict listener stays.
             (AuthMode::Permissive | AuthMode::Strict, _, _) => return,
         };
-        for (name, fix) in rejected {
-            if let Some(input) = settings.get(name)
-                && self.invalid.insert(name.to_owned())
+        for (setting, fix) in rejected {
+            if let Some(input) = settings.get(&setting)
+                && self.invalid.insert(setting)
             {
                 self.diagnostics
                     .errors
@@ -1479,10 +1508,9 @@ impl ConfigurationReport {
     /// The list only widens the Host names the trusted listener accepts, so without that
     /// listener it would claim an effect it does not have.
     fn check_trusted_allowed_hosts(&mut self, settings: &Settings) {
-        let name = Setting::TrustedAllowedHosts.as_str();
-        if !settings.contains_key(Setting::TrustedListen.as_str())
-            && let Some(input) = settings.get(name)
-            && self.invalid.insert(name.to_owned())
+        if !settings.contains_key(&Setting::TrustedListen)
+            && let Some(input) = settings.get(&Setting::TrustedAllowedHosts)
+            && self.invalid.insert(Setting::TrustedAllowedHosts)
         {
             self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
@@ -1500,11 +1528,11 @@ impl ConfigurationReport {
         let config = &self.config;
         if config.unix_socket.is_some()
             || !self.valid(&[
-                "trusted_listen",
-                "listen",
-                "listen_http",
-                "grpc_listen",
-                "scheme",
+                Setting::TrustedListen,
+                Setting::Listen,
+                Setting::ListenHttp,
+                Setting::GrpcListen,
+                Setting::Scheme,
             ])
         {
             return None;
@@ -1531,7 +1559,7 @@ impl ConfigurationReport {
         if self.config.auth_mode == AuthMode::Strict
             && self.config.admin_enabled
             && self.config.admin_principal.is_none()
-            && let Some(input) = settings.get("admin_enabled")
+            && let Some(input) = settings.get(&Setting::AdminEnabled)
         {
             self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                 "admin_enabled in strict mode requires admin_principal; set --admin-principal to the registered instance administrator"));
@@ -1550,9 +1578,10 @@ pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
     })?;
     let mut public_base = None;
     for (key, raw) in entries {
-        let invalid = || Diagnostic::new(DiagnosticSource::Config, &key, member_fix(&key));
+        let setting = key.parse::<Setting>().ok();
+        let invalid = || Diagnostic::new(DiagnosticSource::Config, &key, member_fix(setting));
         // The server validates a document; this helper only checks that the member may hold one.
-        if document::holds_document(&key) {
+        if document::holds_document(setting) {
             document::member_text(&raw).ok_or_else(invalid)?;
             continue;
         }
@@ -1560,7 +1589,7 @@ pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
         if setting_text(&value).is_none() {
             return Err(invalid());
         }
-        if key == "public_base_url" {
+        if setting == Some(Setting::PublicBaseUrl) {
             public_base = Some(
                 crate::url::normalize_public_base_url(
                     value
@@ -1583,25 +1612,24 @@ fn setting_text(value: &serde_json::Value) -> Option<String> {
 }
 
 /// The setting value a config file member supplies, or `None` for a JSON type its setting does
-/// not take.
-fn member_text(key: &str, raw: &RawValue) -> Option<String> {
-    if document::holds_document(key) {
+/// not take. `setting` is what the member names, if it names one.
+fn member_text(setting: Option<Setting>, raw: &RawValue) -> Option<String> {
+    if document::holds_document(setting) {
         return document::member_text(raw);
     }
     let value: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
-    if key == "default_location" && value.is_null() {
-        Some(String::new())
-    } else if matches!(key, "sync_delete_guard" | "admin_enabled") && value.is_boolean() {
-        Some(value.to_string())
-    } else if key == "buckets_file" {
-        value.as_str().map(str::to_owned)
-    } else {
-        setting_text(&value)
+    match setting {
+        Some(Setting::DefaultLocation) if value.is_null() => Some(String::new()),
+        Some(Setting::SyncDeleteGuard | Setting::AdminEnabled) if value.is_boolean() => {
+            Some(value.to_string())
+        }
+        Some(Setting::BucketsFile) => value.as_str().map(str::to_owned),
+        Some(_) | None => setting_text(&value),
     }
 }
 
-fn member_fix(key: &str) -> &'static str {
-    if document::holds_document(key) {
+fn member_fix(setting: Option<Setting>) -> &'static str {
+    if document::holds_document(setting) {
         document::MEMBER_FIX
     } else {
         CONFIG_VALUE_FIX
@@ -2957,8 +2985,8 @@ mod tests {
         let report = Config::preflight(&args, &env);
         assert_eq!(report.config.worker_threads, 3);
         assert_eq!(report.diagnostics.errors.len(), 4);
-        assert!(report.valid(&["worker_threads"]));
-        assert!(!report.valid(&["auth_mode", "tls_cert"]));
+        assert!(report.valid(&[Setting::WorkerThreads]));
+        assert!(!report.valid(&[Setting::AuthMode, Setting::TlsCert]));
         assert!(!report.diagnostics.to_string().contains("secret"));
         assert!(!report.diagnostics.to_string().contains("supplied together"));
         assert!(
@@ -3023,7 +3051,7 @@ mod tests {
                     .fix
                     .contains("--name VALUE pairs")
             );
-            assert!(!report.valid(&["auth_mode", "tls_cert", "scheme"]));
+            assert!(!report.valid(&[Setting::AuthMode, Setting::TlsCert, Setting::Scheme]));
         }
         let env = BTreeMap::from([
             ("GCS_MIMIC_AUTH_MODE".into(), "strict".into()),
@@ -3031,7 +3059,7 @@ mod tests {
         ]);
         let report = Config::preflight(&["---auth-mode=strict".into()], &env);
         assert_eq!(report.diagnostics.errors.len(), 1);
-        assert!(!report.valid(&["auth_mode"]));
+        assert!(!report.valid(&[Setting::AuthMode]));
     }
 
     #[test]
