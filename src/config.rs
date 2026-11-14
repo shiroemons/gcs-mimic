@@ -257,6 +257,21 @@ pub fn loopback_if_unspecified(mut address: SocketAddr) -> SocketAddr {
     address
 }
 
+/// The PEM files the TLS listener loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TlsFiles<'a> {
+    /// Neither setting: the embedded public development identity.
+    Development,
+    Provided {
+        certificate: &'a Path,
+        key: &'a Path,
+    },
+}
+
+/// The TLS setting supplied without its partner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnpairedTlsFile(pub(crate) Setting);
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub log_level: LogLevel,
@@ -513,6 +528,17 @@ impl Config {
         self.public_base_url
             .as_ref()
             .is_some_and(|origin| origin.dns_name().is_some())
+    }
+
+    /// `tls_cert` and `tls_key` name one identity, so one without the other is an error rather
+    /// than a fallback to the development identity.
+    pub(crate) fn tls_files(&self) -> Result<TlsFiles<'_>, UnpairedTlsFile> {
+        match (&self.tls_cert, &self.tls_key) {
+            (None, None) => Ok(TlsFiles::Development),
+            (Some(certificate), Some(key)) => Ok(TlsFiles::Provided { certificate, key }),
+            (Some(_), None) => Err(UnpairedTlsFile(Setting::TlsCert)),
+            (None, Some(_)) => Err(UnpairedTlsFile(Setting::TlsKey)),
+        }
     }
 
     pub fn load(args: &[String], env: &BTreeMap<String, String>) -> Result<Self, Diagnostics> {
@@ -1207,22 +1233,17 @@ impl ConfigurationReport {
             }
             return;
         }
-        if config.tls_cert.is_some() != config.tls_key.is_some()
+        if let Err(UnpairedTlsFile(present)) = config.tls_files()
             && !self.any_invalid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey])
         {
-            let setting = if config.tls_cert.is_some() {
-                Setting::TlsCert
-            } else {
-                Setting::TlsKey
-            };
-            if let Some(input) = settings.get(&setting) {
+            if let Some(input) = settings.get(&present) {
                 self.diagnostics.errors.push(Diagnostic::new(
                     input.source,
                     &input.key,
                     "tls_cert and tls_key must be supplied together; provide both PEM paths.",
                 ));
             }
-            self.invalid.insert(setting);
+            self.invalid.insert(present);
         }
     }
 

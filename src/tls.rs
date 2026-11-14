@@ -1,4 +1,4 @@
-use crate::config::{Config, Scheme};
+use crate::config::{Config, Scheme, TlsFiles, UnpairedTlsFile};
 use crate::diagnostics::{Diagnostic, DiagnosticSource};
 use std::{io, path::Path, sync::Arc};
 use tokio_rustls::{
@@ -111,7 +111,7 @@ pub enum ListenerSecurity {
 pub fn load_server(config: &Config) -> Result<ListenerSecurity, ServerIdentityError> {
     let secure: fn(TlsAcceptor) -> ListenerSecurity = match config.scheme {
         Scheme::Http => {
-            if config.tls_cert.is_some() || config.tls_key.is_some() {
+            if !matches!(config.tls_files(), Ok(TlsFiles::Development)) {
                 return Err(ServerIdentityError::Identity(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "TLS files require scheme=auto, https or both",
@@ -124,34 +124,35 @@ pub fn load_server(config: &Config) -> Result<ListenerSecurity, ServerIdentityEr
         Scheme::Auto => ListenerSecurity::Detect,
         Scheme::Https | Scheme::Both => ListenerSecurity::Tls,
     };
-    let (cert, key) = match (&config.tls_cert, &config.tls_key) {
-        (None, None) => (DEVELOPMENT_CERT_PEM.to_vec(), DEVELOPMENT_KEY_PEM.to_vec()),
-        (Some(cert), Some(key)) => (
-            read_pem(cert).map_err(ServerIdentityError::Certificate)?,
+    let (cert, key_pem) = match config.tls_files() {
+        Ok(TlsFiles::Development) => (DEVELOPMENT_CERT_PEM.to_vec(), DEVELOPMENT_KEY_PEM.to_vec()),
+        Ok(TlsFiles::Provided { certificate, key }) => (
+            read_pem(certificate).map_err(ServerIdentityError::Certificate)?,
             read_pem(key).map_err(ServerIdentityError::PrivateKey)?,
         ),
-        _ => {
+        // Validation reports this first; a configuration built in code still gets an error.
+        Err(UnpairedTlsFile(_)) => {
             return Err(ServerIdentityError::Identity(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "tls_cert and tls_key must be supplied together",
             )));
         }
     };
-    let mut keys = PrivateKeyDer::pem_slice_iter(&key)
+    let keys = PrivateKeyDer::pem_slice_iter(&key_pem)
         .collect::<Result<Vec<_>, _>>()
         .map_err(io::Error::other)
         .map_err(ServerIdentityError::PrivateKey)?;
-    if keys.len() != 1 {
+    let Ok([private_key]) = <[PrivateKeyDer<'static>; 1]>::try_from(keys) else {
         return Err(ServerIdentityError::PrivateKey(io::Error::new(
             io::ErrorKind::InvalidData,
             "TLS PEM file must contain exactly one private key",
         )));
-    }
+    };
     let mut server = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(
             certificates(&cert).map_err(ServerIdentityError::Certificate)?,
-            keys.remove(0),
+            private_key,
         )
         .map_err(io::Error::other)
         .map_err(ServerIdentityError::Identity)?;
