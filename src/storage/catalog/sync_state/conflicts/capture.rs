@@ -106,7 +106,9 @@ impl RootLease {
                     )?;
                     match fsutil::child_regular(&directory, name.as_ref())? {
                         fsutil::RegularChild::File(file) => Ok(file),
-                        _ => Err(Error::TargetChanged),
+                        fsutil::RegularChild::Alias | fsutil::RegularChild::Missing => {
+                            Err(Error::TargetChanged)
+                        }
                     }
                 })
                 .await?;

@@ -286,7 +286,7 @@ fn publish_marker(
                 FsError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     RootError::ForeignMarker
                 }
-                error => error.into(),
+                error @ (FsError::Io(_) | FsError::Unsupported) => error.into(),
             })?;
         #[cfg(test)]
         {

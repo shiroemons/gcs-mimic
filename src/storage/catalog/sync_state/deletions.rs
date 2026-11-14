@@ -289,15 +289,25 @@ impl RootLease {
     }
 }
 
+/// A deletion permit that no longer matches its revision refuses the delete as a failed
+/// precondition.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared object mapping"
+)]
+fn permit_error(error: CatalogError) -> ObjectError {
+    match error {
+        CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
+        error => error.into(),
+    }
+}
+
 pub(super) fn consume(
     transaction: &Transaction<'_>,
     permit: &Permit,
     record: &ObjectRecord,
 ) -> Result<(), ObjectError> {
-    matching(transaction, permit.root, permit.revision).map_err(|error| match error {
-        CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
-        error => error.into(),
-    })?;
+    matching(transaction, permit.root, permit.revision).map_err(permit_error)?;
     let count = sql::exec(
         transaction,
         "UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND generation=?5 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=1)",

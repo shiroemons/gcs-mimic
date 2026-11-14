@@ -254,7 +254,11 @@ impl From<ResumeError> for CatalogError {
     fn from(error: ResumeError) -> Self {
         match error {
             ResumeError::Catalog(error) => error,
-            rejection => CatalogError::Unavailable(
+            rejection @ ResumeError::PermanentlyFailed { .. } => CatalogError::Unavailable(
+                crate::storage::failure::BackendCause::from_error(rejection),
+            ),
+            #[cfg(not(unix))]
+            rejection @ ResumeError::MissingLock => CatalogError::Unavailable(
                 crate::storage::failure::BackendCause::from_error(rejection),
             ),
         }
