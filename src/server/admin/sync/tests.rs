@@ -9,11 +9,15 @@ use crate::{
     storage::{
         Catalog,
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
-        sync_state::writeback::{Limits, Writeback},
+        sync_state::{
+            observation::PauseReason,
+            writeback::{Limits, Writeback},
+        },
     },
     test_support::{TestDir, eventually_async, eventually_some_async, joined},
 };
 use http_body_util::BodyExt;
+use serde_json::json;
 use std::{fs, io, time::Duration};
 
 /// A control failure whose typed cause arrives behind a native I/O error.
@@ -1544,6 +1548,34 @@ async fn strict_control_authority_precedes_body_parsing_and_requires_each_explic
         .await["auth_mode"],
         "strict"
     );
+    fixture.finish().await;
+}
+
+/// An unknown control route is only reported to a caller that may use the controls, so
+/// authentication answers first and the route is checked after authorization.
+#[tokio::test]
+async fn unknown_control_routes_answer_authentication_before_not_found() {
+    let mut fixture = Fixture::new(Tree::Empty).await;
+    std::sync::Arc::get_mut(&mut fixture.state).unwrap().auth=Auth::strict(Registry::parse(&serde_json::to_vec(&json!({"identities":[
+        {"id":"admin","tokens":["admin"],"project_roles":{fixture.config.seed_project.clone():["roles/storage.admin"]}}
+    ]})).unwrap()).unwrap());
+    for method in ["GET", "POST"] {
+        let error = fixture
+            .request(method, "/_internal/sync/unknown", b"", None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, StatusCode::UNAUTHORIZED, "{method}");
+        let error = fixture
+            .request(method, "/_internal/sync/unknown", b"", Some("admin"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, StatusCode::NOT_FOUND, "{method}");
+        assert_eq!(error.reason, "notFound", "{method}");
+        assert_eq!(
+            error.message, "Unknown synchronization control route",
+            "{method}"
+        );
+    }
     fixture.finish().await;
 }
 

@@ -6,23 +6,24 @@ use crate::{
     json::{self, JsonError},
     server::{RequestBody, RequestCtx, json_response_body},
     storage::sync_state::{
+        OpaqueId,
         authority::ControlAuthority,
-        deletions::DeletionSet,
-        observation::PauseReason,
-        root::{RootError, RootLease},
+        deletions::{Candidate, DeletionFence, DeletionSet},
+        observation::Summary,
+        root::{RootError, RootLease, RootStatus},
         writeback::Stop,
     },
     sync::{
-        Cause,
-        control::{Command, ControlError, Registration},
+        Cause, Reconciliation,
+        control::{Command, ControlError, Registration, WaitReason},
         handshake,
     },
 };
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
-use serde::Deserialize;
-use serde_json::{Value, json};
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::{fmt, sync::Arc};
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 
@@ -53,8 +54,49 @@ impl Drop for ControlActivity<'_> {
     }
 }
 
+/// A synchronization control, parsed once from the request path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Control {
+    Status,
+    Conflicts,
+    Approve,
+    Rescan,
+    Resolve,
+    Wait,
+}
+
+impl Control {
+    fn parse(path: &str) -> Option<Self> {
+        match path {
+            "/_internal/sync" => Some(Self::Status),
+            "/_internal/sync/conflicts" => Some(Self::Conflicts),
+            "/_internal/sync/approve" => Some(Self::Approve),
+            "/_internal/sync/rescan" => Some(Self::Rescan),
+            "/_internal/sync/resolve" => Some(Self::Resolve),
+            "/_internal/sync/wait" => Some(Self::Wait),
+            _ => None,
+        }
+    }
+
+    /// The method the control is documented with.
+    fn method(self) -> Method {
+        match self {
+            Self::Status | Self::Conflicts => Method::GET,
+            Self::Approve | Self::Rescan | Self::Resolve | Self::Wait => Method::POST,
+        }
+    }
+}
+
+/// The two controls that change synchronization state with a JSON command body.
+#[derive(Clone, Copy)]
+enum Mutation {
+    Approve,
+    Rescan,
+}
+
 async fn authorize_controls(
     request: &Request<RequestBody>,
+    control: Option<Control>,
     root: &RootLease,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
@@ -66,7 +108,7 @@ async fn authorize_controls(
             .await
             .map_err(|error| root_error(&error))
     };
-    if request.method() == Method::POST && request.uri().path() == "/_internal/sync/wait" {
+    if control == Some(Control::Wait) && request.method() == Method::POST {
         crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
         tokio::time::timeout_at(deadline, authorize)
             .await
@@ -126,6 +168,7 @@ async fn control(
     // Before authentication and any catalog wait: a client of another release may not even
     // send its credentials the way this one expects, and the version is the cause to report.
     handshake::check(request.headers(), handshake::Peer::Client)?;
+    let control = Control::parse(request.uri().path());
     let (registration, root) = ctx
         .state
         .catalog
@@ -142,31 +185,26 @@ async fn control(
     let identity = caller
         .map(|caller| caller.principal().cloned())
         .transpose()?;
-    let preparation_deadline = authorize_controls(&request, &root, identity.clone(), ctx).await?;
+    let preparation_deadline =
+        authorize_controls(&request, control, &root, identity.clone(), ctx).await?;
     authorization_checkpoint().await;
-    let path = request.uri().path();
-    let method = match path {
-        "/_internal/sync" | "/_internal/sync/conflicts" => Method::GET,
-        "/_internal/sync/approve"
-        | "/_internal/sync/rescan"
-        | "/_internal/sync/resolve"
-        | "/_internal/sync/wait" => Method::POST,
-        _ => {
-            return Err(JsonError::new(
-                StatusCode::NOT_FOUND,
-                "notFound",
-                "Unknown synchronization control route",
-            ));
-        }
+    // Only a caller that may use the controls learns which routes exist.
+    let Some(control) = control else {
+        return Err(JsonError::new(
+            StatusCode::NOT_FOUND,
+            "notFound",
+            "Unknown synchronization control route",
+        ));
     };
+    let method = control.method();
     if request.method() != method {
         return Err(JsonError::method_not_allowed(
             "Use the method documented for this synchronization control",
             Some(if method == Method::GET { "GET" } else { "POST" }),
         ));
     }
-    match path {
-        "/_internal/sync/conflicts" => {
+    match control {
+        Control::Conflicts => {
             conflicts::list(
                 request,
                 &root,
@@ -175,9 +213,9 @@ async fn control(
             )
             .await
         }
-        "/_internal/sync/resolve" => conflicts::resolve(request, registration, identity, ctx).await,
-        "/_internal/sync" => {
-            let params = Page::parse(request.uri().query())?;
+        Control::Resolve => conflicts::resolve(request, registration, identity, ctx).await,
+        Control::Status => {
+            let page = Page::parse(request.uri().query())?;
             let bytes = json::read_body(request.into_body(), 1).await?;
             if !bytes.is_empty() {
                 return Err(JsonError::invalid_argument(
@@ -186,24 +224,16 @@ async fn control(
             }
             status(
                 root,
-                &params,
+                &page,
                 ctx.state,
                 &registration.session,
                 ControlAuthority::new(ctx.config.seed_project.clone(), identity),
             )
             .await
         }
-        "/_internal/sync/approve" | "/_internal/sync/rescan" => {
-            mutate(request, registration, identity, ctx).await
-        }
-        "/_internal/sync/wait" => {
-            wait(request, registration, identity, ctx, preparation_deadline).await
-        }
-        _ => Err(JsonError::new(
-            StatusCode::NOT_FOUND,
-            "notFound",
-            "Unknown synchronization control route",
-        )),
+        Control::Approve => mutate(request, Mutation::Approve, registration, identity, ctx).await,
+        Control::Rescan => mutate(request, Mutation::Rescan, registration, identity, ctx).await,
+        Control::Wait => wait(request, registration, identity, ctx, preparation_deadline).await,
     }
 }
 
@@ -267,8 +297,25 @@ async fn wait(
     Ok(response)
 }
 
+/// The answer to an accepted deletion approval.
+#[derive(Serialize)]
+struct ApproveAccepted {
+    operation_id: OpaqueId,
+    candidate_count: u64,
+}
+
+/// The answer to an accepted rescan, with the reconciliation it waited for.
+#[derive(Serialize)]
+struct RescanAccepted<'a> {
+    operation_id: String,
+    completed: bool,
+    reason: Option<WaitReason>,
+    reconciliation: &'a Reconciliation,
+}
+
 async fn mutate(
     request: Request<RequestBody>,
+    mutation: Mutation,
     registration: Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
@@ -278,43 +325,69 @@ async fn mutate(
             "Synchronization mutations do not accept query parameters",
         ));
     }
-    let approve = request.uri().path() == "/_internal/sync/approve";
     let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
-    let value = if approve {
-        let body: Approve = serde_json::from_slice(&bytes).map_err(|_| {
-            JsonError::invalid_argument("Send exactly one string deletion_set revision")
-        })?;
-        if !revision(&body.deletion_set) {
-            return Err(JsonError::invalid_argument(
-                "deletion_set must be the exact revision from status",
-            ));
-        }
-        let (reply, receive) = tokio::sync::oneshot::channel();
-        let command = Command::Approve {
-            revision: body.deletion_set,
-            reply,
-            identity,
-        };
-        let set = observe(ctx, &registration, command, receive)
-            .await?
-            .map_err(|error| control_error(&error))?;
-        json!({"operation_id":set.revision,"candidate_count":set.candidate_count})
-    } else {
-        serde_json::from_slice::<Rescan>(&bytes).map_err(|_| {
-            JsonError::invalid_argument("Send an empty JSON object to request a rescan")
-        })?;
-        let mut operation = [0; 16];
-        getrandom::fill(&mut operation).map_err(|_| busy())?;
-        let (reply, receive) = tokio::sync::oneshot::channel();
-        let command = Command::Rescan { reply, identity };
-        let summary = observe(ctx, &registration, command, receive)
-            .await?
-            .map_err(|error| control_error(&error))?;
-        json!({"operation_id":crate::hashing::encode_lower(&operation),"completed":!summary.source_changing && !summary.interrupted,"reason":summary.source_changing.then_some(crate::sync::control::WaitReason::SourceChanging),"reconciliation":summary})
+    let value = match mutation {
+        Mutation::Approve => approve(&bytes, &registration, identity, ctx).await?,
+        Mutation::Rescan => rescan(&bytes, &registration, identity, ctx).await?,
     };
     let mut response = bounded(&value)?;
     *response.status_mut() = StatusCode::ACCEPTED;
     Ok(response)
+}
+
+async fn approve(
+    bytes: &[u8],
+    registration: &Registration,
+    identity: Option<Identity>,
+    ctx: RequestCtx<'_>,
+) -> Result<Value, JsonError> {
+    let body: Approve = serde_json::from_slice(bytes).map_err(|_| {
+        JsonError::invalid_argument("Send exactly one string deletion_set revision")
+    })?;
+    if !revision(&body.deletion_set) {
+        return Err(JsonError::invalid_argument(
+            "deletion_set must be the exact revision from status",
+        ));
+    }
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    let command = Command::Approve {
+        revision: body.deletion_set,
+        reply,
+        identity,
+    };
+    let set = observe(ctx, registration, command, receive)
+        .await?
+        .map_err(|error| control_error(&error))?;
+    super::encode(&ApproveAccepted {
+        operation_id: set.revision,
+        candidate_count: set.candidate_count,
+    })
+}
+
+async fn rescan(
+    bytes: &[u8],
+    registration: &Registration,
+    identity: Option<Identity>,
+    ctx: RequestCtx<'_>,
+) -> Result<Value, JsonError> {
+    serde_json::from_slice::<Rescan>(bytes).map_err(|_| {
+        JsonError::invalid_argument("Send an empty JSON object to request a rescan")
+    })?;
+    let mut operation = [0; 16];
+    getrandom::fill(&mut operation).map_err(|_| busy())?;
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    let command = Command::Rescan { reply, identity };
+    let summary = observe(ctx, registration, command, receive)
+        .await?
+        .map_err(|error| control_error(&error))?;
+    super::encode(&RescanAccepted {
+        operation_id: crate::hashing::encode_lower(&operation),
+        completed: !summary.source_changing && !summary.interrupted,
+        reason: summary
+            .source_changing
+            .then_some(WaitReason::SourceChanging),
+        reconciliation: &summary,
+    })
 }
 
 /// Hands a command to the mirror and waits for its reply. The mirror works through commands one at
@@ -348,25 +421,33 @@ async fn observe<T>(
     .map_err(|_| busy())?
 }
 
-#[derive(Default)]
-struct Page {
-    view: View,
-    revision: Option<String>,
+/// What `GET /_internal/sync` shows.
+enum Page {
+    /// The status summary; the query is empty.
+    Summary,
+    Deletions(PageQuery),
+    Findings(PageQuery),
+}
+
+/// A paged view: the revision it was fetched for, and where the page starts.
+struct PageQuery {
+    revision: String,
     limit: usize,
     after: Option<String>,
 }
-#[derive(Default, PartialEq, Eq)]
+
+/// The paged views a status query may name.
+#[derive(Clone, Copy)]
 enum View {
-    #[default]
-    Summary,
     Deletions,
     Findings,
 }
+
 impl Page {
     fn parse(query: Option<&str>) -> Result<Self, JsonError> {
         let mut values = json::parse_query(query.unwrap_or_default())?;
         if values.is_empty() {
-            return Ok(Self::default());
+            return Ok(Self::Summary);
         }
         let view = match values.remove("view").as_deref() {
             Some("deletions") => View::Deletions,
@@ -379,12 +460,9 @@ impl Page {
         };
         let revision = values
             .remove("revision")
-            .filter(|value| {
-                if view == View::Deletions {
-                    revision(value)
-                } else {
-                    crate::hex::is_lower(value, 48)
-                }
+            .filter(|value| match view {
+                View::Deletions => revision(value),
+                View::Findings => crate::hex::is_lower(value, 48),
             })
             .ok_or_else(|| {
                 JsonError::invalid_argument(
@@ -398,11 +476,14 @@ impl Page {
                 "Unknown synchronization query parameter",
             ));
         }
-        Ok(Self {
-            view,
-            revision: Some(revision),
+        let query = PageQuery {
+            revision,
             limit,
             after,
+        };
+        Ok(match view {
+            View::Deletions => Self::Deletions(query),
+            View::Findings => Self::Findings(query),
         })
     }
 }
@@ -417,6 +498,101 @@ fn parse_limit(value: Option<String>) -> Result<usize, JsonError> {
         return Err(JsonError::invalid_argument("limit must be 1 through 256"));
     }
     Ok(limit)
+}
+
+/// A control document. Every one leads with the catalog and root it describes; serde_json's
+/// `preserve_order` keeps the declaration order on the wire.
+#[derive(Serialize)]
+struct RootDocument<B> {
+    catalog_id: String,
+    root_id: String,
+    #[serde(flatten)]
+    body: B,
+}
+
+impl<B> RootDocument<B> {
+    fn new(ids: &RootStatus, body: B) -> Self {
+        Self {
+            catalog_id: ids.catalog_id.to_string(),
+            root_id: ids.root_id.to_string(),
+            body,
+        }
+    }
+}
+
+/// The cursor prefix that ties a page cursor to this catalog, root and `scope`.
+fn cursor_prefix(ids: &RootStatus, scope: impl fmt::Display) -> String {
+    format!("{}{}{scope}", ids.catalog_id, ids.root_id)
+}
+
+/// Whether a page lost items to the response limit, so its cursor must resume after its last item.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PageFit {
+    Whole,
+    Halved,
+}
+
+/// Renders the longest prefix of `items` (halving it) whose document fits `RESPONSE_LIMIT`.
+/// The closure builds the whole document for one prefix; it returns a `Value` rather than a
+/// borrowing page type, because a page that borrows the prefix cannot outlive the call.
+fn render_halving<T>(
+    mut items: Vec<T>,
+    mut document: impl FnMut(&[T], PageFit) -> Result<Value, JsonError>,
+) -> Result<Response<Full<Bytes>>, JsonError> {
+    let mut fit = PageFit::Whole;
+    loop {
+        if let Some(response) = render_within_limit(&document(&items, fit)?) {
+            return Ok(response);
+        }
+        if items.len() <= 1 {
+            return Err(busy());
+        }
+        items.truncate(items.len() / 2);
+        fit = PageFit::Halved;
+    }
+}
+
+/// The body of `GET /_internal/sync` without a view.
+#[derive(Serialize)]
+struct StatusSummary<'a> {
+    auth_mode: &'static str,
+    state: &'static str,
+    session_id: &'a str,
+    findings_revision: &'a str,
+    observation: &'a Summary,
+    pending_deletion_revision: Option<OpaqueId>,
+    pending_deletion_count: u64,
+    deletion_set: Option<&'a DeletionSet>,
+    writeback_safety: &'static str,
+    conflict_resolution_available: bool,
+    stable_wait_available: bool,
+}
+
+/// A page of `GET /_internal/sync?view=findings`.
+#[derive(Serialize)]
+struct FindingsPage<'a> {
+    view: &'static str,
+    revision: &'a str,
+    total_count: u64,
+    items: Vec<Value>,
+    next_cursor: Option<String>,
+}
+
+/// A page of `GET /_internal/sync?view=deletions`.
+#[derive(Serialize)]
+struct DeletionPage<'a> {
+    view: &'static str,
+    revision: OpaqueId,
+    total_count: u64,
+    scan_revision: OpaqueId,
+    journal_fence: &'a DeletionFence,
+    baseline_count: u64,
+    candidate_count: u64,
+    guard_enabled: bool,
+    min_objects: u64,
+    percent: u64,
+    items: &'a [Candidate],
+    next_cursor: Option<String>,
 }
 
 async fn status(
@@ -435,132 +611,191 @@ async fn status(
         let Some(last) = recoveries.last() else { break };
         after = last.ordinal;
     }
-    let (observation, published_set) = if page.view == View::Findings || page.revision.is_some() {
-        (
+    let (observation, published_set) = match page {
+        Page::Summary => root
+            .published_observation_for(authority.clone())
+            .await
+            .map_err(|error| root_error(&error))?,
+        Page::Deletions(_) | Page::Findings(_) => (
             root.observation_for(authority.clone())
                 .await
                 .map_err(|error| root_error(&error))?,
             None,
-        )
-    } else {
-        root.published_observation_for(authority.clone())
-            .await
-            .map_err(|error| root_error(&error))?
+        ),
     };
     let findings_revision = format!("{session}{:016x}", observation.revision);
-    if page.view == View::Findings {
-        if page.revision.as_deref() != Some(&findings_revision) {
-            return Err(stale());
+    match page {
+        Page::Findings(query) => {
+            if query.revision != findings_revision {
+                return Err(stale());
+            }
+            findings_page(&root, query, &findings_revision, &observation, authority).await
         }
-        return findings_page(&root, page, &findings_revision, &observation, authority).await;
+        Page::Deletions(query) => {
+            let set = root
+                .deletion_set_for(authority.clone())
+                .await
+                .map_err(|error| root_error(&error))?
+                .filter(|set| query.revision.parse() == Ok(set.revision))
+                .ok_or_else(stale)?;
+            deletion_page(&root, query, set, authority).await
+        }
+        Page::Summary => {
+            let set = published_set.as_ref();
+            let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
+            let summary = StatusSummary {
+                auth_mode: state.auth.mode().as_str(),
+                state: control_state(state, &observation, set),
+                session_id: session,
+                findings_revision: &findings_revision,
+                observation: &observation,
+                pending_deletion_revision: set.filter(|_| pending > 0).map(|set| set.revision),
+                pending_deletion_count: pending,
+                deletion_set: set,
+                writeback_safety: "preserve-pending-work",
+                conflict_resolution_available: true,
+                stable_wait_available: true,
+            };
+            bounded(&super::encode(&RootDocument::new(&root.status(), summary))?)
+        }
     }
-    let set = if page.revision.is_some() {
-        root.deletion_set_for(authority.clone())
-            .await
-            .map_err(|error| root_error(&error))?
+}
+
+/// The one state `status` reports; the first condition that holds decides it.
+fn control_state(
+    state: &crate::server::State,
+    observation: &Summary,
+    set: Option<&DeletionSet>,
+) -> &'static str {
+    if let Some(reason) = observation.paused_reason {
+        reason.state()
+    } else if !state.is_ready() {
+        "Unhealthy"
+    } else if let Some(writeback) = &observation.writeback
+        && writeback.state != Stop::Ready
+    {
+        writeback.state.as_str()
+    } else if let Some(stop) = observation.scan_stop {
+        stop.as_str()
+    } else if !observation.baseline_complete {
+        "Observing"
+    } else if set.is_some_and(|set| set.guarded && set.authorization == 0) {
+        "DeletionApproval"
+    } else if observation.path_stops
+        + observation.mapping_findings
+        + observation.pending_writeback
+        + observation.unresolved_conflicts
+        > 0
+    {
+        "FindingsPending"
     } else {
-        published_set
-    };
-    let ids = root.status();
-    if let Some(revision) = &page.revision {
-        let set = set
-            .filter(|set| revision.parse() == Ok(set.revision))
-            .ok_or_else(stale)?;
-        return deletion_page(&root, page, set, authority).await;
+        "Ready"
     }
-    let pending = set
-        .as_ref()
-        .map_or(0, |set| set.candidate_count - set.completed_count);
-    let paused = observation.paused_reason.map(PauseReason::state);
-    bounded(
-        &json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"auth_mode":state.auth.mode().as_str(),
-        "state":if let Some(reason)=paused {reason} else if !state.is_ready() {"Unhealthy"} else if observation.writeback.as_ref().is_some_and(|value|value.state!=Stop::Ready) {observation.writeback.as_ref().map(|value|value.state.as_str()).unwrap_or("Observing")} else if observation.scan_stop.is_some() {observation.scan_stop.map(PauseReason::as_str).unwrap_or("Observing")} else if !observation.baseline_complete {"Observing"} else if set.as_ref().is_some_and(|set|set.guarded && set.authorization==0) {"DeletionApproval"} else if observation.path_stops+observation.mapping_findings+observation.pending_writeback+observation.unresolved_conflicts>0 {"FindingsPending"} else {"Ready"},
-        "session_id":session,"findings_revision":findings_revision,"observation":observation,
-        "pending_deletion_revision":set.as_ref().filter(|_|pending>0).map(|set|set.revision),"pending_deletion_count":pending,
-            "deletion_set":set,"writeback_safety":"preserve-pending-work","conflict_resolution_available":true,"stable_wait_available":true}),
-    )
 }
 
 async fn findings_page(
     root: &RootLease,
-    page: &Page,
+    query: &PageQuery,
     revision: &str,
-    observation: &crate::storage::sync_state::observation::Summary,
+    observation: &Summary,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let ids = root.status();
-    let prefix = format!("{}{}{revision}", ids.catalog_id, ids.root_id);
-    let after = match &page.after {
+    let prefix = cursor_prefix(&ids, revision);
+    let after = match &query.after {
         None => (0, 0),
-        Some(cursor) => match SyncCursor::decode(cursor, &prefix)? {
-            SyncCursor::Findings { kind, ordinal } => (kind, ordinal),
-            _ => return Err(stale()),
-        },
+        Some(cursor) => {
+            let SyncCursor::Findings { kind, ordinal } = SyncCursor::decode(cursor, &prefix)?
+            else {
+                return Err(stale());
+            };
+            (kind, ordinal)
+        }
     };
     let mut items = root
-        .observation_page_for(observation.revision, after, page.limit + 1, authority)
+        .observation_page_for(observation.revision, after, query.limit + 1, authority)
         .await
         .map_err(|error| root_error(&error))?;
-    let full = items.len() > page.limit;
-    items.truncate(page.limit);
-    let mut truncated = false;
-    loop {
-        let next = items.last().filter(|_| full || truncated).map(|item| {
-            SyncCursor::Findings {
-                kind: item.kind,
-                ordinal: item.ordinal,
-            }
-            .encode(&prefix)
-        });
-        let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"findings","revision":revision,
-            "total_count":observation.mapping_findings+observation.pending_writeback+observation.path_stops+observation.unresolved_conflicts+u64::from(observation.paused_reason.is_some())+u64::from(observation.scan_stop.is_some()),"items":items.iter().map(|item|findings::value(item,&prefix,observation.writeback.as_ref())).collect::<Vec<_>>(),"next_cursor":next});
-        if let Some(response) = render_within_limit(&value) {
-            return Ok(response);
-        }
-        if items.len() <= 1 {
-            return Err(busy());
-        }
-        items.truncate(items.len() / 2);
-        truncated = true;
-    }
+    let full = items.len() > query.limit;
+    items.truncate(query.limit);
+    let total_count = observation.mapping_findings
+        + observation.pending_writeback
+        + observation.path_stops
+        + observation.unresolved_conflicts
+        + u64::from(observation.paused_reason.is_some())
+        + u64::from(observation.scan_stop.is_some());
+    render_halving(items, |items, fit| {
+        let next_cursor = items
+            .last()
+            .filter(|_| full || fit == PageFit::Halved)
+            .map(|item| {
+                SyncCursor::Findings {
+                    kind: item.kind,
+                    ordinal: item.ordinal,
+                }
+                .encode(&prefix)
+            });
+        let items = items
+            .iter()
+            .map(|item| findings::value(item, &prefix, observation.writeback.as_ref()))
+            .collect();
+        super::encode(&RootDocument::new(
+            &ids,
+            FindingsPage {
+                view: "findings",
+                revision,
+                total_count,
+                items,
+                next_cursor,
+            },
+        ))
+    })
 }
 
 async fn deletion_page(
     root: &RootLease,
-    page: &Page,
+    query: &PageQuery,
     set: DeletionSet,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let ids = root.status();
-    let prefix = format!("{}{}{}", ids.catalog_id, ids.root_id, set.revision);
-    let after = match &page.after {
+    let prefix = cursor_prefix(&ids, set.revision);
+    let after = match &query.after {
         None => 0,
-        Some(cursor) => match SyncCursor::decode(cursor, &prefix)? {
-            SyncCursor::Deletions(ordinal) => ordinal,
-            _ => return Err(stale()),
-        },
+        Some(cursor) => {
+            let SyncCursor::Deletions(ordinal) = SyncCursor::decode(cursor, &prefix)? else {
+                return Err(stale());
+            };
+            ordinal
+        }
     };
-    let mut items = root
-        .deletion_page_for(set.revision, after, page.limit, authority)
+    let items = root
+        .deletion_page_for(set.revision, after, query.limit, authority)
         .await
         .map_err(|error| root_error(&error))?;
-    loop {
+    render_halving(items, |items, _| {
         let last = items.last().map_or(after, |item| item.ordinal);
-        let next = u64::try_from(last)
+        let next_cursor = u64::try_from(last)
             .is_ok_and(|last| last < set.candidate_count)
             .then(|| SyncCursor::Deletions(last).encode(&prefix));
-        let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"view":"deletions","revision":set.revision,
-            "total_count":set.candidate_count,"scan_revision":set.scan_revision,"journal_fence":set.journal_fence,
-            "baseline_count":set.baseline_count,"candidate_count":set.candidate_count,"guard_enabled":set.guard_enabled,
-            "min_objects":100,"percent":50,"items":items,"next_cursor":next});
-        if let Some(response) = render_within_limit(&value) {
-            return Ok(response);
-        }
-        if items.len() <= 1 {
-            return Err(busy());
-        }
-        items.truncate(items.len() / 2);
-    }
+        super::encode(&RootDocument::new(
+            &ids,
+            DeletionPage {
+                view: "deletions",
+                revision: set.revision,
+                total_count: set.candidate_count,
+                scan_revision: set.scan_revision,
+                journal_fence: &set.journal_fence,
+                baseline_count: set.baseline_count,
+                candidate_count: set.candidate_count,
+                guard_enabled: set.guard_enabled,
+                min_objects: 100,
+                percent: 50,
+                items,
+                next_cursor,
+            },
+        ))
+    })
 }
 
 fn revision(value: &str) -> bool {

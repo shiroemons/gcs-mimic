@@ -1,6 +1,7 @@
 use super::*;
 use crate::storage::sync_state::conflicts::{
-    self, Action, Confirmation, ConflictTarget, RecoveryTarget, ResolveRequest, ResolveTarget,
+    self, Action, Confirmation, Conflict, ConflictPage, ConflictTarget, RecoveryTarget,
+    ResolveRequest, ResolveTarget, Usage,
 };
 
 pub(super) async fn list(
@@ -21,22 +22,23 @@ pub(super) async fn list(
         ));
     }
     let ids = root.status();
-    let prefix = format!("{}{}{session}", ids.catalog_id, ids.root_id);
+    let prefix = cursor_prefix(&ids, session);
     let after = match query.remove("cursor") {
         None => 0,
-        Some(cursor) => match SyncCursor::decode(&cursor, &prefix)? {
-            SyncCursor::Conflicts {
+        Some(cursor) => {
+            let SyncCursor::Conflicts {
                 revision: selected,
                 ordinal,
-            } => {
-                if revision.as_ref().is_some_and(|value| value != &selected) {
-                    return Err(stale());
-                }
-                revision = Some(selected);
-                ordinal
+            } = SyncCursor::decode(&cursor, &prefix)?
+            else {
+                return Err(stale());
+            };
+            if revision.as_ref().is_some_and(|value| value != &selected) {
+                return Err(stale());
             }
-            _ => return Err(stale()),
-        },
+            revision = Some(selected);
+            ordinal
+        }
     };
     if !query.is_empty() {
         return Err(JsonError::invalid_argument(
@@ -48,33 +50,45 @@ pub(super) async fn list(
             "GET synchronization controls do not accept a body",
         ));
     }
-    let mut page = root
+    let ConflictPage {
+        revision,
+        items,
+        usage,
+        next_after,
+    } = root
         .conflict_page(revision, after, limit, authority)
         .await
         .map_err(error)?;
-    let mut truncated = false;
-    loop {
-        let next = page
-            .items
+    render_halving(items, |items, fit| {
+        let next_cursor = items
             .last()
-            .filter(|_| page.next_after.is_some() || truncated)
+            .filter(|_| next_after.is_some() || fit == PageFit::Halved)
             .map(|item| {
                 SyncCursor::Conflicts {
-                    revision: page.revision.clone(),
+                    revision: revision.clone(),
                     ordinal: item.ordinal,
                 }
                 .encode(&prefix)
             });
-        let value = json!({"catalog_id":ids.catalog_id.to_string(),"root_id":ids.root_id.to_string(),"revision":page.revision,"items":page.items,"quota":page.usage,"next_cursor":next});
-        if let Some(response) = render_within_limit(&value) {
-            return Ok(response);
-        }
-        if page.items.len() <= 1 {
-            return Err(busy());
-        }
-        page.items.truncate(page.items.len() / 2);
-        truncated = true;
-    }
+        super::super::encode(&RootDocument::new(
+            &ids,
+            ConflictsPage {
+                revision: &revision,
+                items,
+                quota: &usage,
+                next_cursor,
+            },
+        ))
+    })
+}
+
+/// A page of `GET /_internal/sync/conflicts`.
+#[derive(Serialize)]
+struct ConflictsPage<'a> {
+    revision: &'a str,
+    items: &'a [Conflict],
+    quota: &'a Usage,
+    next_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
