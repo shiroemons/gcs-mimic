@@ -557,10 +557,15 @@ fn changed_fields(result: Result<(), ImportFailure>) -> Vec<ChangedField> {
     }
 }
 
-/// A metadata read reports the first side that moved: its handle when that changed, or else the
-/// entry its name denotes now. A body read reports both sides together, in `ChangedField` order.
+fn is_strictly_sorted(fields: &[ChangedField]) -> bool {
+    fields.is_sorted_by(|before, after| before < after)
+}
+
+/// A source read reports every field that moved on its handle or under its name, in
+/// `ChangedField` order, so a file replaced while its handle also drifted is never mistaken for
+/// stat drift that a retry resolves.
 #[test]
-fn pinned_sources_report_changes_by_their_read_policy() {
+fn pinned_sources_report_every_field_that_moved_on_either_side() {
     use reader::PinnedSource;
     let directory = TestDir::new();
     let path = directory.0.join("source");
@@ -570,77 +575,57 @@ fn pinned_sources_report_changes_by_their_read_policy() {
     write_aged(&path, b"hello");
     let source = PinnedSource::open(&path).unwrap();
     assert!(source.verify_unchanged(named).is_ok());
-    assert!(source.verify_body_unchanged(&path).is_ok());
 
-    // Replaced under its name with the same bytes and times. Unlinking the original can move
-    // its change time too, so a metadata read reports whichever side moved first; a body read
-    // always sees the new file.
+    // Replaced under its name with the same bytes and times: the name denotes another file.
     write_aged(&replacement, b"hello");
     fs::rename(&replacement, &path).unwrap();
-    let metadata = changed_fields(source.verify_unchanged(named));
-    assert!(!metadata.contains(&ChangedField::Size), "{metadata:?}");
-    let body = changed_fields(source.verify_body_unchanged(&path));
+    let fields = changed_fields(source.verify_unchanged(named));
     assert!(
-        body.contains(&ChangedField::Inode)
-            && body.is_sorted_by(|before, after| before < after)
-            && metadata.iter().all(|field| body.contains(field)),
-        "{metadata:?} {body:?}"
+        fields.contains(&ChangedField::Inode)
+            && !fields.contains(&ChangedField::Size)
+            && is_strictly_sorted(&fields),
+        "{fields:?}"
     );
 
     // Appended in place: the handle moved, and the name still denotes the same file.
     write_aged(&path, b"hello");
     let source = PinnedSource::open(&path).unwrap();
     append(&path);
-    let mut metadata = changed_fields(source.verify_unchanged(named));
+    let fields = changed_fields(source.verify_unchanged(named));
     assert!(
-        metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime])
-            && !metadata.contains(&ChangedField::Inode),
-        "{metadata:?}"
-    );
-    metadata.sort();
-    assert_eq!(
-        changed_fields(source.verify_body_unchanged(&path)),
-        metadata
+        fields.starts_with(&[ChangedField::Size, ChangedField::Mtime])
+            && !fields.contains(&ChangedField::Inode)
+            && is_strictly_sorted(&fields),
+        "{fields:?}"
     );
 
-    // Appended, then replaced: a metadata read reports the handle, a body read both sides.
+    // Appended, then replaced: both sides moved, and their union needs the source repaired.
     write_aged(&path, b"hello");
     let source = PinnedSource::open(&path).unwrap();
     append(&path);
     write_aged(&replacement, b"hello world!");
     fs::rename(&replacement, &path).unwrap();
-    let metadata = changed_fields(source.verify_unchanged(named));
+    let fields = changed_fields(source.verify_unchanged(named));
     assert!(
-        metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime])
-            && !metadata.contains(&ChangedField::Inode),
-        "{metadata:?}"
+        fields.starts_with(&[ChangedField::Size, ChangedField::Mtime, ChangedField::Inode])
+            && is_strictly_sorted(&fields),
+        "{fields:?}"
     );
-    let body = changed_fields(source.verify_body_unchanged(&path));
-    assert!(
-        body.starts_with(&[ChangedField::Size, ChangedField::Mtime, ChangedField::Inode])
-            && body.is_sorted_by(|before, after| before < after),
-        "{body:?}"
-    );
+    assert!(!ImportFailure::SourceChanged { fields }.retryable_stat_drift());
 
-    // Appended, then removed: a metadata read still reports the change its handle saw, while a
-    // body read fails to find its name.
+    // Appended, then removed: a read needs its name, so the failure is the lookup's.
     #[cfg(unix)]
     {
         write_aged(&path, b"hello");
         let source = PinnedSource::open(&path).unwrap();
         append(&path);
         fs::remove_file(&path).unwrap();
-        let metadata = changed_fields(source.verify_unchanged(named));
-        assert!(
-            metadata.starts_with(&[ChangedField::Size, ChangedField::Mtime]),
-            "{metadata:?}"
-        );
         assert!(
             matches!(
-                source.verify_body_unchanged(&path),
+                source.verify_unchanged(named),
                 Err(ImportFailure::Io(error)) if error.kind() == io::ErrorKind::NotFound
             ),
-            "a body read needs its name"
+            "a read needs its name"
         );
     }
 }

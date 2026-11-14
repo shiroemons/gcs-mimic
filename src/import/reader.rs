@@ -230,8 +230,7 @@ impl Fingerprint {
         #[cfg(not(windows))]
         Self::of(&fs::symlink_metadata(path)?)
     }
-    /// The fields that differ from `other`: size, modification time, change time, then file
-    /// identity. A metadata read reports them in this order.
+    /// The fields that differ from `other`.
     fn changes(&self, other: &Self) -> Vec<ChangedField> {
         let mut fields = Vec::new();
         if self.size != other.size {
@@ -247,18 +246,6 @@ impl Fingerprint {
             fields.push(ChangedField::Inode);
         }
         fields
-    }
-
-    fn check(&self, other: &Self) -> Result<(), ImportFailure> {
-        changed(self.changes(other))
-    }
-}
-
-fn changed(fields: Vec<ChangedField>) -> Result<(), ImportFailure> {
-    if fields.is_empty() {
-        Ok(())
-    } else {
-        Err(ImportFailure::SourceChanged { fields })
     }
 }
 
@@ -294,29 +281,25 @@ impl PinnedSource {
         self.file
     }
 
-    /// The second half of reading a metadata document. It checks the handle first, then the
-    /// entry the source's name denotes now, which `named` takes only once the handle held still,
-    /// and reports the fields of the first side that changed. A handle that changed describes
-    /// the bytes that were parsed, so its change is reported even when the name is gone too.
+    /// The second half of the protocol: compares the handle now, and the entry the source's name
+    /// denotes now (`named`), with the fingerprint taken at open. It reports every changed field
+    /// of both, in `ChangedField` order, so a file replaced while its handle also drifted is not
+    /// mistaken for stat drift that a retry resolves. A name that is gone fails the lookup.
     pub(super) fn verify_unchanged(
         &self,
         named: impl FnOnce() -> io::Result<Fingerprint>,
     ) -> Result<(), ImportFailure> {
-        self.opened.check(&Fingerprint::of_file(&self.file)?)?;
-        self.opened.check(&named()?)
-    }
-
-    /// The second half of reading a body. It takes the handle and the entry at `path` together
-    /// and reports every changed field of both, in `ChangedField` order, so a body replaced while
-    /// its handle also drifted is not mistaken for stat drift that a retry resolves.
-    pub(super) fn verify_body_unchanged(&self, path: &Path) -> Result<(), ImportFailure> {
         let handle = Fingerprint::of_file(&self.file)?;
-        let named = Fingerprint::of_path(path)?;
+        let named = named()?;
         let mut fields = self.opened.changes(&handle);
         fields.extend(self.opened.changes(&named));
         fields.sort();
         fields.dedup();
-        changed(fields)
+        if fields.is_empty() {
+            Ok(())
+        } else {
+            Err(ImportFailure::SourceChanged { fields })
+        }
     }
 }
 
@@ -417,7 +400,8 @@ impl BodyStream {
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?)
     }
     pub fn check_unchanged(&self) -> Result<(), ImportFailure> {
-        self.source.verify_body_unchanged(&self.path)
+        self.source
+            .verify_unchanged(|| Fingerprint::of_path(&self.path))
     }
 }
 
