@@ -33,11 +33,8 @@ impl RewriteNames {
 /// Includes the selected immutable generation, even when sourceGeneration was omitted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RewriteBinding {
-    pub source_bucket: String,
-    pub source_object: String,
-    pub source_generation: i64,
-    pub destination_bucket: String,
-    pub destination_object: String,
+    pub source: ObjectTarget<i64>,
+    pub destination: ObjectTarget<()>,
     pub parameters: Map<String, Value>,
     pub metadata: Option<Value>,
 }
@@ -50,10 +47,10 @@ impl RewriteBinding {
         supplied_parameters: &Map<String, Value>,
         supplied_metadata: Option<&Value>,
     ) -> bool {
-        names.source.bucket == self.source_bucket
-            && names.source.name == self.source_object
-            && names.destination.bucket == self.destination_bucket
-            && names.destination.name == self.destination_object
+        names.source.bucket == self.source.bucket
+            && names.source.name == self.source.name
+            && names.destination.bucket == self.destination.bucket
+            && names.destination.name == self.destination.name
             && supplied_parameters
                 .iter()
                 .all(|(key, value)| self.parameters.get(key) == Some(value))
@@ -112,11 +109,8 @@ mod tests {
         .clone();
         let body = json!({"metadata":{"key":"value"},"storageClass":"NEARLINE"});
         let binding = RewriteBinding {
-            source_bucket: "source".into(),
-            source_object: "a/b%日本".into(),
-            source_generation: 7,
-            destination_bucket: "destination".into(),
-            destination_object: "c/d".into(),
+            source: crate::object::ObjectTarget::new("source", "a/b%日本", 7),
+            destination: crate::object::ObjectTarget::new("destination", "c/d", ()),
             parameters: parameters.clone(),
             metadata: Some(body.clone()),
         };

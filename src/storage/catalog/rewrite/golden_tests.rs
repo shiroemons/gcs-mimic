@@ -84,11 +84,8 @@ fn populated_request_keeps_its_json_bytes() {
     let options = resumable::golden_tests::populated_options();
     let start = RewriteStart {
         binding: RewriteBinding {
-            source_bucket: "source-bucket".into(),
-            source_object: "source".into(),
-            source_generation: 7,
-            destination_bucket: "destination-bucket".into(),
-            destination_object: "destination".into(),
+            source: crate::object::ObjectTarget::new("source-bucket", "source", 7),
+            destination: crate::object::ObjectTarget::new("destination-bucket", "destination", ()),
             parameters: json!({"fields":"name","ifSourceGenerationMatch":"7"})
                 .as_object()
                 .unwrap()

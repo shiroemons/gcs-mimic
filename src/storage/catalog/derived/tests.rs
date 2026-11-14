@@ -66,11 +66,8 @@ async fn md5_availability_survives_restart_without_component_count() {
     let selected = source(&catalog, "multipart").await;
     let start = super::super::rewrite::RewriteStart {
         binding: super::super::rewrite::RewriteBinding {
-            source_bucket: "bucket".into(),
-            source_object: "multipart".into(),
-            source_generation: record.generation,
-            destination_bucket: "bucket".into(),
-            destination_object: "rewrite".into(),
+            source: crate::object::ObjectTarget::new("bucket", "multipart", record.generation),
+            destination: crate::object::ObjectTarget::new("bucket", "rewrite", ()),
             parameters: Default::default(),
             metadata: None,
         },

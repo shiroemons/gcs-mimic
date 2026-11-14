@@ -137,11 +137,12 @@ async fn every_new_generation_starts_its_storage_class_time_at_creation() {
                     .unwrap();
                 let start = RewriteStart {
                     binding: RewriteBinding {
-                        source_bucket: "bucket".into(),
-                        source_object: "source".into(),
-                        source_generation: transitioned.generation,
-                        destination_bucket: "bucket".into(),
-                        destination_object: route.into(),
+                        source: crate::object::ObjectTarget::new(
+                            "bucket",
+                            "source",
+                            transitioned.generation,
+                        ),
+                        destination: crate::object::ObjectTarget::new("bucket", route, ()),
                         parameters: Default::default(),
                         metadata: None,
                     },

@@ -11,7 +11,7 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::storage::failure::BackendFailure;
 use crate::{
     bucket::BucketAccess,
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -79,14 +79,14 @@ fn check_continuation(
         check_incarnations(connection, session)?;
         super::objects::authorize_generation(
             connection,
-            &session.binding.source_bucket,
-            &session.binding.source_object,
-            session.binding.source_generation,
+            &session.binding.source.bucket,
+            &session.binding.source.name,
+            session.binding.source.generation,
             access.0,
         )?;
         super::objects::authorized_bucket(
             connection,
-            &session.binding.destination_bucket,
+            &session.binding.destination.bucket,
             access.1,
         )?;
         Ok(None)
@@ -256,12 +256,12 @@ fn encode(
     let conditions = start.source_conditions;
     serde_json::to_string(&StoredRequest {
         path: [
-            binding.source_bucket.clone(),
-            binding.source_object.clone(),
-            binding.destination_bucket.clone(),
-            binding.destination_object.clone(),
+            binding.source.bucket.clone(),
+            binding.source.name.clone(),
+            binding.destination.bucket.clone(),
+            binding.destination.name.clone(),
         ],
-        generation: binding.source_generation,
+        generation: binding.source.generation,
         metageneration: start.source_metageneration,
         parameters: binding.parameters.clone(),
         body: binding.metadata.clone(),
@@ -323,11 +323,12 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         token,
         previous_token,
         binding: RewriteBinding {
-            source_bucket,
-            source_object,
-            destination_bucket: destination_bucket.clone(),
-            destination_object: destination_object.clone(),
-            source_generation: request.generation,
+            source: ObjectTarget::new(source_bucket, source_object, request.generation),
+            destination: ObjectTarget::new(
+                destination_bucket.clone(),
+                destination_object.clone(),
+                (),
+            ),
             parameters: request.parameters,
             metadata: request.body,
         },
@@ -384,7 +385,7 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> 
         }
     };
     progress_valid
-        && session.binding.source_generation > 0
+        && session.binding.source.generation > 0
         && session.source_metageneration > 0
         && session.offset <= session.total
 }
@@ -476,9 +477,9 @@ fn check_source(
     check_incarnations(connection, session)?;
     let source = Catalog::check_derived_source_in_transaction(
         connection,
-        &session.binding.source_bucket,
-        &session.binding.source_object,
-        Some(session.binding.source_generation),
+        &session.binding.source.bucket,
+        &session.binding.source.name,
+        Some(session.binding.source.generation),
         session.source_conditions,
         access,
     )
@@ -491,12 +492,12 @@ fn check_source(
     let live_changed = !session.binding.parameters.contains_key("sourceGeneration")
         && super::objects::lookup(
             connection,
-            &session.binding.source_bucket,
-            &session.binding.source_object,
+            &session.binding.source.bucket,
+            &session.binding.source.name,
         )?
-        .is_none_or(|stored| stored.record.generation != session.binding.source_generation);
+        .is_none_or(|stored| stored.record.generation != session.binding.source.generation);
     if live_changed
-        || source.generation != session.binding.source_generation
+        || source.generation != session.binding.source.generation
         || source.metageneration != session.source_metageneration
     {
         return Err(ObjectError::PreconditionFailed);
@@ -508,8 +509,8 @@ fn check_incarnations(
     connection: &Connection,
     session: &RewriteSession,
 ) -> Result<(), ObjectError> {
-    if incarnation(connection, &session.binding.source_bucket)? != session.source_incarnation
-        || incarnation(connection, &session.binding.destination_bucket)?
+    if incarnation(connection, &session.binding.source.bucket)? != session.source_incarnation
+        || incarnation(connection, &session.binding.destination.bucket)?
             != session.destination_incarnation
     {
         return Err(ObjectError::PreconditionFailed);
@@ -564,8 +565,8 @@ impl Catalog {
                     }
                     let request = encode(
                         &start,
-                        incarnation(connection, &start.binding.source_bucket)?,
-                        incarnation(connection, &start.binding.destination_bucket)?,
+                        incarnation(connection, &start.binding.source.bucket)?,
+                        incarnation(connection, &start.binding.destination.bucket)?,
                     )?;
                     let deadline = UnixMillis::try_from(transfer.deadline)?;
                     sql::exec(
@@ -807,11 +808,8 @@ mod tests {
     fn persisted_request_keeps_its_json_bytes() {
         let start = RewriteStart {
             binding: RewriteBinding {
-                source_bucket: "bucket".into(),
-                source_object: "source".into(),
-                source_generation: 7,
-                destination_bucket: "bucket".into(),
-                destination_object: "destination".into(),
+                source: crate::object::ObjectTarget::new("bucket", "source", 7),
+                destination: crate::object::ObjectTarget::new("bucket", "destination", ()),
                 parameters: Default::default(),
                 metadata: None,
             },
@@ -913,11 +911,12 @@ mod tests {
             .unwrap();
         let start = RewriteStart {
             binding: RewriteBinding {
-                source_bucket: "bucket".into(),
-                source_object: "source".into(),
-                source_generation: source.object.generation,
-                destination_bucket: "bucket".into(),
-                destination_object: "destination".into(),
+                source: crate::object::ObjectTarget::new(
+                    "bucket",
+                    "source",
+                    source.object.generation,
+                ),
+                destination: crate::object::ObjectTarget::new("bucket", "destination", ()),
                 parameters: Default::default(),
                 metadata: None,
             },

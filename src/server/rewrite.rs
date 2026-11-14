@@ -57,10 +57,10 @@ async fn authorize_source(
     let generation = if let Some(token) = &operation.token {
         match catalog.rewrite_session(token).await {
             Ok(session)
-                if session.binding.source_bucket == source.bucket
-                    && session.binding.source_object == source.name =>
+                if session.binding.source.bucket == source.bucket
+                    && session.binding.source.name == source.name =>
             {
-                Some(session.binding.source_generation)
+                Some(session.binding.source.generation)
             }
             Ok(_) | Err(RewriteError::Invalid | RewriteError::Gone) => requested,
             Err(failure) => return Err(error(failure)),
@@ -271,11 +271,16 @@ async fn execute(
             u64::MAX
         };
         let binding = RewriteBinding {
-            source_bucket: names.source.bucket.clone(),
-            source_object: names.source.name.clone(),
-            source_generation: source.object.generation,
-            destination_bucket: names.destination.bucket.clone(),
-            destination_object: names.destination.name.clone(),
+            source: crate::object::ObjectTarget::new(
+                names.source.bucket.clone(),
+                names.source.name.clone(),
+                source.object.generation,
+            ),
+            destination: crate::object::ObjectTarget::new(
+                names.destination.bucket.clone(),
+                names.destination.name.clone(),
+                (),
+            ),
             parameters: bound_parameters(&operation.parameters),
             metadata: body.clone(),
         };

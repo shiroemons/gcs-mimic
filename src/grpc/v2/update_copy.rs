@@ -220,22 +220,22 @@ impl<'a> RewriteTarget<'a> {
         profile: crate::config::CompatProfile,
     ) -> Result<Self, Status> {
         let sb = if r.source_bucket.is_empty() {
-            binding.map_or("", |b| b.source_bucket.as_str())
+            binding.map_or("", |b| b.source.bucket.as_str())
         } else {
             names::bucket_name(&r.source_bucket)?
         };
         let sn = if r.source_object.is_empty() {
-            binding.map_or("", |b| b.source_object.as_str())
+            binding.map_or("", |b| b.source.name.as_str())
         } else {
             &r.source_object
         };
         let db = if r.destination_bucket.is_empty() {
-            binding.map_or("", |b| b.destination_bucket.as_str())
+            binding.map_or("", |b| b.destination.bucket.as_str())
         } else {
             names::bucket_name(&r.destination_bucket)?
         };
         let dn = if r.destination_name.is_empty() {
-            binding.map_or("", |b| b.destination_object.as_str())
+            binding.map_or("", |b| b.destination.name.as_str())
         } else {
             &r.destination_name
         };
@@ -258,10 +258,10 @@ impl<'a> RewriteTarget<'a> {
             self.destination_bucket,
             self.destination_object,
         ] == [
-            binding.source_bucket.as_str(),
-            binding.source_object.as_str(),
-            binding.destination_bucket.as_str(),
-            binding.destination_object.as_str(),
+            binding.source.bucket.as_str(),
+            binding.source.name.as_str(),
+            binding.destination.bucket.as_str(),
+            binding.destination.name.as_str(),
         ]
     }
 }
@@ -483,11 +483,8 @@ impl Storage {
         };
         let start = RewriteStart {
             binding: RewriteBinding {
-                source_bucket: sb.into(),
-                source_object: sn.into(),
-                source_generation: source.object.generation,
-                destination_bucket: db.into(),
-                destination_object: dn.into(),
+                source: crate::object::ObjectTarget::new(sb, sn, source.object.generation),
+                destination: crate::object::ObjectTarget::new(db, dn, ()),
                 parameters,
                 metadata: body,
             },
