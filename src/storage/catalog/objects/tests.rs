@@ -9,6 +9,36 @@ use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload}
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
+/// Object rows are read by position, so each declared position must name the column the
+/// statement selects there: reordering, adding or removing a column fails here.
+#[tokio::test]
+async fn object_columns_match_their_positions() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let selected = catalog
+        .run::<_, CatalogError>(|connection| {
+            let statement = connection.prepare(concat!(
+                "SELECT ",
+                object_columns!(),
+                " FROM objects LIMIT 0"
+            ))?;
+            Ok(statement
+                .column_names()
+                .map(str::to_owned)
+                .collect::<Vec<_>>())
+        })
+        .await
+        .unwrap();
+    let declared: Vec<_> = ObjectColumn::COLUMNS
+        .iter()
+        .map(|(_, name)| *name)
+        .collect();
+    assert_eq!(selected, declared);
+    for (position, (column, _)) in ObjectColumn::COLUMNS.iter().enumerate() {
+        assert_eq!(column.index(), position, "{column:?}");
+    }
+}
+
 #[tokio::test]
 async fn bucket_settings_migrate_supported_catalogs() {
     use crate::storage::catalog::test_support as common;

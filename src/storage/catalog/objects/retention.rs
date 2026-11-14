@@ -52,22 +52,29 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
     transaction.commit().map_err(unavailable)
 }
 
-/// Reads the retention pair starting at `index` (mode, then retain-until micros) and the
-/// sub-microsecond remainder at `sub_index`.
-pub(super) fn read(
-    row: &Row<'_>,
-    index: usize,
-    sub_index: usize,
-) -> rusqlite::Result<Option<ObjectRetention>> {
-    let mode: Option<String> = row.get(index)?;
-    let until: Option<i64> = row.get(index + 1)?;
+/// Where a row holds the retention columns.
+#[derive(Clone, Copy)]
+pub(super) struct Columns {
+    /// `retention_mode`.
+    pub(super) mode: usize,
+    /// `retain_until_time`, in microseconds.
+    pub(super) until: usize,
+    /// `retain_until_sub_micro_nanos`.
+    pub(super) sub_micro: usize,
+}
+
+/// Reads an object's retention from the row's retention columns.
+pub(super) fn read(row: &Row<'_>, columns: Columns) -> rusqlite::Result<Option<ObjectRetention>> {
+    let mode: Option<String> = row.get(columns.mode)?;
+    let until: Option<i64> = row.get(columns.until)?;
     let (Some(mode), Some(until)) = (mode, until) else {
         return Ok(None);
     };
     let mode = RetentionMode::parse(&mode)
-        .ok_or_else(|| sql::conversion_error(index, Type::Text, "invalid retention mode"))?;
-    let invalid = || sql::conversion_error(index + 1, Type::Integer, "invalid retain-until time");
-    let remainder = u32::try_from(row.get::<_, i64>(sub_index)?).map_err(|_| invalid())?;
+        .ok_or_else(|| sql::conversion_error(columns.mode, Type::Text, "invalid retention mode"))?;
+    let invalid =
+        || sql::conversion_error(columns.until, Type::Integer, "invalid retain-until time");
+    let remainder = u32::try_from(row.get::<_, i64>(columns.sub_micro)?).map_err(|_| invalid())?;
     let retain_until =
         UnixNanos::from_micros_and_remainder(until, remainder).ok_or_else(invalid)?;
     Ok(Some(ObjectRetention { mode, retain_until }))
@@ -227,7 +234,16 @@ mod tests {
         let rows: Vec<Option<ObjectRetention>> = connection
             .prepare("SELECT mode, until, sub FROM objects ORDER BY rowid")
             .unwrap()
-            .query_map([], |row| read(row, 0, 2))
+            .query_map([], |row| {
+                read(
+                    row,
+                    Columns {
+                        mode: 0,
+                        until: 1,
+                        sub_micro: 2,
+                    },
+                )
+            })
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();

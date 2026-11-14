@@ -9,7 +9,7 @@ use crate::{
         owner::{LOCAL_CREATOR_ID, ObjectOwner},
     },
 };
-use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN owner TEXT CHECK(owner IS NULL OR (json_valid(owner) AND json_type(owner) = 'object')); PRAGMA user_version=44;";
 
@@ -177,12 +177,9 @@ pub(super) fn for_publication(
 }
 
 pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<ObjectOwner>> {
-    row.get::<_, Option<String>>(index)?
-        .map(|value| {
-            serde_json::from_str(&value)
-                .map_err(|error| sql::conversion_error(index, Type::Text, error))
-        })
-        .transpose()
+    Ok(row
+        .get::<_, Option<sql::Json<ObjectOwner>>>(index)?
+        .map(|owner| owner.0))
 }
 
 pub(super) fn selected(

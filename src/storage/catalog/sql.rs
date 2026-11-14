@@ -60,6 +60,61 @@ macro_rules! integer_enum {
 
 pub(super) use {integer_enum, text_enum};
 
+/// Declares the positions of a `SELECT` list written as a literal macro elsewhere, for a row read
+/// on a hot path where looking columns up by name would cost a scan of the column names per
+/// read. A unit test compares the declaration with the statement SQLite prepares.
+macro_rules! column_positions {
+    ($visibility:vis enum $name:ident { $($variant:ident => $column:literal),+ $(,)? }) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(usize)]
+        $visibility enum $name { $($variant),+ }
+
+        impl $name {
+            /// The column's position in the `SELECT` list.
+            $visibility const fn index(self) -> usize {
+                self as usize
+            }
+
+            /// Every column in list order, with the name SQLite reports for it.
+            #[cfg(test)]
+            $visibility const COLUMNS: &'static [(Self, &'static str)] =
+                &[$((Self::$variant, $column)),+];
+        }
+    };
+}
+
+pub(super) use column_positions;
+
+/// A BLOB column that holds exactly `N` bytes, such as a digest; another length is `invalid`.
+pub(super) fn fixed_blob<const N: usize>(
+    row: &Row<'_>,
+    index: usize,
+    invalid: &'static str,
+) -> rusqlite::Result<[u8; N]> {
+    sized_blob(row.get(index)?, index, invalid)
+}
+
+/// A nullable [`fixed_blob`] column.
+pub(super) fn optional_fixed_blob<const N: usize>(
+    row: &Row<'_>,
+    index: usize,
+    invalid: &'static str,
+) -> rusqlite::Result<Option<[u8; N]>> {
+    row.get::<_, Option<Vec<u8>>>(index)?
+        .map(|bytes| sized_blob(bytes, index, invalid))
+        .transpose()
+}
+
+fn sized_blob<const N: usize>(
+    bytes: Vec<u8>,
+    index: usize,
+    invalid: &'static str,
+) -> rusqlite::Result<[u8; N]> {
+    bytes
+        .try_into()
+        .map_err(|_| conversion_error(index, rusqlite::types::Type::Blob, invalid))
+}
+
 text_enum!(
     crate::bucket::StorageClass,
     "invalid stored storage class",
@@ -160,7 +215,7 @@ impl<T: serde::Serialize> rusqlite::ToSql for Json<T> {
 
 #[cfg(test)]
 mod json_tests {
-    use super::{Json, scalar};
+    use super::{Json, row, scalar};
     use crate::bucket::CatalogError;
     use rusqlite::Connection;
     use std::collections::BTreeMap;
@@ -203,6 +258,55 @@ mod json_tests {
         let error = super::super::unavailable(error);
         assert!(matches!(error, CatalogError::Unavailable(_)), "{error:?}");
         assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+    }
+
+    /// A JSON column reports its own index: malformed text as a conversion failure and NULL or a
+    /// non-text value as the wrong column type, both catalog corruption.
+    #[test]
+    fn json_columns_report_malformed_values_at_their_index_as_corruption() {
+        let connection = Connection::open_in_memory().unwrap();
+        let stored = BTreeMap::from([("key".to_owned(), "value".to_owned())]);
+        let text = scalar::<String>(&connection, "SELECT ?1", [Json(&stored)]).unwrap();
+        assert_eq!(text, r#"{"key":"value"}"#);
+        let read = row(&connection, "SELECT 0, ?1", [&text], |row| {
+            row.get::<_, Json<BTreeMap<String, String>>>(1)
+        })
+        .unwrap();
+        assert_eq!(read.0, stored);
+        let malformed = row(&connection, "SELECT 0, '{'", [], |row| {
+            row.get::<_, Json<BTreeMap<String, String>>>(1)
+        })
+        .err()
+        .unwrap();
+        assert!(matches!(
+            malformed,
+            rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, ref error)
+                if error.is::<serde_json::Error>()
+        ));
+        for sql in ["SELECT 0, NULL", "SELECT 0, 7"] {
+            let error = row(&connection, sql, [], |row| {
+                row.get::<_, Json<BTreeMap<String, String>>>(1)
+            })
+            .err()
+            .unwrap();
+            assert!(
+                matches!(error, rusqlite::Error::InvalidColumnType(1, ..)),
+                "{sql}: {error:?}"
+            );
+            assert!(matches!(
+                super::super::unavailable(error),
+                CatalogError::Corrupt(_)
+            ));
+        }
+        assert!(matches!(
+            super::super::unavailable(malformed),
+            CatalogError::Corrupt(_)
+        ));
+        let absent = row(&connection, "SELECT NULL", [], |row| {
+            row.get::<_, Option<Json<BTreeMap<String, String>>>>(0)
+        })
+        .unwrap();
+        assert!(absent.is_none());
     }
 }
 

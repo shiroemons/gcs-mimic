@@ -43,18 +43,9 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     })
 }
 
-pub(super) fn decode(value: Option<Vec<u8>>) -> rusqlite::Result<Option<[u8; 32]>> {
-    value
-        .map(|bytes| {
-            bytes.try_into().map_err(|_| {
-                sql::conversion_error(
-                    27,
-                    rusqlite::types::Type::Blob,
-                    "invalid customer key fingerprint length",
-                )
-            })
-        })
-        .transpose()
+/// Reads the stored key fingerprint at `index`, `None` for an object without a customer key.
+pub(super) fn read(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<[u8; 32]>> {
+    sql::optional_fixed_blob(row, index, "invalid customer key fingerprint length")
 }
 
 pub(super) fn check(record: &ObjectRecord, key: Option<CustomerKey>) -> Result<(), ObjectError> {

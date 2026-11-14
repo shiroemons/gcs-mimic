@@ -465,6 +465,13 @@ fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {
     signed_system_time(micros, Duration::from_micros)
 }
 
+/// An optional whole-microsecond timestamp column.
+fn micros_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<SystemTime>> {
+    row.get::<_, Option<UnixMicros>>(index)?
+        .map(UnixMicros::system_time)
+        .transpose()
+}
+
 /// Converts a signed count of `unit`s since the Unix epoch.
 fn signed_system_time(value: i64, unit: fn(u64) -> Duration) -> rusqlite::Result<SystemTime> {
     let duration = unit(value.unsigned_abs());

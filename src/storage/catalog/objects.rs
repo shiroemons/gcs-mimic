@@ -1,5 +1,5 @@
 use super::{
-    Activity, Catalog, UploadGuard, Work,
+    Activity, Catalog, UploadGuard, Work, micros_column,
     read_cache::{self, CachedDownload, CachedObject},
     system_time_micros, unavailable, unix_micros,
 };
@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use bytes::Bytes;
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, types::Type};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use std::{
     fs::{self, File},
     io,
@@ -47,12 +47,50 @@ macro_rules! object_columns {
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
-    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
+    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket) AS retention_expiration_time, soft_delete_time, hard_delete_time,
     retention_mode, retain_until_time, customer_key_sha256, md5_available, owner,
     retain_until_sub_micro_nanos, temporary_hold_released, event_based_hold_released,
     time_storage_class_updated"
     };
 }
+// The object point read and every listing seek decode this row, so it is read by position;
+// `object_columns_match_their_positions` keeps the declaration in step with the list above.
+sql::column_positions!(enum ObjectColumn {
+    Bucket => "bucket",
+    Name => "name",
+    Generation => "generation",
+    Metageneration => "metageneration",
+    ContentType => "content_type",
+    Size => "size",
+    Md5 => "md5",
+    Crc32c => "crc32c",
+    StorageClass => "storage_class",
+    TimeCreated => "time_created",
+    Updated => "updated",
+    BlobId => "blob_id",
+    ContentEncoding => "content_encoding",
+    ContentDisposition => "content_disposition",
+    ContentLanguage => "content_language",
+    CacheControl => "cache_control",
+    Metadata => "metadata",
+    TimeDeleted => "time_deleted",
+    EventBasedHold => "event_based_hold",
+    ComponentCount => "component_count",
+    TemporaryHold => "temporary_hold",
+    CustomTime => "custom_time",
+    RetentionExpiration => "retention_expiration_time",
+    SoftDeleteTime => "soft_delete_time",
+    HardDeleteTime => "hard_delete_time",
+    RetentionMode => "retention_mode",
+    RetainUntilTime => "retain_until_time",
+    CustomerKeySha256 => "customer_key_sha256",
+    Md5Available => "md5_available",
+    Owner => "owner",
+    RetainUntilSubMicroNanos => "retain_until_sub_micro_nanos",
+    TemporaryHoldReleased => "temporary_hold_released",
+    EventBasedHoldReleased => "event_based_hold_released",
+    TimeStorageClassUpdated => "time_storage_class_updated",
+});
 const SELECT_LIVE_OBJECT: &str = concat!(
     "SELECT ",
     object_columns!(),
@@ -747,59 +785,57 @@ pub(super) fn check_conditions(
     Ok(())
 }
 
+/// Decodes a row selected with `object_columns!`.
 pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
-    let md5: Vec<u8> = row.get(6)?;
-    let md5 = md5
-        .try_into()
-        .map_err(|_| sql::conversion_error(6, Type::Blob, "invalid MD5 length"))?;
+    use ObjectColumn as C;
+    let md5 = sql::fixed_blob(row, C::Md5.index(), "invalid MD5 length")?;
     Ok(StoredObject {
         record: ObjectRecord {
-            bucket: row.get(0)?,
-            name: row.get(1)?,
-            generation: row.get(2)?,
-            metageneration: row.get(3)?,
-            owner: super::object_owner::read(row, 29)?,
-            content_type: row.get(4)?,
-            content_encoding: row.get(12)?,
-            content_disposition: row.get(13)?,
-            content_language: row.get(14)?,
-            cache_control: row.get(15)?,
-            metadata: serde_json::from_str(&row.get::<_, String>(16)?)
-                .map_err(|error| sql::conversion_error(16, Type::Text, error))?,
-            size: row.get(5)?,
+            bucket: row.get(C::Bucket.index())?,
+            name: row.get(C::Name.index())?,
+            generation: row.get(C::Generation.index())?,
+            metageneration: row.get(C::Metageneration.index())?,
+            owner: super::object_owner::read(row, C::Owner.index())?,
+            content_type: row.get(C::ContentType.index())?,
+            content_encoding: row.get(C::ContentEncoding.index())?,
+            content_disposition: row.get(C::ContentDisposition.index())?,
+            content_language: row.get(C::ContentLanguage.index())?,
+            cache_control: row.get(C::CacheControl.index())?,
+            metadata: row.get::<_, sql::Json<_>>(C::Metadata.index())?.0,
+            size: row.get(C::Size.index())?,
             md5,
-            md5_availability: super::md5_availability::read(row, 28)?,
-            crc32c: row.get(7)?,
-            component_count: row.get(19)?,
-            storage_class: row.get(8)?,
-            time_created: system_time_micros(row.get(9)?)?,
-            time_storage_class_updated: row
-                .get::<_, Option<i64>>(33)?
-                .map(system_time_micros)
-                .transpose()?,
-            updated: system_time_micros(row.get(10)?)?,
-            time_deleted: row
-                .get::<_, Option<i64>>(17)?
-                .map(system_time_micros)
-                .transpose()?,
-            event_based_hold: super::object_hold::read(row, 18, 32)?,
-            temporary_hold: super::object_hold::read(row, 20, 31)?,
-            custom_time: row.get(21)?,
-            retention_expiration_time: row
-                .get::<_, Option<i64>>(22)?
-                .map(system_time_micros)
-                .transpose()?,
-            soft_delete_time: row
-                .get::<_, Option<i64>>(23)?
-                .map(system_time_micros)
-                .transpose()?,
-            hard_delete_time: row
-                .get::<_, Option<i64>>(24)?
-                .map(system_time_micros)
-                .transpose()?,
-            retention: retention::read(row, 25, 30)?,
-            customer_key_sha256: super::customer_keys::decode(row.get(27)?)?,
+            md5_availability: super::md5_availability::read(row, C::Md5Available.index())?,
+            crc32c: row.get(C::Crc32c.index())?,
+            component_count: row.get(C::ComponentCount.index())?,
+            storage_class: row.get(C::StorageClass.index())?,
+            time_created: system_time_micros(row.get(C::TimeCreated.index())?)?,
+            time_storage_class_updated: micros_column(row, C::TimeStorageClassUpdated.index())?,
+            updated: system_time_micros(row.get(C::Updated.index())?)?,
+            time_deleted: micros_column(row, C::TimeDeleted.index())?,
+            event_based_hold: super::object_hold::read(
+                row,
+                C::EventBasedHold.index(),
+                C::EventBasedHoldReleased.index(),
+            )?,
+            temporary_hold: super::object_hold::read(
+                row,
+                C::TemporaryHold.index(),
+                C::TemporaryHoldReleased.index(),
+            )?,
+            custom_time: row.get(C::CustomTime.index())?,
+            retention_expiration_time: micros_column(row, C::RetentionExpiration.index())?,
+            soft_delete_time: micros_column(row, C::SoftDeleteTime.index())?,
+            hard_delete_time: micros_column(row, C::HardDeleteTime.index())?,
+            retention: retention::read(
+                row,
+                retention::Columns {
+                    mode: C::RetentionMode.index(),
+                    until: C::RetainUntilTime.index(),
+                    sub_micro: C::RetainUntilSubMicroNanos.index(),
+                },
+            )?,
+            customer_key_sha256: super::customer_keys::read(row, C::CustomerKeySha256.index())?,
         },
-        blob: row.get(11)?,
+        blob: row.get(C::BlobId.index())?,
     })
 }
