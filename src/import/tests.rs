@@ -388,3 +388,35 @@ fn an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both
     assert_eq!(fields[5], 32u64.to_be_bytes());
     assert!(former.with_former_defaults().is_none());
 }
+
+/// Report keys are `{path}:{field}`, and operators and tests match them, so each named field and
+/// each other failure keeps the key it had when the names were strings.
+#[test]
+fn source_failures_keep_their_report_keys() {
+    for (field, key) in [
+        (CorruptField::Name, "name"),
+        (CorruptField::Metadata, "metadata"),
+        (CorruptField::UserMetadata, "user.metadata"),
+        (CorruptField::Entry, "entry"),
+        (CorruptField::Limits, "limits"),
+        (CorruptField::Size, "Size"),
+        (CorruptField::BucketAttrs, "BucketAttrs"),
+        (CorruptField::ObjectAttrs, "ObjectAttrs"),
+        (CorruptField::Snapshot, "snapshot"),
+    ] {
+        let failure = ImportFailure::corrupt(field, "reason", "fix");
+        assert_eq!((failure.field(), failure.fix()), (key, "fix"));
+    }
+    for (failure, key) in [
+        (
+            ImportFailure::SourceChanged {
+                fields: vec![ChangedField::Size],
+            },
+            "fingerprint",
+        ),
+        (ImportFailure::Io(io::ErrorKind::Other.into()), "io"),
+        (ImportFailure::ReportClosed, "report"),
+    ] {
+        assert_eq!(failure.field(), key);
+    }
+}

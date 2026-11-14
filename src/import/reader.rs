@@ -36,6 +36,37 @@ pub enum ChangedField {
     Metadata,
 }
 
+/// The report key of a source failure: diagnostics and the import report name it
+/// `{path}:{field}`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorruptField {
+    Name,
+    Metadata,
+    UserMetadata,
+    Entry,
+    Limits,
+    Size,
+    BucketAttrs,
+    ObjectAttrs,
+    Snapshot,
+}
+
+impl CorruptField {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Metadata => "metadata",
+            Self::UserMetadata => "user.metadata",
+            Self::Entry => "entry",
+            Self::Limits => "limits",
+            Self::Size => "Size",
+            Self::BucketAttrs => "BucketAttrs",
+            Self::ObjectAttrs => "ObjectAttrs",
+            Self::Snapshot => "snapshot",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ImportFailure {
     SourceChanged {
@@ -44,7 +75,7 @@ pub enum ImportFailure {
     Io(io::Error),
     Json(serde_json::Error),
     Corrupt {
-        field: &'static str,
+        field: CorruptField,
         reason: BackendCause,
         fix: Cow<'static, str>,
     },
@@ -52,7 +83,7 @@ pub enum ImportFailure {
 }
 impl ImportFailure {
     pub(super) fn corrupt(
-        field: &'static str,
+        field: CorruptField,
         reason: impl Into<BackendCause>,
         fix: impl Into<Cow<'static, str>>,
     ) -> Self {
@@ -60,6 +91,32 @@ impl ImportFailure {
             field,
             reason: reason.into(),
             fix: fix.into(),
+        }
+    }
+    /// The report key that names this failure after its path.
+    pub(super) fn field(&self) -> &'static str {
+        match self {
+            Self::Corrupt { field, .. } => field.as_str(),
+            Self::SourceChanged { .. } => "fingerprint",
+            Self::Io(_) => "io",
+            Self::Json(_) => "snapshot_json",
+            Self::ReportClosed => "report",
+        }
+    }
+    /// The remedy the report gives for this failure.
+    pub(super) fn fix(&self) -> &str {
+        match self {
+            Self::Corrupt { fix, .. } => fix,
+            Self::SourceChanged { .. } => {
+                "Stop the source writer and inspect an immutable snapshot again; retain the changed-field evidence."
+            }
+            Self::Io(_) => {
+                "Check read/search permissions and filesystem availability for this relative entry; retry after resolving the reported I/O error."
+            }
+            Self::Json(_) => {
+                "Restore the complete source snapshot with known, unique fields and the declared JSON types."
+            }
+            Self::ReportClosed => "Keep the JSON report consumer open through the final summary.",
         }
     }
     pub fn retryable_stat_drift(&self) -> bool {
@@ -193,7 +250,7 @@ impl Fingerprint {
 fn open_regular(path: &Path) -> Result<File, ImportFailure> {
     if !fs::symlink_metadata(path)?.is_file() {
         return Err(ImportFailure::corrupt(
-            "entry",
+            CorruptField::Entry,
             "expected a regular file, not a symlink or special entry",
             "Replace the entry with the original regular snapshot file; do not follow symlinks.",
         ));
@@ -208,7 +265,7 @@ fn open_regular(path: &Path) -> Result<File, ImportFailure> {
     let file = options.open(path)?;
     if !file.metadata()?.is_file() {
         return Err(ImportFailure::corrupt(
-            "entry",
+            CorruptField::Entry,
             "opened source is not a regular file",
             "Restore a regular snapshot file and stop concurrent filesystem changes.",
         ));
@@ -236,7 +293,7 @@ impl BodyStream {
         let before = Fingerprint::of_file(&file)?;
         if before.size > max_bytes {
             return Err(ImportFailure::corrupt(
-                "Size",
+                CorruptField::Size,
                 "body exceeds max_object_bytes",
                 "Raise --max-object-bytes, or use a source body within the inclusive object-size cap; do not truncate stored data.",
             ));
@@ -273,7 +330,7 @@ impl BodyStream {
         )?;
         self.read = self.read.checked_add(length as u64).ok_or_else(|| {
             ImportFailure::corrupt(
-                "Size",
+                CorruptField::Size,
                 "body length overflow",
                 "Use a supported bounded body size.",
             )
@@ -316,7 +373,7 @@ fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
         .read_to_end(&mut bytes)?;
     if bytes.len() > SOURCE_METADATA_CAP {
         return Err(ImportFailure::corrupt(
-            "metadata",
+            CorruptField::Metadata,
             "metadata exceeds 16 MiB",
             "Restore a metadata record of at most 16 MiB from the original export; do not truncate JSON.",
         ));
@@ -363,12 +420,12 @@ fn xattr_failure(error: SourceMetadataError) -> ImportFailure {
     match error {
         SourceMetadataError::Io(error) => ImportFailure::Io(error),
         SourceMetadataError::Unsupported => ImportFailure::corrupt(
-            "user.metadata",
+            CorruptField::UserMetadata,
             "user.metadata reading is unsupported",
             "Inspect the original xattr snapshot on an xattr-capable filesystem; do not change metadata mode to hide missing attributes.",
         ),
         SourceMetadataError::TooLarge => ImportFailure::corrupt(
-            "user.metadata",
+            CorruptField::UserMetadata,
             "user.metadata exceeds 16 MiB",
             "Restore a complete attribute of at most 16 MiB; do not truncate its JSON.",
         ),
@@ -386,7 +443,7 @@ fn metadata_bytes(
     match (options.metadata_mode, xattr(&body.file, buffer)) {
         (MetadataMode::Xattr, Ok(Some(bytes))) => Ok(bytes.to_vec()),
         (MetadataMode::Xattr, Ok(None)) => Err(ImportFailure::corrupt(
-            "user.metadata",
+            CorruptField::UserMetadata,
             "missing user.metadata",
             "Restore the body's original user.metadata attribute from the xattr snapshot; a neighboring sidecar is not a fallback.",
         )),
@@ -395,7 +452,7 @@ fn metadata_bytes(
             match result {
                 Ok(Some(bytes)) if !bytes.is_empty() => {
                     return Err(ImportFailure::corrupt(
-                        "user.metadata",
+                        CorruptField::UserMetadata,
                         "mixed metadata modes: user.metadata is nonempty in a sidecar snapshot",
                         "Supply a consistent sidecar snapshot with no persisted body xattrs, or select xattr only for an entirely xattr-based source.",
                     ));
@@ -410,7 +467,7 @@ fn metadata_bytes(
             match read_json_file(&sidecar(&body.path)) {
                 Err(ImportFailure::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
                     Err(ImportFailure::corrupt(
-                        "metadata",
+                        CorruptField::Metadata,
                         "missing object metadata sidecar",
                         "Restore the neighboring <object>.metadata JSON from the same snapshot; body bytes alone do not contain attributes.",
                     ))
@@ -755,17 +812,17 @@ fn object(
         name,
         parent_eligible,
     } = input;
-    crate::object::name::validate(name).map_err(|_| ImportFailure::corrupt("name", "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
+    crate::object::name::validate(name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
     if options.source_platform == SourcePlatform::Windows && name.contains('\\') {
         return Err(ImportFailure::corrupt(
-            "name",
+            CorruptField::Name,
             "Windows-source backslash mapping is ambiguous on this host",
             "Inspect the source on its native Windows filesystem rather than interpreting a Unix filename backslash as a new path.",
         ));
     }
     let mut body = BodyStream::open(path, options.max_object_bytes)?;
     let bytes = metadata_bytes(&body, options, metadata_buffer, report, relative, xattr)?;
-    let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("ObjectAttrs", BackendCause::with_source(format!("invalid object metadata JSON: {e}"), e), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
+    let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt(CorruptField::ObjectAttrs, BackendCause::with_source(format!("invalid object metadata JSON: {e}"), e), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
     let errors_before = report.summary.blocking_findings;
     let checks = check_object_fields(report, relative, &attrs)?;
     check_unset_semantics(report, relative, &attrs)?;
@@ -895,7 +952,7 @@ pub(super) fn scan(
         }
         let relative_path = path.strip_prefix(root).map_err(|_| {
             ImportFailure::corrupt(
-                "name",
+                CorruptField::Name,
                 "path escaped the source root",
                 "Supply a separate immutable source root with no escaping paths.",
             )
@@ -918,7 +975,7 @@ pub(super) fn scan(
         };
         let leaf = path.file_name().and_then(|s| s.to_str()).ok_or_else(|| {
             ImportFailure::corrupt(
-                "name",
+                CorruptField::Name,
                 "invalid source name",
                 "Restore a UTF-8 source entry name.",
             )
@@ -967,7 +1024,7 @@ impl Scan<'_> {
         } = *entry;
         if !metadata.is_dir() && !metadata.is_file() {
             return Err(ImportFailure::corrupt(
-                "entry",
+                CorruptField::Entry,
                 "symlinks and special source entries are unsupported",
                 "Restore regular snapshot files/directories; do not follow symlinks or read devices/FIFOs.",
             ));
@@ -977,7 +1034,7 @@ impl Scan<'_> {
         }
         let (raw_bucket, name) = relative.split_once('/').ok_or_else(|| {
             ImportFailure::corrupt(
-                "name",
+                CorruptField::Name,
                 "invalid relative object path",
                 "Restore an object below its bucket directory.",
             )
@@ -1046,7 +1103,7 @@ impl Scan<'_> {
         } else if let Some(bucket) = leaf.strip_suffix(".bucketMetadata") {
             if !fs::symlink_metadata(root.join(bucket)).is_ok_and(|m| m.is_dir()) {
                 return Err(ImportFailure::corrupt(
-                    "BucketAttrs",
+                    CorruptField::BucketAttrs,
                     "orphan bucket metadata sidecar",
                     "Restore the matching escaped bucket directory from the same snapshot, or resolve the orphan against the original inventory.",
                 ));
@@ -1056,7 +1113,7 @@ impl Scan<'_> {
             self.report.manifest("skipped_os_metadata", relative, &[]);
         } else {
             return Err(ImportFailure::corrupt(
-                "entry",
+                CorruptField::Entry,
                 "top-level file is not a bucket metadata sidecar",
                 "Supply a durable filesystem root containing bucket directories and their exact .bucketMetadata siblings.",
             ));
@@ -1078,11 +1135,11 @@ impl Scan<'_> {
                 fields: vec![ChangedField::Metadata],
             });
         }
-        let name = codec::path_unescape(leaf).map_err(|e| ImportFailure::corrupt("name", BackendCause::from_error(e), "Restore a valid Go PathEscape bucket directory component from the source snapshot."))?;
-        crate::json::validate_bucket_name(&name).map_err(|_| ImportFailure::corrupt("name", "invalid decoded bucket name", "Use a valid bucket name (3–63 characters for ordinary names, starting/ending with a letter or digit); restore its escaped directory component."))?;
+        let name = codec::path_unescape(leaf).map_err(|e| ImportFailure::corrupt(CorruptField::Name, BackendCause::from_error(e), "Restore a valid Go PathEscape bucket directory component from the source snapshot."))?;
+        crate::json::validate_bucket_name(&name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "invalid decoded bucket name", "Use a valid bucket name (3–63 characters for ordinary names, starting/ending with a letter or digit); restore its escaped directory component."))?;
         if self.buckets.get(leaf) == Some(&BucketState::Duplicate) {
             return Err(ImportFailure::corrupt(
-                "name",
+                CorruptField::Name,
                 "duplicate decoded bucket name",
                 "Resolve aliased escaped directory names against the original source inventory; do not merge their contents silently.",
             ));
@@ -1093,7 +1150,7 @@ impl Scan<'_> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => b"{}".to_vec(),
             Err(e) => return Err(e.into()),
         };
-        let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("BucketAttrs", BackendCause::with_source(format!("invalid bucket metadata JSON: {e}"), e), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
+        let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt(CorruptField::BucketAttrs, BackendCause::with_source(format!("invalid bucket metadata JSON: {e}"), e), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
         let before = report.summary.blocking_findings;
         if attrs.versioning_enabled == Some(true) {
             report.finding(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", Severity::Blocking, None)?;
@@ -1134,21 +1191,21 @@ impl Scan<'_> {
 fn check_object_sidecar(path: &Path, leaf: &str) -> Result<(), ImportFailure> {
     let base = path.with_file_name(leaf.strip_suffix(".metadata").ok_or_else(|| {
         ImportFailure::corrupt(
-            "metadata",
+            CorruptField::Metadata,
             "invalid sidecar suffix",
             "Restore the exact <object>.metadata neighbor name.",
         )
     })?);
     if !fs::symlink_metadata(&base).is_ok_and(|m| m.is_file()) {
         return Err(ImportFailure::corrupt(
-            "metadata",
+            CorruptField::Metadata,
             "orphan or ambiguous object metadata sidecar; body is missing",
             "Restore the matching body from the same snapshot; do not synthesize an empty object.",
         ));
     }
     if fs::symlink_metadata(sidecar(path)).is_ok() {
         return Err(ImportFailure::corrupt(
-            "metadata",
+            CorruptField::Metadata,
             "ambiguous .metadata object/sidecar suffix collision",
             "Resolve the .metadata suffix collision against the source inventory before conversion.",
         ));
@@ -1160,19 +1217,19 @@ fn walk_failure(error: WalkError) -> ImportFailure {
     match error {
         WalkError::Io(error) => ImportFailure::Io(error),
         WalkError::EntryLimit { .. } => ImportFailure::corrupt(
-            "limits",
+            CorruptField::Limits,
             "source entry limit exceeded",
             "Raise --max-entries, or split the source to fit the entry limit, which counts sidecars, before retrying.",
         ),
         WalkError::DepthLimit { limit } => ImportFailure::corrupt(
-            "limits",
+            CorruptField::Limits,
             "source depth limit exceeded",
             format!(
                 "Raise --max-depth, or provide source directories within {limit} levels below a bucket; do not silently flatten object names."
             ),
         ),
         WalkError::NotDirectory => ImportFailure::corrupt(
-            "entry",
+            CorruptField::Entry,
             "source root is not a directory",
             "Restore an accessible source directory, not a symlink or special entry.",
         ),

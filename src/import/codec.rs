@@ -613,7 +613,7 @@ mod tests {
             "malformed bucket percent escape; restore the escaped directory name"
         );
         let error = super::super::reader::ImportFailure::corrupt(
-            "timestamp",
+            super::super::CorruptField::Snapshot,
             crate::storage::failure::BackendCause::from_error(
                 parse_timestamp("invalid").unwrap_err(),
             ),

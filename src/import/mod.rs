@@ -20,7 +20,7 @@ use crate::{
 pub use codec::CodecError;
 pub use error::{CleanupOperation, ImportError, SourceChange};
 pub use filesystem::execute;
-pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};
+pub use reader::{BodyStream, ChangedField, CorruptField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};
 use serde::Serialize;
 use std::{
@@ -430,27 +430,12 @@ impl Reporter {
         } else {
             Vec::new()
         };
-        let (field, fix) = match failure {
-            ImportFailure::Corrupt { field, fix, .. } => (*field, fix.as_ref()),
-            ImportFailure::SourceChanged { .. } => (
-                "fingerprint",
-                "Stop the source writer and inspect an immutable snapshot again; retain the changed-field evidence.",
-            ),
-            ImportFailure::Io(_) => (
-                "io",
-                "Check read/search permissions and filesystem availability for this relative entry; retry after resolving the reported I/O error.",
-            ),
-            ImportFailure::Json(_) => (
-                "snapshot_json",
-                "Restore the complete source snapshot with known, unique fields and the declared JSON types.",
-            ),
-            ImportFailure::ReportClosed => (
-                "report",
-                "Keep the JSON report consumer open through the final summary.",
-            ),
-        };
         self.page.findings.push(Finding {
-            diagnostic: Diagnostic::new(DiagnosticSource::Import, format!("{path}:{field}"), fix),
+            diagnostic: Diagnostic::new(
+                DiagnosticSource::Import,
+                format!("{path}:{}", failure.field()),
+                failure.fix(),
+            ),
             reason: failure.to_string(),
             blocking: true,
             original: None,

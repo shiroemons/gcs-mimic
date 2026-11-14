@@ -1,7 +1,7 @@
 //! Bounded, read-only decoding of complete quiesced source memory captures.
 
 use super::{
-    BodyStream, Fingerprint, ImportFailure, Options, Record, Reporter, ScanPurpose,
+    BodyStream, CorruptField, Fingerprint, ImportFailure, Options, Record, Reporter, ScanPurpose,
     codec::{self, BucketAttrs, ObjectAttrs},
     reader,
 };
@@ -65,7 +65,7 @@ enum Membership {
 
 fn corrupt(reason: impl Into<BackendCause>) -> ImportFailure {
     ImportFailure::corrupt(
-        "snapshot",
+        CorruptField::Snapshot,
         reason,
         "Retain the source and export a complete immutable capture under the source writer barrier.",
     )
@@ -431,7 +431,7 @@ pub(super) fn scan(options: &Options, report: &mut Reporter) -> Result<(), Impor
             .is_some_and(|limit| capture.report.summary.entries > limit.get() as u64)
         {
             return Err(ImportFailure::corrupt(
-                "limits",
+                CorruptField::Limits,
                 "snapshot entry limit exceeded",
                 "Raise --max-entries to at least the number of snapshot rows, then retry.",
             ));
