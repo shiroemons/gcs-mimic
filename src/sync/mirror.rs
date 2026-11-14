@@ -1335,6 +1335,9 @@ fn retryable(error: &writeback::Error) -> bool {
             | RootError::ForeignMarker
             | RootError::ReinitializeDenied,
         )
+        // A displaced target belongs to recovery, so neither is retried automatically.
+        | writeback::Error::Conflict(_)
+        | writeback::Error::Displaced(_)
         | writeback::Error::Capacity
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected
@@ -1614,6 +1617,8 @@ fn concurrent_change(error: &writeback::Error) -> bool {
             | AdminError::Backend(_),
         )
         | writeback::Error::Root(_)
+        | writeback::Error::Conflict(_)
+        | writeback::Error::Displaced(_)
         | writeback::Error::Capacity
         | writeback::Error::RecoveryRequired
         | writeback::Error::Protected

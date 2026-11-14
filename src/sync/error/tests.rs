@@ -256,6 +256,28 @@ fn write_back_failures_kept_as_backend_causes_still_decide_retry_and_pause() {
     assert_eq!(capacity.pause_reason(), PauseReason::ConflictCapacity);
 }
 
+/// A displaced installation and a failed conflict store are typed write-back variants; the
+/// write-back retry still leaves them alone, and the mirror still sees the failure inside them.
+#[test]
+fn typed_displaced_and_conflict_failures_decide_retry_and_pause_like_backend_causes() {
+    let displaced = || {
+        writeback::Error::Displaced(Box::new(writeback::Error::Admin(AdminError::Io(
+            io::ErrorKind::TimedOut.into(),
+        ))))
+    };
+    for error in [
+        SyncError::Writeback(displaced()),
+        SyncError::Io(io::Error::other(displaced())),
+    ] {
+        assert!(error.is_transient(), "{error:?}");
+        assert!(error.is_watch_retryable(), "{error:?}");
+        assert_eq!(error.pause_reason(), PauseReason::IoFailure);
+    }
+    let capacity = SyncError::Writeback(writeback::Error::Conflict(conflicts::Error::Capacity));
+    assert!(!capacity.is_transient());
+    assert_eq!(capacity.pause_reason(), PauseReason::ConflictCapacity);
+}
+
 #[test]
 fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
     for (stop, reason) in [

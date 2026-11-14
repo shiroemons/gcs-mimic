@@ -28,16 +28,13 @@ impl Writeback {
                             })
                             .await?;
                         if current.phase == Phase::Protected {
-                            this.lease
-                                .refresh_transfer_charge(current.token.id)
-                                .await
-                                .map_err(AdminError::backend)?;
+                            this.lease.refresh_transfer_charge(current.token.id).await?;
                         }
                     }
                     match result {
                         Ok(()) => {}
                         Err(super::super::conflicts::Error::Capacity) => {}
-                        Err(error) => return Err(AdminError::backend(error).into()),
+                        Err(error) => return Err(error.into()),
                     }
                 }
             }

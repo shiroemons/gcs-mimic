@@ -80,10 +80,20 @@ PRAGMA user_version = 20;";
 pub(crate) enum Error {
     Admin(AdminError),
     Root(RootError),
+    /// The conflict store failed while write-back depended on it.
+    Conflict(super::conflicts::Error),
+    /// Installation failed after the target was displaced. Recovery owns the displaced bytes,
+    /// so callers must not retry this automatically.
+    Displaced(Box<Error>),
     Capacity,
     RecoveryRequired,
     Protected,
     WorkspaceChanged,
+}
+impl From<super::conflicts::Error> for Error {
+    fn from(error: super::conflicts::Error) -> Self {
+        Self::Conflict(error)
+    }
 }
 impl From<AdminError> for Error {
     fn from(e: AdminError) -> Self {
@@ -126,6 +136,8 @@ impl std::fmt::Display for Error {
         match self {
             Self::Admin(_) => f.write_str("admin operation failed"),
             Self::Root(_) => f.write_str("root validation failed"),
+            Self::Conflict(_) => f.write_str("conflict store failed"),
+            Self::Displaced(_) => f.write_str("installation failed after displacing the target"),
             Self::Capacity => f.write_str("Capacity"),
             Self::RecoveryRequired => f.write_str("RecoveryRequired"),
             Self::Protected => f.write_str("Protected"),
@@ -138,6 +150,8 @@ impl std::error::Error for Error {
         match self {
             Self::Admin(error) => Some(error),
             Self::Root(error) => Some(error),
+            Self::Conflict(error) => Some(error),
+            Self::Displaced(error) => Some(error.as_ref()),
             Self::Capacity | Self::RecoveryRequired | Self::Protected | Self::WorkspaceChanged => {
                 None
             }
@@ -450,9 +464,8 @@ fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
         .prepare_cached(RootRow::SELECT)?
         .query_row([root], RootRow::read)?;
     let failed_operation: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|r.get(0))?;
-    let conflicts = super::conflicts::usage(connection, root).map_err(AdminError::backend)?;
-    let captured_entries =
-        super::conflicts::captured_entries(connection, root).map_err(AdminError::backend)?;
+    let conflicts = super::conflicts::usage(connection, root)?;
+    let captured_entries = super::conflicts::captured_entries(connection, root)?;
     if captured_entries > row.entries {
         return Err(stale());
     }

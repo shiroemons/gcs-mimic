@@ -65,10 +65,10 @@ pub(crate) enum Cause<'a> {
 impl<'a> Cause<'a> {
     /// The one place that turns a chain back into types. The typed layers reach each other only
     /// through `source()`, and `BackendCause`/`IoCause` keep their sources as `dyn Error`.
-    /// Write-back wraps typed sync failures into `AdminError::Backend` on purpose (a displaced
-    /// live copy, a conflict transfer) so that its retry leaves them alone, and the decisions
-    /// below must still see what that wrapper holds. These downcasts can go once storage stops
-    /// erasing synchronization failures into backend causes.
+    /// Write-back carries conflict-store and displaced-installation failures as its own typed
+    /// variants, but a synchronization failure can still reach a chain inside a backend cause,
+    /// and the decisions below must still see what that wrapper holds. These downcasts can go
+    /// once no layer erases synchronization failures into backend causes.
     fn of(error: &'a (dyn Error + 'static)) -> Self {
         if let Some(error) = error.downcast_ref::<AdminError>() {
             Self::Admin(error)
@@ -145,8 +145,14 @@ impl<'a> Cause<'a> {
             Self::Admin(AdminError::DiskFull(_) | AdminError::Io(_)) => {
                 Some(PauseReason::IoFailure)
             }
-            // Every other variant is listed so that a new one must choose a reason.
-            Self::Writeback(writeback::Error::Admin(_) | writeback::Error::Root(_))
+            // Every other variant is listed so that a new one must choose a reason. A wrapper
+            // decides nothing itself; the failure it carries is the next cause in the chain.
+            Self::Writeback(
+                writeback::Error::Admin(_)
+                | writeback::Error::Root(_)
+                | writeback::Error::Conflict(_)
+                | writeback::Error::Displaced(_),
+            )
             | Self::Conflict(
                 conflicts::Error::Admin(_)
                 | conflicts::Error::Root(_)

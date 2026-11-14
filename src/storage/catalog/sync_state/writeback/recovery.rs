@@ -36,12 +36,7 @@ impl Writeback {
                         }
                     }
                     Phase::Protected => {
-                        if !self
-                            .lease
-                            .accepted_transfer(item.token.id)
-                            .await
-                            .map_err(AdminError::backend)?
-                        {
+                        if !self.lease.accepted_transfer(item.token.id).await? {
                             self.inspect_inner(item.token).await?;
                         }
                     }

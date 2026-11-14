@@ -405,7 +405,7 @@ impl Writeback {
         self.serial_with(move |this| async move {
             let (purpose, source) = source.into_parts();
             if let Some(conflict) = purpose.conflict() {
-                conflict.verify_owned(&this.lease).await.map_err(AdminError::backend)?;
+                conflict.verify_owned(&this.lease).await?;
             }
             let bucket = binding.bucket.clone();
             let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), _ => return Err(stale()) };
@@ -436,7 +436,7 @@ impl Writeback {
                 };
                 // A registered exact-body copy already owns its full retained charge.
                 let reservation = if proof.is_some() { 0 } else { selected.as_ref().map_or(0,|s|s.fingerprint.size) };
-                let captured_snapshot=checked_purpose.conflict().map(|conflict|conflict.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
+                let captured_snapshot=checked_purpose.conflict().map(|conflict|conflict.durable_snapshot(&tx)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
                 let id = OpaqueId::generate().map_err(AdminError::backend)?;
                 tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket,incarnation,name,path,generation,body.kind(),fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
@@ -556,10 +556,7 @@ impl Writeback {
     /// Arms a prepared operation, then installs (or, when observing, checks) the target file.
     async fn install_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
-            conflict
-                .verify_owned(&self.lease)
-                .await
-                .map_err(AdminError::backend)?;
+            conflict.verify_owned(&self.lease).await?;
         }
         let purpose = operation.purpose.clone();
         let mut item = operation.item.clone();
@@ -650,7 +647,7 @@ impl Writeback {
                     operation.item = pending.clone();
                     self.mark_entry_failure(pending.token).await?;
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
-                    return Err(AdminError::backend(error).into());
+                    return Err(Error::Displaced(Box::new(error)));
                 }
                 return Err(error);
             }
@@ -691,10 +688,7 @@ impl Writeback {
         operation: &mut LiveOperation,
     ) -> Result<LiveResult, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
-            conflict
-                .verify_owned(&self.lease)
-                .await
-                .map_err(AdminError::backend)?;
+            conflict.verify_owned(&self.lease).await?;
         }
         let item = operation.item.clone();
         #[cfg(test)]
@@ -731,7 +725,7 @@ impl Writeback {
             let tx = c.transaction()?;
             checked(&tx,&selected.token)?;
             validate_capture(&tx,&selected,&purpose)?;
-            let snapshot=if let Some(conflict)=purpose.conflict() {Some(conflict.durable_fingerprint(&tx,durable_fingerprint).map_err(AdminError::backend)?)} else {snapshot};
+            let snapshot=if let Some(conflict)=purpose.conflict() {Some(conflict.durable_fingerprint(&tx,durable_fingerprint)?)} else {snapshot};
             tx.prepare_cached("UPDATE sync_writeback_ops SET phase=3,revision=revision+1,snapshot=?2 WHERE id=?1")?.execute(params![selected.token.id,snapshot])?;
             let durable = load(&tx,selected.token.catalog,selected.token.root,selected.token.id)?;
             tx.commit()?;
@@ -751,10 +745,7 @@ impl Writeback {
         fp: Option<SyncFingerprint>,
     ) -> Result<LiveResult, Error> {
         if let Some(conflict) = operation.purpose.conflict() {
-            conflict
-                .verify_owned(&self.lease)
-                .await
-                .map_err(AdminError::backend)?;
+            conflict.verify_owned(&self.lease).await?;
         }
         let purpose = operation.purpose.clone();
         let item = operation.item.clone();
