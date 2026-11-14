@@ -32,7 +32,10 @@ pub(crate) fn object(name: &str) -> Result<(), Status> {
     use crate::object::name::InvalidObjectName;
     crate::object::name::validate(name).map_err(|error| match error {
         InvalidObjectName::Empty => super::status::invalid_field("No object name"),
-        _ => Status::invalid_argument(
+        InvalidObjectName::TooLong
+        | InvalidObjectName::LineBreak
+        | InvalidObjectName::DotSegment
+        | InvalidObjectName::AcmeChallenge => Status::invalid_argument(
             "Invalid object name; use a nonempty name of at most 1024 UTF-8 bytes without CR/LF, '.', '..' or the .well-known/acme-challenge/ prefix, for example folder/object.txt",
         ),
     })

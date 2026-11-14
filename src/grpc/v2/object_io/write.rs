@@ -243,6 +243,10 @@ impl Storage {
         let (bucket, name, options, total) = self
             .write_spec(spec, message.object_checksums.as_ref(), caller)
             .await?;
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "every other object error keeps the shared Storage v2 mapping"
+        )]
         let permit = self
             .state
             .catalog

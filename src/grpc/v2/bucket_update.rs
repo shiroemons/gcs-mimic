@@ -24,32 +24,35 @@ pub(super) fn from_proto(
     Ok(update)
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared gRPC mapping"
+)]
 pub(super) fn input_error(error: CatalogError) -> Status {
-    match &error {
+    match error {
         CatalogError::Metadata(reason) => {
             let message = reason.message(proto_field);
-            return if reason.unsupported() {
+            if reason.unsupported() {
                 JsonError::unsupported(&message).into()
             } else {
                 Status::invalid_argument(message)
-            };
+            }
         }
-        CatalogError::RetentionPolicyLocked(period) => {
+        error @ CatalogError::RetentionPolicyLocked(period) => {
             let message = format!(
                 "Bucket retention policy is locked and cannot be removed or shortened; keep retention_policy.retention_duration at least {period} seconds or extend it"
             );
             let mut error = JsonError::from(error);
             error.message = message;
-            return error.into();
+            error.into()
         }
-        CatalogError::RetentionPolicyNotSet => {
+        error @ CatalogError::RetentionPolicyNotSet => {
             let mut error = JsonError::from(error);
             error.message = "No retention policy to lock; set retention_policy.retention_duration first, for example 3600 seconds".into();
-            return error.into();
+            error.into()
         }
-        _ => {}
+        error => error.into(),
     }
-    error.into()
 }
 
 pub(super) fn proto_field(field: &str) -> &str {
