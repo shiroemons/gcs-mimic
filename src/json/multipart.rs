@@ -18,6 +18,29 @@ const JSON_CAP: usize = super::RESOURCE_BODY_LIMIT;
 /// `JSON_CAP` each, and the headers, delimiter padding and discarded text, which stay under 256 KiB.
 pub(crate) const FRAMING_LIMIT: u64 = 2 * JSON_CAP as u64 + 256 * 1024;
 
+/// A JSON part of a multipart upload, collected whole up to `JSON_CAP`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JsonPart {
+    Metadata,
+    Checksums,
+}
+
+impl JsonPart {
+    fn too_large(self) -> JsonError {
+        let message = match self {
+            Self::Metadata => format!(
+                "Multipart metadata exceeds {}",
+                super::RESOURCE_BODY_LIMIT_TEXT
+            ),
+            Self::Checksums => format!(
+                "Multipart checksums exceed {}",
+                super::RESOURCE_BODY_LIMIT_TEXT
+            ),
+        };
+        JsonError::new(StatusCode::PAYLOAD_TOO_LARGE, "uploadTooLarge", message)
+    }
+}
+
 fn invalid() -> JsonError {
     JsonError::invalid_parameter("Invalid multipart/related framing")
 }
@@ -44,11 +67,11 @@ fn part_content_type(headers: &HeaderMap) -> Result<Option<String>, JsonError> {
 
 /// Requires a metadata or checksum part to be `application/json`, at most with a UTF-8 charset.
 fn json_part_type(value: Option<&str>) -> Result<(), JsonError> {
-    let (mime, params) = content_type(value.ok_or_else(invalid)?)?;
-    if mime != "application/json"
-        || params
-            .iter()
-            .any(|(k, v)| k != "charset" || !v.eq_ignore_ascii_case("utf-8"))
+    let media = MediaType::parse(value.ok_or_else(invalid)?, ParamQuotes::Double)?;
+    if media.essence != "application/json"
+        || media.parameters.iter().any(|Parameter { name, value }| {
+            name != "charset" || !value.eq_ignore_ascii_case("utf-8")
+        })
     {
         return Err(invalid());
     }
@@ -81,29 +104,81 @@ enum ParamQuotes {
     DoubleOrSingle,
 }
 
-// Quoted parameter values may contain semicolons and escaped quotes.
-fn content_type(value: &str) -> Result<(String, Vec<(String, String)>), JsonError> {
-    content_type_with(value, ParamQuotes::Double)
+/// A parsed `Content-Type`: the lowercased essence and its parameters in order.
+struct MediaType {
+    essence: String,
+    parameters: Vec<Parameter>,
 }
 
-fn content_type_with(
-    value: &str,
-    quotes: ParamQuotes,
-) -> Result<(String, Vec<(String, String)>), JsonError> {
-    let (mime, rest) = value.split_once(';').unwrap_or((value, ""));
-    let mime = mime.trim();
-    if !mime
-        .split_once('/')
-        .is_some_and(|(a, b)| token(a) && token(b))
-    {
-        return Err(invalid());
+/// A `Content-Type` parameter; the parser lowercases the name and rejects a repeated one.
+struct Parameter {
+    name: String,
+    value: String,
+}
+
+impl MediaType {
+    // Quoted parameter values may contain semicolons and escaped quotes.
+    fn parse(value: &str, quotes: ParamQuotes) -> Result<Self, JsonError> {
+        let (mime, rest) = value.split_once(';').unwrap_or((value, ""));
+        let mime = mime.trim();
+        if !mime
+            .split_once('/')
+            .is_some_and(|(a, b)| token(a) && token(b))
+        {
+            return Err(invalid());
+        }
+        let mut rest = rest.trim();
+        let mut parameters = Vec::new();
+        while !rest.is_empty() {
+            let (parameter, tail) = Parameter::parse(rest, quotes)?;
+            if parameters
+                .iter()
+                .any(|Parameter { name, .. }| *name == parameter.name)
+            {
+                return Err(invalid());
+            }
+            parameters.push(parameter);
+            rest = tail.trim_start();
+            if !rest.is_empty() {
+                rest = rest.strip_prefix(';').ok_or_else(invalid)?.trim_start();
+            }
+            if rest.is_empty() && tail.trim_end().ends_with(';') {
+                return Err(invalid());
+            }
+        }
+        Ok(Self {
+            essence: mime.to_ascii_lowercase(),
+            parameters,
+        })
     }
-    let mut rest = rest.trim();
-    let mut params = Vec::new();
-    while !rest.is_empty() {
+
+    /// The `boundary` parameter, checked against the RFC 2046 grammar.
+    fn boundary(&self) -> Result<String, JsonError> {
+        let boundary = self
+            .parameters
+            .iter()
+            .find(|Parameter { name, .. }| name == "boundary")
+            .map(|Parameter { value, .. }| value)
+            .ok_or_else(invalid)?;
+        if boundary.is_empty()
+            || boundary.len() > 70
+            || boundary.ends_with(' ')
+            || !boundary
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"'()+_,-./:=? ".contains(&b))
+        {
+            return Err(invalid());
+        }
+        Ok(boundary.clone())
+    }
+}
+
+impl Parameter {
+    /// The parameter at the start of `rest` and the text after its value.
+    fn parse(rest: &str, quotes: ParamQuotes) -> Result<(Self, &str), JsonError> {
         let (key, tail) = rest.split_once('=').ok_or_else(invalid)?;
         let key = key.trim().to_ascii_lowercase();
-        if !token(&key) || params.iter().any(|(k, _)| k == &key) {
+        if !token(&key) {
             return Err(invalid());
         }
         let tail = tail.trim_start();
@@ -147,16 +222,8 @@ fn content_type_with(
         if value.bytes().any(|b| b < 32 || b == 127) {
             return Err(invalid());
         }
-        params.push((key, value));
-        rest = tail.trim_start();
-        if !rest.is_empty() {
-            rest = rest.strip_prefix(';').ok_or_else(invalid)?.trim_start();
-        }
-        if rest.is_empty() && tail.trim_end().ends_with(';') {
-            return Err(invalid());
-        }
+        Ok((Self { name: key, value }, tail))
     }
-    Ok((mime.to_ascii_lowercase(), params))
 }
 
 pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
@@ -165,17 +232,19 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
         .ok_or_else(invalid)?
         .to_str()
         .map_err(|_| invalid())?;
-    let (mime, params) = content_type_with(value, ParamQuotes::DoubleOrSingle)?;
-    if mime != "multipart/related" {
+    let media = MediaType::parse(value, ParamQuotes::DoubleOrSingle)?;
+    if media.essence != "multipart/related" {
         return Err(invalid());
     }
     // A multipart type without a boundary got the front end's bare text page.
-    let boundary = boundary(&params)
+    let boundary = media
+        .boundary()
         .map_err(|error| error.with_plain(&super::error::BAD_CONTENT_TYPE_TEXT))?;
     // RFC 2387 permits type and start; reordered roots are outside this ordered subset.
-    for (key, value) in &params {
-        if key != "boundary" && !(key == "type" && value.eq_ignore_ascii_case("application/json")) {
-            return Err(JsonError::unsupported_object(key));
+    for Parameter { name, value } in &media.parameters {
+        if name != "boundary" && !(name == "type" && value.eq_ignore_ascii_case("application/json"))
+        {
+            return Err(JsonError::unsupported_object(name));
         }
     }
     Ok(boundary)
@@ -220,11 +289,16 @@ pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
     if values.next().is_some() {
         return Err(invalid());
     }
-    let (mime, params) = content_type(value.to_str().map_err(|_| invalid())?)?;
-    if mime != "multipart/mixed" || params.iter().any(|(key, _)| key != "boundary") {
+    let media = MediaType::parse(value.to_str().map_err(|_| invalid())?, ParamQuotes::Double)?;
+    if media.essence != "multipart/mixed"
+        || media
+            .parameters
+            .iter()
+            .any(|Parameter { name, .. }| name != "boundary")
+    {
         return Err(invalid());
     }
-    boundary(&params)
+    media.boundary()
 }
 
 /// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
@@ -234,36 +308,18 @@ pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonErro
         .ok_or_else(invalid)?
         .to_str()
         .map_err(|_| invalid())?;
-    let (mime, params) = content_type(value)?;
-    if mime != "multipart/form-data" {
+    let media = MediaType::parse(value, ParamQuotes::Double)?;
+    if media.essence != "multipart/form-data" {
         return Err(invalid());
     }
-    let boundary = boundary(&params)?;
+    let boundary = media.boundary()?;
     // Forms must be UTF-8 encoded; another declared charset would change field values.
-    for (key, value) in &params {
-        if key != "boundary" && !(key == "charset" && value.eq_ignore_ascii_case("utf-8")) {
-            return Err(JsonError::unsupported_object(key));
+    for Parameter { name, value } in &media.parameters {
+        if name != "boundary" && !(name == "charset" && value.eq_ignore_ascii_case("utf-8")) {
+            return Err(JsonError::unsupported_object(name));
         }
     }
     Ok(boundary)
-}
-
-fn boundary(params: &[(String, String)]) -> Result<String, JsonError> {
-    let boundary = params
-        .iter()
-        .find(|(key, _)| key == "boundary")
-        .map(|(_, v)| v)
-        .ok_or_else(invalid)?;
-    if boundary.is_empty()
-        || boundary.len() > 70
-        || boundary.ends_with(' ')
-        || !boundary
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"'()+_,-./:=? ".contains(&b))
-    {
-        return Err(invalid());
-    }
-    Ok(boundary.clone())
 }
 
 /// Which part of a multipart upload a header block introduces. The metadata part must be
@@ -530,7 +586,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             PartKind::Media => {
                 self.encoding = encoding;
                 if let Some(value) = &value {
-                    content_type(value)?;
+                    MediaType::parse(value, ParamQuotes::Double)?;
                 }
             }
         }
@@ -613,20 +669,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     pub(crate) async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
         self.start().await?;
         self.metadata_type = self.headers(PartKind::Metadata).await?;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = self.next_chunk().await? {
-            if chunk.len() > JSON_CAP - bytes.len() {
-                return Err(JsonError::new(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "uploadTooLarge",
-                    format!(
-                        "Multipart metadata exceeds {}",
-                        super::RESOURCE_BODY_LIMIT_TEXT
-                    ),
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = self.collect(JsonPart::Metadata).await?;
         // Only the metadata part arrived; Cloud Storage counts the payloads it received.
         if self.closed {
             return Err(JsonError::new(
@@ -634,6 +677,18 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 "invalidPayloadSize",
                 "Payload size invalid. Expected 2-3 payloads. Actual size: 1",
             ));
+        }
+        Ok(bytes)
+    }
+
+    /// The rest of the current part, failing once it would pass `JSON_CAP`.
+    async fn collect(&mut self, part: JsonPart) -> Result<Vec<u8>, JsonError> {
+        let mut bytes = Vec::new();
+        while let Some(chunk) = self.next_chunk().await? {
+            if chunk.len() > JSON_CAP - bytes.len() {
+                return Err(part.too_large());
+            }
+            bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)
     }
@@ -679,23 +734,12 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 ),
             ));
         }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = self.next_chunk().await? {
-            if chunk.len() > JSON_CAP - bytes.len() {
-                return Err(JsonError::new(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "uploadTooLarge",
-                    format!(
-                        "Multipart checksums exceed {}",
-                        super::RESOURCE_BODY_LIMIT_TEXT
-                    ),
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = self.collect(JsonPart::Checksums).await?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|_| JsonError::legacy_parse_error("Invalid checksum JSON"))?;
-        let mut values = value.as_object().cloned().ok_or_else(invalid)?;
+        let serde_json::Value::Object(mut values) = value else {
+            return Err(invalid());
+        };
         if values
             .keys()
             .any(|k| !matches!(k.as_str(), "md5Hash" | "crc32c"))
