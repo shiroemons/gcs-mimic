@@ -1,4 +1,3 @@
-use super::resumable::{ResumableTarget, parse_upload_id};
 use super::*;
 
 impl Storage {
@@ -201,13 +200,7 @@ impl Storage {
                 };
                 return self.receive_single_write(stream, message, write).await;
             }
-            Some(FirstMessage::UploadId(upload)) => {
-                let (bucket, id) = parse_upload_id(&upload)?;
-                ResumableTarget {
-                    bucket: bucket.to_owned(),
-                    id: id.to_owned(),
-                }
-            }
+            Some(FirstMessage::UploadId(upload)) => upload.parse::<UploadId>()?,
             Some(FirstMessage::AppendObjectSpec(_)) => {
                 return Err(unsupported_for("Rapid append", caller));
             }

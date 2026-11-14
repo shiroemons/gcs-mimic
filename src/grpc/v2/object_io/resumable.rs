@@ -2,20 +2,6 @@ use super::write::{EndOfStream, MessagePosition, Reported, Responses, send_statu
 use super::*;
 use crate::storage::{ChunkEnd, ChunkWait};
 
-fn upload_id(bucket: &str, id: &str) -> String {
-    format!("{bucket}/{id}")
-}
-
-pub(super) fn parse_upload_id(id: &str) -> Result<(&str, &str), Status> {
-    let (bucket, id) = id
-        .split_once('/')
-        .filter(|(b, i)| !b.is_empty() && i.len() == 64 && i.bytes().all(|c| c.is_ascii_hexdigit()))
-        .ok_or_else(|| {
-            Status::not_found("Unknown upload_id; use the value returned by StartResumableWrite")
-        })?;
-    Ok((bucket, id))
-}
-
 impl Storage {
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
     pub(in crate::grpc::v2) async fn cancel_resumable_write(
@@ -24,7 +10,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::CancelResumableWriteResponse>, Status> {
         let r = request.into_inner();
-        let (bucket, id) = parse_upload_id(&r.upload_id)?;
+        let upload = r.upload_id.parse::<UploadId>()?;
+        let (bucket, id) = (upload.bucket(), upload.session());
         // gRPC upload IDs are not bearer capabilities, so cancellation requires the
         // same permission as QueryWriteStatus and resumed writes.
         self.access(caller, bucket, OBJECTS_CREATE).await?;
@@ -75,7 +62,7 @@ impl Storage {
             .await
             .map_err(session_status)?;
         Ok(Response::new(pb::StartResumableWriteResponse {
-            upload_id: upload_id(&bucket, &session.id.to_string()),
+            upload_id: UploadId::issued(&bucket, session.id).to_string(),
         }))
     }
     pub(in crate::grpc::v2) async fn query_write_status(
@@ -85,7 +72,8 @@ impl Storage {
     ) -> Result<Response<pb::QueryWriteStatusResponse>, Status> {
         let r = request.into_inner();
         common(r.common_object_request_params.as_ref())?;
-        let (bucket, id) = parse_upload_id(&r.upload_id)?;
+        let upload = r.upload_id.parse::<UploadId>()?;
+        let (bucket, id) = (upload.bucket(), upload.session());
         let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
         let session = self
             .state
@@ -149,13 +137,13 @@ impl Storage {
         &self,
         stream: &mut S,
         mut message: pb::BidiWriteObjectRequest,
-        session: &ResumableTarget,
+        upload: &UploadId,
         caller: Option<Caller<'_>>,
         responses: Option<&Responses>,
         end: EndOfStream,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
         use pb::bidi_write_object_response::WriteStatus;
-        let ResumableTarget { bucket, id } = session;
+        let (bucket, id) = (upload.bucket(), upload.session());
         let mut position = MessagePosition::First;
         let mut result;
         loop {
@@ -268,12 +256,6 @@ impl Storage {
         }
         Ok(result)
     }
-}
-
-/// The resumable session a write stream continues.
-pub(super) struct ResumableTarget {
-    pub(super) bucket: String,
-    pub(super) id: String,
 }
 
 /// What a resumable session had persisted when its lease was taken.

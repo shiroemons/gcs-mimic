@@ -1,4 +1,4 @@
-use super::{names, pb, status};
+use super::{names, object_io::UploadId, pb, status};
 use crate::json;
 use tonic::{Status, metadata::MetadataMap};
 
@@ -60,10 +60,6 @@ pub(super) fn check(
     Ok(())
 }
 
-pub(super) fn upload_bucket(upload_id: &str) -> &str {
-    upload_id.split_once('/').map_or("", |(bucket, _)| bucket)
-}
-
 pub(super) fn iam_bucket(resource: &str) -> &str {
     resource
         .split_once("/managedFolders/")
@@ -86,7 +82,7 @@ pub(super) fn write(
             },
         ),
         Some(FirstMessage::AppendObjectSpec(spec)) => (spec.bucket.as_str(), "true"),
-        Some(FirstMessage::UploadId(id)) => (upload_bucket(id), "false"),
+        Some(FirstMessage::UploadId(id)) => (UploadId::routing_bucket(id).unwrap_or(""), "false"),
         None => ("", "false"),
     };
     check(

@@ -2,7 +2,7 @@ use super::*;
 use super::{
     read::read_range,
     resource::mask_object,
-    resumable::{Persisted, parse_upload_id, resumable_piece},
+    resumable::{Persisted, resumable_piece},
     write::{EndOfStream, MessagePosition},
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, registry};
@@ -1512,11 +1512,11 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
             .unwrap(),
         pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
     ));
-    let (bucket, id) = parse_upload_id(&partial).unwrap();
+    let partial_id = partial.parse::<UploadId>().unwrap();
     let blob = storage
         .state
         .catalog
-        .resumable_session(id, bucket)
+        .resumable_session(partial_id.session(), partial_id.bucket())
         .await
         .unwrap()
         .blob_id;
@@ -1559,7 +1559,8 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     }
     // An upload_id is scoped to its bucket; reusing it under another bucket finds nothing.
     let scoped = start(&storage, "scoped", None).await;
-    let (_, id) = parse_upload_id(&scoped).unwrap();
+    let scoped_id = scoped.parse::<UploadId>().unwrap();
+    let id = scoped_id.session();
     assert_eq!(
         cancel(&storage, &format!("other-bucket/{id}"), None).await,
         Err(tonic::Code::NotFound)
@@ -1624,6 +1625,67 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
         query(&storage, &upload, admin).await,
         Err(tonic::Code::NotFound)
     );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// An upload ID of the issued shape names its session only in the catalog, which runs after the
+/// permission check: a caller without access is denied whatever the ID's case, and one with
+/// access gets the catalog's wording for a session that does not exist.
+#[tokio::test]
+async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
+    let (_dir, storage) = setup(true).await;
+    let mut request = Request::new(());
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer admin".parse().unwrap());
+    let admin = storage.authenticate(&request).await.unwrap();
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer reader".parse().unwrap());
+    let reader = storage.authenticate(&request).await.unwrap();
+    let upload = format!("grpc-io/{}", "AB".repeat(32));
+    let status = |caller| {
+        let storage = &storage;
+        let upload = upload.as_str();
+        async move {
+            let query = storage
+                .query_write_status(
+                    Request::new(pb::QueryWriteStatusRequest {
+                        upload_id: upload.into(),
+                        ..Default::default()
+                    }),
+                    caller,
+                )
+                .await
+                .unwrap_err();
+            let cancel = storage
+                .cancel_resumable_write(
+                    Request::new(pb::CancelResumableWriteRequest {
+                        upload_id: upload.into(),
+                    }),
+                    caller,
+                )
+                .await
+                .unwrap_err();
+            let resumed = write_as(storage, vec![resume(upload, 0, b"abc", true)], caller)
+                .await
+                .unwrap_err();
+            [query, cancel, resumed].map(|status| (status.code(), status.message().to_owned()))
+        }
+    };
+    for (code, _) in status(reader).await {
+        assert_eq!(code, tonic::Code::PermissionDenied);
+    }
+    for (code, _) in status(Some(Caller::Anonymous)).await {
+        assert_eq!(code, tonic::Code::Unauthenticated);
+    }
+    for (code, message) in status(admin).await {
+        assert_eq!(code, tonic::Code::NotFound);
+        assert_eq!(
+            message,
+            "Upload session not found; start a new resumable write"
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 

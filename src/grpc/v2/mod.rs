@@ -206,7 +206,7 @@ storage_methods! {
     RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
     CancelResumableWrite => cancel_resumable_write(
         pb::CancelResumableWriteRequest,
-    ) -> pb::CancelResumableWriteResponse, route |r| Some(&[("bucket", routing::upload_bucket(&r.upload_id))]);
+    ) -> pb::CancelResumableWriteResponse, route |r| Some(&[("bucket", object_io::UploadId::routing_bucket(&r.upload_id).unwrap_or(""))]);
     GetObject => get_object(pb::GetObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
     ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Some(&[("bucket", r.bucket.as_str())]);
     BidiReadObject => bidi_read_object(
@@ -224,6 +224,6 @@ storage_methods! {
     ) -> pb::StartResumableWriteResponse, route |r| Some(&[("bucket", r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map_or("", |o| o.bucket.as_str()))]);
     QueryWriteStatus => query_write_status(
         pb::QueryWriteStatusRequest,
-    ) -> pb::QueryWriteStatusResponse, route |r| Some(&[("bucket", routing::upload_bucket(&r.upload_id))]);
+    ) -> pb::QueryWriteStatusResponse, route |r| Some(&[("bucket", object_io::UploadId::routing_bucket(&r.upload_id).unwrap_or(""))]);
     MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object, route |r| Some(&[("bucket", r.bucket.as_str())]);
 }

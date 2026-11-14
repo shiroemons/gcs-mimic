@@ -24,7 +24,10 @@ use tonic::{Request, Response, Status, Streaming};
 mod read;
 mod resource;
 mod resumable;
+mod upload_id;
 mod write;
+
+pub(super) use upload_id::UploadId;
 
 /// `?` would use JSON's unsupported-setting description instead of the v2 metadata wording.
 pub(super) fn object_status(error: ObjectError) -> Status {
