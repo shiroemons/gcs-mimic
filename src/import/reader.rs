@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     acl::AclEntry,
-    bucket::{StorageClass, name::BucketName},
+    bucket::{InvalidStorageClass, StorageClass, name::BucketName},
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
     object::{generation::Generation, name::ObjectName, retention::ObjectRetention},
@@ -145,7 +145,7 @@ impl std::error::Error for ImportFailure {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
             Self::Corrupt { reason, .. } => reason.source(),
-            _ => None,
+            Self::SourceChanged { .. } | Self::ReportClosed => None,
         }
     }
 }
@@ -734,15 +734,15 @@ pub(super) fn check_object_fields(
             attrs.generation.to_string(),
         )?),
     };
-    let storage_class = match crate::bucket::validate_storage_class(&attrs.storage_class) {
+    let storage_class = match StorageClass::from_name(&attrs.storage_class) {
         Ok(class) => Ok(class),
         Err(error) => {
             let (field, reason) = match error {
-                crate::bucket::CatalogError::Metadata(error) if error.unsupported() => (
+                InvalidStorageClass::RequiresLocation => (
                     ObjectField::StorageClassUnsupported,
                     "object storageClass requires a region or zone",
                 ),
-                _ => (
+                InvalidStorageClass::Unknown => (
                     ObjectField::StorageClassInvalid,
                     "invalid object storageClass",
                 ),

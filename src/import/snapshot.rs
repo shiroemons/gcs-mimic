@@ -434,7 +434,9 @@ fn header(input: &mut impl BufRead, report: &mut Reporter) -> Result<Context, Im
         } if source_revision == super::SOURCE_REVISION
             && backend == "memory"
             && crate::hex::is_lower(&capture_id, 32) => {}
-        _ => return Err(corrupt("unsupported or unquiesced source snapshot header")),
+        Row::Snapshot { .. } | Row::Bucket(_) | Row::Object(_) | Row::Complete { .. } => {
+            return Err(corrupt("unsupported or unquiesced source snapshot header"));
+        }
     }
     report.manifest("snapshot_header", "snapshot.jsonl", &[&header]);
     let mut hash = Context::new(&SHA256);
