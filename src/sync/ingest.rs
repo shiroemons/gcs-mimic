@@ -98,12 +98,17 @@ async fn forget_missing_directories(
     root: &RootLease,
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
-    let mut after = String::new();
+    let mut after = None;
     loop {
         if interrupt.check() != Interrupted::No {
             break;
         }
-        let page = root.sync_buckets_page(after.clone(), 256).await?;
+        let page = root
+            .sync_buckets_page(
+                after.clone(),
+                crate::storage::sync_state::PageLimit::LARGEST,
+            )
+            .await?;
         if page.is_empty() {
             break;
         }
@@ -111,7 +116,7 @@ async fn forget_missing_directories(
             if interrupt.check() != Interrupted::No {
                 return Ok(());
             }
-            after = bucket.name.as_str().to_owned();
+            after = Some(bucket.name.clone());
             let selected = bucket.name.clone();
             let absent = root
                 .file_job(move |root| {

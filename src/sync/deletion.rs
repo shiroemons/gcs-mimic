@@ -9,7 +9,7 @@ use crate::{
         Catalog,
         admin::{AdminError, GenerationCondition},
         sync_state::{
-            SyncBinding,
+            Ordinal, PageLimit, SyncBinding,
             deletions::{Candidate, DeletionAuthorization, DeletionSet},
             observation::PathStop,
             root::{RootError, RootLease},
@@ -143,14 +143,17 @@ pub(super) async fn execute_with(
     if set.authorization != DeletionAuthorization::Granted {
         return Ok(0);
     }
-    let mut after = 0;
+    let mut after = Ordinal::START;
     let mut completed = 0;
     let mut restored_buckets = std::collections::BTreeSet::new();
     loop {
         if interrupt.check() != Interrupted::No {
             return Ok(completed);
         }
-        let page = match root.deletion_page(set.revision, after, 256).await {
+        let page = match root
+            .deletion_page(set.revision, after, PageLimit::LARGEST)
+            .await
+        {
             Ok(page) => page,
             Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
                 root.invalidate_deletions().await?;

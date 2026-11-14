@@ -8,9 +8,9 @@ mod tests;
 impl Writeback {
     pub(crate) async fn preserve_protected(&self) -> Result<Status, Error> {
         self.serial_with(|this| async move {
-            let mut after = 0;
+            let mut after = Ordinal::START;
             loop {
-                let page = this.page_inner(after, 256).await?;
+                let page = this.page_inner(after, PageLimit::LARGEST).await?;
                 if page.is_empty() {
                     break;
                 }

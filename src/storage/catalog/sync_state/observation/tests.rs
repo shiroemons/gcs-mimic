@@ -29,12 +29,21 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
         .await
         .unwrap();
     assert!(matches!(
-        root.observation_page(initial.revision, (0, 0), 1).await,
+        root.observation_page(
+            initial.revision,
+            ObservationCursor::START,
+            PageLimit::try_from(1).unwrap()
+        )
+        .await,
         Err(RootError::Admin(AdminError::Precondition))
     ));
     let paused = root.observation().await.unwrap();
     let items = root
-        .observation_page(paused.revision, (0, 0), 1)
+        .observation_page(
+            paused.revision,
+            ObservationCursor::START,
+            PageLimit::try_from(1).unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
@@ -44,10 +53,14 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
     let cleared = root.observation().await.unwrap();
     assert!(cleared.revision > paused.revision);
     assert!(
-        root.observation_page(cleared.revision, (0, 0), 256)
-            .await
-            .unwrap()
-            .is_empty()
+        root.observation_page(
+            cleared.revision,
+            ObservationCursor::START,
+            PageLimit::try_from(256).unwrap()
+        )
+        .await
+        .unwrap()
+        .is_empty()
     );
     catalog
         .run_admin(|connection| {
@@ -88,15 +101,23 @@ async fn mapping_updates_deletes_and_restart_keep_a_monotonic_revision() {
         .await
         .unwrap();
     assert!(
-        root.observation_page(first.revision, (0, 0), 256)
-            .await
-            .is_err()
+        root.observation_page(
+            first.revision,
+            ObservationCursor::START,
+            PageLimit::try_from(256).unwrap()
+        )
+        .await
+        .is_err()
     );
     let updated = root.observation().await.unwrap();
     assert_eq!(
-        root.observation_page(updated.revision, (0, 0), 256)
-            .await
-            .unwrap()[0]
+        root.observation_page(
+            updated.revision,
+            ObservationCursor::START,
+            PageLimit::try_from(256).unwrap()
+        )
+        .await
+        .unwrap()[0]
             .reason
             .as_str(),
         "unsafe-entry"

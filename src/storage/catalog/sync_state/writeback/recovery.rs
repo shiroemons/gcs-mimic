@@ -16,9 +16,9 @@ impl Writeback {
     }
 
     async fn recover_pending_inner(&self) -> Result<Status, Error> {
-        let mut after = 0;
+        let mut after = Ordinal::START;
         loop {
-            let page = self.page_inner(after, 256).await?;
+            let page = self.page_inner(after, PageLimit::LARGEST).await?;
             if page.is_empty() {
                 break;
             }

@@ -119,7 +119,11 @@ impl Fixture {
     async fn page(&self) -> Page {
         let page = self
             .lease
-            .conflict_page(None, 0, 256, ControlAuthority::Permissive)
+            .conflict_page(
+                crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                PageLimit::LARGEST,
+                ControlAuthority::Permissive,
+            )
             .await
             .unwrap();
         Page {

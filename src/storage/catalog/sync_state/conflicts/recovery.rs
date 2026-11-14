@@ -38,7 +38,7 @@ pub(crate) struct Recovery {
     pub over_limit: bool,
     pub remedy: &'static str,
     #[serde(skip)]
-    pub ordinal: i64,
+    pub ordinal: Ordinal,
 }
 
 #[derive(Clone)]
@@ -48,7 +48,7 @@ struct Workspace {
     bucket: BucketName,
     incarnation: Incarnation,
     name: ObjectName,
-    ordinal: i64,
+    ordinal: Ordinal,
     node: NodeId,
 }
 
@@ -83,12 +83,14 @@ impl RootLease {
         &self,
         authority: ControlAuthority,
     ) -> Result<(), Error> {
-        let mut after = 0;
+        let mut after = Ordinal::START;
         loop {
             if self.stop_signal().is_some_and(|signal| *signal.borrow()) {
                 return Ok(());
             }
-            let page = self.recovery_page(after, 128, authority.clone()).await?;
+            let page = self
+                .recovery_page(after, PageLimit::LARGEST, authority.clone())
+                .await?;
             let Some(last) = page.last() else {
                 return Ok(());
             };
@@ -98,13 +100,10 @@ impl RootLease {
     /// Refresh only a bounded inspected page; a sparse over-limit body is never read to completion.
     pub(crate) async fn recovery_page(
         &self,
-        after: i64,
-        limit: usize,
+        after: Ordinal,
+        limit: PageLimit<128>,
         authority: ControlAuthority,
     ) -> Result<Vec<super::Recovery>, Error> {
-        if after < 0 || !(1..=128).contains(&limit) {
-            return Err(Error::InvalidResolution);
-        }
         let lease = self.with_authority(authority.clone());
         self.conflict_serial(async move { lease.recoveries_inner(after, limit, authority).await })
             .await
@@ -112,8 +111,8 @@ impl RootLease {
 
     async fn recoveries_inner(
         &self,
-        after: i64,
-        limit: usize,
+        after: Ordinal,
+        limit: PageLimit<128>,
         authority: ControlAuthority,
     ) -> Result<Vec<Recovery>, Error> {
         let root = self.status().root_id;

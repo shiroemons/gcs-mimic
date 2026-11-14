@@ -215,9 +215,13 @@ async fn protected_external_deletion_restores_bytes_and_versioned_removal_keeps_
     let observation = root.observation().await.unwrap();
     assert_eq!(observation.path_stops, 1);
     assert_eq!(
-        root.observation_page(observation.revision, (0, 0), 256)
-            .await
-            .unwrap()[0]
+        root.observation_page(
+            observation.revision,
+            crate::storage::sync_state::observation::ObservationCursor::START,
+            PageLimit::try_from(256).unwrap()
+        )
+        .await
+        .unwrap()[0]
             .reason
             .as_str(),
         "ProtectedDeletion"
@@ -340,9 +344,16 @@ async fn frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members
             .unwrap(),
         0
     );
-    let first = root.deletion_page(set.revision, 0, 256).await.unwrap();
+    let first = root
+        .deletion_page(set.revision, Ordinal::START, PageLimit::LARGEST)
+        .await
+        .unwrap();
     let second = root
-        .deletion_page(set.revision, first.last().unwrap().ordinal, 256)
+        .deletion_page(
+            set.revision,
+            first.last().unwrap().ordinal,
+            PageLimit::LARGEST,
+        )
         .await
         .unwrap();
     assert_eq!((first.len(), second.len()), (256, 44));
@@ -404,7 +415,11 @@ async fn incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_de
         fs::read(tree.0.join("test-bucket/0000")).unwrap(),
         b"recreated externally"
     );
-    assert!(root.deletion_page(set.revision, 0, 256).await.is_err());
+    assert!(
+        root.deletion_page(set.revision, Ordinal::START, PageLimit::LARGEST)
+            .await
+            .is_err()
+    );
     fs::remove_file(tree.0.join("test-bucket/0000")).unwrap();
     let set = inventory(&root, &config, &summary, &stopping)
         .await

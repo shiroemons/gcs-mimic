@@ -6,10 +6,10 @@ use crate::{
     json::{self, JsonError},
     server::{RequestBody, RequestCtx, json_response_body},
     storage::sync_state::{
-        OpaqueId,
+        MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
         deletions::{Candidate, DeletionAuthorization, DeletionFence, DeletionSet},
-        observation::Summary,
+        observation::{ObservationCursor, Summary},
         root::{RootError, RootLease, RootStatus},
         writeback::Stop,
     },
@@ -433,7 +433,7 @@ enum Page {
 /// A paged view: the revision it was fetched for, and where the page starts.
 struct PageQuery<R> {
     revision: R,
-    limit: usize,
+    limit: PageLimit<MAX_PAGE>,
     after: Option<String>,
 }
 
@@ -488,16 +488,16 @@ impl Page {
     }
 }
 
-fn parse_limit(value: Option<String>) -> Result<usize, JsonError> {
-    let limit = value
-        .map(|value| value.parse::<usize>())
-        .transpose()
-        .map_err(|_| JsonError::invalid_argument("limit must be 1 through 256"))?
-        .unwrap_or(256);
-    if !(1..=256).contains(&limit) {
-        return Err(JsonError::invalid_argument("limit must be 1 through 256"));
-    }
-    Ok(limit)
+/// A page size from the query; an absent one is the largest page.
+fn parse_limit(value: Option<String>) -> Result<PageLimit<MAX_PAGE>, JsonError> {
+    let Some(value) = value else {
+        return Ok(PageLimit::LARGEST);
+    };
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(|limit| PageLimit::try_from(limit).ok())
+        .ok_or_else(|| JsonError::invalid_argument("limit must be 1 through 256"))
 }
 
 /// A control document. Every one leads with the catalog and root it describes; serde_json's
@@ -602,10 +602,10 @@ async fn status(
     session: &str,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let mut after = 0;
+    let mut after = Ordinal::START;
     loop {
         let recoveries = root
-            .recovery_page(after, 128, authority.clone())
+            .recovery_page(after, PageLimit::LARGEST, authority.clone())
             .await
             .map_err(conflicts::error)?;
         let Some(last) = recoveries.last() else { break };
@@ -705,21 +705,25 @@ async fn findings_page(
     let ids = root.status();
     let prefix = cursor_prefix(&ids, revision);
     let after = match &query.after {
-        None => (0, 0),
+        None => ObservationCursor::START,
         Some(cursor) => {
-            let SyncCursor::Findings { kind, ordinal } = SyncCursor::decode(cursor, &prefix)?
-            else {
+            let SyncCursor::Findings(after) = SyncCursor::decode(cursor, &prefix)? else {
                 return Err(stale());
             };
-            (kind, ordinal)
+            after
         }
     };
     let mut items = root
-        .observation_page_for(observation.revision, after, query.limit + 1, authority)
+        .observation_page_for(
+            observation.revision,
+            after,
+            query.limit.with_lookahead(),
+            authority,
+        )
         .await
         .map_err(|error| root_error(&error))?;
-    let full = items.len() > query.limit;
-    items.truncate(query.limit);
+    let full = items.len() > query.limit.get();
+    items.truncate(query.limit.get());
     let total_count = observation.mapping_findings
         + observation.pending_writeback
         + observation.path_stops
@@ -731,10 +735,10 @@ async fn findings_page(
             .last()
             .filter(|_| full || fit == PageFit::Halved)
             .map(|item| {
-                SyncCursor::Findings {
-                    kind: item.kind,
+                SyncCursor::Findings(ObservationCursor {
+                    category: item.category,
                     ordinal: item.ordinal,
-                }
+                })
                 .encode(&prefix)
             });
         let items = items
@@ -763,7 +767,7 @@ async fn deletion_page(
     let ids = root.status();
     let prefix = cursor_prefix(&ids, set.revision);
     let after = match &query.after {
-        None => 0,
+        None => Ordinal::START,
         Some(cursor) => {
             let SyncCursor::Deletions(ordinal) = SyncCursor::decode(cursor, &prefix)? else {
                 return Err(stale());
@@ -777,7 +781,7 @@ async fn deletion_page(
         .map_err(|error| root_error(&error))?;
     render_halving(items, |items, _| {
         let last = items.last().map_or(after, |item| item.ordinal);
-        let next_cursor = u64::try_from(last)
+        let next_cursor = u64::try_from(last.get())
             .is_ok_and(|last| last < set.candidate_count)
             .then(|| SyncCursor::Deletions(last).encode(&prefix));
         super::encode(&RootDocument::new(

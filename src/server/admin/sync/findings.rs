@@ -71,7 +71,7 @@ pub(super) fn value(
             "Inspect server diagnostics, correct the reported condition without removing pending data and request an explicit rescan",
         ),
     };
-    let mut value = json!({"finding_id":format!("{}{:02x}{:016x}",prefix.get(..64).unwrap_or(prefix),item.kind,item.ordinal),"category":item.category,
+    let mut value = json!({"finding_id":format!("{}{:02x}{:016x}",prefix.get(..64).unwrap_or(prefix),item.kind,item.ordinal.get()),"category":item.category,
         "reason":reason,"scope":if item.category==FindingCategory::RootStop {"root"} else {"path"},
         "bucket":item.bucket,"object":item.object,"bucket_incarnation":item.bucket_incarnation,"generation":item.generation,
         "owner_project":item.owner_project,"detail_code":item.reason,"remedy":remedy,"operation_id":item.operation_id,
@@ -110,7 +110,7 @@ pub(super) fn value(
 mod tests {
     use super::*;
     use crate::storage::sync_state::{
-        conflicts::RecoveryPhase, observation::RecoveryDetails, writeback::Phase,
+        Ordinal, conflicts::RecoveryPhase, observation::RecoveryDetails, writeback::Phase,
     };
 
     fn id(digit: char) -> OpaqueId {
@@ -120,7 +120,7 @@ mod tests {
     fn recovery_finding(hashes: serde_json::Value) -> Item {
         Item {
             kind: 3,
-            ordinal: 7,
+            ordinal: Ordinal::try_from(7).unwrap(),
             category: FindingCategory::Writeback,
             bucket: Some("bucket".into()),
             object: Some("object".into()),

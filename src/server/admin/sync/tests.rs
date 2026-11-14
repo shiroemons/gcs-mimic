@@ -587,9 +587,8 @@ async fn large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_retur
     }
     let native = root
         .conflict_page(
-            None,
-            0,
-            256,
+            crate::storage::sync_state::conflicts::ConflictPosition::Start,
+            PageLimit::LARGEST,
             ControlAuthority::new(fixture.config.seed_project.clone(), None),
         )
         .await

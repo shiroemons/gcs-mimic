@@ -348,9 +348,8 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         );
         let page = root
             .conflict_page(
-                None,
-                0,
-                256,
+                crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                crate::storage::sync_state::PageLimit::LARGEST,
                 crate::storage::sync_state::authority::ControlAuthority::Permissive,
             )
             .await
@@ -373,9 +372,8 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
         assert_eq!(reconcile(&catalog, &root).await.unwrap().identical, 1);
         assert_eq!(
             root.conflict_page(
-                None,
-                0,
-                256,
+                crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                crate::storage::sync_state::PageLimit::LARGEST,
                 crate::storage::sync_state::authority::ControlAuthority::Permissive
             )
             .await
@@ -455,9 +453,8 @@ async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore
     ));
     let page = root
         .conflict_page(
-            None,
-            0,
-            256,
+            crate::storage::sync_state::conflicts::ConflictPosition::Start,
+            crate::storage::sync_state::PageLimit::LARGEST,
             crate::storage::sync_state::authority::ControlAuthority::Permissive,
         )
         .await
@@ -1060,9 +1057,8 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             );
             let copies = root
                 .conflict_page(
-                    None,
-                    0,
-                    256,
+                    crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                    crate::storage::sync_state::PageLimit::LARGEST,
                     crate::storage::sync_state::authority::ControlAuthority::Permissive,
                 )
                 .await
@@ -1116,9 +1112,8 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
         if phase == "cancel" {
             let page = root
                 .conflict_page(
-                    None,
-                    0,
-                    256,
+                    crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                    crate::storage::sync_state::PageLimit::LARGEST,
                     crate::storage::sync_state::authority::ControlAuthority::Permissive,
                 )
                 .await
@@ -1280,9 +1275,8 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         if action.starts_with("external") {
             let conflicts = root
                 .conflict_page(
-                    None,
-                    0,
-                    256,
+                    crate::storage::sync_state::conflicts::ConflictPosition::Start,
+                    crate::storage::sync_state::PageLimit::LARGEST,
                     crate::storage::sync_state::authority::ControlAuthority::Permissive,
                 )
                 .await
@@ -1478,9 +1472,8 @@ async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root
     assert!(catalog.sync_controls().unwrap().is_some());
     let page = root
         .conflict_page(
-            None,
-            0,
-            256,
+            crate::storage::sync_state::conflicts::ConflictPosition::Start,
+            crate::storage::sync_state::PageLimit::LARGEST,
             crate::storage::sync_state::authority::ControlAuthority::Permissive,
         )
         .await

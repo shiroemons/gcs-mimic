@@ -3,7 +3,7 @@
 
 use super::super::{objects, unavailable};
 use super::{
-    CatalogId, SyncBinding, matching,
+    CatalogId, Ordinal, PageLimit, SyncBinding, matching,
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
@@ -120,9 +120,12 @@ impl RootLease {
 
     /// Continue after the last ordinal; pages are bounded observations, not frozen snapshots.
     pub async fn findings_page(&self, after: i64, limit: usize) -> Result<Vec<Finding>, RootError> {
-        if after < 0 || !(1..=super::MAX_PAGE).contains(&limit) {
+        let (Ok(after), Ok(limit)) = (
+            Ordinal::try_from(after),
+            PageLimit::<{ super::MAX_PAGE }>::try_from(limit),
+        ) else {
             return Err(AdminError::Invalid("invalid finding page".into()).into());
-        }
+        };
         self.revalidate().await?;
         let lease = self.clone();
         let status = self.status();

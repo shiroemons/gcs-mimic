@@ -3,7 +3,7 @@
 
 use super::super::unavailable;
 use super::{
-    OpaqueId, SyncBinding,
+    OpaqueId, Ordinal, PageLimit, SyncBinding,
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
@@ -118,14 +118,14 @@ pub(crate) struct Candidate {
     #[serde(skip)]
     pub path: String,
     #[serde(skip)]
-    pub ordinal: i64,
+    pub ordinal: Ordinal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Permit {
     root: RootId,
     revision: OpaqueId,
-    ordinal: i64,
+    ordinal: Ordinal,
 }
 
 #[derive(Clone, Copy)]
@@ -228,8 +228,8 @@ impl RootLease {
     pub(crate) async fn deletion_page(
         &self,
         revision: OpaqueId,
-        after: i64,
-        limit: usize,
+        after: Ordinal,
+        limit: PageLimit<256>,
     ) -> Result<Vec<Candidate>, RootError> {
         self.deletion_page_for(revision, after, limit, self.authority())
             .await
@@ -238,13 +238,10 @@ impl RootLease {
     pub(crate) async fn deletion_page_for(
         &self,
         revision: OpaqueId,
-        after: i64,
-        limit: usize,
+        after: Ordinal,
+        limit: PageLimit<256>,
         authority: super::authority::ControlAuthority,
     ) -> Result<Vec<Candidate>, RootError> {
-        if after < 0 || !(1..=256).contains(&limit) {
-            return Err(AdminError::Invalid("invalid deletion page".into()).into());
-        }
         let root = self.status().root_id;
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
@@ -279,7 +276,7 @@ impl RootLease {
         &self,
         binding: SyncBinding,
         revision: OpaqueId,
-        ordinal: i64,
+        ordinal: Ordinal,
     ) -> SyncBinding {
         binding.with_deletion(Permit {
             root: self.status().root_id,

@@ -119,7 +119,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .unwrap();
     let set = root.finish_deletion_inventory(inventory).await.unwrap();
     let binding = catalog.sync_state().binding(&bucket).await.unwrap();
-    let binding = root.deletion_binding(binding, set.revision, 1);
+    let binding = root.deletion_binding(binding, set.revision, Ordinal::try_from(1).unwrap());
     catalog.run_admin(|connection|connection.execute_batch("CREATE TEMP TRIGGER fail_delete BEFORE DELETE ON objects BEGIN SELECT RAISE(ABORT,'injected delete failure'); END;").map_err(unavailable)).await.unwrap();
     assert!(
         catalog
@@ -186,7 +186,11 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .activate_root(&tree.0, super::super::root::Activation::Open)
         .await
         .unwrap();
-    assert!(root.deletion_page(set.revision, 0, 256).await.is_err());
+    assert!(
+        root.deletion_page(set.revision, Ordinal::START, PageLimit::LARGEST)
+            .await
+            .is_err()
+    );
     drop(root);
     catalog.close().await.unwrap();
 }

@@ -14,6 +14,8 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 pub(crate) const MAX_PAGE: usize = 256;
+// Sync state listings take page sizes and positions their callers already checked.
+pub(crate) use super::keyset::{Ordinal, PageLimit};
 pub(super) const SCHEMA: &str = "CREATE TABLE catalog_identity (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     id BLOB NOT NULL CHECK(typeof(id) = 'blob' AND length(id) = 16)
@@ -484,11 +486,8 @@ impl SyncState {
         &self,
         binding: SyncBinding,
         after: Option<SyncPath>,
-        limit: usize,
+        limit: PageLimit<MAX_PAGE>,
     ) -> Result<Vec<SyncRecord>, AdminError> {
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid("invalid synchronization page".into()));
-        }
         let (start, end) = bucket_paths(binding.bucket.as_str());
         let after = match after {
             Some(after) => after.0.max(start),

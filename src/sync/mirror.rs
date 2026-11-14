@@ -1867,7 +1867,11 @@ impl Reconciler<'_> {
             let tracked = self
                 .catalog
                 .sync_state()
-                .page(binding.clone(), after, 256)
+                .page(
+                    binding.clone(),
+                    after,
+                    crate::storage::sync_state::PageLimit::LARGEST,
+                )
                 .await?;
             if tracked.is_empty() {
                 return Ok(Step::Continue);

@@ -1,7 +1,7 @@
 //! Revision-bound observations include durable mapping findings and unfinished write-back work.
 
 use super::{
-    OpaqueId,
+    OpaqueId, Ordinal, PageLimit,
     conflicts::RecoveryPhase,
     root::{RootError, RootId, RootLease},
     writeback,
@@ -52,12 +52,28 @@ pub(crate) struct WritebackSummary {
     pub over_limit: bool,
 }
 
+/// Where a findings page resumes: after this category's ordinal, in `PAGE` order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ObservationCursor {
+    pub category: FindingCategory,
+    pub ordinal: Ordinal,
+}
+
+impl ObservationCursor {
+    /// Before every finding.
+    pub(crate) const START: Self = Self {
+        category: FindingCategory::Mapping,
+        ordinal: Ordinal::START,
+    };
+}
+
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct Item {
+    /// `PAGE`'s kind column, which is `category.rank()`; the finding ID renders it.
     #[serde(skip)]
     pub kind: i64,
     #[serde(skip)]
-    pub ordinal: i64,
+    pub ordinal: Ordinal,
     pub category: FindingCategory,
     pub bucket: Option<String>,
     pub object: Option<String>,
@@ -231,23 +247,22 @@ impl RootLease {
     pub(crate) async fn observation_page(
         &self,
         expected: i64,
-        after: (i64, i64),
-        limit: usize,
+        after: ObservationCursor,
+        limit: PageLimit<257>,
     ) -> Result<Vec<Item>, RootError> {
         self.observation_page_for(expected, after, limit, self.authority())
             .await
     }
 
+    /// The limit admits one item past the largest page, which a caller reads to learn whether
+    /// the findings continue.
     pub(crate) async fn observation_page_for(
         &self,
         expected: i64,
-        after: (i64, i64),
-        limit: usize,
+        after: ObservationCursor,
+        limit: PageLimit<257>,
         authority: super::authority::ControlAuthority,
     ) -> Result<Vec<Item>, RootError> {
-        if !(1..=257).contains(&limit) || !(0..=4).contains(&after.0) || after.1 < 0 {
-            return Err(AdminError::Invalid("invalid observation page".into()).into());
-        }
         let root = self.status().root_id;
         self.catalog()
             .run_admin(move |connection| {
@@ -257,7 +272,10 @@ impl RootLease {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 tx.prepare_cached(PAGE)?
-                    .query_map(params![root, after.0, after.1, limit], read_item)?
+                    .query_map(
+                        params![root, after.category.rank(), after.ordinal, limit],
+                        read_item,
+                    )?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(unavailable)
             })

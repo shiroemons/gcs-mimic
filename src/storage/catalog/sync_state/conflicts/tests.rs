@@ -97,7 +97,11 @@ impl Fixture {
     }
     async fn page(&self) -> ConflictPage {
         self.lease
-            .conflict_page(None, 0, 256, ControlAuthority::Permissive)
+            .conflict_page(
+                ConflictPosition::Start,
+                PageLimit::LARGEST,
+                ControlAuthority::Permissive,
+            )
             .await
             .unwrap()
     }
@@ -433,7 +437,7 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
     assert!(matches!(
         fixture
             .lease
-            .conflict_page(None, 0, 256, denied.clone())
+            .conflict_page(ConflictPosition::Start, PageLimit::LARGEST, denied.clone())
             .await,
         Err(Error::Admin(AdminError::Forbidden))
     ));
@@ -501,7 +505,7 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
     assert!(
         fixture
             .lease
-            .conflict_page(None, 0, 256, denied.clone())
+            .conflict_page(ConflictPosition::Start, PageLimit::LARGEST, denied.clone())
             .await
             .unwrap()
             .items
@@ -724,18 +728,20 @@ async fn conflict_pages_reject_changed_revision_and_bound_serialized_size() {
     assert!(matches!(
         fixture
             .lease
-            .conflict_page(Some(page.revision), 0, 256, ControlAuthority::Permissive)
+            .conflict_page(
+                ConflictPosition::Within {
+                    revision: page.revision,
+                    after: Ordinal::START,
+                },
+                PageLimit::LARGEST,
+                ControlAuthority::Permissive
+            )
             .await,
         Err(Error::RevisionMismatch)
     ));
     assert!(serde_json::to_vec(&fixture.page().await).unwrap().len() < 256 * 1024);
-    assert!(
-        fixture
-            .lease
-            .conflict_page(None, 0, 257, ControlAuthority::Permissive)
-            .await
-            .is_err()
-    );
+    // The listing takes only a checked page size, so 257 cannot reach it.
+    assert!(PageLimit::<256>::try_from(257).is_err());
     fixture.close().await;
 }
 
@@ -776,7 +782,11 @@ async fn recovery_sparse_over_limit_requires_exact_identity_and_confirmation() {
     let (writeback, id) = protected_workspace(&fixture, (1 << 40) + 1).await;
     let recovery = fixture
         .lease
-        .recovery_page(0, 128, ControlAuthority::Permissive)
+        .recovery_page(
+            Ordinal::START,
+            PageLimit::LARGEST,
+            ControlAuthority::Permissive,
+        )
         .await
         .unwrap()
         .pop()

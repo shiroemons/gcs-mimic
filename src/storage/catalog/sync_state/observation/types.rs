@@ -48,6 +48,31 @@ sql::text_enum!(pub(crate) FindingCategory, "invalid synchronization finding cat
 
 crate::serde_util::serialize_as_str!(FindingCategory);
 
+impl FindingCategory {
+    /// The category's place in the findings page (the `kind` column of `PAGE`) and in a
+    /// findings cursor.
+    pub(crate) const fn rank(self) -> i64 {
+        match self {
+            Self::Mapping => 0,
+            Self::Writeback => 1,
+            Self::RootStop => 2,
+            Self::PathStop => 3,
+            Self::Conflict => 4,
+        }
+    }
+
+    pub(crate) const fn from_rank(rank: i64) -> Option<Self> {
+        match rank {
+            0 => Some(Self::Mapping),
+            1 => Some(Self::Writeback),
+            2 => Some(Self::RootStop),
+            3 => Some(Self::PathStop),
+            4 => Some(Self::Conflict),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum FindingReason {
     Mapping(Reason),

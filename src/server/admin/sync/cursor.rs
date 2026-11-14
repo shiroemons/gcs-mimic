@@ -1,19 +1,25 @@
-use super::{JsonError, OpaqueId, stale};
+use super::{JsonError, ObservationCursor, OpaqueId, Ordinal, stale};
+use crate::storage::sync_state::observation::FindingCategory;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum SyncCursor {
-    Findings { kind: i64, ordinal: i64 },
-    Deletions(i64),
-    Conflicts { revision: OpaqueId, ordinal: i64 },
+    Findings(ObservationCursor),
+    Deletions(Ordinal),
+    Conflicts {
+        revision: OpaqueId,
+        ordinal: Ordinal,
+    },
 }
 
 impl SyncCursor {
     pub(super) fn encode(&self, prefix: &str) -> String {
         match self {
-            Self::Findings { kind, ordinal } => format!("{prefix}{kind:02x}{ordinal:016x}"),
-            Self::Deletions(ordinal) => format!("{prefix}{ordinal:016x}"),
+            Self::Findings(ObservationCursor { category, ordinal }) => {
+                format!("{prefix}{:02x}{:016x}", category.rank(), ordinal.get())
+            }
+            Self::Deletions(ordinal) => format!("{prefix}{:016x}", ordinal.get()),
             Self::Conflicts { revision, ordinal } => {
-                format!("{prefix}{revision}{ordinal:016x}")
+                format!("{prefix}{revision}{:016x}", ordinal.get())
             }
         }
     }
@@ -24,24 +30,23 @@ impl SyncCursor {
             return Err(stale());
         }
         let number = |raw| i64::from_str_radix(raw, 16).map_err(|_| stale());
+        // Lowercase hexadecimal has no sign, so an ordinal that fits `i64` is never negative.
+        let ordinal = |raw| Ordinal::try_from(number(raw)?).map_err(|_| stale());
         match suffix.len() {
-            16 => Ok(Self::Deletions(number(suffix)?)),
+            16 => Ok(Self::Deletions(ordinal(suffix)?)),
             18 => {
-                let (kind, ordinal) = suffix.split_at_checked(2).ok_or_else(stale)?;
-                let kind = number(kind)?;
-                if kind > 4 {
-                    return Err(stale());
-                }
-                Ok(Self::Findings {
-                    kind,
-                    ordinal: number(ordinal)?,
-                })
+                let (kind, ordinal_digits) = suffix.split_at_checked(2).ok_or_else(stale)?;
+                let category = FindingCategory::from_rank(number(kind)?).ok_or_else(stale)?;
+                Ok(Self::Findings(ObservationCursor {
+                    category,
+                    ordinal: ordinal(ordinal_digits)?,
+                }))
             }
             48 => {
-                let (revision, ordinal) = suffix.split_at_checked(32).ok_or_else(stale)?;
+                let (revision, ordinal_digits) = suffix.split_at_checked(32).ok_or_else(stale)?;
                 Ok(Self::Conflicts {
                     revision: revision.parse().map_err(|_| stale())?,
-                    ordinal: number(ordinal)?,
+                    ordinal: ordinal(ordinal_digits)?,
                 })
             }
             _ => Err(stale()),
@@ -53,25 +58,32 @@ impl SyncCursor {
 mod tests {
     use super::*;
 
+    fn ordinal(value: i64) -> Ordinal {
+        Ordinal::try_from(value).unwrap()
+    }
+
     #[test]
     fn cursors_preserve_fixed_lowercase_wire_format() {
         let prefix = "0123456789abcdef".repeat(6);
         for cursor in [
-            SyncCursor::Deletions(i64::MAX),
-            SyncCursor::Findings {
-                kind: 4,
-                ordinal: 10,
-            },
+            SyncCursor::Deletions(ordinal(i64::MAX)),
+            SyncCursor::Findings(ObservationCursor {
+                category: FindingCategory::Conflict,
+                ordinal: ordinal(10),
+            }),
             SyncCursor::Conflicts {
                 revision: "ab".repeat(16).parse().unwrap(),
-                ordinal: 0,
+                ordinal: ordinal(0),
             },
         ] {
             let raw = cursor.encode(&prefix);
             assert_eq!(SyncCursor::decode(&raw, &prefix).unwrap(), cursor);
             assert!(SyncCursor::decode(&raw, "different").is_err());
         }
-        assert_eq!(SyncCursor::Deletions(10).encode(""), "000000000000000a");
+        assert_eq!(
+            SyncCursor::Deletions(ordinal(10)).encode(""),
+            "000000000000000a"
+        );
         for suffix in [
             "-000000000000001",
             "+000000000000001",

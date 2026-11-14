@@ -2,7 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    OpaqueId, SyncBinding, SyncFingerprint,
+    OpaqueId, Ordinal, PageLimit, SyncBinding, SyncFingerprint,
     authority::ControlAuthority,
     root::{RootError, RootId, RootLease},
 };
@@ -42,7 +42,7 @@ pub(crate) const MAX_BYTES: u64 = 1 << 40;
 /// a lower count would pause the root over conflicts the disk still has room for.
 pub(crate) const MAX_ENTRIES: u64 = 1_000_000;
 pub(in crate::storage) use list::usage;
-pub(crate) use list::{Conflict, ConflictPage, ConflictState, Usage};
+pub(crate) use list::{Conflict, ConflictPage, ConflictPosition, ConflictState, Usage};
 pub(crate) use recovery::{Recovery, RecoveryPhase};
 pub(crate) use resolve::{
     Action, Confirmation, ConflictTarget, RecoveryTarget, ResolveOutcome, ResolveRequest,

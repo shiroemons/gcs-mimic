@@ -866,7 +866,7 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
             .is_none()
     );
     assert_eq!(
-        root.sync_buckets_page(String::new(), 256)
+        root.sync_buckets_page(None, crate::storage::sync_state::PageLimit::LARGEST)
             .await
             .unwrap()
             .len(),

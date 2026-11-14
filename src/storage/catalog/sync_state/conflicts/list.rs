@@ -90,7 +90,7 @@ pub(crate) struct Conflict {
     pub phase: ConflictState,
     pub remedy: &'static str,
     #[serde(skip)]
-    pub ordinal: i64,
+    pub ordinal: Ordinal,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,29 +98,40 @@ pub(crate) struct ConflictPage {
     pub revision: OpaqueId,
     pub items: Vec<super::Conflict>,
     pub usage: Usage,
-    pub next_after: Option<i64>,
+    pub next_after: Option<Ordinal>,
+}
+
+/// Where a conflict listing page starts. A position within a listing always names the listing
+/// revision it came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConflictPosition {
+    /// The first page of whatever listing is current.
+    Start,
+    /// The page of this listing revision after `after`; a changed listing is `RevisionMismatch`.
+    Within { revision: OpaqueId, after: Ordinal },
 }
 
 impl RootLease {
     pub(crate) async fn conflict_page(
         &self,
-        revision: Option<OpaqueId>,
-        after: i64,
-        limit: usize,
+        position: ConflictPosition,
+        limit: PageLimit<256>,
         authority: ControlAuthority,
     ) -> Result<ConflictPage, Error> {
-        if after < 0 || !(1..=256).contains(&limit) || (after > 0 && revision.is_none()) {
-            return Err(Error::InvalidResolution);
-        }
         let root = self.status().root_id;
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
             tx.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO NOTHING")?.execute(params![root,OpaqueId::generate().map_err(AdminError::backend)?])?;
             let current:OpaqueId=tx.prepare_cached("SELECT revision FROM sync_conflict_roots WHERE root_id=?1")?.query_row([root],|row|row.get(0))?;
-            if revision.is_some_and(|revision|revision!=current) {return Err(Error::RevisionMismatch)}
+            let after = match position {
+                ConflictPosition::Start => Ordinal::START,
+                ConflictPosition::Within { revision, after } if revision == current => after,
+                ConflictPosition::Within { .. } => return Err(Error::RevisionMismatch),
+            };
             let usage=total_usage(&tx,root)?;
             let mut statement=tx.prepare_cached("SELECT ordinal,id,revision,owner,bucket,incarnation,name,generation,size,retained,state FROM sync_conflicts WHERE root_id=?1 AND ordinal>?2 AND state!=2 ORDER BY ordinal LIMIT ?3")?;
+            let limit=limit.get();
             let mut rows=statement.query(params![root,after,limit+1])?;
             let mut items=Vec::with_capacity(limit);
             let mut bytes=0;

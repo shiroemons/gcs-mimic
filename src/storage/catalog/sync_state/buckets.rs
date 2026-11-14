@@ -1,13 +1,13 @@
 //! Durable directory observations survive API bucket deletion.
 use super::{
-    MAX_PAGE,
+    MAX_PAGE, PageLimit,
     root::{RootError, RootLease},
 };
-use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
+use crate::storage::catalog::{After, Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::BucketRecord,
     storage::{
-        admin::{AdminError, BucketDefinition, BucketName, Origin},
+        admin::{BucketDefinition, BucketName, Origin},
         catalog::{BucketCreation, create_bucket_in_transaction, unavailable},
     },
 };
@@ -80,14 +80,13 @@ impl RootLease {
         }).await.map_err(RootError::from)
     }
 
+    /// The buckets after `after` (from the first when `None`), in name order.
     pub(crate) async fn sync_buckets_page(
         &self,
-        after: String,
-        limit: usize,
+        after: Option<BucketName>,
+        limit: PageLimit<MAX_PAGE>,
     ) -> Result<Vec<SyncBucket>, RootError> {
-        if !(1..=MAX_PAGE).contains(&limit) {
-            return Err(AdminError::Invalid("invalid sync bucket page".into()).into());
-        }
+        let after = after.map_or(After::Start, After::Key);
         let root = self.status().root_id;
         let lease = self.clone();
         self.catalog().run_admin(move |connection| {

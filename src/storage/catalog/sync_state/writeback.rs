@@ -7,7 +7,7 @@ use super::super::{
     objects, unavailable,
 };
 use super::{
-    CatalogId, OpaqueId, SyncBinding, SyncFingerprint, SyncUpdate,
+    CatalogId, OpaqueId, Ordinal, PageLimit, SyncBinding, SyncFingerprint, SyncUpdate,
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
@@ -234,7 +234,7 @@ pub(crate) struct Token {
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
     pub token: Token,
-    pub ordinal: i64,
+    pub ordinal: Ordinal,
     pub owner: String,
     pub bucket: BucketName,
     pub incarnation: Incarnation,
@@ -833,10 +833,11 @@ impl Writeback {
         let root = self.identities().1;
         self.db(move |c| status(c, root)).await
     }
-    async fn page_inner(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
-        if after < 0 || !(1..=256).contains(&limit) {
-            return Err(AdminError::Invalid("invalid pending page".into()).into());
-        }
+    async fn page_inner(
+        &self,
+        after: Ordinal,
+        limit: PageLimit<256>,
+    ) -> Result<Vec<Pending>, Error> {
         self.revalidate().await?;
         let (catalog, root) = self.identities();
         self.db(move |c| {

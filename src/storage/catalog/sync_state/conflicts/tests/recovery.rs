@@ -17,7 +17,11 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
         let (writeback, id) = protected_workspace(&fixture, 10).await;
         let inspected = fixture
             .lease
-            .recovery_page(0, 128, ControlAuthority::Permissive)
+            .recovery_page(
+                Ordinal::START,
+                PageLimit::LARGEST,
+                ControlAuthority::Permissive,
+            )
             .await
             .unwrap()
             .pop()
@@ -75,7 +79,11 @@ async fn recovery_restart_invalidates_unused_revision_and_replays_accepted_disca
             ));
             let fresh = fixture
                 .lease
-                .recovery_page(0, 128, ControlAuthority::Permissive)
+                .recovery_page(
+                    Ordinal::START,
+                    PageLimit::LARGEST,
+                    ControlAuthority::Permissive,
+                )
                 .await
                 .unwrap()
                 .pop()
@@ -142,7 +150,11 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     let (writeback, id) = protected_workspace(&fixture, 10).await;
     let item = fixture
         .lease
-        .recovery_page(0, 128, strict_authority(&["seed", "owner"]).await)
+        .recovery_page(
+            Ordinal::START,
+            PageLimit::LARGEST,
+            strict_authority(&["seed", "owner"]).await,
+        )
         .await
         .unwrap()
         .pop()
@@ -181,7 +193,11 @@ async fn recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes() 
     assert_eq!(writeback.status().await.unwrap().entries, 1);
     let fresh = fixture
         .lease
-        .recovery_page(0, 128, ControlAuthority::Permissive)
+        .recovery_page(
+            Ordinal::START,
+            PageLimit::LARGEST,
+            ControlAuthority::Permissive,
+        )
         .await
         .unwrap()
         .pop()
@@ -261,7 +277,11 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
             let (writeback, id) = protected_workspace(&fixture, 10).await;
             let item = fixture
                 .lease
-                .recovery_page(0, 128, ControlAuthority::Permissive)
+                .recovery_page(
+                    Ordinal::START,
+                    PageLimit::LARGEST,
+                    ControlAuthority::Permissive,
+                )
                 .await
                 .unwrap()
                 .pop()

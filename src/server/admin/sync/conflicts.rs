@@ -1,7 +1,7 @@
 use super::*;
 use crate::storage::sync_state::conflicts::{
-    self, Action, Confirmation, Conflict, ConflictPage, ConflictTarget, RecoveryTarget,
-    ResolveRequest, ResolveTarget, Usage,
+    self, Action, Confirmation, Conflict, ConflictPage, ConflictPosition, ConflictTarget,
+    RecoveryTarget, ResolveRequest, ResolveTarget, Usage,
 };
 
 pub(super) async fn list(
@@ -12,16 +12,20 @@ pub(super) async fn list(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
     let limit = parse_limit(query.remove("limit"))?;
-    let mut revision = query
+    let revision = query
         .remove("revision")
         .map(|value| value.parse::<OpaqueId>())
         .transpose()
         .map_err(|_| JsonError::invalid_argument("revision must be a conflict listing revision"))?;
     let ids = root.status();
     let prefix = cursor_prefix(&ids, session);
-    let after = match query.remove("cursor") {
-        None => 0,
-        Some(cursor) => {
+    let position = match (query.remove("cursor"), revision) {
+        (None, None) => ConflictPosition::Start,
+        (None, Some(revision)) => ConflictPosition::Within {
+            revision,
+            after: Ordinal::START,
+        },
+        (Some(cursor), revision) => {
             let SyncCursor::Conflicts {
                 revision: selected,
                 ordinal,
@@ -32,8 +36,10 @@ pub(super) async fn list(
             if revision.is_some_and(|value| value != selected) {
                 return Err(stale());
             }
-            revision = Some(selected);
-            ordinal
+            ConflictPosition::Within {
+                revision: selected,
+                after: ordinal,
+            }
         }
     };
     if !query.is_empty() {
@@ -52,7 +58,7 @@ pub(super) async fn list(
         usage,
         next_after,
     } = root
-        .conflict_page(revision, after, limit, authority)
+        .conflict_page(position, limit, authority)
         .await
         .map_err(error)?;
     render_halving(items, |items, fit| {

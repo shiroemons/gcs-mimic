@@ -7,6 +7,8 @@ impl Token {
 }
 impl Writeback {
     pub(crate) async fn page(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
+        let after = Ordinal::try_from(after).unwrap();
+        let limit = PageLimit::try_from(limit).unwrap();
         self.serial_with(move |this| async move { this.page_inner(after, limit).await })
             .await
     }

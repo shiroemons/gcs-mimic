@@ -290,7 +290,11 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
             b"external\0\xff"
         );
         let inspected = lease
-            .recovery_page(0, 128, ControlAuthority::Permissive)
+            .recovery_page(
+                Ordinal::START,
+                PageLimit::LARGEST,
+                ControlAuthority::Permissive,
+            )
             .await
             .unwrap()
             .pop()

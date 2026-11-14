@@ -110,6 +110,10 @@ fn page_limits_accept_one_through_their_maximum() {
         Err(InvalidPageLimit)
     );
     assert_eq!(PageLimit::<257>::LARGEST.get(), 257);
+    assert_eq!(
+        PageLimit::<256>::LARGEST.with_lookahead::<257>(),
+        PageLimit::<257>::LARGEST
+    );
     let connection = Connection::open_in_memory().unwrap();
     let bound: i64 = connection
         .query_row("SELECT ?1", [PageLimit::<256>::LARGEST], |row| row.get(0))

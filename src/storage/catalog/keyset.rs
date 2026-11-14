@@ -67,7 +67,12 @@ macro_rules! text_cursor {
     )+};
 }
 
-text_cursor!(crate::storage::BlobId, super::SessionId, String);
+text_cursor!(
+    crate::storage::BlobId,
+    super::SessionId,
+    String,
+    crate::bucket::name::BucketName
+);
 
 /// A page size from 1 to `MAX`, the most the listing that takes it returns at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,10 +92,6 @@ impl std::error::Error for InvalidPageLimit {}
 
 impl<const MAX: usize> PageLimit<MAX> {
     /// The largest page, for internal callers that read as much as one call allows.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "sync state listings adopt it next")
-    )]
     pub(crate) const LARGEST: Self = match NonZeroUsize::new(MAX) {
         Some(max) => Self(max),
         // A listing returns at least one item per page; `MAX` 0 would be a declaration error.
@@ -99,6 +100,13 @@ impl<const MAX: usize> PageLimit<MAX> {
 
     pub(crate) const fn get(self) -> usize {
         self.0.get()
+    }
+
+    /// This size plus the one item a caller reads past the page to learn whether the listing
+    /// continues. The compiler rejects a `WIDER` listing that cannot hold that extra item.
+    pub(crate) const fn with_lookahead<const WIDER: usize>(self) -> PageLimit<WIDER> {
+        const { assert!(WIDER > MAX, "a look-ahead listing holds one item more") };
+        PageLimit(self.0.saturating_add(1))
     }
 }
 
@@ -121,20 +129,13 @@ impl<const MAX: usize> rusqlite::ToSql for PageLimit<MAX> {
 }
 
 /// A keyset position over a non-negative INTEGER ordinal column: rows after it have a larger
-/// ordinal, and [`Ordinal::START`] precedes every row.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "sync state listings adopt it next")
-)]
+/// ordinal, and [`Ordinal::START`] precedes every row. It serializes as its integer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(transparent)]
 pub(crate) struct Ordinal(i64);
 
 /// A negative keyset position.
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "sync state listings adopt it next")
-)]
 pub(crate) struct InvalidOrdinal;
 
 impl fmt::Display for InvalidOrdinal {
@@ -145,10 +146,6 @@ impl fmt::Display for InvalidOrdinal {
 
 impl std::error::Error for InvalidOrdinal {}
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "sync state listings adopt it next")
-)]
 impl Ordinal {
     pub(crate) const START: Self = Self(0);
 

@@ -29,7 +29,11 @@ async fn protected_transfer_crosses_keyset_pages_without_skipping_completed_rows
     assert!(fixture.writeback.page(0, 256).await.unwrap().is_empty());
     let first = fixture
         .lease
-        .conflict_page(None, 0, 256, ControlAuthority::Permissive)
+        .conflict_page(
+            crate::storage::sync_state::conflicts::ConflictPosition::Start,
+            PageLimit::LARGEST,
+            ControlAuthority::Permissive,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -43,9 +47,11 @@ async fn protected_transfer_crosses_keyset_pages_without_skipping_completed_rows
     let second = fixture
         .lease
         .conflict_page(
-            Some(first.revision),
-            first.next_after.unwrap(),
-            256,
+            crate::storage::sync_state::conflicts::ConflictPosition::Within {
+                revision: first.revision,
+                after: first.next_after.unwrap(),
+            },
+            PageLimit::LARGEST,
             ControlAuthority::Permissive,
         )
         .await

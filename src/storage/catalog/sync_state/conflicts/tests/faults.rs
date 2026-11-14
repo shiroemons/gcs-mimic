@@ -248,7 +248,11 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                 .await
                 .unwrap();
             let page = root
-                .conflict_page(None, 0, 256, ControlAuthority::Permissive)
+                .conflict_page(
+                    ConflictPosition::Start,
+                    PageLimit::LARGEST,
+                    ControlAuthority::Permissive,
+                )
                 .await
                 .unwrap();
             if state.0.1 != 2 {
@@ -289,11 +293,15 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                     .completed
             );
             assert_eq!(
-                root.conflict_page(None, 0, 256, ControlAuthority::Permissive)
-                    .await
-                    .unwrap()
-                    .usage
-                    .entries,
+                root.conflict_page(
+                    ConflictPosition::Start,
+                    PageLimit::LARGEST,
+                    ControlAuthority::Permissive
+                )
+                .await
+                .unwrap()
+                .usage
+                .entries,
                 0
             );
             drop(root);
