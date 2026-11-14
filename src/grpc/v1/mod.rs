@@ -101,6 +101,18 @@ fn common(
     validate::common(object, MESSAGE)
 }
 
+/// The legacy adapter words every broken object-name rule the same way.
+fn object_name(name: &str) -> Result<(), Status> {
+    use crate::object::name::InvalidObjectName;
+    crate::object::name::validate(name).map_err(|error| match error {
+        InvalidObjectName::Empty
+        | InvalidObjectName::TooLong
+        | InvalidObjectName::LineBreak
+        | InvalidObjectName::DotSegment
+        | InvalidObjectName::AcmeChallenge => Status::invalid_argument("Invalid object name"),
+    })
+}
+
 fn projection(value: i32) -> Result<(), Status> {
     if value == 0 || value == pb::common_enums::Projection::NoAcl as i32 {
         Ok(())
@@ -159,6 +171,39 @@ fn validate_list_query(request: &pb::ListObjectsRequest, max_results: usize) -> 
         ));
     }
     Ok(())
+}
+
+/// Which projects a legacy ListBuckets covers. The reference lists every bucket when the
+/// request names no project; strict callers then see only projects where they may list, so
+/// omitting the project never widens their access.
+#[derive(Clone, Copy)]
+enum ProjectScope<'a> {
+    All,
+    One(&'a str),
+}
+
+impl<'a> ProjectScope<'a> {
+    fn of(project: &'a str) -> Self {
+        if project.is_empty() {
+            Self::All
+        } else {
+            Self::One(project)
+        }
+    }
+
+    fn decode_token(self, token: &str, prefix: &str) -> Result<String, json::JsonError> {
+        match self {
+            Self::All => json::decode_all_projects_page_token(token, prefix),
+            Self::One(project) => json::decode_page_token(token, project, prefix),
+        }
+    }
+
+    fn encode_token(self, prefix: &str, last: &str) -> Result<String, json::JsonError> {
+        match self {
+            Self::All => json::encode_all_projects_page_token(prefix, last),
+            Self::One(project) => json::encode_page_token(project, prefix, last),
+        }
+    }
 }
 
 /// One UpdateObject or PatchObject request after common parameter validation.
@@ -303,8 +348,7 @@ impl Storage {
             mut object,
             write,
         } = update;
-        crate::object::name::validate(name)
-            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+        object_name(name)?;
         let access = self
             .access(caller, bucket, crate::auth::OBJECTS_UPDATE)
             .await?;
@@ -469,38 +513,25 @@ impl pb::storage_server::Storage for Storage {
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
-        // The reference lists every bucket when project is omitted. Strict callers only see
-        // buckets in projects where they may list, so omission never widens their access.
-        let all_projects = r.project.is_empty();
-        let projects = if all_projects {
-            match caller {
-                Some(caller) => {
-                    caller.authorize(BUCKETS_LIST, None)?;
-                    let identity = caller.principal()?;
-                    Some(identity.projects_allowing(BUCKETS_LIST))
-                }
-                None => None,
+        let scope = ProjectScope::of(&r.project);
+        let projects = match (scope, caller) {
+            (ProjectScope::All, None) => None,
+            (ProjectScope::All, Some(caller)) => {
+                caller.authorize(BUCKETS_LIST, None)?;
+                Some(caller.principal()?.projects_allowing(BUCKETS_LIST))
             }
-        } else {
-            self.project(caller, &r.project, BUCKETS_LIST)?;
-            Some(vec![r.project.clone()])
+            (ProjectScope::One(project), caller) => {
+                self.project(caller, project, BUCKETS_LIST)?;
+                Some(vec![project.to_owned()])
+            }
         };
         if r.prefix.len() > 222 {
             return Err(Status::invalid_argument("prefix must be at most 222 bytes"));
         }
         let start = if r.page_token.is_empty() {
             None
-        } else if all_projects {
-            Some(json::decode_all_projects_page_token(
-                &r.page_token,
-                &r.prefix,
-            )?)
         } else {
-            Some(json::decode_page_token(
-                &r.page_token,
-                &r.project,
-                &r.prefix,
-            )?)
+            Some(scope.decode_token(&r.page_token, &r.prefix)?)
         };
         let page = self
             .state
@@ -518,11 +549,7 @@ impl pb::storage_server::Storage for Storage {
                 .last()
                 .ok_or_else(|| Status::internal("Missing continuation bucket"))?
                 .name;
-            if all_projects {
-                json::encode_all_projects_page_token(&r.prefix, last)
-            } else {
-                json::encode_page_token(&r.project, &r.prefix, last)
-            }?
+            scope.encode_token(&r.prefix, last)?
         } else {
             String::new()
         };
@@ -543,8 +570,7 @@ impl pb::storage_server::Storage for Storage {
             r.common_object_request_params.as_ref(),
         )?;
         projection(r.projection)?;
-        crate::object::name::validate(&r.object)
-            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+        object_name(&r.object)?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_GET)
             .await?;
@@ -572,8 +598,7 @@ impl pb::storage_server::Storage for Storage {
             r.common_request_params.as_ref(),
             r.common_object_request_params.as_ref(),
         )?;
-        crate::object::name::validate(&r.object)
-            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+        object_name(&r.object)?;
         let access = self
             .access(caller, &r.bucket, crate::auth::OBJECTS_DELETE)
             .await?;
@@ -705,8 +730,7 @@ impl pb::storage_server::Storage for Storage {
         if r.destination_predefined_acl != 0 || !r.kms_key_name.is_empty() {
             return Err(unsupported("legacy compose ACL or KMS; omit these fields"));
         }
-        crate::object::name::validate(&r.destination_object)
-            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+        object_name(&r.destination_object)?;
         let access = self
             .access(caller, &r.destination_bucket, crate::auth::OBJECTS_CREATE)
             .await?;
@@ -726,8 +750,7 @@ impl pb::storage_server::Storage for Storage {
             .source_objects
             .into_iter()
             .map(|s| {
-                crate::object::name::validate(&s.name)
-                    .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+                object_name(&s.name)?;
                 let preconditions = conditions(
                     s.object_preconditions
                         .as_ref()

@@ -109,13 +109,41 @@ fn clear_bucket_metadata(bucket: &mut pb::Bucket) -> Result<(), Status> {
     Ok(())
 }
 
+/// What a legacy UpdateBucket, which replaces the whole resource, does with the settings its
+/// message cannot carry: the native profile resets them as a JSON PUT does, and the
+/// fake-gcs-server profile leaves them as they are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OmittedSettings {
+    Reset,
+    Keep,
+}
+
+impl From<CompatProfile> for OmittedSettings {
+    fn from(profile: CompatProfile) -> Self {
+        match profile {
+            CompatProfile::Native => Self::Reset,
+            CompatProfile::FakeGcsServer => Self::Keep,
+        }
+    }
+}
+
+impl OmittedSettings {
+    /// `reset()` when omitted settings are reset; `None` leaves them unchanged.
+    fn reset<T>(self, reset: impl FnOnce() -> T) -> Option<T> {
+        match self {
+            Self::Reset => Some(reset()),
+            Self::Keep => None,
+        }
+    }
+}
+
 pub(super) fn bucket_update(
     bucket: &mut pb::Bucket,
     current: &pb::Bucket,
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, Status> {
     bucket_outputs(bucket, Some(current))?;
-    let native = profile == CompatProfile::Native;
+    let omitted = OmittedSettings::from(profile);
     let class = bucket.storage_class.clone();
     let mut update = BucketMetadataUpdate {
         labels: MapPatch::Replace(
@@ -130,13 +158,12 @@ pub(super) fn bucket_update(
             .versioning
             .as_ref()
             .map(|config| VersioningUpdate::Set(Versioning::from(Some(config.enabled))))
-            .or(native.then_some(VersioningUpdate::Set(Versioning::Unset))),
-        cors: native.then(Vec::new),
-        lifecycle: native.then(crate::bucket::lifecycle::LifecycleRules::default),
-        retention_policy: if native {
-            RetentionPolicyUpdate::RemoveUnlocked
-        } else {
-            RetentionPolicyUpdate::Keep
+            .or(omitted.reset(|| VersioningUpdate::Set(Versioning::Unset))),
+        cors: omitted.reset(Vec::new),
+        lifecycle: omitted.reset(crate::bucket::lifecycle::LifecycleRules::default),
+        retention_policy: match omitted {
+            OmittedSettings::Reset => RetentionPolicyUpdate::RemoveUnlocked,
+            OmittedSettings::Keep => RetentionPolicyUpdate::Keep,
         },
         touched: true,
         ..Default::default()
@@ -332,6 +359,20 @@ mod tests {
                 json["md5Hash"].as_str().unwrap_or_default()
             );
         }
+    }
+
+    #[test]
+    fn legacy_replacements_reset_omitted_settings_only_natively() {
+        assert_eq!(
+            OmittedSettings::from(CompatProfile::Native),
+            OmittedSettings::Reset
+        );
+        assert_eq!(
+            OmittedSettings::from(CompatProfile::FakeGcsServer),
+            OmittedSettings::Keep
+        );
+        assert_eq!(OmittedSettings::Reset.reset(|| 1), Some(1));
+        assert_eq!(OmittedSettings::Keep.reset(|| 1), None);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-use super::{Storage, common, conditions, convert, metadata, pb, projection, unsupported};
+use super::{
+    Storage, common, conditions, convert, metadata, object_name, pb, projection, unsupported,
+};
 use crate::{
     auth::Caller,
     grpc::upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
@@ -12,17 +14,17 @@ fn checksums(value: Option<pb::ObjectChecksums>) -> Result<ExpectedHashes, Statu
     let Some(value) = value else {
         return Ok(Default::default());
     };
-    let md5 = if value.md5_hash.is_empty() {
-        None
-    } else {
-        if value.md5_hash.len() != 32 {
+    let md5 = match value.md5_hash.as_str() {
+        "" => None,
+        hash if hash.len() != 32 => {
             return Err(Status::invalid_argument(
                 "object_checksums.md5_hash must be 32 hexadecimal characters",
             ));
         }
-        let digest = crate::hex::decode(&value.md5_hash)
-            .ok_or_else(|| Status::invalid_argument("Invalid hexadecimal MD5"))?;
-        Some(digest)
+        hash => Some(
+            crate::hex::decode(hash)
+                .ok_or_else(|| Status::invalid_argument("Invalid hexadecimal MD5"))?,
+        ),
     };
     Ok(ExpectedHashes {
         crc32c: value.crc32c,
@@ -59,8 +61,7 @@ impl Storage {
         let bucket = object.bucket.clone();
         let name = object.name.clone();
         let content_type = object.content_type.clone();
-        crate::object::name::validate(&name)
-            .map_err(|_| Status::invalid_argument("Invalid object name"))?;
+        object_name(&name)?;
         let metadata = metadata(object, crate::json::WriteMode::Patch)?;
         let conditions = conditions(ObjectConditions::from(&spec))?;
         let access = self
@@ -100,20 +101,14 @@ async fn receive_upload(
     sender: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
     max_object_bytes: u64,
 ) -> Result<(), Status> {
-    let mut next = Some(first);
-    let mut finished = false;
     let mut intake = Intake::new(
         ExpectedHashes::default(),
         max_object_bytes,
         None,
         Resend::Reject,
     );
-    while let Some(message) = next {
-        if finished {
-            return Err(Status::invalid_argument(
-                "Messages after finish_write are invalid; close the send stream",
-            ));
-        }
+    let mut message = first;
+    loop {
         common(
             message.common_request_params.as_ref(),
             message.common_object_request_params.as_ref(),
@@ -123,11 +118,12 @@ async fn receive_upload(
                 "insert_object_spec is only allowed in the first message",
             ));
         }
-        if message.write_offset < 0 || message.write_offset.cast_unsigned() != intake.offset() {
-            return Err(Status::invalid_argument(
-                "write_offset must equal bytes already sent",
-            ));
-        }
+        let offset = u64::try_from(message.write_offset)
+            .ok()
+            .filter(|&offset| offset == intake.offset())
+            .ok_or_else(|| {
+                Status::invalid_argument("write_offset must equal bytes already sent")
+            })?;
         if message.object_checksums.is_some() && intake.offset() != 0 && !message.finish_write {
             return Err(Status::invalid_argument(
                 "object_checksums belong in the first or final message",
@@ -135,39 +131,48 @@ async fn receive_upload(
         }
         let hashes = checksums(message.object_checksums)?;
         intake.checksums(hashes).map_err(intake_status)?;
+        let finish = message.finish_write;
         let data = match message.data {
-            Some(data) => match data {
-                pb::insert_object_request::Data::ChecksummedData(data) => data,
-                _ => {
-                    return Err(unsupported(
-                        "legacy reference upload data; send checksummed_data",
-                    ));
-                }
-            },
+            Some(pb::insert_object_request::Data::ChecksummedData(data)) => data,
+            Some(pb::insert_object_request::Data::Reference(_)) => {
+                return Err(unsupported(
+                    "legacy reference upload data; send checksummed_data",
+                ));
+            }
             None => pb::ChecksummedData::default(),
         };
         intake
             .accept(
                 IntakePiece {
-                    offset: message.write_offset.cast_unsigned(),
+                    offset,
                     content: data.content,
                     crc32c: data.crc32c,
-                    finish: message.finish_write,
+                    finish,
                 },
                 &sender,
             )
             .await
             .map_err(intake_status)?;
-        finished = message.finish_write;
-        next = upload::next(&mut stream, &sender)
+        let next = upload::next(&mut stream, &sender)
             .await
             .map_err(intake_status)?
             .transpose()?;
-    }
-    if !finished {
-        return Err(Status::invalid_argument(
-            "Final message requires finish_write=true; resend the complete object",
-        ));
+        // A message after `finish_write` is rejected before its contents are checked, and a
+        // stream that ends without one only after its last message was accepted.
+        message = match (finish, next) {
+            (false, Some(next)) => next,
+            (true, None) => break,
+            (true, Some(_)) => {
+                return Err(Status::invalid_argument(
+                    "Messages after finish_write are invalid; close the send stream",
+                ));
+            }
+            (false, None) => {
+                return Err(Status::invalid_argument(
+                    "Final message requires finish_write=true; resend the complete object",
+                ));
+            }
+        };
     }
     intake
         .finish(&sender, EndMarker::WithHashes)
