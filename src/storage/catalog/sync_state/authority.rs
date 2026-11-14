@@ -1,6 +1,6 @@
 //! Every control read and accepted side effect checks the complete retained-owner union.
 
-use super::root::{RootError, RootLease};
+use super::root::{RootError, RootId, RootLease};
 use crate::storage::catalog::sql;
 use crate::{auth::Identity, bucket::CatalogError};
 use rusqlite::Connection;
@@ -13,21 +13,21 @@ pub(crate) enum ControlAuthority {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ControlScope {
-    root: super::root::RootId,
+    root: RootId,
     authority: ControlAuthority,
 }
 impl ControlScope {
-    pub(in crate::storage) fn root_id(&self) -> super::root::RootId {
+    pub(in crate::storage) fn root_id(&self) -> RootId {
         self.root
     }
-    pub(crate) fn new(root: super::root::RootId, authority: ControlAuthority) -> Self {
+    pub(crate) fn new(root: RootId, authority: ControlAuthority) -> Self {
         Self { root, authority }
     }
     pub(in crate::storage) fn authorize(
         &self,
         connection: &Connection,
     ) -> Result<(), CatalogError> {
-        self.authority.authorize(connection, self.root.as_bytes())
+        self.authority.authorize(connection, self.root)
     }
 }
 
@@ -46,7 +46,7 @@ impl ControlAuthority {
     pub(in crate::storage) fn authorize(
         &self,
         connection: &Connection,
-        root: [u8; 16],
+        root: RootId,
     ) -> Result<(), CatalogError> {
         let Self::Strict { seed, identity } = self else {
             return Ok(());
@@ -80,7 +80,7 @@ impl RootLease {
         seed: String,
         identity: Option<Identity>,
     ) -> Result<(), RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let authority = ControlAuthority::new(seed, identity);
         self.catalog()
             .run_admin(move |connection| {

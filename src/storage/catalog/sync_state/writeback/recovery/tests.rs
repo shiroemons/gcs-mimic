@@ -369,7 +369,7 @@ async fn recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancell
         for index in 1..=256 {
             tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) SELECT ?1,root_id,owner,bucket,incarnation,?2,?3,generation,kind,0,1,fence_sequence,fence_epoch,reservation,size,md5,crc32c FROM sync_writeback_ops WHERE id=?4")?.execute(params![format!("{index:032x}"),format!("extra-{index}"),format!("test-bucket/extra-{index}"),first.token.id])?;
         }
-        tx.prepare_cached("UPDATE sync_writeback_roots SET entries=257 WHERE root_id=?1")?.execute([first.token.root.as_bytes()])?;
+        tx.prepare_cached("UPDATE sync_writeback_roots SET entries=257 WHERE root_id=?1")?.execute([first.token.root])?;
         tx.commit()?;Ok(())
     }).await.unwrap();
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 257);

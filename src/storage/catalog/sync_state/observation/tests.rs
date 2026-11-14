@@ -74,7 +74,7 @@ async fn observation_revision_rejects_changed_pages_and_overflow_rolls_back() {
 #[tokio::test]
 async fn mapping_updates_deletes_and_restart_keep_a_monotonic_revision() {
     let (data, tree, catalog, root) = fixture().await;
-    let id = root.status().root_id.as_bytes();
+    let id = root.status().root_id;
     catalog.run_admin(move |connection|connection.execute("INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,'bucket','name','00000000000000000000000000000000',1,'collision','project')",[id]).map(|_|()).map_err(unavailable)).await.unwrap();
     let first = root.observation().await.unwrap();
     assert_eq!(first.mapping_findings, 1);

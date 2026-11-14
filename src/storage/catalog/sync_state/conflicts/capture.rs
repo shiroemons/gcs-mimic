@@ -138,7 +138,7 @@ impl RootLease {
         request: &CaptureRequest,
         source: &File,
     ) -> Result<Option<CapturedConflict>, Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let selected = request.clone();
         let exists = self.conflict_db(move |connection| {
             Ok(connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND bucket=?2 AND incarnation=?3 AND name=?4 AND state=1 AND source_op IS NULL)")?
@@ -247,7 +247,7 @@ impl RootLease {
         if before.size > MAX_BYTES {
             return Err(Error::Capacity);
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let id = opaque_id()?;
         let revision = opaque_id()?;
         let selected = request.clone();
@@ -368,7 +368,7 @@ impl RootLease {
             Ok(())
         })
         .await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.conflict_db(move |connection| {
             let tx = connection.transaction()?;
             tx.prepare_cached("DELETE FROM sync_conflicts WHERE id=?1 AND state=0")?

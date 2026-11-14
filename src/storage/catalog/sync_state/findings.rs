@@ -47,7 +47,7 @@ sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
 
 fn remember_owner(
     transaction: &rusqlite::Transaction<'_>,
-    root: [u8; 16],
+    root: RootId,
     bucket: &str,
     name: &str,
 ) -> Result<(), CatalogError> {
@@ -70,7 +70,7 @@ impl RootLease {
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let lease = self.clone();
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.catalog().run_admin(move |c| {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
@@ -97,7 +97,7 @@ impl RootLease {
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let lease = self.clone();
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.catalog().run_admin_with_error(move |c| {
             let tx = c.transaction().map_err(unavailable)?;
             lease.control_scope().authorize(&tx)?;
@@ -129,7 +129,7 @@ impl RootLease {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT ordinal,bucket,name,incarnation,generation,reason FROM sync_findings INDEXED BY sync_findings_page WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")?
-                .query_map(params![status.root_id.as_bytes(),after,limit], |r| {
+                .query_map(params![status.root_id,after,limit], |r| {
                     Ok(Finding {catalog_id:status.catalog_id,root_id:status.root_id,ordinal:r.get(0)?,bucket:r.get(1)?,name:r.get(2)?,incarnation:r.get(3)?,generation:Generation::new(r.get(4)?).map_err(|error|sql::conversion_error(4,rusqlite::types::Type::Integer,error))?,reason:r.get(5)?})
                 })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
@@ -147,7 +147,7 @@ impl RootLease {
         let lease = self.clone();
         self.catalog().run_admin(move |c| {
             let _lease = lease;
-            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id.as_bytes(),finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),finding.reason])
+            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id,finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),finding.reason])
                 .map(|count|count == 1).map_err(unavailable)
         }).await.map_err(RootError::from)
     }

@@ -9,7 +9,7 @@ pub(crate) struct Usage {
 }
 
 /// Additional physical copies, including reservations while a protected source still exists.
-pub(in crate::storage) fn usage(connection: &Connection, root: [u8; 16]) -> Result<Usage, Error> {
+pub(in crate::storage) fn usage(connection: &Connection, root: RootId) -> Result<Usage, Error> {
     let mut result = Usage::default();
     let mut statement = connection
         .prepare_cached("SELECT state,size FROM sync_conflicts WHERE root_id=?1 AND state!=2")?;
@@ -28,7 +28,7 @@ pub(in crate::storage) fn usage(connection: &Connection, root: [u8; 16]) -> Resu
     Ok(result)
 }
 
-pub(super) fn total_usage(connection: &Connection, root: [u8; 16]) -> Result<Usage, Error> {
+pub(super) fn total_usage(connection: &Connection, root: RootId) -> Result<Usage, Error> {
     let mut result = usage(connection, root)?;
     let workspace = connection
         .prepare_cached(
@@ -93,7 +93,7 @@ impl RootLease {
         if after < 0 || !(1..=256).contains(&limit) || (after > 0 && revision.is_none()) {
             return Err(Error::InvalidResolution);
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.conflict_db(move|connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;

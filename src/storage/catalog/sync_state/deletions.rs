@@ -4,7 +4,7 @@
 use super::super::unavailable;
 use super::{
     SyncBinding,
-    root::{RootError, RootLease},
+    root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::sql;
 use crate::{
@@ -93,7 +93,7 @@ pub(crate) struct Candidate {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Permit {
-    root: [u8; 16],
+    root: RootId,
     revision: String,
     ordinal: i64,
 }
@@ -140,7 +140,7 @@ fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
     .map_err(unavailable)
 }
 
-fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(), CatalogError> {
+fn matching(connection: &Connection, root: RootId, revision: &str) -> Result<(), CatalogError> {
     let valid: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)",
@@ -155,7 +155,7 @@ fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(
 
 pub(super) fn read_set(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
 ) -> Result<Option<DeletionSet>, CatalogError> {
     sql::row(connection, "SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence", [root],|row|Ok(DeletionSet {
             revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,
@@ -176,7 +176,7 @@ fn read_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<Candidate> {
 
 impl RootLease {
     pub(crate) async fn invalidate_deletions(&self) -> Result<(), RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {
@@ -201,7 +201,7 @@ impl RootLease {
         &self,
         authority: super::authority::ControlAuthority,
     ) -> Result<Option<DeletionSet>, RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         Ok(self
             .catalog()
             .run_admin(move |connection| {
@@ -232,7 +232,7 @@ impl RootLease {
         if after < 0 || !(1..=256).contains(&limit) {
             return Err(AdminError::Invalid("invalid deletion page".into()).into());
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
@@ -247,7 +247,7 @@ impl RootLease {
         revision: String,
     ) -> Result<DeletionSet, RootError> {
         self.revalidate().await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         Ok(self.catalog().run_admin(move |connection| {
             let transaction=connection.transaction()?;
@@ -269,7 +269,7 @@ impl RootLease {
         ordinal: i64,
     ) -> SyncBinding {
         binding.deletion = Some(Permit {
-            root: self.status().root_id.as_bytes(),
+            root: self.status().root_id,
             revision,
             ordinal,
         });

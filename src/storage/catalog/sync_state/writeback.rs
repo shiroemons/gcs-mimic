@@ -303,7 +303,7 @@ impl RootLease {
         serialized(self, async move { lease.writeback_inner(limits).await }).await
     }
     async fn writeback_inner(&self, limits: Limits) -> Result<Writeback, Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let owner = self.clone();
         let expected:Option<([u8;8],[u8;8])>=self.catalog().run_admin(move|c| {
             let _owner=owner;
@@ -362,7 +362,7 @@ impl RootLease {
     }
 
     async fn mark_workspace_changed(&self) -> Result<(), Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {
@@ -430,14 +430,13 @@ fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlit
     })
 }
 fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
-    let mut value = connection.prepare_cached("SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root.as_bytes()], |r| {
+    let mut value = connection.prepare_cached("SELECT max_bytes,max_entries,reserved,retained,entries,protected,recovery,io_failure FROM sync_writeback_roots WHERE root_id=?1")?.query_row([root], |r| {
         Ok(Status { limits:Limits {bytes:r.get(0)?,entries:r.get(1)?}, reserved_bytes:u128::from_be_bytes(r.get(2)?),retained_bytes:u128::from_be_bytes(r.get(3)?),entries:r.get(4)?,protected_entries:r.get(5)?,recovery:r.get(6)?,io_failure:r.get(7)?,stop:Stop::Ready,conflicts:Default::default(),captured_entries:0 })
     })?;
-    value.io_failure |= connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root.as_bytes()],|r|r.get::<_,bool>(0))?;
-    value.conflicts =
-        super::conflicts::usage(connection, root.as_bytes()).map_err(AdminError::backend)?;
-    value.captured_entries = super::conflicts::captured_entries(connection, root.as_bytes())
-        .map_err(AdminError::backend)?;
+    value.io_failure |= connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|r.get::<_,bool>(0))?;
+    value.conflicts = super::conflicts::usage(connection, root).map_err(AdminError::backend)?;
+    value.captured_entries =
+        super::conflicts::captured_entries(connection, root).map_err(AdminError::backend)?;
     if value.captured_entries > value.entries {
         return Err(stale());
     }
@@ -463,7 +462,7 @@ pub(super) fn observation(
 fn save_status(connection: &Connection, root: RootId, value: &Status) -> Result<(), Error> {
     // Aggregated operation failures must never be copied into the workspace-only root flag.
     connection.prepare_cached("UPDATE sync_writeback_roots SET reserved=?2,retained=?3,entries=?4,protected=?5,recovery=?6,sequence=NULL,epoch=NULL WHERE root_id=?1")?
-        .execute(params![root.as_bytes(),value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries,value.protected_entries,value.recovery])?;
+        .execute(params![root,value.reserved_bytes.to_be_bytes(),value.retained_bytes.to_be_bytes(),value.entries,value.protected_entries,value.recovery])?;
     Ok(())
 }
 fn check_fence(connection: &Connection, fence: JournalFence) -> Result<(), Error> {
@@ -511,7 +510,7 @@ fn original_with_protection(
         Kind::Remove => {
             let complete: bool = connection
                 .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
-                .query_row([item.token.root.as_bytes()], |r| r.get(0))?;
+                .query_row([item.token.root], |r| r.get(0))?;
             if !complete || objects::lookup(connection, &item.bucket, &item.name)?.is_some() {
                 return Err(stale());
             }
@@ -772,9 +771,7 @@ impl Writeback {
         let (catalog, root) = self.identities();
         self.db(move |c| {
             Ok(c.prepare_cached(SELECT_PENDING_PAGE)?
-                .query_map(params![root.as_bytes(), after, limit], |r| {
-                    pending(r, catalog, root)
-                })?
+                .query_map(params![root, after, limit], |r| pending(r, catalog, root))?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
@@ -789,7 +786,7 @@ impl Writeback {
             )?
             .execute(params![token.id, stage])?;
             tx.prepare_cached("UPDATE sync_writeback_roots SET recovery=1 WHERE root_id=?1")?
-                .execute([token.root.as_bytes()])?;
+                .execute([token.root])?;
             tx.commit()?;
             Ok(())
         })
@@ -832,7 +829,7 @@ impl Writeback {
             return self.db(move|c| {
                 let tx=c.transaction()?;checked(&tx,&token)?;
                 tx.prepare_cached("UPDATE sync_writeback_ops SET io_failure=io_failure & 2,revision=revision+1 WHERE id=?1 AND (io_failure & 1)!=0")?.execute([&token.id])?;
-                tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root.as_bytes()])?;
+                tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root])?;
                 let item=load(&tx,token.catalog,token.root,&token.id)?;tx.commit()?;Ok(item)
             }).await;
         };
@@ -841,7 +838,7 @@ impl Writeback {
             else {usage.reserved_bytes=usage.reserved_bytes.checked_sub(u128::from(old.reserved_bytes)).ok_or_else(stale)?;usage.protected_entries+=1;}
             usage.retained_bytes+=u128::from(size);usage.recovery=true;
             save_status(&tx,token.root,&usage)?;tx.prepare_cached("UPDATE sync_writeback_ops SET phase=2,revision=revision+1,retained=?2,io_failure=(io_failure & 2) | ?3 WHERE id=?1")?.execute(params![token.id,size.to_be_bytes(),i64::from(failure.is_some())])?;
-            tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root.as_bytes()])?;
+            tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1 AND io_failure=1")?.execute([token.root])?;
             let value=load(&tx,token.catalog,token.root,&token.id)?;tx.commit()?;Ok(value)
         }).await?;
         if let Some(kind) = failure {
@@ -861,7 +858,7 @@ impl Writeback {
             usage.io_failure = false;
             usage.recovery = false;
             tx.prepare_cached("UPDATE sync_writeback_roots SET io_failure=0 WHERE root_id=?1")?
-                .execute([root.as_bytes()])?;
+                .execute([root])?;
             save_status(&tx, root, &usage)?;
             usage.refresh();
             tx.commit()?;
@@ -872,7 +869,7 @@ impl Writeback {
 }
 fn load(c: &Connection, catalog: CatalogId, root: RootId, id: &str) -> Result<Pending, Error> {
     c.prepare_cached(SELECT_PENDING)?
-        .query_row(params![root.as_bytes(), id], |r| pending(r, catalog, root))
+        .query_row(params![root, id], |r| pending(r, catalog, root))
         .optional()?
         .ok_or_else(stale)
 }

@@ -43,7 +43,7 @@ impl RootLease {
     ) -> Result<bool, RootError> {
         self.revalidate().await?;
         let lease = self.clone();
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let name = name.as_str().to_owned();
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;
@@ -71,7 +71,7 @@ impl RootLease {
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid sync bucket page".into()).into());
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let lease = self.clone();
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;
@@ -88,7 +88,7 @@ impl RootLease {
         incarnation: String,
     ) -> Result<(), RootError> {
         self.revalidate().await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let lease = self.clone();
         self.catalog()
             .run_admin(move |connection| {

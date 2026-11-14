@@ -45,7 +45,7 @@ fn directory(root: &File, selected: &Workspace) -> Result<File, Error> {
     Ok(directory)
 }
 
-fn workspace(connection: &Connection, root: [u8; 16], id: &str) -> Result<Workspace, Error> {
+fn workspace(connection: &Connection, root: RootId, id: &str) -> Result<Workspace, Error> {
     connection.prepare_cached("SELECT w.id,w.owner,w.bucket,w.incarnation,w.name,w.ordinal,r.workspace_device,r.workspace_inode FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
         .query_row(params![root,id],|row|Ok(Workspace {id:row.get(0)?,owner:row.get(1)?,bucket:row.get(2)?,incarnation:row.get(3)?,name:row.get(4)?,ordinal:row.get(5)?,device:row.get(6)?,inode:row.get(7)?})).optional()?.ok_or(Error::RevisionMismatch)
 }
@@ -88,7 +88,7 @@ impl RootLease {
         limit: usize,
         authority: ControlAuthority,
     ) -> Result<Vec<Recovery>, Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let auth = authority.clone();
         let pending=self.conflict_db(move|connection| {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
@@ -168,7 +168,7 @@ impl RootLease {
         {
             return Err(Error::InvalidResolution);
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let req = request.clone();
         let auth = authority.clone();
         let id = recovery_id.clone();
@@ -247,7 +247,7 @@ impl RootLease {
 
 pub(super) fn account_workspace(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     id: &str,
     size: u64,
 ) -> Result<(), Error> {
@@ -277,7 +277,7 @@ pub(super) fn account_workspace(
 
 pub(super) fn release_workspace(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     id: &str,
 ) -> Result<(), Error> {
     let retained: Option<[u8; 8]> = connection

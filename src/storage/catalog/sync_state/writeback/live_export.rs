@@ -154,7 +154,7 @@ fn api_original(
     }
     let complete: bool = c
         .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
-        .query_row([item.token.root.as_bytes()], |row| row.get(0))?;
+        .query_row([item.token.root], |row| row.get(0))?;
     if !complete {
         return Err(stale());
     }
@@ -192,7 +192,7 @@ fn validate_capture(
         };
         captured.ok_or_else(stale)?.validate(
             tx,
-            item.token.root.as_bytes(),
+            item.token.root,
             &binding,
             &ObjectName::new(item.name.clone())?,
             if item.kind == Kind::Publish {
@@ -349,7 +349,7 @@ impl Writeback {
                 if stored != selected { return Err(stale()); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
-                let proof=proof_token.as_ref().map(|token|token.validate(&tx,root.as_bytes(),&binding,&name,expected_generation)).transpose()?;
+                let proof=proof_token.as_ref().map(|token|token.validate(&tx,root,&binding,&name,expected_generation)).transpose()?;
                 let kind = if has_source || record.is_some() { Kind::Publish } else { Kind::Remove };
                 let (size,md5,crc32c) = if kind == Kind::Publish {
                     let record = record.as_ref().ok_or_else(stale)?;
@@ -363,7 +363,7 @@ impl Writeback {
                 let captured_snapshot=proof_token.as_ref().map(|token|token.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
                 let id = BlobId::generate().map_err(AdminError::backend)?.to_hex();
-                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root.as_bytes(),owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
+                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
                 if let Some(snapshot)=captured_snapshot {
                     tx.prepare_cached("UPDATE sync_writeback_ops SET snapshot=?2 WHERE id=?1")?.execute(params![id,snapshot])?;
                 }
@@ -729,7 +729,7 @@ impl Writeback {
                 } else {
                     tx.prepare_cached("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4")?.execute(params![current.bucket,current.name,current.incarnation,current.generation.get()])?;
                     if valid {
-                        tx.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND generation=?5")?.execute(params![current.token.root.as_bytes(),current.bucket,current.name,current.incarnation,current.generation.get()])?;
+                        tx.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND generation=?5")?.execute(params![current.token.root,current.bucket,current.name,current.incarnation,current.generation.get()])?;
                     }
                 }
             }

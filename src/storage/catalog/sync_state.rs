@@ -53,16 +53,15 @@ pub(crate) mod authority;
 pub(crate) mod conflicts;
 pub(crate) mod observation;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CatalogId([u8; 16]);
+crate::storage::opaque_id::opaque_id! {
+    /// The identity of one data directory's catalog, stored as 16 raw bytes.
+    pub struct CatalogId([u8; 16]);
+    invalid = "invalid catalog ID";
+    column = blob;
+}
 impl CatalogId {
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
-    }
-}
-impl std::fmt::Display for CatalogId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&crate::hashing::encode_lower(&self.0))
     }
 }
 
@@ -193,7 +192,6 @@ fn catalog_id(connection: &Connection) -> Result<CatalogId, CatalogError> {
         "SELECT id FROM catalog_identity WHERE singleton = 1",
         [],
     )
-    .map(CatalogId)
     .map_err(unavailable)
 }
 
@@ -247,7 +245,7 @@ pub(super) fn record_in_transaction(
             transaction,
             "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4",
             params![
-                scope.root_id().as_bytes(),
+                scope.root_id(),
                 record.bucket,
                 record.name,
                 update.binding.incarnation

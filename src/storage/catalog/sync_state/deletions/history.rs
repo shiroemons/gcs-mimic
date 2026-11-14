@@ -15,10 +15,7 @@ WHEN OLD.complete=0 AND NEW.complete=1 BEGIN
 END;
 PRAGMA user_version=50;";
 
-pub(super) fn automatic_count(
-    connection: &Connection,
-    root: [u8; 16],
-) -> Result<u64, CatalogError> {
+pub(super) fn automatic_count(connection: &Connection, root: RootId) -> Result<u64, CatalogError> {
     Ok(sql::scalar(
         connection,
         "SELECT automatic_count FROM sync_deletion_history WHERE root_id=?1",
@@ -29,14 +26,14 @@ pub(super) fn automatic_count(
 impl RootLease {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn automatic_deletion_count(&self) -> Result<u64, RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         Ok(self
             .catalog()
             .run_admin(move |connection| automatic_count(connection, root))
             .await?)
     }
     pub(crate) async fn reset_empty_deletion_history(&self) -> Result<(), RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {

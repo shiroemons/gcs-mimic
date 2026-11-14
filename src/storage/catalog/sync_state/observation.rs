@@ -1,7 +1,7 @@
 //! Revision-bound observations include durable mapping findings and unfinished write-back work.
 
 use super::{
-    root::{RootError, RootLease},
+    root::{RootError, RootId, RootLease},
     writeback,
 };
 use crate::storage::catalog::sql;
@@ -138,7 +138,7 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     })
 }
 
-fn revision(connection: &Connection, root: [u8; 16]) -> Result<i64, CatalogError> {
+fn revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> {
     sql::scalar(
         connection,
         "SELECT revision FROM sync_observations WHERE root_id=?1",
@@ -151,7 +151,7 @@ fn read_summary(
     connection: &Connection,
     root: super::root::RootId,
 ) -> Result<Summary, CatalogError> {
-    let revision = revision(connection, root.as_bytes())?;
+    let revision = revision(connection, root)?;
     let (
         baseline_complete,
         tracked_objects,
@@ -164,7 +164,7 @@ fn read_summary(
     ) = sql::row(
         connection,
         "SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1",
-        [root.as_bytes()],
+        [root],
         |row| {
             Ok((
                 row.get(0)?,
@@ -181,7 +181,7 @@ fn read_summary(
     let exists: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)",
-        [root.as_bytes()],
+        [root],
     )?;
     let writeback = if exists {
         Some(
@@ -218,7 +218,7 @@ impl RootLease {
         self.catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
-                authority.authorize(&tx, root.as_bytes())?;
+                authority.authorize(&tx, root)?;
                 read_summary(&tx, root)
             })
             .await
@@ -246,7 +246,7 @@ impl RootLease {
         if !(1..=257).contains(&limit) || !(0..=4).contains(&after.0) || after.1 < 0 {
             return Err(AdminError::Invalid("invalid observation page".into()).into());
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
@@ -267,7 +267,7 @@ impl RootLease {
         &self,
         reason: Option<PauseReason>,
     ) -> Result<(), RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.catalog().run_admin(move |connection| {
             let updated=sql::exec(connection, "UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2", params![root,reason])?;
             if updated==0 && sql::row(connection, "SELECT 1 FROM sync_observations WHERE root_id=?1", [root],|row|row.get::<_,i64>(0)).optional()?.is_none() {return Err(CatalogError::PreconditionFailed)}
@@ -287,7 +287,7 @@ impl RootLease {
         } else {
             None
         };
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;

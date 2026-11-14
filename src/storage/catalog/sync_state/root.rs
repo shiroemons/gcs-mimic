@@ -44,16 +44,15 @@ fn failure_boundary(path: &Path, phase: &str) -> Result<(), RootError> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RootId([u8; 16]);
-impl RootId {
-    pub(crate) fn as_bytes(self) -> [u8; 16] {
-        self.0
-    }
+crate::storage::opaque_id::opaque_id! {
+    /// The identity of one synchronized directory tree, stored as 16 raw bytes.
+    pub struct RootId([u8; 16]);
+    invalid = "invalid synchronization root ID";
+    column = blob;
 }
-impl std::fmt::Display for RootId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&crate::hashing::encode_lower(&self.0))
+impl RootId {
+    fn generate() -> Result<Self, getrandom::Error> {
+        crate::storage::opaque_id::random().map(Self)
     }
 }
 
@@ -341,7 +340,7 @@ fn reserve(
         ],
         |row| {
             Ok((
-                RootId(row.get(0)?),
+                row.get::<_, RootId>(0)?,
                 row.get::<_, [u8; 8]>(1)?,
                 row.get::<_, [u8; 8]>(2)?,
                 row.get::<_, bool>(3)?,
@@ -391,8 +390,8 @@ fn reserve(
         if activation != Activation::Open {
             return Err(RootError::ReinitializeDenied);
         }
-        let mut id = [0; 16];
-        getrandom::fill(&mut id).map_err(|error| RootError::Admin(AdminError::backend(error)))?;
+        let id =
+            RootId::generate().map_err(|error| RootError::Admin(AdminError::backend(error)))?;
         sql::exec(
             &transaction,
             "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
@@ -406,7 +405,7 @@ fn reserve(
         .map_err(super::super::unavailable)?;
         RootStatus {
             catalog_id: catalog,
-            root_id: RootId(id),
+            root_id: id,
             baseline: Baseline::Activating,
         }
     };

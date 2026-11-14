@@ -17,7 +17,7 @@ impl RootLease {
         &self,
         after: i64,
     ) -> Result<Vec<(i64, SyncBinding, ObjectName)>, RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let catalog = self.status().catalog_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
@@ -35,7 +35,7 @@ impl RootLease {
         name: ObjectName,
         reason: PathStop,
     ) -> Result<(), RootError> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             super::super::matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
@@ -65,7 +65,7 @@ impl RootLease {
         }
         let reasons: [Option<PathStop>; 3] =
             std::array::from_fn(|index| reasons.get(index).copied());
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;

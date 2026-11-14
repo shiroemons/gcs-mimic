@@ -94,7 +94,7 @@ async fn capture_path_reuses_verified_bytes_after_only_the_api_generation_change
         .await
         .unwrap();
     let proof = reused.clone();
-    let root = fixture.lease.status().root_id.as_bytes();
+    let root = fixture.lease.status().root_id;
     fixture
         .lease
         .conflict_db(move |connection| {

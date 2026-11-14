@@ -178,7 +178,7 @@ async fn conflict_capture_owns_binary_bytes_and_discard_is_exact_and_idempotent(
     let token = captured.clone();
     let binding = fixture.request().await.binding;
     let expected = Some(Generation::new(fixture.winner.generation).unwrap());
-    let root = fixture.lease.status().root_id.as_bytes();
+    let root = fixture.lease.status().root_id;
     fixture
         .lease
         .conflict_db(move |connection| {
@@ -186,7 +186,7 @@ async fn conflict_capture_owns_binary_bytes_and_discard_is_exact_and_idempotent(
             assert!(matches!(
                 token.validate(
                     &tx,
-                    [0; 16],
+                    "00000000000000000000000000000000".parse().unwrap(),
                     &binding,
                     &ObjectName::new("object.txt")?,
                     expected
@@ -533,7 +533,7 @@ async fn conflict_workspace_copy_charges_both_bodies_and_refuses_overflow() {
     let usage = fixture.page().await.usage;
     assert_eq!(usage.retained_bytes, 32);
     assert_eq!(usage.entries, 2);
-    let root = fixture.lease.status().root_id.as_bytes();
+    let root = fixture.lease.status().root_id;
     fixture
         .lease
         .conflict_db(move |connection| {
@@ -572,7 +572,7 @@ async fn conflict_workspace_copy_charges_both_bodies_and_refuses_overflow() {
 async fn retained_entries_pass_the_former_thousand_and_stop_at_the_schema_bound() {
     let fixture = Fixture::new().await;
     fixture.lease.default_writeback().await.unwrap();
-    let root = fixture.lease.status().root_id.as_bytes();
+    let root = fixture.lease.status().root_id;
     let retain = |entries: u64| {
         fixture.lease.conflict_db(move |connection| {
             connection
@@ -655,7 +655,7 @@ async fn conflict_quota_includes_reservations_zero_entries_and_sparse_overflow()
         .await
         .unwrap();
     assert_eq!(fixture.page().await.usage.entries, 1);
-    let root = fixture.lease.status().root_id.as_bytes();
+    let root = fixture.lease.status().root_id;
     fixture
         .lease
         .conflict_db(move |connection| {

@@ -65,7 +65,7 @@ fn directory(root: &File, selected: &Transfer) -> Result<File, Error> {
 
 fn validate(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     item: &Transfer,
     proof: &OwnedProof,
 ) -> Result<(), Error> {
@@ -154,7 +154,7 @@ fn owned_proof(connection: &Connection, id: &str) -> Result<OwnedProof, Error> {
 
 pub(in crate::storage) fn captured_entries(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
 ) -> Result<u64, Error> {
     let mut statement = connection.prepare_cached("SELECT snapshot,owner,bucket,incarnation,name FROM sync_writeback_ops WHERE root_id=?1 AND phase IN(0,1,3) AND snapshot IS NOT NULL")?;
     let mut rows = statement.query([root])?;
@@ -199,7 +199,7 @@ impl RootLease {
         let Some(proof) = item.accepted.clone() else {
             return Ok(false);
         };
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let copy = proof.clone();
         self.conflict_db(move |connection| validate(connection, root, &item, &copy))
             .await?;
@@ -214,7 +214,7 @@ impl RootLease {
         request: &CaptureRequest,
         source: &File,
     ) -> Result<Option<CapturedConflict>, Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let op = request.source_op.clone().ok_or(Error::InvalidResolution)?;
         let row = self.conflict_db(move |connection| {
             connection.prepare_cached("SELECT id,state,source FROM sync_conflicts WHERE root_id=?1 AND source_op=?2 AND state!=2")?
@@ -404,7 +404,7 @@ impl RootLease {
             })
             .await?;
         if let Some(size) = size {
-            let root = self.status().root_id.as_bytes();
+            let root = self.status().root_id;
             self.conflict_db(move |connection| {
                 let tx = connection.transaction()?;
                 recovery::account_workspace(&tx, root, &id, size)?;
@@ -417,7 +417,7 @@ impl RootLease {
     }
 
     async fn transfer_context(&self, id: String) -> Result<Transfer, Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let catalog = self.catalog().sync_state().catalog_id().await?;
         self.conflict_db(move |connection| {
             let (owner,bucket,incarnation,name,generation,device,inode,snapshot): StoredWorkspace = connection.prepare_cached("SELECT w.owner,w.bucket,w.incarnation,w.name,w.generation,r.workspace_device,r.workspace_inode,w.snapshot FROM sync_writeback_ops w JOIN sync_writeback_roots r ON r.root_id=w.root_id WHERE w.root_id=?1 AND w.id=?2 AND w.phase=2")?
@@ -432,7 +432,7 @@ impl RootLease {
         let before = self
             .conflict_files(move |_| observe(&selected, HashMode::Metadata))
             .await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let id = item.id.clone();
         let size = before.size;
         self.conflict_db(move |connection| {
@@ -456,7 +456,7 @@ impl RootLease {
         let copy = proof.clone();
         self.conflict_files(move |_| verify_copy(&data, &copy))
             .await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let proof_blob = serde_json::to_vec(&Snapshot {
             transfer: Some(proof.clone()),
             captured: None,

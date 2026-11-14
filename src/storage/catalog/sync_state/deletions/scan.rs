@@ -4,7 +4,7 @@ use crate::storage::catalog::sql;
 #[derive(Clone)]
 pub(crate) struct Inventory {
     pub revision: String,
-    root: [u8; 16],
+    root: RootId,
     fence: JournalFence,
 }
 
@@ -14,7 +14,7 @@ impl RootLease {
         guard: Guard,
     ) -> Result<Inventory, RootError> {
         self.revalidate().await?;
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let scope = self.control_scope();
         Ok(self
             .catalog()

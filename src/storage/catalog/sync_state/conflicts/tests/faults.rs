@@ -167,7 +167,7 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
             }
             assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?}");
             let recovered = Catalog::open(&snapshot).await.unwrap();
-            let root = fixture.lease.status().root_id.as_bytes();
+            let root = fixture.lease.status().root_id;
             let state=recovered.run_admin(move|connection| {
                 let row=connection.prepare_cached("SELECT id,state,retained FROM sync_conflicts WHERE root_id=?1")?.query_row([root],|row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,Option<Vec<u8>>>(2)?)))?;
                 let accepted:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_operations WHERE root_id=?1)")?.query_row([root],|row|row.get(0))?;

@@ -18,7 +18,7 @@ async fn protected_transfer_crosses_keyset_pages_without_skipping_completed_rows
             let path=format!("test-bucket/{name}");
             tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,retained,size,md5,crc32c) SELECT ?1,root_id,owner,bucket,incarnation,?2,?3,generation,kind,2,1,fence_sequence,fence_epoch,?4,?4,size,md5,crc32c FROM sync_writeback_ops WHERE id=?5")?.execute(params![id,name,path,0u64.to_be_bytes(),original.token.id])?;
         }
-        tx.prepare_cached("UPDATE sync_writeback_roots SET entries=257,protected=257 WHERE root_id=?1")?.execute([original.token.root.as_bytes()])?;
+        tx.prepare_cached("UPDATE sync_writeback_roots SET entries=257,protected=257 WHERE root_id=?1")?.execute([original.token.root])?;
         tx.commit()?;
         Ok(())
     }).await.unwrap();

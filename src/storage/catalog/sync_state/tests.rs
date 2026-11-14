@@ -540,3 +540,53 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
     drop(connection);
     assert!(Catalog::open(&dir.0).await.is_err());
 }
+
+/// Root and catalog IDs live in 16-byte BLOB columns, and every text form is lowercase hex.
+#[test]
+fn root_and_catalog_ids_bind_as_sixteen_byte_blobs() {
+    let text = "000102030405060708090a0b0c0d0e0f";
+    let root: root::RootId = text.parse().unwrap();
+    let catalog: CatalogId = text.parse().unwrap();
+    assert_eq!(root.to_string(), text);
+    assert_eq!(catalog.to_string(), text);
+    assert_eq!(
+        catalog,
+        CatalogId::from_bytes(std::array::from_fn(|i| i as u8))
+    );
+    assert!(
+        "000102030405060708090A0B0C0D0E0F"
+            .parse::<root::RootId>()
+            .is_err()
+    );
+    assert!(
+        "000102030405060708090A0B0C0D0E0F"
+            .parse::<CatalogId>()
+            .is_err()
+    );
+    let connection = Connection::open_in_memory().unwrap();
+    let stored = |sql: &str, id: &dyn rusqlite::ToSql| {
+        connection
+            .query_row(sql, [id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .unwrap()
+    };
+    for id in [&root as &dyn rusqlite::ToSql, &catalog] {
+        assert_eq!(
+            stored("SELECT typeof(?1), length(?1)", id),
+            ("blob".to_owned(), 16)
+        );
+    }
+    assert_eq!(
+        connection
+            .query_row("SELECT ?1", [root], |row| row.get::<_, root::RootId>(0))
+            .unwrap(),
+        root
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT ?1", [catalog], |row| row.get::<_, CatalogId>(0))
+            .unwrap(),
+        catalog
+    );
+}

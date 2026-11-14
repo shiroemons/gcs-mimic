@@ -54,20 +54,41 @@ fn automatic_deletion_history_migrates_existing_roots_and_rejects_older_readers(
         .apply(&mut connection)
         .unwrap();
     catalog::validate_schema(&connection, 50).unwrap();
-    assert_eq!(automatic_count(&connection, [1u8; 16]).unwrap(), 0);
+    assert_eq!(
+        automatic_count(
+            &connection,
+            "01010101010101010101010101010101".parse().unwrap()
+        )
+        .unwrap(),
+        0
+    );
     connection
         .execute("UPDATE sync_deletion_history SET automatic_count=12", [])
         .unwrap();
     connection
         .execute("UPDATE sync_roots SET complete=1", [])
         .unwrap();
-    assert_eq!(automatic_count(&connection, [1u8; 16]).unwrap(), 12);
+    assert_eq!(
+        automatic_count(
+            &connection,
+            "01010101010101010101010101010101".parse().unwrap()
+        )
+        .unwrap(),
+        12
+    );
     connection
         .execute("UPDATE sync_roots SET complete=0", [])
         .unwrap();
     connection
         .execute("UPDATE sync_roots SET complete=1", [])
         .unwrap();
-    assert_eq!(automatic_count(&connection, [1u8; 16]).unwrap(), 0);
+    assert_eq!(
+        automatic_count(
+            &connection,
+            "01010101010101010101010101010101".parse().unwrap()
+        )
+        .unwrap(),
+        0
+    );
     assert!(catalog::validate_schema_version(50, 49).is_err());
 }

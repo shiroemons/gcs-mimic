@@ -53,7 +53,7 @@ pub(crate) struct ResolveOutcome {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResolutionBinding {
-    root: [u8; 16],
+    root: RootId,
     operation_id: String,
     authority: ControlAuthority,
     target_id: String,
@@ -150,12 +150,12 @@ struct Selected {
 
 fn operation(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     request: &ResolveRequest,
     authority: &ControlAuthority,
 ) -> Result<Option<(bool, bool, Option<i64>)>, Error> {
     let existing=connection.prepare_cached("SELECT root_id,payload,done,reclaimed,result_generation,owner,error_code FROM sync_conflict_operations WHERE operation_id=?1")?
-        .query_row([&request.operation_id],|row|Ok((row.get::<_,[u8;16]>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,bool>(2)?,row.get::<_,bool>(3)?,row.get::<_,Option<i64>>(4)?,row.get::<_,String>(5)?,row.get::<_,Option<String>>(6)?))).optional()?;
+        .query_row([&request.operation_id],|row|Ok((row.get::<_,RootId>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,bool>(2)?,row.get::<_,bool>(3)?,row.get::<_,Option<i64>>(4)?,row.get::<_,String>(5)?,row.get::<_,Option<String>>(6)?))).optional()?;
     let payload = serde_json::to_vec(request).map_err(AdminError::backend)?;
     match existing {
         None => Ok(None),
@@ -174,7 +174,7 @@ fn operation(
 
 fn accept(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     request: &ResolveRequest,
     id: &str,
     kind: i64,
@@ -237,7 +237,7 @@ impl RootLease {
         if !valid_id(conflict_id) || !valid_id(revision) || *expected_generation < 0 {
             return Err(Error::InvalidResolution);
         }
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let target = conflict_id.clone();
         let inspected = revision.clone();
         let req = request.clone();
@@ -321,7 +321,7 @@ impl RootLease {
         let bucket = BucketName::new(selected.bucket.clone())?;
         let name = ObjectName::new(selected.name.clone())?;
         let binding = ResolutionBinding {
-            root: self.status().root_id.as_bytes(),
+            root: self.status().root_id,
             operation_id: request.operation_id.clone(),
             authority: authority.clone(),
             target_id: selected.id.clone(),
@@ -376,7 +376,7 @@ impl RootLease {
         authority: &ControlAuthority,
         selected: &Selected,
     ) -> Result<(), Error> {
-        let root = self.status().root_id.as_bytes();
+        let root = self.status().root_id;
         let req = request.clone();
         let auth = authority.clone();
         self.conflict_db(move |connection| {
@@ -523,7 +523,7 @@ pub(super) fn checked_unlink(
 
 pub(super) fn recorded_operation(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     request: &ResolveRequest,
     authority: &ControlAuthority,
 ) -> Result<Option<(bool, bool, Option<i64>)>, Error> {
@@ -531,7 +531,7 @@ pub(super) fn recorded_operation(
 }
 pub(super) fn accept_recovery(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     request: &ResolveRequest,
     id: &str,
     owner: &str,
@@ -541,7 +541,7 @@ pub(super) fn accept_recovery(
 
 pub(super) fn settle_other_operations(
     connection: &Connection,
-    root: [u8; 16],
+    root: RootId,
     request: &ResolveRequest,
     id: &str,
     kind: i64,

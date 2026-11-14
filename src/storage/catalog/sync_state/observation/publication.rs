@@ -48,7 +48,7 @@ fn snapshot(
         })
         .optional()?;
     Ok(Snapshot {
-        deletions: super::super::deletions::read_set(connection, root.as_bytes())?,
+        deletions: super::super::deletions::read_set(connection, root)?,
         fence,
     })
 }
@@ -85,7 +85,7 @@ impl RootLease {
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
                 // Cached observations never cache authorization or survive a catalog mutation.
-                authority.authorize(&tx, root.as_bytes())?;
+                authority.authorize(&tx, root)?;
                 let current = snapshot(&tx, root)?;
                 let selected = published
                     .as_deref()

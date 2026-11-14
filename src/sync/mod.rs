@@ -51,8 +51,7 @@ impl std::fmt::Display for InvalidCatalogId {
 impl std::error::Error for InvalidCatalogId {}
 
 pub(crate) fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
-    let bytes = crate::hex::decode_lower(value).ok_or(InvalidCatalogId)?;
-    Ok(CatalogId::from_bytes(bytes))
+    value.parse().map_err(|_| InvalidCatalogId)
 }
 
 pub(crate) fn validate_directory(root: &Path, data: &Path, seed: Option<&Path>) -> io::Result<()> {
