@@ -21,7 +21,7 @@ use crate::storage::failure::{BackendCause, IoCause};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
-    fsutil::FsError,
+    fsutil::{FsError, IdentityField},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         ObjectTarget, UploadChunk,
@@ -253,7 +253,7 @@ pub enum AdminError {
         mib: usize,
     },
     SourceChanged {
-        fields: Vec<String>,
+        fields: Vec<IdentityField>,
     },
     Corrupt(BackendCause),
     Io(IoCause),

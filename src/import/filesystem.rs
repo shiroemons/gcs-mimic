@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     bucket::CatalogError,
+    fsutil::IdentityField,
     object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch},
     storage::{
         Catalog,
@@ -567,11 +568,16 @@ fn resume_error(error: CatalogError) -> ImportError {
 fn terminal(error: &ImportError) -> bool {
     match error {
         ImportError::Admin(error) => match error {
+            // A changed size or modification time means the content changed; stat identity
+            // drift alone (device, inode or ctime) is retried.
             AdminError::SourceChanged { fields } => {
                 fields.is_empty()
-                    || fields
-                        .iter()
-                        .any(|field| !matches!(field.as_str(), "device" | "inode" | "ctime_ns"))
+                    || fields.iter().any(|field| match field {
+                        IdentityField::Device | IdentityField::Inode | IdentityField::Ctime => {
+                            false
+                        }
+                        IdentityField::Size | IdentityField::Mtime => true,
+                    })
             }
             AdminError::Checksum
             | AdminError::Corrupt(_)
@@ -954,14 +960,14 @@ mod error_tests {
             (AdminError::busy().into(), false),
             (
                 AdminError::SourceChanged {
-                    fields: vec!["inode".into(), "ctime_ns".into()],
+                    fields: vec![IdentityField::Inode, IdentityField::Ctime],
                 }
                 .into(),
                 false,
             ),
             (
                 AdminError::SourceChanged {
-                    fields: vec!["size".into()],
+                    fields: vec![IdentityField::Size],
                 }
                 .into(),
                 true,

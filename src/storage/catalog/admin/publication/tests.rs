@@ -951,7 +951,7 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
         200_000,
     );
     assert!(
-        matches!(result, Err(StageFailure::Created(AdminError::SourceChanged { fields })) if fields.contains(&"size".into()))
+        matches!(result, Err(StageFailure::Created(AdminError::SourceChanged { fields })) if fields.contains(&crate::fsutil::IdentityField::Size))
     );
     FORCE_COPY.set(false);
 }

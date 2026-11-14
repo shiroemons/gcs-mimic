@@ -339,7 +339,7 @@ mod tests {
             SeedError::Entry {
                 label: "test-bucket/value".into(),
                 source: Box::new(SeedError::Admin(AdminError::SourceChanged {
-                    fields: vec!["size".into()],
+                    fields: vec![crate::fsutil::IdentityField::Size],
                 })),
             },
             SeedError::Admin(AdminError::Busy {

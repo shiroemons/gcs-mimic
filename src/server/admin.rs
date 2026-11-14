@@ -428,7 +428,7 @@ mod tests {
             AdminError::SeedProjectMismatch,
             AdminError::SeedMetadataBudget { mib: 64 },
             AdminError::SourceChanged {
-                fields: vec!["size".into()],
+                fields: vec![crate::fsutil::IdentityField::Size],
             },
             AdminError::Corrupt(BackendCause::new("row")),
             AdminError::Io(io::ErrorKind::Other.into()),

@@ -37,7 +37,7 @@ fn administrative_diagnostics_keep_their_existing_messages() {
         ),
         (
             AdminError::SourceChanged {
-                fields: vec!["size".into()],
+                fields: vec![crate::fsutil::IdentityField::Size],
             },
             r#"administrative operation: SourceChanged { fields: ["size"] }"#,
         ),

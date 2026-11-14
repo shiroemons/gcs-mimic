@@ -64,7 +64,16 @@ impl Error for SeedError {
             Self::ObjectName(error) => Some(error),
             Self::RelativePath(error) => error.source(),
             Self::Entry { source, .. } | Self::Import(source) => Some(source.as_ref()),
-            _ => None,
+            Self::EntryLimit { .. }
+            | Self::DepthLimit { .. }
+            | Self::BucketLimit { .. }
+            | Self::NotDirectory
+            | Self::Overlap
+            | Self::WalkStopped
+            | Self::NonUtf8Name
+            | Self::UnsupportedFile
+            | Self::FileLimit
+            | Self::MissingRoot => None,
         }
     }
 }

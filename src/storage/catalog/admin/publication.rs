@@ -223,17 +223,7 @@ struct ImportBatch {
 }
 
 fn changed(before: fsutil::FileIdentity, after: fsutil::FileIdentity) -> Result<(), AdminError> {
-    let fields = [
-        ("device", before.device != after.device),
-        ("inode", before.inode != after.inode),
-        ("size", before.size != after.size),
-        ("mtime_ns", before.modified_ns != after.modified_ns),
-        ("ctime_ns", before.changed_ns != after.changed_ns),
-    ]
-    .into_iter()
-    .filter(|(_, changed)| *changed)
-    .map(|(field, _)| field.into())
-    .collect::<Vec<_>>();
+    let fields = before.changed_fields(&after);
     if fields.is_empty() {
         Ok(())
     } else {

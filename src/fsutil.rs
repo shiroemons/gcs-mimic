@@ -196,6 +196,52 @@ pub(crate) struct FileIdentity {
     pub changed_ns: i128,
 }
 
+impl FileIdentity {
+    /// The fields that differ in `after`, in declaration order.
+    pub(crate) fn changed_fields(&self, after: &Self) -> Vec<IdentityField> {
+        [
+            (IdentityField::Device, self.device != after.device),
+            (IdentityField::Inode, self.inode != after.inode),
+            (IdentityField::Size, self.size != after.size),
+            (IdentityField::Mtime, self.modified_ns != after.modified_ns),
+            (IdentityField::Ctime, self.changed_ns != after.changed_ns),
+        ]
+        .into_iter()
+        .filter_map(|(field, changed)| changed.then_some(field))
+        .collect()
+    }
+}
+
+/// A `FileIdentity` field that changed while a source was read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum IdentityField {
+    Device,
+    Inode,
+    Size,
+    Mtime,
+    Ctime,
+}
+
+impl IdentityField {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Device => "device",
+            Self::Inode => "inode",
+            Self::Size => "size",
+            Self::Mtime => "mtime_ns",
+            Self::Ctime => "ctime_ns",
+        }
+    }
+}
+
+/// Formats as the quoted field name, so `AdminError`'s `Display` and `Debug` keep the text they
+/// had when the names were strings: the import journal stores `SourceChanged { fields: ["size"] }`.
+impl std::fmt::Debug for IdentityField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
 /// The file-system object a path or handle resolved to: equal values name the same inode on the
 /// same device, whatever its size or times.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1175,6 +1221,35 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The import journal stores an `AdminError` text that lists changed fields by their former
+    /// string names, so each field prints as that quoted name, in a fixed order.
+    #[test]
+    fn changed_identity_fields_print_as_their_quoted_names_in_order() {
+        let before = FileIdentity {
+            device: 1,
+            inode: 2,
+            size: 3,
+            modified_ns: 4,
+            changed_ns: 5,
+        };
+        assert!(before.changed_fields(&before).is_empty());
+        let after = FileIdentity {
+            device: 10,
+            inode: 20,
+            size: 30,
+            modified_ns: 40,
+            changed_ns: 50,
+        };
+        assert_eq!(
+            format!("{:?}", before.changed_fields(&after)),
+            r#"["device", "inode", "size", "mtime_ns", "ctime_ns"]"#
+        );
+        assert_eq!(
+            before.changed_fields(&FileIdentity { size: 9, ..before }),
+            [IdentityField::Size]
+        );
+    }
 
     /// Callers that report `io::Error` see the native failure itself, and an unsupported
     /// operation as the `Unsupported` kind.
