@@ -21,6 +21,14 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_buckets (
 ) WITHOUT ROWID;
 PRAGMA user_version = 27;";
 
+/// What `observe_sync_bucket` does when the bucket has no live incarnation.
+enum MissingBucket {
+    /// A tree directory appeared: create the bucket from this default definition.
+    Create(Box<BucketRecord>),
+    /// Only remember buckets that exist; never create one.
+    Skip,
+}
+
 impl RootLease {
     pub(crate) async fn ensure_sync_bucket(
         &self,
@@ -29,17 +37,18 @@ impl RootLease {
     ) -> Result<bool, RootError> {
         let record = BucketDefinition::default_for(name, project, self.catalog().0.clock.as_ref())?
             .into_record();
-        self.observe_sync_bucket(name, Some(record)).await
+        self.observe_sync_bucket(name, MissingBucket::Create(Box::new(record)))
+            .await
     }
 
     pub(crate) async fn remember_sync_bucket(&self, name: &BucketName) -> Result<bool, RootError> {
-        self.observe_sync_bucket(name, None).await
+        self.observe_sync_bucket(name, MissingBucket::Skip).await
     }
 
     async fn observe_sync_bucket(
         &self,
         name: &BucketName,
-        mut create: Option<BucketRecord>,
+        missing: MissingBucket,
     ) -> Result<bool, RootError> {
         self.revalidate().await?;
         let lease = self.clone();
@@ -48,15 +57,17 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            let mut incarnation = bucket_incarnation(&tx, &name).optional()?;
-            if incarnation.is_none() {
-                let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name])?;
-                if known || create.is_none() { return Ok(false); }
-                let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
-                // A bucket mirroring a working tree keeps no deletion history on disk.
-                create_bucket_in_transaction(&tx, record, BucketCreation::default_policy(Origin::SyncIngest, None))?;
-                incarnation = Some(bucket_incarnation(&tx, &name)?);
-            }
+            let incarnation = match bucket_incarnation(&tx, &name).optional()? {
+                Some(incarnation) => incarnation,
+                None => {
+                    let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name])?;
+                    if known { return Ok(false); }
+                    let MissingBucket::Create(mut record) = missing else { return Ok(false) };
+                    // A bucket mirroring a working tree keeps no deletion history on disk.
+                    create_bucket_in_transaction(&tx, &mut record, BucketCreation::default_policy(Origin::SyncIngest, None))?;
+                    bucket_incarnation(&tx, &name)?
+                }
+            };
             sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation])?;
             tx.commit()?;
             Ok(true)

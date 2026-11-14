@@ -425,13 +425,7 @@ impl RootLease {
                 id,
                 owner: stored.owner,
                 request: CaptureRequest {
-                    binding: SyncBinding {
-                        catalog,
-                        bucket: stored.bucket,
-                        incarnation: stored.incarnation,
-                        deletion: None,
-                        control: None,
-                    },
+                    binding: SyncBinding::new(catalog, stored.bucket, stored.incarnation),
                     name: ObjectName::new(stored.name)?,
                     expected_generation: Some(stored.generation),
                     source_op: Some(id),

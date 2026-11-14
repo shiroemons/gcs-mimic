@@ -67,7 +67,7 @@ async fn entry(dir: &TestDir, admin: &Admin, name: &str, bytes: &[u8]) -> BatchP
 fn update(binding: SyncBinding, path: &str, entry: &BatchPublication) -> SyncUpdate {
     SyncUpdate::new(
         binding,
-        path.into(),
+        SyncPath::try_from(path.to_owned()).unwrap(),
         SyncFingerprint {
             size: entry.staged.size(),
             mtime_ns: i128::MIN,
@@ -104,38 +104,45 @@ async fn sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen()
         assert_eq!(stored.fingerprint, change.fingerprint);
         assert_eq!(stored.generation.get(), record.generation);
     }
-    let page = state.page(binding.clone(), String::new(), 2).await.unwrap();
+    let page = state.page(binding.clone(), None, 2).await.unwrap();
     assert_eq!(
         page.iter().map(|r| r.path.as_str()).collect::<Vec<_>>(),
         ["test-bucket/a", "test-bucket/m"]
     );
     assert_eq!(
         state
-            .page(binding.clone(), page[1].path.clone(), 2)
+            .page(
+                binding.clone(),
+                Some(SyncPath::try_from(page[1].path.clone()).unwrap()),
+                2
+            )
             .await
             .unwrap()
             .len(),
         1
     );
-    assert!(state.page(binding.clone(), String::new(), 0).await.is_err());
-    assert!(
-        state
-            .page(binding.clone(), String::new(), 257)
-            .await
-            .is_err()
-    );
+    assert!(state.page(binding.clone(), None, 0).await.is_err());
+    assert!(state.page(binding.clone(), None, 257).await.is_err());
     for path in ["", "/a", "a//b", "a/../b", "a/./b", "a\\b", "C:/a", "a\0b"] {
-        assert!(
-            SyncUpdate::new(binding.clone(), path.into(), page[0].fingerprint.clone()).is_err()
+        assert_eq!(
+            SyncPath::try_from(path.to_owned()),
+            Err(AdminError::Invalid("invalid synchronization path".into())),
+            "{path:?}"
         );
     }
+    let longest = format!("a/{}", "b".repeat(4094));
+    assert_eq!(
+        SyncPath::try_from(longest.clone()),
+        Ok(SyncPath(longest.clone()))
+    );
+    assert!(SyncPath::try_from(format!("{longest}b")).is_err());
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(reopened.sync_state().catalog_id().await.unwrap(), id);
     assert_eq!(
         reopened
             .sync_state()
-            .page(binding.clone(), String::new(), 256)
+            .page(binding.clone(), None, 256)
             .await
             .unwrap()
             .len(),
@@ -146,7 +153,7 @@ async fn sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen()
     let (_other_dir, other, _, _) = setup().await;
     assert_ne!(other.sync_state().catalog_id().await.unwrap(), id);
     assert_eq!(
-        other.sync_state().page(binding, String::new(), 1).await,
+        other.sync_state().page(binding, None, 1).await,
         Err(AdminError::Precondition)
     );
     other.close().await.unwrap();
@@ -304,7 +311,7 @@ async fn sync_state_publication_skip_rollback_and_conditional_delete_are_atomic(
         .await
         .unwrap();
     assert_eq!(
-        state.page(binding, String::new(), 1).await,
+        state.page(binding, None, 1).await,
         Err(AdminError::Precondition)
     );
     catalog.close().await.unwrap();
@@ -349,7 +356,7 @@ async fn sync_state_rejects_hash_path_identity_and_hold_conflicts_without_public
             .sync_state()
             .page(
                 other.sync_state().binding(&other_bucket).await.unwrap(),
-                String::new(),
+                None,
                 1
             )
             .await
@@ -409,11 +416,7 @@ async fn sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_i
     assert!(batch.results[2].is_ok());
     assert!(batch.unattempted.is_empty());
     assert_eq!(
-        state
-            .page(binding.clone(), String::new(), 256)
-            .await
-            .unwrap()
-            .len(),
+        state.page(binding.clone(), None, 256).await.unwrap().len(),
         2
     );
     assert_eq!(
@@ -442,7 +445,7 @@ async fn sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_i
     assert_eq!(
         reopened
             .sync_state()
-            .page(binding, String::new(), 256)
+            .page(binding, None, 256)
             .await
             .unwrap()
             .len(),

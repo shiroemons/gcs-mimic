@@ -276,16 +276,15 @@ impl RootLease {
 
     pub(crate) fn deletion_binding(
         &self,
-        mut binding: SyncBinding,
+        binding: SyncBinding,
         revision: OpaqueId,
         ordinal: i64,
     ) -> SyncBinding {
-        binding.deletion = Some(Permit {
+        binding.with_deletion(Permit {
             root: self.status().root_id,
             revision,
             ordinal,
-        });
-        binding
+        })
     }
 }
 

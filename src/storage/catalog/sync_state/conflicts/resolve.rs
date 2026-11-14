@@ -347,13 +347,11 @@ impl RootLease {
                         let expected = (expected_generation != 0)
                             .then(|| Generation::new(expected_generation))
                             .transpose()?;
-                        let binding = SyncBinding {
-                            catalog: super::super::catalog_id(&tx)?,
-                            bucket: row.bucket.clone(),
-                            incarnation: row.incarnation,
-                            deletion: None,
-                            control: None,
-                        };
+                        let binding = SyncBinding::new(
+                            super::super::catalog_id(&tx)?,
+                            row.bucket.clone(),
+                            row.incarnation,
+                        );
                         if check_original(
                             &tx,
                             &binding,
@@ -450,13 +448,11 @@ impl RootLease {
             operation_id: request.operation_id.clone(),
             authority: authority.clone(),
             target_id: selected.id,
-            binding: SyncBinding {
-                catalog: self.status().catalog_id,
-                bucket: selected.bucket.clone(),
-                incarnation: selected.incarnation,
-                deletion: None,
-                control: None,
-            },
+            binding: SyncBinding::new(
+                self.status().catalog_id,
+                selected.bucket.clone(),
+                selected.incarnation,
+            ),
             name: name.clone(),
             expected_generation: generation,
             owner: selected.owner.clone(),

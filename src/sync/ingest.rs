@@ -16,7 +16,7 @@ use crate::{
             ObjectName, Publication, PublishMode, StagedObject,
         },
         sync_state::{
-            SyncBinding, SyncFingerprint, SyncRecord, SyncUpdate,
+            SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
             observation::PathStop,
             root::{RootError, RootLease},
         },
@@ -431,7 +431,7 @@ impl Ingest<'_> {
             SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
         let update = SyncUpdate::new(
             binding.clone(),
-            entry.path.to_string_lossy().into_owned(),
+            SyncPath::try_from(entry.path.to_string_lossy().into_owned())?,
             fingerprint,
         )?;
         match self
@@ -538,7 +538,7 @@ impl Ingest<'_> {
         }
         let fingerprint =
             SyncFingerprint::observed(identity, hashes, self.root.observation_time_ns()?);
-        let update = SyncUpdate::new(binding.clone(), path, fingerprint)?;
+        let update = SyncUpdate::new(binding.clone(), SyncPath::try_from(path)?, fingerprint)?;
         Ok(Some((staged, update)))
     }
 

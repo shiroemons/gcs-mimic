@@ -13,7 +13,7 @@ use crate::{
         admin::{Admin, AdminError, BucketName, Generation, ObjectName, Origin},
         change_journal::{ChangeKind, ChangePage, ChangeRead, JournalFence},
         sync_state::{
-            SyncBinding, SyncRecord,
+            SyncBinding, SyncPath, SyncRecord,
             root::{RootError, RootLease},
             writeback::{self, LiveExport, LiveResult, LiveSource, Stop, Writeback},
         },
@@ -1828,12 +1828,13 @@ impl Reconciler<'_> {
         summary: &mut Reconciliation,
     ) -> Result<Step, SyncError> {
         let binding = self.root.sync_binding(bucket).await?;
-        let mut after_path = String::new();
+        let mut after_path: Option<String> = None;
         loop {
+            let after = after_path.take().map(SyncPath::try_from).transpose()?;
             let tracked = self
                 .catalog
                 .sync_state()
-                .page(binding.clone(), after_path.clone(), 256)
+                .page(binding.clone(), after, 256)
                 .await?;
             if tracked.is_empty() {
                 return Ok(Step::Continue);
@@ -1842,7 +1843,7 @@ impl Reconciler<'_> {
                 if self.stopped() {
                     return Ok(Step::Stopped);
                 }
-                after_path = record.path;
+                after_path = Some(record.path);
                 let name = ObjectName::new(record.name)?;
                 match self.admin.get_object(bucket, &name, None).await {
                     Err(AdminError::NotFound) => self.live_object(bucket, &name, summary).await?,

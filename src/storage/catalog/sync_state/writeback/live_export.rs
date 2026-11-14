@@ -1,4 +1,4 @@
-use super::super::SyncRecord;
+use super::super::{SyncPath, SyncRecord};
 use super::*;
 
 #[cfg(test)]
@@ -266,13 +266,7 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
     if !complete {
         return Err(stale());
     }
-    let binding = SyncBinding {
-        catalog: item.token.catalog,
-        bucket: item.bucket.clone(),
-        incarnation: item.incarnation,
-        deletion: None,
-        control: None,
-    };
+    let binding = SyncBinding::new(item.token.catalog, item.bucket.clone(), item.incarnation);
     super::super::matching(c, &binding, &item.bucket)?;
     if objects::lookup(c, &item.bucket, &item.name)?.is_some() {
         return Err(stale());
@@ -286,13 +280,7 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
 
 fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Result<(), Error> {
     if let Purpose::Preserved(conflict) = purpose {
-        let binding = SyncBinding {
-            catalog: item.token.catalog,
-            bucket: item.bucket.clone(),
-            incarnation: item.incarnation,
-            deletion: None,
-            control: None,
-        };
+        let binding = SyncBinding::new(item.token.catalog, item.bucket.clone(), item.incarnation);
         conflict.validate(
             tx,
             item.token.root,
@@ -814,7 +802,7 @@ impl Writeback {
                 Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
                 Err(error) => return Err(error),
             };
-            let binding = SyncBinding { catalog: current.token.catalog, bucket: current.bucket.clone(), incarnation: current.incarnation, deletion:None,control:Some(scope) };
+            let binding = SyncBinding::new(current.token.catalog, current.bucket.clone(), current.incarnation).with_control(scope);
             let same_binding = match super::super::matching(&tx,&binding,&current.bucket) {
                 Ok(()) => true,
                 Err(ObjectError::PreconditionFailed) => false,
@@ -822,7 +810,7 @@ impl Writeback {
             };
             if same_binding {
                 if let Some((fp, record)) = tracking {
-                    let update = SyncUpdate::new(binding,current.path.clone(),fp)?;
+                    let update = SyncUpdate::new(binding,SyncPath::try_from(current.path.clone())?,fp)?;
                     // Track the bytes actually installed even if a newer API generation won meanwhile.
                     super::super::record_in_transaction(&tx,&update,&record)?;
                 } else {

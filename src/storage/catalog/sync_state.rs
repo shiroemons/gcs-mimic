@@ -124,6 +124,21 @@ pub struct SyncBinding {
     control: Option<authority::ControlScope>,
 }
 impl SyncBinding {
+    /// A binding to one bucket incarnation without a deletion permit or control scope.
+    pub(in crate::storage::catalog::sync_state) fn new(
+        catalog: CatalogId,
+        bucket: String,
+        incarnation: Incarnation,
+    ) -> Self {
+        Self {
+            catalog,
+            bucket,
+            incarnation,
+            deletion: None,
+            control: None,
+        }
+    }
+
     pub(crate) fn bucket_name(&self) -> &str {
         &self.bucket
     }
@@ -132,20 +147,49 @@ impl SyncBinding {
         self.control = Some(scope);
         self
     }
+
+    fn with_deletion(mut self, permit: deletions::Permit) -> Self {
+        self.deletion = Some(permit);
+        self
+    }
 }
+
+/// A tree-relative path the catalog may track: at most 4096 bytes, no empty, `.` or `..`
+/// component, and no `\`, NUL or `:`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SyncPath(String);
+
+impl TryFrom<String> for SyncPath {
+    type Error = AdminError;
+
+    fn try_from(path: String) -> Result<Self, Self::Error> {
+        if valid_path(&path) {
+            Ok(Self(path))
+        } else {
+            Err(AdminError::Invalid("invalid synchronization path".into()))
+        }
+    }
+}
+
+impl rusqlite::ToSql for SyncPath {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SyncUpdate {
     binding: SyncBinding,
-    path: String,
+    path: SyncPath,
     fingerprint: SyncFingerprint,
 }
 impl SyncUpdate {
     pub(crate) fn new(
         binding: SyncBinding,
-        path: String,
+        path: SyncPath,
         fingerprint: SyncFingerprint,
     ) -> Result<Self, AdminError> {
-        if !valid_path(&path) || i64::try_from(fingerprint.size).is_err() {
+        if i64::try_from(fingerprint.size).is_err() {
             return Err(AdminError::Invalid(
                 "invalid synchronization path or size".into(),
             ));
@@ -168,6 +212,11 @@ pub struct SyncRecord {
 
 #[derive(Clone)]
 pub struct SyncState(Catalog);
+
+/// The tracked paths of `bucket`, from `bucket/` up to `bucket0`: '0' sorts right after '/'.
+fn bucket_paths(bucket: &str) -> (String, String) {
+    (format!("{bucket}/"), format!("{bucket}0"))
+}
 
 fn valid_path(path: &str) -> bool {
     !path.is_empty()
@@ -365,13 +414,11 @@ impl SyncState {
                 let incarnation = bucket_incarnation(connection, &bucket)
                     .optional()?
                     .ok_or(CatalogError::NotFound)?;
-                Ok(SyncBinding {
-                    catalog: catalog_id(connection)?,
+                Ok(SyncBinding::new(
+                    catalog_id(connection)?,
                     bucket,
                     incarnation,
-                    deletion: None,
-                    control: None,
-                })
+                ))
             })
             .await
     }
@@ -410,9 +457,7 @@ impl SyncState {
         binding: SyncBinding,
         path: String,
     ) -> Result<Option<SyncRecord>, AdminError> {
-        if !valid_path(&path) {
-            return Err(AdminError::Invalid("invalid synchronization path".into()));
-        }
+        let path = SyncPath::try_from(path)?;
         self.0
             .run_admin_with_error(move |connection| {
                 matching(connection, &binding, &binding.bucket)?;
@@ -433,13 +478,17 @@ impl SyncState {
     pub(crate) async fn page(
         &self,
         binding: SyncBinding,
-        after: String,
+        after: Option<SyncPath>,
         limit: usize,
     ) -> Result<Vec<SyncRecord>, AdminError> {
-        if !(1..=MAX_PAGE).contains(&limit) || (!after.is_empty() && !valid_path(&after)) {
+        if !(1..=MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
-        let after = after.max(format!("{}/", binding.bucket));
+        let (start, end) = bucket_paths(&binding.bucket);
+        let after = match after {
+            Some(after) => after.0.max(start),
+            None => start,
+        };
         self.0
             .run_admin_with_error(move |connection| {
                 matching(connection, &binding, &binding.bucket)?;
@@ -447,13 +496,7 @@ impl SyncState {
                     .prepare_cached(SELECT_PAGE)
                     .map_err(super::objects::object_unavailable)?
                     .query_map(
-                        params![
-                            after,
-                            binding.bucket,
-                            binding.incarnation,
-                            limit,
-                            format!("{}0", binding.bucket)
-                        ],
+                        params![after, binding.bucket, binding.incarnation, limit, end],
                         read_record,
                     )
                     .map_err(super::objects::object_unavailable)?
