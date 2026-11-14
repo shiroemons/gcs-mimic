@@ -1,8 +1,9 @@
 //! Native notifications trigger bounded descriptor-relative rescans.
 use super::TreeLimits;
+use crate::storage::admin::AdminError;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
-use std::{fs::File, io, path::Path};
+use std::{fmt, fs::File, io, path::Path};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use tokio::io::unix::AsyncFd;
 #[cfg(target_os = "macos")]
@@ -20,6 +21,44 @@ pub(crate) struct Native;
 pub(crate) enum Change {
     Content,
     Structure,
+}
+
+/// Why a native watch could not be built.
+#[derive(Debug)]
+pub(crate) enum Error {
+    /// A native setup step failed: a descriptor, a system call or the event service.
+    Io(io::Error),
+    /// Listing the tree failed, or the tree passes a limit; the retry decision reads the failure
+    /// itself, such as exhausted descriptors or an invalid tree.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(dead_code, reason = "only the Linux and macOS watches list the tree")
+    )]
+    Tree(AdminError),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => fmt::Display::fmt(error, f),
+            Self::Tree(error) => fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Tree(error) => Some(error),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 pub(crate) struct Watch {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -93,7 +132,7 @@ impl Watch {
         }
     }
 }
-pub(crate) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<Native> {
+pub(crate) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Native, Error> {
     #[cfg(target_os = "macos")]
     {
         fsevents::build(root, path, limits)
@@ -106,7 +145,7 @@ pub(crate) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (root, path, limits);
-        Err(io::ErrorKind::Unsupported.into())
+        Err(Error::Io(io::ErrorKind::Unsupported.into()))
     }
 }
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]

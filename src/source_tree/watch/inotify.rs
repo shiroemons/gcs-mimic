@@ -12,7 +12,7 @@ impl AsRawFd for Native {
     }
 }
 
-pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
+pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
     // A watch holds no descriptor, only kernel memory, so nothing but the tree itself bounds them:
     // each watched directory below the root is an entry that the scan counts too. Without an entry
     // limit the kernel's own budget decides, and `register` explains how to raise it.
@@ -33,9 +33,9 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
             .next_name(&frame.directory, limits.directory_names())
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::InvalidData {
-                    io::Error::other(limits.too_many_entries())
+                    Error::Tree(limits.too_many_entries())
                 } else {
-                    error
+                    Error::Io(error)
                 }
             })?;
         let Some(name) = next else {
@@ -48,7 +48,7 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
         match fsutil::child_directory(&frame.directory, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
                 if depth > limits.deepest_directory() {
-                    return Err(io::Error::other(limits.too_deep()));
+                    return Err(Error::Tree(limits.too_deep()));
                 }
                 native.register(&file)?;
                 stack.push(WatchFrame::new(file));
@@ -57,7 +57,7 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound
                     || crate::sync::tree::structural_entry_error(&error) => {}
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
     }
     Ok(native)

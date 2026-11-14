@@ -274,25 +274,26 @@ fn allocated(pointer: *mut c_void) -> io::Result<NonNull<c_void>> {
     unsafe_code,
     reason = "FSEvents setup requires CoreFoundation, dispatch and filesystem locality syscalls"
 )]
-pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<Native> {
+pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Native, Error> {
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: stat has enough writable space, and root remains open throughout setup.
     if unsafe { libc::fstatfs(root.as_raw_fd(), stat.as_mut_ptr()) } < 0 {
-        return Err(io::Error::last_os_error());
+        return Err(io::Error::last_os_error().into());
     }
     // SAFETY: fstatfs initialized every field on success.
     if unsafe { stat.assume_init() }.f_flags & libc::MNT_LOCAL as u32 == 0 {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "sync FSEvents observation requires a local filesystem",
-        ));
+        )
+        .into());
     }
     let mut scan = crate::sync::tree::TreeScan::new(limits);
     while !scan.is_empty() {
-        let (next, page) = scan.page(root).map_err(io::Error::other)?;
+        let (next, page) = scan.page(root).map_err(Error::Tree)?;
         scan = next;
         if let Some(kind) = page.into_iter().find_map(|entry| entry.error) {
-            return Err(kind.into());
+            return Err(io::Error::from(kind).into());
         }
     }
     let bytes = path.as_os_str().as_bytes();
@@ -360,7 +361,7 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<
             unsafe {
                 FSEventStreamRelease(stream.as_ptr());
             }
-            return Err(error);
+            return Err(error.into());
         }
     };
     // SAFETY: both new owned references remain live; scheduling precedes start and eventual invalidation.
@@ -375,7 +376,8 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> io::Result<
     if unsafe { FSEventStreamStart(stream.stream.as_ptr()) } == 0 {
         return Err(io::Error::other(
             "Cannot start FSEvents observation; verify filesystem access and the local event service",
-        ));
+        )
+        .into());
     }
     Ok(Native {
         _stream: stream,

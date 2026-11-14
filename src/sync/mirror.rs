@@ -8,6 +8,7 @@ use crate::{
     diagnostics::{self, LogLevel},
     fsutil,
     object::ObjectRecord,
+    source_tree::watch,
     storage::{
         Catalog, ObjectListQuery,
         admin::{Admin, AdminError, BucketName, Generation, ObjectName, Origin},
@@ -81,7 +82,7 @@ pub struct Task {
 }
 
 struct DirectoryWatch {
-    watch: crate::source_tree::watch::Watch,
+    watch: watch::Watch,
     // Vnode descriptors must close before the lease can release exclusive root ownership.
     _root: RootLease,
     pending: Option<observation::Pending>,
@@ -95,11 +96,16 @@ impl DirectoryWatch {
         let limits = root.tree_limits();
         let native = root
             .file_job(move |root| {
-                crate::source_tree::watch::build(root, &path, limits).map_err(AdminError::backend)
+                // A backend cause prints as the failure it holds and leaves that failure below
+                // it for the retry decision, so both kinds keep the same wrapping.
+                watch::build(root, &path, limits).map_err(|error| match error {
+                    watch::Error::Io(error) => AdminError::backend(error),
+                    watch::Error::Tree(error) => AdminError::backend(error),
+                })
             })
             .await?;
         Ok(Self {
-            watch: crate::source_tree::watch::Watch::new(native)?,
+            watch: watch::Watch::new(native)?,
             _root: lease,
             pending: None,
             generation: 0,
@@ -490,7 +496,7 @@ async fn run_live_config(
                         observation::Observed::Settled(observed,settled) => {
                             if settled==observation::Quiet::Established {controls.settled();}
                             unsettled.quiet=settled;
-                            if observed==crate::source_tree::watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
+                            if observed==watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
                             if *stopping.borrow() {break}
                             let history=watcher.history_scan(unsettled.quiet);
                             let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};

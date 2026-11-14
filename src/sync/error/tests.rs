@@ -278,15 +278,12 @@ fn typed_displaced_and_conflict_failures_decide_retry_and_pause_like_backend_cau
     assert_eq!(capacity.pause_reason(), PauseReason::ConflictCapacity);
 }
 
-/// A native watch that fails while listing the tree hands the listing's failure back inside an
-/// I/O error; the mirror still retries descriptor exhaustion and gives up on an invalid tree.
+/// A native watch that fails while listing the tree hands the listing's typed failure back, and
+/// the mirror keeps it inside a backend cause; it still retries descriptor exhaustion and gives up
+/// on an invalid tree.
 #[test]
 fn tree_listing_failures_inside_native_watch_errors_keep_their_retry_decisions() {
-    let watch = |error: AdminError| {
-        SyncError::Root(RootError::from(AdminError::backend(io::Error::other(
-            error,
-        ))))
-    };
+    let watch = |error: AdminError| SyncError::Root(RootError::from(AdminError::backend(error)));
     let exhausted = watch(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE)));
     assert!(exhausted.is_transient(), "{exhausted:?}");
     assert!(exhausted.is_watch_retryable(), "{exhausted:?}");

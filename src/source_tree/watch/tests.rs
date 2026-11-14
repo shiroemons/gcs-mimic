@@ -128,7 +128,7 @@ async fn native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity()
     }
 }
 
-fn built(root: &TestDir, limits: TreeLimits) -> io::Result<Native> {
+fn built(root: &TestDir, limits: TreeLimits) -> Result<Native, Error> {
     let directory = fsutil::open_directory_nofollow(&root.0)?;
     build(&directory, &root.0.canonicalize()?, limits)
 }
@@ -166,7 +166,12 @@ fn a_watch_applies_the_depth_limit_inclusively_and_names_the_setting() {
         ..TreeLimits::default()
     };
     built(&root, limits(3)).unwrap();
-    let failure = built(&root, limits(2)).err().unwrap().to_string();
+    let failure = built(&root, limits(2)).err().unwrap();
+    assert!(
+        matches!(failure, Error::Tree(AdminError::Invalid(_))),
+        "{failure:?}"
+    );
+    let failure = failure.to_string();
     assert!(failure.contains("2 levels"), "{failure}");
     assert!(failure.contains("max_sync_depth"), "{failure}");
 }
@@ -186,7 +191,12 @@ fn a_watch_inspects_a_directory_as_large_as_the_tree_limit() {
         entries: NonZeroUsize::new(10_000),
         ..TreeLimits::default()
     };
-    let failure = built(&root, short).err().unwrap().to_string();
+    let failure = built(&root, short).err().unwrap();
+    assert!(
+        matches!(failure, Error::Tree(AdminError::Invalid(_))),
+        "{failure:?}"
+    );
+    let failure = failure.to_string();
     assert!(failure.contains("max_sync_entries"), "{failure}");
     let raised = TreeLimits {
         entries: NonZeroUsize::new(FILES + 1),
