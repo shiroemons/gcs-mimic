@@ -32,15 +32,10 @@ fn wants_read_ahead(record: &ObjectRecord, read_ahead: ReadAhead) -> bool {
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN customer_key_sha256 BLOB CHECK(customer_key_sha256 IS NULL OR length(customer_key_sha256) = 32); PRAGMA user_version = 30;";
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(|error| {
-        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
-    })?;
-    transaction.execute_batch(SCHEMA).map_err(|error| {
-        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
-    })?;
-    transaction.commit().map_err(|error| {
-        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
-    })
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 /// Reads the stored key fingerprint at `index`, `None` for an object without a customer key.

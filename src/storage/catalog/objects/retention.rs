@@ -44,12 +44,10 @@ pub(in crate::storage) const SUB_MICRO_SCHEMA: &str = "ALTER TABLE objects ADD C
 PRAGMA user_version = 47;";
 
 pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let unavailable = |error: rusqlite::Error| {
-        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
-    };
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 /// Where a row holds the retention columns.
@@ -190,15 +188,21 @@ mod tests {
     /// Not a multiple of 100, so a platform that floors a `SystemTime` to 100 ns would lose it.
     const REMAINDER: u32 = 789;
 
+    /// A malformed schema found while adding the retention or customer key columns is a corrupt
+    /// catalog, as in every other migration.
     #[test]
-    fn migration_keeps_malformed_schema_errors_unavailable() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql='invalid schema' WHERE name='buckets'; PRAGMA writable_schema=OFF; PRAGMA schema_version=123;").unwrap();
-        let error = migrate(&mut connection).unwrap_err();
-        assert!(matches!(error, CatalogError::Unavailable(_)));
-        assert!(
-            matches!(std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()), Some(rusqlite::Error::SqliteFailure(failure, _)) if failure.code == rusqlite::ErrorCode::DatabaseCorrupt)
-        );
+    fn migrations_report_a_malformed_schema_as_corrupt() {
+        type Migrate = fn(&mut Connection) -> Result<(), CatalogError>;
+        let migrations: [Migrate; 2] = [migrate, crate::storage::catalog::customer_keys::migrate];
+        for migrate in migrations {
+            let mut connection = Connection::open_in_memory().unwrap();
+            connection.execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql='invalid schema' WHERE name='buckets'; PRAGMA writable_schema=OFF; PRAGMA schema_version=123;").unwrap();
+            let error = migrate(&mut connection).unwrap_err();
+            assert!(matches!(error, CatalogError::Corrupt(_)), "{error:?}");
+            assert!(
+                matches!(std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()), Some(rusqlite::Error::SqliteFailure(failure, _)) if failure.code == rusqlite::ErrorCode::DatabaseCorrupt)
+            );
+        }
     }
 
     #[test]
