@@ -7,7 +7,7 @@ use crate::{
     fsutil,
     storage::{
         Catalog,
-        admin::{AdminError, BucketName, GenerationCondition, ObjectName},
+        admin::{AdminError, GenerationCondition},
         sync_state::{
             SyncBinding,
             deletions::{Candidate, DeletionAuthorization, DeletionSet},
@@ -110,7 +110,7 @@ pub(super) async fn inventory_with(
             let Ok((bucket, name)) = mapping::path_to_name(Path::new(&candidate.path)) else {
                 return Ok(None);
             };
-            if bucket.as_str() != candidate.bucket || name.as_str() != candidate.name {
+            if bucket != candidate.bucket || name != candidate.name {
                 return Ok(None);
             }
             if absent(root, candidate.path.clone()).await? {
@@ -180,12 +180,8 @@ pub(super) async fn execute_with(
                         PathStop::SourceChanging,
                         PathStop::IoFailure,
                     ];
-                    root.clear_path_stops(
-                        binding,
-                        ObjectName::new(candidate.name.clone())?,
-                        &reasons,
-                    )
-                    .await?;
+                    root.clear_path_stops(binding, candidate.name.clone(), &reasons)
+                        .await?;
                 }
                 Deleted::Stale => {
                     root.invalidate_deletions().await?;
@@ -194,7 +190,7 @@ pub(super) async fn execute_with(
                 Deleted::Protected(binding) => {
                     root.record_path_stop(
                         binding,
-                        ObjectName::new(candidate.name.clone())?,
+                        candidate.name.clone(),
                         PathStop::ProtectedDeletion,
                     )
                     .await?;
@@ -202,8 +198,8 @@ pub(super) async fn execute_with(
                     super::mirror::restore_from_catalog(
                         catalog,
                         root,
-                        &BucketName::new(candidate.bucket.clone())?,
-                        &ObjectName::new(candidate.name.clone())?,
+                        &candidate.bucket.clone(),
+                        &candidate.name.clone(),
                     )
                     .await?;
                     crate::diagnostics::emit(
@@ -215,8 +211,11 @@ pub(super) async fn execute_with(
                 }
             }
             if restored_buckets.insert(candidate.bucket.clone()) {
-                super::mirror::create_directory(root, std::path::PathBuf::from(&candidate.bucket))
-                    .await?;
+                super::mirror::create_directory(
+                    root,
+                    std::path::PathBuf::from(candidate.bucket.as_str()),
+                )
+                .await?;
             }
             completed += 1;
         }
@@ -229,8 +228,8 @@ async fn delete(
     set: &DeletionSet,
     candidate: &Candidate,
 ) -> Result<Deleted, SyncError> {
-    let bucket = BucketName::new(candidate.bucket.clone())?;
-    let name = ObjectName::new(candidate.name.clone())?;
+    let bucket = candidate.bucket.clone();
+    let name = candidate.name.clone();
     let binding = match root.sync_binding(&bucket).await {
         Ok(binding) => binding,
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),
@@ -242,9 +241,7 @@ async fn delete(
         .delete_synced_object(
             &bucket,
             &name,
-            GenerationCondition::Is(crate::storage::admin::Generation::new(
-                candidate.generation,
-            )?),
+            GenerationCondition::Is(candidate.generation),
             binding.clone(),
         )
         .await

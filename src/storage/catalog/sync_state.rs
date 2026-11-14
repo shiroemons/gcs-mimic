@@ -118,7 +118,7 @@ impl SyncFingerprint {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncBinding {
     catalog: CatalogId,
-    bucket: String,
+    bucket: BucketName,
     incarnation: Incarnation,
     deletion: Option<deletions::Permit>,
     control: Option<authority::ControlScope>,
@@ -127,7 +127,7 @@ impl SyncBinding {
     /// A binding to one bucket incarnation without a deletion permit or control scope.
     pub(in crate::storage::catalog::sync_state) fn new(
         catalog: CatalogId,
-        bucket: String,
+        bucket: BucketName,
         incarnation: Incarnation,
     ) -> Self {
         Self {
@@ -140,7 +140,7 @@ impl SyncBinding {
     }
 
     pub(crate) fn bucket_name(&self) -> &str {
-        &self.bucket
+        self.bucket.as_str()
     }
 
     pub(crate) fn with_control(mut self, scope: authority::ControlScope) -> Self {
@@ -284,7 +284,7 @@ pub(super) fn matching(
     }
     let incarnation = bucket_incarnation(connection, bucket).optional()?;
     if binding.catalog != catalog_id(connection)?
-        || binding.bucket != bucket
+        || binding.bucket.as_str() != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)
     {
         return Err(ObjectError::PreconditionFailed);
@@ -408,10 +408,10 @@ impl SyncState {
     }
 
     pub async fn binding(&self, bucket: &BucketName) -> Result<SyncBinding, AdminError> {
-        let bucket = bucket.as_str().to_owned();
+        let bucket = bucket.clone();
         self.0
             .run_admin(move |connection| {
-                let incarnation = bucket_incarnation(connection, &bucket)
+                let incarnation = bucket_incarnation(connection, bucket.as_str())
                     .optional()?
                     .ok_or(CatalogError::NotFound)?;
                 Ok(SyncBinding::new(
@@ -436,10 +436,15 @@ impl SyncState {
                 let transaction = connection
                     .transaction()
                     .map_err(super::objects::object_unavailable)?;
-                matching(&transaction, &update.binding, &update.binding.bucket)?;
-                let record = super::objects::lookup(&transaction, &update.binding.bucket, &name)?
-                    .ok_or(ObjectError::ObjectNotFound)?
-                    .record;
+                matching(
+                    &transaction,
+                    &update.binding,
+                    update.binding.bucket.as_str(),
+                )?;
+                let record =
+                    super::objects::lookup(&transaction, update.binding.bucket.as_str(), &name)?
+                        .ok_or(ObjectError::ObjectNotFound)?
+                        .record;
                 if record.generation != generation.get() {
                     return Err(ObjectError::PreconditionFailed.into());
                 }
@@ -460,7 +465,7 @@ impl SyncState {
         let path = SyncPath::try_from(path)?;
         self.0
             .run_admin_with_error(move |connection| {
-                matching(connection, &binding, &binding.bucket)?;
+                matching(connection, &binding, binding.bucket.as_str())?;
                 sql::row(
                     connection,
                     SELECT_BY_PATH,
@@ -484,14 +489,14 @@ impl SyncState {
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
-        let (start, end) = bucket_paths(&binding.bucket);
+        let (start, end) = bucket_paths(binding.bucket.as_str());
         let after = match after {
             Some(after) => after.0.max(start),
             None => start,
         };
         self.0
             .run_admin_with_error(move |connection| {
-                matching(connection, &binding, &binding.bucket)?;
+                matching(connection, &binding, binding.bucket.as_str())?;
                 connection
                     .prepare_cached(SELECT_PAGE)
                     .map_err(super::objects::object_unavailable)?

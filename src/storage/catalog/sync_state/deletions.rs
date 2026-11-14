@@ -11,7 +11,10 @@ use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
-    storage::{admin::AdminError, change_journal::JournalFence},
+    storage::{
+        admin::{AdminError, BucketName, Generation, ObjectName},
+        change_journal::JournalFence,
+    },
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -106,12 +109,12 @@ pub(crate) struct DeletionFence {
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct Candidate {
-    pub bucket: String,
+    pub bucket: BucketName,
     #[serde(rename = "object")]
-    pub name: String,
+    pub name: ObjectName,
     pub owner_project: String,
     pub bucket_incarnation: Incarnation,
-    pub generation: i64,
+    pub generation: Generation,
     #[serde(skip)]
     pub path: String,
     #[serde(skip)]

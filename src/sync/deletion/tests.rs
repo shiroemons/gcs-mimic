@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::admin::{BucketName, ObjectName};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     storage::{admin::Origin, sync_state::root::Activation},
@@ -345,8 +346,8 @@ async fn frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members
         .await
         .unwrap();
     assert_eq!((first.len(), second.len()), (256, 44));
-    assert_eq!(first[0].name, "0000");
-    assert_eq!(second.last().unwrap().name, "0299");
+    assert_eq!(first[0].name.as_str(), "0000");
+    assert_eq!(second.last().unwrap().name.as_str(), "0299");
     let approved = root.approve_deletions(set.revision).await.unwrap();
     assert!(root.approve_deletions(set.revision).await.is_err());
     assert_eq!(

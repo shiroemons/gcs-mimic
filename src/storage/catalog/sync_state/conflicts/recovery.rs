@@ -27,10 +27,10 @@ pub(crate) struct Recovery {
     pub recovery_revision: OpaqueId,
     pub target_identity: OpaqueId,
     pub owner_project: String,
-    pub bucket: String,
+    pub bucket: BucketName,
     pub bucket_incarnation: Incarnation,
     #[serde(rename = "object")]
-    pub name: String,
+    pub name: ObjectName,
     pub retained_size: u64,
     pub hashes: Option<Hashes>,
     pub phase: RecoveryPhase,
@@ -45,9 +45,9 @@ pub(crate) struct Recovery {
 struct Workspace {
     id: OpaqueId,
     owner: String,
-    bucket: String,
+    bucket: BucketName,
     incarnation: Incarnation,
-    name: String,
+    name: ObjectName,
     ordinal: i64,
     node: NodeId,
 }

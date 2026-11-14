@@ -216,9 +216,9 @@ pub(crate) struct Pending {
     pub token: Token,
     pub ordinal: i64,
     pub owner: String,
-    pub bucket: String,
+    pub bucket: BucketName,
     pub incarnation: Incarnation,
-    pub name: String,
+    pub name: ObjectName,
     pub path: String,
     pub generation: Generation,
     pub kind: Kind,
@@ -512,13 +512,13 @@ fn original_with_protection(
     item: &Pending,
     protection: OriginalProtection,
 ) -> Result<(), Error> {
-    let current: Option<(String,Incarnation)> = connection.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&item.bucket], |r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let current: Option<(String,Incarnation)> = connection.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([item.bucket.as_str()], |r|Ok((r.get(0)?,r.get(1)?))).optional()?;
     if current.as_ref() != Some(&(item.owner.clone(), item.incarnation)) {
         return Err(stale());
     }
     match item.kind {
         Kind::Publish => {
-            let record = objects::lookup(connection, &item.bucket, &item.name)?
+            let record = objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?
                 .ok_or_else(stale)?
                 .record;
             if record.has_hold() && protection == OriginalProtection::Enforce {
@@ -536,7 +536,9 @@ fn original_with_protection(
             let complete: bool = connection
                 .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
                 .query_row([item.token.root], |r| r.get(0))?;
-            if !complete || objects::lookup(connection, &item.bucket, &item.name)?.is_some() {
+            if !complete
+                || objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?.is_some()
+            {
                 return Err(stale());
             }
             let held: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND (event_based_hold=1 OR temporary_hold=1))")?.query_row(params![item.bucket,item.name,item.generation],|r|r.get(0))?;

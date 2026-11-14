@@ -7,9 +7,9 @@ use crate::sync::mapping::WORKSPACE;
 /// The protected write-back operation a transfer releases, with its workspace identity.
 struct StoredTransfer {
     owner: String,
-    bucket: String,
+    bucket: BucketName,
     incarnation: Incarnation,
-    name: String,
+    name: ObjectName,
     generation: Generation,
     node: NodeId,
     snapshot: Option<Vec<u8>>,
@@ -427,7 +427,7 @@ impl RootLease {
                 owner: stored.owner,
                 request: CaptureRequest {
                     binding: SyncBinding::new(catalog, stored.bucket, stored.incarnation),
-                    name: ObjectName::new(stored.name)?,
+                    name: stored.name,
                     expected_generation: Some(stored.generation),
                     source_op: Some(id),
                 },

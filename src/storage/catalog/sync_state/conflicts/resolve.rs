@@ -120,7 +120,7 @@ pub(crate) fn complete_restore(
         .map_err(ObjectError::from)?;
     super::super::matching(tx, &binding.binding, &record.bucket)?;
     active_restore(tx, binding)?;
-    if record.bucket != binding.binding.bucket || record.name != binding.name.as_str() {
+    if record.bucket != binding.binding.bucket.as_str() || record.name != binding.name.as_str() {
         return Err(ObjectError::PreconditionFailed);
     }
     sql::exec(
@@ -140,9 +140,9 @@ pub(crate) fn complete_restore(
 struct Selected {
     id: OpaqueId,
     owner: String,
-    bucket: String,
+    bucket: BucketName,
     incarnation: Incarnation,
-    name: String,
+    name: ObjectName,
     observation: Option<Observation>,
     done: bool,
     reclaimed: bool,
@@ -196,9 +196,9 @@ impl StoredOperation {
 struct StoredConflict {
     revision: OpaqueId,
     owner: String,
-    bucket: String,
+    bucket: BucketName,
     incarnation: Incarnation,
-    name: String,
+    name: ObjectName,
     retained: Option<Vec<u8>>,
     state: ConflictState,
 }
@@ -348,12 +348,7 @@ impl RootLease {
                             row.bucket.clone(),
                             row.incarnation,
                         );
-                        if check_original(
-                            &tx,
-                            &binding,
-                            &ObjectName::new(row.name.clone())?,
-                            expected,
-                        )? != row.owner
+                        if check_original(&tx, &binding, &row.name.clone(), expected)? != row.owner
                         {
                             return Err(Error::TargetChanged);
                         }
@@ -437,8 +432,8 @@ impl RootLease {
         let generation = (expected_generation != 0)
             .then(|| Generation::new(expected_generation))
             .transpose()?;
-        let bucket = BucketName::new(selected.bucket.clone())?;
-        let name = ObjectName::new(selected.name.clone())?;
+        let bucket = selected.bucket.clone();
+        let name = selected.name.clone();
         let binding = ResolutionBinding {
             root: self.status().root_id,
             operation_id: request.operation_id.clone(),
@@ -467,7 +462,7 @@ impl RootLease {
                 name,
                 request: Publication {
                     content_type: crate::mime::SeedContentType::Extension
-                        .for_name(&selected.name)
+                        .for_name(selected.name.as_str())
                         .into(),
                     metadata: Default::default(),
                     expected,

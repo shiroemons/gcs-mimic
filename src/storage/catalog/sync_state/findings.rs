@@ -75,13 +75,13 @@ impl RootLease {
         self.catalog().run_admin(move |c| {
             let tx = c.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
-            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|stored| stored.record.generation == generation.get());
+            matching(&tx,&binding,binding.bucket.as_str()).map_err(unavailable)?;
+            let live = objects::lookup(&tx,binding.bucket.as_str(),name.as_str()).map_err(unavailable)?.is_some_and(|stored| stored.record.generation == generation.get());
             let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name,generation,binding.incarnation])?;
             let valid = live || tracked;
             if valid {
                 sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation])?;
-                remember_owner(&tx,root,&binding.bucket,name.as_str())?;
+                remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
             }
             tx.commit().map_err(unavailable)
         }).await?;
@@ -102,8 +102,8 @@ impl RootLease {
         self.catalog().run_admin_with_error(move |c| {
             let tx = c.transaction().map_err(unavailable)?;
             lease.control_scope().authorize(&tx)?;
-            matching(&tx, &binding, &binding.bucket)?;
-            let record = objects::lookup(&tx, &binding.bucket, name.as_str())?
+            matching(&tx, &binding, binding.bucket.as_str())?;
+            let record = objects::lookup(&tx, binding.bucket.as_str(), name.as_str())?
                 .ok_or(AdminError::Precondition)?.record;
             if record.generation != generation.get() {
                 return Err(AdminError::Precondition);
@@ -111,7 +111,7 @@ impl RootLease {
             sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                 ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
                 WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation,reason]).map_err(unavailable)?;
-            remember_owner(&tx,root,&binding.bucket,name.as_str())?;
+            remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())
         }).await?;

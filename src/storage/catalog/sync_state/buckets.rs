@@ -21,6 +21,12 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_buckets (
 ) WITHOUT ROWID;
 PRAGMA user_version = 27;";
 
+/// A bucket the root has observed, with the incarnation it was observed in.
+pub(crate) struct SyncBucket {
+    pub(crate) name: BucketName,
+    pub(crate) incarnation: Incarnation,
+}
+
 /// What `observe_sync_bucket` does when the bucket has no live incarnation.
 enum MissingBucket {
     /// A tree directory appeared: create the bucket from this default definition.
@@ -78,7 +84,7 @@ impl RootLease {
         &self,
         after: String,
         limit: usize,
-    ) -> Result<Vec<(String, Incarnation)>, RootError> {
+    ) -> Result<Vec<SyncBucket>, RootError> {
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid sync bucket page".into()).into());
         }
@@ -88,19 +94,20 @@ impl RootLease {
             let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
             tx.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3")?
-                .query_map(params![root,after,limit], |r|Ok((r.get(0)?,r.get(1)?)))?
+                .query_map(params![root,after,limit], |r|Ok(SyncBucket {name:r.get(0)?,incarnation:r.get(1)?}))?
                 .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
 
     pub(crate) async fn forget_sync_bucket(
         &self,
-        name: String,
+        name: &BucketName,
         incarnation: Incarnation,
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;
         let lease = self.clone();
+        let name = name.clone();
         self.catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;

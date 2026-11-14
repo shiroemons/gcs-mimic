@@ -87,7 +87,7 @@ impl RootLease {
         if request.source_op.is_some() {
             return Err(Error::InvalidResolution);
         }
-        let bucket = crate::storage::admin::BucketName::new(request.binding.bucket.clone())?;
+        let bucket = request.binding.bucket.clone();
         let crate::sync::mapping::PathMapping::File(path) =
             crate::sync::mapping::name_to_path(&bucket, &request.name)
         else {

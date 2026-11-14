@@ -1,3 +1,35 @@
+/// Member rows are written from typed names and generations, so one that no longer fits them was
+/// corrupted after it was written and reads as corrupt, not as rejected input.
+#[test]
+fn deletion_members_with_invalid_names_or_generations_read_as_corrupt() {
+    use super::read_candidate;
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    let query = "SELECT ?1,?2,'project','0123456789abcdef0123456789abcdef',?3,'bucket/object',1";
+    let candidate = |bucket: &str, name: &str, generation: i64| {
+        crate::storage::catalog::sql::row(
+            &connection,
+            query,
+            rusqlite::params![bucket, name, generation],
+            read_candidate,
+        )
+    };
+    assert!(candidate("bucket", "object", 1).is_ok());
+    for (bucket, name, generation) in [
+        ("Invalid Bucket", "object", 1),
+        ("bucket", "", 1),
+        ("bucket", "object", 0),
+    ] {
+        let error = candidate(bucket, name, generation).unwrap_err();
+        assert!(
+            matches!(
+                crate::storage::failure::unavailable(error),
+                crate::bucket::CatalogError::Corrupt(_)
+            ),
+            "{bucket:?} {name:?} {generation}"
+        );
+    }
+}
+
 #[test]
 fn threshold_is_root_wide_strictly_above_half_and_has_an_absolute_floor() {
     use super::{Guard, guarded};

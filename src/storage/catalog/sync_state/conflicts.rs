@@ -14,7 +14,7 @@ use crate::{
     hashing::Hashes,
     object::{ObjectError, ObjectRecord},
     storage::{
-        admin::{AdminError, Generation, ObjectName},
+        admin::{AdminError, BucketName, Generation, ObjectName},
         catalog::{objects, unavailable},
     },
 };
@@ -182,7 +182,7 @@ impl CapturedConflict {
         {
             return Err(ObjectError::PreconditionFailed);
         }
-        super::matching(tx, binding, &binding.bucket)?;
+        super::matching(tx, binding, binding.bucket.as_str())?;
         let valid: bool = sql::scalar(
             tx,
             "SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND id=?2 AND revision=?3 AND state=1)",
@@ -374,13 +374,13 @@ fn check_original(
     name: &ObjectName,
     expected: Option<Generation>,
 ) -> Result<String, Error> {
-    super::matching(connection, binding, &binding.bucket)?;
-    let current = objects::lookup(connection, &binding.bucket, name.as_str())?;
+    super::matching(connection, binding, binding.bucket.as_str())?;
+    let current = objects::lookup(connection, binding.bucket.as_str(), name.as_str())?;
     if current.as_ref().map(|stored| stored.record.generation) != expected.map(Generation::get) {
         return Err(Error::TargetChanged);
     }
     connection
         .prepare_cached("SELECT project FROM buckets WHERE name=?1")?
-        .query_row([&binding.bucket], |row| row.get(0))
+        .query_row([binding.bucket.as_str()], |row| row.get(0))
         .map_err(Error::from)
 }

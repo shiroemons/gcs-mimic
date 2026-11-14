@@ -267,8 +267,8 @@ fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Resul
         return Err(stale());
     }
     let binding = SyncBinding::new(item.token.catalog, item.bucket.clone(), item.incarnation);
-    super::super::matching(c, &binding, &item.bucket)?;
-    if objects::lookup(c, &item.bucket, &item.name)?.is_some() {
+    super::super::matching(c, &binding, item.bucket.as_str())?;
+    if objects::lookup(c, item.bucket.as_str(), item.name.as_str())?.is_some() {
         return Err(stale());
     }
     let valid: bool = c.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4)")?.query_row(params![item.bucket,item.name,item.incarnation,item.generation], |r| r.get(0))?;
@@ -285,7 +285,7 @@ fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> 
             tx,
             item.token.root,
             &binding,
-            &ObjectName::new(item.name.clone())?,
+            &item.name.clone(),
             if item.kind == Kind::Publish {
                 Some(item.generation)
             } else {
@@ -407,7 +407,7 @@ impl Writeback {
             if let Some(conflict) = purpose.conflict() {
                 conflict.verify_owned(&this.lease).await.map_err(AdminError::backend)?;
             }
-            let bucket = BucketName::new(binding.bucket.clone())?;
+            let bucket = binding.bucket.clone();
             let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), _ => return Err(stale()) };
             let (catalog, root) = this.identities();
             let selected = tracked.clone();
@@ -452,7 +452,7 @@ impl Writeback {
                 tx.commit()?;
                 Ok((item,body,proof))
             }).await?;
-            let tracked=proof.map_or(tracked,|proof|Some(SyncRecord {name:item.name.clone(),path:item.path.clone(),generation:item.generation,fingerprint:proof.fingerprint}));
+            let tracked=proof.map_or(tracked,|proof|Some(SyncRecord {name:item.name.to_string(),path:item.path.clone(),generation:item.generation,fingerprint:proof.fingerprint}));
             let progress = body.first_step();
             Ok(LiveExport(Arc::new(tokio::sync::Mutex::new(LiveOperation { item, tracked, body, purpose, progress }))))
         }).await
@@ -803,7 +803,7 @@ impl Writeback {
                 Err(error) => return Err(error),
             };
             let binding = SyncBinding::new(current.token.catalog, current.bucket.clone(), current.incarnation).with_control(scope);
-            let same_binding = match super::super::matching(&tx,&binding,&current.bucket) {
+            let same_binding = match super::super::matching(&tx,&binding,current.bucket.as_str()) {
                 Ok(()) => true,
                 Err(ObjectError::PreconditionFailed) => false,
                 Err(error) => return Err(error.into()),

@@ -104,17 +104,17 @@ async fn forget_missing_directories(
         if page.is_empty() {
             break;
         }
-        for (name, incarnation) in page {
+        for bucket in page {
             if interrupt.check() != Interrupted::No {
                 return Ok(());
             }
-            after = name.clone();
-            let selected = name.clone();
+            after = bucket.name.as_str().to_owned();
+            let selected = bucket.name.clone();
             let absent = root
                 .file_job(move |root| {
                     match fsutil::directory_at(
                         root,
-                        selected.as_ref(),
+                        selected.as_str().as_ref(),
                         fsutil::DirectoryOpen::Existing,
                     ) {
                         Ok(_) => Ok(false),
@@ -124,7 +124,8 @@ async fn forget_missing_directories(
                 })
                 .await?;
             if absent {
-                root.forget_sync_bucket(name, incarnation).await?;
+                root.forget_sync_bucket(&bucket.name, bucket.incarnation)
+                    .await?;
             }
         }
     }
