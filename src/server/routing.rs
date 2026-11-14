@@ -436,8 +436,14 @@ async fn respond_routed(
     if let Some(parsed) = json::resumable::session_route(method, uri, profile) {
         let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
         let result = match parsed {
-            Ok((bucket, id)) => {
-                resumable::session_response(request, &bucket, &id, ctx.object(None, deadline)).await
+            Ok(json::resumable::UploadSession { bucket, upload_id }) => {
+                resumable::session_response(
+                    request,
+                    &bucket,
+                    &upload_id,
+                    ctx.object(None, deadline),
+                )
+                .await
             }
             Err(error) => Err(error),
         };

@@ -1,6 +1,7 @@
 use super::{JsonError, validate_bucket_name_for_profile};
 use crate::config::CompatProfile;
 use crate::storage::{ObjectListCursor, ObjectListQuery};
+use crate::{bucket::name::MAX_BUCKET_NAME_BYTES, object::name::MAX_OBJECT_NAME_BYTES};
 
 const MAX_TOKEN_BYTES: usize = 4096;
 
@@ -32,7 +33,7 @@ fn encode_bucket_cursor(
     prefix: &str,
     last_name: &str,
 ) -> Result<String, JsonError> {
-    if prefix.len() > 222 || !last_name.starts_with(prefix) {
+    if prefix.len() > MAX_BUCKET_NAME_BYTES || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
     // Native listing must retain cursors for source-only names after a profile switch.
@@ -68,7 +69,7 @@ pub(crate) fn encode_soft_deleted_page_token(
     last_generation: i64,
 ) -> Result<String, JsonError> {
     super::query::validate_project(project)?;
-    if prefix.len() > 222 || !last_name.starts_with(prefix) {
+    if prefix.len() > MAX_BUCKET_NAME_BYTES || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
     validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
@@ -201,7 +202,7 @@ pub(crate) fn decode_object_page_token(
         serde_json::from_slice(&bytes).map_err(|_| invalid())?;
     if version != OBJECT_CURSOR
         || name.is_empty()
-        || name.len() > 1024
+        || name.len() > MAX_OBJECT_NAME_BYTES
         || generation.is_some_and(|value| value <= 0)
         || (is_prefix && generation.is_some())
     {

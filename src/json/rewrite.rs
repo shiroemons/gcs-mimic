@@ -66,7 +66,7 @@ pub(crate) fn route(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<RewriteRequest, JsonError>> {
-    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let path = uri.path().strip_prefix(query::BUCKET_PATH)?;
     let segments: Vec<_> = path.split('/').take(9).collect();
     let [
         source_bucket,
@@ -81,106 +81,128 @@ pub(crate) fn route(
     else {
         return None;
     };
-    Some((|| {
-        if *method != Method::POST {
-            return Err(JsonError::method_not_allowed(
-                "Rewrite requires POST",
-                Some("POST"),
-            ));
+    let path = RewritePath {
+        source_bucket,
+        source_name,
+        destination_bucket,
+        destination_name,
+    };
+    Some(parse(method, path, uri, profile))
+}
+
+/// The raw path segments of a rewrite, before decoding.
+#[derive(Clone, Copy)]
+struct RewritePath<'a> {
+    source_bucket: &'a str,
+    source_name: &'a str,
+    destination_bucket: &'a str,
+    destination_name: &'a str,
+}
+
+fn parse(
+    method: &Method,
+    path: RewritePath<'_>,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<RewriteRequest, JsonError> {
+    if *method != Method::POST {
+        return Err(JsonError::method_not_allowed(
+            "Rewrite requires POST",
+            Some("POST"),
+        ));
+    }
+    let names = RewriteNames {
+        source: ObjectTarget::new(
+            decode(path.source_bucket, Decoding::Path)?,
+            decode(path.source_name, Decoding::Path)?,
+            (),
+        ),
+        destination: ObjectTarget::new(
+            decode(path.destination_bucket, Decoding::Path)?,
+            decode(path.destination_name, Decoding::Path)?,
+            (),
+        ),
+    };
+    for bucket in [&names.source.bucket, &names.destination.bucket] {
+        validate_bucket_name_for_profile(bucket, profile)?;
+    }
+    for object in [&names.source.name, &names.destination.name] {
+        validate_object_name(object)?;
+    }
+    let mut parameters = parse_query(uri.query().unwrap_or_default())?;
+    let token = parameters.remove("rewriteToken");
+    // A rewrite token binds these parameters; an ignored API key or billing project must not
+    // be one of them.
+    query::ignore_accepted_parameters(&mut parameters);
+    let mut remaining = parameters.clone();
+    Fields::take(&mut remaining, Schema::RewriteResponse)?;
+    query::common(&mut remaining)?;
+    query::projection(&mut remaining)?;
+    if let Some(acl) = remaining.get("destinationPredefinedAcl")
+        && !matches!(
+            acl.as_str(),
+            "authenticatedRead"
+                | "bucketOwnerFullControl"
+                | "bucketOwnerRead"
+                | "private"
+                | "projectPrivate"
+                | "publicRead"
+        )
+    {
+        return Err(JsonError::invalid_parameter(
+            "Invalid destinationPredefinedAcl",
+        ));
+    }
+    remaining.remove("destinationPredefinedAcl");
+    for key in ["destinationKmsKeyName", "dropContextGroups"] {
+        if remaining.contains_key(key) {
+            return Err(JsonError::unsupported_object(key));
         }
-        let names = RewriteNames {
-            source: ObjectTarget::new(
-                decode(source_bucket, Decoding::Path)?,
-                decode(source_name, Decoding::Path)?,
-                (),
-            ),
-            destination: ObjectTarget::new(
-                decode(destination_bucket, Decoding::Path)?,
-                decode(destination_name, Decoding::Path)?,
-                (),
-            ),
-        };
-        for bucket in [&names.source.bucket, &names.destination.bucket] {
-            validate_bucket_name_for_profile(bucket, profile)?;
-        }
-        for object in [&names.source.name, &names.destination.name] {
-            validate_object_name(object)?;
-        }
-        let mut parameters = parse_query(uri.query().unwrap_or_default())?;
-        let token = parameters.remove("rewriteToken");
-        // A rewrite token binds these parameters; an ignored API key or billing project must not
-        // be one of them.
-        query::ignore_accepted_parameters(&mut parameters);
-        let mut remaining = parameters.clone();
-        Fields::take(&mut remaining, Schema::RewriteResponse)?;
-        query::common(&mut remaining)?;
-        query::projection(&mut remaining)?;
-        if let Some(acl) = remaining.get("destinationPredefinedAcl")
-            && !matches!(
-                acl.as_str(),
-                "authenticatedRead"
-                    | "bucketOwnerFullControl"
-                    | "bucketOwnerRead"
-                    | "private"
-                    | "projectPrivate"
-                    | "publicRead"
-            )
-        {
-            return Err(JsonError::invalid_parameter(
-                "Invalid destinationPredefinedAcl",
-            ));
-        }
-        remaining.remove("destinationPredefinedAcl");
-        for key in ["destinationKmsKeyName", "dropContextGroups"] {
-            if remaining.contains_key(key) {
-                return Err(JsonError::unsupported_object(key));
+    }
+    for key in [
+        "sourceGeneration",
+        "ifSourceGenerationMatch",
+        "ifSourceGenerationNotMatch",
+        "ifSourceMetagenerationMatch",
+        "ifSourceMetagenerationNotMatch",
+        "ifGenerationMatch",
+        "ifGenerationNotMatch",
+        "ifMetagenerationMatch",
+        "ifMetagenerationNotMatch",
+        "maxBytesRewrittenPerCall",
+    ] {
+        if let Some(number) = take_long(&mut remaining, key)? {
+            if key == "sourceGeneration" && number <= 0 {
+                return Err(JsonError::invalid_parameter(format!("Invalid {key}")));
             }
-        }
-        for key in [
-            "sourceGeneration",
-            "ifSourceGenerationMatch",
-            "ifSourceGenerationNotMatch",
-            "ifSourceMetagenerationMatch",
-            "ifSourceMetagenerationNotMatch",
-            "ifGenerationMatch",
-            "ifGenerationNotMatch",
-            "ifMetagenerationMatch",
-            "ifMetagenerationNotMatch",
-            "maxBytesRewrittenPerCall",
-        ] {
-            if let Some(number) = take_long(&mut remaining, key)? {
-                if key == "sourceGeneration" && number <= 0 {
-                    return Err(JsonError::invalid_parameter(format!("Invalid {key}")));
+            if key == "maxBytesRewrittenPerCall" {
+                if number <= 0 {
+                    return Err(JsonError::invalid(
+                        "maxBytesRewrittenPerCall must be a positive value",
+                    ));
                 }
-                if key == "maxBytesRewrittenPerCall" {
-                    if number <= 0 {
-                        return Err(JsonError::invalid(
-                            "maxBytesRewrittenPerCall must be a positive value",
-                        ));
-                    }
-                    if number % 1_048_576 != 0 {
-                        return Err(JsonError::invalid(
-                            "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
-                        ));
-                    }
+                if number % 1_048_576 != 0 {
+                    return Err(JsonError::invalid(
+                        "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
+                    ));
                 }
-                parameters.insert(key.into(), number.to_string());
             }
+            parameters.insert(key.into(), number.to_string());
         }
-        // Cloud Storage rewrote an object whose request carried an undeclared `gcsmimicUnknown=1`
-        // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
-        // knows. What remains is ignored and kept out of the token binding, so a continuation
-        // may add or drop such a parameter.
-        parameters.retain(|key, _| !remaining.contains_key(key));
-        Ok(RewriteRequest {
-            names,
-            token,
-            parameters: parameters
-                .into_iter()
-                .map(|(key, value)| (key, Value::String(value)))
-                .collect(),
-        })
-    })())
+    }
+    // Cloud Storage rewrote an object whose request carried an undeclared `gcsmimicUnknown=1`
+    // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
+    // knows. What remains is ignored and kept out of the token binding, so a continuation
+    // may add or drop such a parameter.
+    parameters.retain(|key, _| !remaining.contains_key(key));
+    Ok(RewriteRequest {
+        names,
+        token,
+        parameters: parameters
+            .into_iter()
+            .map(|(key, value)| (key, Value::String(value)))
+            .collect(),
+    })
 }
 
 pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {

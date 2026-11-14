@@ -10,11 +10,18 @@ use crate::{
 };
 use hyper::{HeaderMap, Method, Uri};
 
+/// The resumable session a request continues.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UploadSession {
+    pub(crate) bucket: String,
+    pub(crate) upload_id: String,
+}
+
 pub(crate) fn session_route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<(String, String), JsonError>> {
+) -> Option<Result<UploadSession, JsonError>> {
     let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
     if rest != "o"
@@ -25,26 +32,34 @@ pub(crate) fn session_route(
     {
         return None;
     }
-    Some((|| {
-        if !matches!(*method, Method::PUT | Method::POST | Method::DELETE) {
-            return Err(JsonError::method_not_allowed(
-                "Session requires PUT, POST or DELETE",
-                None,
-            ));
-        }
-        let bucket = super::decode(bucket, super::Decoding::Path)?;
-        super::validate_bucket_name_for_profile(&bucket, profile)?;
-        let mut query = super::parse_query(uri.query().unwrap_or_default())?;
-        let id = query
-            .remove("upload_id")
-            .ok_or_else(|| JsonError::invalid_parameter("Missing upload_id"))?;
-        if query.remove("uploadType").is_some_and(|v| v != "resumable") {
-            return Err(JsonError::invalid_parameter("Invalid uploadType"));
-        }
-        // The session URI repeats the initiation query (`name`, preconditions), which Cloud
-        // Storage accepts and ignores on later requests.
-        Ok((bucket, id))
-    })())
+    Some(parse_session(method, bucket, uri, profile))
+}
+
+/// `bucket` is the raw path segment the route matched.
+fn parse_session(
+    method: &Method,
+    bucket: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<UploadSession, JsonError> {
+    if !matches!(*method, Method::PUT | Method::POST | Method::DELETE) {
+        return Err(JsonError::method_not_allowed(
+            "Session requires PUT, POST or DELETE",
+            None,
+        ));
+    }
+    let bucket = super::decode(bucket, super::Decoding::Path)?;
+    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    let mut query = super::parse_query(uri.query().unwrap_or_default())?;
+    let upload_id = query
+        .remove("upload_id")
+        .ok_or_else(|| JsonError::invalid_parameter("Missing upload_id"))?;
+    if query.remove("uploadType").is_some_and(|v| v != "resumable") {
+        return Err(JsonError::invalid_parameter("Invalid uploadType"));
+    }
+    // The session URI repeats the initiation query (`name`, preconditions), which Cloud
+    // Storage accepts and ignores on later requests.
+    Ok(UploadSession { bucket, upload_id })
 }
 
 pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, JsonError> {

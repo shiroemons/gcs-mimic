@@ -1,8 +1,11 @@
 use super::{
     JsonError, Projection, WriteMode,
-    buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
+    buckets::{encode_segment, timestamp},
     integer::take_long,
-    query::{Decoding, boolean, decode, parse_query, projection},
+    query::{
+        BUCKET_PATH, BucketCheck, Decoding, MAX_OBJECT_SEGMENT_BYTES, boolean, decode, parse_query,
+        path_bucket, projection,
+    },
 };
 use crate::decimal::Grammar;
 use crate::{
@@ -129,7 +132,7 @@ pub(crate) fn route_object_with_profile(
             // Discovery uses useMediaDownloadService; the JSON status reference specifies /download.
             (path, false, true)
         } else {
-            (uri.path().strip_prefix("/storage/v1/b/")?, false, false)
+            (uri.path().strip_prefix(BUCKET_PATH)?, false, false)
         };
     let (bucket, rest) = path.split_once('/')?;
     let object = if upload {
@@ -184,18 +187,14 @@ pub(crate) fn route_object_with_profile(
         return Some(Err(error));
     }
     Some((|| {
-        if bucket.len() > 222 * 3 {
-            return Err(JsonError::invalid_parameter("Invalid bucket name"));
-        }
-        let bucket = decode(bucket, Decoding::Path)?;
-        validate_bucket_name_for_profile(&bucket, profile)?;
+        let bucket = path_bucket(bucket, profile, BucketCheck::ForProfile)?;
         if !upload && object.is_none() {
             return super::object_list::parse_list(bucket, uri.query().unwrap_or_default())
                 .map(ObjectRequest::List);
         }
         let name = object
             .map(|segment| {
-                if segment.len() > 1024 * 3 {
+                if segment.len() > MAX_OBJECT_SEGMENT_BYTES {
                     return Err(JsonError::invalid_parameter("Invalid object name"));
                 }
                 let name = decode(segment, Decoding::Path)?;

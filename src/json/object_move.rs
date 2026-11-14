@@ -1,7 +1,10 @@
 use super::{
     JsonError, ObjectRequest, Projection,
     objects::{ConditionKeys, match_and_not_match, take_conditions},
-    query::{Decoding, decode, finish, parse_query, projection, standard_parameters},
+    query::{
+        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode, finish,
+        parse_query, projection, standard_parameters,
+    },
 };
 use crate::{
     config::CompatProfile,
@@ -23,68 +26,78 @@ pub(super) fn route(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
-    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let path = uri.path().strip_prefix(BUCKET_PATH)?;
     let (source, destination) = path.split_once("/moveTo/o/")?;
-    Some((|| {
-        if method != Method::POST {
-            return Err(JsonError::method_not_allowed(
-                "Object move requires POST",
-                Some("POST"),
-            ));
-        }
-        let (bucket, source) = source
-            .split_once("/o/")
-            .ok_or_else(|| JsonError::invalid_parameter("Invalid move path"))?;
-        if bucket.len() > 222 * 3
-            || bucket.contains('/')
-            || source.contains('/')
-            || destination.contains('/')
-            || source.len() > 1024 * 3
-            || destination.len() > 1024 * 3
-        {
-            return Err(JsonError::invalid_parameter("Invalid move path"));
-        }
-        let bucket = decode(bucket, Decoding::Path)?;
-        super::validate_bucket_name_for_profile(&bucket, profile)?;
-        let source = decode(source, Decoding::Path)?;
-        let destination = decode(destination, Decoding::Path)?;
-        super::validate_object_name(&source)?;
-        super::validate_object_name(&destination)?;
-        if source == destination {
-            return Err(JsonError::invalid(
-                "Source and destination object names must be different.",
-            ));
-        }
-        let mut query = parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, super::Schema::Object)?;
-        let projection = projection(&mut query)?;
-        if projection == Projection::Full {
-            return Err(JsonError::unsupported_object(
-                "move projection=full; use projection=noAcl",
-            ));
-        }
-        standard_parameters(&mut query, &[], JsonError::unsupported_object)?;
-        // The routing layer applies the value; prettyPrint=false selects compact bodies.
-        super::query::boolean(&mut query, "prettyPrint")?;
-        if query.remove("alt").is_some_and(|alt| alt != "json") {
-            return Err(JsonError::invalid_parameter("move requires alt=json"));
-        }
-        let source_conditions = exclusive_conditions(&mut query, ConditionKeys::Source)?;
-        let destination_conditions = exclusive_conditions(&mut query, ConditionKeys::Plain)?;
-        finish(&query)?;
-        Ok(ObjectRequest::Move(ObjectMoveParams {
-            names: MoveNames {
-                bucket,
-                source,
-                destination,
-            },
-            conditions: MoveConditions {
-                source: source_conditions,
-                destination: destination_conditions,
-            },
-            projection,
-        }))
-    })())
+    Some(parse(method, source, destination, uri, profile))
+}
+
+/// `source` is the raw `{bucket}/o/{name}` the route matched, which this checks for a move
+/// path's shape, and `destination` the raw destination name.
+fn parse(
+    method: &Method,
+    source: &str,
+    destination: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<ObjectRequest, JsonError> {
+    if method != Method::POST {
+        return Err(JsonError::method_not_allowed(
+            "Object move requires POST",
+            Some("POST"),
+        ));
+    }
+    let (bucket, source) = source
+        .split_once("/o/")
+        .ok_or_else(|| JsonError::invalid_parameter("Invalid move path"))?;
+    if bucket.len() > MAX_BUCKET_SEGMENT_BYTES
+        || bucket.contains('/')
+        || source.contains('/')
+        || destination.contains('/')
+        || source.len() > MAX_OBJECT_SEGMENT_BYTES
+        || destination.len() > MAX_OBJECT_SEGMENT_BYTES
+    {
+        return Err(JsonError::invalid_parameter("Invalid move path"));
+    }
+    let bucket = decode(bucket, Decoding::Path)?;
+    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    let source = decode(source, Decoding::Path)?;
+    let destination = decode(destination, Decoding::Path)?;
+    super::validate_object_name(&source)?;
+    super::validate_object_name(&destination)?;
+    if source == destination {
+        return Err(JsonError::invalid(
+            "Source and destination object names must be different.",
+        ));
+    }
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, super::Schema::Object)?;
+    let projection = projection(&mut query)?;
+    if projection == Projection::Full {
+        return Err(JsonError::unsupported_object(
+            "move projection=full; use projection=noAcl",
+        ));
+    }
+    standard_parameters(&mut query, &[], JsonError::unsupported_object)?;
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    super::query::boolean(&mut query, "prettyPrint")?;
+    if query.remove("alt").is_some_and(|alt| alt != "json") {
+        return Err(JsonError::invalid_parameter("move requires alt=json"));
+    }
+    let source_conditions = exclusive_conditions(&mut query, ConditionKeys::Source)?;
+    let destination_conditions = exclusive_conditions(&mut query, ConditionKeys::Plain)?;
+    finish(&query)?;
+    Ok(ObjectRequest::Move(ObjectMoveParams {
+        names: MoveNames {
+            bucket,
+            source,
+            destination,
+        },
+        conditions: MoveConditions {
+            source: source_conditions,
+            destination: destination_conditions,
+        },
+        projection,
+    }))
 }
 
 /// One side's preconditions. `storage.proto` makes each Match and NotMatch pair of

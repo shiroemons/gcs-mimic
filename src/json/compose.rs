@@ -11,69 +11,78 @@ pub(crate) fn route(
     uri: &hyper::Uri,
     profile: crate::config::CompatProfile,
 ) -> Option<Result<crate::json::ObjectRequest, JsonError>> {
-    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let path = uri.path().strip_prefix(crate::json::query::BUCKET_PATH)?;
     let (bucket, rest) = path.split_once("/o/")?;
     let name = rest.strip_suffix("/compose")?;
     if bucket.contains('/') || name.contains('/') {
         return None;
     }
-    Some((|| {
-        if method != hyper::Method::POST {
-            return Err(JsonError::method_not_allowed(
-                "Compose requires POST",
-                Some("POST"),
-            ));
-        }
-        let bucket = crate::json::decode(bucket, crate::json::Decoding::Path)?;
-        crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
-        let name = crate::json::decode(name, crate::json::Decoding::Path)?;
-        validate_object_name(&name)?;
-        let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, super::Schema::Object)?;
-        query.remove("destinationPredefinedAcl");
-        // objects.compose declares no `ifGenerationNotMatch` or `ifMetagenerationNotMatch`, so
-        // they fall to the undeclared-parameter rule below: Cloud Storage composed over the
-        // current generation with `ifGenerationNotMatch` naming it (case obj-mutation-not-match).
-        super::query::standard_parameters(
-            &mut query,
-            &["kmsKeyName", "dropContextGroups"],
-            JsonError::unsupported_object,
-        )?;
-        // The routing layer applies the value; prettyPrint=false selects compact bodies.
-        super::query::boolean(&mut query, "prettyPrint")?;
-        match query.remove("alt").as_deref() {
-            None | Some("json") => {}
-            Some(_) => return Err(JsonError::invalid_parameter("Compose requires alt=json")),
-        }
-        let mut condition = |key: &str| {
-            query
-                .remove(key)
-                .map(|value| {
-                    Grammar::Digits
-                        .parse::<i64>(&value)
-                        .ok_or_else(|| JsonError::invalid_parameter(format!("Invalid {key}")))
-                })
-                .transpose()
-        };
-        let conditions = crate::object::ObjectConditions {
-            if_generation_match: condition("ifGenerationMatch")?,
-            if_metageneration_match: condition("ifMetagenerationMatch")?,
-            ..Default::default()
-        };
-        // `projection` is a defined parameter this route does not implement.
-        if query.contains_key("projection") {
-            return Err(JsonError::invalid_parameter(
-                "Unknown query parameter for this method: projection",
-            ));
-        }
-        // Cloud Storage ignored a query parameter it does not define, such as the gRPC-only
-        // `deleteSourceObjects`: the sources survived a recorded compose that carried it.
-        Ok(crate::json::ObjectRequest::Compose {
-            bucket,
-            name,
-            conditions,
-        })
-    })())
+    Some(parse(method, bucket, name, uri, profile))
+}
+
+/// `bucket` and `name` are the raw path segments the route matched.
+fn parse(
+    method: &hyper::Method,
+    bucket: &str,
+    name: &str,
+    uri: &hyper::Uri,
+    profile: crate::config::CompatProfile,
+) -> Result<crate::json::ObjectRequest, JsonError> {
+    if method != hyper::Method::POST {
+        return Err(JsonError::method_not_allowed(
+            "Compose requires POST",
+            Some("POST"),
+        ));
+    }
+    let bucket = crate::json::decode(bucket, crate::json::Decoding::Path)?;
+    crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
+    let name = crate::json::decode(name, crate::json::Decoding::Path)?;
+    validate_object_name(&name)?;
+    let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, super::Schema::Object)?;
+    query.remove("destinationPredefinedAcl");
+    // objects.compose declares no `ifGenerationNotMatch` or `ifMetagenerationNotMatch`, so
+    // they fall to the undeclared-parameter rule below: Cloud Storage composed over the
+    // current generation with `ifGenerationNotMatch` naming it (case obj-mutation-not-match).
+    super::query::standard_parameters(
+        &mut query,
+        &["kmsKeyName", "dropContextGroups"],
+        JsonError::unsupported_object,
+    )?;
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    super::query::boolean(&mut query, "prettyPrint")?;
+    match query.remove("alt").as_deref() {
+        None | Some("json") => {}
+        Some(_) => return Err(JsonError::invalid_parameter("Compose requires alt=json")),
+    }
+    let mut condition = |key: &str| {
+        query
+            .remove(key)
+            .map(|value| {
+                Grammar::Digits
+                    .parse::<i64>(&value)
+                    .ok_or_else(|| JsonError::invalid_parameter(format!("Invalid {key}")))
+            })
+            .transpose()
+    };
+    let conditions = crate::object::ObjectConditions {
+        if_generation_match: condition("ifGenerationMatch")?,
+        if_metageneration_match: condition("ifMetagenerationMatch")?,
+        ..Default::default()
+    };
+    // `projection` is a defined parameter this route does not implement.
+    if query.contains_key("projection") {
+        return Err(JsonError::invalid_parameter(
+            "Unknown query parameter for this method: projection",
+        ));
+    }
+    // Cloud Storage ignored a query parameter it does not define, such as the gRPC-only
+    // `deleteSourceObjects`: the sources survived a recorded compose that carried it.
+    Ok(crate::json::ObjectRequest::Compose {
+        bucket,
+        name,
+        conditions,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

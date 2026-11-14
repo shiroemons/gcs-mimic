@@ -49,7 +49,7 @@ pub(crate) fn route(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<(NotificationRequest, Fields), JsonError>> {
-    let rest = uri.path().strip_prefix("/storage/v1/b/")?;
+    let rest = uri.path().strip_prefix(query::BUCKET_PATH)?;
     let (segment, rest) = rest.split_once('/')?;
     let notification = match rest.strip_prefix("notificationConfigs")? {
         "" => None,
@@ -59,50 +59,53 @@ pub(crate) fn route(
     {
         return None;
     }
-    Some((|| {
-        if segment.len() > 222 * 3 {
-            return Err(JsonError::invalid_parameter("Invalid bucket name"));
+    Some(parse(method, segment, notification, uri, profile))
+}
+
+/// `segment` and `notification` are the raw path segments the route matched.
+fn parse(
+    method: &Method,
+    segment: &str,
+    notification: Option<&str>,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<(NotificationRequest, Fields), JsonError> {
+    let bucket = query::path_bucket(segment, profile, query::BucketCheck::NativeOnly)?;
+    let allowed = if notification.is_some() {
+        "GET, DELETE"
+    } else {
+        "GET, POST"
+    };
+    let request = match (method, notification) {
+        (&Method::POST, None) => NotificationRequest::Insert { bucket },
+        (&Method::GET, None) => NotificationRequest::List { bucket },
+        (&Method::GET, Some(item)) => NotificationRequest::Get {
+            bucket,
+            notification: query::decode(item, query::Decoding::Path)?,
+        },
+        (&Method::DELETE, Some(item)) => NotificationRequest::Delete {
+            bucket,
+            notification: query::decode(item, query::Decoding::Path)?,
+        },
+        _ => {
+            return Err(JsonError::method_not_allowed(
+                format!(
+                    "HTTP method is not supported for this notification endpoint; use {allowed}"
+                ),
+                Some(allowed),
+            ));
         }
-        let bucket = query::decode(segment, query::Decoding::Path)?;
-        if profile == CompatProfile::Native {
-            super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
-        }
-        let allowed = if notification.is_some() {
-            "GET, DELETE"
-        } else {
-            "GET, POST"
-        };
-        let request = match (method, notification) {
-            (&Method::POST, None) => NotificationRequest::Insert { bucket },
-            (&Method::GET, None) => NotificationRequest::List { bucket },
-            (&Method::GET, Some(item)) => NotificationRequest::Get {
-                bucket,
-                notification: query::decode(item, query::Decoding::Path)?,
-            },
-            (&Method::DELETE, Some(item)) => NotificationRequest::Delete {
-                bucket,
-                notification: query::decode(item, query::Decoding::Path)?,
-            },
-            _ => {
-                return Err(JsonError::method_not_allowed(
-                    format!(
-                        "HTTP method is not supported for this notification endpoint; use {allowed}"
-                    ),
-                    Some(allowed),
-                ));
-            }
-        };
-        let mut query = query::parse_query(uri.query().unwrap_or_default())?;
-        let schema = if matches!(request, NotificationRequest::List { .. }) {
-            Schema::Notifications
-        } else {
-            Schema::Notification
-        };
-        let fields = Fields::take(&mut query, schema)?;
-        query::common(&mut query)?;
-        query::finish(&query)?;
-        Ok((request, fields))
-    })())
+    };
+    let mut query = query::parse_query(uri.query().unwrap_or_default())?;
+    let schema = if matches!(request, NotificationRequest::List { .. }) {
+        Schema::Notifications
+    } else {
+        Schema::Notification
+    };
+    let fields = Fields::take(&mut query, schema)?;
+    query::common(&mut query)?;
+    query::finish(&query)?;
+    Ok((request, fields))
 }
 
 fn invalid(message: impl Into<String>) -> JsonError {

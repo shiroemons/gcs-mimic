@@ -1,10 +1,53 @@
 use super::buckets::validate_bucket_name_for_profile;
 use super::{JsonError, decode_page_token, integer::take_int64};
-use crate::{bucket::BucketConditions, config::CompatProfile, decimal::Grammar};
+use crate::{
+    bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
+    config::CompatProfile,
+    decimal::Grammar,
+};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
+
+/// The path prefix of every bucket-scoped JSON API resource.
+pub(super) const BUCKET_PATH: &str = "/storage/v1/b/";
+/// The longest raw bucket segment a path may carry: every byte of the longest name
+/// percent-encoded.
+pub(super) const MAX_BUCKET_SEGMENT_BYTES: usize = 3 * MAX_BUCKET_NAME_BYTES;
+/// The longest raw object segment: every byte of the longest name percent-encoded.
+pub(super) const MAX_OBJECT_SEGMENT_BYTES: usize = 3 * crate::object::name::MAX_OBJECT_NAME_BYTES;
+
+/// The raw bucket segment of `/storage/v1/b/{bucket}{suffix}`: one nonempty segment without `/`.
+pub(super) fn bucket_subresource<'a>(path: &'a str, suffix: &str) -> Option<&'a str> {
+    let segment = path.strip_prefix(BUCKET_PATH)?.strip_suffix(suffix)?;
+    (!segment.is_empty() && !segment.contains('/')).then_some(segment)
+}
+
+/// Which profiles check the name of a bucket a path names. Bucket item and notification paths
+/// check native names only: the fake-gcs-server profile served any decoded name there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BucketCheck {
+    ForProfile,
+    NativeOnly,
+}
+
+/// The decoded bucket of a raw path segment: at most [`MAX_BUCKET_SEGMENT_BYTES`] encoded
+/// bytes, then decoded, then checked.
+pub(super) fn path_bucket(
+    segment: &str,
+    profile: CompatProfile,
+    check: BucketCheck,
+) -> Result<String, JsonError> {
+    if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
+        return Err(JsonError::invalid_parameter("Invalid bucket name"));
+    }
+    let bucket = decode(segment, Decoding::Path)?;
+    if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
+        validate_bucket_name_for_profile(&bucket, profile)?;
+    }
+    Ok(bucket)
+}
 
 /// Reads an advisory parameter with the same decoding as the validating route parser.
 pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<std::borrow::Cow<'a, str>> {
@@ -312,8 +355,9 @@ fn parse_iam(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Result<BucketRequest, JsonError> {
+    // Unlike the other bucket paths, IAM decodes the segment before it checks the length.
     let bucket = decode(segment, Decoding::Path)?;
-    if segment.len() > 222 * 3 {
+    if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
         return Err(JsonError::invalid_parameter("Invalid bucket name"));
     }
     if profile == CompatProfile::Native {
@@ -353,65 +397,52 @@ pub(crate) fn route_with_profile(
     seed_project: &str,
 ) -> Option<Result<BucketRequest, JsonError>> {
     const COLLECTION: &str = "/storage/v1/b";
-    if let Some(segment) = uri
-        .path()
-        .strip_prefix("/storage/v1/b/")
-        .and_then(|path| path.strip_suffix("/lockRetentionPolicy"))
-        && !segment.is_empty()
-        && !segment.contains('/')
-    {
+    let path = uri.path();
+    if let Some(segment) = bucket_subresource(path, "/lockRetentionPolicy") {
         return Some(parse_lock_retention_policy(method, segment, uri, profile));
     }
-    if let Some(segment) = uri
-        .path()
-        .strip_prefix("/storage/v1/b/")
-        .and_then(|path| path.strip_suffix("/restore"))
-        && !segment.is_empty()
-        && !segment.contains('/')
-    {
+    if let Some(segment) = bucket_subresource(path, "/restore") {
         return Some(parse_restore(method, segment, uri, profile));
     }
-    if let Some(segment) = uri
-        .path()
-        .strip_prefix("/storage/v1/b/")
-        .and_then(|path| path.strip_suffix("/storageLayout"))
-        && !segment.is_empty()
-        && !segment.contains('/')
-    {
+    if let Some(segment) = bucket_subresource(path, "/storageLayout") {
         return Some(parse_storage_layout(method, segment, uri, profile));
     }
     if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
         return Some(result);
     }
-    if let Some(segment) = uri
-        .path()
-        .strip_prefix("/storage/v1/b/")
-        .and_then(|path| path.strip_suffix("/iam"))
-        && !segment.is_empty()
-        && !segment.contains('/')
-    {
+    if let Some(segment) = bucket_subresource(path, "/iam") {
         return Some(parse_iam(method, segment, uri, profile));
     }
-    let bucket = if uri.path() == COLLECTION {
+    let segment = if path == COLLECTION {
         None
     } else {
-        let segment = uri.path().strip_prefix("/storage/v1/b/")?;
+        let segment = path.strip_prefix(BUCKET_PATH)?;
         if segment.is_empty() || segment.contains('/') {
             return None;
         }
-        if segment.len() > 222 * 3 {
-            return Some(Err(JsonError::invalid_parameter("Invalid bucket name")));
-        }
-        match decode(segment, Decoding::Path).and_then(|name| {
-            if profile == CompatProfile::Native {
-                validate_bucket_name_for_profile(&name, profile)?;
-            }
-            Ok(name)
-        }) {
-            Ok(name) => Some(name),
-            Err(error) => return Some(Err(error)),
-        }
+        Some(segment)
     };
+    Some(parse_bucket_route(
+        method,
+        segment,
+        uri,
+        profile,
+        seed_project,
+    ))
+}
+
+/// The collection (`segment` is `None`) or one bucket: the segment's length, decoding and
+/// native name checks, then the method.
+fn parse_bucket_route(
+    method: &Method,
+    segment: Option<&str>,
+    uri: &Uri,
+    profile: CompatProfile,
+    seed_project: &str,
+) -> Result<BucketRequest, JsonError> {
+    let bucket = segment
+        .map(|segment| path_bucket(segment, profile, BucketCheck::NativeOnly))
+        .transpose()?;
     let allowed = matches!(
         (bucket.is_some(), method),
         (false, &Method::GET | &Method::POST)
@@ -421,23 +452,22 @@ pub(crate) fn route_with_profile(
             )
     );
     if !allowed {
-        let error = JsonError::method_not_allowed(
+        return Err(JsonError::method_not_allowed(
             "HTTP method is not supported for this bucket endpoint",
             Some(if bucket.is_some() {
                 "GET, DELETE, PATCH, PUT"
             } else {
                 "GET, POST"
             }),
-        );
-        return Some(Err(error));
+        ));
     }
-    Some(parse(
+    parse(
         method,
         bucket,
         uri.query().unwrap_or_default(),
         profile,
         seed_project,
-    ))
+    )
 }
 
 fn parse(
@@ -550,7 +580,7 @@ fn parse_bucket_list(
     };
     let max_results = list_page_size(query, page_cap)?;
     let prefix = query.remove("prefix").unwrap_or_default();
-    if prefix.len() > 222 {
+    if prefix.len() > MAX_BUCKET_NAME_BYTES {
         return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
     }
     if soft_deleted {

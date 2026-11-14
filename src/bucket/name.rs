@@ -19,11 +19,14 @@ impl std::fmt::Display for InvalidBucketName {
 
 impl std::error::Error for InvalidBucketName {}
 
+/// The longest native bucket name: dotted names may reach 222 bytes.
+pub(crate) const MAX_BUCKET_NAME_BYTES: usize = 222;
+
 /// The native rules.
 pub(crate) fn validate(name: &str) -> Result<(), InvalidBucketName> {
     let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
     if name.len() < 3
-        || name.len() > 222
+        || name.len() > MAX_BUCKET_NAME_BYTES
         || (!name.contains('.') && name.len() > 63)
         || !name
             .bytes()

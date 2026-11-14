@@ -62,7 +62,7 @@ pub(crate) fn route_acl(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<AclRequest, JsonError>> {
-    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let path = uri.path().strip_prefix(super::query::BUCKET_PATH)?;
     let segments: Vec<&str> = path.split('/').collect();
     if segments.iter().any(|segment| segment.is_empty()) {
         return None;

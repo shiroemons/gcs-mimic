@@ -12,31 +12,29 @@ pub(super) fn route_test_permissions(
     uri: &Uri,
     profile: crate::config::CompatProfile,
 ) -> Option<Result<BucketRequest, JsonError>> {
-    let segment = uri
-        .path()
-        .strip_prefix("/storage/v1/b/")?
-        .strip_suffix("/iam/testPermissions")?;
-    if segment.is_empty() || segment.contains('/') {
-        return None;
+    let segment = query::bucket_subresource(uri.path(), "/iam/testPermissions")?;
+    Some(parse_test_permissions(method, segment, uri, profile))
+}
+
+/// The bucket's length, decoding and name are checked before the method, unlike most routes.
+fn parse_test_permissions(
+    method: &Method,
+    segment: &str,
+    uri: &Uri,
+    profile: crate::config::CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    let bucket = query::path_bucket(segment, profile, query::BucketCheck::ForProfile)?;
+    if *method != Method::GET {
+        return Err(JsonError::method_not_allowed(
+            "Use GET for bucket testIamPermissions",
+            Some("GET"),
+        ));
     }
-    Some((|| {
-        if segment.len() > 222 * 3 {
-            return Err(JsonError::invalid_parameter("Invalid bucket name"));
-        }
-        let bucket = query::decode(segment, query::Decoding::Path)?;
-        super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
-        if *method != Method::GET {
-            return Err(JsonError::method_not_allowed(
-                "Use GET for bucket testIamPermissions",
-                Some("GET"),
-            ));
-        }
-        let (permissions, _) = test_permissions_query(uri.query())?;
-        Ok(BucketRequest::TestIam {
-            bucket,
-            permissions,
-        })
-    })())
+    let (permissions, _) = test_permissions_query(uri.query())?;
+    Ok(BucketRequest::TestIam {
+        bucket,
+        permissions,
+    })
 }
 
 pub(crate) fn test_permissions_query(

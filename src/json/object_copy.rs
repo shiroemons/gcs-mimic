@@ -2,7 +2,10 @@ use super::{
     JsonError, ObjectRequest, Projection,
     integer::take_long,
     objects::{ConditionKeys, take_conditions},
-    query::{Decoding, decode, parse_query, projection, standard_parameters},
+    query::{
+        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
+        parse_query, projection, standard_parameters,
+    },
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, Uri};
@@ -24,62 +27,74 @@ pub(super) fn route(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
-    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let path = uri.path().strip_prefix(BUCKET_PATH)?;
     let (source, destination) = path.split_once("/copyTo/b/")?;
-    Some((|| {
-        if method != Method::POST {
-            return Err(JsonError::method_not_allowed(
-                "Object copy requires POST",
-                Some("POST"),
-            ));
-        }
-        let (source_bucket, source_name) = names(source, profile)?;
-        let (bucket, name) = names(destination, profile)?;
-        let mut query = parse_query(uri.query().unwrap_or_default())?;
-        super::Fields::take(&mut query, super::Schema::Object)?;
-        query.remove("destinationPredefinedAcl");
-        standard_parameters(
-            &mut query,
-            &["destinationKmsKeyName", "dropContextGroups"],
-            JsonError::unsupported_object,
-        )?;
-        // The routing layer applies the value; prettyPrint=false selects compact bodies.
-        super::query::boolean(&mut query, "prettyPrint")?;
-        if let Some(alt) = query.remove("alt")
-            && alt != "json"
-        {
-            return Err(JsonError::invalid_parameter("copy requires alt=json"));
-        }
-        let projection = projection(&mut query)?;
-        let source_generation = take_long(&mut query, "sourceGeneration")?;
-        if source_generation.is_some_and(|generation| generation <= 0) {
-            return Err(JsonError::invalid_parameter(
-                "sourceGeneration must be positive",
-            ));
-        }
-        let source_conditions = take_conditions(&mut query, ConditionKeys::Source)?;
-        let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
-        // Cloud Storage copied an object whose request carried an undeclared `gcsmimicUnknown=1`
-        // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
-        // knows, so what remains in `query` is ignored.
-        Ok(ObjectRequest::Copy(ObjectCopyParams {
-            source_bucket,
-            source_name,
-            bucket,
-            name,
-            source_generation,
-            source_conditions,
-            conditions,
-            projection,
-        }))
-    })())
+    Some(parse(method, source, destination, uri, profile))
+}
+
+/// `source` and `destination` are the raw `{bucket}/o/{name}` paths the route matched.
+fn parse(
+    method: &Method,
+    source: &str,
+    destination: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<ObjectRequest, JsonError> {
+    if method != Method::POST {
+        return Err(JsonError::method_not_allowed(
+            "Object copy requires POST",
+            Some("POST"),
+        ));
+    }
+    let (source_bucket, source_name) = names(source, profile)?;
+    let (bucket, name) = names(destination, profile)?;
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, super::Schema::Object)?;
+    query.remove("destinationPredefinedAcl");
+    standard_parameters(
+        &mut query,
+        &["destinationKmsKeyName", "dropContextGroups"],
+        JsonError::unsupported_object,
+    )?;
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    super::query::boolean(&mut query, "prettyPrint")?;
+    if let Some(alt) = query.remove("alt")
+        && alt != "json"
+    {
+        return Err(JsonError::invalid_parameter("copy requires alt=json"));
+    }
+    let projection = projection(&mut query)?;
+    let source_generation = take_long(&mut query, "sourceGeneration")?;
+    if source_generation.is_some_and(|generation| generation <= 0) {
+        return Err(JsonError::invalid_parameter(
+            "sourceGeneration must be positive",
+        ));
+    }
+    let source_conditions = take_conditions(&mut query, ConditionKeys::Source)?;
+    let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
+    // Cloud Storage copied an object whose request carried an undeclared `gcsmimicUnknown=1`
+    // (case obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it
+    // knows, so what remains in `query` is ignored.
+    Ok(ObjectRequest::Copy(ObjectCopyParams {
+        source_bucket,
+        source_name,
+        bucket,
+        name,
+        source_generation,
+        source_conditions,
+        conditions,
+        projection,
+    }))
 }
 
 fn names(path: &str, profile: CompatProfile) -> Result<(String, String), JsonError> {
     let (bucket, name) = path
         .split_once("/o/")
         .ok_or_else(|| JsonError::invalid_parameter("Invalid copy path"))?;
-    if bucket.len() > 222 * 3 || name.len() > 1024 * 3 || bucket.contains('/') || name.contains('/')
+    if bucket.len() > MAX_BUCKET_SEGMENT_BYTES
+        || name.len() > MAX_OBJECT_SEGMENT_BYTES
+        || bucket.contains('/')
+        || name.contains('/')
     {
         return Err(JsonError::invalid_parameter("Invalid copy path"));
     }
