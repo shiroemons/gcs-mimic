@@ -111,8 +111,7 @@ enum CliError {
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// causes remain the error's source. Boxed because it holds two catalog errors.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
-    /// A failure that may carry diagnostics as its inner error, as the sync command's usage
-    /// errors do.
+    /// A failure without advice of its own, such as a closed standard stream.
     Io(io::Error),
     Import(gcs_mimic::import::ImportError),
 }
@@ -125,10 +124,7 @@ impl CliError {
                 Some(diagnostics)
             }
             Self::Authentication(failure) => Some(failure.diagnostics()),
-            Self::Import(_) => None,
-            Self::Io(error) => error
-                .get_ref()
-                .and_then(|inner| inner.downcast_ref::<Diagnostics>()),
+            Self::Import(_) | Self::Io(_) => None,
         }
     }
 }

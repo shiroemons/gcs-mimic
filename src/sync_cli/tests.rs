@@ -5,11 +5,11 @@ use std::{
     thread,
 };
 
-fn parse(args: &[&str]) -> io::Result<Options> {
+fn parse(args: &[&str]) -> Result<Options, CliError> {
     Options::parse(&args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
 }
 
-fn parse_cmd(args: &[&str]) -> io::Result<Options> {
+fn parse_cmd(args: &[&str]) -> Result<Options, CliError> {
     let (command, options) = args.split_first().unwrap();
     let mut args = vec![*command, "--endpoint", "http://127.0.0.1:4443"];
     args.extend_from_slice(options);
@@ -70,13 +70,10 @@ fn approval_requires_an_explicit_exact_revision() {
     assert_eq!(options.path, "/_internal/sync/approve");
     assert_eq!(options.body, Some(json!({"deletion_set":revision})));
     // --revision names the pages approval was read from, not the set it approves.
-    let refused = parse_cmd(&["approve", "--revision", revision])
-        .err()
-        .unwrap()
-        .into_inner()
-        .unwrap()
-        .downcast::<Diagnostics>()
-        .unwrap();
+    let Err(CliError::Diagnostics(refused)) = parse_cmd(&["approve", "--revision", revision])
+    else {
+        panic!("approval with --revision must be refused with a diagnostic");
+    };
     assert!(
         refused.errors[0].fix.contains("--deletion-set"),
         "{refused:?}"
@@ -287,7 +284,7 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
     assert!(parse_cmd(&["status", "--timeout-ms", "60001"]).is_err());
 }
 
-fn mock_response(response: Vec<u8>) -> (io::Result<(StatusCode, Value)>, String) {
+fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, String) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let peer = thread::spawn(move || {
@@ -340,13 +337,8 @@ fn non_json_responses_keep_the_status_without_echoing_the_body() {
         let error = response_json(status, body).unwrap_err();
         assert!(error.to_string().contains(&status.to_string()));
         assert!(!error.to_string().contains("private proxy diagnostic"));
-        let response = error
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<NonJsonResponse>()
-            .unwrap();
         assert!(
-            std::error::Error::source(response)
+            std::error::Error::source(&error)
                 .unwrap()
                 .is::<serde_json::Error>()
         );

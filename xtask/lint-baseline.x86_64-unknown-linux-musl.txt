@@ -80,7 +80,6 @@ clippy::wildcard_enum_match_arm	src/storage/failure.rs	3
 clippy::wildcard_enum_match_arm	src/sync/ingest.rs	1
 clippy::wildcard_enum_match_arm	src/sync/mirror.rs	4
 clippy::wildcard_enum_match_arm	src/sync/mirror/observation.rs	4
-clippy::wildcard_enum_match_arm	src/sync_cli.rs	1
 clippy::wildcard_enum_match_arm	src/url.rs	1
 clippy::wildcard_enum_match_arm	src/xml/buckets.rs	1
 clippy::wildcard_enum_match_arm	src/xml/document.rs	1
