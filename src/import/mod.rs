@@ -309,6 +309,10 @@ impl From<&Page> for Diagnostics {
 }
 
 #[derive(Debug, Default, Serialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the import report serializes these flags as JSON booleans"
+)]
 pub struct Summary {
     pub complete: bool,
     pub eligible: bool,

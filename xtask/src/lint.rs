@@ -44,13 +44,18 @@ pub const CLIPPY_LINTS: [&str; 12] = [
     "clippy::ref_option",
 ];
 
-pub const RATCHETED_CLIPPY_LINTS: [&str; 5] = [
+pub const RATCHETED_CLIPPY_LINTS: [&str; 8] = [
     "clippy::indexing_slicing",
     "clippy::string_slice",
     "clippy::cast_possible_truncation",
     "clippy::cast_sign_loss",
     // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
     "clippy::wildcard_enum_match_arm",
+    // "Encode invariants in types": nested options and bool bundles mix up states and modes.
+    "clippy::option_option",
+    "clippy::struct_excessive_bools",
+    // `unreachable!` panics like `panic!` and drops the connection.
+    "clippy::unreachable",
 ];
 
 const STATIC_STR_ERROR: &str = "text::static_str_error";
