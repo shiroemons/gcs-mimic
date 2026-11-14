@@ -1121,55 +1121,53 @@ pub(crate) fn object_resource(
     // Fields follow the order of recorded Cloud Storage responses. Fields those responses did
     // not contain follow them, in an order that has not been verified.
     let mut value = Map::from_iter([
-        ("kind".into(), json!("storage#object")),
+        ("kind".into(), "storage#object".into()),
         (
             "id".into(),
-            json!(format!(
-                "{}/{}/{}",
-                object.bucket, object.name, object.generation
-            )),
+            format!("{}/{}/{}", object.bucket, object.name, object.generation).into(),
         ),
-        ("selfLink".into(), json!(format!("{base}/{path}"))),
+        ("selfLink".into(), format!("{base}/{path}").into()),
         (
             "mediaLink".into(),
-            json!(format!(
+            format!(
                 "{base}/download/{path}?generation={}&alt=media",
                 object.generation
-            )),
+            )
+            .into(),
         ),
-        ("name".into(), json!(object.name)),
-        ("bucket".into(), json!(object.bucket)),
-        ("generation".into(), json!(object.generation.to_string())),
+        ("name".into(), object.name.as_str().into()),
+        ("bucket".into(), object.bucket.as_str().into()),
+        ("generation".into(), object.generation.to_string().into()),
         (
             "metageneration".into(),
-            json!(object.metageneration.to_string()),
+            object.metageneration.to_string().into(),
         ),
     ]);
     if !object.content_type.is_empty() {
-        value.insert("contentType".into(), json!(object.content_type));
+        value.insert("contentType".into(), object.content_type.as_str().into());
     }
-    value.insert("storageClass".into(), json!(object.storage_class));
-    value.insert("size".into(), json!(object.size.to_string()));
+    value.insert("storageClass".into(), object.storage_class.as_str().into());
+    value.insert("size".into(), object.size.to_string().into());
     if object.has_md5() {
-        value.insert("md5Hash".into(), json!(base64(&object.md5)));
+        value.insert("md5Hash".into(), base64(&object.md5).into());
     }
     if let Some(encoding) = &object.content_encoding {
-        value.insert("contentEncoding".into(), json!(encoding));
+        value.insert("contentEncoding".into(), encoding.as_str().into());
     }
-    value.insert("crc32c".into(), json!(base64(&object.crc32c.to_be_bytes())));
-    value.insert("etag".into(), json!(object_etag(object)));
-    value.insert("timeCreated".into(), json!(timestamp(object.time_created)?));
-    value.insert("updated".into(), json!(timestamp(object.updated)?));
+    value.insert("crc32c".into(), base64(&object.crc32c.to_be_bytes()).into());
+    value.insert("etag".into(), object_etag(object).into());
+    value.insert("timeCreated".into(), timestamp(object.time_created)?.into());
+    value.insert("updated".into(), timestamp(object.updated)?.into());
     value.insert(
         "timeStorageClassUpdated".into(),
-        json!(timestamp(object.storage_class_updated())?),
+        timestamp(object.storage_class_updated())?.into(),
     );
     value.insert(
         "timeFinalized".into(),
-        json!(timestamp(object.time_created)?),
+        timestamp(object.time_created)?.into(),
     );
     if let Some(count) = object.component_count {
-        value.insert("componentCount".into(), json!(count));
+        value.insert("componentCount".into(), count.into());
     }
     for (key, field) in [
         ("contentDisposition", &object.content_disposition),
@@ -1177,20 +1175,23 @@ pub(crate) fn object_resource(
         ("cacheControl", &object.cache_control),
     ] {
         if let Some(field) = field {
-            value.insert(key.into(), json!(field));
+            value.insert(key.into(), field.as_str().into());
         }
     }
     if !object.metadata.is_empty() {
-        value.insert("metadata".into(), json!(object.metadata));
+        value.insert(
+            "metadata".into(),
+            crate::serde_util::string_map(&object.metadata),
+        );
     }
     if let Some(hold) = object.event_based_hold.as_bool() {
-        value.insert("eventBasedHold".into(), json!(hold));
+        value.insert("eventBasedHold".into(), hold.into());
     }
     if let Some(hold) = object.temporary_hold.as_bool() {
-        value.insert("temporaryHold".into(), json!(hold));
+        value.insert("temporaryHold".into(), hold.into());
     }
     if let Some(time) = super::object_retention::expiration(object.earliest_deletion_time())? {
-        value.insert("retentionExpirationTime".into(), json!(time));
+        value.insert("retentionExpirationTime".into(), time.into());
     }
     if let Some(retention) = &object.retention {
         value.insert(
@@ -1199,16 +1200,16 @@ pub(crate) fn object_resource(
         );
     }
     if let Some(time) = &object.custom_time {
-        value.insert("customTime".into(), json!(time));
+        value.insert("customTime".into(), time.as_str().into());
     }
     if let Some(deleted) = object.time_deleted {
-        value.insert("timeDeleted".into(), json!(timestamp(deleted)?));
+        value.insert("timeDeleted".into(), timestamp(deleted)?.into());
     }
     if let Some(time) = object.soft_delete_time {
-        value.insert("softDeleteTime".into(), json!(timestamp(time)?));
+        value.insert("softDeleteTime".into(), timestamp(time)?.into());
     }
     if let Some(time) = object.hard_delete_time {
-        value.insert("hardDeleteTime".into(), json!(timestamp(time)?));
+        value.insert("hardDeleteTime".into(), timestamp(time)?.into());
     }
     super::csek::render(object, &mut value);
     Ok(Value::Object(value))

@@ -288,21 +288,22 @@ pub(crate) fn notification_resource(
     let config = &record.config;
     let mut value = Map::from_iter([
         ("kind".into(), "storage#notification".into()),
-        ("id".into(), json!(id)),
+        ("id".into(), id.as_str().into()),
         (
             "selfLink".into(),
-            json!(format!(
+            format!(
                 "{}/storage/v1/b/{}/notificationConfigs/{id}",
                 base_url.trim_end_matches('/'),
                 encode_segment(bucket)
-            )),
+            )
+            .into(),
         ),
         ("topic".into(), Value::from(config.topic.as_str())),
         (
             "payload_format".into(),
             Value::from(config.payload_format.as_str()),
         ),
-        ("etag".into(), json!(id)),
+        ("etag".into(), id.into()),
     ]);
     if !config.event_types.is_empty() {
         value.insert("event_types".into(), Value::from(&config.event_types));
