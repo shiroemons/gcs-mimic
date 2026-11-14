@@ -407,7 +407,7 @@ pub(crate) fn cors_value(rules: &[CorsRule]) -> serde_json::Value {
                     ("responseHeader", &rule.response_header),
                 ] {
                     if !strings.is_empty() {
-                        value.insert(field.into(), serde_json::json!(strings));
+                        value.insert(field.into(), strings.as_slice().into());
                     }
                 }
                 if let Some(seconds) = rule.max_age_seconds {

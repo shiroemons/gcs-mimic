@@ -6,10 +6,7 @@ text::downcast	src/storage/failure.rs	2
 text::downcast	src/sync/error.rs	8
 text::immediately_invoked_closure	src/import/mod.rs	1
 text::immediately_invoked_closure	src/source_tree.rs	1
-text::json_macro_value	src/bucket.rs	1
-text::json_macro_value	src/bucket_init.rs	1
 text::json_macro_value	src/import/filesystem.rs	2
 text::json_macro_value	src/json/notifications.rs	3
 text::json_macro_value	src/json/objects.rs	28
-text::json_macro_value	src/notification/event.rs	1
 text::json_macro_value	src/server/admin/sync/findings.rs	7

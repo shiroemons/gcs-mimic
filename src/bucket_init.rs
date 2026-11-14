@@ -708,7 +708,8 @@ fn path(parent: &str, key: &str) -> String {
             format!("{parent}.{key}")
         }
     } else {
-        format!("{parent}[{}]", json!(key))
+        // A key that is not an identifier is written as a quoted JSON string.
+        format!("{parent}[{}]", Value::from(key))
     }
 }
 

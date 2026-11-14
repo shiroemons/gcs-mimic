@@ -177,7 +177,10 @@ impl Message<'_> {
             };
             attributes.insert(key.into(), generation.to_string());
         }
-        let mut message = serde_json::Map::from_iter([("attributes".into(), json!(attributes))]);
+        let mut message = serde_json::Map::from_iter([(
+            "attributes".into(),
+            crate::serde_util::string_map(&attributes),
+        )]);
         match config.payload_format {
             PayloadFormat::JsonApiV1 => {
                 let mut payload =
