@@ -1,6 +1,5 @@
 use super::*;
-use crate::xml::document::{self, malformed};
-use quick_xml::events::Event;
+use crate::xml::document::{self, Node, malformed};
 
 #[derive(Clone, Copy)]
 enum Scope {
@@ -75,9 +74,6 @@ impl Part {
     }
 
     fn text(&mut self, scope: Scope, text: &str) -> Result<(), Error> {
-        if !text.chars().all(document::xml_char) {
-            return Err(malformed());
-        }
         match scope {
             Scope::Number | Scope::Etag => self.text.push_str(text),
             _ if text
@@ -90,55 +86,23 @@ impl Part {
 }
 
 /// Only the current scalar and bounded part metadata are retained; no tree or object body.
+/// `Before` and `Done` are the scopes outside the root, so they match the walk's depth 0.
 pub(super) fn parse(bytes: &[u8]) -> Result<Vec<storage::CompletedPart>, Error> {
-    let mut reader = document::reader(bytes, MANIFEST_LIMIT)?;
     let mut scope = Scope::Before;
     let mut part = Part::default();
     let mut parts = Vec::new();
-    let mut namespace = None;
-    let mut declaration_allowed = true;
-    loop {
-        let (resolved, event) = reader.read_resolved_event().map_err(|_| malformed())?;
-        match event {
-            Event::Start(start) => {
-                document::validate_attributes(&start)?;
-                let current = document::resolved_namespace(&resolved)?;
-                if namespace.as_ref().is_some_and(|root| root != &current) {
-                    return Err(malformed());
-                }
-                namespace.get_or_insert(current);
-                scope = part.start(scope, start.local_name().as_ref())?;
-            }
-            Event::End(_) => scope = part.end(scope, &mut parts)?,
-            Event::Text(text) => {
-                if text.contains("]]>") {
-                    return Err(malformed());
-                }
-                part.text(scope, &text.xml10_content())?;
-            }
-            Event::CData(text) => {
-                if matches!(scope, Scope::Before | Scope::Done) {
-                    return Err(malformed());
-                }
-                part.text(scope, &text.xml10_content())?;
-            }
-            Event::GeneralRef(reference) => {
-                if matches!(scope, Scope::Before | Scope::Done) {
-                    return Err(malformed());
-                }
-                let entity = format!("&{};", &*reference);
-                let text = quick_xml::escape::unescape(&entity).map_err(|_| malformed())?;
-                part.text(scope, &text)?;
-            }
-            Event::Decl(declaration) if declaration_allowed => {
-                document::validate_declaration(&declaration)?
-            }
-            Event::Comment(_) => {}
-            Event::PI(instruction) if !instruction.target().eq_ignore_ascii_case("xml") => {}
-            Event::Eof if matches!(scope, Scope::Done) && !parts.is_empty() => return Ok(parts),
-            _ => return Err(malformed()),
+    document::walk(bytes, MANIFEST_LIMIT, |node| {
+        match node {
+            Node::Start(name) => scope = part.start(scope, name)?,
+            Node::End => scope = part.end(scope, &mut parts)?,
+            Node::Text(text) => part.text(scope, text)?,
         }
-        declaration_allowed = false;
+        Ok(())
+    })?;
+    if matches!(scope, Scope::Done) && !parts.is_empty() {
+        Ok(parts)
+    } else {
+        Err(malformed())
     }
 }
 

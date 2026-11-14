@@ -21,64 +21,61 @@ pub(super) fn malformed() -> Error {
     )
 }
 
-pub(super) fn read(bytes: &[u8]) -> Result<Element, Error> {
-    let mut reader = reader(bytes, crate::json::RESOURCE_BODY_LIMIT)?;
-    let mut stack: Vec<Element> = Vec::new();
-    let mut root = None;
+/// One step through a metadata document, after the checks every document shares.
+pub(super) enum Node<'a> {
+    /// A start tag's local name. An empty element also produces `End`.
+    Start(&'a str),
+    End,
+    /// Character data, CDATA or one expanded standard entity inside the root element.
+    Text(&'a str),
+}
+
+/// Reads one bounded XML document and passes each node to `visit`. Shared rules: at most
+/// `limit` bytes of UTF-8 XML 1.0 characters; the declaration only first; no DTD; attributes
+/// only namespace declarations; one namespace throughout; no `]]>` in text; standard
+/// entities only; only whitespace outside the root. Every failure here is `malformed`, so
+/// the order of these checks within one event is not observable.
+pub(super) fn walk(
+    bytes: &[u8],
+    limit: usize,
+    mut visit: impl FnMut(Node<'_>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let mut reader = reader(bytes, limit)?;
     let mut namespace = None;
-    let mut count = 0;
+    let mut depth = 0_usize;
     let mut declaration_allowed = true;
     loop {
         let (resolved, event) = reader.read_resolved_event().map_err(|_| malformed())?;
         match event {
             Event::Start(start) => {
-                if root.is_some() || stack.len() >= 8 || count >= 256 {
-                    return Err(malformed());
-                }
                 validate_attributes(&start)?;
                 let current = resolved_namespace(&resolved)?;
                 if namespace.as_ref().is_some_and(|root| root != &current) {
                     return Err(malformed());
                 }
                 namespace.get_or_insert(current);
-                stack.push(Element {
-                    name: start.local_name().as_ref().to_owned(),
-                    text: String::new(),
-                    children: Vec::new(),
-                });
-                count += 1;
+                visit(Node::Start(start.local_name().as_ref()))?;
+                depth += 1;
             }
             Event::End(_) => {
-                let element = stack.pop().ok_or_else(malformed)?;
-                match stack.last_mut() {
-                    Some(parent) => parent.children.push(element),
-                    None => root = Some(element),
-                }
+                depth = depth.checked_sub(1).ok_or_else(malformed)?;
+                visit(Node::End)?;
             }
-            Event::Text(text) => {
-                if text.contains("]]>") {
-                    return Err(malformed());
-                }
-                append_text(&mut stack, &text.xml10_content())?;
+            Event::Text(text) if !text.contains("]]>") => {
+                text_node(depth, &text.xml10_content(), &mut visit)?;
             }
-            Event::CData(text) => {
-                if stack.is_empty() {
-                    return Err(malformed());
-                }
-                append_text(&mut stack, &text.xml10_content())?;
+            Event::CData(text) if depth > 0 => {
+                text_node(depth, &text.xml10_content(), &mut visit)?;
             }
-            Event::GeneralRef(reference) => {
-                if stack.is_empty() {
-                    return Err(malformed());
-                }
+            Event::GeneralRef(reference) if depth > 0 => {
                 let entity = format!("&{};", &*reference);
                 let text = quick_xml::escape::unescape(&entity).map_err(|_| malformed())?;
-                append_text(&mut stack, &text)?;
+                text_node(depth, &text, &mut visit)?;
             }
             Event::Decl(declaration) if declaration_allowed => validate_declaration(&declaration)?,
             Event::Comment(_) => {}
             Event::PI(instruction) if !instruction.target().eq_ignore_ascii_case("xml") => {}
-            Event::Eof if stack.is_empty() => return root.ok_or_else(malformed),
+            Event::Eof if depth == 0 => return Ok(()),
             // DTDs are forbidden even when they define only internal entities.
             _ => return Err(malformed()),
         }
@@ -86,7 +83,57 @@ pub(super) fn read(bytes: &[u8]) -> Result<Element, Error> {
     }
 }
 
-pub(super) fn reader(bytes: &[u8], limit: usize) -> Result<NsReader<&[u8]>, Error> {
+/// Text inside the root goes to `visit`; outside it, only whitespace is allowed.
+fn text_node(
+    depth: usize,
+    text: &str,
+    visit: &mut impl FnMut(Node<'_>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    if !text.chars().all(xml_char) {
+        return Err(malformed());
+    }
+    if depth > 0 {
+        visit(Node::Text(text))
+    } else if text.chars().all(|c| matches!(c, ' ' | '\t' | '\r' | '\n')) {
+        Ok(())
+    } else {
+        Err(malformed())
+    }
+}
+
+/// The document as a tree of at most 256 elements nested at most 8 deep.
+pub(super) fn read(bytes: &[u8]) -> Result<Element, Error> {
+    let mut stack: Vec<Element> = Vec::new();
+    let mut root = None;
+    let mut count = 0;
+    walk(bytes, crate::json::RESOURCE_BODY_LIMIT, |node| {
+        match node {
+            Node::Start(name) => {
+                if root.is_some() || stack.len() >= 8 || count >= 256 {
+                    return Err(malformed());
+                }
+                stack.push(Element {
+                    name: name.to_owned(),
+                    text: String::new(),
+                    children: Vec::new(),
+                });
+                count += 1;
+            }
+            Node::End => {
+                let element = stack.pop().ok_or_else(malformed)?;
+                match stack.last_mut() {
+                    Some(parent) => parent.children.push(element),
+                    None => root = Some(element),
+                }
+            }
+            Node::Text(text) => stack.last_mut().ok_or_else(malformed)?.text.push_str(text),
+        }
+        Ok(())
+    })?;
+    root.ok_or_else(malformed)
+}
+
+fn reader(bytes: &[u8], limit: usize) -> Result<NsReader<&[u8]>, Error> {
     if bytes.len() > limit {
         return Err(malformed());
     }
@@ -101,7 +148,7 @@ pub(super) fn reader(bytes: &[u8], limit: usize) -> Result<NsReader<&[u8]>, Erro
     Ok(reader)
 }
 
-pub(super) fn resolved_namespace(resolved: &ResolveResult<'_>) -> Result<String, Error> {
+fn resolved_namespace(resolved: &ResolveResult<'_>) -> Result<String, Error> {
     let namespace = match resolved {
         ResolveResult::Unbound => String::new(),
         ResolveResult::Bound(value) => quick_xml::escape::unescape(value.as_ref())
@@ -118,23 +165,11 @@ pub(super) fn resolved_namespace(resolved: &ResolveResult<'_>) -> Result<String,
     Ok(namespace)
 }
 
-pub(super) fn xml_char(character: char) -> bool {
+fn xml_char(character: char) -> bool {
     matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
 }
 
-fn append_text(stack: &mut [Element], text: &str) -> Result<(), Error> {
-    if !text.chars().all(xml_char) {
-        return Err(malformed());
-    }
-    match stack.last_mut() {
-        Some(element) => element.text.push_str(text),
-        None if text.chars().all(|c| matches!(c, ' ' | '\t' | '\r' | '\n')) => {}
-        None => return Err(malformed()),
-    }
-    Ok(())
-}
-
-pub(super) fn validate_attributes(start: &BytesStart<'_>) -> Result<(), Error> {
+fn validate_attributes(start: &BytesStart<'_>) -> Result<(), Error> {
     for (index, attribute) in start.attributes().enumerate() {
         let attribute = attribute.map_err(|_| malformed())?;
         let name = attribute.key.as_ref();
@@ -156,7 +191,7 @@ pub(super) fn validate_attributes(start: &BytesStart<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn validate_declaration(declaration: &BytesDecl<'_>) -> Result<(), Error> {
+fn validate_declaration(declaration: &BytesDecl<'_>) -> Result<(), Error> {
     let start = BytesStart::from_content(declaration.as_ref(), 3);
     let mut previous = 0;
     for (index, attribute) in start.attributes().enumerate() {
