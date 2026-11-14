@@ -295,7 +295,10 @@ impl ConfigurationReport {
                 let projects = match (trusted, verification.test_signer) {
                     (TrustedCaller::BuiltIn, _)
                     | (_, TestSignerChoice::Fixed(TestSigner::Enabled))
-                    | (_, TestSignerChoice::WhenDeclared) => self.implicit_projects(),
+                    | (_, TestSignerChoice::WhenDeclared) => {
+                        self.parse_buckets_document();
+                        self.implicit_projects()
+                    }
                     (
                         TrustedCaller::Anonymous | TrustedCaller::Named(_),
                         TestSignerChoice::Fixed(TestSigner::Disabled),
@@ -423,28 +426,30 @@ impl ConfigurationReport {
         }
     }
 
-    /// Where the built-in identities hold their implicit roles: the effective `seed_project`
-    /// and the project of every bucket the buckets document creates, so that the application
-    /// can manage the buckets its own setup declares and nothing else.
-    ///
-    /// Authentication loads before the initializer's phase, so the document is read and parsed
-    /// here, once, and the configuration keeps that parse: the initializer then validates the
-    /// same version instead of reading the file again. A document that cannot be read or parsed
-    /// fails startup here, with the diagnostic the initializer would give.
-    fn implicit_projects(&mut self) -> BTreeSet<String> {
-        let mut projects = BTreeSet::new();
+    /// Reads and parses the buckets document once and keeps that parse in the configuration.
+    /// Authentication loads before the initializer's phase, so the initializer then validates
+    /// the same version instead of reading the file again. A document that cannot be read or
+    /// parsed fails startup here, with the diagnostic the initializer would give.
+    fn parse_buckets_document(&mut self) {
         // Conflicting or invalid document settings were already reported, and nothing loads them.
         if self.valid(&[Setting::BucketsFile, Setting::Buckets])
             && let Some(source) = &self.config.buckets
         {
             match crate::bucket_init::parse_document(source, self.config.max_buckets_per_batch) {
-                Ok(document) => {
-                    projects.clone_from(document.projects());
-                    self.config.buckets = Some(DocumentSource::Parsed(document));
-                }
+                Ok(document) => self.config.buckets = Some(DocumentSource::Parsed(document)),
                 Err(diagnostics) => self.diagnostics.errors.extend(diagnostics.errors),
             }
         }
+    }
+
+    /// Where the built-in identities hold their implicit roles: the effective `seed_project`
+    /// and the project of every bucket the parsed buckets document creates, so that the
+    /// application can manage the buckets its own setup declares and nothing else.
+    fn implicit_projects(&self) -> BTreeSet<String> {
+        let mut projects = match &self.config.buckets {
+            Some(DocumentSource::Parsed(document)) => document.projects().clone(),
+            Some(DocumentSource::File(_) | DocumentSource::Inline(_)) | None => BTreeSet::new(),
+        };
         projects.insert(self.config.seed_project.clone());
         projects
     }
