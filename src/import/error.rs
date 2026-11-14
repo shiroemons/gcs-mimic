@@ -214,7 +214,9 @@ mod tests {
             ),
             (
                 ImportError::Resume(ResumeError::PermanentlyFailed {
-                    reason: "checksum mismatch".into(),
+                    reason: crate::storage::import_journal::JournalFailure::Adapter(
+                        "checksum mismatch".into(),
+                    ),
                 }),
                 "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination",
             ),

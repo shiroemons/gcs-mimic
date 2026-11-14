@@ -314,7 +314,12 @@ async fn import_publication_keeps_independent_successes_and_terminal_failure_aft
     assert!(result.results[2].is_ok());
     let progress = catalog.import_journal().progress().await.unwrap().unwrap();
     assert_eq!(progress.cursor, 2);
-    assert_eq!(progress.failure.as_deref(), Some("element_rejected"));
+    assert_eq!(
+        progress
+            .failure()
+            .map(import_journal::JournalFailure::as_str),
+        Some("element_rejected")
+    );
     assert_eq!(
         catalog.import_journal().begin(source.clone()).await,
         Err(AdminError::Precondition)
@@ -435,7 +440,7 @@ async fn import_publication_progress_rejects_foreign_project_records_and_failure
         .await
         .unwrap();
     let state = catalog.import_journal().progress().await.unwrap().unwrap();
-    assert_eq!(state.failure.unwrap().chars().count(), 256);
+    assert_eq!(state.failure().unwrap().as_str().chars().count(), 256);
     assert_eq!(
         catalog.import_journal().finish(source.clone()).await,
         Err(AdminError::Precondition)
@@ -567,7 +572,7 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
     let progress = reopened.import_journal().progress().await.unwrap().unwrap();
     assert_eq!(progress.binding, source);
     assert_eq!(progress.cursor, 1);
-    assert!(progress.failure.is_none());
+    assert!(progress.failure().is_none());
     reopened
         .import_journal()
         .fail(source, "source_changed")

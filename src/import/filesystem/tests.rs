@@ -59,7 +59,7 @@ fn permanently_failed_import_resume_reports_the_journal_refusal() {
         let catalog = Catalog::open(&options.destination).await.unwrap();
         let journal = catalog.import_journal();
         let state = journal.progress().await.unwrap().unwrap();
-        assert!(state.active);
+        assert!(state.is_open());
         journal
             .fail(state.binding, "checksum mismatch")
             .await
@@ -73,7 +73,7 @@ fn permanently_failed_import_resume_reports_the_journal_refusal() {
         "import permanently failed: checksum mismatch; preserve the source snapshot and restart into a new empty destination"
     );
     assert!(
-        matches!(&error, ImportError::Resume(ResumeError::PermanentlyFailed { reason }) if reason == "checksum mismatch"),
+        matches!(&error, ImportError::Resume(ResumeError::PermanentlyFailed { reason }) if reason.as_str() == "checksum mismatch"),
         "{error:?}"
     );
     assert_eq!(

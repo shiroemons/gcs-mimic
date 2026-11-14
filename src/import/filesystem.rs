@@ -14,7 +14,7 @@ use crate::{
             Admin, AdminError, BatchPublication, BucketDefinition, BucketName, Generation,
             GenerationCondition, ImportedIdentity, ObjectName, Origin, Publication, PublishMode,
         },
-        import_journal::{ImportBinding, ImportElement, ResumeError},
+        import_journal::{ImportBinding, ImportElement, ImportProgress, ResumeError},
     },
 };
 use ring::digest::{Context, SHA256, digest};
@@ -477,11 +477,11 @@ async fn run(
         if start == ImportStart::Resume
             && !original
                 .as_ref()
-                .is_some_and(|state| state.active && state.binding.source == source)
+                .is_some_and(|state| state.is_open() && state.binding.source == source)
         {
             return Err(ImportError::OtherImport);
         }
-        if let Some(failure) = original.as_ref().and_then(|state| state.failure.as_ref()) {
+        if let Some(failure) = original.as_ref().and_then(ImportProgress::failure) {
             return Err(ImportError::Resume(ResumeError::PermanentlyFailed {
                 reason: failure.clone(),
             }));
@@ -525,7 +525,7 @@ async fn run(
                 && let Some(state) = journal
                     .progress()
                     .await?
-                    .filter(|state| state.active && state.binding.source == source)
+                    .filter(|state| state.is_open() && state.binding.source == source)
                 && let Err(recording) = journal.fail(state.binding, error.to_string()).await
             {
                 return Err(error.with_cleanup(CleanupOperation::TerminalFailure, recording));

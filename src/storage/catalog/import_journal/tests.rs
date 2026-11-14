@@ -5,6 +5,43 @@ use crate::{
     test_support::TestDir,
 };
 
+/// Every element published, as a batch that rejected nothing records them.
+fn published(elements: &[ImportElement]) -> Vec<ElementResult<'_>> {
+    elements
+        .iter()
+        .map(|element| ElementResult {
+            element,
+            outcome: ElementOutcome::Published,
+        })
+        .collect()
+}
+
+/// A finished import never keeps a failure; opening the catalog refuses such a row, and a row
+/// that becomes one later reads as corrupt instead of as either state.
+#[test]
+fn a_failure_recorded_on_a_finished_import_reads_as_corrupt() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection.execute_batch(FAILURE_SCHEMA).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO import_journal (singleton,source,fingerprint,expected,cursor,active,failure)
+             VALUES (1, zeroblob(32), zeroblob(32), 0, 0, 0, 'element_rejected')",
+        )
+        .unwrap();
+    assert!(matches!(
+        progress(&connection),
+        Err(CatalogError::Corrupt(_))
+    ));
+    connection
+        .execute_batch("UPDATE import_journal SET active = 1")
+        .unwrap();
+    assert_eq!(
+        progress(&connection).unwrap().map(|state| state.state),
+        Some(ImportState::Failed(JournalFailure::ElementRejected))
+    );
+}
+
 fn binding(count: i64) -> ImportBinding {
     ImportBinding {
         source: [1; 32],
@@ -107,7 +144,7 @@ async fn commit(
     catalog
         .run_admin(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            record_in_transaction(&transaction, &binding, cursor, &elements)?;
+            record_outcomes(&transaction, &binding, cursor, &published(&elements))?;
             for element in &elements {
                 let input =
                     serde_json::json!({"name": format!("import-element-{}", element.ordinal)})
@@ -518,7 +555,7 @@ async fn import_journal_progress_hook_rolls_back_with_its_owning_transaction() {
     catalog
         .run_admin(|connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            record_in_transaction(&transaction, &binding(1), 0, &[element(1)])?;
+            record_outcomes(&transaction, &binding(1), 0, &published(&[element(1)]))?;
             transaction
                 .execute("UPDATE startup_seed SET complete = 1", [])
                 .map_err(unavailable)?;

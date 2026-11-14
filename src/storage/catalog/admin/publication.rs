@@ -978,15 +978,19 @@ fn commit_batch(
         }
     }
     if let Some(import) = import {
-        import_journal::record_outcomes(
-            &transaction,
-            &import.binding,
-            import.cursor,
-            import.elements.get(..results.len()).ok_or_else(|| {
-                ObjectError::Corrupt("missing import publication elements".into())
-            })?,
-            &results.iter().map(Result::is_ok).collect::<Vec<_>>(),
-        )?;
+        let elements = import
+            .elements
+            .get(..results.len())
+            .ok_or_else(|| ObjectError::Corrupt("missing import publication elements".into()))?;
+        let outcomes = elements
+            .iter()
+            .zip(&results)
+            .map(|(element, result)| import_journal::ElementResult {
+                element,
+                outcome: import_journal::ElementOutcome::of(result),
+            })
+            .collect::<Vec<_>>();
+        import_journal::record_outcomes(&transaction, &import.binding, import.cursor, &outcomes)?;
     }
     transaction.commit()?;
     Ok(Committed {

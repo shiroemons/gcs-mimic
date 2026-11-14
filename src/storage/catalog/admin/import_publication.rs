@@ -87,8 +87,10 @@ impl Admin {
                     &transaction,
                     &binding,
                     expected_cursor,
-                    &[element],
-                    &[result.is_ok()],
+                    &[import_journal::ElementResult {
+                        element: &element,
+                        outcome: import_journal::ElementOutcome::of(&result),
+                    }],
                 )?;
                 transaction.commit()?;
                 Ok(result)

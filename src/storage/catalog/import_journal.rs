@@ -48,12 +48,162 @@ pub(crate) struct ImportElement {
     pub ctime_ns: Option<i128>,
 }
 
+impl ImportElement {
+    /// The optional stat observation in its column encoding: big-endian bytes, NULL when
+    /// unobserved.
+    fn stat_columns(&self) -> (Option<[u8; 8]>, Option<[u8; 16]>) {
+        (
+            self.inode.map(u64::to_be_bytes),
+            self.ctime_ns.map(i128::to_be_bytes),
+        )
+    }
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            ordinal: row.get(0)?,
+            fingerprint: row.get(1)?,
+            inode: row.get::<_, Option<[u8; 8]>>(2)?.map(u64::from_be_bytes),
+            ctime_ns: row.get::<_, Option<[u8; 16]>>(3)?.map(i128::from_be_bytes),
+        })
+    }
+}
+
+/// How one attempted element's publication ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ElementOutcome {
+    Published,
+    Rejected,
+}
+
+impl ElementOutcome {
+    pub(super) fn of<T, E>(result: &Result<T, E>) -> Self {
+        match result {
+            Ok(_) => Self::Published,
+            Err(_) => Self::Rejected,
+        }
+    }
+}
+
+/// One attempted element and how its publication ended.
+pub(super) struct ElementResult<'a> {
+    pub(super) element: &'a ImportElement,
+    pub(super) outcome: ElementOutcome,
+}
+
+/// What the singleton journal row says about the import that owns the destination.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportState {
+    /// Elements are being published.
+    Active,
+    /// A terminal failure stopped publication; only a fresh destination can import again.
+    Failed(JournalFailure),
+    /// `finish` committed every element and completed the startup seed.
+    Finished,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportProgress {
     pub binding: ImportBinding,
     pub cursor: i64,
-    pub active: bool,
-    pub failure: Option<String>,
+    pub state: ImportState,
+}
+
+impl ImportProgress {
+    /// The journal still owns the destination: publishing, or stopped by a failure.
+    pub fn is_open(&self) -> bool {
+        matches!(self.state, ImportState::Active | ImportState::Failed(_))
+    }
+
+    pub fn failure(&self) -> Option<&JournalFailure> {
+        match &self.state {
+            ImportState::Failed(failure) => Some(failure),
+            ImportState::Active | ImportState::Finished => None,
+        }
+    }
+
+    /// Publication continues only for the same source while nothing has failed.
+    fn accepts(&self, binding: &ImportBinding) -> bool {
+        self.state == ImportState::Active && &self.binding == binding
+    }
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        let state = match (row.get::<_, bool>(4)?, row.get(5)?) {
+            (true, None) => ImportState::Active,
+            (true, Some(failure)) => ImportState::Failed(failure),
+            (false, None) => ImportState::Finished,
+            // Opening the catalog already refuses this row, so only a later corruption reads it.
+            (false, Some(_)) => {
+                return Err(super::sql::conversion_error(
+                    5,
+                    rusqlite::types::Type::Text,
+                    "failure recorded on a finished import",
+                ));
+            }
+        };
+        Ok(Self {
+            binding: ImportBinding {
+                source: row.get(0)?,
+                fingerprint: row.get(1)?,
+                expected_elements: row.get(2)?,
+            },
+            cursor: row.get(3)?,
+            state,
+        })
+    }
+}
+
+/// Why an import stopped for good, as stored in `import_journal.failure`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JournalFailure {
+    /// A publication batch rejected an element (`element_rejected`).
+    ElementRejected,
+    /// The import adapter stopped with this diagnostic.
+    Adapter(String),
+}
+
+impl JournalFailure {
+    const ELEMENT_REJECTED: &str = "element_rejected";
+
+    /// At most 256 characters, so the 1024-byte column check holds; empty becomes
+    /// `adapter_failure`.
+    fn adapter(reason: impl Into<String>) -> Self {
+        let reason: String = reason.into().chars().take(256).collect();
+        Self::Adapter(if reason.is_empty() {
+            "adapter_failure".into()
+        } else {
+            reason
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::ElementRejected => Self::ELEMENT_REJECTED,
+            Self::Adapter(reason) => reason,
+        }
+    }
+}
+
+impl fmt::Display for JournalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl rusqlite::ToSql for JournalFailure {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl rusqlite::types::FromSql for JournalFailure {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let text = String::column_result(value)?;
+        Ok(if text == Self::ELEMENT_REJECTED {
+            Self::ElementRejected
+        } else {
+            Self::Adapter(text)
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -63,7 +213,7 @@ pub struct ImportJournal(Catalog);
 pub enum ResumeError {
     Catalog(CatalogError),
     PermanentlyFailed {
-        reason: String,
+        reason: JournalFailure,
     },
     #[cfg(not(unix))]
     MissingLock,
@@ -123,11 +273,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogError> {
     connection.query_row(
         "SELECT source, fingerprint, expected, cursor, active, failure FROM import_journal WHERE singleton = 1",
-        [], |row| Ok(ImportProgress {
-            binding: ImportBinding { source: row.get(0)?, fingerprint: row.get(1)?, expected_elements: row.get(2)? },
-            cursor: row.get(3)?, active: row.get(4)?,
-            failure: row.get(5)?,
-        }),
+        [], ImportProgress::read,
     ).optional().map_err(unavailable)
 }
 
@@ -143,7 +289,7 @@ pub(super) fn verify_resume(
         return Err(CatalogError::PreconditionFailed.into());
     }
     if version >= 18
-        && let Some(failure) = progress(connection)?.and_then(|state| state.failure)
+        && let Some(failure) = progress(connection)?.and_then(|state| state.failure().cloned())
     {
         return Err(ResumeError::PermanentlyFailed { reason: failure });
     }
@@ -155,7 +301,7 @@ pub(super) fn matching(
     binding: &ImportBinding,
 ) -> Result<ImportProgress, CatalogError> {
     progress(connection)?
-        .filter(|state| state.active && state.failure.is_none() && &state.binding == binding)
+        .filter(|state| state.accepts(binding))
         .ok_or(CatalogError::PreconditionFailed)
 }
 
@@ -170,7 +316,7 @@ pub(super) fn verify_destination(
     connection: &Connection,
     state: &ImportProgress,
 ) -> Result<(), CatalogError> {
-    if state.active && state.failure.is_none() {
+    if state.state == ImportState::Active {
         let count: i64 = connection.query_row(
             "SELECT (SELECT count(*) FROM buckets) + (SELECT count(*) FROM objects)",
             [],
@@ -196,51 +342,55 @@ pub(super) fn check_publication(
     Ok(())
 }
 
+/// Records an attempted prefix inside the transaction that commits the same elements:
+/// observations for every published element, the cursor after the leading published run, and
+/// `element_rejected` when anything was rejected.
 pub(super) fn record_outcomes(
     transaction: &Transaction<'_>,
     binding: &ImportBinding,
     cursor: i64,
-    elements: &[ImportElement],
-    succeeded: &[bool],
+    results: &[ElementResult<'_>],
 ) -> Result<(), CatalogError> {
     let state = matching(transaction, binding)?;
-    if state.cursor != cursor
-        || elements.is_empty()
-        || elements.len() > MAX_PAGE
-        || elements.len() != succeeded.len()
-    {
+    if state.cursor != cursor || results.is_empty() || results.len() > MAX_PAGE {
         return Err(CatalogError::PreconditionFailed);
     }
-    let prefix = succeeded.iter().take_while(|success| **success).count();
-    if prefix == succeeded.len() {
-        return record_in_transaction(transaction, binding, cursor, elements);
-    }
-    for (offset, (element, success)) in elements.iter().zip(succeeded).enumerate() {
+    for (offset, result) in results.iter().enumerate() {
         let ordinal = cursor
             .checked_add(i64::try_from(offset).map_err(unavailable)? + 1)
             .filter(|ordinal| *ordinal <= binding.expected_elements)
             .ok_or(CatalogError::PreconditionFailed)?;
-        if element.ordinal != ordinal {
+        if result.element.ordinal != ordinal {
             return Err(CatalogError::PreconditionFailed);
         }
-        if *success {
-            transaction.execute(
-                "INSERT INTO import_observations VALUES (?1,?2,?3,?4)",
-                params![
-                    ordinal,
-                    element.fingerprint,
-                    element.inode.map(u64::to_be_bytes),
-                    element.ctime_ns.map(i128::to_be_bytes)
-                ],
-            )?;
+    }
+    for result in results {
+        if result.outcome == ElementOutcome::Published {
+            insert_observation(transaction, result.element)?;
         }
     }
+    let published = results
+        .iter()
+        .take_while(|result| result.outcome == ElementOutcome::Published)
+        .count();
     transaction.execute(
         "UPDATE import_journal SET cursor = ?1, failure = ?2 WHERE singleton = 1",
         params![
-            cursor + i64::try_from(prefix).map_err(unavailable)?,
-            (prefix != succeeded.len()).then_some("element_rejected")
+            cursor + i64::try_from(published).map_err(unavailable)?,
+            (published != results.len()).then_some(JournalFailure::ElementRejected)
         ],
+    )?;
+    Ok(())
+}
+
+fn insert_observation(
+    transaction: &Transaction<'_>,
+    element: &ImportElement,
+) -> Result<(), CatalogError> {
+    let (inode, ctime_ns) = element.stat_columns();
+    transaction.execute(
+        "INSERT INTO import_observations VALUES (?1,?2,?3,?4)",
+        params![element.ordinal, element.fingerprint, inode, ctime_ns],
     )?;
     Ok(())
 }
@@ -274,19 +424,14 @@ impl ImportJournal {
         binding: ImportBinding,
         reason: impl Into<String>,
     ) -> Result<(), AdminError> {
-        let reason: String = reason.into().chars().take(256).collect();
-        let reason = if reason.is_empty() {
-            "adapter_failure".into()
-        } else {
-            reason
-        };
+        let reason = JournalFailure::adapter(reason);
         self.0
             .run_admin(move |connection| {
                 let transaction = connection.transaction()?;
                 let state = progress(&transaction)?
-                    .filter(|state| state.active && state.binding == binding)
+                    .filter(|state| state.is_open() && state.binding == binding)
                     .ok_or(CatalogError::PreconditionFailed)?;
-                if state.failure.is_none() {
+                if state.state == ImportState::Active {
                     transaction.execute(
                         "UPDATE import_journal SET failure = ?1 WHERE singleton = 1",
                         [reason],
@@ -299,7 +444,7 @@ impl ImportJournal {
 
     pub async fn in_progress(&self) -> Result<bool, AdminError> {
         self.0
-            .run_admin(|connection| Ok(progress(connection)?.is_some_and(|state| state.active)))
+            .run_admin(|connection| Ok(progress(connection)?.is_some_and(|state| state.is_open())))
             .await
     }
 
@@ -314,7 +459,7 @@ impl ImportJournal {
             let transaction = connection.transaction()?;
             if let Some(state) = progress(&transaction)? {
                 verify_destination(&transaction, &state)?;
-                return if state.active && state.failure.is_none() && state.binding == binding { Ok(state) }
+                return if state.accepts(&binding) { Ok(state) }
                     else { Err(CatalogError::PreconditionFailed) };
             }
             let occupied: bool = transaction.query_row(
@@ -327,7 +472,7 @@ impl ImportJournal {
                 params![binding.source, binding.fingerprint, expected],
             )?;
             transaction.commit()?;
-            Ok(ImportProgress { binding, cursor: 0, active: true, failure: None })
+            Ok(ImportProgress { binding, cursor: 0, state: ImportState::Active })
         }).await
     }
 
@@ -346,13 +491,7 @@ impl ImportJournal {
             matching(connection, &binding)?;
             connection.prepare_cached(
                 "SELECT ordinal, fingerprint, inode, ctime_ns FROM import_observations WHERE ordinal > ?1 ORDER BY ordinal LIMIT ?2",
-            )?.query_map(params![after, limit], |row| {
-                Ok(ImportElement {
-                    ordinal: row.get(0)?, fingerprint: row.get(1)?,
-                    inode: row.get::<_, Option<[u8; 8]>>(2)?.map(u64::from_be_bytes),
-                    ctime_ns: row.get::<_, Option<[u8; 16]>>(3)?.map(i128::from_be_bytes),
-                })
-            })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
+            )?.query_map(params![after, limit], ImportElement::read)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await
     }
 
@@ -371,9 +510,11 @@ impl ImportJournal {
         self.0.run_admin(move |connection| {
             let transaction = connection.transaction()?;
             matching(&transaction, &binding)?;
+            let (after_inode, after_ctime) = after.stat_columns();
+            let (before_inode, before_ctime) = before.stat_columns();
             let updated = transaction.execute(
                 "UPDATE import_observations SET inode = ?1, ctime_ns = ?2 WHERE ordinal = ?3 AND fingerprint = ?4 AND inode IS ?5 AND ctime_ns IS ?6",
-                params![after.inode.map(u64::to_be_bytes), after.ctime_ns.map(i128::to_be_bytes), before.ordinal, before.fingerprint, before.inode.map(u64::to_be_bytes), before.ctime_ns.map(i128::to_be_bytes)],
+                params![after_inode, after_ctime, before.ordinal, before.fingerprint, before_inode, before_ctime],
             )?;
             if updated != 1 { return Err(CatalogError::PreconditionFailed); }
             transaction.commit().map_err(unavailable)
@@ -402,48 +543,4 @@ impl ImportJournal {
             })
             .await
     }
-}
-
-/// Shared publication calls this inside the transaction that commits the same elements.
-pub(crate) fn record_in_transaction(
-    transaction: &Transaction<'_>,
-    binding: &ImportBinding,
-    expected_cursor: i64,
-    elements: &[ImportElement],
-) -> Result<(), CatalogError> {
-    if elements.is_empty() || elements.len() > MAX_PAGE {
-        return Err(CatalogError::InvalidMetadata(
-            "import batch requires 1..=256 elements".into(),
-        ));
-    }
-    let state = matching(transaction, binding)?;
-    if state.cursor != expected_cursor {
-        return Err(CatalogError::PreconditionFailed);
-    }
-    let mut cursor = expected_cursor;
-    for element in elements {
-        cursor = cursor
-            .checked_add(1)
-            .filter(|value| *value <= binding.expected_elements)
-            .ok_or(CatalogError::PreconditionFailed)?;
-        if element.ordinal != cursor {
-            return Err(CatalogError::PreconditionFailed);
-        }
-    }
-    for element in elements {
-        transaction.execute(
-            "INSERT INTO import_observations VALUES (?1, ?2, ?3, ?4)",
-            params![
-                element.ordinal,
-                element.fingerprint,
-                element.inode.map(u64::to_be_bytes),
-                element.ctime_ns.map(i128::to_be_bytes)
-            ],
-        )?;
-    }
-    transaction.execute(
-        "UPDATE import_journal SET cursor = ?1 WHERE singleton = 1",
-        [cursor],
-    )?;
-    Ok(())
 }
