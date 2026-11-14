@@ -2,7 +2,10 @@ use super::*;
 use crate::sync::control::{WaitFence, WaitReason, WaitResult};
 
 impl LiveControl<'_> {
-    pub(super) async fn wait(&mut self, deadline: tokio::time::Instant) -> io::Result<WaitResult> {
+    pub(super) async fn wait(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<WaitResult, SyncError> {
         loop {
             let result = self.wait_barrier(deadline).await?;
             if result.reason != WaitReason::SourceChanging {
@@ -17,7 +20,10 @@ impl LiveControl<'_> {
         }
     }
 
-    async fn wait_barrier(&mut self, deadline: tokio::time::Instant) -> io::Result<WaitResult> {
+    async fn wait_barrier(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<WaitResult, SyncError> {
         if tokio::time::Instant::now() >= deadline {
             return Ok(WaitResult::timeout());
         }
@@ -45,12 +51,7 @@ impl LiveControl<'_> {
                 Some(summary),
             ));
         }
-        let fence = self
-            .catalog
-            .read_changes(None, None, 1)
-            .await
-            .map_err(io::Error::other)?
-            .fence;
+        let fence = self.catalog.read_changes(None, None, 1).await?.fence;
         #[cfg(test)]
         export_checkpoint("wait-fence").await;
         let writeback = self.writeback;
@@ -67,8 +68,7 @@ impl LiveControl<'_> {
             let page = self
                 .catalog
                 .read_changes(Some(*self.cursor), Some(fence), 256)
-                .await
-                .map_err(io::Error::other)?;
+                .await?;
             if page.rescan_required {
                 reason = WaitReason::JournalChanged;
                 break;
@@ -122,9 +122,9 @@ impl LiveControl<'_> {
         &self,
         summary: &Reconciliation,
         deadline: tokio::time::Instant,
-    ) -> io::Result<WaitReason> {
-        let observation = self.root.observation().await.map_err(io::Error::other)?;
-        let deletion = self.root.deletion_set().await.map_err(io::Error::other)?;
+    ) -> Result<WaitReason, SyncError> {
+        let observation = self.root.observation().await?;
+        let deletion = self.root.deletion_set().await?;
         Ok(if tokio::time::Instant::now() >= deadline {
             WaitReason::Timeout
         } else if summary.deferred > 0 {

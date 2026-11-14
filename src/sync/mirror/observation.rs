@@ -142,7 +142,7 @@ pub(super) async fn refresh(
     quiet: &mut Quiet,
     publication: &mut Option<crate::storage::sync_state::observation::Publication>,
     controls: &Controls,
-) -> io::Result<()> {
+) -> Result<(), SyncError> {
     let changed = watcher.poll_changes()?;
     if watcher.pending.is_some() {
         if changed || *quiet == Quiet::Established {
@@ -151,16 +151,10 @@ pub(super) async fn refresh(
         controls.changing();
         let started = publication.is_none();
         if started {
-            *publication = Some(
-                root.begin_observation_publication()
-                    .await
-                    .map_err(io::Error::other)?,
-            );
+            *publication = Some(root.begin_observation_publication().await?);
         }
         if changed || started {
-            root.invalidate_deletions()
-                .await
-                .map_err(io::Error::other)?;
+            root.invalidate_deletions().await?;
             #[cfg(test)]
             if started {
                 export_checkpoint("observation-invalidated").await;
@@ -279,7 +273,11 @@ impl Controls {
         };
         tokio::time::sleep_until(deadline).await;
     }
-    pub(super) async fn expire(&mut self, root: &RootLease, config: &Config) -> io::Result<()> {
+    pub(super) async fn expire(
+        &mut self,
+        root: &RootLease,
+        config: &Config,
+    ) -> Result<(), SyncError> {
         let mut retained = std::collections::VecDeque::new();
         while let Some(request) = self.0.pop_front() {
             match request {

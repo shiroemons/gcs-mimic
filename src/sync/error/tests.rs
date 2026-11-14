@@ -23,6 +23,15 @@ fn export_failure() -> writeback::Error {
     writeback::Error::Root(root())
 }
 
+fn conflict() -> conflicts::Error {
+    conflicts::Error::Admin(admin())
+}
+
+fn panicked() -> JobPanicked {
+    crate::task::catch_job("sync-error-fixture", || panic!("sync error fixture panic"))
+        .expect_err("the fixture job panics")
+}
+
 /// Diagnostics print a failure through `Report`; carrying it typed must not change the text the
 /// `io::Error::other` wrapper produced.
 #[test]
@@ -34,7 +43,19 @@ fn typed_failures_report_the_text_of_their_former_io_wrappers() {
             SyncError::Writeback(export_failure()),
             io::Error::other(export_failure()),
         ),
+        (
+            SyncError::Conflict(conflict()),
+            io::Error::other(conflict()),
+        ),
         (SyncError::Io(native()), io::Error::other(native())),
+        (
+            SyncError::Recovery(Stop::ConflictCapacity),
+            io::Error::other(Stop::ConflictCapacity),
+        ),
+        (
+            SyncError::Panicked(panicked()),
+            io::Error::other(panicked()),
+        ),
     ] {
         assert_eq!(Report(&typed).to_string(), Report(&wrapped).to_string());
         assert_eq!(typed.to_string(), wrapped.to_string());
@@ -51,8 +72,16 @@ fn typed_failures_report_the_text_of_their_former_io_wrappers() {
 fn message_only_failures_keep_their_former_text() {
     for (typed, message) in [
         (
+            SyncError::WritebackUnfinished(Pass::Reconcile),
+            "Unfinished write-back requires recovery; inspect retained conflicts and workspace findings, resolve the exact retained revision and rescan",
+        ),
+        (
             SyncError::WritebackUnfinished(Pass::Ingest),
             "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
+        ),
+        (
+            SyncError::RescanStopped(PauseReason::ConflictCapacity),
+            "Explicit rescan stopped synchronization: ConflictCapacity",
         ),
         (
             SyncError::Invariant("invalid sync path"),

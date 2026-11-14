@@ -19,7 +19,7 @@ async fn run_live(
     catalog: &Catalog,
     root: &RootLease,
     stopping: &mut tokio::sync::watch::Receiver<bool>,
-) -> io::Result<()> {
+) -> Result<(), SyncError> {
     let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
     let health = crate::task::TaskHealth::default();
     let config = Config::default();
@@ -1323,7 +1323,7 @@ enum LiveFailure {
 static LIVE_FAILURES: std::sync::Mutex<Vec<(PathBuf, LiveFailure)>> =
     std::sync::Mutex::new(Vec::new());
 
-pub(super) fn injected_live_failure(config: &Config) -> io::Result<()> {
+pub(super) fn injected_live_failure(config: &Config) -> Result<(), SyncError> {
     let mut armed = LIVE_FAILURES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1336,9 +1336,11 @@ pub(super) fn injected_live_failure(config: &Config) -> io::Result<()> {
     let (_, failure) = armed.remove(index);
     drop(armed);
     match failure {
-        LiveFailure::Error => Err(io::Error::other("injected live sync failure")),
+        LiveFailure::Error => Err(SyncError::Io(io::Error::other(
+            "injected live sync failure",
+        ))),
         LiveFailure::Panic => panic!("injected live sync panic"),
-        LiveFailure::Busy => Err(io::Error::other(AdminError::Busy {
+        LiveFailure::Busy => Err(SyncError::Admin(AdminError::Busy {
             retry_after: std::time::Duration::from_secs(1),
         })),
     }
@@ -1609,7 +1611,7 @@ fn only_typed_transient_io_failures_are_retried() {
     for errno in [libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
         let error = writeback::Error::Admin(io::Error::from_raw_os_error(errno).into());
         assert!(retryable(&error));
-        assert!(is_transient(&io::Error::other(error)));
+        assert!(is_transient(&SyncError::Writeback(error)));
     }
 }
 
@@ -1781,8 +1783,8 @@ async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
     .unwrap_err();
     assert_eq!(attempts, 1);
     assert!(matches!(
-        error.get_ref().unwrap().downcast_ref::<writeback::Error>(),
-        Some(writeback::Error::Admin(AdminError::Forbidden))
+        error,
+        SyncError::Writeback(writeback::Error::Admin(AdminError::Forbidden))
     ));
     drop(root);
     catalog.close().await.unwrap();
@@ -1790,7 +1792,7 @@ async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
 
 #[test]
 fn only_contention_and_timeouts_are_transient() {
-    let wrapped = |error: AdminError| io::Error::other(error);
+    let wrapped = SyncError::Admin;
     for transient in [
         wrapped(AdminError::Busy {
             retry_after: std::time::Duration::from_secs(1),
@@ -1799,8 +1801,10 @@ fn only_contention_and_timeouts_are_transient() {
         wrapped(AdminError::backend(CatalogError::Unavailable(
             "database is locked".into(),
         ))),
-        io::Error::from(io::ErrorKind::TimedOut),
-        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+        SyncError::Io(io::Error::from(io::ErrorKind::TimedOut)),
+        SyncError::Io(io::Error::other(io::Error::from(
+            io::ErrorKind::Interrupted,
+        ))),
     ] {
         assert!(is_transient(&transient), "{transient:?}");
     }
@@ -1810,8 +1814,8 @@ fn only_contention_and_timeouts_are_transient() {
         wrapped(AdminError::Corrupt("catalog row".into())),
         wrapped(AdminError::Closed),
         wrapped(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into())),
-        io::Error::from(io::ErrorKind::PermissionDenied),
-        io::Error::other("injected live sync failure"),
+        SyncError::Io(io::Error::from(io::ErrorKind::PermissionDenied)),
+        SyncError::Io(io::Error::other("injected live sync failure")),
     ] {
         assert!(!is_transient(&unrecoverable), "{unrecoverable:?}");
     }
@@ -1837,13 +1841,13 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
         io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::EMFILE))),
         io::Error::other(AdminError::from(io::Error::from_raw_os_error(libc::ENFILE))),
     ] {
-        let nested = io::Error::other(error);
+        let nested = SyncError::Io(io::Error::other(error));
         assert!(is_transient(&nested), "{nested:?}");
         assert!(watch_retryable(&nested), "{nested:?}");
     }
-    let denied = io::Error::other(io::Error::other(io::Error::from(
+    let denied = SyncError::Io(io::Error::other(io::Error::other(io::Error::from(
         io::ErrorKind::PermissionDenied,
-    )));
+    ))));
     assert!(watch_retryable(&denied));
     assert!(!is_transient(&denied));
     for (error, reason) in [
@@ -1864,7 +1868,10 @@ fn nested_io_wrappers_keep_retry_classification_and_pause_reasons() {
             PauseReason::ObserverFailure,
         ),
     ] {
-        assert_eq!(pause_reason(&io::Error::other(error)), reason);
+        assert_eq!(
+            pause_reason(&SyncError::Io(io::Error::other(error))),
+            reason
+        );
     }
 }
 
@@ -1891,8 +1898,11 @@ fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
         (Stop::RecoveryRequired, PauseReason::RecoveryRequired),
         (Stop::ProtectedBody, PauseReason::RecoveryRequired),
     ] {
-        let error = io::Error::other(stop);
-        assert_eq!(error.get_ref().unwrap().downcast_ref::<Stop>(), Some(&stop));
+        let error = SyncError::Recovery(stop);
+        assert_eq!(
+            std::error::Error::source(&error).and_then(|cause| cause.downcast_ref::<Stop>()),
+            Some(&stop)
+        );
         assert!(!is_transient(&error));
         assert!(!watch_retryable(&error));
         assert_eq!(pause_reason(&error), reason);

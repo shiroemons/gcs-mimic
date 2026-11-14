@@ -1,6 +1,7 @@
+use crate::sync::SyncError;
 use std::error::Error;
 
-pub(super) fn paused(error: &std::io::Error) {
+pub(super) fn paused(error: &SyncError) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
         "sync_paused",
@@ -10,7 +11,7 @@ pub(super) fn paused(error: &std::io::Error) {
         ),
     );
 }
-pub(super) fn retrying(error: &std::io::Error, delay: std::time::Duration) {
+pub(super) fn retrying(error: &SyncError, delay: std::time::Duration) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         "sync_retrying",

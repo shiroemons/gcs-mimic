@@ -5,7 +5,7 @@ text::downcast	src/server/admin/sync.rs	3
 text::downcast	src/storage/catalog/lifecycle.rs	1
 text::downcast	src/storage/failure.rs	3
 text::downcast	src/storage/lock.rs	1
-text::downcast	src/sync/mirror.rs	12
+text::downcast	src/sync/mirror.rs	11
 text::downcast	src/sync/mirror/descriptor.rs	1
 text::immediately_invoked_closure	src/import/mod.rs	1
 text::immediately_invoked_closure	src/json/compose.rs	1
