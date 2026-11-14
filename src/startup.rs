@@ -109,26 +109,74 @@ pub(crate) struct ReadyEvent {
     api_base_url: String,
 }
 
-impl ReadyEvent {
-    pub(crate) fn new(
-        config: &Config,
-        auth: &Auth,
+/// Where a ready server accepts connections.
+enum ReadyTransport {
+    /// The primary listener first, then the `scheme=both` HTTP listener, then gRPC.
+    Tcp {
         listen: SocketAddr,
-        listen_http: Option<SocketAddr>,
-        seed: SeedOutcome,
-        buckets: InitOutcome,
-        api_base_url: String,
-    ) -> Self {
-        let mut listeners = vec![ReadyListener {
-            listen,
-            scheme: config.scheme.primary(),
-        }];
-        if let Some(listen) = listen_http {
-            listeners.push(ReadyListener {
-                listen,
-                scheme: "http",
-            });
+        listeners: Vec<ReadyListener>,
+    },
+    /// The private Unix socket, the only listener.
+    #[cfg(unix)]
+    Unix { socket: String },
+}
+
+impl ReadyTransport {
+    fn api_base_url(&self, config: &Config) -> String {
+        match self {
+            Self::Tcp { listen, .. } => config.effective_api_base_url(*listen),
+            #[cfg(unix)]
+            Self::Unix { .. } => config
+                .api_base_url
+                .clone()
+                .unwrap_or_else(|| "http://localhost".into()),
         }
+    }
+}
+
+/// What startup produced that readiness reports, beside the configuration and authentication.
+struct Readiness {
+    transport: ReadyTransport,
+    trusted_listen: Option<SocketAddr>,
+    data_directory: Option<ReadyDataDirectory>,
+    seed: SeedOutcome,
+    buckets: InitOutcome,
+    api_base_url: String,
+}
+
+/// The ready event line and the API base URL it announces.
+struct Ready {
+    event: String,
+    api_base_url: String,
+}
+
+impl ReadyEvent {
+    fn new(config: &Config, auth: &Auth, readiness: Readiness) -> Self {
+        let Readiness {
+            transport,
+            trusted_listen,
+            data_directory,
+            seed,
+            buckets,
+            api_base_url,
+        } = readiness;
+        let (message, listen, listeners, transport, unix_socket) = match transport {
+            ReadyTransport::Tcp { listen, listeners } => (
+                format!("server started at {api_base_url}"),
+                Some(listen),
+                listeners,
+                "tcp",
+                None,
+            ),
+            #[cfg(unix)]
+            ReadyTransport::Unix { socket } => (
+                "server started on a private Unix socket".to_owned(),
+                None,
+                Vec::new(),
+                "unix",
+                Some(socket),
+            ),
+        };
         Self {
             event: "ready",
             executable: "gcs-mimic",
@@ -136,14 +184,16 @@ impl ReadyEvent {
             healthcheck_path: Config::HEALTHCHECK_PATH,
             admin_enabled: config.admin_enabled,
             lifecycle_execution: config.effective_lifecycle_execution().as_str(),
-            message: format!("server started at {api_base_url}"),
-            listen: Some(listen),
+            message,
+            listen,
             listeners,
-            trusted_listen: None,
-            trusted_principal: None,
-            transport: "tcp",
-            unix_socket: None,
-            data_directory: None,
+            trusted_listen,
+            trusted_principal: trusted_listen
+                .and(auth.trusted_principal())
+                .map(str::to_owned),
+            transport,
+            unix_socket,
+            data_directory,
             max_connections: config.max_connections,
             max_object_bytes: config.max_object_bytes,
             backend: config.backend.as_str(),
@@ -197,16 +247,84 @@ struct BoundStartup {
 enum PrimaryListener {
     Tcp(tokio::net::TcpListener),
     #[cfg(unix)]
-    Unix(server::unix::Listener),
+    Unix {
+        listener: server::unix::Listener,
+        /// The configured path, which readiness reports.
+        path: std::path::PathBuf,
+    },
 }
 
-impl PrimaryListener {
-    fn local_addr(&self) -> io::Result<Option<SocketAddr>> {
+/// A setting that binds a TCP listener. Its diagnostics name the setting and the flag that
+/// changes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ListenerSetting {
+    Listen,
+    ListenHttp,
+    TrustedListen,
+    GrpcListen,
+}
+
+impl ListenerSetting {
+    const fn key(self) -> &'static str {
         match self {
-            Self::Tcp(listener) => listener.local_addr().map(Some),
-            #[cfg(unix)]
-            Self::Unix(_) => Ok(None),
+            Self::Listen => "listen",
+            Self::ListenHttp => "listen_http",
+            Self::TrustedListen => "trusted_listen",
+            Self::GrpcListen => "grpc_listen",
         }
+    }
+
+    const fn flag(self) -> &'static str {
+        match self {
+            Self::Listen => "--listen",
+            Self::ListenHttp => "--listen-http",
+            Self::TrustedListen => "--trusted-listen",
+            Self::GrpcListen => "--grpc-listen",
+        }
+    }
+
+    fn bind_failure(self, error: &io::Error) -> Diagnostics {
+        let fix = match self {
+            Self::GrpcListen => format!(
+                "Cannot bind grpc_listen ({:?}); stop the process using that port or choose a free separate address, for example --grpc-listen 127.0.0.1:4444.",
+                error.kind()
+            ),
+            Self::Listen | Self::ListenHttp | Self::TrustedListen
+                if error.kind() == io::ErrorKind::AddrInUse =>
+            {
+                format!(
+                    "Address already in use; choose a free {} IP:PORT.",
+                    self.flag()
+                )
+            }
+            Self::Listen | Self::ListenHttp | Self::TrustedListen => format!(
+                "Cannot bind listener; check {} IP:PORT and local network permissions.",
+                self.flag()
+            ),
+        };
+        Diagnostics::error(DiagnosticSource::Listener, self.key(), fix)
+    }
+
+    /// The address a bound listener accepts on.
+    fn local_addr(self, listener: &tokio::net::TcpListener) -> Result<SocketAddr, Diagnostics> {
+        listener
+            .local_addr()
+            .map_err(|error| self.address_unreadable(&error))
+    }
+
+    fn address_unreadable(self, error: &io::Error) -> Diagnostics {
+        let fix = match self {
+            Self::Listen => "Cannot inspect listener address; check the local network environment.",
+            Self::ListenHttp => {
+                "Cannot inspect HTTP listener address; check the local network environment."
+            }
+            Self::TrustedListen => {
+                "Cannot inspect trusted listener address; check the local network environment."
+            }
+            // The gRPC listener has no advice of its own, so it gets the generic diagnostic.
+            Self::GrpcListen => return Diagnostics::startup_failure(error),
+        };
+        Diagnostics::error(DiagnosticSource::Listener, self.key(), fix)
     }
 }
 
@@ -226,7 +344,7 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
             ));
         }
         #[cfg(unix)]
-        return server::unix::Listener::bind(_path).await.map(PrimaryListener::Unix).map_err(|error| {
+        return server::unix::Listener::bind(_path).await.map(|listener| PrimaryListener::Unix { listener, path: _path.clone() }).map_err(|error| {
             Diagnostics::error(DiagnosticSource::Listener, "unix_socket", format!(
                 "Cannot bind Unix socket ({:?}); use a new short pathname in an existing private 0700 directory owned by the server user; never reuse an existing entry.", error.kind()))
         });
@@ -237,7 +355,7 @@ async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
             "Unix sockets are unsupported on this platform; no TCP fallback is used.",
         ));
     }
-    bind_configured_listener(config.listen, "listen")
+    bind_configured_listener(config.listen, ListenerSetting::Listen)
         .await
         .map(PrimaryListener::Tcp)
 }
@@ -368,18 +486,10 @@ async fn prepare_startup(
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let listeners = complete!(async {
         let primary = bind_primary(config).await?;
-        let http = match config.effective_listen_http() {
-            Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
-            None => None,
-        };
-        let trusted = match config.trusted_listen {
-            Some(address) => Some(bind_configured_listener(address, "trusted_listen").await?),
-            None => None,
-        };
-        let grpc = match config.grpc_listen {
-            Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
-            None => None,
-        };
+        let http =
+            bind_optional(config.effective_listen_http(), ListenerSetting::ListenHttp).await?;
+        let trusted = bind_optional(config.trusted_listen, ListenerSetting::TrustedListen).await?;
+        let grpc = bind_optional(config.grpc_listen, ListenerSetting::GrpcListen).await?;
         Ok::<_, Diagnostics>(BoundListeners {
             primary,
             http,
@@ -463,8 +573,7 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return Ok(finish_startup(&catalog, result.map(|_| ())).await?),
     };
-    let ready = ready_event(&config, &auth, &catalog, &listeners, seed, buckets);
-    let (ready, ready_api_base_url) = match ready {
+    let ready = match ready_event(&config, &auth, &catalog, &listeners, seed, buckets) {
         Ok(ready) => ready,
         Err(error) => {
             drop(sync_root);
@@ -488,12 +597,12 @@ pub(crate) async fn serve(
         ready: AtomicBool::new(true),
         clock,
         catalog,
-        api_base_url: ready_api_base_url,
+        api_base_url: ready.api_base_url,
         default_location: config.default_location.clone(),
         auth,
     });
     // Readiness must follow every fallible startup step, including sync worker creation.
-    println!("{ready}");
+    println!("{}", ready.event);
     let background_drain = async move {
         if let Some(task) = sync_task {
             task.finish().await?;
@@ -517,7 +626,7 @@ pub(crate) async fn serve(
             })
         }
         #[cfg(unix)]
-        PrimaryListener::Unix(listener) => server::Listeners::from(listener),
+        PrimaryListener::Unix { listener, .. } => server::Listeners::from(listener),
     };
     let stop = server::Stop {
         signal: shutdown,
@@ -528,6 +637,43 @@ pub(crate) async fn serve(
     Ok(())
 }
 
+/// The bound listeners in the order readiness reports them. A Unix socket is the only listener
+/// its server binds, which `bind_primary` enforces.
+fn ready_transport(
+    config: &Config,
+    listeners: &BoundListeners,
+) -> Result<ReadyTransport, Diagnostics> {
+    match &listeners.primary {
+        #[cfg(unix)]
+        PrimaryListener::Unix { path, .. } => Ok(ReadyTransport::Unix {
+            socket: path.to_string_lossy().into_owned(),
+        }),
+        PrimaryListener::Tcp(primary) => {
+            let listen = ListenerSetting::Listen.local_addr(primary)?;
+            let mut entries = vec![ReadyListener {
+                listen,
+                scheme: config.scheme.primary(),
+            }];
+            if let Some(http) = &listeners.http {
+                entries.push(ReadyListener {
+                    listen: ListenerSetting::ListenHttp.local_addr(http)?,
+                    scheme: "http",
+                });
+            }
+            if let Some(grpc) = &listeners.grpc {
+                entries.push(ReadyListener {
+                    listen: ListenerSetting::GrpcListen.local_addr(grpc)?,
+                    scheme: "h2c",
+                });
+            }
+            Ok(ReadyTransport::Tcp {
+                listen,
+                listeners: entries,
+            })
+        }
+    }
+}
+
 fn ready_event(
     config: &Config,
     auth: &Auth,
@@ -535,59 +681,44 @@ fn ready_event(
     listeners: &BoundListeners,
     seed: SeedOutcome,
     buckets: InitOutcome,
-) -> Result<(String, String), Diagnostics> {
-    listeners
-        .primary
-        .local_addr()
-        .map_err(|_| {
-            Diagnostics::error(
-                DiagnosticSource::Listener,
-                "listen",
-                "Cannot inspect listener address; check the local network environment.",
-            )
-        })
-        .and_then(|address| {
-            let address_http = listeners.http.as_ref().map(|listener| listener.local_addr()).transpose()
-                .map_err(|_| Diagnostics::error(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
-            let api_base_url = address.map_or_else(|| config.api_base_url.clone().unwrap_or_else(|| "http://localhost".into()),
-                |address| config.effective_api_base_url(address));
-            let mut event = ReadyEvent::new(
-                config,
-                auth,
-                address.unwrap_or(config.listen),
-                address_http,
-                seed,
-                buckets,
-                api_base_url.clone(),
-            );
-            event.data_directory = catalog.data_directory().map(|(path, data_dir_state)| ReadyDataDirectory {
+) -> Result<Ready, Diagnostics> {
+    let transport = ready_transport(config, listeners)?;
+    let trusted_listen = listeners
+        .trusted
+        .as_ref()
+        .map(|listener| ListenerSetting::TrustedListen.local_addr(listener))
+        .transpose()?;
+    let api_base_url = transport.api_base_url(config);
+    let data_directory =
+        catalog
+            .data_directory()
+            .map(|(path, data_dir_state)| ReadyDataDirectory {
                 data_dir: path.to_string_lossy().into_owned(),
                 data_dir_state,
             });
-            if let Some(path) = &config.unix_socket {
-                event.listen = None;
-                event.listeners.clear();
-                event.transport = "unix";
-                event.unix_socket = Some(path.to_string_lossy().into_owned());
-                event.message = "server started on a private Unix socket".into();
-            }
-            if let Some(listener) = &listeners.grpc {
-                event.listeners.push(ReadyListener { listen: listener.local_addr().map_err(|error| Diagnostics::startup_failure(&error))?, scheme: "h2c" });
-            }
-            if let Some(listener) = &listeners.trusted {
-                event.trusted_listen = Some(listener.local_addr().map_err(|_| Diagnostics::error(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
-                event.trusted_principal = auth.trusted_principal().map(str::to_owned);
-            }
-            serde_json::to_string(&event)
-            .map(|ready| (ready, api_base_url))
-            .map_err(|_| {
-                Diagnostics::error(
-                    DiagnosticSource::Runtime,
-                    "ready",
-                    "Cannot encode ready event; inspect startup configuration.",
-                )
-            })
-        })
+    let event = ReadyEvent::new(
+        config,
+        auth,
+        Readiness {
+            transport,
+            trusted_listen,
+            data_directory,
+            seed,
+            buckets,
+            api_base_url: api_base_url.clone(),
+        },
+    );
+    let event = serde_json::to_string(&event).map_err(|_| {
+        Diagnostics::error(
+            DiagnosticSource::Runtime,
+            "ready",
+            "Cannot encode ready event; inspect startup configuration.",
+        )
+    })?;
+    Ok(Ready {
+        event,
+        api_base_url,
+    })
 }
 
 fn seed_failure(error: &SeedError) -> String {
@@ -641,19 +772,21 @@ fn seed_failure(error: &SeedError) -> String {
 
 async fn bind_configured_listener(
     address: SocketAddr,
-    key: &str,
+    setting: ListenerSetting,
 ) -> Result<tokio::net::TcpListener, Diagnostics> {
-    bind_listener(address).await.map_err(|error| {
-        let flag = key.replace('_', "-");
-        let fix = if key == "grpc_listen" {
-            format!("Cannot bind grpc_listen ({:?}); stop the process using that port or choose a free separate address, for example --grpc-listen 127.0.0.1:4444.", error.kind())
-        } else if error.kind() == io::ErrorKind::AddrInUse {
-            format!("Address already in use; choose a free --{flag} IP:PORT.")
-        } else {
-            format!("Cannot bind listener; check --{flag} IP:PORT and local network permissions.")
-        };
-        Diagnostics::error(DiagnosticSource::Listener, key, fix)
-    })
+    bind_listener(address)
+        .await
+        .map_err(|error| setting.bind_failure(&error))
+}
+
+async fn bind_optional(
+    address: Option<SocketAddr>,
+    setting: ListenerSetting,
+) -> Result<Option<tokio::net::TcpListener>, Diagnostics> {
+    match address {
+        Some(address) => bind_configured_listener(address, setting).await.map(Some),
+        None => Ok(None),
+    }
 }
 
 /// Matches the default `max_connections`, so a burst of new clients at a full or starting server
@@ -866,12 +999,12 @@ mod tests {
             panic!("unexpected shutdown")
         };
         let listeners = bound.listeners;
-        assert!(listeners.primary.local_addr().unwrap().is_none());
         assert!(listeners.http.is_none() && listeners.grpc.is_none());
         assert!(listeners.trusted.is_none());
-        let PrimaryListener::Unix(listener) = listeners.primary else {
+        let PrimaryListener::Unix { listener, path } = listeners.primary else {
             panic!("TCP fallback")
         };
+        assert_eq!(Some(path), config.unix_socket);
         listener.close().await.unwrap();
         catalog.close().await.unwrap();
     }
@@ -924,7 +1057,7 @@ mod tests {
         };
         let listener = bound.listeners.grpc.as_ref().unwrap();
         let address = listener.local_addr().unwrap();
-        let failure = bind_configured_listener(address, "grpc_listen")
+        let failure = bind_configured_listener(address, ListenerSetting::GrpcListen)
             .await
             .unwrap_err();
         assert!(
@@ -933,6 +1066,56 @@ mod tests {
         );
         drop(bound);
         catalog.close().await.unwrap();
+    }
+
+    /// The only error of a diagnostic that reports one failure.
+    fn only_error(diagnostics: &Diagnostics) -> &gcs_mimic::diagnostics::Diagnostic {
+        assert!(diagnostics.info.is_empty() && diagnostics.warnings.is_empty());
+        let [error] = diagnostics.errors.as_slice() else {
+            panic!("one error expected: {:?}", diagnostics.errors);
+        };
+        error
+    }
+
+    #[test]
+    fn listener_bind_failures_name_the_setting_and_its_flag() {
+        for (setting, key, in_use, denied) in [
+            (
+                ListenerSetting::Listen,
+                "listen",
+                "Address already in use; choose a free --listen IP:PORT.",
+                "Cannot bind listener; check --listen IP:PORT and local network permissions.",
+            ),
+            (
+                ListenerSetting::ListenHttp,
+                "listen_http",
+                "Address already in use; choose a free --listen-http IP:PORT.",
+                "Cannot bind listener; check --listen-http IP:PORT and local network permissions.",
+            ),
+            (
+                ListenerSetting::TrustedListen,
+                "trusted_listen",
+                "Address already in use; choose a free --trusted-listen IP:PORT.",
+                "Cannot bind listener; check --trusted-listen IP:PORT and local network permissions.",
+            ),
+            (
+                ListenerSetting::GrpcListen,
+                "grpc_listen",
+                "Cannot bind grpc_listen (AddrInUse); stop the process using that port or choose a free separate address, for example --grpc-listen 127.0.0.1:4444.",
+                "Cannot bind grpc_listen (PermissionDenied); stop the process using that port or choose a free separate address, for example --grpc-listen 127.0.0.1:4444.",
+            ),
+        ] {
+            for (kind, fix) in [
+                (io::ErrorKind::AddrInUse, in_use),
+                (io::ErrorKind::PermissionDenied, denied),
+            ] {
+                let diagnostics = setting.bind_failure(&kind.into());
+                let error = only_error(&diagnostics);
+                assert_eq!(error.source, DiagnosticSource::Listener, "{setting:?}");
+                assert_eq!(error.key, key, "{setting:?}");
+                assert_eq!(error.fix, fix, "{setting:?} {kind:?}");
+            }
+        }
     }
 
     #[tokio::test]
