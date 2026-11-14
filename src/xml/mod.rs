@@ -512,12 +512,22 @@ fn public_authority_matches(request: &str, public: &str) -> bool {
     }
 }
 
+/// What a request's Host selects under the fake-gcs-server public origin.
+#[derive(Debug, PartialEq, Eq)]
+enum LegacyHost {
+    /// A host under the public origin's domain: a bucket subdomain, or none for the public
+    /// host itself. Reserved API paths on it always go to the JSON API.
+    PublicDomain(Option<String>),
+    /// Any other host: a configured virtual-host domain's bucket, if any.
+    Other(Option<String>),
+}
+
 /// Classify once so a failed public suffix cannot fall through to a shorter native suffix.
 fn legacy_virtual_bucket(
     authority: &hyper::http::uri::Authority,
     public: &hyper::http::uri::Authority,
     endpoints: &EndpointSnapshot,
-) -> (Option<String>, bool) {
+) -> LegacyHost {
     let host = authority.host().to_ascii_lowercase();
     // Strip only for domain classification; trailing-dot hosts still route path-style.
     let host = host.strip_suffix('.').unwrap_or(&host);
@@ -539,27 +549,39 @@ fn legacy_virtual_bucket(
                         == public.as_str().strip_prefix(public.host())
             })
             .map(str::to_owned);
-        (bucket, true)
+        LegacyHost::PublicDomain(bucket)
     } else {
-        (
-            bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains),
-            false,
-        )
+        LegacyHost::Other(bucket_for_authority(
+            authority.as_str(),
+            &endpoints.xml_virtual_host_domains,
+        ))
     }
+}
+
+/// How a request named its bucket, which the legacy V2 canonical resource depends on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BucketSource {
+    /// The Host: a virtual-host domain or, under the fake-gcs-server public origin, a Host
+    /// that is itself the bucket. The whole path is the object name.
+    Host,
+    /// The first path segment.
+    Path,
 }
 
 pub(crate) struct ObjectPath {
     pub bucket: String,
     uri: Uri,
     name_start: usize,
+    source: BucketSource,
 }
 
 impl ObjectPath {
     pub(crate) fn signature_resource(&self) -> crate::auth::signature::Resource {
-        if self.name_start == 1 {
-            crate::auth::signature::Resource::VirtualHosted(self.bucket.clone())
-        } else {
-            crate::auth::signature::Resource::PathStyle
+        match self.source {
+            BucketSource::Host => {
+                crate::auth::signature::Resource::VirtualHosted(self.bucket.clone())
+            }
+            BucketSource::Path => crate::auth::signature::Resource::PathStyle,
         }
     }
     #[expect(
@@ -601,13 +623,13 @@ pub(crate) fn select_object_with_endpoints(
     } else {
         None
     };
-    let (virtual_bucket, public_domain) = match (&legacy_authority, public) {
+    let host = match (&legacy_authority, public) {
         (Some(authority), Some(public)) => legacy_virtual_bucket(authority, public, endpoints),
-        _ => (
-            virtual_bucket(headers, &endpoints.xml_virtual_host_domains),
-            false,
-        ),
+        _ => LegacyHost::Other(virtual_bucket(headers, &endpoints.xml_virtual_host_domains)),
     };
+    let reserved_goes_to_json =
+        matches!(host, LegacyHost::PublicDomain(_) | LegacyHost::Other(None));
+    let (LegacyHost::PublicDomain(virtual_bucket) | LegacyHost::Other(virtual_bucket)) = host;
     if let Some(authority) = uri.authority()
         && (public.is_some()
             || virtual_bucket.is_some()
@@ -631,23 +653,30 @@ pub(crate) fn select_object_with_endpoints(
         }
     }
     let path = uri.path();
-    if reserved_path(path) && (public_domain || virtual_bucket.is_none()) {
+    if reserved_path(path) && reserved_goes_to_json {
         return Ok(None);
     }
     let Some(path) = path.strip_prefix('/') else {
         return Ok(None);
     };
     let is_virtual = virtual_bucket.is_some();
-    let (bucket, name) = match (virtual_bucket, legacy_authority, public) {
-        (Some(bucket), _, _) => (bucket, path),
+    let (bucket, name, source) = match (virtual_bucket, legacy_authority, public) {
+        (Some(bucket), _, _) => (bucket, path, BucketSource::Host),
         (None, Some(authority), Some(public))
             if !public_authority_matches(authority.as_str(), public.as_str()) =>
         {
-            (authority.host().to_owned(), path)
+            (authority.host().to_owned(), path, BucketSource::Host)
         }
         _ => {
             let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
-            (json::decode(bucket, json::Decoding::Path)?, name)
+            // The root path names the empty bucket, which bucket validation always refuses
+            // afterwards. Its legacy V2 resource has been the Host form, `//`, and stays so.
+            let source = if path.is_empty() {
+                BucketSource::Host
+            } else {
+                BucketSource::Path
+            };
+            (json::decode(bucket, json::Decoding::Path)?, name, source)
         }
     };
     if public.is_none()
@@ -660,6 +689,7 @@ pub(crate) fn select_object_with_endpoints(
         bucket,
         uri: uri.clone(),
         name_start: uri.path().len() - name.len(),
+        source,
     }))
 }
 
@@ -669,100 +699,108 @@ pub(crate) fn route(
     selected: Option<ObjectPath>,
     headers: &HeaderMap,
 ) -> Option<Result<ReadRequest, Error>> {
+    selected.map(|path| route_object(method, config, path, headers))
+}
+
+fn route_object(
+    method: &Method,
+    config: &Config,
+    path: ObjectPath,
+    headers: &HeaderMap,
+) -> Result<ReadRequest, Error> {
     let ObjectPath {
         bucket,
         uri,
         name_start,
-    } = selected?;
-    Some((|| {
-        let name = uri
-            .path()
-            .get(name_start..)
-            .ok_or_else(|| Error::invalid("Invalid object path"))?;
-        json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
-        let mut query =
-            crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
-        let v2 = query
-            .keys()
-            .any(|key| crate::auth::signature::V2_PARAMETERS.contains(&key.as_str()));
-        if v2 && (query.contains_key("generation") || (name.is_empty() && name_start == 1)) {
-            return Err(Error::unsupported(
-                "V2 generation selection or virtual-host bucket query; use V4 signing",
-            ));
-        }
-        if multipart::matches(&uri) {
-            let name = json::decode(name, json::Decoding::Path)?;
-            if !name.is_empty() {
-                crate::object::name::validate(&name)
-                    .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
-            }
-            return Ok(ReadRequest {
-                target: ObjectTarget::new(bucket, name, None),
-                response_overrides: HeaderMap::new(),
-            });
-        }
-        if *method == Method::GET && name.is_empty() {
-            return Ok(ReadRequest {
-                target: ObjectTarget::new(bucket, String::new(), None),
-                response_overrides: HeaderMap::new(),
-            });
-        }
-        if !matches!(
-            *method,
-            Method::GET | Method::HEAD | Method::PUT | Method::DELETE
-        ) || name.is_empty()
-        {
-            return Err(Error::unsupported(&format!(
-                "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
-            )));
-        }
+        source,
+    } = path;
+    let name = uri
+        .path()
+        .get(name_start..)
+        .ok_or_else(|| Error::invalid("Invalid object path"))?;
+    json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
+    let mut query = crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
+    let v2 = query
+        .keys()
+        .any(|key| crate::auth::signature::V2_PARAMETERS.contains(&key.as_str()));
+    if v2 && (query.contains_key("generation") || (name.is_empty() && source == BucketSource::Host))
+    {
+        return Err(Error::unsupported(
+            "V2 generation selection or virtual-host bucket query; use V4 signing",
+        ));
+    }
+    if multipart::matches(&uri) {
         let name = json::decode(name, json::Decoding::Path)?;
-        crate::object::name::validate(&name)
-            .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
-        if *method == Method::PUT
-            && let Some(key) = query.keys().find(|key| !accepted_parameter(key))
-        {
-            return Err(Error::unsupported(key));
+        if !name.is_empty() {
+            crate::object::name::validate(&name)
+                .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
         }
-        let generation = query
-            .remove("generation")
-            .map(|value| number(&value, MinValue::One))
-            .transpose()?;
-        if *method == Method::DELETE && query.keys().any(|key| !accepted_parameter(key)) {
-            return Err(Error::unsupported(
-                "DELETE options; use DELETE /BUCKET/OBJECT with only an optional generation",
-            ));
+        return Ok(ReadRequest {
+            target: ObjectTarget::new(bucket, name, None),
+            response_overrides: HeaderMap::new(),
+        });
+    }
+    if *method == Method::GET && name.is_empty() {
+        return Ok(ReadRequest {
+            target: ObjectTarget::new(bucket, String::new(), None),
+            response_overrides: HeaderMap::new(),
+        });
+    }
+    if !matches!(
+        *method,
+        Method::GET | Method::HEAD | Method::PUT | Method::DELETE
+    ) || name.is_empty()
+    {
+        return Err(Error::unsupported(&format!(
+            "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
+        )));
+    }
+    let name = json::decode(name, json::Decoding::Path)?;
+    crate::object::name::validate(&name)
+        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    if *method == Method::PUT
+        && let Some(key) = query.keys().find(|key| !accepted_parameter(key))
+    {
+        return Err(Error::unsupported(key));
+    }
+    let generation = query
+        .remove("generation")
+        .map(|value| number(&value, MinValue::One))
+        .transpose()?;
+    if *method == Method::DELETE && query.keys().any(|key| !accepted_parameter(key)) {
+        return Err(Error::unsupported(
+            "DELETE options; use DELETE /BUCKET/OBJECT with only an optional generation",
+        ));
+    }
+    let mut response_overrides = HeaderMap::new();
+    for (parameter, header) in [
+        ("response-content-type", "content-type"),
+        ("response-content-disposition", "content-disposition"),
+    ] {
+        if let Some(value) = query.remove(parameter) {
+            response_overrides.insert(header, response_override(parameter, &value)?);
         }
-        let mut response_overrides = HeaderMap::new();
-        for (parameter, header) in [
-            ("response-content-type", "content-type"),
-            ("response-content-disposition", "content-disposition"),
-        ] {
-            if let Some(value) = query.remove(parameter) {
-                response_overrides.insert(header, response_override(parameter, &value)?);
-            }
-        }
-        // Authentication validates credential fields from the original URI before using this operation.
-        // Cloud Storage answered a GET with an unknown query parameter as if it were absent
-        // (recorded), including the S3-only `response-cache-control` and `response-expires`
-        // and an unknown `response-*` name, which leave the response headers unchanged. A
-        // parameter that selects a different resource, such as `acl`, would give a false
-        // success if ignored, so those stay rejected. HEAD and PUT share the GET and PUT
-        // parsing; HEAD ignoring unknown parameters is assumed, not recorded.
-        let ignores_unknown = matches!(*method, Method::GET | Method::HEAD);
-        if let Some(key) = query.keys().find(|key| {
-            !accepted_parameter(key)
-                && (!ignores_unknown
-                    || SUBRESOURCES.contains(&key.as_str())
-                    || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str()))
-        }) {
-            return Err(Error::unsupported(key));
-        }
-        Ok(ReadRequest {
-            target: ObjectTarget::new(bucket, name, generation),
-            response_overrides,
-        })
-    })())
+    }
+    // Authentication validates credential fields from the original URI before using this operation.
+    // Cloud Storage answered a GET with an unknown query parameter as if it were absent
+    // (recorded), including the S3-only `response-cache-control` and `response-expires`
+    // and an unknown `response-*` name, which leave the response headers unchanged. A
+    // parameter that selects a different resource, such as `acl`, would give a false
+    // success if ignored, so those stay rejected. HEAD and PUT share the GET and PUT
+    // parsing; HEAD ignoring unknown parameters is assumed, not recorded.
+    let ignores_unknown = matches!(*method, Method::GET | Method::HEAD);
+    if let Some(key) = query.keys().find(|key| {
+        !accepted_parameter(key)
+            && (!ignores_unknown
+                || SUBRESOURCES.contains(&key.as_str())
+                || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str()))
+    }) {
+        return Err(Error::unsupported(key));
+    }
+    Ok(ReadRequest {
+        target: ObjectTarget::new(bucket, name, generation),
+        response_overrides,
+    })
 }
 
 /// The header value a `response-content-type` or `response-content-disposition` override sets.

@@ -46,7 +46,7 @@ fn legacy_trailing_dot_hosts_do_not_fall_through_to_a_shorter_domain() {
     let host = "bucket.storage.example.com.".parse().unwrap();
     assert_eq!(
         legacy_virtual_bucket(&host, &public, &endpoints),
-        (None, true)
+        LegacyHost::PublicDomain(None)
     );
 }
 

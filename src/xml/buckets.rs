@@ -30,27 +30,29 @@ pub(crate) fn matches(method: &Method, uri: &Uri, selected: Option<&ObjectPath>)
 }
 
 pub(crate) async fn respond(
-    mut request: Request<RequestBody>,
+    request: Request<RequestBody>,
     selected: Option<&ObjectPath>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
     let body_mode = ErrorBody::for_method(request.method());
+    authenticate_and_execute(request, selected, ctx)
+        .await
+        .unwrap_or_else(|error| boxed(error.response(body_mode)))
+}
+
+/// Authenticates against the request as sent, then normalizes its AWS extension headers.
+async fn authenticate_and_execute(
+    mut request: Request<RequestBody>,
+    selected: Option<&ObjectPath>,
+    ctx: RequestCtx<'_>,
+) -> Result<Response<ResponseBody>, Error> {
     let resource = selected.map_or(
         auth::signature::Resource::PathStyle,
         ObjectPath::signature_resource,
     );
-    let result = match super::authenticate_target(ctx.xml_authentication(&request, &resource)).await
-    {
-        Ok(caller) => match super::extension_headers::normalize(
-            &mut request,
-            super::extension_headers::Route::Bucket,
-        ) {
-            Ok(()) => execute(request, selected, ctx, caller).await,
-            Err(error) => Err(error),
-        },
-        Err(error) => Err(error),
-    };
-    result.unwrap_or_else(|error| boxed(error.response(body_mode)))
+    let caller = super::authenticate_target(ctx.xml_authentication(&request, &resource)).await?;
+    super::extension_headers::normalize(&mut request, super::extension_headers::Route::Bucket)?;
+    execute(request, selected, ctx, caller).await
 }
 
 async fn execute(
