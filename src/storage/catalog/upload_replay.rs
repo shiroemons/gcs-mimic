@@ -11,7 +11,26 @@ use std::sync::{Arc, OnceLock};
 mod fingerprint;
 pub(super) use fingerprint::{UploadFingerprint, copy_fingerprint};
 
-pub(crate) type UploadAclSnapshot = Arc<OnceLock<Option<super::acl::ObjectAclSnapshot>>>;
+/// The ACL a replayable upload's first response recorded. The publication transaction that
+/// stores or replays the completion records it; the request reads it once the upload returned.
+#[derive(Clone, Default)]
+pub(crate) struct UploadAclSnapshot(Arc<OnceLock<Option<super::acl::ObjectAclSnapshot>>>);
+
+impl UploadAclSnapshot {
+    /// The first recording wins: a store and a replay of one upload describe the same completion.
+    fn record(&self, snapshot: Option<super::acl::ObjectAclSnapshot>) {
+        let _ = self.0.set(snapshot);
+    }
+
+    /// The recorded ACL, `None` when the first response carried none. Fails before the upload
+    /// has completed or replayed, which a finished handler never sees.
+    pub(crate) fn recorded(&self) -> Result<Option<&super::acl::ObjectAclSnapshot>, ObjectError> {
+        self.0
+            .get()
+            .map(Option::as_ref)
+            .ok_or_else(|| ObjectError::Unavailable("Missing upload replay snapshot".into()))
+    }
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Completion {
@@ -228,7 +247,7 @@ impl UploadReplay {
                         self.incarnation,
                     )
                 });
-                let _ = self.snapshot.set(snapshot);
+                self.snapshot.record(snapshot);
                 Ok(completion.record)
             })
             .transpose()
@@ -306,7 +325,7 @@ impl UploadReplay {
         )?;
         let snapshot = acl
             .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, self.incarnation));
-        let _ = self.snapshot.set(snapshot);
+        self.snapshot.record(snapshot);
         Ok(())
     }
 
@@ -524,7 +543,7 @@ impl Catalog {
                     token,
                     request,
                     incarnation,
-                    snapshot: Arc::new(OnceLock::new()),
+                    snapshot: UploadAclSnapshot::default(),
                     principals,
                 };
                 let now = unix_micros(clock.now())?;
@@ -557,6 +576,43 @@ mod tests {
     use super::*;
     use crate::object::{MapPatch, ObjectMetadataUpdate, Patch};
     use std::collections::BTreeMap;
+
+    /// A replayable upload records its ACL once, and a handler can read it only afterwards.
+    #[test]
+    fn acl_snapshot_keeps_its_first_recording() {
+        let acl = |generation| super::super::acl::ObjectAclSnapshot {
+            bucket: "bucket".into(),
+            name: "object".into(),
+            generation,
+            entries: Vec::new(),
+            owner: None,
+            incarnation: "00000000000000000000000000000001".parse().unwrap(),
+        };
+        let unset = UploadAclSnapshot::default();
+        assert_eq!(
+            unset.recorded().err(),
+            Some(ObjectError::Unavailable(
+                "Missing upload replay snapshot".into()
+            ))
+        );
+        let without_acl = UploadAclSnapshot::default();
+        let shared = without_acl.clone();
+        shared.record(None);
+        assert!(without_acl.recorded().unwrap().is_none());
+        without_acl.record(Some(acl(1)));
+        assert!(
+            shared.recorded().unwrap().is_none(),
+            "the first recording wins"
+        );
+        let with_acl = UploadAclSnapshot::default();
+        with_acl.record(Some(acl(2)));
+        with_acl.record(Some(acl(3)));
+        with_acl.record(None);
+        assert_eq!(
+            with_acl.recorded().unwrap().map(|acl| acl.generation),
+            Some(2)
+        );
+    }
 
     #[tokio::test]
     async fn copy_replay_reports_a_removed_source_bucket_as_a_precondition() {

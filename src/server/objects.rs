@@ -237,11 +237,7 @@ async fn add_acl(
         )
         .await;
     };
-    if let Some(snapshot) = snapshot.get().ok_or_else(|| {
-        JsonError::from(ObjectError::Unavailable(
-            "Missing upload replay snapshot".into(),
-        ))
-    })? {
+    if let Some(snapshot) = snapshot.recorded()? {
         let bucket = value["bucket"]
             .as_str()
             .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
