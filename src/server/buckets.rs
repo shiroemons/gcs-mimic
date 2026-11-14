@@ -3,13 +3,14 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State, acl,
+    JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State,
+    acl::{self, AclSubjects, BucketVersion, Rendered},
     authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, CatalogError},
+    bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     config::CompatProfile,
     http_conditions::EtagError,
     json::{self, BucketRequest, JsonError, WriteMode},
@@ -56,7 +57,7 @@ pub(super) async fn respond<'a>(
         && !(profile == CompatProfile::Native
             && leaves_uniform_access(state, &access, &operation).await?);
     let cache = operation.response_cache();
-    let mut value = match operation {
+    let mut rendered = match operation {
         BucketRequest::LockRetentionPolicy {
             bucket,
             metageneration,
@@ -64,7 +65,7 @@ pub(super) async fn respond<'a>(
         BucketRequest::TestIam {
             bucket,
             permissions,
-        } => test_iam_permissions(ctx, &bucket, permissions).await?,
+        } => without_acl(test_iam_permissions(ctx, &bucket, permissions).await?),
         BucketRequest::Patch { bucket, params } => {
             write(request, ctx, &access, &bucket, params, WriteMode::Patch).await?
         }
@@ -74,7 +75,9 @@ pub(super) async fn respond<'a>(
         BucketRequest::GetIam { bucket } => {
             return get_iam(&request, ctx, &access, &bucket, &fields).await;
         }
-        BucketRequest::SetIam { bucket } => set_iam(request, ctx, &access, &bucket).await?,
+        BucketRequest::SetIam { bucket } => {
+            without_acl(set_iam(request, ctx, &access, &bucket).await?)
+        }
         BucketRequest::Insert(params) => insert(request, ctx, params).await?,
         BucketRequest::Get { bucket, params } => {
             return get(&request, ctx, &access, &bucket, params, &fields).await;
@@ -86,7 +89,7 @@ pub(super) async fn respond<'a>(
                 .get_bucket(&bucket, &access)
                 .await?
                 .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
-            json::storage_layout_resource(&record, profile)
+            without_acl(json::storage_layout_resource(&record, profile))
         }
         BucketRequest::Delete { bucket, conditions } => {
             return delete(ctx, &access, &bucket, conditions).await;
@@ -100,9 +103,13 @@ pub(super) async fn respond<'a>(
                 .catalog
                 .get_soft_deleted_bucket(&bucket, generation, &access)
                 .await?;
-            json::soft_deleted_bucket_resource(&version, base_url, projection, profile)?
+            without_acl(json::soft_deleted_bucket_resource(
+                &version, base_url, projection, profile,
+            )?)
         }
-        BucketRequest::ListSoftDeleted(params) => list_soft_deleted(ctx, params).await?,
+        BucketRequest::ListSoftDeleted(params) => {
+            without_acl(list_soft_deleted(ctx, params).await?)
+        }
         BucketRequest::Restore {
             bucket,
             generation,
@@ -112,14 +119,36 @@ pub(super) async fn respond<'a>(
                 .catalog
                 .restore_bucket(&bucket, generation, &access)
                 .await?;
-            json::bucket_resource_with_profile(&record, base_url, projection, profile)?
+            rendered_bucket(&record, base_url, projection, profile)?
         }
     };
     if acl_full {
-        acl::add_full_projection(state, caller, &mut value, base_url).await?;
-        add_legacy_uniform_owner(&mut value, profile);
+        acl::add_full_projection(state, caller, &mut rendered, base_url).await?;
+        add_legacy_uniform_owner(&mut rendered.value, profile);
     }
-    Ok(json_response_selected(&mut value, &fields, cache))
+    Ok(json_response_selected(&mut rendered.value, &fields, cache))
+}
+
+/// A response that renders no ACL fields: a policy, a permission test, a storage layout or a
+/// soft-deleted version, whose stored ACL is kept for restore but not rendered.
+fn without_acl(value: Value) -> Rendered {
+    Rendered {
+        value,
+        subjects: AclSubjects::None,
+    }
+}
+
+/// The resource of `record`, whose live ACL a full projection adds.
+fn rendered_bucket(
+    record: &BucketRecord,
+    base_url: &str,
+    projection: json::Projection,
+    profile: CompatProfile,
+) -> Result<Rendered, JsonError> {
+    Ok(Rendered {
+        value: json::bucket_resource_with_profile(record, base_url, projection, profile)?,
+        subjects: AclSubjects::Bucket(record.into()),
+    })
 }
 
 /// The fake-gcs-server profile keeps reporting the project owners team as `owner` for a bucket under
@@ -250,7 +279,7 @@ async fn lock_retention_policy(
     access: &BucketAccess,
     bucket: &str,
     metageneration: i64,
-) -> Result<Value, JsonError> {
+) -> Result<Rendered, JsonError> {
     validate_bodyless_post(
         request,
         &[("ifMetagenerationMatch".into(), metageneration.to_string())].into(),
@@ -272,7 +301,7 @@ async fn lock_retention_policy(
             access,
         )
         .await?;
-    json::bucket_resource_with_profile(&record, ctx.base_url, json::Projection::NoAcl, ctx.profile)
+    rendered_bucket(&record, ctx.base_url, json::Projection::NoAcl, ctx.profile)
 }
 
 async fn test_iam_permissions(
@@ -312,7 +341,7 @@ async fn write(
     bucket: &str,
     params: json::GetParams,
     mode: WriteMode,
-) -> Result<Value, JsonError> {
+) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
@@ -385,7 +414,7 @@ async fn write(
             error
         }
     })?;
-    json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
+    rendered_bucket(&record, ctx.base_url, params.projection, profile)
 }
 
 async fn get_iam(
@@ -467,7 +496,7 @@ async fn insert(
     request: Request<Incoming>,
     ctx: BucketCtx<'_>,
     params: json::InsertParams,
-) -> Result<Value, JsonError> {
+) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
@@ -496,7 +525,7 @@ async fn insert(
         .insert_bucket(record)
         .await
         .map_err(|error| bucket_catalog_error(error, profile, Some(&name)))?;
-    json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
+    rendered_bucket(&record, ctx.base_url, params.projection, profile)
 }
 
 async fn get(
@@ -536,23 +565,22 @@ async fn get(
     {
         return Ok(empty_response(StatusCode::NOT_MODIFIED));
     }
-    let mut resource =
-        json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)?;
+    let mut resource = rendered_bucket(&record, ctx.base_url, params.projection, profile)?;
     if params.projection == json::Projection::Full {
         acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
-        add_legacy_uniform_owner(&mut resource, profile);
+        add_legacy_uniform_owner(&mut resource.value, profile);
     }
     read_metadata_response(
         request.headers(),
         &json::bucket_etag(&record),
-        resource,
+        resource.value,
         fields,
         query,
         JSON_RESOURCE_CACHE_CONTROL,
     )
 }
 
-async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, JsonError> {
+async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, JsonError> {
     let limit = params.max_results as usize;
     let page = ctx
         .state
@@ -571,13 +599,17 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, Jso
         .filter(|_| page.has_more)
         .map(|last| json::encode_page_token(&params.project, &params.prefix, &last.name))
         .transpose()?;
-    json::bucket_list_with_profile(
+    let value = json::bucket_list_with_profile(
         &page.items,
         token.as_deref(),
         ctx.base_url,
         params.projection,
         ctx.profile,
-    )
+    )?;
+    Ok(Rendered {
+        value,
+        subjects: AclSubjects::Buckets(page.items.iter().map(BucketVersion::from).collect()),
+    })
 }
 
 async fn list_soft_deleted(

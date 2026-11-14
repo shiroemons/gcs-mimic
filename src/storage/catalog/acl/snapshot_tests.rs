@@ -414,10 +414,10 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .iter()
                 .any(|entry| entry.entity.as_str() == "user-uploader@example.test")
         );
-        assert!(snapshot.matches_resource("bucket", Some("object"), Some(record.generation)));
-        assert!(!snapshot.matches_resource("other", Some("object"), Some(record.generation)));
-        assert!(!snapshot.matches_resource("bucket", Some("other"), Some(record.generation)));
-        assert!(!snapshot.matches_resource("bucket", Some("object"), Some(record.generation + 1)));
+        assert!(snapshot.matches_resource("bucket", "object", record.generation));
+        assert!(!snapshot.matches_resource("other", "object", record.generation));
+        assert!(!snapshot.matches_resource("bucket", "other", record.generation));
+        assert!(!snapshot.matches_resource("bucket", "object", record.generation + 1));
         assert!(
             catalog
                 .object_acl_snapshot(snapshot.clone(), &access)

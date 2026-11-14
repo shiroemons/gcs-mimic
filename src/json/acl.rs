@@ -17,6 +17,7 @@ use crate::{
     },
     bucket::BucketConditions,
     config::CompatProfile,
+    storage::AclProjection,
 };
 use hyper::{Method, Uri};
 use serde::Deserialize;
@@ -465,68 +466,60 @@ pub(crate) fn acl_list_resource(
     owner: AclOwner<'_>,
     entries: &[AclEntry],
 ) -> Value {
-    json!({
-        "kind": owner.list_kind(),
-        "items": entries
-            .iter()
-            .map(|entry| acl_entry_resource(base_url, owner, entry))
-            .collect::<Vec<_>>(),
-    })
+    Value::Object(Map::from_iter([
+        ("kind".into(), owner.list_kind().into()),
+        (
+            "items".into(),
+            acl_entry_resources(base_url, owner, entries),
+        ),
+    ]))
 }
 
-/// Add `acl`, `defaultObjectAcl` and `owner` to a rendered bucket resource.
-pub(crate) fn add_bucket_acl_fields(
-    resource: &mut Value,
-    base_url: &str,
-    project: &str,
-    metageneration: i64,
-    acl: &[AclEntry],
-    default_object_acl: &[AclEntry],
-) {
-    let Some(bucket) = resource["name"].as_str().map(str::to_owned) else {
-        return;
-    };
-    let entries = |owner, entries: &[AclEntry]| {
-        entries
-            .iter()
-            .map(|entry| acl_entry_resource(base_url, owner, entry))
-            .collect::<Vec<_>>()
-    };
-    let bucket_owner = AclOwner::Bucket {
-        bucket: &bucket,
-        metageneration,
-    };
-    let default_owner = AclOwner::DefaultObject { metageneration };
-    resource["acl"] = entries(bucket_owner, acl).into();
-    resource["defaultObjectAcl"] = entries(default_owner, default_object_acl).into();
-    resource["owner"] = json!({"entity": Entity::project_team(ProjectTeam::Owners, project)});
-}
-
-/// Add `acl` to a rendered object resource.
-pub(crate) fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &[AclEntry]) {
-    let (Some(bucket), Some(name), Some(generation), Some(metageneration)) = (
-        resource["bucket"].as_str().map(str::to_owned),
-        resource["name"].as_str().map(str::to_owned),
-        resource["generation"]
-            .as_str()
-            .and_then(|value| value.parse().ok()),
-        resource["metageneration"]
-            .as_str()
-            .and_then(|value| value.parse().ok()),
-    ) else {
-        return;
-    };
-    let owner = AclOwner::Object {
-        bucket: &bucket,
-        name: &name,
-        generation,
-        metageneration,
-    };
-    resource["acl"] = acl
+fn acl_entry_resources(base_url: &str, owner: AclOwner<'_>, entries: &[AclEntry]) -> Value {
+    entries
         .iter()
         .map(|entry| acl_entry_resource(base_url, owner, entry))
         .collect::<Vec<_>>()
-        .into();
+        .into()
+}
+
+/// Add `acl`, `defaultObjectAcl` and `owner` to a rendered bucket resource. `acl.project`,
+/// `acl.bucket` and `acl.default_object` supply the owner and both lists; the metageneration is
+/// the rendered resource's, since a later ACL change has its own etag.
+pub(crate) fn add_bucket_acl_fields(
+    resource: &mut Map<String, Value>,
+    base_url: &str,
+    bucket: &str,
+    metageneration: i64,
+    acl: &AclProjection,
+) {
+    let bucket_owner = AclOwner::Bucket {
+        bucket,
+        metageneration,
+    };
+    let default_owner = AclOwner::DefaultObject { metageneration };
+    resource.insert(
+        "acl".into(),
+        acl_entry_resources(base_url, bucket_owner, &acl.bucket),
+    );
+    resource.insert(
+        "defaultObjectAcl".into(),
+        acl_entry_resources(base_url, default_owner, &acl.default_object),
+    );
+    resource.insert(
+        "owner".into(),
+        json!({"entity": Entity::project_team(ProjectTeam::Owners, &acl.project)}),
+    );
+}
+
+/// Add `acl` to a rendered object resource; `owner` is the object generation it renders.
+pub(crate) fn add_object_acl_fields(
+    resource: &mut Map<String, Value>,
+    base_url: &str,
+    owner: AclOwner<'_>,
+    acl: &[AclEntry],
+) {
+    resource.insert("acl".into(), acl_entry_resources(base_url, owner, acl));
 }
 
 #[cfg(test)]
@@ -815,21 +808,30 @@ mod tests {
                 {"kind": "storage#objectAccessControl", "entity": "group-00ab", "role": "OWNER", "entityId": "00ab", "etag": "CKwC"}
             ]})
         );
-        let mut resource = json!({"name": "bucket"});
-        add_bucket_acl_fields(
-            &mut resource,
-            "http://host",
-            "local",
-            1,
-            &[entry("allUsers")],
-            &[],
-        );
+        let mut resource = Map::from_iter([("name".into(), "bucket".into())]);
+        let projection = AclProjection {
+            uniform_access: false,
+            project: "local".into(),
+            bucket: vec![entry("allUsers")],
+            default_object: Vec::new(),
+            bucket_metageneration: 7,
+            objects: Vec::new(),
+        };
+        add_bucket_acl_fields(&mut resource, "http://host", "bucket", 1, &projection);
         assert_eq!(resource["acl"][0]["entity"], "allUsers");
+        assert_eq!(resource["acl"][0]["id"], "bucket/allUsers");
+        // The rendered metageneration, not the stored one, signs the entries.
+        assert_eq!(resource["acl"][0]["etag"], "CAE=");
         assert_eq!(resource["defaultObjectAcl"], json!([]));
         assert_eq!(resource["owner"], json!({"entity": "project-owners-0"}));
-        let mut resource =
-            json!({"bucket": "bucket", "name": "o", "generation": "5", "metageneration": "1"});
-        add_object_acl_fields(&mut resource, "http://host", &[entry("allUsers")]);
+        let mut resource = Map::new();
+        let object = AclOwner::Object {
+            bucket: "bucket",
+            name: "o",
+            generation: 5,
+            metageneration: 1,
+        };
+        add_object_acl_fields(&mut resource, "http://host", object, &[entry("allUsers")]);
         assert_eq!(resource["acl"][0]["id"], "bucket/o/5/allUsers");
         assert_eq!(resource["acl"][0]["etag"], "CAUQAQ==");
     }

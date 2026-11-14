@@ -100,7 +100,7 @@ pub(super) async fn copy(
         destination_key,
     )?;
     json::add_derived_owner(&mut value, &record);
-    Ok(Written { value, acl })
+    Ok(Written::object(value, &record, acl))
 }
 
 /// A copy that no earlier attempt has completed.
@@ -189,7 +189,7 @@ pub(super) async fn compose(
     bucket: String,
     name: String,
     conditions: ObjectConditions,
-) -> Result<serde_json::Value, JsonError> {
+) -> Result<Written, JsonError> {
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
     reject_headers(
@@ -239,10 +239,5 @@ pub(super) async fn compose(
                 error
             }
         })?;
-    json::object_resource_keyed(
-        &record,
-        ctx.endpoints.api_base_url(),
-        json::Projection::NoAcl,
-        key,
-    )
+    Written::keyed(&record, ctx, json::Projection::NoAcl, key, AclSource::Live)
 }

@@ -6,18 +6,19 @@ use super::{
     require_empty_body,
 };
 use crate::{
-    acl::{AclKind, AclTarget},
+    acl::{AclEntry, AclKind, AclTarget},
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions},
+    bucket::{BucketAccess, BucketConditions, BucketRecord},
     json::{
         self, JsonError,
         acl::{AclAccess, AclOperation, AclOwner, AclRequest},
     },
+    object::{ObjectRecord, owner::ObjectOwner},
     storage::{AclChange, AclError, AclProjection, AclState, ObjectAcl},
 };
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
     match (kind, access) {
@@ -185,6 +186,75 @@ pub(super) async fn respond(
     Ok(response)
 }
 
+/// A bucket at the metageneration a response rendered it.
+pub(super) struct BucketVersion {
+    name: String,
+    metageneration: i64,
+}
+
+impl From<&BucketRecord> for BucketVersion {
+    fn from(record: &BucketRecord) -> Self {
+        Self {
+            name: record.name.clone(),
+            metageneration: record.metageneration,
+        }
+    }
+}
+
+/// An object generation at the metageneration a response rendered it.
+pub(super) struct ObjectVersion {
+    pub(super) bucket: String,
+    pub(super) name: String,
+    pub(super) generation: i64,
+    metageneration: i64,
+}
+
+impl From<&ObjectRecord> for ObjectVersion {
+    fn from(record: &ObjectRecord) -> Self {
+        Self {
+            bucket: record.bucket.clone(),
+            name: record.name.clone(),
+            generation: record.generation,
+            metageneration: record.metageneration,
+        }
+    }
+}
+
+impl ObjectVersion {
+    /// The owner whose ids and etags the object's ACL entries carry.
+    fn acl_owner(&self) -> AclOwner<'_> {
+        AclOwner::Object {
+            bucket: &self.bucket,
+            name: &self.name,
+            generation: self.generation,
+            metageneration: self.metageneration,
+        }
+    }
+}
+
+/// The resources a rendered JSON response names, recorded from the records it was rendered from,
+/// so `projection=full` adds ACL fields without reading names and generations back out of JSON.
+pub(super) enum AclSubjects {
+    /// The response carries no ACL fields: a policy, a permission test, a storage layout, a
+    /// soft-deleted version or a listing that renders no items.
+    None,
+    Bucket(BucketVersion),
+    /// One per `items` element, in order.
+    Buckets(Vec<BucketVersion>),
+    Object(ObjectVersion),
+    /// One listing's objects, one per `items` element, in order.
+    Objects {
+        bucket: String,
+        items: Vec<ObjectVersion>,
+    },
+}
+
+/// A rendered response and what `projection=full` adds ACL fields for.
+pub(super) struct Rendered {
+    pub(super) value: Value,
+    pub(super) subjects: AclSubjects,
+}
+
 /// Add ACL fields to rendered bucket/object resources or lists.
 ///
 /// The fields are omitted when uniform bucket-level access is enabled or when a strict caller
@@ -192,47 +262,58 @@ pub(super) async fn respond(
 pub(super) async fn add_full_projection(
     state: &State,
     caller: Option<Caller<'_>>,
-    value: &mut Value,
+    rendered: &mut Rendered,
     base_url: &str,
 ) -> Result<(), JsonError> {
-    match value["kind"].as_str() {
-        Some("storage#bucket") => add_bucket(state, caller, value, base_url).await,
-        Some("storage#buckets") => {
-            if let Some(items) = value["items"].as_array_mut() {
-                for item in items {
-                    add_bucket(state, caller, item, base_url).await?;
-                }
+    let Rendered { value, subjects } = rendered;
+    match &*subjects {
+        AclSubjects::None => Ok(()),
+        AclSubjects::Bucket(bucket) => add_bucket(state, caller, value, bucket, base_url).await,
+        AclSubjects::Buckets(buckets) => {
+            let items = rendered_items(value, buckets.len())?;
+            for (item, bucket) in items.iter_mut().zip(buckets) {
+                add_bucket(state, caller, item, bucket, base_url).await?;
             }
             Ok(())
         }
-        Some("storage#object") => {
-            let Some(bucket) = value["bucket"].as_str().map(str::to_owned) else {
-                return Ok(());
-            };
+        AclSubjects::Object(object) => {
             add_objects(
                 state,
                 caller,
-                &bucket,
+                &object.bucket,
                 std::slice::from_mut(value),
+                std::slice::from_ref(object),
                 base_url,
             )
             .await
         }
-        Some("storage#objects") => {
-            let Some(items) = value["items"].as_array_mut() else {
-                return Ok(());
-            };
-            let Some(bucket) = items
-                .first()
-                .and_then(|item| item["bucket"].as_str())
-                .map(str::to_owned)
-            else {
-                return Ok(());
-            };
-            add_objects(state, caller, &bucket, items, base_url).await
+        AclSubjects::Objects { bucket, items } => {
+            let resources = rendered_items(value, items.len())?;
+            add_objects(state, caller, bucket, resources, items, base_url).await
         }
-        _ => Ok(()),
     }
+}
+
+/// The `items` of a rendered list, which holds one element per subject and none when there are
+/// no subjects.
+fn rendered_items(value: &mut Value, subjects: usize) -> Result<&mut [Value], JsonError> {
+    if subjects == 0 {
+        return Ok(&mut []);
+    }
+    match value.get_mut("items").and_then(Value::as_array_mut) {
+        Some(items) if items.len() == subjects => Ok(items),
+        // Both come from one page, so they differ only through a rendering bug.
+        Some(_) | None => Err(JsonError::service_unavailable(
+            "Rendered items differ from their ACL subjects",
+        )),
+    }
+}
+
+/// The members of a rendered resource, which every resource renderer builds as a JSON object.
+fn resource_members(value: &mut Value) -> Result<&mut Map<String, Value>, JsonError> {
+    value
+        .as_object_mut()
+        .ok_or_else(|| JsonError::service_unavailable("Rendered resource must be an object"))
 }
 
 pub(crate) async fn may_read(
@@ -256,34 +337,31 @@ async fn add_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
     value: &mut Value,
+    bucket: &BucketVersion,
     base_url: &str,
 ) -> Result<(), JsonError> {
-    let Some(bucket) = value["name"].as_str().map(str::to_owned) else {
-        return Ok(());
-    };
-    if !may_read(state, caller, AclKind::Bucket, &bucket).await? {
+    if !may_read(state, caller, AclKind::Bucket, &bucket.name).await? {
         return Ok(());
     }
-    let Some(acl) = state.catalog.acl_projection(&bucket, Vec::new()).await? else {
+    let Some(acl) = state
+        .catalog
+        .acl_projection(&bucket.name, Vec::new())
+        .await?
+    else {
         return Ok(());
     };
-    // The rendered metageneration belongs to the response; a later ACL change has its own etag.
-    let metageneration = value["metageneration"]
-        .as_str()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(acl.bucket_metageneration);
     if acl.uniform_access {
         // ACLs stay stored for a later UBLA disable, but they are not part of the resource, and
         // Cloud Storage reports no `owner` either (recorded 2026-10-31).
         return Ok(());
     }
+    // The rendered metageneration belongs to the response; a later ACL change has its own etag.
     json::acl::add_bucket_acl_fields(
-        value,
+        resource_members(value)?,
         base_url,
-        &acl.project,
-        metageneration,
-        &acl.bucket,
-        &acl.default_object,
+        &bucket.name,
+        bucket.metageneration,
+        &acl,
     );
     Ok(())
 }
@@ -313,36 +391,52 @@ pub(crate) async fn readable_object_acls(
     Ok(acl.filter(|acl| !acl.uniform_access))
 }
 
+/// `resources` holds one rendered resource per element of `objects`, in the same order.
 async fn add_objects(
     state: &State,
     caller: Option<Caller<'_>>,
     bucket: &str,
-    items: &mut [Value],
+    resources: &mut [Value],
+    objects: &[ObjectVersion],
     base_url: &str,
 ) -> Result<(), JsonError> {
-    let generations: Vec<(String, i64)> = items
-        .iter()
-        .filter_map(|item| {
-            Some((
-                item["name"].as_str()?.to_owned(),
-                item["generation"].as_str()?.parse().ok()?,
-            ))
-        })
-        .collect();
-    if generations.len() != items.len() {
+    if objects.is_empty() {
         return Ok(());
     }
+    let generations = objects
+        .iter()
+        .map(|object| (object.name.clone(), object.generation))
+        .collect();
     let Some(acl) = readable_object_acls(state, caller, bucket, generations).await? else {
         return Ok(());
     };
-    for (item, object_acl) in items.iter_mut().zip(&acl.objects) {
+    for ((resource, object), object_acl) in resources.iter_mut().zip(objects).zip(&acl.objects) {
         let ObjectAcl::Visible { entries, owner } = object_acl else {
             continue;
         };
-        json::acl::add_object_acl_fields(item, base_url, entries);
-        if let Some(entity) = owner.as_ref().and_then(|owner| owner.entity()) {
-            item["owner"] = serde_json::json!({"entity":entity});
-        }
+        add_object_acl(resource, base_url, object, entries, owner.as_ref())?;
+    }
+    Ok(())
+}
+
+/// Add `acl`, and `owner` when the object has an owner entity, to a rendered object resource.
+pub(super) fn add_object_acl(
+    resource: &mut Value,
+    base_url: &str,
+    object: &ObjectVersion,
+    entries: &[AclEntry],
+    owner: Option<&ObjectOwner>,
+) -> Result<(), JsonError> {
+    let resource = resource_members(resource)?;
+    json::acl::add_object_acl_fields(resource, base_url, object.acl_owner(), entries);
+    if let Some(entity) = owner.and_then(ObjectOwner::entity) {
+        resource.insert(
+            "owner".into(),
+            Value::Object(Map::from_iter([(
+                "entity".into(),
+                Value::from(entity.as_str()),
+            )])),
+        );
     }
     Ok(())
 }

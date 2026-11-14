@@ -252,15 +252,9 @@ pub(crate) struct ObjectAclSnapshot {
 }
 
 impl ObjectAclSnapshot {
-    pub(crate) fn matches_resource(
-        &self,
-        bucket: &str,
-        name: Option<&str>,
-        generation: Option<i64>,
-    ) -> bool {
-        self.bucket == bucket
-            && name == Some(self.name.as_str())
-            && generation == Some(self.generation)
+    /// Whether the snapshot was recorded for this object generation.
+    pub(crate) fn matches_resource(&self, bucket: &str, name: &str, generation: i64) -> bool {
+        self.bucket == bucket && self.name == name && self.generation == generation
     }
 
     pub(super) fn new(

@@ -7,9 +7,10 @@ mod upload;
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody, acl, boxed, empty_response,
-    json_response_selected, require_empty_body, response_fields, resumable, retention_access,
-    validate_bodyless_post,
+    ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody,
+    acl::{self, AclSubjects, ObjectVersion, Rendered},
+    boxed, empty_response, json_response_selected, require_empty_body, response_fields, resumable,
+    retention_access, validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -39,7 +40,7 @@ impl From<Option<UploadAclSnapshot>> for AclSource {
 
 /// A written object's resource and where its ACL fields come from.
 struct Written {
-    value: Value,
+    rendered: Rendered,
     acl: AclSource,
 }
 
@@ -52,22 +53,26 @@ impl Written {
         key: Option<CustomerKey>,
         acl: AclSource,
     ) -> Result<Self, JsonError> {
-        Ok(Self {
-            value: json::object_resource_keyed(
-                record,
-                ctx.endpoints.api_base_url(),
-                projection,
-                key,
-            )?,
-            acl,
-        })
+        let value =
+            json::object_resource_keyed(record, ctx.endpoints.api_base_url(), projection, key)?;
+        Ok(Self::object(value, record, acl))
     }
-}
 
-impl From<Value> for Written {
-    fn from(value: Value) -> Self {
+    /// `value` renders `record`.
+    fn object(value: Value, record: &ObjectRecord, acl: AclSource) -> Self {
         Self {
-            value,
+            rendered: Rendered {
+                value,
+                subjects: AclSubjects::Object(record.into()),
+            },
+            acl,
+        }
+    }
+
+    /// A response whose ACL fields come from the live ACL of `subjects`.
+    fn live(value: Value, subjects: AclSubjects) -> Self {
+        Self {
+            rendered: Rendered { value, subjects },
             acl: AclSource::Live,
         }
     }
@@ -95,19 +100,15 @@ pub(super) async fn respond(
     let validator_header = operation.sends_etag_header();
     let written = match operation {
         ObjectRequest::Restore { target, conditions } => {
-            restore(request, ctx, &access, &query, target, conditions)
-                .await?
-                .into()
+            restore(request, ctx, &access, &query, target, conditions).await?
         }
-        ObjectRequest::Move(params) => move_object(request, ctx, &access, params).await?.into(),
+        ObjectRequest::Move(params) => move_object(request, ctx, &access, params).await?,
         ObjectRequest::Copy(params) => derived::copy(request, ctx, access, params).await?,
         ObjectRequest::Compose {
             bucket,
             name,
             conditions,
-        } => derived::compose(request, ctx, access, bucket, name, conditions)
-            .await?
-            .into(),
+        } => derived::compose(request, ctx, access, bucket, name, conditions).await?,
         ObjectRequest::Resumable(UploadRequest {
             bucket,
             name,
@@ -125,8 +126,8 @@ pub(super) async fn respond(
             )
             .await;
         }
-        ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?.into(),
-        ObjectRequest::Update(params) => update(request, ctx, &access, params).await?.into(),
+        ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?,
+        ObjectRequest::Update(params) => update(request, ctx, &access, params).await?,
         ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target).await?,
         ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
@@ -143,11 +144,14 @@ pub(super) async fn respond(
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
     };
-    let mut value = written.value;
+    let Written {
+        mut rendered,
+        acl: source,
+    } = written;
     if acl_full {
-        add_acl(ctx, &mut value, written.acl).await?;
+        add_acl(ctx, &mut rendered, source).await?;
     }
-    let mut response = json_response_selected(&mut value, &fields, cache);
+    let mut response = json_response_selected(&mut rendered.value, &fields, cache);
     if !validator_header {
         response.headers_mut().remove("etag");
     }
@@ -201,7 +205,7 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
 /// Adds the full projection's ACL fields to a written object's resource.
 async fn add_acl(
     ctx: ObjectCtx<'_>,
-    value: &mut Value,
+    rendered: &mut Rendered,
     source: AclSource,
 ) -> Result<(), JsonError> {
     let snapshot = match source {
@@ -209,42 +213,37 @@ async fn add_acl(
             return acl::add_full_projection(
                 ctx.state,
                 ctx.caller,
-                value,
+                rendered,
                 ctx.endpoints.api_base_url(),
             )
             .await;
         }
         AclSource::Replay(snapshot) => snapshot,
     };
-    if let Some(snapshot) = snapshot.recorded()? {
-        let bucket = value["bucket"]
-            .as_str()
-            .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
-        if !snapshot.matches_resource(
-            bucket,
-            value["name"].as_str(),
-            value["generation"]
-                .as_str()
-                .and_then(|generation| generation.parse::<i64>().ok()),
-        ) {
-            return Err(JsonError::from(ObjectError::InvalidMetadata));
-        }
-        let access = ctx.authorize(auth::OBJECTS_GET_IAM, bucket).await?;
-        if let Some(snapshot) = ctx
-            .state
-            .catalog
-            .object_acl_snapshot(snapshot.clone(), &access)
-            .await?
-        {
-            json::acl::add_object_acl_fields(
-                value,
-                ctx.endpoints.api_base_url(),
-                &snapshot.entries,
-            );
-            if let Some(entity) = snapshot.owner.as_ref().and_then(|owner| owner.entity()) {
-                value["owner"] = serde_json::json!({"entity":entity});
-            }
-        }
+    let Some(snapshot) = snapshot.recorded()? else {
+        return Ok(());
+    };
+    // A replay is recorded only by an upload or a copy, which render one object.
+    let AclSubjects::Object(object) = &rendered.subjects else {
+        return Err(JsonError::from(ObjectError::InvalidMetadata));
+    };
+    if !snapshot.matches_resource(&object.bucket, &object.name, object.generation) {
+        return Err(JsonError::from(ObjectError::InvalidMetadata));
+    }
+    let access = ctx.authorize(auth::OBJECTS_GET_IAM, &object.bucket).await?;
+    if let Some(snapshot) = ctx
+        .state
+        .catalog
+        .object_acl_snapshot(snapshot.clone(), &access)
+        .await?
+    {
+        acl::add_object_acl(
+            &mut rendered.value,
+            ctx.endpoints.api_base_url(),
+            object,
+            &snapshot.entries,
+            snapshot.owner.as_ref(),
+        )?;
     }
     Ok(())
 }
@@ -261,7 +260,7 @@ async fn restore(
     query: &BTreeMap<String, String>,
     target: ObjectTarget<i64>,
     conditions: ObjectConditions,
-) -> Result<Value, JsonError> {
+) -> Result<Written, JsonError> {
     json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query).await?;
     let create_access = ctx.authorize(auth::OBJECTS_CREATE, &target.bucket).await?;
@@ -277,11 +276,12 @@ async fn restore(
             },
         )
         .await?;
-    json::object_resource(
+    let value = json::object_resource(
         &record,
         ctx.endpoints.api_base_url(),
         json::Projection::NoAcl,
-    )
+    )?;
+    Ok(Written::object(value, &record, AclSource::Live))
 }
 
 async fn move_object(
@@ -289,7 +289,7 @@ async fn move_object(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: json::ObjectMoveParams,
-) -> Result<Value, JsonError> {
+) -> Result<Written, JsonError> {
     let json::ObjectMoveParams {
         names,
         conditions,
@@ -347,7 +347,8 @@ async fn move_object(
             }
             error => error.into(),
         })?;
-    json::object_resource(&record, ctx.endpoints.api_base_url(), projection)
+    let value = json::object_resource(&record, ctx.endpoints.api_base_url(), projection)?;
+    Ok(Written::object(value, &record, AclSource::Live))
 }
 
 async fn list(
@@ -355,7 +356,7 @@ async fn list(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: &json::ObjectListParams,
-) -> Result<Value, JsonError> {
+) -> Result<Written, JsonError> {
     json::validate_object_get_headers(headers)?;
     let page = ctx
         .state
@@ -369,9 +370,17 @@ async fn list(
     }
     if params.empty_page {
         // The recorded `maxResults=0` listing held only its kind: no items, prefixes or token.
-        return Ok(serde_json::json!({"kind": "storage#objects"}));
+        return Ok(Written::live(
+            serde_json::json!({"kind": "storage#objects"}),
+            AclSubjects::None,
+        ));
     }
-    json::object_list(&page, params, ctx.endpoints.api_base_url())
+    let value = json::object_list(&page, params, ctx.endpoints.api_base_url())?;
+    let subjects = AclSubjects::Objects {
+        bucket: params.query.bucket.clone(),
+        items: page.items.iter().map(ObjectVersion::from).collect(),
+    };
+    Ok(Written::live(value, subjects))
 }
 
 /// Explains an empty soft-deleted listing in debug logs. Diagnostic reads must not change the
@@ -413,7 +422,7 @@ async fn update(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: json::ObjectUpdateParams,
-) -> Result<Value, JsonError> {
+) -> Result<Written, JsonError> {
     let json::ObjectUpdateParams {
         target,
         conditions,
@@ -470,5 +479,5 @@ async fn update(
             access,
         )
         .await?;
-    json::object_resource_keyed(&record, ctx.endpoints.api_base_url(), projection, key)
+    Written::keyed(&record, ctx, projection, key, AclSource::Live)
 }

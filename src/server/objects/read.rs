@@ -402,12 +402,15 @@ async fn metadata(
     // Metadata needs no key; a supplied key must match and then reveals hashes.
     crate::csek::check_metadata(record.customer_key_sha256, key)
         .map_err(ObjectError::CustomerEncryption)?;
-    let mut resource = json::object_resource_keyed(
-        &record,
-        ctx.endpoints.api_base_url(),
-        params.projection,
-        key,
-    )?;
+    let mut resource = acl::Rendered {
+        value: json::object_resource_keyed(
+            &record,
+            ctx.endpoints.api_base_url(),
+            params.projection,
+            key,
+        )?,
+        subjects: acl::AclSubjects::Object((&record).into()),
+    };
     if params.projection == json::Projection::Full {
         acl::add_full_projection(
             ctx.state,
@@ -425,7 +428,7 @@ async fn metadata(
     Ok(boxed(read_metadata_response(
         request.headers(),
         &json::object_etag(&record),
-        resource,
+        resource.value,
         fields,
         query,
         JSON_RESOURCE_CACHE_CONTROL,
