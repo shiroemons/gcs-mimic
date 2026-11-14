@@ -370,15 +370,21 @@ impl From<CatalogError> for AdminError {
             CatalogError::Corrupt(cause) => Self::Corrupt(cause),
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
-            CatalogError::PublicAccessPrevention => Self::Forbidden,
-            error if error.is_refusal() => Self::Forbidden,
+            CatalogError::PublicAccessPrevention
+            | CatalogError::Denied(_)
+            | CatalogError::Forbidden => Self::Forbidden,
             CatalogError::Metadata(error) => Self::Invalid(error.to_string()),
             error @ (CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
                 Self::Invalid(reason)
             }
-            error => Self::backend(error),
+            error @ (CatalogError::AuthenticationAlreadyConfigured
+            | CatalogError::AlreadyExists
+            | CatalogError::NotEmpty
+            | CatalogError::RestoreConflict
+            | CatalogError::NewerSchema { .. }
+            | CatalogError::Unavailable(_)) => Self::backend(error),
         }
     }
 }
@@ -398,12 +404,24 @@ impl From<ObjectError> for AdminError {
             ObjectError::InvalidMetadata | ObjectError::UniformAccessPredefinedAcl => {
                 Self::Invalid(error.to_string())
             }
-            ObjectError::OverwriteForbidden(_) | ObjectError::PublicAccessPrevention => {
-                Self::Forbidden
-            }
-            error if error.is_refusal() => Self::Forbidden,
+            ObjectError::OverwriteForbidden(_)
+            | ObjectError::PublicAccessPrevention
+            | ObjectError::Denied(_)
+            | ObjectError::Forbidden => Self::Forbidden,
             ObjectError::BodyAborted(reason) => Self::BodyAborted(reason),
-            error => Self::backend(error),
+            error @ (ObjectError::Component(_)
+            | ObjectError::UnlockedRetentionOverrideRequired
+            | ObjectError::LockedRetention
+            | ObjectError::ObjectNotSoftDeleted
+            | ObjectError::NotModified
+            | ObjectError::InvalidDerivedArgument(_)
+            | ObjectError::ComposeClassMismatch { .. }
+            | ObjectError::DerivedTransferNotFound
+            | ObjectError::DerivedTransferExpired
+            | ObjectError::DerivedTransferBusy
+            | ObjectError::DerivedTransferIncomplete
+            | ObjectError::CustomerEncryption(_)
+            | ObjectError::Unavailable(_)) => Self::backend(error),
         }
     }
 }

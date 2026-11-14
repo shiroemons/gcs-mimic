@@ -925,6 +925,18 @@ impl From<BatchError> for AdminError {
     }
 }
 
+/// An import journal that moved on refuses the batch as a failed precondition.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "every other catalog error keeps the shared object mapping"
+)]
+fn journal_check_error(error: CatalogError) -> ObjectError {
+    match error {
+        CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
+        error => objects_error(error),
+    }
+}
+
 /// The attempted prefix of a batch; `results.len()` elements were attempted.
 struct Committed {
     results: Vec<Result<ObjectRecord, AdminError>>,
@@ -942,12 +954,8 @@ fn commit_batch(
     let transaction = sql::immediate(connection)?;
     let started = std::time::Instant::now();
     if let Some(import) = import {
-        import_journal::check_publication(&transaction, &import.binding, import.cursor).map_err(
-            |error| match error {
-                CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
-                error => objects_error(error),
-            },
-        )?;
+        import_journal::check_publication(&transaction, &import.binding, import.cursor)
+            .map_err(journal_check_error)?;
     }
     let mut results = Vec::new();
     for entry in entries {
@@ -973,7 +981,16 @@ fn commit_batch(
                     )?;
                     results.push(Err(error));
                 }
-                error => return Err(BatchError::Element(error)),
+                error @ (AdminError::Busy { .. }
+                | AdminError::DiskFull(_)
+                | AdminError::Closed
+                | AdminError::SeedProjectMismatch
+                | AdminError::SeedMetadataBudget { .. }
+                | AdminError::SourceChanged { .. }
+                | AdminError::Corrupt(_)
+                | AdminError::Io(_)
+                | AdminError::BodyAborted(_)
+                | AdminError::Backend(_)) => return Err(BatchError::Element(error)),
             },
         }
     }
