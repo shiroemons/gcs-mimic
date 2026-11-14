@@ -612,13 +612,14 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             .unwrap();
         let lease = catalog.lock_resumable_session(id, "bucket").await.unwrap();
         let options = lease.session.options.clone();
-        let (catalog_wait, _) = tokio::sync::watch::channel(false);
+        let (catalog_wait, _) = tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer);
         let chunk = crate::storage::ResumableChunk {
             start: 262144,
             length: 1,
-            total: Some(262145),
-            finalize: true,
-            open_end: false,
+            end: crate::storage::ChunkEnd::Exact {
+                total: Some(262145),
+                finalize: true,
+            },
             options,
             catalog_wait,
         };

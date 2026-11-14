@@ -1496,13 +1496,14 @@ async fn finalize_session(
         .lock_resumable_session(id, "test-bucket")
         .await
         .unwrap();
-    let (catalog_wait, _) = tokio::sync::watch::channel(false);
+    let (catalog_wait, _) = tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer);
     let chunk = super::super::ResumableChunk {
         start: 0,
         length: bytes.len() as u64,
-        total: Some(bytes.len() as u64),
-        finalize: true,
-        open_end: false,
+        end: crate::storage::ChunkEnd::Exact {
+            total: Some(bytes.len() as u64),
+            finalize: true,
+        },
         options: lease.session.options.clone(),
         catalog_wait,
     };

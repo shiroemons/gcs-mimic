@@ -166,7 +166,7 @@ async fn upload_failure_first_drops_the_producer() {
 async fn session_wait_uses_the_session_budget() {
     let mut fixture = Fixture::new().await;
     fixture.config.catalog_wait_timeout = crate::time_limit::TimeLimit::from_millis(1);
-    let (_progress, updates) = watch::channel(false);
+    let (_progress, updates) = watch::channel(crate::storage::ChunkWait::Transfer);
     let result = CatalogWait::Session {
         ctx: fixture.ctx(),
         progress: updates,

@@ -1,6 +1,6 @@
 use super::{
-    JsonError, ObjectInsertParams, Projection, checksum, multipart::MultipartMetadata,
-    multipart_metadata_of, upload_content_type,
+    JsonError, ObjectInsertParams, checksum, multipart::MultipartMetadata, multipart_metadata_of,
+    upload_content_type,
 };
 use crate::{
     bucket::BucketAccess,
@@ -189,7 +189,7 @@ pub(crate) fn options(
             conditions: params.conditions,
             access,
             origin,
-            projection_full: params.projection == Projection::Full,
+            projection: params.projection,
             response_fields: None,
         },
     ))

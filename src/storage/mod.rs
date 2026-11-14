@@ -25,7 +25,6 @@ pub(crate) use catalog::xml_multipart;
 
 pub(crate) use catalog::CopyReplay;
 pub(crate) use catalog::Page;
-pub(crate) use catalog::ResumableChunk;
 pub(crate) use catalog::ResumableError;
 pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
@@ -33,6 +32,7 @@ pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState};
 pub(crate) use catalog::{AppendError, AppendWriter, Finality};
 pub use catalog::{Catalog, DataDirState};
+pub(crate) use catalog::{ChunkEnd, ChunkWait, ResumableChunk};
 pub(crate) use catalog::{CopyReplaySource, ReplayInvocation};
 pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource};
 #[cfg(test)]

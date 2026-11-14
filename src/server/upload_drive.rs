@@ -68,7 +68,7 @@ pub(crate) enum CatalogWait<'a> {
     Upload(ObjectCtx<'a>),
     Session {
         ctx: ObjectCtx<'a>,
-        progress: watch::Receiver<bool>,
+        progress: watch::Receiver<crate::storage::ChunkWait>,
     },
 }
 

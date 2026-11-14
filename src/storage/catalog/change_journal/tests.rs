@@ -407,11 +407,12 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
             ResumableChunk {
                 start: 0,
                 length: 4,
-                total: Some(4),
-                finalize: true,
-                open_end: false,
+                end: crate::storage::ChunkEnd::Exact {
+                    total: Some(4),
+                    finalize: true,
+                },
                 options,
-                catalog_wait: tokio::sync::watch::channel(false).0,
+                catalog_wait: tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer).0,
             },
             body(vec![Bytes::from_static(b"body")]),
             catalog.admit_object_upload().unwrap(),

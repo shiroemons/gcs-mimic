@@ -5,6 +5,7 @@ use crate::storage::failure::unavailable;
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::{BucketAccess, CatalogError},
+    json::Projection,
     object::{
         ExpectedHashes, Hold, MapPatch, ObjectConditions, ObjectMetadataUpdate, Patch, WriteMode,
     },
@@ -208,7 +209,7 @@ impl StoredOptions {
             ],
             access,
             origin: options.origin.clone(),
-            full: options.projection_full,
+            full: options.projection == Projection::Full,
             response_fields: options.response_fields.clone(),
         })
     }
@@ -266,7 +267,11 @@ impl StoredOptions {
             },
             access,
             origin: self.origin,
-            projection_full: self.full,
+            projection: if self.full {
+                Projection::Full
+            } else {
+                Projection::NoAcl
+            },
             response_fields: self.response_fields,
         })
     }

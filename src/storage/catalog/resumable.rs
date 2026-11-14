@@ -108,7 +108,7 @@ pub(crate) struct ResumableOptions {
     pub conditions: ObjectConditions,
     pub access: BucketAccess,
     pub origin: Option<String>,
-    pub projection_full: bool,
+    pub projection: crate::json::Projection,
     pub response_fields: Option<String>,
 }
 
@@ -121,7 +121,7 @@ impl ResumableOptions {
             conditions: Default::default(),
             access,
             origin: None,
-            projection_full: false,
+            projection: crate::json::Projection::NoAcl,
             response_fields: None,
         }
     }
@@ -820,7 +820,7 @@ mod tests {
             )]))
         );
         assert_eq!(options.conditions.if_generation_match, Some(0));
-        assert!(options.projection_full);
+        assert_eq!(options.projection, crate::json::Projection::Full);
     }
 
     #[test]

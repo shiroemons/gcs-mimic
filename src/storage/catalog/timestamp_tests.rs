@@ -351,11 +351,13 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                 ResumableChunk {
                     start: 0,
                     length: 1,
-                    total: Some(1),
-                    finalize: true,
-                    open_end: false,
+                    end: crate::storage::ChunkEnd::Exact {
+                        total: Some(1),
+                        finalize: true,
+                    },
                     options,
-                    catalog_wait: tokio::sync::watch::channel(false).0,
+                    catalog_wait: tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer)
+                        .0,
                 },
                 body(),
                 catalog.admit_object_upload().unwrap(),
@@ -497,11 +499,15 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                     ResumableChunk {
                         start: 0,
                         length: 1,
-                        total: Some(1),
-                        finalize: true,
-                        open_end: false,
+                        end: crate::storage::ChunkEnd::Exact {
+                            total: Some(1),
+                            finalize: true,
+                        },
                         options,
-                        catalog_wait: tokio::sync::watch::channel(false).0
+                        catalog_wait: tokio::sync::watch::channel(
+                            crate::storage::ChunkWait::Transfer
+                        )
+                        .0
                     },
                     body(),
                     catalog.admit_object_upload().unwrap(),

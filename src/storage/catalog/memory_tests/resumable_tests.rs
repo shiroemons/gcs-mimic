@@ -36,11 +36,12 @@ async fn chunk(
             ResumableChunk {
                 start,
                 length: bytes.len() as u64,
-                total,
-                finalize: matches!(mode, Finalize),
-                open_end: false,
+                end: crate::storage::ChunkEnd::Exact {
+                    total,
+                    finalize: matches!(mode, Finalize),
+                },
                 options,
-                catalog_wait: tokio::sync::watch::channel(false).0,
+                catalog_wait: tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer).0,
             },
             body,
             catalog.admit_object_upload()?,
@@ -341,11 +342,13 @@ async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_ha
                 ResumableChunk {
                     start: 4,
                     length: 6,
-                    total: None,
-                    finalize: false,
-                    open_end: false,
+                    end: crate::storage::ChunkEnd::Exact {
+                        total: None,
+                        finalize: false,
+                    },
                     options,
-                    catalog_wait: tokio::sync::watch::channel(false).0,
+                    catalog_wait: tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer)
+                        .0,
                 },
                 body,
                 permit,
@@ -455,11 +458,13 @@ async fn ram_resumable_close_wakes_a_stalled_body_and_waits_for_owned_cleanup() 
                 ResumableChunk {
                     start: 0,
                     length: 7,
-                    total: None,
-                    finalize: false,
-                    open_end: false,
+                    end: crate::storage::ChunkEnd::Exact {
+                        total: None,
+                        finalize: false,
+                    },
                     options,
-                    catalog_wait: tokio::sync::watch::channel(false).0,
+                    catalog_wait: tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer)
+                        .0,
                 },
                 body,
                 permit,
@@ -513,7 +518,8 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
     });
     started.await.unwrap();
     let body = test_fixtures::body(vec![Bytes::from_static(b"tail")]);
-    let (catalog_wait, mut progress) = tokio::sync::watch::channel(false);
+    let (catalog_wait, mut progress) =
+        tokio::sync::watch::channel(crate::storage::ChunkWait::Transfer);
     let worker = catalog.clone();
     let request = tokio::spawn(async move {
         worker
@@ -522,9 +528,10 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
                 ResumableChunk {
                     start: 4,
                     length: 4,
-                    total: None,
-                    finalize: false,
-                    open_end: false,
+                    end: crate::storage::ChunkEnd::Exact {
+                        total: None,
+                        finalize: false,
+                    },
                     options,
                     catalog_wait,
                 },
@@ -535,7 +542,7 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
             .await
     });
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while !*progress.borrow_and_update() {
+        while *progress.borrow_and_update() != crate::storage::ChunkWait::Catalog {
             progress.changed().await.unwrap();
         }
     })

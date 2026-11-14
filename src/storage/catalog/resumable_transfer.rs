@@ -17,15 +17,49 @@ use serde_json::Value;
 use std::io;
 use tokio::sync::{mpsc, oneshot, watch};
 
+/// What a chunk's request is waiting on: its body and file I/O, which the request deadline
+/// bounds, or the catalog, which `catalog_wait_timeout_ms` also bounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ChunkWait {
+    #[default]
+    Transfer,
+    Catalog,
+}
+
+/// Where a chunk's body ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChunkEnd {
+    /// The body is exactly `length` bytes. `total` is the object's size once known; the chunk
+    /// publishes the object when `finalize` is set.
+    Exact { total: Option<u64>, finalize: bool },
+    /// The body length is unknown: `length` only bounds it, and its EOF fixes the total and
+    /// publishes the object.
+    Open,
+}
+
+impl ChunkEnd {
+    /// The total to checkpoint once `end` bytes are durable.
+    fn total(self, end: u64) -> Option<u64> {
+        match self {
+            Self::Exact { total, .. } => total,
+            Self::Open => Some(end),
+        }
+    }
+
+    fn finalizes(self) -> bool {
+        match self {
+            Self::Exact { finalize, .. } => finalize,
+            Self::Open => true,
+        }
+    }
+}
+
 pub(crate) struct ResumableChunk {
     pub start: u64,
     pub length: u64,
-    pub total: Option<u64>,
-    pub finalize: bool,
-    /// The body length is unknown: `length` only bounds it, and its EOF sets the total.
-    pub open_end: bool,
+    pub end: ChunkEnd,
     pub options: ResumableOptions,
-    pub catalog_wait: watch::Sender<bool>,
+    pub catalog_wait: watch::Sender<ChunkWait>,
 }
 
 use crate::storage::failure::object_unavailable;
@@ -66,7 +100,7 @@ async fn receive_chunk(
                         .checked_add(bytes.len() as u64)
                         .filter(|n| *n <= chunk.length)
                         .ok_or_else(|| {
-                            if chunk.open_end {
+                            if chunk.end == ChunkEnd::Open {
                                 ObjectError::TooLarge
                             } else {
                                 ObjectError::BodyAborted(
@@ -84,7 +118,9 @@ async fn receive_chunk(
                     }
                     received = next;
                 }
-                Some(Ok(UploadChunk::End)) if chunk.open_end || received == chunk.length => {
+                Some(Ok(UploadChunk::End))
+                    if chunk.end == ChunkEnd::Open || received == chunk.length =>
+                {
                     break;
                 }
                 Some(Err(error)) => return Err(ObjectError::body_aborted(error)),
@@ -178,15 +214,11 @@ impl Catalog {
             let end = chunk.start + received;
             // An open-ended body completes the object at its EOF. If it ends inside the
             // persisted prefix, the checkpoint rejects the total and nothing was appended.
-            let total = if chunk.open_end {
-                Some(end)
-            } else {
-                chunk.total
-            };
+            let total = chunk.end.total(end);
             let offset = lease.session.offset.max(end);
             #[cfg(test)]
             fault::hit(&catalog.0.data_dir, Step::Checkpoint).map_err(object_unavailable)?;
-            chunk.catalog_wait.send_replace(true);
+            chunk.catalog_wait.send_replace(ChunkWait::Catalog);
             let file = catalog
                 .checkpoint_resumable_output(
                     &mut lease,
@@ -197,8 +229,8 @@ impl Catalog {
                 )
                 .await?
                 .ok_or_else(|| object_unavailable("missing upload checkpoint output"))?;
-            chunk.catalog_wait.send_replace(false);
-            if !chunk.finalize {
+            chunk.catalog_wait.send_replace(ChunkWait::Transfer);
+            if !chunk.end.finalizes() {
                 return Ok(None);
             }
             let result = catalog
@@ -329,7 +361,7 @@ impl Catalog {
         lease: &SessionLease,
         options: ResumableOptions,
         mut file: Output,
-        catalog_wait: watch::Sender<bool>,
+        catalog_wait: watch::Sender<ChunkWait>,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Value, ResumableError> {
         let (Hashes { md5, crc32c: crc }, length) = file.hashes().await?;
@@ -353,7 +385,7 @@ impl Catalog {
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
-        catalog_wait.send_replace(true);
+        catalog_wait.send_replace(ChunkWait::Catalog);
         let publication =
             move |connection: &mut rusqlite::Connection| -> Result<(Value, objects::Retired), ResumableError> {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;

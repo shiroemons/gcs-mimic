@@ -9,7 +9,7 @@ use crate::{
     },
     object::{ObjectError, ObjectRecord},
     storage::{
-        ResumableChunk, ResumableOptions, SessionState,
+        ChunkEnd, ChunkWait, ResumableChunk, ResumableOptions, SessionState,
         failure::{BackendFailure, object_unavailable},
     },
     time_limit::TimeLimit,
@@ -192,6 +192,20 @@ struct ChunkPlan {
     finalize: bool,
     /// The body length is unknown: `length` only bounds it, and its EOF ends the object.
     open_end: bool,
+}
+
+impl ChunkPlan {
+    /// Where the stored chunk's body ends.
+    fn body_end(&self) -> ChunkEnd {
+        if self.open_end {
+            ChunkEnd::Open
+        } else {
+            ChunkEnd::Exact {
+                total: self.total,
+                finalize: self.finalize,
+            }
+        }
+    }
 }
 
 /// The session state a chunk is planned against.
@@ -523,13 +537,11 @@ pub(crate) async fn transfer(
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
     let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned())?;
-    let (catalog_wait, progress) = watch::channel(false);
+    let (catalog_wait, progress) = watch::channel(ChunkWait::Transfer);
     let chunk = ResumableChunk {
         start: plan.start,
         length: plan.length,
-        total: plan.total,
-        finalize: plan.finalize,
-        open_end: plan.open_end,
+        end: plan.body_end(),
         options,
         catalog_wait,
     };
@@ -558,11 +570,7 @@ fn completion_renderer(
         .as_deref()
         .map(json::Fields::parse_syntax)
         .transpose()?;
-    let projection = if options.projection_full {
-        json::Projection::Full
-    } else {
-        json::Projection::NoAcl
-    };
+    let projection = options.projection;
     let key = options
         .metadata
         .customer_key_sha256
@@ -584,7 +592,7 @@ async fn stream_chunk(
     ctx: ObjectCtx<'_>,
     upload: impl std::future::Future<Output = Result<Option<serde_json::Value>, JsonError>>,
     sender: UploadSender,
-    progress: watch::Receiver<bool>,
+    progress: watch::Receiver<ChunkWait>,
 ) -> Result<Option<serde_json::Value>, JsonError> {
     let producer = async {
         stream_upload(body, &sender, ctx.config.max_object_bytes, None)
@@ -603,7 +611,7 @@ async fn stream_chunk(
 
 pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
     operation: impl std::future::Future<Output = Result<T, E>>,
-    mut progress: watch::Receiver<bool>,
+    mut progress: watch::Receiver<ChunkWait>,
     timeout: TimeLimit,
     deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
@@ -611,7 +619,7 @@ pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
     let _wait = super::begin_catalog_wait(activity).await;
     tokio::pin!(operation);
     loop {
-        let waiting = *progress.borrow_and_update();
+        let waiting = *progress.borrow_and_update() == ChunkWait::Catalog;
         let wait_deadline = if waiting {
             deadline.min(timeout.deadline())
         } else {
@@ -640,10 +648,10 @@ mod tests {
 
     // Returns once the task is waiting, so its deadlines start before any advance.
     async fn wait(
-        waiting: bool,
+        waiting: ChunkWait,
     ) -> (
         JoinHandle<Result<(), JsonError>>,
-        watch::Sender<bool>,
+        watch::Sender<ChunkWait>,
         oneshot::Sender<()>,
     ) {
         let (progress, updates) = watch::channel(waiting);
@@ -681,14 +689,14 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn work_outside_catalog_waits_uses_the_request_deadline() {
-        let (task, _progress, finish) = wait(false).await;
+        let (task, _progress, finish) = wait(ChunkWait::Transfer).await;
         advance(BUDGET * 10).await;
         settle().await;
         assert!(!task.is_finished());
         finish.send(()).unwrap();
         task.await.unwrap().unwrap();
 
-        let (task, _progress, _finish) = wait(false).await;
+        let (task, _progress, _finish) = wait(ChunkWait::Transfer).await;
         advance(REQUEST - Duration::from_millis(1)).await;
         settle().await;
         assert!(!task.is_finished());
@@ -701,7 +709,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn catalog_wait_times_out_after_its_budget() {
-        let (task, _progress, _finish) = wait(true).await;
+        let (task, _progress, _finish) = wait(ChunkWait::Catalog).await;
         advance(BUDGET - Duration::from_millis(1)).await;
         settle().await;
         assert!(!task.is_finished());
@@ -714,12 +722,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn each_catalog_wait_starts_a_new_budget() {
-        let (task, progress, _finish) = wait(true).await;
+        let (task, progress, _finish) = wait(ChunkWait::Catalog).await;
         advance(BUDGET - Duration::from_millis(1)).await;
-        progress.send_replace(false);
+        progress.send_replace(ChunkWait::Transfer);
         settle().await;
         advance(BUDGET * 5).await;
-        progress.send_replace(true);
+        progress.send_replace(ChunkWait::Catalog);
         settle().await;
         advance(BUDGET - Duration::from_millis(1)).await;
         settle().await;

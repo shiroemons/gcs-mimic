@@ -1,5 +1,6 @@
 use super::write::{EndOfStream, MessagePosition, Reported, Responses, send_status};
 use super::*;
+use crate::storage::{ChunkEnd, ChunkWait};
 
 fn upload_id(bucket: &str, id: &str) -> String {
     format!("{bucket}/{id}")
@@ -209,13 +210,14 @@ impl Storage {
                 ));
             }
             let (tx, rx) = mpsc::channel(2);
-            let (catalog_wait, _wait) = watch::channel(false);
+            let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
             let chunk = ResumableChunk {
                 start: offset,
                 length,
-                total: persisted.total.or(message.finish_write.then_some(written)),
-                finalize: message.finish_write,
-                open_end: false,
+                end: ChunkEnd::Exact {
+                    total: persisted.total.or(message.finish_write.then_some(written)),
+                    finalize: message.finish_write,
+                },
                 options,
                 catalog_wait,
             };
