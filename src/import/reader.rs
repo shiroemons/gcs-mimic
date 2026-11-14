@@ -678,23 +678,29 @@ fn reject(
     report.block(relative, field.name(), reason, field.fix(), Some(original))
 }
 
-/// A source timestamp in Unix microseconds, or the finding that reports why it has none.
+/// A source timestamp in Unix microseconds, or the finding that reports why it has none. Its
+/// object's identity holds it as this platform's clock time, so a time the clock cannot hold
+/// (Windows starts in 1601) is an attribute this conversion cannot preserve.
 fn timestamp(
     report: &mut Reporter,
     relative: &str,
     field: ObjectField,
     value: &str,
 ) -> Result<Checked<i64>, ImportFailure> {
-    Ok(match codec::parse_timestamp(value) {
-        Ok(time) => Ok(time),
-        Err(reason) => Err(reject(
-            report,
-            relative,
-            field,
-            &reason.to_string(),
-            value.to_owned(),
-        )?),
-    })
+    let reason = match codec::parse_timestamp(value) {
+        Ok(time) => match super::filesystem::time(time) {
+            Ok(_) => return Ok(Ok(time)),
+            Err(error) => error.to_string(),
+        },
+        Err(reason) => reason.to_string(),
+    };
+    Ok(Err(reject(
+        report,
+        relative,
+        field,
+        &reason,
+        value.to_owned(),
+    )?))
 }
 
 /// Reports every object attribute this conversion cannot preserve and parses the values that

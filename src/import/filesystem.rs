@@ -227,9 +227,8 @@ pub(super) fn time(micros: i64) -> Result<SystemTime, codec::TimestampError> {
 }
 
 impl ObjectRecord {
-    /// The source identity publication records. The scan parsed every time already; converting
-    /// one to this platform's clock still fails where it holds no such instant (Windows starts
-    /// in 1601), so the metadata scan converts each object's before any is published.
+    /// The source identity publication records. The scan parsed every time already and blocked
+    /// any this platform's clock cannot hold, so these conversions hold for a scanned record.
     fn identity(&self) -> Result<ImportedIdentity, ImportError> {
         let identity = ImportedIdentity::new(
             self.spec.generation,
@@ -263,11 +262,6 @@ async fn metadata_scan(
     let result = async {
         while let Some(page) = receive.recv().await {
             findings(&page, diagnostics)?;
-            for record in page.records {
-                if let Record::Object(object) = record {
-                    object.identity()?;
-                }
-            }
         }
         Ok::<_, ImportError>(())
     }

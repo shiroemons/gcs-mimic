@@ -236,6 +236,55 @@ fn corrupt_records_are_all_reported_with_relative_fields_original_values_and_rem
     );
 }
 
+/// Windows holds no instant before 1601, so an object created then cannot keep its creation
+/// time there. The scan blocks it like any other attribute the conversion cannot preserve, and
+/// the dry run says so before an import starts. Other platforms hold the time and import it.
+#[test]
+fn source_times_this_platform_cannot_hold_block_the_scan() {
+    let (_dir, options) = setup();
+    let mut attrs: Value = serde_json::from_slice(ATTRS).unwrap();
+    attrs["Created"] = json!("1500-01-01T00:00:00Z");
+    object(
+        &options.source,
+        "bucket-one/ancient",
+        &serde_json::to_vec(&attrs).unwrap(),
+    );
+    let (summary, pages, _) = inspect(options.clone());
+    if cfg!(windows) {
+        assert!(!summary.eligible, "{pages:?}");
+        assert_eq!(summary.blocking_findings, 1, "{pages:?}");
+        assert_finding(
+            &pages,
+            "bucket-one/ancient:Created",
+            "source timestamp is outside this platform's range",
+        );
+        let finding = pages
+            .iter()
+            .filter_map(|page| page["page"]["findings"].as_array())
+            .flatten()
+            .find(|finding| finding["diagnostic"]["key"] == "bucket-one/ancient:Created")
+            .unwrap();
+        assert_eq!(
+            finding["diagnostic"]["fix"],
+            "Provide a complete source timestamp exact through microseconds; retain pre-epoch instants and do not truncate nonzero fractional digits."
+        );
+        assert_eq!(finding["original"], "1500-01-01T00:00:00Z");
+        let error = import::execute(options.clone(), Vec::new(), Vec::new()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "import preflight found blockers; restore an immutable supported snapshot and retry"
+        );
+        assert!(!options.destination.exists());
+    } else {
+        assert!(summary.eligible, "{pages:?}");
+        assert!(
+            import::execute(options, Vec::new(), Vec::new())
+                .unwrap()
+                .complete
+        );
+    }
+}
+
 #[test]
 fn normalized_source_names_are_reported_without_inventing_original_names() {
     let (_dir, options) = setup();
