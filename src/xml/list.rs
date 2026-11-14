@@ -11,23 +11,73 @@ use hyper::header::HeaderValue;
 use hyper::{HeaderMap, Request, Response};
 use std::collections::BTreeMap;
 
+/// The listing version's cursor, echoed in its response.
+enum Pagination {
+    /// `list-type` 1 (default): `marker`/`key-marker` and `generation-marker`/`version-id-marker`.
+    V1 {
+        marker: String,
+        generation: Option<i64>,
+    },
+    /// `list-type=2`: `continuation-token` or `start-after`.
+    V2 {
+        continuation: Option<String>,
+        start_after: Option<String>,
+    },
+}
+
+/// How names are written: as stored, or with `encoding-type=url`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NameEncoding {
+    Plain,
+    Url,
+}
+
+impl NameEncoding {
+    fn element(self, w: &mut XmlWriter, name: &str, value: &str) {
+        match self {
+            Self::Plain => w.element(name, value),
+            Self::Url => w.element(
+                name,
+                &crate::url::encode_object_name(value).replace('/', "%2F"),
+            ),
+        }
+    }
+}
+
+/// `x-goog-interop-list-objects-format`: the interoperable versions listing uses S3's names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ListFormat {
+    Native,
+    Interoperable,
+}
+
 pub(super) struct Params {
     query: ObjectListQuery,
-    limit: usize,
-    /// Whether the request named a usable `max-keys`; only then does a version 1 listing echo it.
-    max_keys_given: bool,
-    v2: bool,
-    encoded: bool,
-    interop: bool,
-    marker: String,
-    generation_marker: Option<i64>,
-    continuation: Option<String>,
-    start_after: Option<String>,
+    /// A usable `max-keys`; a version 1 listing echoes `MaxKeys` only when it is present.
+    max_keys: Option<usize>,
+    pagination: Pagination,
+    encoding: NameEncoding,
+    format: ListFormat,
+}
+
+impl Params {
+    fn limit(&self) -> usize {
+        self.max_keys.unwrap_or(1000)
+    }
+
+    /// Version 2 and the interoperable format write `StorageClass` per item.
+    fn writes_storage_class(&self) -> bool {
+        matches!(self.pagination, Pagination::V2 { .. }) || self.format == ListFormat::Interoperable
+    }
+
+    fn interoperable_versions(&self) -> bool {
+        self.query.versions && self.format == ListFormat::Interoperable
+    }
 }
 
 pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Params, Error> {
     let mut values = crate::auth::signature::xml_query(raw, headers)?;
-    let v2 = match values.remove("list-type").as_deref() {
+    let version2 = match values.remove("list-type").as_deref() {
         None | Some("1") => false,
         Some("2") => true,
         _ => return Err(Error::invalid("list-type must be 1 or 2")),
@@ -49,10 +99,9 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
         ),
         Some(_) => None,
     };
-    let limit = max_keys.unwrap_or(1000);
-    let encoded = match values.remove("encoding-type").as_deref() {
-        None => false,
-        Some("url") => true,
+    let encoding = match values.remove("encoding-type").as_deref() {
+        None => NameEncoding::Plain,
+        Some("url") => NameEncoding::Url,
         _ => return Err(Error::invalid("encoding-type must be url")),
     };
     let mut query = ObjectListQuery {
@@ -62,17 +111,19 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
         versions: values.remove("versions").is_some(),
         ..ObjectListQuery::default()
     };
-    let interop = match headers.get("x-goog-interop-list-objects-format") {
-        None => false,
-        Some(value) if value == "disabled" => false,
-        Some(value) if value == "enabled" => true,
+    let format = match headers
+        .get("x-goog-interop-list-objects-format")
+        .map(HeaderValue::as_bytes)
+    {
+        None | Some(b"disabled") => ListFormat::Native,
+        Some(b"enabled") => ListFormat::Interoperable,
         Some(_) => {
             return Err(Error::invalid(
                 "x-goog-interop-list-objects-format must be enabled or disabled",
             ));
         }
     };
-    let (marker, generation_marker, continuation, start_after) = if v2 {
+    let pagination = if version2 {
         match values.remove("fetch-owner").as_deref() {
             None | Some("false") => {}
             Some("true") => return Err(Error::unsupported("fetch-owner=true")),
@@ -88,7 +139,10 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
         } else if let Some(marker) = &start_after {
             query.cursor = marker_cursor(marker, None, &query);
         }
-        (String::new(), None, continuation, start_after)
+        Pagination::V2 {
+            continuation,
+            start_after,
+        }
     } else {
         let marker = take_alias(&mut values, "marker", "key-marker")?.unwrap_or_default();
         let generation = take_alias(&mut values, "generation-marker", "version-id-marker")?
@@ -100,22 +154,17 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
             ));
         }
         query.cursor = marker_cursor(&marker, generation, &query);
-        (marker, generation, None, None)
+        Pagination::V1 { marker, generation }
     };
     if let Some(key) = values.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(key));
     }
     Ok(Params {
         query,
-        limit,
-        max_keys_given: max_keys.is_some(),
-        v2,
-        encoded,
-        interop,
-        marker,
-        generation_marker,
-        continuation,
-        start_after,
+        max_keys,
+        pagination,
+        encoding,
+        format,
     })
 }
 
@@ -197,7 +246,7 @@ pub(crate) async fn respond(
     let page = ctx
         .await_catalog(ctx.state.catalog.list_objects(
             params.query.clone(),
-            params.limit.min(1000),
+            params.limit().min(1000),
             &access,
         ))
         .await
@@ -218,37 +267,38 @@ pub(crate) async fn respond(
     Ok(boxed(response))
 }
 
-fn name_element(w: &mut XmlWriter, name: &str, value: &str, params: &Params) {
-    if params.encoded {
-        w.element(
-            name,
-            &crate::url::encode_object_name(value).replace('/', "%2F"),
-        );
-    } else {
-        w.element(name, value);
-    }
-}
-
 pub(super) fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
-    let root = if params.query.versions && params.interop {
+    let root = if params.interoperable_versions() {
         "ListVersionsResult"
     } else {
         "ListBucketResult"
     };
     let mut w = XmlWriter::new(root, Namespace::Listing);
     w.element("Name", &params.query.bucket);
-    name_element(&mut w, "Prefix", &params.query.prefix, params);
-    if params.v2 {
-        render_header_v2(&mut w, params, page);
-    } else {
-        render_header_v1(&mut w, params, page);
+    params
+        .encoding
+        .element(&mut w, "Prefix", &params.query.prefix);
+    match &params.pagination {
+        Pagination::V1 { marker, generation } => {
+            render_header_v1(&mut w, params, marker, *generation, page);
+        }
+        Pagination::V2 {
+            continuation,
+            start_after,
+        } => render_header_v2(
+            &mut w,
+            params,
+            continuation.as_deref(),
+            start_after.as_deref(),
+            page,
+        ),
     }
     for object in &page.items {
         render_item(&mut w, params, object)?;
     }
     for prefix in &page.prefixes {
         w.group("CommonPrefixes", |w| {
-            name_element(w, "Prefix", prefix, params);
+            params.encoding.element(w, "Prefix", prefix);
         });
     }
     Ok(w.finish())
@@ -256,50 +306,63 @@ pub(super) fn render(params: &Params, page: &ObjectListPage) -> Result<String, E
 
 /// Recorded version 1 order: Marker, GenerationMarker (versions only, empty when absent),
 /// Delimiter, NextMarker, MaxKeys (only when requested), IsTruncated.
-fn render_header_v1(w: &mut XmlWriter, params: &Params, page: &ObjectListPage) {
+fn render_header_v1(
+    w: &mut XmlWriter,
+    params: &Params,
+    marker: &str,
+    generation: Option<i64>,
+    page: &ObjectListPage,
+) {
+    let encoding = params.encoding;
     let (marker_tag, generation_tag) = marker_tags(params);
-    name_element(w, marker_tag, &params.marker, params);
+    encoding.element(w, marker_tag, marker);
     if params.query.versions {
-        let generation = params
-            .generation_marker
+        let generation = generation
             .map(|generation| generation.to_string())
             .unwrap_or_default();
         w.element(generation_tag, &generation);
     }
     if !params.query.delimiter.is_empty() {
-        name_element(w, "Delimiter", &params.query.delimiter, params);
+        encoding.element(w, "Delimiter", &params.query.delimiter);
     }
     if let Some(cursor) = &page.next {
-        name_element(w, &format!("Next{marker_tag}"), &cursor.name, params);
+        encoding.element(w, &format!("Next{marker_tag}"), &cursor.name);
         if let Some(generation) = cursor.generation {
             w.value(&format!("Next{generation_tag}"), generation);
         }
     }
-    if params.max_keys_given {
-        w.value("MaxKeys", params.limit);
+    if let Some(max_keys) = params.max_keys {
+        w.value("MaxKeys", max_keys);
     }
     w.value("IsTruncated", page.next.is_some());
-    if params.encoded {
+    if encoding == NameEncoding::Url {
         w.element("EncodingType", "url");
     }
 }
 
 /// Version 2 listings were not recorded; they keep MaxKeys always and the S3 field order.
-fn render_header_v2(w: &mut XmlWriter, params: &Params, page: &ObjectListPage) {
+fn render_header_v2(
+    w: &mut XmlWriter,
+    params: &Params,
+    continuation: Option<&str>,
+    start_after: Option<&str>,
+    page: &ObjectListPage,
+) {
+    let encoding = params.encoding;
     if !params.query.delimiter.is_empty() {
-        name_element(w, "Delimiter", &params.query.delimiter, params);
+        encoding.element(w, "Delimiter", &params.query.delimiter);
     }
-    w.value("MaxKeys", params.limit);
+    w.value("MaxKeys", params.limit());
     w.value("IsTruncated", page.next.is_some());
-    if params.encoded {
+    if encoding == NameEncoding::Url {
         w.element("EncodingType", "url");
     }
     w.value("KeyCount", page.items.len() + page.prefixes.len());
-    if let Some(token) = &params.continuation {
+    if let Some(token) = continuation {
         w.element("ContinuationToken", token);
     }
-    if let Some(start) = &params.start_after {
-        name_element(w, "StartAfter", start, params);
+    if let Some(start) = start_after {
+        encoding.element(w, "StartAfter", start);
     }
     if let Some(cursor) = &page.next {
         w.element(
@@ -321,8 +384,8 @@ fn render_item(
     let versions = params.query.versions;
     let tag = if versions { "Version" } else { "Contents" };
     w.try_group(tag, |w| {
-        name_element(w, "Key", &object.name, params);
-        let generation = if params.interop && versions {
+        params.encoding.element(w, "Key", &object.name);
+        let generation = if params.interoperable_versions() {
             "VersionId"
         } else {
             "Generation"
@@ -343,7 +406,7 @@ fn render_item(
         }
         w.element("ETag", &super::object_etag(object));
         w.value("Size", object.size);
-        if params.v2 || params.interop {
+        if params.writes_storage_class() {
             w.element("StorageClass", object.storage_class.as_str());
         }
         Ok(())
@@ -352,7 +415,7 @@ fn render_item(
 
 /// Version 1 marker element names: the interoperable versions listing uses S3's names.
 fn marker_tags(params: &Params) -> (&'static str, &'static str) {
-    if params.interop && params.query.versions {
+    if params.interoperable_versions() {
         ("KeyMarker", "VersionIdMarker")
     } else {
         ("Marker", "GenerationMarker")
