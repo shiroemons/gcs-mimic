@@ -240,6 +240,13 @@ fn obj_http_explicit_body_inactivity_answers_silent_resource_bodies() {
     bucket.json_error(408, "uploadBrokenConnection");
     names_the_setting(&bucket);
 
+    // The JSON API serves the Discovery resumable path, so its timeout answers in JSON too.
+    let discovery = silent(
+        "POST /resumable/upload/storage/v1/b/test-bucket/o?uploadType=resumable HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"name\":",
+    );
+    discovery.json_error(408, "uploadBrokenConnection");
+    names_the_setting(&discovery);
+
     let object = silent(
         "PUT /test-bucket/xml-silent HTTP/1.1\r\nHost: local\r\nContent-Length: 10\r\n\r\n01234",
     );
@@ -276,7 +283,7 @@ fn obj_http_explicit_body_inactivity_answers_silent_resource_bodies() {
                     .is_some_and(|message| message.contains("body_inactivity_timeout_ms"))
         })
         .count();
-    assert_eq!(warnings, 4, "{stderr}");
+    assert_eq!(warnings, 5, "{stderr}");
 }
 
 /// Every frame of a resource body renews body inactivity, as it does for an upload, so a body

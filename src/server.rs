@@ -307,16 +307,13 @@ pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
 }
 
 impl DeadlineReply {
-    fn new(
-        request: &Request<Incoming>,
-        config: &Config,
-        endpoints: &crate::config::EndpointSnapshot,
-    ) -> Self {
+    /// The reply for the API that serves `target`, which `request` now addresses.
+    fn new<B>(request: &Request<B>, target: &routing::Target) -> Self {
         let headers = request.headers();
-        let api = match xml::select_object_with_endpoints(request.uri(), headers, config, endpoints)
-        {
-            Ok(Some(_)) => ReplyApi::Xml(xml::ErrorBody::for_method(request.method())),
-            Ok(None) | Err(_) => ReplyApi::Json,
+        let api = if target.answers_xml() {
+            ReplyApi::Xml(xml::ErrorBody::for_method(request.method()))
+        } else {
+            ReplyApi::Json
         };
         let upload_route = request.uri().path().starts_with("/upload/")
             || (matches!(api, ReplyApi::Xml(_))
@@ -1454,9 +1451,9 @@ impl ConnectionService {
                 return Ok(response.map(|body| finished.track(body)));
             }
         };
-        let timeout_reply = DeadlineReply::new(&request, &config, endpoints.snapshot());
         let mut request = request;
         let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
+        let timeout_reply = DeadlineReply::new(&request, &target);
         let format =
             json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
         let ctx = RequestCtx {

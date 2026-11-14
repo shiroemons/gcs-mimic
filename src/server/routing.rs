@@ -107,6 +107,12 @@ impl Target {
             Self::Admin(_) | Self::Batch => None,
         }
     }
+
+    /// Whether a timeout reply uses the XML error document. Management and batch routes, like
+    /// the JSON API, answer JSON.
+    pub(super) fn answers_xml(&self) -> bool {
+        self.envelope() == Some(Family::Xml)
+    }
 }
 
 /// Classifies and answers one request, as a batch part is. The connection classifies the
@@ -936,6 +942,9 @@ mod tests {
         assert!(root.envelope() == Some(Family::Xml));
         assert!(json.envelope() == Some(Family::Json));
         assert!(admin.envelope().is_none() && batch.envelope().is_none());
+        // A timeout reply follows the API that serves the request.
+        assert!(root.answers_xml());
+        assert!(!json.answers_xml() && !admin.answers_xml() && !batch.answers_xml());
     }
 
     #[test]
