@@ -501,7 +501,10 @@ async fn serve(
         if eof && ranges.is_empty() {
             return Ok(());
         }
+        // Input that has already arrived is taken first, until MAX_RANGES descriptors wait;
+        // dropping an unchosen `Streaming::message` future loses nothing, as it is cancel safe.
         tokio::select! {
+            biased;
             message = input.message(), if !eof && ranges.len() < MAX_RANGES => {
                 if let Some(message) = message.map_err(ReadFailure::stream)? {
                     if message.read_object_spec.is_some() {
@@ -510,6 +513,8 @@ async fn serve(
                     add_ranges(ranges, &message.read_ranges, selected.size)?;
                 } else { eof = true; }
             }
+            // Always ready: the body reads one chunk of the next range, so that work does not
+            // race the input future.
             _ = std::future::ready(()), if !ranges.is_empty() => {
                 let Some(mut range) = ranges.pop_front() else { continue };
                 let offset = range.read_offset;
