@@ -151,10 +151,8 @@ pub(super) const BOTH_SPELLINGS: &str = "Multiple HTTP header values where one w
 /// `x-amz-grant-read` (recorded 2026-11-09). It never accepted the customer-key headers as sent
 /// (400 when unsigned, 403 when signed), so the adapters keep refusing them.
 fn ignored_with_aws_signature(name: &str) -> bool {
-    name.starts_with("x-amz-")
+    super::HeaderKind::of(name) == super::HeaderKind::Amz
         && !name.starts_with("x-amz-server-side-encryption-customer-")
-        && !crate::auth::signature::authentication_header(name)
-        && name != "x-amz-decoded-content-length"
 }
 
 fn map_to_google(headers: &mut HeaderMap) -> Result<(), Error> {

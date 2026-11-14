@@ -2,7 +2,7 @@
 //! signed URL, and the session URI it returns. Sessions, transfers and completion are the
 //! shared resumable engine; this adapter only parses XML requests and renders XML responses.
 
-use super::{Error, ObjectPath, XmlCode, accepted_parameter, put};
+use super::{Error, HeaderKind, ObjectPath, XmlCode, accepted_parameter, put};
 use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
@@ -50,6 +50,13 @@ fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     Ok(name)
 }
 
+/// The `x-goog-*` headers besides the common object headers that an initiation reads.
+const RESUMABLE_GOOG_HEADERS: &[&str] = &[
+    "x-goog-resumable",
+    "x-goog-storage-class",
+    super::canned_acl::HEADER,
+];
+
 /// Rejects initiation headers outside the supported subset instead of ignoring their effect.
 /// Whole-object checksums are not documented for initiation, so they stay unsupported here.
 pub(super) fn reject_unsupported_headers(
@@ -58,25 +65,16 @@ pub(super) fn reject_unsupported_headers(
 ) -> Result<(), Error> {
     for key in headers.keys() {
         let name = key.as_str();
-        let signing_header =
-            signing.accepts_signing_headers() && auth::signature::authentication_header(name);
-        let goog = name.starts_with("x-goog-")
-            && !name.starts_with("x-goog-meta-")
-            && !super::is_common_object_header(name)
-            && !signing_header
-            && !matches!(
-                name,
-                "x-goog-resumable" | "x-goog-storage-class" | super::canned_acl::HEADER
-            );
-        let amz = name.starts_with("x-amz-") && !signing_header;
-        if goog
-            || amz
-            || super::HTTP_PRECONDITION_HEADERS.contains(&name)
-            || matches!(
-                name,
-                "x-goog-hash" | "content-md5" | "content-range" | "range" | "trailer"
-            )
-        {
+        let unsupported = match HeaderKind::of(name) {
+            HeaderKind::CustomMetadata | HeaderKind::CommonObject => false,
+            HeaderKind::Signing => !signing.accepts_signing_headers(),
+            HeaderKind::DecodedLength | HeaderKind::Amz | HeaderKind::HttpPrecondition => true,
+            HeaderKind::Goog => !RESUMABLE_GOOG_HEADERS.contains(&name),
+            HeaderKind::Other => {
+                matches!(name, "content-md5" | "content-range" | "range" | "trailer")
+            }
+        };
+        if unsupported {
             return Err(Error::unsupported(name));
         }
     }

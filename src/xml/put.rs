@@ -1,4 +1,4 @@
-use super::{Error, MinValue, ReadRequest, XmlCode, number};
+use super::{Error, HeaderKind, MinValue, ReadRequest, XmlCode, number};
 use crate::server::RequestBody as Incoming;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
@@ -148,28 +148,26 @@ pub(super) fn headers(
     })
 }
 
+/// The `x-goog-*` headers besides the common object headers that an object PUT reads.
+const PUT_GOOG_HEADERS: &[&str] = &[
+    "x-goog-hash",
+    "x-goog-storage-class",
+    super::CUSTOM_TIME,
+    super::canned_acl::HEADER,
+    length_range::HEADER,
+];
+
 fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(), Error> {
     for key in headers.keys() {
         let name = key.as_str();
-        if (name.starts_with("x-goog-")
-            && !name.starts_with("x-goog-meta-")
-            && !super::is_common_object_header(name)
-            && !(signing.accepts_signing_headers() && auth::signature::authentication_header(name))
-            && !matches!(
-                name,
-                "x-goog-hash"
-                    | "x-goog-storage-class"
-                    | super::CUSTOM_TIME
-                    | super::canned_acl::HEADER
-                    | length_range::HEADER
-            ))
-            || (name.starts_with("x-amz-")
-                && !(signing.accepts_signing_headers()
-                    && (auth::signature::authentication_header(name)
-                        || name == "x-amz-decoded-content-length")))
-            || super::HTTP_PRECONDITION_HEADERS.contains(&name)
-            || matches!(name, "content-range" | "range" | "trailer")
-        {
+        let unsupported = match HeaderKind::of(name) {
+            HeaderKind::CustomMetadata | HeaderKind::CommonObject => false,
+            HeaderKind::Signing | HeaderKind::DecodedLength => !signing.accepts_signing_headers(),
+            HeaderKind::Goog => !PUT_GOOG_HEADERS.contains(&name),
+            HeaderKind::Amz | HeaderKind::HttpPrecondition => true,
+            HeaderKind::Other => matches!(name, "content-range" | "range" | "trailer"),
+        };
+        if unsupported {
             return Err(Error::unsupported(name));
         }
     }

@@ -1,6 +1,8 @@
 //! XML bucket operations reuse the shared project and bucket authorization decisions.
 
-use super::{Error, ErrorBody, Namespace, ObjectPath, XmlCode, XmlWriter, accepted_parameter};
+use super::{
+    Error, ErrorBody, HeaderKind, Namespace, ObjectPath, XmlCode, XmlWriter, accepted_parameter,
+};
 use crate::{
     auth, json,
     object::ObjectConditions,
@@ -168,7 +170,10 @@ fn validate_query(uri: &Uri, bucket: &str) -> Result<(), Error> {
 
 fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
     if let Some(key) = headers.keys().find(|key| {
-        key.as_str().starts_with("x-amz-") && !auth::signature::authentication_header(key.as_str())
+        matches!(
+            HeaderKind::of(key.as_str()),
+            HeaderKind::Amz | HeaderKind::DecodedLength
+        )
     }) {
         return Err(Error::unsupported(key.as_str()));
     }

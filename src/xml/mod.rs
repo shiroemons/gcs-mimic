@@ -23,6 +23,8 @@ pub(crate) mod envelope;
 #[cfg(test)]
 mod error_tests;
 pub(crate) mod extension_headers;
+mod header_kind;
+use header_kind::HeaderKind;
 pub(crate) mod list;
 pub(crate) mod multipart;
 #[cfg(test)]
@@ -866,15 +868,6 @@ pub(crate) enum HeaderPolicy {
     Read,
 }
 
-// Ignoring these HTTP conditions would serve an object without checking its preconditions.
-const HTTP_PRECONDITION_HEADERS: &[&str] = &[
-    "if-match",
-    "if-none-match",
-    "if-modified-since",
-    "if-unmodified-since",
-    "if-range",
-];
-
 /// The custom time a PUT header or a POST form field sets on the new object.
 const CUSTOM_TIME: &str = "x-goog-custom-time";
 
@@ -884,19 +877,6 @@ fn custom_time(value: &str) -> Result<String, Error> {
         Error::invalid("x-goog-custom-time must be RFC 3339, for example 2026-10-20T01:02:03Z.")
     })?;
     Ok(value.to_owned())
-}
-
-// These headers have the same meaning on XML reads, PUT and resumable initiation.
-fn is_common_object_header(name: &str) -> bool {
-    crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
-        || name == BILLING_HEADER
-        || matches!(
-            name,
-            "x-goog-if-generation-match"
-                | "x-goog-if-metageneration-match"
-                | "x-goog-api-client"
-                | "x-goog-gcs-idempotency-token"
-        )
 }
 
 /// Validates an XML object request's headers and returns their preconditions.
@@ -940,18 +920,18 @@ pub(crate) fn headers(
         // billing) that this adapter does not implement, so they still reject unknown ones.
         // Headers of other protocols and the HTTP conditions carry semantics this adapter
         // does not implement, and ignoring them would be a false success.
-        if (key.starts_with("x-goog-")
-            && policy == HeaderPolicy::Read
-            && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
-            || (key.starts_with("x-goog-")
-                && policy == HeaderPolicy::Strict
-                && !is_common_object_header(key)
-                && !crate::auth::signature::authentication_header(key)
-                && key != "x-goog-content-sha256")
-            || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
-            || (HTTP_PRECONDITION_HEADERS.contains(&key)
-                && (policy == HeaderPolicy::Strict || key == "if-range"))
-        {
+        let unsupported = match (HeaderKind::of(key), policy) {
+            (HeaderKind::Goog, HeaderPolicy::Read) => {
+                RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key)
+            }
+            (HeaderKind::Goog | HeaderKind::CustomMetadata, HeaderPolicy::Strict)
+            | (HeaderKind::Amz | HeaderKind::DecodedLength, _)
+            | (HeaderKind::HttpPrecondition, HeaderPolicy::Strict) => true,
+            (HeaderKind::HttpPrecondition, HeaderPolicy::Read) => key == "if-range",
+            (HeaderKind::CustomMetadata, HeaderPolicy::Read)
+            | (HeaderKind::Signing | HeaderKind::CommonObject | HeaderKind::Other, _) => false,
+        };
+        if unsupported {
             return Err(Error::unsupported(key));
         }
     }
