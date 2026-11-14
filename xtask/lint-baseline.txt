@@ -2,7 +2,7 @@
 text::downcast	src/error.rs	1
 text::downcast	src/import/filesystem.rs	1
 text::downcast	src/storage/catalog/lifecycle.rs	1
-text::downcast	src/storage/failure.rs	3
+text::downcast	src/storage/failure.rs	2
 text::downcast	src/storage/lock.rs	1
 text::downcast	src/sync/error.rs	8
 text::immediately_invoked_closure	src/import/mod.rs	1

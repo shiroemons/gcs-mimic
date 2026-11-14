@@ -133,7 +133,35 @@ impl From<BackendFailure> for BackendCause {
 #[derive(Clone)]
 pub struct IoCause {
     kind: io::ErrorKind,
-    source: Option<Source>,
+    source: Option<IoSource>,
+}
+
+/// What an [`IoCause`] keeps besides its kind.
+#[derive(Clone)]
+enum IoSource {
+    /// The error that produced the failure.
+    Error(Source),
+    /// A message naming the entry the failure hit, added by [`object_context`]; its source is
+    /// the error that produced the failure.
+    Context(Arc<BackendCause>),
+}
+
+impl IoSource {
+    fn as_error(&self) -> &(dyn Error + 'static) {
+        match self {
+            Self::Error(error) => error.as_ref(),
+            Self::Context(context) => context.as_ref(),
+        }
+    }
+}
+
+impl From<IoSource> for Source {
+    fn from(source: IoSource) -> Self {
+        match source {
+            IoSource::Error(error) => error,
+            IoSource::Context(context) => context,
+        }
+    }
 }
 
 impl IoCause {
@@ -142,9 +170,7 @@ impl IoCause {
     }
 
     pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source
-            .as_deref()
-            .map(|error| error as &(dyn Error + 'static))
+        self.source.as_ref().map(IoSource::as_error)
     }
 
     /// The `backend=memory` budget this failure exhausted, if it is one. A full disk carries none.
@@ -251,18 +277,14 @@ fn full_database(error: rusqlite::Error) -> IoCause {
     };
     IoCause {
         kind: io::ErrorKind::StorageFull,
-        source: Some(source),
+        source: Some(IoSource::Error(source)),
     }
 }
 
 /// Plain failures retain the kind-only message; contextual failures also identify their entry.
 impl fmt::Display for IoCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(context) = self
-            .source
-            .as_deref()
-            .and_then(|source| source.downcast_ref::<BackendCause>())
-        {
+        if let Some(IoSource::Context(context)) = &self.source {
             return context.fmt(formatter);
         }
         fmt::Display::fmt(&self.kind, formatter)
@@ -301,7 +323,7 @@ impl From<io::Error> for IoCause {
     fn from(error: io::Error) -> Self {
         Self {
             kind: error.kind(),
-            source: Some(Arc::new(error)),
+            source: Some(IoSource::Error(Arc::new(error))),
         }
     }
 }
@@ -550,10 +572,10 @@ pub(crate) fn object_context(context: impl fmt::Display, cause: impl StorageCaus
             );
             ObjectError::Io(IoCause {
                 kind: cause.kind(),
-                source: Some(Arc::new(BackendCause {
+                source: Some(IoSource::Context(Arc::new(BackendCause {
                     message: message.into(),
-                    source: cause.source,
-                })),
+                    source: cause.source.map(Source::from),
+                }))),
             })
         }
     }
