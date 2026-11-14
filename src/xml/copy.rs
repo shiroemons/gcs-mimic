@@ -130,9 +130,7 @@ fn options(headers: &HeaderMap, signing: put::Signing) -> Result<put::Headers, E
     // `xml-content-length-range` differential case): it limits a request body, which a copy lacks.
     selected.remove(put::length_range::HEADER);
     let options = put::headers(&selected, 0, signing, put::Framing::Required)?;
-    if options.sha256.is_some_and(|hash| {
-        hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
-    }) {
+    if super::sha256_mismatch(options.sha256, b"") {
         return Err(Error::new(
             XmlCode::BadDigest,
             "Copy requires an empty request body",

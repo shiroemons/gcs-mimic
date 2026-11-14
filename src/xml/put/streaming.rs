@@ -121,10 +121,9 @@ async fn plain(
     let mut size = 0;
     let mut hash = digest::Context::new(&digest::SHA256);
     while reader.fill().await? {
-        let bytes = reader.buffer.split_to(reader.buffer.len().min(64 * 1024));
+        let bytes = reader.take(u64::MAX);
         size += bytes.len() as u64;
-        hash.update(&bytes);
-        if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
+        if deliver(sender, &mut hash, bytes).await == Delivery::Stopped {
             return Ok(());
         }
     }
@@ -140,6 +139,27 @@ async fn plain(
     Ok(())
 }
 
+/// The most bytes one delivery passes to the catalog.
+const DELIVERY_BYTES: usize = 64 * 1024;
+
+/// Whether the catalog still reads the upload after a delivery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Delivery {
+    Accepted,
+    /// The catalog stopped reading; the upload driver reports its failure.
+    Stopped,
+}
+
+/// Hashes `bytes` into the body digest and passes them to the catalog.
+async fn deliver(sender: &UploadSender, hash: &mut digest::Context, bytes: Bytes) -> Delivery {
+    hash.update(&bytes);
+    if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
+        Delivery::Stopped
+    } else {
+        Delivery::Accepted
+    }
+}
+
 struct Reader<'a> {
     body: Incoming,
     buffer: Bytes,
@@ -149,6 +169,16 @@ struct Reader<'a> {
 }
 
 impl Reader<'_> {
+    /// The next buffered bytes, at most one delivery's worth and at most `limit`.
+    fn take(&mut self, limit: u64) -> Bytes {
+        let size = self
+            .buffer
+            .len()
+            .min(DELIVERY_BYTES)
+            .min(usize::try_from(limit).unwrap_or(usize::MAX));
+        self.buffer.split_to(size)
+    }
+
     async fn fill(&mut self) -> Result<bool, Error> {
         while self.buffer.is_empty() {
             let Some(frame) = self.body.frame().await else {
@@ -240,15 +270,9 @@ async fn signed(
             if !reader.fill().await? {
                 return Err(malformed());
             }
-            let size = reader
-                .buffer
-                .len()
-                .min(64 * 1024)
-                .min(usize::try_from(remaining).unwrap_or(usize::MAX));
-            let bytes = reader.buffer.split_to(size);
-            remaining -= size as u64;
-            hash.update(&bytes);
-            if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
+            let bytes = reader.take(remaining);
+            remaining -= bytes.len() as u64;
+            if deliver(sender, &mut hash, bytes).await == Delivery::Stopped {
                 return Ok(());
             }
         }

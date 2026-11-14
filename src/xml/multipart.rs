@@ -431,19 +431,15 @@ async fn empty_body(
     expected: Option<[u8; 32]>,
 ) -> Result<(), Error> {
     super::empty_body(request.into_body()).await?;
-    validate_sha256(expected, b"")
-}
-
-fn validate_sha256(expected: Option<[u8; 32]>, bytes: &[u8]) -> Result<(), Error> {
-    if expected.is_some_and(|expected| {
-        expected.as_slice() != ring::digest::digest(&ring::digest::SHA256, bytes).as_ref()
-    }) {
-        return Err(Error::new(
-            XmlCode::BadDigest,
-            "The signed body digest does not match",
-        ));
+    if super::sha256_mismatch(expected, b"") {
+        return Err(signed_digest_mismatch());
     }
     Ok(())
+}
+
+/// A multipart body, empty or a completion document, that differs from its signed SHA-256.
+fn signed_digest_mismatch() -> Error {
+    Error::new(XmlCode::BadDigest, "The signed body digest does not match")
 }
 
 async fn upload_part(
@@ -493,7 +489,9 @@ async fn complete(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let bytes = json::read_body(request.into_body(), MANIFEST_LIMIT).await?;
-    validate_sha256(headers.sha256, &bytes)?;
+    if super::sha256_mismatch(headers.sha256, &bytes) {
+        return Err(signed_digest_mismatch());
+    }
     if headers.expected != Default::default() {
         return Err(Error::unsupported(
             "checksums on a multipart completion document",

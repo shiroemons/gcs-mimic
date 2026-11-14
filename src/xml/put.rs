@@ -23,26 +23,6 @@ mod tests;
 
 use length_range::LengthRange;
 
-#[test]
-fn storage_class_header_keeps_error_contracts() {
-    for class in ["REGIONAL", "standard", "UNKNOWN"] {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-goog-storage-class", class.parse().unwrap());
-        let error = metadata(&headers).unwrap_err();
-        assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{class}");
-        assert_eq!(error.code, XmlCode::InvalidArgument, "{class}");
-        assert_eq!(
-            error.message,
-            if class == "REGIONAL" {
-                "gcs-mimic does not support XML API storageClass=REGIONAL: storageClass requires a region or zone; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
-            } else {
-                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE."
-            },
-            "{class}"
-        );
-    }
-}
-
 pub(super) struct Headers {
     pub(super) content_type: String,
     pub(super) expected: ExpectedHashes,
@@ -245,60 +225,6 @@ fn validate_framing(
         return Err(storage_error(ObjectError::TooLarge, None));
     }
     Ok(size)
-}
-
-#[test]
-fn empty_request_framing_keeps_header_validation() {
-    for (max, framing) in [
-        (0, Framing::OptionalEmpty),
-        (0, Framing::Required),
-        (1, Framing::Required),
-    ] {
-        for (values, code) in [
-            (
-                vec![],
-                (framing == Framing::Required).then_some(XmlCode::MissingContentLength),
-            ),
-            (vec![("content-length", "0")], None),
-            (vec![("transfer-encoding", "chunked")], None),
-            (
-                vec![("content-length", "invalid")],
-                Some(XmlCode::InvalidArgument),
-            ),
-            (
-                vec![("transfer-encoding", "gzip")],
-                Some(XmlCode::InvalidArgument),
-            ),
-            (
-                vec![("content-length", "0"), ("transfer-encoding", "chunked")],
-                Some(XmlCode::InvalidArgument),
-            ),
-            (vec![("content-length", "2")], Some(XmlCode::EntityTooLarge)),
-            (
-                vec![("content-length", "0"), ("content-length", "0")],
-                Some(XmlCode::ExcessHeaderValues),
-            ),
-            (
-                vec![
-                    ("content-length", "0"),
-                    ("x-amz-decoded-content-length", "2"),
-                ],
-                Some(XmlCode::EntityTooLarge),
-            ),
-        ] {
-            let mut headers = HeaderMap::new();
-            for (name, value) in values {
-                headers.append(name, value.parse().unwrap());
-            }
-            assert_eq!(
-                validate_framing(&headers, max, framing)
-                    .err()
-                    .map(|error| error.code),
-                code,
-                "{headers:?}, max={max}, framing={framing:?}"
-            );
-        }
-    }
 }
 
 pub(super) fn content_type_and_hashes(

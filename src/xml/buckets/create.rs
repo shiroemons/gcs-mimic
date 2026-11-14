@@ -53,9 +53,7 @@ pub(super) async fn respond(
         .map(json::decode_hash::<16>)
         .transpose()?;
     let bytes = json::read_body(request.into_body(), json::RESOURCE_BODY_LIMIT).await?;
-    if sha.is_some_and(|hash| {
-        hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref()
-    }) {
+    if super::super::sha256_mismatch(sha, &bytes) {
         return Err(Error::new(
             XmlCode::BadDigest,
             "The body SHA256 does not match",

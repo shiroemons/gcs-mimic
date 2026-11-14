@@ -923,11 +923,10 @@ pub(crate) fn headers(
     policy: HeaderPolicy,
 ) -> Result<ObjectConditions, Error> {
     use crate::auth::signature::PayloadHash;
-    if let Some(hash) = PayloadHash::of(headers)
+    let declared = PayloadHash::of(headers)
         .map(PayloadHash::digest)
-        .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?
-        && hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
-    {
+        .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration."))?;
+    if sha256_mismatch(declared, b"") {
         return Err(Error::new(
             XmlCode::BadDigest,
             "The content hash does not match the empty read body.",
@@ -1003,6 +1002,14 @@ pub(crate) fn headers(
         }
     }
     Ok(conditions)
+}
+
+/// Whether a signed SHA-256 declaration exists and differs from `body`'s digest. Each caller
+/// answers a mismatch with its own message.
+fn sha256_mismatch(declared: Option<[u8; 32]>, body: &[u8]) -> bool {
+    declared.is_some_and(|declared| {
+        declared.as_slice() != ring::digest::digest(&ring::digest::SHA256, body).as_ref()
+    })
 }
 
 pub(crate) async fn empty_body<B>(mut body: B) -> Result<(), Error>

@@ -159,7 +159,7 @@ a simulation (see
 ## Verification
 
 The framing regression on 2026-11-04 passed `cargo check --locked`,
-`cargo test --locked --lib xml::put::empty_request_framing_keeps_header_validation`
+`cargo test --locked --lib xml::put::tests::empty_request_framing_keeps_header_validation`
 (1 passed) and `cargo test --locked --test it_xml_auth xml_multipart_http`
 (11 passed). `multipart_bodyless_operations_accept_omitted_framing` checks
 initiation's 411 with no session and framed success, both unframed GET lists,
