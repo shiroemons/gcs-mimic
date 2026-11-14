@@ -25,7 +25,7 @@ use crate::{
         },
     },
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
@@ -111,7 +111,12 @@ fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
 // Existing rewrite tokens bind this persisted representation; metadata application is typed.
 fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
     validate_derived_fields(o)?;
-    let mut value = Map::from_iter([("metadata".into(), json!(o.metadata))]);
+    let metadata = o
+        .metadata
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+        .collect::<Map<_, _>>();
+    let mut value = Map::from_iter([("metadata".into(), Value::Object(metadata))]);
     for (key, v) in [
         ("contentType", &o.content_type),
         ("contentEncoding", &o.content_encoding),
@@ -957,6 +962,7 @@ mod tests {
         storage::Catalog,
         test_support::TestDir,
     };
+    use serde_json::json;
     use std::{cell::RefCell, collections::VecDeque, sync::Arc};
     use tonic::Code;
 
@@ -1072,6 +1078,25 @@ mod tests {
         assert_eq!(
             parameters(&large),
             r#"{"sourceGeneration":"9223372036854775807","maxBytesRewrittenPerCall":"9223372036853727232","ifMetagenerationMatch":"1"}"#
+        );
+    }
+
+    /// A rewrite token also binds the destination fields, so their stored spelling is
+    /// persisted state like the parameters above.
+    #[test]
+    fn rewrite_tokens_bind_the_stored_destination_spelling() {
+        let fields = |o: &pb::Object| derived_fields(o).unwrap().to_string();
+        assert_eq!(fields(&pb::Object::default()), r#"{"metadata":{}}"#);
+        let destination = pb::Object {
+            metadata: [("owner".to_owned(), "alice".to_owned())].into(),
+            content_type: "text/plain".into(),
+            temporary_hold: true,
+            event_based_hold: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(
+            fields(&destination),
+            r#"{"metadata":{"owner":"alice"},"contentType":"text/plain","temporaryHold":true,"eventBasedHold":false}"#
         );
     }
 
