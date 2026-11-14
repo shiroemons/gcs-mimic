@@ -25,6 +25,24 @@ pub(crate) fn decode<const N: usize>(raw: &str) -> Option<[u8; N]> {
     Some(output)
 }
 
+/// The canonical lowercase form of exactly `N` bytes. Opaque identifiers and signatures that a
+/// client echoes back must match their stored text byte for byte, so `A`–`F` are rejected here
+/// while `decode` keeps accepting them for protocol fields that allow either case.
+pub(crate) fn decode_lower<const N: usize>(raw: &str) -> Option<[u8; N]> {
+    if raw.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        return None;
+    }
+    decode(raw)
+}
+
+/// Whether `raw` is `len` lowercase hexadecimal digits, for revisions the catalog keeps as text.
+pub(crate) fn is_lower(raw: &str, len: usize) -> bool {
+    raw.len() == len
+        && raw
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,6 +53,24 @@ mod tests {
         assert_eq!(decode::<0>(""), Some([]));
         for raw in ["0", "000", "0g", "é", "０"] {
             assert_eq!(decode::<1>(raw), None);
+        }
+    }
+
+    #[test]
+    fn lowercase_hex_rejects_uppercase_lengths_and_non_ascii() {
+        assert_eq!(decode_lower("00abff"), Some([0, 171, 255]));
+        for raw in ["00aBfF", "00ab", "00abff00", "é", "０"] {
+            assert_eq!(decode_lower::<3>(raw), None, "{raw}");
+        }
+        assert!(is_lower("00abff", 6));
+        for (raw, len) in [
+            ("00abff", 4),
+            ("00aBff", 6),
+            ("00abfg", 6),
+            ("é", 2),
+            ("０", 3),
+        ] {
+            assert!(!is_lower(raw, len), "{raw}");
         }
     }
 }

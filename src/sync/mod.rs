@@ -51,14 +51,7 @@ impl std::fmt::Display for InvalidCatalogId {
 impl std::error::Error for InvalidCatalogId {}
 
 pub(crate) fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
-    if value.len() != 32
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(InvalidCatalogId);
-    }
-    let bytes = crate::hex::decode(value).ok_or(InvalidCatalogId)?;
+    let bytes = crate::hex::decode_lower(value).ok_or(InvalidCatalogId)?;
     Ok(CatalogId::from_bytes(bytes))
 }
 

@@ -71,13 +71,6 @@ fn corrupt(reason: impl Into<BackendCause>) -> ImportFailure {
     )
 }
 
-fn hex(value: &str, length: usize) -> bool {
-    value.len() == length
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 fn line(input: &mut BufReader<File>) -> Result<Vec<u8>, ImportFailure> {
     let mut bytes = Vec::new();
     input
@@ -371,7 +364,7 @@ fn open(options: &Options, report: &mut Reporter) -> Result<Snapshot, ImportFail
             original_names_verified: true,
         } if source_revision == super::SOURCE_REVISION
             && backend == "memory"
-            && hex(&capture_id, 32) => {}
+            && crate::hex::is_lower(&capture_id, 32) => {}
         _ => return Err(corrupt("unsupported or unquiesced source snapshot header")),
     }
     report.manifest("snapshot_header", "snapshot.jsonl", &[&header]);

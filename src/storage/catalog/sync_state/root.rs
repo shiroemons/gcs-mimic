@@ -156,10 +156,7 @@ struct Marker {
 }
 
 fn valid_id(id: &str) -> bool {
-    id.len() == 32
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    crate::hex::is_lower(id, 32)
 }
 
 fn read_marker(directory: &File) -> Result<Option<(Marker, FileIdentity)>, RootError> {

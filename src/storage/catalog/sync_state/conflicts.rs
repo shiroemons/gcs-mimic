@@ -237,10 +237,7 @@ fn opaque_id() -> Result<String, Error> {
     Ok(crate::hashing::encode_lower(&bytes))
 }
 fn valid_id(id: &str) -> bool {
-    id.len() == 32
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    crate::hex::is_lower(id, 32)
 }
 fn changed(connection: &Connection, root: [u8; 16]) -> Result<(), Error> {
     connection.prepare_cached("INSERT INTO sync_conflict_roots(root_id,revision) VALUES(?1,?2) ON CONFLICT(root_id) DO UPDATE SET revision=excluded.revision")?.execute(params![root,opaque_id()?])?;

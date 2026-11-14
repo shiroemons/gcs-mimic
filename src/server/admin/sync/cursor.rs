@@ -1,4 +1,4 @@
-use super::{JsonError, hex, stale};
+use super::{JsonError, stale};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum SyncCursor {
@@ -20,7 +20,7 @@ impl SyncCursor {
 
     pub(super) fn decode(raw: &str, prefix: &str) -> Result<Self, JsonError> {
         let suffix = raw.strip_prefix(prefix).ok_or_else(stale)?;
-        if !hex(suffix, suffix.len()) {
+        if !crate::hex::is_lower(suffix, suffix.len()) {
             return Err(stale());
         }
         let number = |raw| i64::from_str_radix(raw, 16).map_err(|_| stale());

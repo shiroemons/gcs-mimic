@@ -535,21 +535,15 @@ pub(crate) fn payload_hash(headers: &HeaderMap) -> Result<Option<[u8; 32]>, Fail
         None => Ok(None),
         Some(value) => {
             let value = value.to_str().map_err(|_| Failure::Malformed)?;
-            if headers.get_all(name).iter().count() != 1
-                || (value != "UNSIGNED-PAYLOAD"
-                    && (value.len() != 64
-                        || !value
-                            .bytes()
-                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))))
-            {
+            if headers.get_all(name).iter().count() != 1 {
                 return Err(Failure::Malformed);
             }
             if value == "UNSIGNED-PAYLOAD" {
                 Ok(None)
             } else {
-                Ok(Some(
-                    unhex(value)?.try_into().map_err(|_| Failure::Malformed)?,
-                ))
+                crate::hex::decode_lower::<32>(value)
+                    .map(Some)
+                    .ok_or(Failure::Malformed)
             }
         }
     }

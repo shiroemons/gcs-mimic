@@ -381,7 +381,7 @@ impl Page {
                 if view == View::Deletions {
                     revision(value)
                 } else {
-                    hex(value, 48)
+                    crate::hex::is_lower(value, 48)
                 }
             })
             .ok_or_else(|| {
@@ -562,13 +562,7 @@ async fn deletion_page(
 }
 
 fn revision(value: &str) -> bool {
-    hex(value, 32)
-}
-fn hex(value: &str, len: usize) -> bool {
-    value.len() == len
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    crate::hex::is_lower(value, 32)
 }
 fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, JsonError> {
     render_within_limit(value).ok_or_else(busy)

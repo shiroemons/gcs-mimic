@@ -13,11 +13,7 @@ impl RewriteToken {
     }
 
     pub(crate) fn parse(value: &str) -> Option<Self> {
-        (value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-        .then(|| Self(value.to_owned()))
+        crate::hex::is_lower(value, 64).then(|| Self(value.to_owned()))
     }
 
     pub(crate) fn as_str(&self) -> &str {

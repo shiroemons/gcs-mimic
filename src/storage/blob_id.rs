@@ -61,19 +61,7 @@ impl BlobId {
     }
 
     pub(crate) fn parse(text: &str) -> Option<Self> {
-        if text.len() != 32 {
-            return None;
-        }
-        let mut bytes = [0; 16];
-        for (byte, pair) in bytes.iter_mut().zip(text.as_bytes().as_chunks::<2>().0) {
-            let digit = |value| match value {
-                b'0'..=b'9' => Some(value - b'0'),
-                b'a'..=b'f' => Some(value - b'a' + 10),
-                _ => None,
-            };
-            *byte = digit(pair[0])? * 16 + digit(pair[1])?;
-        }
-        Some(Self(bytes))
+        crate::hex::decode_lower(text).map(Self)
     }
 
     pub(crate) fn to_hex(self) -> String {

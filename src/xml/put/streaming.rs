@@ -204,14 +204,10 @@ impl Reader<'_> {
         if length.is_empty()
             || length.len() > 16
             || !length.bytes().all(|byte| byte.is_ascii_hexdigit())
-            || signature.len() != 64
-            || !signature
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
             return Err(malformed());
         }
-        let signature = crate::hex::decode::<32>(signature).ok_or_else(malformed)?;
+        let signature = crate::hex::decode_lower::<32>(signature).ok_or_else(malformed)?;
         Ok((
             u64::from_str_radix(length, 16).map_err(|_| malformed())?,
             signature,
