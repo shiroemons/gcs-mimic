@@ -1,10 +1,6 @@
 use super::*;
 use crate::fsutil;
-use std::{
-    collections::VecDeque,
-    ffi::OsString,
-    os::fd::{FromRawFd, OwnedFd, RawFd},
-};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 pub(crate) struct Native {
     queue: OwnedFd,
     pub(super) count: usize,
@@ -26,20 +22,15 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
             .map(|entries| entries.get().saturating_add(1)),
     )?;
     native.register(root)?;
-    let mut stack = vec![(
-        root.try_clone()?,
-        None::<OsString>,
-        VecDeque::<OsString>::new(),
-        false,
-    )];
-    while let Some((directory, after, buffered, exhausted)) = stack.last_mut() {
-        if buffered.is_empty() && !*exhausted {
-            let page = fsutil::directory_names_within(
-                directory,
-                after.as_deref(),
-                256,
-                limits.directory_names(),
-            )
+    let mut stack = vec![WatchFrame::new(root.try_clone()?)];
+    loop {
+        let depth = stack.len();
+        let Some(frame) = stack.last_mut() else {
+            break;
+        };
+        let next = frame
+            .names
+            .next_name(&frame.directory, limits.directory_names())
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::InvalidData {
                     io::Error::other(limits.too_many_entries())
@@ -47,31 +38,22 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
                     error
                 }
             })?;
-            *exhausted = page.len() < 256;
-            *after = page.last().cloned().or(after.take());
-            *buffered = page.into();
-        }
-        let Some(name) = buffered.pop_front() else {
+        let Some(name) = next else {
             stack.pop();
             continue;
         };
-        let depth = stack.len();
         if depth == 1 && crate::sync::mapping::is_reserved_root_entry(&name) {
             continue;
         }
-        let directory = &stack
-            .last()
-            .ok_or_else(|| io::Error::other("missing watch frame"))?
-            .0;
-        match fsutil::child_directory(directory, &name, fsutil::DirectoryOpen::Existing) {
+        match fsutil::child_directory(&frame.directory, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
                 if depth > limits.deepest_directory() {
                     return Err(io::Error::other(limits.too_deep()));
                 }
                 native.register(&file)?;
-                stack.push((file, None, VecDeque::new(), false));
+                stack.push(WatchFrame::new(file));
             }
-            Ok(_) => {}
+            Ok(fsutil::Child::Missing | fsutil::Child::Alias) => {}
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound
                     || crate::sync::tree::structural_entry_error(&error) => {}
@@ -79,6 +61,21 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> io::Result<Native> {
         }
     }
     Ok(native)
+}
+
+/// One open directory of the watch walk and the names in it still to visit.
+struct WatchFrame {
+    directory: File,
+    names: fsutil::DirectoryNames,
+}
+
+impl WatchFrame {
+    fn new(directory: File) -> Self {
+        Self {
+            directory,
+            names: fsutil::DirectoryNames::default(),
+        }
+    }
 }
 impl Native {
     #[cfg(test)]

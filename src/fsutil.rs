@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Descriptor-based filesystem operations; OS-specific unsafe stays in this module.
 
-use std::{fs::File, io};
+use std::{collections::VecDeque, ffi::OsString, fs::File, io};
 mod hash;
 pub(crate) use hash::{HashOutcome, hash_exact};
 
@@ -14,8 +14,9 @@ mod unsupported;
 #[cfg(not(unix))]
 use unsupported as imp;
 
+use imp::directory_names_within;
 pub(crate) use imp::{child_directory, child_regular};
-pub(crate) use imp::{create_regular_at, directory_at, directory_names_within, unlink_file_at};
+pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
@@ -119,6 +120,42 @@ pub(crate) enum RegularChild {
     File(File),
     Alias,
     Missing,
+}
+
+/// The names of one directory in sorted pages, so a large directory never holds more than one
+/// page in memory and a walk can stop between pages. A walker keeps one per open level.
+#[derive(Debug, Default)]
+pub(crate) struct DirectoryNames {
+    after: Option<OsString>,
+    buffered: VecDeque<OsString>,
+    exhausted: bool,
+}
+
+impl DirectoryNames {
+    /// Names read per page.
+    pub(crate) const PAGE: usize = 256;
+
+    /// The next name of `directory`, reading another page when the buffer is empty; `None` once
+    /// none is left. Fails with `InvalidData` once the directory holds more than `max_inspected`
+    /// names; each walker maps that to its own limit.
+    pub(crate) fn next_name(
+        &mut self,
+        directory: &File,
+        max_inspected: usize,
+    ) -> io::Result<Option<OsString>> {
+        if self.buffered.is_empty() && !self.exhausted {
+            let page = directory_names_within(
+                directory,
+                self.after.as_deref(),
+                Self::PAGE,
+                max_inspected,
+            )?;
+            self.exhausted = page.len() < Self::PAGE;
+            self.after = page.last().cloned().or(self.after.take());
+            self.buffered = page.into();
+        }
+        Ok(self.buffered.pop_front())
+    }
 }
 
 /// Walks an exact relative spelling without following redirects; creation syncs each parent.
@@ -1289,6 +1326,39 @@ mod tests {
             assert_eq!(device, node.device.to_be_bytes());
             assert_eq!(inode, node.inode.to_be_bytes());
             assert_eq!(NodeId::from_be_bytes(device, inode), node);
+        }
+    }
+
+    /// A paged listing returns every name of a directory that fills one or more pages exactly
+    /// once and in order, and refuses a directory past its inspection limit.
+    #[cfg(unix)]
+    #[test]
+    fn directory_names_page_through_a_directory_once_in_order() {
+        for count in [DirectoryNames::PAGE, DirectoryNames::PAGE * 2 + 3] {
+            let directory = crate::test_support::TestDir::new();
+            let mut expected: Vec<OsString> = (0..count)
+                .rev()
+                .map(|index| OsString::from(format!("{index:04}")))
+                .collect();
+            for name in &expected {
+                File::create(directory.0.join(name)).unwrap();
+            }
+            expected.sort();
+            let root = open_directory(&directory.0).unwrap();
+            let mut names = DirectoryNames::default();
+            let mut listed = Vec::new();
+            while let Some(name) = names.next_name(&root, count).unwrap() {
+                listed.push(name);
+            }
+            assert_eq!(listed, expected);
+            assert_eq!(names.next_name(&root, count).unwrap(), None);
+            assert_eq!(
+                DirectoryNames::default()
+                    .next_name(&root, count - 1)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::InvalidData
+            );
         }
     }
 

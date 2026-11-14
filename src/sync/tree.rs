@@ -1,12 +1,12 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
 use super::mapping::Reason;
-use crate::fsutil::{self, Child, DirectoryOpen, NodeId};
+use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, NodeId};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
 use crate::{config::MAX_TREE_DEPTH, fsutil::FileIdentity, storage::admin::AdminError};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{collections::VecDeque, ffi::OsString, path::PathBuf};
 use std::{fs::File, io, path::Path};
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
@@ -73,9 +73,7 @@ pub(crate) struct TreeScan {
 struct Frame {
     path: PathBuf,
     identity: Option<NodeId>,
-    after: Option<OsString>,
-    buffered: VecDeque<OsString>,
-    exhausted: bool,
+    names: DirectoryNames,
 }
 pub(crate) struct TreeEntry {
     pub(crate) path: PathBuf,
@@ -88,9 +86,7 @@ impl Frame {
         Self {
             path,
             identity,
-            after: None,
-            buffered: VecDeque::new(),
-            exhausted: false,
+            names: DirectoryNames::default(),
         }
     }
 }
@@ -171,36 +167,28 @@ impl TreeScan {
                 break;
             };
             let directory = directories.last().ok_or(AdminError::Precondition)?;
-            if frame.buffered.is_empty() && !frame.exhausted {
-                match fsutil::directory_names_within(
-                    directory,
-                    frame.after.as_deref(),
-                    256,
-                    self.limits.directory_names(),
-                ) {
-                    Ok(page) => {
-                        frame.exhausted = page.len() < 256;
-                        frame.after = page.last().cloned().or(frame.after.take());
-                        frame.buffered = page.into();
-                    }
-                    Err(error) if error.kind() != io::ErrorKind::InvalidData => {
-                        entries.push(TreeEntry {
-                            path: frame.path.clone(),
-                            identity: None,
-                            directory: true,
-                            error: Some(error.kind()),
-                        });
-                        self.frames.pop();
-                        directories.pop();
-                        continue;
-                    }
-                    Err(_) => return Err(self.limits.too_many_entries()),
+            let name = match frame
+                .names
+                .next_name(directory, self.limits.directory_names())
+            {
+                Ok(Some(name)) => name,
+                Ok(None) => {
+                    self.frames.pop();
+                    directories.pop();
+                    continue;
                 }
-            }
-            let Some(name) = frame.buffered.pop_front() else {
-                self.frames.pop();
-                directories.pop();
-                continue;
+                Err(error) if error.kind() != io::ErrorKind::InvalidData => {
+                    entries.push(TreeEntry {
+                        path: frame.path.clone(),
+                        identity: None,
+                        directory: true,
+                        error: Some(error.kind()),
+                    });
+                    self.frames.pop();
+                    directories.pop();
+                    continue;
+                }
+                Err(_) => return Err(self.limits.too_many_entries()),
             };
             if frame.path.as_os_str().is_empty() && super::mapping::is_reserved_root_entry(&name) {
                 continue;

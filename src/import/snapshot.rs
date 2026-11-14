@@ -358,21 +358,12 @@ impl Capture<'_> {
     }
 
     fn check_blobs(&self) -> Result<(), ImportFailure> {
-        let mut after = None;
+        let mut names = fsutil::DirectoryNames::default();
         let mut count = 0u64;
-        loop {
-            let page = fsutil::directory_names_after(&self.blobs, after.as_deref(), 256)?;
-            if page.is_empty() {
-                break;
-            }
-            for name in page {
-                count += 1;
-                if name != std::ffi::OsStr::new(&format!("{count:016x}"))
-                    || count > self.generations
-                {
-                    return Err(corrupt("unknown, duplicate or unreferenced body entry"));
-                }
-                after = Some(name);
+        while let Some(name) = names.next_name(&self.blobs, usize::MAX)? {
+            count += 1;
+            if name != std::ffi::OsStr::new(&format!("{count:016x}")) || count > self.generations {
+                return Err(corrupt("unknown, duplicate or unreferenced body entry"));
             }
         }
         if count != self.generations {

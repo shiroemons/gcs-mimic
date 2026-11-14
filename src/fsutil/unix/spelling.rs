@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, RegularChild};
+use crate::fsutil::{Child, Created, DirectoryNames, RegularChild};
 
 pub(crate) fn child_directory(
     parent: &File,
@@ -59,17 +59,13 @@ pub(crate) fn child_regular(parent: &File, name: &OsStr) -> io::Result<RegularCh
 }
 
 fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<bool> {
-    let mut after = None;
-    loop {
-        let page = directory_names_after(parent, after.as_deref(), 256)?;
-        if page.iter().any(|entry| entry == name) {
+    let mut names = DirectoryNames::default();
+    while let Some(entry) = names.next_name(parent, usize::MAX)? {
+        if entry == name {
             return Ok(true);
         }
-        if page.len() < 256 {
-            return Ok(false);
-        }
-        after = page.last().cloned();
     }
+    Ok(false)
 }
 
 #[cfg(target_os = "macos")]
