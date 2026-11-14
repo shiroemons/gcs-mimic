@@ -6,7 +6,7 @@
 //! it. Each key carries its own revision; the etag encodes it, and conditional updates compare
 //! it inside the mutating transaction.
 //! Successful deletion bounds retained tombstones to the newest 128 per project.
-use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
+use super::{Catalog, CatalogError, UnixMillis, unavailable};
 use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::time::SystemTime;
@@ -173,8 +173,8 @@ fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
         project: row.get(1)?,
         service_account_email: row.get(2)?,
         state: row.get(3)?,
-        time_created: system_time_millis(row.get(4)?)?,
-        updated: system_time_millis(row.get(5)?)?,
+        time_created: row.get::<_, UnixMillis>(4)?.system_time()?,
+        updated: row.get::<_, UnixMillis>(5)?.system_time()?,
         revision: row.get(6)?,
     })
 }
@@ -236,7 +236,7 @@ impl Catalog {
     ) -> Result<CreatedHmacKey, HmacKeyError> {
         let project = project.to_owned();
         let email = service_account_email.to_owned();
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let live: i64 = sql::scalar(
@@ -323,7 +323,7 @@ impl Catalog {
         }
         let project = project.to_owned();
         let access_id = access_id.to_owned();
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
@@ -351,7 +351,7 @@ impl Catalog {
     ) -> Result<(), HmacKeyError> {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {

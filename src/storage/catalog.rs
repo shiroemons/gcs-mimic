@@ -363,8 +363,8 @@ impl Catalog {
 }
 
 /// A hard delete time, or a clock reading compared with one: whole microseconds since the Unix
-/// epoch. A maintenance pass also handles session deadlines in milliseconds as plain `i64`; this
-/// type keeps a reading in one unit from reaching a sweep that expects the other.
+/// epoch. A maintenance pass also handles session deadlines in milliseconds as [`UnixMillis`];
+/// the two types keep a reading in one unit from reaching a sweep that expects the other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct UnixMicros(i64);
 
@@ -394,8 +394,45 @@ impl rusqlite::types::FromSql for UnixMicros {
     }
 }
 
-fn unix_millis(time: SystemTime) -> Result<i64, CatalogError> {
-    unix_timestamp(time, 1_000_000)
+/// A resumable, multipart, rewrite, derived-transfer or HMAC key time, or a clock reading compared
+/// with one: whole milliseconds since the Unix epoch, the unit those tables have always stored.
+/// Hard delete times use [`UnixMicros`]; neither converts into the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct UnixMillis(i64);
+
+impl UnixMillis {
+    fn system_time(self) -> rusqlite::Result<SystemTime> {
+        signed_system_time(self.0, Duration::from_millis)
+    }
+
+    /// `None` past the `i64` range; callers report their own overflow.
+    fn checked_add_millis(self, millis: i64) -> Option<Self> {
+        self.0.checked_add(millis).map(Self)
+    }
+
+    fn saturating_add_millis(self, millis: i64) -> Self {
+        Self(self.0.saturating_add(millis))
+    }
+}
+
+impl TryFrom<SystemTime> for UnixMillis {
+    type Error = CatalogError;
+
+    fn try_from(time: SystemTime) -> Result<Self, CatalogError> {
+        unix_timestamp(time, 1_000_000).map(Self)
+    }
+}
+
+impl rusqlite::ToSql for UnixMillis {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl rusqlite::types::FromSql for UnixMillis {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        i64::column_result(value).map(Self)
+    }
 }
 
 fn unix_micros(time: SystemTime) -> Result<i64, CatalogError> {
@@ -408,10 +445,6 @@ fn unix_timestamp(time: SystemTime, nanos_per_unit: i128) -> Result<i64, Catalog
         Err(error) => -(error.duration().as_nanos() as i128),
     };
     i64::try_from(nanos.div_euclid(nanos_per_unit)).map_err(unavailable)
-}
-
-fn system_time_millis(millis: i64) -> rusqlite::Result<SystemTime> {
-    signed_system_time(millis, Duration::from_millis)
 }
 
 fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {

@@ -44,7 +44,7 @@ where
     let id = request.id;
     let backend = request.backend.clone();
     let now = request.clock.now();
-    let (progress, hasher) = transfer(connection, &id, unix_millis(now)?)?;
+    let (progress, hasher) = transfer(connection, &id, UnixMillis::try_from(now)?)?;
     if progress.offset != progress.total {
         return Err(ObjectError::DerivedTransferIncomplete);
     }
@@ -325,7 +325,7 @@ impl Catalog {
             let principals = catalog.0.principals.get().cloned();
             let result = async {
             catalog.run_upload_admitted(execution, move |connection| {
-                let (progress, hasher) = transfer(connection, &query, unix_millis(clock.now())?)?;
+                let (progress, hasher) = transfer(connection, &query, UnixMillis::try_from(clock.now())?)?;
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
                 Ok((hasher, sources))

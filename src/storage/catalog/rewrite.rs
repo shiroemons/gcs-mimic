@@ -1,11 +1,10 @@
 use super::{
-    Catalog, CatalogError,
+    Catalog, CatalogError, UnixMillis,
     derived::{DerivedDestination, DerivedSegment},
     resumable,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
     rewrite_token::RewriteToken,
     session_limits::{MAX_TRIMMED_AT_ONCE, finished_excess},
-    system_time_millis, unix_millis,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
@@ -51,7 +50,7 @@ macro_rules! session_columns {
 fn read_session(
     connection: &Connection,
     token: &RewriteToken,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<RewriteSession, RewriteError> {
     let session = sql::row(
         connection,
@@ -77,7 +76,7 @@ fn check_continuation(
     session: &RewriteSession,
     token: &RewriteToken,
     access: (&BucketAccess, &BucketAccess),
-    now: i64,
+    now: UnixMillis,
 ) -> Result<Option<super::derived::DerivedTransfer>, ObjectError> {
     if session.previous_token.as_ref() == Some(token) {
         check_incarnations(connection, session)?;
@@ -149,7 +148,7 @@ pub(crate) struct RewriteSession {
     budget: u64,
     pub offset: u64,
     pub total: u64,
-    deadline: i64,
+    deadline: UnixMillis,
     response: Option<Value>,
 }
 
@@ -351,7 +350,10 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     clippy::disallowed_methods,
     reason = "open-time recovery probes and drops expired sessions once"
 )]
-pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), CatalogError> {
+pub(super) fn recover_due(
+    connection: &mut Connection,
+    now: UnixMillis,
+) -> Result<(), CatalogError> {
     let due: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM rewrite_sessions WHERE deadline<=?1)",
         [now],
@@ -509,7 +511,7 @@ impl Catalog {
                     incarnation(connection, &start.binding.source_bucket)?,
                     incarnation(connection, &start.binding.destination_bucket)?,
                 );
-                let deadline = unix_millis(transfer.deadline)?;
+                let deadline = UnixMillis::try_from(transfer.deadline)?;
                 sql::exec(
                     connection,
                     "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
@@ -554,7 +556,7 @@ impl Catalog {
     }
 
     async fn session_by_token(&self, token: RewriteToken) -> Result<RewriteSession, RewriteError> {
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| read_session(connection, &token, now))
             .await
     }
@@ -580,7 +582,7 @@ impl Catalog {
                 .await
                 .map_err(CatalogError::from)?,
         );
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let source_check = source_access.clone();
         let destination_check = destination_access.clone();
         let (mut session, source_result) = self
@@ -649,7 +651,7 @@ impl Catalog {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
             self.publish_derived_prepared(&id,destination,move |connection,record| {
-                if validate_session.deadline<=unix_millis(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
+                if validate_session.deadline<=UnixMillis::try_from(clock.now())? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = sql::scalar(connection, "SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1", params![source.bucket,record.bucket])?;
                 let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
@@ -673,7 +675,7 @@ impl Catalog {
         let response = json!({"offset":current.offset,"token":next});
         let saved = response.to_string();
         let id = session.id;
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let changed = self.run(move |connection| {
             let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset,saved,now])?;
             Ok::<_, ObjectError>(changed)
@@ -684,9 +686,9 @@ impl Catalog {
         progress(&session, &response).map_err(Into::into)
     }
 
-    pub(crate) async fn maintain_rewrite_sessions(
+    pub(super) async fn maintain_rewrite_sessions(
         &self,
-        now: i64,
+        now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
         let mut failure = None;
         let mut after = String::new();
@@ -735,13 +737,13 @@ impl Catalog {
         }
         self.run(move |connection| {
             // Rewrite calls wake the maintenance sweep, so this runs per request.
-            let deadline: Option<i64> = sql::scalar(
+            let deadline: Option<UnixMillis> = sql::scalar(
                 connection,
                 "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
                 [now],
             )?;
             deadline
-                .map(system_time_millis)
+                .map(UnixMillis::system_time)
                 .transpose()
                 .map_err(super::unavailable)
         })
@@ -1052,7 +1054,7 @@ mod tests {
         ));
         assert!(
             catalog
-                .maintain_rewrite_sessions(604801000)
+                .maintain_rewrite_sessions(UnixMillis(604801000))
                 .await
                 .unwrap()
                 .is_none()
@@ -1077,7 +1079,7 @@ mod tests {
         .unwrap();
         assert!(
             catalog
-                .maintain_rewrite_sessions(604801000)
+                .maintain_rewrite_sessions(UnixMillis(604801000))
                 .await
                 .unwrap()
                 .is_none()
@@ -1093,7 +1095,7 @@ mod tests {
         drop(derived_guard);
         assert!(
             catalog
-                .maintain_rewrite_sessions(604801000)
+                .maintain_rewrite_sessions(UnixMillis(604801000))
                 .await
                 .unwrap()
                 .is_none()

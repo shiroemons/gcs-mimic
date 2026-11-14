@@ -1227,7 +1227,7 @@ async fn expiry_drains_more_than_one_page_in_one_sweep() {
     }
     assert_eq!(
         catalog
-            .maintain_derived_transfers_at(i64::MAX)
+            .maintain_derived_transfers_at(UnixMillis(i64::MAX))
             .await
             .unwrap(),
         None
@@ -1528,8 +1528,8 @@ fn foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine() {
             "cancel" => {
                 let _discarded = discard_transfer(&mut connection, &id).unwrap();
             }
-            "expiry" => recover(&connection, &std::env::temp_dir(), 1).unwrap(),
-            "quarantine" => recover(&connection, &std::env::temp_dir(), 0).unwrap(),
+            "expiry" => recover(&connection, &std::env::temp_dir(), UnixMillis(1)).unwrap(),
+            "quarantine" => recover(&connection, &std::env::temp_dir(), UnixMillis(0)).unwrap(),
             _ => unreachable!(),
         }
         assert_eq!(
@@ -1546,8 +1546,10 @@ fn foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine() {
 async fn migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object() {
     let (catalog, path) = setup().await;
     let mut original = put(&catalog, "source", b"bytes").await;
-    original.time_created =
-        system_time_millis(unix_millis(original.time_created).unwrap()).unwrap();
+    original.time_created = UnixMillis::try_from(original.time_created)
+        .unwrap()
+        .system_time()
+        .unwrap();
     original.updated = original.time_created;
     original.owner = None;
     catalog.close().await.unwrap();

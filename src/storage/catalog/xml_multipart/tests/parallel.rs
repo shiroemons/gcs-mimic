@@ -563,7 +563,7 @@ async fn an_expired_upload_stays_until_its_last_part_in_flight_finishes() {
     let first = OpenPart::start(&catalog, &target, 1, &b"first"[..]).await;
     let second = OpenPart::start(&catalog, &target, 2, &b"second"[..]).await;
     clock.advance(Duration::from_secs(604800));
-    let now = unix_millis(clock.now()).unwrap();
+    let now = UnixMillis::try_from(clock.now()).unwrap();
 
     catalog.maintain_xml_multipart(now).await.unwrap();
     assert_eq!(upload_count(&catalog).await, 1);
@@ -614,7 +614,7 @@ async fn a_deleted_bucket_retires_its_upload_after_the_part_in_flight() {
                 .await
                 .unwrap();
         }
-        let now = unix_millis(SystemClock.now()).unwrap();
+        let now = UnixMillis::try_from(SystemClock.now()).unwrap();
         catalog.maintain_xml_multipart(now).await.unwrap();
         assert_eq!(upload_count(&catalog).await, 1, "recreated: {recreated}");
 

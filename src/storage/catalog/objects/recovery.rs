@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::UnixMillis;
 
 fn os_metadata(entry: &fs::DirEntry) -> bool {
     let name = entry.file_name();
@@ -9,7 +10,7 @@ fn os_metadata(entry: &fs::DirEntry) -> bool {
 pub(in crate::storage::catalog) fn recover(
     connection: &Connection,
     data_dir: &Path,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), CatalogError> {
     // The phases run in this order: staging and derived state first, then the deletion
     // journal, so the reference and orphan scans only see committed, durable state.

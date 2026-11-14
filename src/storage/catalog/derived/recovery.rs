@@ -50,7 +50,7 @@ fn discard_record(connection: &Connection, id: &BlobId) -> Result<(), ObjectErro
 pub(in crate::storage::catalog) fn recover(
     connection: &Connection,
     data_dir: &Path,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), ObjectError> {
     reclaim_derived_deletions(connection, data_dir)?;
     let mut after = String::new();
@@ -63,7 +63,7 @@ pub(in crate::storage::catalog) fn recover(
                 Ok((
                     row.get::<_, BlobId>(0)?,
                     row.get::<_, bool>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, UnixMillis>(2)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -90,7 +90,7 @@ fn validate_retained(
     connection: &Connection,
     data_dir: &Path,
     id: &BlobId,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), ObjectError> {
     let (progress, saved_hash) = transfer(connection, id, now)?;
     let sources = inputs(connection, id)?;

@@ -280,7 +280,7 @@ async fn multipart_reclamation_leaves_catalog_available_and_syncs_the_batch_once
     assert_eq!(catalog.pending_faults(), 0);
     assert_eq!(deletion_count(&catalog).await, 1);
     catalog
-        .maintain_xml_multipart(unix_millis(SystemClock.now()).unwrap())
+        .maintain_xml_multipart(UnixMillis::try_from(SystemClock.now()).unwrap())
         .await
         .unwrap();
     assert_eq!(deletion_count(&catalog).await, 0);
@@ -624,7 +624,7 @@ async fn every_expired_upload_is_retired_in_one_pass_however_many_pages_they_fil
     ));
     assert!(
         catalog
-            .maintain_xml_multipart(unix_millis(clock.now()).unwrap())
+            .maintain_xml_multipart(UnixMillis::try_from(clock.now()).unwrap())
             .await
             .unwrap()
             .is_none()
@@ -674,13 +674,13 @@ async fn uploads_past_the_former_limit_survive_reopening_and_a_held_one_does_not
         .unwrap();
     clock.advance(Duration::from_secs(604800));
     catalog
-        .maintain_xml_multipart(unix_millis(clock.now()).unwrap())
+        .maintain_xml_multipart(UnixMillis::try_from(clock.now()).unwrap())
         .await
         .unwrap();
     assert_eq!(upload_count(&catalog).await, 1);
     drop(held);
     catalog
-        .maintain_xml_multipart(unix_millis(clock.now()).unwrap())
+        .maintain_xml_multipart(UnixMillis::try_from(clock.now()).unwrap())
         .await
         .unwrap();
     assert_eq!(upload_count(&catalog).await, 0);
@@ -744,7 +744,7 @@ async fn bucket_delete_wakes_cleanup_and_retires_every_upload_of_the_old_bucket(
         .await
         .unwrap();
     catalog
-        .maintain_xml_multipart(unix_millis(SystemClock.now()).unwrap())
+        .maintain_xml_multipart(UnixMillis::try_from(SystemClock.now()).unwrap())
         .await
         .unwrap();
     assert_eq!(upload_count(&catalog).await, 0);

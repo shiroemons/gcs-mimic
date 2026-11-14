@@ -210,7 +210,10 @@ async fn ram_xml_multipart_abort_expiry_and_reset_release_owned_hidden_parts() {
     part(&catalog, &expired, b"expired", Complete)
         .await
         .unwrap();
-    catalog.maintain_xml_multipart(i64::MAX).await.unwrap();
+    catalog
+        .maintain_xml_multipart(UnixMillis(i64::MAX))
+        .await
+        .unwrap();
     assert!(matches!(
         catalog
             .lease_xml_multipart(expired, BucketAccess::Permissive)

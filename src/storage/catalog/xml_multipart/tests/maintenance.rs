@@ -56,7 +56,7 @@ async fn orphans_are_looked_for_only_after_a_bucket_delete_and_at_open() {
     let (dir, catalog) = setup(clock.clone()).await;
     begin(&catalog).await;
     orphan_every_upload(&catalog).await;
-    let now = unix_millis(clock.now()).unwrap();
+    let now = UnixMillis::try_from(clock.now()).unwrap();
     catalog.maintain_xml_multipart(now).await.unwrap();
     assert_eq!(upload_count(&catalog).await, 1);
 
@@ -66,7 +66,7 @@ async fn orphans_are_looked_for_only_after_a_bucket_delete_and_at_open() {
 
     begin(&catalog).await;
     orphan_every_upload(&catalog).await;
-    let at_deadline = now + LIFETIME_MILLIS;
+    let at_deadline = now.checked_add_millis(LIFETIME_MILLIS).unwrap();
     catalog.maintain_xml_multipart(at_deadline).await.unwrap();
     assert_eq!(upload_count(&catalog).await, 0);
 

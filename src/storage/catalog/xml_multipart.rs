@@ -1,7 +1,7 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::resumable::writers::{ClaimError, KeyOrigin, WriterKey};
-use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
+use super::{Catalog, UnixMillis, objects, resumable};
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
@@ -180,7 +180,7 @@ fn read_upload(row: &rusqlite::Row<'_>) -> rusqlite::Result<Upload> {
         },
         incarnation: row.get(3)?,
         options,
-        created: system_time_millis(row.get(5)?)?,
+        created: row.get::<_, UnixMillis>(5)?.system_time()?,
     })
 }
 
@@ -188,7 +188,7 @@ fn active(
     connection: &Connection,
     target: &Target,
     access: &BucketAccess,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<Upload, Error> {
     objects::authorized_bucket(connection, &target.bucket, access)?;
     sql::row(connection, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4", params![target.id,target.bucket,target.name,now],read_upload).optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
@@ -202,7 +202,7 @@ fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
         size: row.get(2)?,
         md5,
         crc32c: row.get(4)?,
-        updated: system_time_millis(row.get(5)?)?,
+        updated: row.get::<_, UnixMillis>(5)?.system_time()?,
         etag: format!("\"{}\"", crate::hashing::encode_lower(&md5)),
     })
 }
@@ -235,9 +235,9 @@ impl Catalog {
                 .map_err(object_unavailable)?
                 .to_hex(),
         };
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let deadline = now
-            .checked_add(LIFETIME_MILLIS)
+            .checked_add_millis(LIFETIME_MILLIS)
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
             .run(move |connection| {
@@ -276,7 +276,7 @@ impl Catalog {
                     target,
                     incarnation,
                     options,
-                    created: system_time_millis(now)?,
+                    created: now.system_time()?,
                 })
             })
             .await?;
@@ -331,7 +331,7 @@ impl Catalog {
 
     async fn active_upload(&self, target: Target, access: &BucketAccess) -> Result<Upload, Error> {
         let access = access.clone();
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(object_unavailable)?;
             active(&transaction, &target, &access, now)
@@ -346,7 +346,7 @@ impl Catalog {
         marker: u16,
         limit: usize,
     ) -> Result<(Upload, Vec<Part>, bool), Error> {
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
             let upload=active(&transaction,&target,&access,now)?;
@@ -370,7 +370,7 @@ impl Catalog {
                         &transaction,
                         &lease.upload.target,
                         &lease.access,
-                        unix_millis(operation.0.clock.now())?,
+                        UnixMillis::try_from(operation.0.clock.now())?,
                     )?;
                     maintenance::retire(&transaction, &lease.upload.target.id)?;
                     objects::commit_publication(transaction)?;
@@ -403,7 +403,7 @@ impl Catalog {
 pub(super) fn recover(
     connection: &Connection,
     data_dir: &Path,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), CatalogError> {
     maintenance::recover(connection, data_dir, now)
 }

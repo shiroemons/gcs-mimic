@@ -1,6 +1,4 @@
-use super::{
-    Catalog, CatalogError, Incarnation, Work, system_time_millis, unavailable, unix_millis,
-};
+use super::{Catalog, CatalogError, Incarnation, UnixMillis, Work, unavailable};
 use crate::storage::{
     blob_id::BlobId,
     catalog::{bucket_incarnation, sql},
@@ -234,9 +232,9 @@ fn insert_session(
             .optional()
             .map_err(unavailable)?
             .ok_or(ObjectError::BucketNotFound)?;
-        let created = unix_millis(now)?;
+        let created = UnixMillis::try_from(now)?;
         let deadline = created
-            .checked_add(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
+            .checked_add_millis(i64::try_from(SESSION_LIFETIME.as_millis()).map_err(unavailable)?)
             .ok_or_else(|| unavailable("upload deadline overflow"))?;
         let encoded = encode_new_options(&transaction, &request.bucket, &request.options)
             .map_err(unavailable)?;
@@ -525,7 +523,7 @@ impl Catalog {
         }
         let id = lease.session.id;
         let old = lease.session.offset;
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let encoded = options.map(|o| encode_options(o).to_string());
         if encoded.as_ref().is_some_and(|v| v.len() > 65536) {
             return Err(ResumableError::Invalid(
@@ -650,8 +648,8 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             .map_err(|error| sql::conversion_error(5, Type::Text, error))?,
         total: row.get(6)?,
         offset: row.get(7)?,
-        created: system_time_millis(row.get(8)?)?,
-        deadline: system_time_millis(row.get(9)?)?,
+        created: row.get::<_, UnixMillis>(8)?.system_time()?,
+        deadline: row.get::<_, UnixMillis>(9)?.system_time()?,
         state,
         completion: completion
             .map(|v| {

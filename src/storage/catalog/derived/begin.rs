@@ -47,8 +47,8 @@ struct BeginTransfer {
     id: BlobId,
     total: u64,
     ephemeral: bool,
-    created: i64,
-    deadline: i64,
+    created: UnixMillis,
+    deadline: UnixMillis,
 }
 
 fn begin_transfer(
@@ -77,8 +77,8 @@ fn begin_transfer(
             id: draft.id,
             total: draft.total,
             offset: 0,
-            created: system_time_millis(draft.created)?,
-            deadline: system_time_millis(draft.deadline)?,
+            created: draft.created.system_time()?,
+            deadline: draft.deadline.system_time()?,
         };
         bind(&transaction, &transfer)?;
         #[cfg(test)]
@@ -157,9 +157,9 @@ impl Catalog {
         // Every segment holds its source's lease, and at least one segment exists.
         let permit = self.admit_object_upload()?;
         let backend = self.0.backend.clone();
-        let created = unix_millis(self.0.clock.now())?;
+        let created = UnixMillis::try_from(self.0.clock.now())?;
         let deadline = created
-            .checked_add(if ephemeral {
+            .checked_add_millis(if ephemeral {
                 EPHEMERAL_LIFETIME_MILLIS
             } else {
                 LIFETIME_MILLIS

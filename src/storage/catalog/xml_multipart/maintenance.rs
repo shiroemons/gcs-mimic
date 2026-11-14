@@ -106,20 +106,20 @@ const ORPHANED_PAGE: &str = "SELECT id FROM xml_multipart_uploads u WHERE id>?1 
 /// A place in deadline order. Keyset pages keep memory and each job short however many uploads
 /// are due, and let a held upload be stepped over.
 struct ExpiredUpload {
-    deadline: i64,
+    deadline: UnixMillis,
     id: String,
 }
 
 impl ExpiredUpload {
     const BEFORE_ALL: Self = Self {
-        deadline: i64::MIN,
+        deadline: UnixMillis(i64::MIN),
         id: String::new(),
     };
 }
 
 fn expired(
     connection: &Connection,
-    now: i64,
+    now: UnixMillis,
     after: &ExpiredUpload,
 ) -> Result<Vec<ExpiredUpload>, CatalogError> {
     connection
@@ -157,7 +157,7 @@ fn retire_at_recovery(connection: &Connection, id: &str) -> Result<(), CatalogEr
 pub(super) fn recover(
     connection: &Connection,
     data_dir: &Path,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), CatalogError> {
     // No request holds an upload yet, so every page retires completely and the next one starts
     // from the beginning again.
@@ -295,7 +295,7 @@ impl Catalog {
         Ok(held)
     }
 
-    async fn retire_expired(&self, now: i64) -> Result<(), CatalogError> {
+    async fn retire_expired(&self, now: UnixMillis) -> Result<(), CatalogError> {
         let mut after = ExpiredUpload::BEFORE_ALL;
         loop {
             let catalog = self.clone();
@@ -360,11 +360,11 @@ impl Catalog {
 
     pub(in crate::storage::catalog) async fn maintain_xml_multipart(
         &self,
-        now: i64,
+        now: UnixMillis,
     ) -> Result<Option<SystemTime>, CatalogError> {
         self.retire_expired(now).await?;
         self.retire_orphaned().await?;
-        let deadline: Option<i64> = self
+        let deadline: Option<UnixMillis> = self
             .run(|connection| {
                 sql::scalar(
                     connection,
@@ -379,14 +379,15 @@ impl Catalog {
             .await
             .map_err(super::super::unavailable)?
         {
-            return system_time_millis(now)
+            return now
+                .system_time()
                 .map(Some)
                 .map_err(super::super::unavailable);
         }
         // Busy expired uploads wake the scheduler when their owned operation releases its lease.
         deadline
             .filter(|value| *value > now)
-            .map(system_time_millis)
+            .map(UnixMillis::system_time)
             .transpose()
             .map_err(super::super::unavailable)
     }

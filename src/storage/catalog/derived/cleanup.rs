@@ -101,13 +101,13 @@ impl Catalog {
     pub(crate) async fn maintain_derived_transfers(
         &self,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.maintain_derived_transfers_at(now).await
     }
 
     pub(in crate::storage::catalog) async fn maintain_derived_transfers_at(
         &self,
-        now: i64,
+        now: UnixMillis,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut failure = self.reclaim_pending().await.err();
         let mut after = String::new();
@@ -147,7 +147,7 @@ impl Catalog {
         }
         self.run(move |connection| {
             // Derived transfers wake the maintenance sweep, so these run per request.
-            let deadline: Option<i64> = sql::scalar(
+            let deadline: Option<UnixMillis> = sql::scalar(
                 connection,
                 "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",
                 [now],
@@ -163,7 +163,7 @@ impl Catalog {
                 deadline
             };
             deadline
-                .map(system_time_millis)
+                .map(UnixMillis::system_time)
                 .transpose()
                 .map_err(super::super::unavailable)
         })

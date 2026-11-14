@@ -39,7 +39,7 @@ impl Catalog {
         crate::task::spawn_supervised("xml-multipart-part",async move {
             let (_permit,lease)=(permit,lease);
             let number=lease.number;
-            let now=unix_millis(catalog.0.clock.now())?;
+            let now=UnixMillis::try_from(catalog.0.clock.now())?;
             let target=lease.upload.target.clone();
             let access=lease.access.clone();
             let retained=catalog.run(move |connection| -> Result<_, Error> {
@@ -66,7 +66,7 @@ impl Catalog {
                     #[cfg(unix)] backend.sync_staging_dir().map_err(object_unavailable)?;
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
-                    let now=unix_millis(clock.now())?;
+                    let now=UnixMillis::try_from(clock.now())?;
                     active(&transaction,&target,&access,now)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
                     let others=sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable)?;
@@ -167,9 +167,13 @@ impl Catalog {
                     destination,
                     move |connection, record| {
                         record.md5_availability = crate::object::Md5Availability::Unavailable;
-                        let upload =
-                            active(connection, &target, &access, unix_millis(clock.now())?)
-                                .map_err(publication_error)?;
+                        let upload = active(
+                            connection,
+                            &target,
+                            &access,
+                            UnixMillis::try_from(clock.now())?,
+                        )
+                        .map_err(publication_error)?;
                         if upload.incarnation != incarnation {
                             return Err(ObjectError::DerivedTransferNotFound);
                         }
@@ -201,7 +205,7 @@ impl Catalog {
     ) -> Result<u64, Error> {
         let target = lease.upload.target.clone();
         let access = lease.access.clone();
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| -> Result<_, Error> {
             let transaction = connection.transaction().map_err(object_unavailable)?;
             active(&transaction, &target, &access, now)?;
@@ -284,7 +288,7 @@ impl Catalog {
         #[cfg(unix)]
         let backend = self.0.backend.clone();
         let id = *id;
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let (state, crc32c) = hasher.md5_state();
         self.run(move |connection| {
             #[cfg(unix)]
@@ -292,7 +296,14 @@ impl Catalog {
             sql::exec(
                 connection,
                 "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
-                params![id, total, state.as_slice(), crc32c, now, now + 900000],
+                params![
+                    id,
+                    total,
+                    state.as_slice(),
+                    crc32c,
+                    now,
+                    now.saturating_add_millis(900000)
+                ],
             )?;
             file.acknowledge(total);
             Ok::<_, ObjectError>(())

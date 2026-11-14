@@ -8,8 +8,8 @@ use crate::storage::catalog::Incarnation;
 use crate::{
     bucket::lifecycle::{LifecycleAction, evaluate::multipart_abort_due},
     storage::catalog::{
+        UnixMillis,
         resumable::writers::{ClaimError, KeyOrigin, WriterGuard, WriterKey},
-        system_time_millis,
     },
 };
 use rusqlite::{Connection, params};
@@ -133,7 +133,7 @@ impl Catalog {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
+                            row.get::<_, UnixMillis>(2)?,
                         ))
                     },
                 )?
@@ -143,8 +143,7 @@ impl Catalog {
                 .flatten();
             for (name, id, created) in rows {
                 outcome.scanned += 1;
-                let Some(due) =
-                    multipart_abort_due(parsed, &name, system_time_millis(created)?, now)
+                let Some(due) = multipart_abort_due(parsed, &name, created.system_time()?, now)
                 else {
                     continue;
                 };

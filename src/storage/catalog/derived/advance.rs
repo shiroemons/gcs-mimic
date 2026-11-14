@@ -4,7 +4,7 @@ impl Catalog {
     #[cfg(test)]
     pub(crate) async fn get_derived(&self, id: &BlobId) -> Result<DerivedTransfer, ObjectError> {
         let id = *id;
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run(move |connection| transfer(connection, &id, now).map(|value| value.0))
             .await
     }
@@ -25,7 +25,7 @@ impl Catalog {
             let (_permit, _guard) = (permit, guard);
             let query = id;
             let backend = catalog.0.backend.clone();
-            let now = unix_millis(catalog.0.clock.now())?;
+            let now = UnixMillis::try_from(catalog.0.clock.now())?;
             let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
@@ -59,7 +59,7 @@ impl Catalog {
             // An ephemeral lifetime only reclaims an abandoned transfer, so progress renews it: a
             // request may copy for longer, and has a deadline of its own if configured. The time
             // is read after the copy, because a compose advances through all its bytes at once.
-            let renewed = unix_millis(catalog.0.clock.now())?.saturating_add(EPHEMERAL_LIFETIME_MILLIS);
+            let renewed = UnixMillis::try_from(catalog.0.clock.now())?.saturating_add_millis(EPHEMERAL_LIFETIME_MILLIS);
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
                 sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4, deadline = CASE ephemeral WHEN 1 THEN max(deadline, ?5) ELSE deadline END WHERE id = ?1", params![id, progress.offset, md5_state.as_slice(), crc, renewed])?;

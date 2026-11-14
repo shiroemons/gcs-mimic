@@ -172,9 +172,56 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
         };
         assert_eq!(
             super::test_support::floor_to_millis(time),
-            system_time_millis(unix_millis(time).unwrap()).unwrap()
+            UnixMillis::try_from(time).unwrap().system_time().unwrap()
         );
     }
+}
+
+/// Session, multipart, rewrite and derived tables store whole milliseconds: a reading floors to
+/// the millisecond at or before it, and a value past the `i64` range is an error, never a wrap.
+#[test]
+fn unix_millis_round_trip_signed_values_and_reject_values_past_the_range() {
+    for (time, millis) in [
+        (UNIX_EPOCH - Duration::from_micros(1001), -2),
+        (UNIX_EPOCH - Duration::from_nanos(1), -1),
+        (UNIX_EPOCH, 0),
+        (UNIX_EPOCH + Duration::from_micros(1999), 1),
+    ] {
+        let stored = UnixMillis::try_from(time).unwrap();
+        assert_eq!(stored, UnixMillis(millis));
+        assert_eq!(
+            UnixMillis::try_from(stored.system_time().unwrap()).unwrap(),
+            stored
+        );
+    }
+    let most = Duration::from_millis(i64::MAX.unsigned_abs());
+    let least = Duration::from_millis(i64::MIN.unsigned_abs());
+    let one = Duration::from_millis(1);
+    // Windows SystemTime starts in 1601, so none of these extremes can be built there.
+    for (time, expected) in [
+        (UNIX_EPOCH.checked_add(most), Some(UnixMillis(i64::MAX))),
+        (UNIX_EPOCH.checked_sub(least), Some(UnixMillis(i64::MIN))),
+        (UNIX_EPOCH.checked_add(most + one), None),
+        (UNIX_EPOCH.checked_sub(least + one), None),
+    ] {
+        assert!(time.is_some() || cfg!(windows));
+        let Some(time) = time else {
+            continue;
+        };
+        assert_eq!(UnixMillis::try_from(time).ok(), expected);
+        if let Some(expected) = expected {
+            assert_eq!(expected.system_time().unwrap(), time);
+        }
+    }
+    assert_eq!(
+        UnixMillis(i64::MAX - 1).checked_add_millis(1),
+        Some(UnixMillis(i64::MAX))
+    );
+    assert_eq!(UnixMillis(i64::MAX).checked_add_millis(1), None);
+    assert_eq!(
+        UnixMillis(i64::MAX).saturating_add_millis(1),
+        UnixMillis(i64::MAX)
+    );
 }
 
 fn body() -> tokio::sync::mpsc::Receiver<Result<UploadChunk, std::io::Error>> {
@@ -247,7 +294,9 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .unwrap();
         assert_eq!(
             transfer.created,
-            system_time_millis(nanos.div_euclid(1_000_000)).unwrap()
+            UnixMillis(nanos.div_euclid(1_000_000))
+                .system_time()
+                .unwrap()
         );
         catalog.advance_derived(&transfer.id, 1).await.unwrap();
         let destination = |name: &str| DerivedDestination {
@@ -526,7 +575,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         253_402_300_799_999,
     ] {
         // Windows SystemTime starts in 1601, so year 0 cannot be built there.
-        let now = system_time_millis(millis);
+        let now = UnixMillis(millis).system_time();
         assert!(now.is_ok() || cfg!(windows), "{millis}");
         let Ok(now) = now else {
             continue;

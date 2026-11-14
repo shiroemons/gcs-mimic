@@ -624,17 +624,17 @@ async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
 #[test]
 fn timestamps_use_integer_unix_milliseconds() {
     assert_eq!(
-        unix_millis(UNIX_EPOCH + Duration::from_micros(1999)).unwrap(),
-        1
+        UnixMillis::try_from(UNIX_EPOCH + Duration::from_micros(1999)).unwrap(),
+        UnixMillis(1)
     );
     assert_eq!(
-        unix_millis(UNIX_EPOCH - Duration::from_micros(1)).unwrap(),
-        -1
+        UnixMillis::try_from(UNIX_EPOCH - Duration::from_micros(1)).unwrap(),
+        UnixMillis(-1)
     );
     for millis in [-1001, -1, 0, 1, 1001] {
         assert_eq!(
-            unix_millis(system_time_millis(millis).unwrap()).unwrap(),
-            millis
+            UnixMillis::try_from(UnixMillis(millis).system_time().unwrap()).unwrap(),
+            UnixMillis(millis)
         );
     }
 }

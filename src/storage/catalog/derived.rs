@@ -1,12 +1,12 @@
 //! Generation-pinned, resumable byte derivation shared by copy, rewrite and compose.
 
 use super::{
-    Catalog, Work, objects,
+    Catalog, UnixMillis, Work, objects,
     resumable::WriterGuard,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
-    system_time_micros, system_time_millis,
+    system_time_micros,
     transfer_io::{self, stage_path},
-    unix_micros, unix_millis,
+    unix_micros,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -111,22 +111,28 @@ fn inputs(connection: &Connection, id: &BlobId) -> Result<Vec<Input>, ObjectErro
 pub(super) fn transfer(
     connection: &Connection,
     id: &BlobId,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
     const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
-    let (total, offset, state, crc, created, deadline): (u64, u64, Vec<u8>, u32, i64, i64) =
-        sql::row(connection, SELECT, [id], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-            ))
-        })
-        .optional()?
-        .ok_or(ObjectError::DerivedTransferNotFound)?;
+    let (total, offset, state, crc, created, deadline): (
+        u64,
+        u64,
+        Vec<u8>,
+        u32,
+        UnixMillis,
+        UnixMillis,
+    ) = sql::row(connection, SELECT, [id], |row| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+            row.get(5)?,
+        ))
+    })
+    .optional()?
+    .ok_or(ObjectError::DerivedTransferNotFound)?;
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
     }
@@ -136,8 +142,8 @@ pub(super) fn transfer(
             id: *id,
             total,
             offset,
-            created: system_time_millis(created)?,
-            deadline: system_time_millis(deadline)?,
+            created: created.system_time()?,
+            deadline: deadline.system_time()?,
         },
         hasher,
     ))

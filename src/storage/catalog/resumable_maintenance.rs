@@ -1,7 +1,8 @@
 use super::{
     BlobBackend, Catalog, CatalogError, ResumableError, SessionId, SessionState, UnixMicros,
+    UnixMillis,
     resumable::writers::{ClaimError, KeyOrigin, WriterKey},
-    unavailable, unix_millis,
+    unavailable,
 };
 use crate::storage::blob_id::BlobId;
 use crate::storage::catalog::sql;
@@ -53,9 +54,9 @@ impl SweepOutcome {
 
 fn cleanup_page(
     connection: &Connection,
-    now: i64,
+    now: UnixMillis,
     after: &str,
-) -> Result<Vec<(SessionId, BlobId, i64)>, CatalogError> {
+) -> Result<Vec<(SessionId, BlobId, UnixMillis)>, CatalogError> {
     // Requests wake maintenance, so this runs per request and must not read every session. Both
     // arms start from what is due: the deadline index, and the journal (CROSS JOIN keeps SQLite
     // from scanning sessions in id order instead).
@@ -69,8 +70,8 @@ fn clean_record(
     backend: &BlobBackend,
     id: SessionId,
     blob_id: &BlobId,
-    deadline: i64,
-    now: i64,
+    deadline: UnixMillis,
+    now: UnixMillis,
 ) -> Result<(), CatalogError> {
     clean_session_storage(connection, backend, blob_id)?;
     if deadline <= now {
@@ -86,7 +87,7 @@ fn clean_record(
 pub(super) fn recover_due(
     connection: &Connection,
     backend: &BlobBackend,
-    now: i64,
+    now: UnixMillis,
 ) -> Result<(), CatalogError> {
     let mut after = String::new();
     loop {
@@ -206,7 +207,7 @@ impl Catalog {
             return Err(ResumableError::Gone);
         }
         let id = lease.session.id;
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         let blob_id = lease.session.blob_id;
         let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
@@ -282,7 +283,7 @@ impl Catalog {
         // Session deadlines are stored in milliseconds, hard delete times in microseconds. Each
         // sweep gets its own unit from one reading: truncating to milliseconds would leave a row
         // due within the current millisecond unpurged and spin the scheduler until the next one.
-        let now = unix_millis(reading)?;
+        let now = UnixMillis::try_from(reading)?;
         let hard_delete_now = UnixMicros::try_from(reading)?;
         let mut sweep = SweepOutcome::default();
         sweep.record(
@@ -314,7 +315,10 @@ impl Catalog {
         sweep.finish()
     }
 
-    async fn sweep_resumable_sessions(&self, now: i64) -> Result<Option<SystemTime>, CatalogError> {
+    async fn sweep_resumable_sessions(
+        &self,
+        now: UnixMillis,
+    ) -> Result<Option<SystemTime>, CatalogError> {
         let mut after = String::new();
         let mut sweep = SweepOutcome::default();
         loop {
@@ -366,13 +370,13 @@ impl Catalog {
         }
         let deadline = self
             .run(move |connection| {
-                let deadline: Option<i64> = sql::scalar(
+                let deadline: Option<UnixMillis> = sql::scalar(
                     connection,
                     "SELECT min(deadline) FROM resumable_sessions WHERE deadline > ?1",
                     [now],
                 )?;
                 deadline
-                    .map(super::system_time_millis)
+                    .map(UnixMillis::system_time)
                     .transpose()
                     .map_err(unavailable)
             })

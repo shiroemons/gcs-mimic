@@ -25,7 +25,7 @@ impl Catalog {
         query: UploadQuery,
         access: BucketAccess,
     ) -> Result<UploadPage, Error> {
-        let now = unix_millis(self.0.clock.now())?;
+        let now = UnixMillis::try_from(self.0.clock.now())?;
         self.run::<_, ObjectError>(move |connection| {
             let transaction=connection.transaction()?;
             objects::authorized_bucket(&transaction,&query.bucket,&access)?;

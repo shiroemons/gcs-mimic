@@ -439,7 +439,7 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
     );
     let transfer = ram_transfer(&catalog).await;
     catalog
-        .maintain_derived_transfers_at(i64::MAX)
+        .maintain_derived_transfers_at(UnixMillis(i64::MAX))
         .await
         .unwrap();
     assert_eq!(

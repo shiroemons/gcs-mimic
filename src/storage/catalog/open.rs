@@ -180,7 +180,7 @@ fn recover_on_open(
     if has_conflict_revision {
         connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));")?;
     }
-    let recovery_now = unix_millis(clock.now())?;
+    let recovery_now = UnixMillis::try_from(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
     resumable_maintenance::recover_due(connection, backend, recovery_now)?;
     xml_multipart::recover(connection, data_dir, recovery_now)?;
