@@ -1,19 +1,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    Blocker, CleanupOperation, ImportError, ImportFailure, Options, Page, Record, SourceChange,
-    Summary, codec, scan_with_baseline,
+    Blocker, BucketRecord, CleanupOperation, ImportError, ImportFailure, ObjectRecord, Options,
+    Page, Record, SourceChange, Summary, codec, scan_with_baseline,
 };
 use crate::{
     bucket::CatalogError,
     fsutil::IdentityField,
-    object::{ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch},
     storage::{
         Catalog,
-        admin::{
-            Admin, AdminError, BatchPublication, BucketDefinition, BucketName, Generation,
-            GenerationCondition, ImportedIdentity, ObjectName, Origin, Publication, PublishMode,
-        },
+        admin::{Admin, AdminError, BatchPublication, BucketDefinition, ImportedIdentity, Origin},
         import_journal::{ImportBinding, ImportElement, ImportProgress, ResumeError},
     },
 };
@@ -72,36 +68,25 @@ fn element(record: &Record, ordinal: i64) -> Option<ImportElement> {
     let mut context = Context::new(&SHA256);
     context.update(b"gcs-mimic-import-element\0\x01");
     let (inode, ctime_ns) = match record {
-        Record::Bucket {
-            path,
-            name,
-            attributes_digest,
-            ..
-        } => {
+        Record::Bucket(bucket) => {
             super::digest_fields(
                 &mut context,
                 "bucket",
-                path,
-                &[name.as_bytes(), attributes_digest],
+                &bucket.path,
+                &[bucket.name.as_str().as_bytes(), &bucket.attributes_digest],
             );
             (None, None)
         }
-        Record::Object {
-            path,
-            bucket,
-            name,
-            attributes_digest,
-            fingerprint,
-            ..
-        } => {
+        Record::Object(object) => {
+            let fingerprint = &object.fingerprint;
             super::digest_fields(
                 &mut context,
                 "object",
-                path,
+                &object.path,
                 &[
-                    bucket.as_bytes(),
-                    name.as_bytes(),
-                    attributes_digest,
+                    object.bucket.as_str().as_bytes(),
+                    object.name.as_str().as_bytes(),
+                    &object.attributes_digest,
                     &fingerprint.size.to_be_bytes(),
                     &fingerprint.mtime_ns.to_be_bytes(),
                 ],
@@ -199,8 +184,9 @@ impl Baseline {
         bytes[33..41].copy_from_slice(&element.inode.unwrap_or_default().to_be_bytes());
         bytes[41] = u8::from(element.ctime_ns.is_some());
         bytes[42..58].copy_from_slice(&element.ctime_ns.unwrap_or_default().to_be_bytes());
-        if let Record::Object { fingerprint, .. } = record {
-            bytes[58..].copy_from_slice(&fingerprint.device.unwrap_or_default().to_be_bytes());
+        if let Record::Object(object) = record {
+            bytes[58..]
+                .copy_from_slice(&object.fingerprint.device.unwrap_or_default().to_be_bytes());
         }
         match &mut self.file {
             BaselineIo::Record(file) => file.write_all(&bytes)?,
@@ -240,75 +226,21 @@ pub(super) fn time(micros: i64) -> Result<SystemTime, codec::TimestampError> {
     .ok_or(codec::TimestampError::OUTSIDE_PLATFORM_RANGE)
 }
 
-fn identity(
-    attrs: &codec::ObjectAttrs,
-    created: i64,
-    updated: i64,
-    deleted: Option<i64>,
-) -> Result<ImportedIdentity, ImportError> {
-    let identity = ImportedIdentity::new(
-        Generation::new(attrs.generation)?,
-        time(created)?,
-        time(updated)?,
-    )?;
-    Ok(match deleted {
-        Some(deleted) => identity.archived(time(deleted)?)?,
-        None => identity,
-    })
-}
-
-fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, ImportError> {
-    Ok(Publication {
-        content_type: attrs.content_type.clone(),
-        metadata: ObjectMetadataUpdate {
-            retention: Patch::nullable(codec::retention(attrs)?),
-            acl: codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object)?,
-            storage_class: Some(
-                crate::bucket::validate_storage_class(&attrs.storage_class)
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
-            ),
-            custom_time: Patch::nullable(if codec::is_unset_time(&attrs.custom_time)? {
-                None
-            } else {
-                Some(attrs.custom_time.clone())
-            }),
-            content_encoding: Patch::Set(attrs.content_encoding.clone()),
-            content_disposition: Patch::Set(attrs.content_disposition.clone()),
-            // A new generation stores neither an empty language nor a cleared one, but
-            // validation refuses an empty contentLanguage, so an empty source clears it.
-            content_language: Patch::nullable(
-                (!attrs.content_language.is_empty()).then(|| attrs.content_language.clone()),
-            ),
-            cache_control: Patch::Set(attrs.cache_control.clone()),
-            metadata: attrs.metadata.clone().map_or(MapPatch::Clear, |entries| {
-                MapPatch::Merge(
-                    entries
-                        .into_iter()
-                        .map(|(key, value)| (key, Some(value)))
-                        .collect(),
-                )
-            }),
-            event_based_hold: None,
-            ..Default::default()
-        },
-        expected: expected_hashes(attrs)?,
-        condition: Some(GenerationCondition::Absent),
-        max_bytes: cap,
-        mode: PublishMode::Replace,
-    })
-}
-
-fn expected_hashes(attrs: &codec::ObjectAttrs) -> Result<ExpectedHashes, ImportError> {
-    Ok(ExpectedHashes {
-        md5: Some(
-            crate::json::decode_hash::<16>(&attrs.md5_hash)
-                .map_err(|_| invalid("invalid source MD5"))?,
-        ),
-        crc32c: Some(u32::from_be_bytes(
-            crate::json::decode_hash::<4>(&attrs.crc32c)
-                .map_err(|_| invalid("invalid source CRC32C"))?,
-        )),
-    })
+impl ObjectRecord {
+    /// The source identity publication records. The scan parsed every time already; converting
+    /// one to this platform's clock still fails where it holds no such instant (Windows starts
+    /// in 1601), so the metadata scan converts each object's before any is published.
+    fn identity(&self) -> Result<ImportedIdentity, ImportError> {
+        let identity = ImportedIdentity::new(
+            self.spec.generation,
+            time(self.created_micros)?,
+            time(self.updated_micros)?,
+        )?;
+        Ok(match self.deleted_micros {
+            Some(deleted) => identity.archived(time(deleted)?)?,
+            None => identity,
+        })
+    }
 }
 
 fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), ImportError> {
@@ -332,16 +264,8 @@ async fn metadata_scan(
         while let Some(page) = receive.recv().await {
             findings(&page, diagnostics)?;
             for record in page.records {
-                if let Record::Object {
-                    attributes,
-                    created_micros,
-                    updated_micros,
-                    deleted_micros,
-                    ..
-                } = record
-                {
-                    publication(&attributes, options.max_object_bytes)?;
-                    identity(&attributes, created_micros, updated_micros, deleted_micros)?;
+                if let Record::Object(object) = record {
+                    object.identity()?;
                 }
             }
         }
@@ -640,11 +564,9 @@ async fn import(
             for record in page.records {
                 let Some(observed) = element(&record, ordinal + 1) else { continue };
                 ordinal += 1;
-                if let Record::Object { path, attributes, .. } = &record {
-                    let expected = expected_hashes(attributes)?;
-                    if let (Some(md5), Some(crc)) = (expected.md5, expected.crc32c) {
-                        super::digest_fields(&mut body_digests, "body", path, &[&md5, &crc.to_be_bytes()]);
-                    }
+                if let Record::Object(object) = &record {
+                    let hashes = object.spec.hashes;
+                    super::digest_fields(&mut body_digests, "body", &object.path, &[&hashes.md5, &hashes.crc32c.to_be_bytes()]);
                 }
                 if ordinal <= progress.cursor {
                     if committed_page.is_empty() {
@@ -663,9 +585,8 @@ async fn import(
                             )],
                             errors: Vec::new(),
                         }.write(&mut *diagnostics)?;
-                        if let Record::Object { attributes, source_file, .. } = record {
-                            let request = publication(&attributes, options.max_object_bytes)?;
-                            let staged = admin.stage_from_file(source_file.ok_or_else(|| invalid("missing opened source body"))?, request.expected, request.max_bytes).await?;
+                        if let Record::Object(object) = record {
+                            let staged = admin.stage_from_file(object.source_file.ok_or_else(|| invalid("missing opened source body"))?, object.spec.hashes.into(), options.max_object_bytes).await?;
                             bytes_hashed += staged.size();
                             staged.discard().await?;
                         }
@@ -727,100 +648,119 @@ async fn publish(
     cap: u64,
 ) -> Result<u64, ImportError> {
     match record {
-        Record::Bucket {
-            name,
-            attributes,
-            created_timestamp,
-            enable_object_retention,
-            ..
-        } => {
-            let mut input = serde_json::Map::from_iter([
-                ("name".into(), serde_json::json!(name)),
-                (
-                    "defaultEventBasedHold".into(),
-                    serde_json::json!(attributes.default_event_based_hold),
-                ),
-            ]);
-            if let Some(enabled) = attributes.versioning_enabled {
-                input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
-            }
-            let input = serde_json::Value::Object(input).to_string();
-            let mut bucket =
-                crate::json::parse_insert(input.as_bytes(), "local-project", SystemTime::now())
-                    .map_err(|error| invalid(error.message))?;
-            let created = created_timestamp
-                .as_deref()
-                .map(codec::parse_bucket_timestamp)
-                .transpose()?;
-            if let Some(created) = created {
-                bucket.time_created = created;
-                bucket.updated = created;
-            }
-            bucket.object_retention_enabled = enable_object_retention;
-            let definition = BucketDefinition::new(bucket)?;
-            admin
-                .publish_import_bucket_with_acl(
-                    binding.clone(),
-                    cursor,
-                    element,
-                    definition,
-                    codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)?,
-                    created,
-                )
-                .await?;
+        Record::Bucket(bucket) => {
+            publish_bucket(admin, binding, cursor, element, *bucket).await?;
             Ok(0)
         }
-        Record::Object {
-            bucket,
-            name,
-            attributes,
-            created_micros,
-            updated_micros,
-            deleted_micros,
-            source_file,
-            ..
-        } => {
-            let request = publication(&attributes, cap)?;
-            let identity = identity(&attributes, created_micros, updated_micros, deleted_micros)?;
-            let staged = admin
-                .stage_from_file(
-                    source_file.ok_or_else(|| invalid("missing opened source body"))?,
-                    request.expected,
-                    request.max_bytes,
-                )
-                .await?;
-            let bytes = staged.size();
-            let mut batch = admin
-                .publish_import_objects(
-                    binding.clone(),
-                    cursor,
-                    vec![crate::storage::admin::ImportedPublication {
-                        publication: BatchPublication {
-                            bucket: BucketName::new(bucket)?,
-                            name: ObjectName::new(name)?,
-                            request,
-                            staged,
-                        },
-                        identity,
-                        element,
-                    }],
-                )
-                .await?;
-            if !batch.unattempted.is_empty() {
-                for entry in batch.unattempted {
-                    entry.publication.staged.discard().await?;
-                }
-                return Err(AdminError::busy().into());
-            }
-            batch.results.pop().ok_or_else(|| {
-                invalid("import publication returned no result; inspect journal before retrying")
-            })??;
-            Ok(bytes)
+        Record::Object(object) => {
+            publish_object(admin, binding, cursor, element, *object, cap).await
         }
         Record::Directory { .. } => {
             Err(invalid("directories cannot be published as source bodies"))
         }
     }
+}
+
+async fn publish_bucket(
+    admin: &Admin,
+    binding: &ImportBinding,
+    cursor: i64,
+    element: ImportElement,
+    record: BucketRecord,
+) -> Result<(), ImportError> {
+    let BucketRecord {
+        name,
+        attributes,
+        enable_object_retention,
+        spec,
+        ..
+    } = record;
+    let mut input = serde_json::Map::from_iter([
+        ("name".into(), serde_json::json!(name)),
+        (
+            "defaultEventBasedHold".into(),
+            serde_json::json!(attributes.default_event_based_hold),
+        ),
+    ]);
+    if let Some(enabled) = attributes.versioning_enabled {
+        input.insert("versioning".into(), serde_json::json!({"enabled":enabled}));
+    }
+    let input = serde_json::Value::Object(input).to_string();
+    let mut bucket =
+        crate::json::parse_insert(input.as_bytes(), "local-project", SystemTime::now())
+            .map_err(|error| invalid(error.message))?;
+    if let Some(created) = spec.created {
+        bucket.time_created = created;
+        bucket.updated = created;
+    }
+    bucket.object_retention_enabled = enable_object_retention;
+    let definition = BucketDefinition::new(bucket)?;
+    admin
+        .publish_import_bucket_with_acl(
+            binding.clone(),
+            cursor,
+            element,
+            definition,
+            spec.acl,
+            spec.created,
+        )
+        .await?;
+    Ok(())
+}
+
+/// Publishes one source object; returns the bytes it hashed.
+async fn publish_object(
+    admin: &Admin,
+    binding: &ImportBinding,
+    cursor: i64,
+    element: ImportElement,
+    record: ObjectRecord,
+    cap: u64,
+) -> Result<u64, ImportError> {
+    let identity = record.identity()?;
+    let ObjectRecord {
+        bucket,
+        name,
+        attributes,
+        source_file,
+        spec,
+        ..
+    } = record;
+    let request = spec.into_publication(attributes, cap);
+    let staged = admin
+        .stage_from_file(
+            source_file.ok_or_else(|| invalid("missing opened source body"))?,
+            request.expected,
+            request.max_bytes,
+        )
+        .await?;
+    let bytes = staged.size();
+    let mut batch = admin
+        .publish_import_objects(
+            binding.clone(),
+            cursor,
+            vec![crate::storage::admin::ImportedPublication {
+                publication: BatchPublication {
+                    bucket,
+                    name,
+                    request,
+                    staged,
+                },
+                identity,
+                element,
+            }],
+        )
+        .await?;
+    if !batch.unattempted.is_empty() {
+        for entry in batch.unattempted {
+            entry.publication.staged.discard().await?;
+        }
+        return Err(AdminError::busy().into());
+    }
+    batch.results.pop().ok_or_else(|| {
+        invalid("import publication returned no result; inspect journal before retrying")
+    })??;
+    Ok(bytes)
 }
 
 async fn verify_committed(
@@ -829,121 +769,119 @@ async fn verify_committed(
     record: &Record,
 ) -> Result<(), ImportError> {
     match record {
-        Record::Bucket {
-            name,
-            attributes,
-            created_timestamp,
-            enable_object_retention,
-            ..
-        } => {
-            let target = admin
-                .get_bucket(&BucketName::new(name.clone())?)
-                .await?
-                .ok_or_else(|| invalid("missing committed bucket"))?;
-            let created = created_timestamp
-                .as_deref()
-                .map(codec::parse_bucket_timestamp)
-                .transpose()?;
-            if target.default_event_based_hold != attributes.default_event_based_hold
-                || target.project != "local-project"
-                || target.versioning
-                    != crate::bucket::Versioning::from(attributes.versioning_enabled)
-                || target.object_retention_enabled != *enable_object_retention
-                || created.is_some_and(|created| {
-                    created != target.time_created || created != target.updated
-                })
-            {
-                return Err(invalid("committed bucket differs from the source binding"));
-            }
-            if let Some(expected) =
-                codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)?
-            {
-                let projection = catalog
-                    .acl_projection(name, Vec::new())
-                    .await?
-                    .ok_or_else(|| invalid("missing committed bucket ACL"))?;
-                if projection.bucket != expected {
-                    return Err(invalid(
-                        "committed bucket ACL differs from the source binding",
-                    ));
-                }
-            }
+        Record::Bucket(bucket) => verify_bucket(catalog, admin, bucket).await,
+        Record::Object(object) => verify_object(catalog, admin, object).await,
+        Record::Directory { .. } => Ok(()),
+    }
+}
+
+async fn verify_bucket(
+    catalog: &Catalog,
+    admin: &Admin,
+    record: &BucketRecord,
+) -> Result<(), ImportError> {
+    let BucketRecord {
+        name,
+        attributes,
+        enable_object_retention,
+        spec,
+        ..
+    } = record;
+    let target = admin
+        .get_bucket(name)
+        .await?
+        .ok_or_else(|| invalid("missing committed bucket"))?;
+    if target.default_event_based_hold != attributes.default_event_based_hold
+        || target.project != "local-project"
+        || target.versioning != crate::bucket::Versioning::from(attributes.versioning_enabled)
+        || target.object_retention_enabled != *enable_object_retention
+        || spec
+            .created
+            .is_some_and(|created| created != target.time_created || created != target.updated)
+    {
+        return Err(invalid("committed bucket differs from the source binding"));
+    }
+    if let Some(expected) = &spec.acl {
+        let projection = catalog
+            .acl_projection(name.as_str(), Vec::new())
+            .await?
+            .ok_or_else(|| invalid("missing committed bucket ACL"))?;
+        if projection.bucket != *expected {
+            return Err(invalid(
+                "committed bucket ACL differs from the source binding",
+            ));
         }
-        Record::Object {
-            bucket,
-            name,
-            attributes,
-            created_micros,
-            updated_micros,
-            deleted_micros,
-            fingerprint,
-            ..
-        } => {
-            let target = admin
-                .get_object(
-                    &BucketName::new(bucket.clone())?,
-                    &ObjectName::new(name.clone())?,
-                    Some(Generation::new(attributes.generation)?),
-                )
-                .await?;
-            let request = publication(attributes, fingerprint.size)?;
-            if deleted_micros.is_none()
-                && admin
-                    .get_object(
-                        &BucketName::new(bucket.clone())?,
-                        &ObjectName::new(name.clone())?,
-                        None,
-                    )
-                    .await?
-                    .generation
-                    != attributes.generation
-            {
-                return Err(invalid(
-                    "committed live membership differs from the source binding",
-                ));
-            }
-            if let Some(expected) = &request.metadata.acl {
-                let projection = catalog
-                    .acl_projection(bucket, vec![(name.clone(), attributes.generation)])
-                    .await?
-                    .ok_or_else(|| invalid("missing committed object ACL"))?;
-                if projection
-                    .objects
-                    .first()
-                    .map(crate::storage::ObjectAcl::entries)
-                    != Some(expected.as_slice())
-                {
-                    return Err(invalid(
-                        "committed object ACL differs from the source binding",
-                    ));
-                }
-            }
-            if target.generation != attributes.generation
-                || target.time_created != time(*created_micros)?
-                || target.updated != time(*updated_micros)?
-                || target.time_deleted != deleted_micros.map(time).transpose()?
-                || target.retention.as_ref() != request.metadata.retention.value()
-                || Some(target.md5) != request.expected.md5
-                || Some(target.crc32c) != request.expected.crc32c
-                || target.size != fingerprint.size
-                || target.metageneration != 1
-                || target.content_type != attributes.content_type
-                || target.content_encoding.as_deref().unwrap_or_default()
-                    != attributes.content_encoding
-                || target.content_disposition.as_deref().unwrap_or_default()
-                    != attributes.content_disposition
-                || target.content_language.as_deref().unwrap_or_default()
-                    != attributes.content_language
-                || target.cache_control.as_deref().unwrap_or_default() != attributes.cache_control
-                || target.metadata != attributes.metadata.clone().unwrap_or_default()
-                || target.event_based_hold.is_held()
-                || target.storage_class.as_str() != attributes.storage_class
-                || target.custom_time.as_ref() != request.metadata.custom_time.value()
-            {
-                return Err(invalid("committed object differs from the source binding"));
-            }
+    }
+    Ok(())
+}
+
+async fn verify_object(
+    catalog: &Catalog,
+    admin: &Admin,
+    record: &ObjectRecord,
+) -> Result<(), ImportError> {
+    let ObjectRecord {
+        bucket,
+        name,
+        attributes,
+        created_micros,
+        updated_micros,
+        deleted_micros,
+        fingerprint,
+        spec,
+        ..
+    } = record;
+    let generation = spec.generation.get();
+    let target = admin
+        .get_object(bucket, name, Some(spec.generation))
+        .await?;
+    if deleted_micros.is_none()
+        && admin.get_object(bucket, name, None).await?.generation != generation
+    {
+        return Err(invalid(
+            "committed live membership differs from the source binding",
+        ));
+    }
+    if let Some(expected) = &spec.acl {
+        let projection = catalog
+            .acl_projection(
+                bucket.as_str(),
+                vec![(name.as_str().to_owned(), generation)],
+            )
+            .await?
+            .ok_or_else(|| invalid("missing committed object ACL"))?;
+        if projection
+            .objects
+            .first()
+            .map(crate::storage::ObjectAcl::entries)
+            != Some(expected.as_slice())
+        {
+            return Err(invalid(
+                "committed object ACL differs from the source binding",
+            ));
         }
-        Record::Directory { .. } => (),
+    }
+    if target.generation != generation
+        || target.time_created != time(*created_micros)?
+        || target.updated != time(*updated_micros)?
+        || target.time_deleted != deleted_micros.map(time).transpose()?
+        || target.retention != spec.retention
+        || target.md5 != spec.hashes.md5
+        || target.crc32c != spec.hashes.crc32c
+        || target.size != fingerprint.size
+        || target.metageneration != 1
+        || target.content_type != attributes.content_type
+        || target.content_encoding.as_deref().unwrap_or_default() != attributes.content_encoding
+        || target.content_disposition.as_deref().unwrap_or_default()
+            != attributes.content_disposition
+        || target.content_language.as_deref().unwrap_or_default() != attributes.content_language
+        || target.cache_control.as_deref().unwrap_or_default() != attributes.cache_control
+        || target.metadata != attributes.metadata.clone().unwrap_or_default()
+        || target.event_based_hold.is_held()
+        || target.storage_class != spec.storage_class
+        || target.custom_time != spec.custom_time
+    {
+        return Err(invalid("committed object differs from the source binding"));
     }
     Ok(())
 }

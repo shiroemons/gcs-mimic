@@ -1,5 +1,8 @@
 use super::*;
-use crate::storage::{change_journal::ChangeKind, failure::unavailable};
+use crate::{
+    import::spec::{BucketSpec, ObjectSpec, SourceHashes},
+    storage::{admin::Generation, change_journal::ChangeKind, failure::unavailable},
+};
 
 fn interrupted_import() -> (crate::test_support::TestDir, Options) {
     let dir = crate::test_support::TestDir::new();
@@ -153,16 +156,7 @@ fn buffered_observations_are_anonymous_and_report_the_last_flush_failure() {
         use std::os::unix::fs::MetadataExt;
         assert_eq!(file.metadata().unwrap().nlink(), 0);
     }
-    let record = Record::Bucket {
-        path: "bucket".into(),
-        name: "bucket".into(),
-        attributes: Default::default(),
-        created_timestamp: None,
-        enable_object_retention: false,
-        generated: &[],
-        observed_stat: String::new(),
-        attributes_digest: [0; 32],
-    };
+    let record = bucket_record("bucket", None, [0; 32]);
     let mut recorder = Baseline::open(file.try_clone().unwrap(), BaselineMode::Record).unwrap();
     recorder.check(&record).unwrap();
     recorder.finish().unwrap();
@@ -180,6 +174,95 @@ fn buffered_observations_are_anonymous_and_report_the_last_flush_failure() {
     };
     failing.check(&record).unwrap();
     assert!(failing.finish().is_err());
+}
+
+/// A bucket record whose digest inputs are the given path (also its name) and attributes digest.
+fn bucket_record(name: &str, created_timestamp: Option<&str>, digest: [u8; 32]) -> Record {
+    Record::Bucket(Box::new(BucketRecord {
+        path: name.into(),
+        name: name.parse().unwrap(),
+        attributes: Default::default(),
+        created_timestamp: created_timestamp.map(Into::into),
+        enable_object_retention: created_timestamp.is_some(),
+        generated: &[],
+        observed_stat: "ignored".into(),
+        attributes_digest: digest,
+        spec: BucketSpec {
+            created: created_timestamp.map(|time| codec::parse_bucket_timestamp(time).unwrap()),
+            acl: None,
+        },
+    }))
+}
+
+/// A resume compares each committed element's journal digest with the one its source has now, so
+/// the digest keeps the bytes earlier releases wrote: a change here strands every unfinished
+/// import they started.
+#[test]
+fn element_digests_keep_the_bytes_earlier_journals_hold() {
+    let bucket = bucket_record(
+        "bucket-one",
+        Some("2026-01-01T00:00:00.123456789Z"),
+        [1; 32],
+    );
+    let object = Record::Object(Box::new(ObjectRecord {
+        path: "bucket-one/folder/body".into(),
+        bucket: "bucket-one".parse().unwrap(),
+        name: "folder/body".parse().unwrap(),
+        attributes: Default::default(),
+        created_micros: -1,
+        updated_micros: 1_792_800_000_123_456,
+        deleted_micros: None,
+        fingerprint: super::super::Fingerprint {
+            size: 5,
+            mtime_ns: 1_700_000_000_123_456_700,
+            ctime_ns: Some(1_700_000_001_000_000_001),
+            inode: Some(42),
+            device: Some(7),
+        },
+        verified_hashes: None,
+        generated: &[],
+        source_file: None,
+        attributes_digest: [2; 32],
+        spec: ObjectSpec {
+            generation: Generation::new(1_792_800_000_123_456).unwrap(),
+            hashes: SourceHashes {
+                md5: [3; 16],
+                crc32c: 4,
+            },
+            storage_class: crate::bucket::StorageClass::Standard,
+            acl: None,
+            retention: None,
+            custom_time: None,
+        },
+    }));
+    let element = |record: &Record, ordinal| {
+        let element = super::element(record, ordinal).unwrap();
+        (
+            crate::hashing::encode_lower(&element.fingerprint),
+            element.ordinal,
+            element.inode,
+            element.ctime_ns,
+        )
+    };
+    assert_eq!(
+        element(&bucket, 1),
+        (
+            "81624196e74d0f5e8ebb86b08322960ffd6b63dd673970fe218ffade1a3a14ef".into(),
+            1,
+            None,
+            None
+        )
+    );
+    assert_eq!(
+        element(&object, 2),
+        (
+            "03db7e12daff751c2c14c3be0355e8b2025f382ab67e6ef48f15f6f41f107082".into(),
+            2,
+            Some(42),
+            Some(1_700_000_001_000_000_001)
+        )
+    );
+    assert!(super::element(&Record::Directory { path: "x".into() }, 3).is_none());
 }
 
 /// A refused scan fails as its most severe blocker, whatever order the findings came in: source

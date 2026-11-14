@@ -1,16 +1,17 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    Checked, MetadataMode, Options, Record, Reported, Reporter, ScanPurpose, Severity,
-    SourcePlatform,
+    BucketRecord, Checked, MetadataMode, ObjectRecord, Options, Record, Reported, Reporter,
+    ScanPurpose, Severity, SourcePlatform,
     codec::{self, BucketAttrs, ObjectAttrs},
+    spec::{BucketSpec, ObjectSpec, SourceHashes},
 };
 use crate::{
     acl::AclEntry,
-    bucket::StorageClass,
+    bucket::{StorageClass, name::BucketName},
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
-    object::generation::Generation,
+    object::{generation::Generation, name::ObjectName, retention::ObjectRetention},
     source_tree::{self, WalkError, Walker},
     storage::failure::BackendCause,
 };
@@ -567,9 +568,11 @@ impl ObjectField {
 struct ObjectInput<'a> {
     path: &'a Path,
     relative: &'a str,
+    /// The decoded bucket directory name, or its raw spelling when that does not decode.
     bucket: &'a str,
     name: &'a str,
-    parent_eligible: bool,
+    /// The bucket, when it is eligible; only then is the object published.
+    parent: Option<&'a BucketName>,
 }
 
 /// What one object's attributes parse into; a field is `Err(Reported)` when its blocking
@@ -592,25 +595,35 @@ pub(super) struct ObjectChecks {
 pub(super) struct AcceptedAttributes {
     pub(super) created_micros: i64,
     pub(super) updated_micros: i64,
+    pub(super) spec: ObjectSpec,
 }
 
 impl ObjectChecks {
-    /// The accepted attributes, or `Reported` when this object's checks, or any of `others`
-    /// (its remaining checks), reported a finding.
-    pub(super) fn accepted(self, others: &[Checked<()>]) -> Checked<AcceptedAttributes> {
+    /// The accepted attributes with the retention the source format declares, or `Reported`
+    /// when this object's checks, or any of `others` (its remaining checks), reported a finding.
+    pub(super) fn accepted(
+        self,
+        retention: Option<ObjectRetention>,
+        others: &[Checked<()>],
+    ) -> Checked<AcceptedAttributes> {
         for other in others {
             (*other)?;
         }
-        self.generation?;
-        self.storage_class?;
         self.fixed_metadata?;
-        self.acl?;
-        self.custom_time?;
-        self.md5?;
-        self.crc32c?;
         Ok(AcceptedAttributes {
             created_micros: self.created_micros?,
             updated_micros: self.updated_micros?,
+            spec: ObjectSpec {
+                generation: self.generation?,
+                hashes: SourceHashes {
+                    md5: self.md5?,
+                    crc32c: self.crc32c?,
+                },
+                storage_class: self.storage_class?,
+                acl: self.acl?,
+                retention,
+                custom_time: self.custom_time?,
+            },
         })
     }
 }
@@ -905,10 +918,10 @@ fn object(
         relative,
         bucket,
         name,
-        parent_eligible,
+        parent,
     } = input;
-    crate::object::name::validate(name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
-    if options.source_platform == SourcePlatform::Windows && name.contains('\\') {
+    let name = ObjectName::try_from(name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "unrepresentable object name", "Restore a valid UTF-8 object name of at most 1024 bytes without CR/LF or reserved ACME prefixes."))?;
+    if options.source_platform == SourcePlatform::Windows && name.as_str().contains('\\') {
         return Err(ImportFailure::corrupt(
             CorruptField::Name,
             "Windows-source backslash mapping is ambiguous on this host",
@@ -947,7 +960,7 @@ fn object(
         relative,
         &[
             bucket.as_bytes(),
-            name.as_bytes(),
+            name.as_str().as_bytes(),
             &bytes,
             &body.before.size.to_be_bytes(),
             &body.before.mtime_ns.to_be_bytes(),
@@ -957,13 +970,16 @@ fn object(
     let body_matches = verified
         .as_ref()
         .map_or(Ok(()), |verified| verified.matches);
-    if parent_eligible && let Ok(accepted) = checks.accepted(&[unset, body_matches]) {
+    // This format refuses retention (`check_unset_semantics`), so a published object has none.
+    if let Some(parent) = parent
+        && let Ok(accepted) = checks.accepted(None, &[unset, body_matches])
+    {
         report.summary.eligible_objects += 1;
-        report.record(Record::Object {
+        report.record(Record::Object(Box::new(ObjectRecord {
             path: relative.into(),
-            bucket: bucket.into(),
-            name: name.into(),
-            attributes: Box::new(attrs),
+            bucket: parent.clone(),
+            name,
+            attributes: attrs,
             created_micros: accepted.created_micros,
             updated_micros: accepted.updated_micros,
             deleted_micros: None,
@@ -972,17 +988,28 @@ fn object(
             generated: &["native_etag", "metageneration_1"],
             source_file: (report.purpose == ScanPurpose::Publish).then_some(body.file),
             attributes_digest: super::filesystem::sha(&bytes),
-        })?;
+            spec: accepted.spec,
+        })))?;
     }
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum BucketState {
-    Eligible,
+    Eligible(BucketName),
     Blocked,
     Duplicate,
     Invalid,
+}
+
+impl BucketState {
+    /// The bucket's name, when its objects may be published.
+    fn eligible(&self) -> Option<&BucketName> {
+        match self {
+            Self::Eligible(name) => Some(name),
+            Self::Blocked | Self::Duplicate | Self::Invalid => None,
+        }
+    }
 }
 
 /// Classifies the root snapshot's directory names before walking, so aliased escapes that
@@ -1138,12 +1165,12 @@ impl Scan<'_> {
         })?;
         // The root already reports an invalid escape; descendants must still be inspected.
         let bucket = codec::path_unescape(raw_bucket).unwrap_or_else(|_| raw_bucket.to_owned());
-        let parent_eligible = self.buckets.get(raw_bucket) == Some(&BucketState::Eligible);
+        let parent = self.buckets.get(raw_bucket).and_then(BucketState::eligible);
         let report = &mut *self.report;
         if metadata.is_dir() {
             report.summary.directories += 1;
             report.manifest("directory", relative, &[]);
-            if parent_eligible {
+            if parent.is_some() {
                 report.record(Record::Directory {
                     path: relative.to_owned(),
                 })?;
@@ -1176,7 +1203,7 @@ impl Scan<'_> {
                     relative,
                     bucket: &bucket,
                     name,
-                    parent_eligible,
+                    parent,
                 },
                 self.options,
                 &mut self.metadata_buffer,
@@ -1233,7 +1260,7 @@ impl Scan<'_> {
             });
         }
         let name = codec::path_unescape(leaf).map_err(|e| ImportFailure::corrupt(CorruptField::Name, BackendCause::from_error(e), "Restore a valid Go PathEscape bucket directory component from the source snapshot."))?;
-        crate::json::validate_bucket_name(&name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "invalid decoded bucket name", "Use a valid bucket name (3–63 characters for ordinary names, starting/ending with a letter or digit); restore its escaped directory component."))?;
+        let name = BucketName::try_from(name).map_err(|_| ImportFailure::corrupt(CorruptField::Name, "invalid decoded bucket name", "Use a valid bucket name (3–63 characters for ordinary names, starting/ending with a letter or digit); restore its escaped directory component."))?;
         if self.buckets.get(leaf) == Some(&BucketState::Duplicate) {
             return Err(ImportFailure::corrupt(
                 CorruptField::Name,
@@ -1257,11 +1284,12 @@ impl Scan<'_> {
             Ok(entries) => Ok(entries),
             Err(error) => Err(report.block(relative, "ACL", error.to_string(), "Restore a supported source ACL without discarding entries or auxiliary identities.", None)?),
         };
-        report.manifest("bucket", relative, &[name.as_bytes(), &bytes]);
-        if let (Ok(()), Ok(_acl)) = (versioning, acl) {
-            self.buckets.insert(leaf.to_owned(), BucketState::Eligible);
+        report.manifest("bucket", relative, &[name.as_str().as_bytes(), &bytes]);
+        if let (Ok(()), Ok(acl)) = (versioning, acl) {
+            self.buckets
+                .insert(leaf.to_owned(), BucketState::Eligible(name.clone()));
             report.summary.eligible_buckets += 1;
-            report.record(Record::Bucket {
+            report.record(Record::Bucket(Box::new(BucketRecord {
                 path: relative.to_owned(),
                 name,
                 attributes: attrs,
@@ -1280,7 +1308,8 @@ impl Scan<'_> {
                     metadata.modified()?
                 ),
                 attributes_digest: super::filesystem::sha(&bytes),
-            })?;
+                spec: BucketSpec { created: None, acl },
+            })))?;
         }
         Ok(())
     }

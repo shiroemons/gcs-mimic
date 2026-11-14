@@ -389,6 +389,146 @@ fn an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both
     assert!(former.with_former_defaults().is_none());
 }
 
+/// A source whose digests the tests below pin: one bucket with attributes, a directory, and an
+/// object whose body has a modification time every platform holds exactly.
+fn digest_fixture() -> (TestDir, Options, std::path::PathBuf) {
+    let directory = TestDir::new();
+    let source = directory.0.join("source");
+    fs::create_dir_all(source.join("bucket-one/folder")).unwrap();
+    fs::write(
+        source.join("bucket-one.bucketMetadata"),
+        br#"{"DefaultEventBasedHold":true}"#,
+    )
+    .unwrap();
+    let body = source.join("bucket-one/folder/body");
+    fs::write(&body, b"hello").unwrap();
+    // The manifest holds the sidecar's bytes, which a CRLF checkout of the fixture would change.
+    let attrs = std::str::from_utf8(ATTRS).unwrap().replace("\r\n", "\n");
+    fs::write(source.join("bucket-one/folder/body.metadata"), attrs).unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&body)
+        .unwrap()
+        .set_modified(
+            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_700),
+        )
+        .unwrap();
+    let options = Options::new(
+        source,
+        directory.0.join("destination"),
+        MetadataMode::Sidecar,
+        SourcePlatform::Unix,
+    );
+    (directory, options, body)
+}
+
+/// The stat observation digest of one source body, as a scan computes it.
+fn observation_digest(path: &str, fingerprint: &Fingerprint) -> String {
+    let (send, _receive) = std::sync::mpsc::sync_channel(1);
+    let mut reporter = Reporter {
+        send: PageSender::Sync(send),
+        page: Page::default(),
+        summary: Summary::default(),
+        manifest: digest_context(b"export"),
+        observations: digest_context(b"stat"),
+        body_manifest: digest_context(b"bodies"),
+        baseline: None,
+        purpose: ScanPurpose::Inspect,
+    };
+    reporter.observations(path, fingerprint);
+    finish_digest(reporter.observations)
+}
+
+/// An import's journal binding holds its manifest digest, and every later scan must reproduce
+/// both digests, so they keep the bytes earlier releases computed: a change strands every
+/// unfinished import those releases started.
+#[test]
+fn inspection_digests_keep_the_bytes_earlier_imports_recorded() {
+    let (_directory, options, body) = digest_fixture();
+    let (summary, pages) = xattr_report(options);
+    assert!(summary.eligible, "{pages:?}");
+    assert_eq!(
+        summary.manifest_sha256.as_deref(),
+        Some("2d5bf7101e8f74b42389c8a1f54e28335605fa0bd69f63fb66653e65b767ea5f")
+    );
+    assert_eq!(
+        summary.stat_observations_sha256,
+        Some(observation_digest(
+            "bucket-one/folder/body",
+            &Fingerprint::of_path(&body).unwrap()
+        ))
+    );
+    for (fingerprint, digest) in [
+        (
+            Fingerprint {
+                size: 5,
+                mtime_ns: 1_700_000_000_123_456_700,
+                ctime_ns: Some(1_700_000_001_000_000_001),
+                inode: Some(42),
+                device: Some(7),
+            },
+            "e5906fba9f6b5625773c171f7aa7fe41bf444587b1ff340476e0e09e7c04f1f3",
+        ),
+        (
+            Fingerprint {
+                size: 5,
+                mtime_ns: -1,
+                ctime_ns: None,
+                inode: None,
+                device: None,
+            },
+            "0a34c68cce67b317bb833c31d9b7c73fa948df1a6eff0272bf5b35d37c3ef65f",
+        ),
+    ] {
+        assert_eq!(
+            observation_digest("bucket-one/folder/body", &fingerprint),
+            digest,
+            "{fingerprint:?}"
+        );
+    }
+}
+
+/// The dry-run report is how operators read an inspection: each record keeps its fields, their
+/// order and their encoding.
+#[test]
+fn dry_run_records_keep_their_report_encoding() {
+    let (_directory, mut options, body) = digest_fixture();
+    options.verify_bodies = true;
+    let (summary, pages) = xattr_report(options);
+    assert!(summary.eligible && summary.bodies_verified, "{pages:?}");
+    let records: Vec<&serde_json::Value> = pages
+        .iter()
+        .filter_map(|page| page["page"]["records"].as_array())
+        .flatten()
+        .collect();
+    let [bucket, directory, object] = records.as_slice() else {
+        panic!("expected three records: {records:?}")
+    };
+    let observed_stat = bucket["observed_stat"].as_str().unwrap();
+    assert!(
+        observed_stat.starts_with("report-only modified time: "),
+        "{observed_stat}"
+    );
+    assert_eq!(
+        serde_json::to_string(bucket).unwrap(),
+        format!(
+            r#"{{"kind":"bucket","path":"bucket-one","name":"bucket-one","attributes":{{"DefaultEventBasedHold":true,"ACL":null}},"created_timestamp":null,"enable_object_retention":false,"generated":["project_local-project","native_location","native_storage_class","metageneration_1","creation_time","no_iam_grants"],"observed_stat":{}}}"#,
+            serde_json::to_string(observed_stat).unwrap()
+        )
+    );
+    assert_eq!(
+        serde_json::to_string(directory).unwrap(),
+        r#"{"kind":"directory","path":"bucket-one/folder"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(object).unwrap(),
+        format!(
+            r#"{{"kind":"object","path":"bucket-one/folder/body","bucket":"bucket-one","name":"folder/body","attributes":{{"StorageClass":"STANDARD","ContentType":"text/plain","ContentEncoding":"","ContentDisposition":"inline","ContentLanguage":"en","CacheControl":"private","Crc32c":"mnG7TA==","Md5Hash":"XUFAKrxLKna5cZ2REBfFkg==","Etag":"upstream-custom-value","ACL":null,"Metadata":{{"source":"fixture"}},"Created":"1969-12-31T23:59:59.999999Z","Deleted":"0001-01-01T00:00:00Z","Updated":"2026-10-24T09:00:00.123456000+09:00","CustomTime":"0001-01-01T00:00:00Z","Generation":1792800000123456,"RetentionMode":"","RetentionRetainUntil":"0001-01-01T00:00:00Z"}},"created_micros":-1,"updated_micros":1792800000123456,"deleted_micros":null,"fingerprint":{},"verified_hashes":{{"md5":[93,65,64,42,188,75,42,118,185,113,157,145,16,23,197,146],"crc32c":2591144780}},"generated":["native_etag","metageneration_1"]}}"#,
+            serde_json::to_string(&Fingerprint::of_path(&body).unwrap()).unwrap()
+        )
+    );
+}
+
 /// Report keys are `{path}:{field}`, and operators and tests match them, so each named field and
 /// each other failure keeps the key it had when the names were strings.
 #[test]

@@ -6,15 +6,18 @@ mod error;
 mod filesystem;
 mod reader;
 mod snapshot;
+mod spec;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod tests;
 
 use crate::{
+    bucket::name::BucketName,
     config::{MAX_OBJECT_BYTES, MAX_TREE_DEPTH},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     hashing::Hashes,
+    object::name::ObjectName,
     source_tree,
 };
 pub use codec::CodecError;
@@ -23,6 +26,7 @@ pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, CorruptField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};
 use serde::Serialize;
+use spec::{BucketSpec, ObjectSpec};
 use std::{
     fs,
     io::{self, Write},
@@ -264,39 +268,49 @@ pub(crate) struct Finding {
     pub changed_fields: Vec<ChangedField>,
 }
 
+/// One eligible source entry. The dry-run report shows each as its `kind` tag followed by the
+/// record's fields in order; the typed specs stay out of it.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Record {
-    Bucket {
-        path: String,
-        name: String,
-        attributes: codec::BucketAttrs,
-        created_timestamp: Option<String>,
-        enable_object_retention: bool,
-        generated: &'static [&'static str],
-        observed_stat: String,
-        #[serde(skip)]
-        attributes_digest: [u8; 32],
-    },
-    Object {
-        path: String,
-        bucket: String,
-        name: String,
-        attributes: Box<codec::ObjectAttrs>,
-        created_micros: i64,
-        updated_micros: i64,
-        deleted_micros: Option<i64>,
-        fingerprint: Fingerprint,
-        verified_hashes: Option<Hashes>,
-        generated: &'static [&'static str],
-        #[serde(skip)]
-        source_file: Option<fs::File>,
-        #[serde(skip)]
-        attributes_digest: [u8; 32],
-    },
-    Directory {
-        path: String,
-    },
+    Bucket(Box<BucketRecord>),
+    Object(Box<ObjectRecord>),
+    Directory { path: String },
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct BucketRecord {
+    path: String,
+    name: BucketName,
+    attributes: codec::BucketAttrs,
+    created_timestamp: Option<String>,
+    enable_object_retention: bool,
+    generated: &'static [&'static str],
+    observed_stat: String,
+    #[serde(skip)]
+    attributes_digest: [u8; 32],
+    #[serde(skip)]
+    spec: BucketSpec,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ObjectRecord {
+    path: String,
+    bucket: BucketName,
+    name: ObjectName,
+    attributes: codec::ObjectAttrs,
+    created_micros: i64,
+    updated_micros: i64,
+    deleted_micros: Option<i64>,
+    fingerprint: Fingerprint,
+    verified_hashes: Option<Hashes>,
+    generated: &'static [&'static str],
+    #[serde(skip)]
+    source_file: Option<fs::File>,
+    #[serde(skip)]
+    attributes_digest: [u8; 32],
+    #[serde(skip)]
+    spec: ObjectSpec,
 }
 
 #[derive(Default, Serialize)]

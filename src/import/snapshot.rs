@@ -1,9 +1,11 @@
 //! Bounded, read-only decoding of complete quiesced source memory captures.
 
 use super::{
-    BodyStream, CorruptField, Fingerprint, ImportFailure, Options, Record, Reporter, ScanPurpose,
+    BodyStream, BucketRecord, CorruptField, Fingerprint, ImportFailure, ObjectRecord, Options,
+    Record, Reporter, ScanPurpose,
     codec::{self, BucketAttrs, ObjectAttrs},
     reader,
+    spec::BucketSpec,
 };
 use crate::{
     bucket::name::BucketName, fsutil, hashing::encode_lower, object::name::ObjectName,
@@ -163,18 +165,22 @@ impl Capture<'_> {
         {
             return Err(corrupt("bucket rows must be unique and in lexical order"));
         }
-        codec::parse_bucket_timestamp(&created)
-            .map_err(|error| corrupt(BackendCause::from_error(error)))?;
-        codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)
-            .map_err(|error| corrupt(BackendCause::from_error(error)))?;
+        let spec = BucketSpec {
+            created: Some(
+                codec::parse_bucket_timestamp(&created)
+                    .map_err(|error| corrupt(BackendCause::from_error(error)))?,
+            ),
+            acl: codec::acl(attributes.acl.as_deref(), crate::acl::AclKind::Bucket)
+                .map_err(|error| corrupt(BackendCause::from_error(error)))?,
+        };
         self.buckets += 1;
         self.report.summary.buckets += 1;
         self.report.summary.eligible_buckets += 1;
         self.report
             .manifest("snapshot_bucket", name.as_str(), &[raw]);
-        self.report.record(Record::Bucket {
+        self.report.record(Record::Bucket(Box::new(BucketRecord {
             path: format!("bucket:{name}"),
-            name: name.as_str().to_owned(),
+            name: name.clone(),
             attributes,
             created_timestamp: Some(created),
             enable_object_retention,
@@ -188,7 +194,8 @@ impl Capture<'_> {
             ],
             observed_stat: "creation identity from the source memory bucket".into(),
             attributes_digest: super::filesystem::sha(raw),
-        })?;
+            spec,
+        })))?;
         self.current = Some(CurrentBucket {
             name,
             object_retention_enabled: enable_object_retention,
@@ -328,13 +335,13 @@ impl Capture<'_> {
         let body_matches = verified
             .as_ref()
             .map_or(Ok(()), |verified| verified.matches);
-        if let Ok(accepted) = checks.accepted(&[body_matches]) {
+        if let Ok(accepted) = checks.accepted(retention, &[body_matches]) {
             self.report.summary.eligible_objects += 1;
-            self.report.record(Record::Object {
+            self.report.record(Record::Object(Box::new(ObjectRecord {
                 path: blob,
-                bucket: placement.bucket.as_str().to_owned(),
-                name: name.as_str().to_owned(),
-                attributes,
+                bucket: placement.bucket,
+                name,
+                attributes: *attributes,
                 created_micros: accepted.created_micros,
                 updated_micros: accepted.updated_micros,
                 deleted_micros: deleted,
@@ -344,7 +351,8 @@ impl Capture<'_> {
                 source_file: (self.report.purpose == ScanPurpose::Publish)
                     .then(|| body.into_file()),
                 attributes_digest: super::filesystem::sha(raw),
-            })?;
+                spec: accepted.spec,
+            })))?;
         }
         Ok(())
     }
