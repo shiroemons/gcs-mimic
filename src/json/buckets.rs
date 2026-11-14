@@ -1,12 +1,12 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, RETENTION_RANGE_MESSAGE,
+    BucketMetadataUpdate, BucketRecord, CorsRule, RETENTION_RANGE_MESSAGE, RetentionPolicyUpdate,
     SOFT_DELETE_RANGE_MESSAGE, SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD,
     UniformAccessRequest, bucket_location, cors_from_value, cors_value, valid_label,
     validate_storage_class,
 };
 use crate::config::CompatProfile;
-use crate::object::{MapPatch, unix_nanos::UnixNanos};
+use crate::object::{MapPatch, Patch, unix_nanos::UnixNanos};
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
@@ -292,7 +292,8 @@ pub(crate) fn parse_insert_with_profile(
             },
         ),
         retention_policy: parse_retention_period(body.get("retentionPolicy"))?
-            .flatten()
+            .value()
+            .copied()
             .map(|retention_period| crate::bucket::RetentionPolicy {
                 retention_period,
                 effective_time: now,
@@ -520,9 +521,18 @@ fn parse_bucket_update(
             .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::DefaultObject))
             .transpose()?,
         soft_delete_retention: parse_soft_delete_retention(body.get("softDeletePolicy"))?,
-        retention_period: parse_retention_period(body.get("retentionPolicy"))?
-            .or(omitted_clears.then_some(None)),
-        lock_retention_policy: false,
+        retention_policy: match parse_retention_period(body.get("retentionPolicy"))? {
+            Patch::Set(period) => RetentionPolicyUpdate::Set(period),
+            Patch::Clear => RetentionPolicyUpdate::Remove,
+            // A PUT that leaves the policy out removes an unlocked one (recorded).
+            Patch::Keep if omitted_clears && !body.contains_key("retentionPolicy") => {
+                RetentionPolicyUpdate::RemoveUnlocked
+            }
+            // No recording covers an empty policy in a PUT (unverified); it keeps asking for
+            // removal, so a locked policy refuses it.
+            Patch::Keep if omitted_clears => RetentionPolicyUpdate::Remove,
+            Patch::Keep => RetentionPolicyUpdate::Keep,
+        },
         object_retention_enabled: super::object_retention::parse_bucket(
             body.get("objectRetention"),
         )?,
@@ -531,7 +541,6 @@ fn parse_bucket_update(
             .or_else(|| omitted_clears.then(Vec::new)),
         labels,
         touched: update_touches_bucket(body),
-        omitted_retention: omitted_clears && !body.contains_key("retentionPolicy"),
         storage_class,
         autoclass: body
             .get("autoclass")
@@ -686,24 +695,26 @@ fn parse_soft_delete_retention(
         .map_err(Into::into)
 }
 
-/// The retention period of a bucket policy: `None` leaves the policy alone (absent member or an
-/// empty policy, which Cloud Storage treated as no change), `Some(None)` removes it.
-fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, JsonError> {
-    let Some(value) = value else { return Ok(None) };
+/// The retention period of a bucket policy: an absent member or an empty policy (which Cloud
+/// Storage treated as no change) keeps the policy; null or a policy without a period clears it.
+fn parse_retention_period(value: Option<&Value>) -> Result<Patch<u64>, JsonError> {
+    let Some(value) = value else {
+        return Ok(Patch::Keep);
+    };
     if value.is_null() {
-        return Ok(Some(None));
+        return Ok(Patch::Clear);
     }
     let policy = value
         .as_object()
         .ok_or_else(|| JsonError::invalid(RETENTION_RANGE_MESSAGE))?;
     if policy.is_empty() {
-        return Ok(None);
+        return Ok(Patch::Keep);
     }
     let Some(period) = policy.get("retentionPeriod").filter(|v| !v.is_null()) else {
-        return Ok(Some(None));
+        return Ok(Patch::Clear);
     };
     crate::bucket::retention_period(int64_setting(period)?)
-        .map(|period| Some(Some(period)))
+        .map(Patch::Set)
         .map_err(Into::into)
 }
 

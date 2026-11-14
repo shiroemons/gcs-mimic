@@ -1,4 +1,5 @@
 use super::*;
+use crate::bucket::RetentionPolicyUpdate;
 use crate::object::{MapPatch, WriteMode};
 
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
@@ -135,7 +136,7 @@ pub(super) fn update_in_transaction(
     }
     apply_retention_policy(
         &mut record,
-        &update,
+        update.retention_policy,
         conditions.if_metageneration_match,
         clock.now(),
     )?;
@@ -296,40 +297,23 @@ fn validate_retention_expiration(
 
 fn apply_retention_policy(
     record: &mut BucketRecord,
-    update: &BucketMetadataUpdate,
+    change: RetentionPolicyUpdate,
     if_metageneration_match: Option<i64>,
     now: SystemTime,
 ) -> Result<(), CatalogError> {
-    if update.lock_retention_policy {
-        if if_metageneration_match.is_none() {
-            return Err(CatalogError::InvalidMetadata(
-                "Locking requires ifMetagenerationMatch; read the bucket metageneration first"
-                    .into(),
-            ));
+    let locked = record
+        .retention_policy
+        .as_ref()
+        .is_some_and(|p| p.is_locked);
+    let period = match change {
+        RetentionPolicyUpdate::Keep => return Ok(()),
+        RetentionPolicyUpdate::Lock => {
+            return lock_retention_policy(record, if_metageneration_match);
         }
-        let policy = record
-            .retention_policy
-            .as_mut()
-            .ok_or(CatalogError::RetentionPolicyNotSet)?;
-        if policy.is_locked {
-            return Err(CatalogError::InvalidMetadata(
-                "Retention policy is already locked".into(),
-            ));
-        }
-        policy.is_locked = true;
-        return Ok(());
-    }
-    let Some(period) = update.retention_period else {
-        return Ok(());
+        RetentionPolicyUpdate::RemoveUnlocked if locked => return Ok(()),
+        RetentionPolicyUpdate::Remove | RetentionPolicyUpdate::RemoveUnlocked => None,
+        RetentionPolicyUpdate::Set(period) => Some(period),
     };
-    if update.omitted_retention
-        && record
-            .retention_policy
-            .as_ref()
-            .is_some_and(|p| p.is_locked)
-    {
-        return Ok(());
-    }
     if let Some(policy) = record
         .retention_policy
         .as_ref()
@@ -347,10 +331,6 @@ fn apply_retention_policy(
                 .into(),
         ));
     }
-    let locked = record
-        .retention_policy
-        .as_ref()
-        .is_some_and(|p| p.is_locked);
     if record
         .retention_policy
         .as_ref()
@@ -362,6 +342,29 @@ fn apply_retention_policy(
             is_locked: locked,
         });
     }
+    Ok(())
+}
+
+/// Locks the stored policy; locking requires the metageneration the caller read.
+fn lock_retention_policy(
+    record: &mut BucketRecord,
+    if_metageneration_match: Option<i64>,
+) -> Result<(), CatalogError> {
+    if if_metageneration_match.is_none() {
+        return Err(CatalogError::InvalidMetadata(
+            "Locking requires ifMetagenerationMatch; read the bucket metageneration first".into(),
+        ));
+    }
+    let policy = record
+        .retention_policy
+        .as_mut()
+        .ok_or(CatalogError::RetentionPolicyNotSet)?;
+    if policy.is_locked {
+        return Err(CatalogError::InvalidMetadata(
+            "Retention policy is already locked".into(),
+        ));
+    }
+    policy.is_locked = true;
     Ok(())
 }
 

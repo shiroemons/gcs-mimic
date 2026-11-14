@@ -1,7 +1,10 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError},
+    bucket::{
+        BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError,
+        RetentionPolicyUpdate,
+    },
     grpc::validate::{self, bucket_conditions, request_conditions, strict_conditions},
     json::{self, JsonError},
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget},
@@ -522,7 +525,7 @@ impl Storage {
             .patch_bucket_with_lifecycle_response(
                 bucket,
                 &BucketMetadataUpdate {
-                    lock_retention_policy: true,
+                    retention_policy: RetentionPolicyUpdate::Lock,
                     ..Default::default()
                 },
                 conditions,
@@ -1069,7 +1072,7 @@ mod tests {
         let update = bucket_patch(&bucket, &paths).unwrap();
         assert_eq!(update.autoclass.unwrap().enabled, Some(false));
         assert_eq!(update.versioning_enabled, Some(false));
-        assert_eq!(update.retention_period, Some(None));
+        assert_eq!(update.retention_policy, RetentionPolicyUpdate::Remove);
         assert_eq!(
             update
                 .soft_delete_retention
@@ -2268,7 +2271,7 @@ mod tests {
                     lifecycle: Some(vec![
                         json!({"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}),
                     ]),
-                    retention_period: Some(Some(3600)),
+                    retention_policy: RetentionPolicyUpdate::Set(3600),
                     ..Default::default()
                 },
                 Default::default(),

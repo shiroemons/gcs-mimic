@@ -222,15 +222,33 @@ impl From<bool> for UniformAccessRequest {
     }
 }
 
+/// What a bucket write does to the retention policy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RetentionPolicyUpdate {
+    /// The write leaves the policy as it is.
+    #[default]
+    Keep,
+    /// Sets the period in seconds; a locked policy may only grow.
+    Set(u64),
+    /// Removes the policy (null, a policy without a period, or an empty policy in a PUT); a
+    /// locked policy refuses.
+    Remove,
+    /// A PUT left the policy out: an unlocked policy is removed and a locked one stays, because
+    /// omitting it is not a request to shorten it.
+    RemoveUnlocked,
+    /// Locks the current policy (`lockRetentionPolicy`); the request must name the
+    /// metageneration it read.
+    Lock,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
     pub default_object_acl: Option<Vec<crate::acl::AclEntry>>,
     pub cors: Option<Vec<CorsRule>>,
     pub lifecycle: Option<Vec<serde_json::Value>>,
-    pub retention_period: Option<Option<u64>>,
+    pub(crate) retention_policy: RetentionPolicyUpdate,
     pub(crate) soft_delete_retention: Option<SoftDeleteRetention>,
-    pub lock_retention_policy: bool,
     /// An echoed `objectRetention` value; it must match the stored state.
     pub object_retention_enabled: Option<bool>,
     pub labels: crate::object::MapPatch,
@@ -245,9 +263,6 @@ pub(crate) struct BucketMetadataUpdate {
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
     pub touched: bool,
-    /// A replacing write left the retention policy out, which clears an unlocked policy; a
-    /// locked policy stays, because omitting it is not a request to shorten it.
-    pub omitted_retention: bool,
 }
 
 impl BucketMetadataUpdate {
@@ -258,9 +273,8 @@ impl BucketMetadataUpdate {
             default_object_acl,
             cors,
             lifecycle,
-            retention_period,
+            retention_policy,
             soft_delete_retention,
-            lock_retention_policy,
             object_retention_enabled,
             labels,
             storage_class,
@@ -272,15 +286,13 @@ impl BucketMetadataUpdate {
             uniform_bucket_level_access_enabled,
             location,
             touched,
-            omitted_retention,
         } = self;
         acl.is_none()
             && default_object_acl.is_none()
             && cors.is_none()
             && lifecycle.is_none()
-            && retention_period.is_none()
+            && *retention_policy == RetentionPolicyUpdate::Keep
             && soft_delete_retention.is_none()
-            && !lock_retention_policy
             && object_retention_enabled.is_none()
             && *labels == crate::object::MapPatch::Keep
             && storage_class.is_none()
@@ -294,7 +306,6 @@ impl BucketMetadataUpdate {
             && uniform_bucket_level_access_enabled.is_none()
             && location.is_none()
             && !touched
-            && !omitted_retention
     }
 }
 

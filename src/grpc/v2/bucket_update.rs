@@ -1,7 +1,10 @@
 use super::{convert, pb, status::unsupported};
 use crate::{
     acl::{AclEntry, AclEntryInput, AclKind},
-    bucket::{self, BucketMetadataUpdate, CatalogError, CorsRule, autoclass::AutoclassUpdate},
+    bucket::{
+        self, BucketMetadataUpdate, CatalogError, CorsRule, RetentionPolicyUpdate,
+        autoclass::AutoclassUpdate,
+    },
     json::JsonError,
     object::MapPatch,
 };
@@ -129,13 +132,16 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                     "retention_policy.is_locked; use LockBucketRetentionPolicy",
                 ));
             }
-            update.retention_period = Some(
-                b.retention_policy
-                    .as_ref()
-                    .and_then(|policy| policy.retention_duration)
-                    .map(|duration| bucket::retention_period(duration.seconds).map_err(input_error))
-                    .transpose()?,
-            );
+            let period = b
+                .retention_policy
+                .as_ref()
+                .and_then(|policy| policy.retention_duration)
+                .map(|duration| bucket::retention_period(duration.seconds).map_err(input_error))
+                .transpose()?;
+            update.retention_policy = match period {
+                Some(period) => RetentionPolicyUpdate::Set(period),
+                None => RetentionPolicyUpdate::Remove,
+            };
         }
         "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
             let duration = b

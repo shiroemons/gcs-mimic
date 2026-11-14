@@ -319,7 +319,7 @@ async fn lock_retention_policy(
         .patch_bucket(
             bucket,
             crate::bucket::BucketMetadataUpdate {
-                lock_retention_policy: true,
+                retention_policy: crate::bucket::RetentionPolicyUpdate::Lock,
                 ..Default::default()
             },
             BucketConditions {

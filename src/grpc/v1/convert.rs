@@ -1,6 +1,6 @@
 use super::{pb, unsupported};
 use crate::{
-    bucket::{BucketMetadataUpdate, BucketRecord},
+    bucket::{BucketMetadataUpdate, BucketRecord, RetentionPolicyUpdate},
     config::CompatProfile,
     object::{MapPatch, ObjectError, ObjectRecord},
 };
@@ -121,8 +121,11 @@ pub(super) fn bucket_update(
             .or(native.then_some(false)),
         cors: native.then(Vec::new),
         lifecycle: native.then(Vec::new),
-        retention_period: native.then_some(None),
-        omitted_retention: native,
+        retention_policy: if native {
+            RetentionPolicyUpdate::RemoveUnlocked
+        } else {
+            RetentionPolicyUpdate::Keep
+        },
         touched: true,
         ..Default::default()
     };
@@ -239,8 +242,14 @@ mod tests {
             };
             let update = bucket_update(&mut request, &current, profile).unwrap();
             let native = profile == CompatProfile::Native;
-            assert_eq!(update.omitted_retention, native);
-            assert_eq!(update.retention_period, native.then_some(None));
+            assert_eq!(
+                update.retention_policy,
+                if native {
+                    RetentionPolicyUpdate::RemoveUnlocked
+                } else {
+                    RetentionPolicyUpdate::Keep
+                }
+            );
             assert_eq!(update.versioning_enabled, native.then_some(false));
             assert_eq!(update.cors.is_some(), native);
             assert_eq!(update.lifecycle.is_some(), native);
