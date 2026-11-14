@@ -502,7 +502,7 @@ fn sweep_page(
     for (name, generation) in rows {
         outcome.record(evaluate_version(
             &transaction,
-            &ObjectTarget::new(bucket, &name, Some(generation)),
+            &ObjectTarget::new(bucket, &name, generation),
             parsed,
             now,
             incarnation,
@@ -578,7 +578,13 @@ fn bucket_rules(
         });
     match rules {
         Ok((location, rules)) => {
-            clear_quarantine(transaction, QuarantineKey::rules(bucket, incarnation))?;
+            clear_quarantine(
+                transaction,
+                QuarantineKey::Rules {
+                    bucket,
+                    incarnation,
+                },
+            )?;
             Ok(BucketRules::Ready {
                 stored,
                 location,
@@ -588,7 +594,10 @@ fn bucket_rules(
         Err(error) => {
             if let Some(event) = quarantine(
                 transaction,
-                QuarantineKey::rules(bucket, incarnation),
+                QuarantineKey::Rules {
+                    bucket,
+                    incarnation,
+                },
                 &stored,
                 "lifecycle_rules_quarantined",
                 &error,
@@ -602,18 +611,18 @@ fn bucket_rules(
 
 fn evaluate_version(
     transaction: &rusqlite::Transaction<'_>,
-    target: &ObjectTarget,
+    target: &ObjectTarget<i64>,
     rules: &[LifecycleRule],
     now: SystemTime,
     incarnation: Incarnation,
     diagnostics: &mut Vec<QuarantineEvent>,
     limit: u64,
 ) -> Result<LifecycleCounts, ObjectError> {
-    let key = QuarantineKey {
+    let key = QuarantineKey::Version {
         bucket: &target.bucket,
         incarnation,
         name: &target.name,
-        generation: target.generation.ok_or(ObjectError::ObjectNotFound)?,
+        generation: target.generation,
     };
     let plan = match plan_version(transaction, target, rules, now) {
         Ok(plan) => plan,
@@ -717,7 +726,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
 
 fn plan_version(
     transaction: &rusqlite::Transaction<'_>,
-    target: &ObjectTarget,
+    target: &ObjectTarget<i64>,
     rules: &[LifecycleRule],
     now: SystemTime,
 ) -> Result<(LifecycleCounts, Option<(ObjectRecord, PlannedAction)>), ObjectError> {
@@ -725,7 +734,7 @@ fn plan_version(
         transaction,
         &target.bucket,
         &target.name,
-        target.generation,
+        Some(target.generation),
         Default::default(),
         objects::RequestKind::Read,
         &BucketAccess::Permissive,
@@ -898,21 +907,49 @@ fn version_facts(
     })
 }
 
+/// A row of the TEMP `lifecycle_quarantine` table.
 #[derive(Clone, Copy)]
-struct QuarantineKey<'a> {
-    bucket: &'a str,
-    incarnation: Incarnation,
-    name: &'a str,
-    generation: i64,
+enum QuarantineKey<'a> {
+    /// The bucket's stored rules could not be parsed.
+    Rules {
+        bucket: &'a str,
+        incarnation: Incarnation,
+    },
+    /// One object version's stored metadata could not be restored.
+    Version {
+        bucket: &'a str,
+        incarnation: Incarnation,
+        name: &'a str,
+        generation: i64,
+    },
 }
 
 impl<'a> QuarantineKey<'a> {
-    fn rules(bucket: &'a str, incarnation: Incarnation) -> Self {
-        Self {
-            bucket,
-            incarnation,
-            name: "",
-            generation: 0,
+    fn bucket(self) -> &'a str {
+        match self {
+            Self::Rules { bucket, .. } | Self::Version { bucket, .. } => bucket,
+        }
+    }
+
+    fn incarnation(self) -> Incarnation {
+        match self {
+            Self::Rules { incarnation, .. } | Self::Version { incarnation, .. } => incarnation,
+        }
+    }
+
+    /// `WITHOUT ROWID` key columns cannot be NULL, so rules use the empty name and generation 0,
+    /// which no object version has; `sweep_lifecycle` relies on `generation != 0`.
+    fn name(self) -> &'a str {
+        match self {
+            Self::Rules { .. } => "",
+            Self::Version { name, .. } => name,
+        }
+    }
+
+    fn generation(self) -> i64 {
+        match self {
+            Self::Rules { .. } => 0,
+            Self::Version { generation, .. } => generation,
         }
     }
 }
@@ -926,10 +963,10 @@ fn quarantine(
 ) -> Result<Option<QuarantineEvent>, ObjectError> {
     // History uses SQLite's bounded cache (and the memory backend's existing TEMP quota).
     let changed = transaction.prepare_cached("INSERT INTO lifecycle_quarantine (bucket, incarnation, name, generation, revision) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (bucket, incarnation, name, generation) DO UPDATE SET revision = excluded.revision WHERE revision != excluded.revision")?
-        .execute(params![key.bucket, key.incarnation, key.name, key.generation, revision])?;
+        .execute(params![key.bucket(), key.incarnation(), key.name(), key.generation(), revision])?;
     Ok((changed > 0).then(|| QuarantineEvent {
         event: event.to_owned(),
-        fields: serde_json::json!({"bucket":key.bucket,"name":key.name,"generation":key.generation,"message":format!("Stored lifecycle input cannot be restored; it is skipped until repaired: {error}")}),
+        fields: serde_json::json!({"bucket":key.bucket(),"name":key.name(),"generation":key.generation(),"message":format!("Stored lifecycle input cannot be restored; it is skipped until repaired: {error}")}),
     }))
 }
 
@@ -956,7 +993,12 @@ fn clear_quarantine(
     sql::exec(
         transaction,
         "DELETE FROM lifecycle_quarantine WHERE bucket = ?1 AND incarnation = ?2 AND name = ?3 AND generation = ?4",
-        params![key.bucket, key.incarnation, key.name, key.generation],
+        params![
+            key.bucket(),
+            key.incarnation(),
+            key.name(),
+            key.generation()
+        ],
     )?;
     Ok(())
 }

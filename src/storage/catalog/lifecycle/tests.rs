@@ -1056,7 +1056,7 @@ async fn lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox() {
 
 async fn candidate(
     catalog: &Catalog,
-    target: ObjectTarget,
+    target: ObjectTarget<i64>,
     incarnation: Incarnation,
 ) -> LifecycleCounts {
     let now = catalog.0.clock.now();
@@ -1113,7 +1113,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            version("bucket", "object", old.generation),
+            ObjectTarget::new("bucket", "object", old.generation),
             incarnation
         )
         .await
@@ -1125,7 +1125,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            version("bucket", "object", fresh.generation),
+            ObjectTarget::new("bucket", "object", fresh.generation),
             incarnation
         )
         .await
@@ -1149,7 +1149,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
     assert_eq!(
         candidate(
             &catalog,
-            version("bucket", "object", fresh.generation),
+            ObjectTarget::new("bucket", "object", fresh.generation),
             incarnation
         )
         .await
@@ -1175,7 +1175,7 @@ async fn a_bucket_recreated_between_selection_and_application_rejects_the_old_in
     assert_eq!(
         candidate(
             &catalog,
-            version("bucket", "object", object.generation),
+            ObjectTarget::new("bucket", "object", object.generation),
             previous
         )
         .await

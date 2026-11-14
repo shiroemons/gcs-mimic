@@ -143,7 +143,7 @@ async fn an_overwritten_retained_version_stops_matching_a_blocked_live_delete() 
             }
             let outcome = candidate(
                 &catalog,
-                version("bucket", "object", original.generation),
+                ObjectTarget::new("bucket", "object", original.generation),
                 incarnation(&catalog).await,
             )
             .await;
