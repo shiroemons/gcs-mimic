@@ -181,9 +181,11 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
 /// the millisecond at or before it, and a value past the `i64` range is an error, never a wrap.
 #[test]
 fn unix_millis_round_trip_signed_values_and_reject_values_past_the_range() {
+    // Windows SystemTime counts 100 ns ticks, so one nanosecond before the epoch is the epoch
+    // there; one microsecond before it exists on every platform.
     for (time, millis) in [
         (UNIX_EPOCH - Duration::from_micros(1001), -2),
-        (UNIX_EPOCH - Duration::from_nanos(1), -1),
+        (UNIX_EPOCH - Duration::from_micros(1), -1),
         (UNIX_EPOCH, 0),
         (UNIX_EPOCH + Duration::from_micros(1999), 1),
     ] {
