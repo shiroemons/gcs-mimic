@@ -876,7 +876,7 @@ pub(crate) fn bucket_predefined_acls(
     let acl = query
         .get("predefinedAcl")
         .map(|value| {
-            crate::acl::PredefinedBucketAcl::parse(value).ok_or_else(|| {
+            crate::acl::PredefinedBucketAcl::parse_ignoring_case(value).ok_or_else(|| {
                 invalid_value(value, crate::acl::PredefinedBucketAcl::ALLOWED)
                     .at_parameter("predefinedAcl")
             })

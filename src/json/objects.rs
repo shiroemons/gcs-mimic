@@ -397,11 +397,13 @@ fn parse_upload_query(
     }
     let predefined_acl = predefined_acl
         .map(|value| {
-            crate::acl::PredefinedObjectAcl::parse(&value).ok_or_else(|| {
-                JsonError::invalid_parameter(format!(
-                    "Invalid predefinedAcl {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, predefinedAcl=publicRead)"
-                ))
-            })
+            value
+                .parse::<crate::acl::PredefinedObjectAcl>()
+                .map_err(|_| {
+                    JsonError::invalid_parameter(format!(
+                        "Invalid predefinedAcl {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, predefinedAcl=publicRead)"
+                    ))
+                })
         })
         .transpose()?;
     let upload_name = UploadName::take(&mut query)?;

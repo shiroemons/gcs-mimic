@@ -80,7 +80,7 @@ impl<T, C> Metadata<T, C> {
                 .map(|value| {
                     value
                         .as_str()
-                        .and_then(crate::acl::PredefinedObjectAcl::parse)
+                        .and_then(|value| value.parse::<crate::acl::PredefinedObjectAcl>().ok())
                         .ok_or_else(|| InvalidOptions::new("invalid resumable predefinedAcl"))
                 })
                 .transpose()?,

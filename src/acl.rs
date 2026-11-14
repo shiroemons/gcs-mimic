@@ -384,15 +384,18 @@ pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
 /// sentence Cloud Storage returns, then adds the local remedy.
 pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissions";
 
-/// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PredefinedObjectAcl {
-    AuthenticatedRead,
-    BucketOwnerFullControl,
-    BucketOwnerRead,
-    Private,
-    ProjectPrivate,
-    PublicRead,
+crate::config::string_enum! {
+    no_default listed
+    /// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.
+    pub(crate) enum PredefinedObjectAcl {
+        AuthenticatedRead => "authenticatedRead",
+        BucketOwnerFullControl => "bucketOwnerFullControl",
+        BucketOwnerRead => "bucketOwnerRead",
+        Private => "private",
+        ProjectPrivate => "projectPrivate",
+        PublicRead => "publicRead",
+    }
+    "predefinedAcl must be authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead"
 }
 
 impl PredefinedObjectAcl {
@@ -401,40 +404,10 @@ impl PredefinedObjectAcl {
 
     /// Case-insensitive, as the service is (it reports its allowed values lowercased).
     pub(crate) fn parse_ignoring_case(value: &str) -> Option<Self> {
-        [
-            "authenticatedRead",
-            "bucketOwnerFullControl",
-            "bucketOwnerRead",
-            "private",
-            "projectPrivate",
-            "publicRead",
-        ]
-        .into_iter()
-        .find(|name| name.eq_ignore_ascii_case(value))
-        .and_then(Self::parse)
-    }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "authenticatedRead" => Self::AuthenticatedRead,
-            "bucketOwnerFullControl" => Self::BucketOwnerFullControl,
-            "bucketOwnerRead" => Self::BucketOwnerRead,
-            "private" => Self::Private,
-            "projectPrivate" => Self::ProjectPrivate,
-            "publicRead" => Self::PublicRead,
-            _ => return None,
-        })
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::AuthenticatedRead => "authenticatedRead",
-            Self::BucketOwnerFullControl => "bucketOwnerFullControl",
-            Self::BucketOwnerRead => "bucketOwnerRead",
-            Self::Private => "private",
-            Self::ProjectPrivate => "projectPrivate",
-            Self::PublicRead => "publicRead",
-        }
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|acl| acl.as_str().eq_ignore_ascii_case(value))
     }
 
     /// The canned entries apart from the object owner's OWNER grant, which publication adds
@@ -465,35 +438,46 @@ impl std::fmt::Display for InvalidCannedAcl<'_> {
 
 impl std::error::Error for InvalidCannedAcl<'_> {}
 
-/// Parses the XML API's hyphenated names. [`PredefinedObjectAcl::parse`] reads the JSON API's
-/// camelCase values, which Cloud Storage treats as invalid in `x-goog-acl` (recorded 2026-11-09).
+/// The XML API's hyphenated names. The JSON API's camelCase values, which `FromStr` reads, are
+/// invalid in `x-goog-acl` (recorded 2026-11-09).
 impl PredefinedObjectAcl {
-    pub(crate) fn from_canned(value: &str) -> Result<Self, InvalidCannedAcl<'_>> {
-        match value {
-            "authenticated-read" => Ok(Self::AuthenticatedRead),
-            "bucket-owner-full-control" => Ok(Self::BucketOwnerFullControl),
-            "bucket-owner-read" => Ok(Self::BucketOwnerRead),
-            "private" => Ok(Self::Private),
-            "project-private" => Ok(Self::ProjectPrivate),
-            "public-read" => Ok(Self::PublicRead),
-            _ => Err(InvalidCannedAcl(value)),
+    /// The XML API's `x-goog-acl` spelling.
+    pub(crate) fn canned_name(self) -> &'static str {
+        match self {
+            Self::AuthenticatedRead => "authenticated-read",
+            Self::BucketOwnerFullControl => "bucket-owner-full-control",
+            Self::BucketOwnerRead => "bucket-owner-read",
+            Self::Private => "private",
+            Self::ProjectPrivate => "project-private",
+            Self::PublicRead => "public-read",
         }
+    }
+
+    pub(crate) fn from_canned(value: &str) -> Result<Self, InvalidCannedAcl<'_>> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|acl| acl.canned_name() == value)
+            .ok_or(InvalidCannedAcl(value))
     }
 }
 
-/// A JSON API bucket `predefinedAcl` value.
-///
-/// The entries follow the documented canned lists: the project owners team always holds OWNER,
-/// and the public values add a grant to `allUsers` or `allAuthenticatedUsers`. Cloud Storage
-/// applied `private` as the owners team alone and `projectPrivate` as the three project teams
-/// (recorded 2026-10-31).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PredefinedBucketAcl {
-    AuthenticatedRead,
-    Private,
-    ProjectPrivate,
-    PublicRead,
-    PublicReadWrite,
+crate::config::string_enum! {
+    no_default listed
+    /// A JSON API bucket `predefinedAcl` value.
+    ///
+    /// The entries follow the documented canned lists: the project owners team always holds
+    /// OWNER, and the public values add a grant to `allUsers` or `allAuthenticatedUsers`. Cloud
+    /// Storage applied `private` as the owners team alone and `projectPrivate` as the three
+    /// project teams (recorded 2026-10-31).
+    pub(crate) enum PredefinedBucketAcl {
+        AuthenticatedRead => "authenticatedRead",
+        Private => "private",
+        ProjectPrivate => "projectPrivate",
+        PublicRead => "publicRead",
+        PublicReadWrite => "publicReadWrite",
+    }
+    "predefinedAcl must be authenticatedRead, private, projectPrivate, publicRead or publicReadWrite"
 }
 
 impl PredefinedBucketAcl {
@@ -501,17 +485,12 @@ impl PredefinedBucketAcl {
     pub(crate) const ALLOWED: &str =
         "[authenticatedread, private, projectprivate, publicread, publicreadwrite]";
 
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        [
-            ("authenticatedRead", Self::AuthenticatedRead),
-            ("private", Self::Private),
-            ("projectPrivate", Self::ProjectPrivate),
-            ("publicRead", Self::PublicRead),
-            ("publicReadWrite", Self::PublicReadWrite),
-        ]
-        .into_iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(value))
-        .map(|(_, acl)| acl)
+    /// Case-insensitive, as the service is (it reports its allowed values lowercased).
+    pub(crate) fn parse_ignoring_case(value: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|acl| acl.as_str().eq_ignore_ascii_case(value))
     }
 
     pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
@@ -549,12 +528,13 @@ mod tests {
             "projectPrivate",
             "publicRead",
         ] {
-            let parsed = PredefinedObjectAcl::parse(value).unwrap();
+            let parsed = value.parse::<PredefinedObjectAcl>().unwrap();
             assert_eq!(parsed.as_str(), value);
             validate_entries(AclKind::Object, &parsed.entries("123")).unwrap();
         }
+        assert_eq!(PredefinedObjectAcl::ALL.len(), 6);
         for value in ["publicReadWrite", "", "PublicRead", "public-read"] {
-            assert_eq!(PredefinedObjectAcl::parse(value), None, "{value}");
+            assert!(value.parse::<PredefinedObjectAcl>().is_err(), "{value}");
         }
         for (canned, json) in [
             ("authenticated-read", "authenticatedRead"),
@@ -566,7 +546,7 @@ mod tests {
         ] {
             assert_eq!(
                 PredefinedObjectAcl::from_canned(canned).ok(),
-                PredefinedObjectAcl::parse(json),
+                json.parse::<PredefinedObjectAcl>().ok(),
                 "{canned}"
             );
         }
@@ -593,6 +573,35 @@ mod tests {
             PredefinedObjectAcl::ProjectPrivate.entries("123"),
             project_private("123")
         );
+    }
+
+    /// Query parameters name predefined ACLs in any case, as the service accepts them.
+    #[test]
+    fn predefined_acls_parse_ignoring_case() {
+        assert_eq!(
+            PredefinedObjectAcl::parse_ignoring_case("PUBLICREAD"),
+            Some(PredefinedObjectAcl::PublicRead)
+        );
+        assert_eq!(
+            PredefinedObjectAcl::parse_ignoring_case("publicReadWrite"),
+            None
+        );
+        assert_eq!(
+            PredefinedBucketAcl::parse_ignoring_case("PUBLICREAD"),
+            Some(PredefinedBucketAcl::PublicRead)
+        );
+        assert_eq!(
+            PredefinedBucketAcl::parse_ignoring_case("public-read"),
+            None
+        );
+        assert_eq!(PredefinedBucketAcl::ALL.len(), 5);
+        for &acl in PredefinedBucketAcl::ALL {
+            assert_eq!(acl.as_str().parse::<PredefinedBucketAcl>(), Ok(acl));
+            assert_eq!(
+                PredefinedBucketAcl::parse_ignoring_case(&acl.as_str().to_ascii_uppercase()),
+                Some(acl)
+            );
+        }
     }
 
     #[test]
