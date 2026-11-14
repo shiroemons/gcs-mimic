@@ -3,8 +3,14 @@ use std::{collections::BTreeMap, fmt, fs, path::Path};
 
 pub(super) const FILE: &str = "xtask/lint-baseline.txt";
 
+/// Counted only in this module's tests, so they keep exercising the ratchet after every real
+/// rule has graduated to zero tolerance; other builds never accept a row for it.
+const SAMPLE_RULE: &str = "test::ratcheted_sample";
+
 pub(super) fn eligible(rule: &str) -> bool {
-    RATCHETED_CLIPPY_LINTS.contains(&rule) || RATCHETED_TEXT_RULES.contains(&rule)
+    RATCHETED_CLIPPY_LINTS.contains(&rule)
+        || RATCHETED_TEXT_RULES.contains(&rule)
+        || (cfg!(test) && rule == SAMPLE_RULE)
 }
 
 pub(super) fn file(target: Option<&str>) -> String {
@@ -257,7 +263,7 @@ mod tests {
     }
 
     fn finding(line: usize) -> Finding {
-        Finding::new("clippy::wildcard_enum_match_arm", "src/example.rs", line)
+        Finding::new(SAMPLE_RULE, "src/example.rs", line)
     }
 
     #[test]
@@ -283,11 +289,7 @@ mod tests {
         ));
         assert!(
             !baseline
-                .check(&[Finding::new(
-                    "clippy::wildcard_enum_match_arm",
-                    "src/new.rs",
-                    1
-                )])
+                .check(&[Finding::new(SAMPLE_RULE, "src/new.rs", 1)])
                 .is_empty()
         );
     }
@@ -296,7 +298,7 @@ mod tests {
     fn shared_and_target_files_are_isolated_and_each_rejects_growth_and_staleness() {
         let directory = TempRoot::new();
         let root = &directory.0;
-        let shared = [Finding::new("text::downcast", "src/shared.rs", 1)];
+        let shared = [Finding::new(SAMPLE_RULE, "src/shared.rs", 1)];
         fs::write(root.join(FILE), Baseline::from_findings(&shared).render()).unwrap();
         for (target, count) in [
             ("x86_64-unknown-linux-gnu", 2),
@@ -357,19 +359,19 @@ mod tests {
         let baseline = Baseline::from_findings(&[
             finding(1),
             finding(2),
-            Finding::new("text::downcast", "src/other.rs", 5),
+            Finding::new(SAMPLE_RULE, "src/other.rs", 5),
         ]);
         assert_eq!(Baseline::parse(&baseline.render(), FILE).unwrap(), baseline);
         for text in [
-            "clippy::wildcard_enum_match_arm\tsrc/example.rs\tzero",
-            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t0",
-            "clippy::unwrap_used\tsrc/example.rs\t1",
-            "unknown\tsrc/example.rs\t1",
-            "clippy::wildcard_enum_match_arm\tsrc/../outside.rs\t1",
-            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t1\textra",
-            "clippy::wildcard_enum_match_arm\tsrc/example.rs\t1\nclippy::wildcard_enum_match_arm\tsrc/example.rs\t2",
+            format!("{SAMPLE_RULE}\tsrc/example.rs\tzero"),
+            format!("{SAMPLE_RULE}\tsrc/example.rs\t0"),
+            "clippy::unwrap_used\tsrc/example.rs\t1".to_owned(),
+            "unknown\tsrc/example.rs\t1".to_owned(),
+            format!("{SAMPLE_RULE}\tsrc/../outside.rs\t1"),
+            format!("{SAMPLE_RULE}\tsrc/example.rs\t1\textra"),
+            format!("{SAMPLE_RULE}\tsrc/example.rs\t1\n{SAMPLE_RULE}\tsrc/example.rs\t2"),
         ] {
-            assert!(Baseline::parse(text, FILE).is_err(), "{text}");
+            assert!(Baseline::parse(&text, FILE).is_err(), "{text}");
         }
     }
 }
