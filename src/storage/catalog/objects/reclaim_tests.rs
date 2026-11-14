@@ -20,7 +20,9 @@ async fn retired_blob(data: &Path) -> (Catalog, BlobId) {
         .await
         .unwrap();
     let old = catalog
-        .run_upload(|connection| Ok(lookup(connection, "bucket", "object")?.unwrap().blob))
+        .run_upload::<_, ObjectError>(|connection| {
+            Ok(lookup(connection, "bucket", "object")?.unwrap().blob)
+        })
         .await
         .unwrap();
     fault::arm(
@@ -106,7 +108,7 @@ async fn journaled_catalog(data: &Path) -> Catalog {
         .await
         .unwrap();
     let root = data.to_owned();
-    catalog.run_upload(move |connection| {
+    catalog.run_upload::<_, ObjectError>(move |connection| {
         let transaction = connection.transaction().unwrap();
         for (prefix, count) in [("00", 140), ("ff", 200)] {
             for index in 0..count {

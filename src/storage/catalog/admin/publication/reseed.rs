@@ -1,7 +1,6 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
-use crate::storage::catalog::ConnectionUnavailable;
 use crate::storage::catalog::sql;
 use std::num::NonZeroUsize;
 
@@ -247,12 +246,9 @@ impl SeedBatch {
                     "seed_commit_started",
                     serde_json::json!({}),
                 );
-                let outcome =
-                    match inner.with_connection(|connection| commit(connection, &self, mode)) {
-                        Ok(outcome) => outcome,
-                        Err(ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                        Err(error) => Err(AdminError::backend(error)),
-                    };
+                let outcome = inner
+                    .with_connection(|connection| commit(connection, &self, mode))
+                    .unwrap_or_else(|error| Err(error.into()));
                 (outcome, self)
             })
             .await

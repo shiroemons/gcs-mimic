@@ -277,25 +277,33 @@ impl UploadCommit {
 }
 
 impl Catalog {
-    pub(in crate::storage::catalog) async fn run_upload<T: Send + 'static>(
+    /// Runs an upload's catalog job. The job may fail with its own domain error; catalog and
+    /// executor failures arrive as that error through [`ObjectError`].
+    pub(in crate::storage::catalog) async fn run_upload<
+        T: Send + 'static,
+        E: From<ObjectError> + Send + 'static,
+    >(
         &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
-    ) -> Result<T, ObjectError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let execution = self
             .0
             .execution
             .clone()
             .acquire_owned()
             .await
-            .map_err(object_unavailable)?;
+            .map_err(|error| E::from(object_unavailable(error)))?;
         self.run_upload_admitted(execution, operation).await
     }
 
-    pub(in crate::storage::catalog) async fn run_upload_admitted<T: Send + 'static>(
+    pub(in crate::storage::catalog) async fn run_upload_admitted<
+        T: Send + 'static,
+        E: From<ObjectError> + Send + 'static,
+    >(
         &self,
         execution: OwnedSemaphorePermit,
-        operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
-    ) -> Result<T, ObjectError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let inner = self.0.clone();
         self.0
             .executor
@@ -303,10 +311,10 @@ impl Catalog {
                 let _execution = execution;
                 inner
                     .with_connection(operation)
-                    .unwrap_or_else(|error| Err(error.into()))
+                    .unwrap_or_else(|error| Err(E::from(ObjectError::from(error))))
             })
             .await
-            .map_err(object_unavailable)?
+            .map_err(|error| E::from(object_unavailable(error)))?
     }
 
     /// Advisory check that also rejects a bucket or an overwrite the caller is not authorized

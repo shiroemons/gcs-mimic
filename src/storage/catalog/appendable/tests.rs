@@ -115,7 +115,7 @@ async fn reserved_publication_reclaims_memory_appendable_without_a_previous_obje
         .unwrap();
     assert_eq!(record.generation, writer.record.generation);
     let pending: i64 = catalog
-        .run_upload(|connection| {
+        .run_upload::<_, ObjectError>(|connection| {
             Ok(sql::scalar(
                 connection,
                 "SELECT count(*) FROM pending_blob_deletions",
@@ -591,7 +591,7 @@ async fn finalization_inherits_default_acl_and_autoclass_class() {
     .unwrap();
     catalog.insert_bucket(definition).await.unwrap();
     catalog
-        .run_upload(|connection| {
+        .run_upload::<_, ObjectError>(|connection| {
             connection
                 .execute(
                     "INSERT INTO acl_bucket_entries VALUES ('auto', 'defaultObject', '[{\"entity\":\"allUsers\",\"role\":\"READER\"}]')",
@@ -731,7 +731,7 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     fs::write(&orphan_path, b"never committed").unwrap();
     let (id, generation) = (leftover.clone(), published.generation);
     catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             let incarnation = bucket_incarnation(connection, "append").optional()?.unwrap();
             let encoded = encode_options(&options()).unwrap().to_string();
             connection

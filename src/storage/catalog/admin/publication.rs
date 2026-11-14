@@ -765,7 +765,7 @@ async fn run_batch(
     };
     let clock = catalog.0.clock.clone();
     let (outcome, mut entries) = catalog
-        .run_upload_admitted(execution, move |connection| {
+        .run_upload_admitted::<_, ObjectError>(execution, move |connection| {
             let outcome = commit_batch(
                 connection,
                 &entries,

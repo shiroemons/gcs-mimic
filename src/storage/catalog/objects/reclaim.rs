@@ -127,7 +127,7 @@ impl Catalog {
         fault::hit(&self.0.data_dir, Step::DiscardProbe).map_err(object_unavailable)?;
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         let journaled = self
-            .run_upload(move |connection| {
+            .run_upload::<_, ObjectError>(move |connection| {
                 if blob_referenced(connection, &id)? {
                     return Ok(Journaled::NOTHING);
                 }
@@ -199,7 +199,7 @@ impl Catalog {
         let task = crate::task::spawn_supervised("blob-reclamation", async move {
             let (_permit, _activity) = (permit, activity);
             let (ids, conflict) = catalog
-                .run_upload(|connection| {
+                .run_upload::<_, ObjectError>(|connection| {
                     let ids = connection
                         .prepare_cached(
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
@@ -270,7 +270,7 @@ mod tests {
             .await
             .unwrap();
         let live = catalog
-            .run_upload(|connection| {
+            .run_upload::<_, ObjectError>(|connection| {
                 let id = lookup(connection, "bucket", "live")?.unwrap().blob;
                 sql::exec(
                     connection,

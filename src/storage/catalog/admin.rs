@@ -349,6 +349,17 @@ impl From<InvalidGeneration> for AdminError {
         Self::Invalid("generation must be positive".into())
     }
 }
+/// A closed catalog answers as closed; a job that panicked is a backend failure.
+impl From<super::ConnectionUnavailable> for AdminError {
+    fn from(error: super::ConnectionUnavailable) -> Self {
+        match error {
+            super::ConnectionUnavailable::Closed => Self::Closed,
+            error @ (super::ConnectionUnavailable::Panicked
+            | super::ConnectionUnavailable::Unrecovered(_)) => Self::backend(error),
+        }
+    }
+}
+
 impl From<CatalogError> for AdminError {
     fn from(error: CatalogError) -> Self {
         match error {
@@ -505,11 +516,9 @@ impl Catalog {
             .executor
             .run(move || {
                 let (_admission, _execution) = (admission, execution);
-                let result = match inner.with_connection(operation) {
-                    Ok(result) => result,
-                    Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed.into()),
-                    Err(error) => Err(AdminError::backend(error).into()),
-                };
+                let result = inner
+                    .with_connection(operation)
+                    .unwrap_or_else(|error| Err(AdminError::from(error).into()));
                 drop(inner);
                 result
             })

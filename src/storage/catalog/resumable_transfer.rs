@@ -326,7 +326,7 @@ impl Catalog {
         let blob_id = lease.session.blob_id;
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();
-        let changed = self.run_upload(move |connection| {
+        let changed = self.run_upload::<_, ObjectError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason])?;
             if changed == 1 {
@@ -454,7 +454,7 @@ impl Catalog {
                 Ok((resource, retired))
             };
         let (resource, retired) = self
-            .run_upload(move |connection| Ok(publication(connection)))
+            .run_upload::<_, ObjectError>(move |connection| Ok(publication(connection)))
             .await??;
         self.schedule_expiry(retired);
         self.0

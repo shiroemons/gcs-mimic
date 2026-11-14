@@ -322,7 +322,7 @@ impl Catalog {
             request.clone(),
         );
         let pinned = self
-            .run_upload(move |connection| {
+            .run_upload::<_, ObjectError>(move |connection| {
                 authorized_bucket(connection, &selection.target.bucket, &selection.restore)?;
                 let now = objects::PublicationTime::read(clock.as_ref())?;
                 purge_expired(connection, &selection.target.bucket, now.time.try_into()?)?;

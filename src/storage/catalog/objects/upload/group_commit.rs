@@ -18,7 +18,24 @@ use tokio::sync::oneshot::error::TryRecvError;
 /// away from the writer for long.
 const MAX_BATCH: usize = 64;
 
-type Outcome = Result<CommitOutcome, ObjectError>;
+/// One upload's own result inside a batch that committed.
+type UploadOutcome = Result<CommitOutcome, ObjectError>;
+
+/// The whole batch failed: nothing was committed, or the outcome is unknown and each upload's
+/// cleanup checks for a reference.
+struct BatchFailure(ObjectError);
+
+impl From<rusqlite::Error> for BatchFailure {
+    fn from(error: rusqlite::Error) -> Self {
+        Self(error.into())
+    }
+}
+
+impl From<ObjectError> for BatchFailure {
+    fn from(error: ObjectError) -> Self {
+        Self(error)
+    }
+}
 
 /// Uploads whose blobs are durable and whose commits wait for the writer.
 #[derive(Default)]
@@ -34,7 +51,7 @@ struct Ticket(u64);
 struct Queued {
     ticket: Ticket,
     commit: UploadCommit,
-    reply: oneshot::Sender<Outcome>,
+    reply: oneshot::Sender<UploadOutcome>,
 }
 
 impl CommitQueue {
@@ -43,7 +60,7 @@ impl CommitQueue {
         self.queued.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn push(&self, commit: UploadCommit, reply: oneshot::Sender<Outcome>) -> Ticket {
+    fn push(&self, commit: UploadCommit, reply: oneshot::Sender<UploadOutcome>) -> Ticket {
         let ticket = Ticket(self.next_ticket.fetch_add(1, Ordering::Relaxed));
         self.queued().push_back(Queued {
             ticket,
@@ -75,7 +92,7 @@ impl Catalog {
     /// Publishes `commit` with every upload queued by the time a writer permit comes up. Each
     /// upload still takes the permit in turn; one whose turn comes after a batch that published
     /// it only collects the answer.
-    pub(super) async fn commit_upload(&self, commit: UploadCommit) -> Outcome {
+    pub(super) async fn commit_upload(&self, commit: UploadCommit) -> UploadOutcome {
         let (reply, mut outcome) = oneshot::channel();
         let ticket = self.0.upload_commits.push(commit, reply);
         match self.await_answer(&mut outcome).await {
@@ -88,8 +105,8 @@ impl Catalog {
     /// queued.
     async fn await_answer(
         &self,
-        outcome: &mut oneshot::Receiver<Outcome>,
-    ) -> Result<Outcome, ObjectError> {
+        outcome: &mut oneshot::Receiver<UploadOutcome>,
+    ) -> Result<UploadOutcome, ObjectError> {
         loop {
             let execution = self
                 .0
@@ -119,9 +136,9 @@ impl Catalog {
     async fn abandon(
         &self,
         ticket: Ticket,
-        outcome: oneshot::Receiver<Outcome>,
+        outcome: oneshot::Receiver<UploadOutcome>,
         error: ObjectError,
-    ) -> Outcome {
+    ) -> UploadOutcome {
         if self.0.upload_commits.withdraw(ticket) {
             return Err(error);
         }
@@ -144,7 +161,7 @@ impl Catalog {
                 let outcomes =
                     match inner.with_connection(|connection| publish_all(connection, &commits)) {
                         Ok(Ok(outcomes)) => outcomes,
-                        Ok(Err(failure)) => shared(failure, commits.len()),
+                        Ok(Err(BatchFailure(failure))) => shared(failure, commits.len()),
                         Err(connection) => shared(connection.into(), commits.len()),
                     };
                 for (reply, outcome) in replies.into_iter().zip(outcomes) {
@@ -158,12 +175,11 @@ impl Catalog {
 }
 
 /// Publishes each commit under its own savepoint, so one upload's error or panic undoes only its
-/// own changes, then commits them together. `Err` fails the whole batch: either nothing was
-/// committed, or the outcome is unknown and each upload's cleanup checks for a reference.
+/// own changes, then commits them together.
 fn publish_all(
     connection: &mut Connection,
     commits: &[UploadCommit],
-) -> Result<Vec<Outcome>, ObjectError> {
+) -> Result<Vec<UploadOutcome>, BatchFailure> {
     let transaction = sql::immediate(connection)?;
     let mut outcomes = Vec::with_capacity(commits.len());
     for commit in commits {
@@ -173,12 +189,12 @@ fn publish_all(
     Ok(outcomes)
 }
 
-/// Returns the upload's own outcome, or `Err` when the transaction cannot go on: its savepoint
-/// could not be ended, or its error made SQLite roll back the whole transaction.
+/// Returns the upload's own outcome, or a batch failure when the transaction cannot go on: its
+/// savepoint could not be ended, or its error made SQLite roll back the whole transaction.
 fn publish_isolated(
     transaction: &Transaction<'_>,
     commit: &UploadCommit,
-) -> Result<Outcome, ObjectError> {
+) -> Result<UploadOutcome, BatchFailure> {
     sql::exec(transaction, "SAVEPOINT upload", [])?;
     // A panicking upload's changes are rolled back to its savepoint below, so nothing it left
     // half done is committed or read afterwards.
@@ -190,7 +206,7 @@ fn publish_isolated(
             Ok(Ok(published))
         }
         // Some errors, such as a full disk, roll back the whole transaction in SQLite.
-        Err(error) if transaction.is_autocommit() => Err(error),
+        Err(error) if transaction.is_autocommit() => Err(BatchFailure(error)),
         Err(error) => {
             sql::exec(transaction, "ROLLBACK TO upload", [])?;
             sql::exec(transaction, "RELEASE upload", [])?;
@@ -200,7 +216,7 @@ fn publish_isolated(
 }
 
 /// Gives every upload of a failed batch the batch's failure.
-fn shared(failure: ObjectError, uploads: usize) -> Vec<Outcome> {
+fn shared(failure: ObjectError, uploads: usize) -> Vec<UploadOutcome> {
     // Storage failures keep their own cause; anything else is wrapped as unavailable.
     std::iter::repeat_n(failure.classify(), uploads)
         .map(|failure| Err(failure.into()))

@@ -1,6 +1,6 @@
 //! Instance-local reset owns SQL execution and the gate that unpublished byte leases hold.
 
-use super::super::{BlobBackend, ConnectionUnavailable, objects};
+use super::super::{BlobBackend, objects};
 use super::{Admin, AdminError};
 use crate::storage::catalog::sql;
 use crate::{bucket::CatalogError, storage::failure::unavailable};
@@ -45,8 +45,7 @@ impl Admin {
                 inner.maintenance_wake.notify_one();
                 match result {
                     Ok(result) => result.map_err(AdminError::from),
-                    Err(ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                    Err(error) => Err(AdminError::backend(error)),
+                    Err(error) => Err(error.into()),
                 }
             })
             .await

@@ -191,6 +191,20 @@ impl From<ObjectError> for AppendError {
     }
 }
 
+/// A catalog failure inside an append job, classified as any object failure is.
+impl From<rusqlite::Error> for AppendError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Object(error.into())
+    }
+}
+
+/// A catalog failure inside an append job, classified as any object failure is.
+impl From<CatalogError> for AppendError {
+    fn from(error: CatalogError) -> Self {
+        Self::Object(error.into())
+    }
+}
+
 struct Row {
     generation: i64,
     blob_id: BlobId,
@@ -607,7 +621,7 @@ impl AppendWriter {
         let clock = self.catalog.0.clock.clone();
         let updated = self
             .catalog
-            .run_upload(move |connection| {
+            .run_upload::<_, ObjectError>(move |connection| {
                 let _guard = guard;
                 let micros = unix_micros(clock.now())?;
                 let changed = sql::exec(connection,
@@ -910,7 +924,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let backend = self.0.backend.clone();
         let principals = self.0.principals.get().cloned();
-        self.run_upload(move |connection| {
+        self.run_upload::<_, AppendError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
             let (current, stale) = match select(&transaction, &bucket, &name)? {
@@ -928,7 +942,7 @@ impl Catalog {
             };
             check_conditions(current.as_ref(), options.conditions, super::objects::RequestKind::Write)?;
             if current.is_some() {
-                return Ok(Err(AppendError::ReplaceUnsupported));
+                return Err(AppendError::ReplaceUnsupported);
             }
             let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now())?;
@@ -953,7 +967,7 @@ impl Catalog {
                 write_handle: handle.clone(),
             };
             let created = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
-            let checkpoint = backend.checkpoint_draft(&blob_id)?;
+            let checkpoint = backend.checkpoint_draft(&blob_id).map_err(ObjectError::from)?;
             let committed = transaction.commit().map_err(object_unavailable);
             if let Some(checkpoint) = checkpoint {
                 let referenced = sql::scalar::<bool>(connection, "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)", [&blob_id]);
@@ -961,9 +975,9 @@ impl Catalog {
                 if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
             }
             committed?;
-            Ok(Ok((stale, created)))
+            Ok((stale, created))
         })
-        .await?
+        .await
     }
 
     /// Takes over an unfinalized generation. A matching write handle resumes the caller's own
@@ -992,39 +1006,35 @@ impl Catalog {
         let presented = write_handle.map(<[u8]>::to_vec);
         let principals = self.0.principals.get().cloned();
         let selected = self
-            .run_upload(move |connection| {
+            .run_upload::<_, AppendError>(move |connection| {
                 let transaction = sql::immediate(connection)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let row = match select(&transaction, &bucket, &name)? {
                     Lookup::Live(row) if row.generation == generation => row,
                     _ => {
-                        return Ok(Err(
+                        return Err(
                             if published_generation(&transaction, &bucket, &name, generation)? {
                                 AppendError::Finalized
                             } else {
                                 AppendError::Object(ObjectError::ObjectNotFound)
                             },
-                        ));
+                        );
                     }
                 };
                 let record = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
                 match presented {
                     Some(presented) if presented != row.write_handle.as_bytes() => {
-                        return Ok(Err(AppendError::Superseded));
+                        return Err(AppendError::Superseded);
                     }
                     Some(_) => {}
-                    None => {
-                        if let Err(error) = check_conditions(Some(&record), conditions, super::objects::RequestKind::Write) {
-                            return Ok(Err(error.into()));
-                        }
-                    }
+                    None => check_conditions(Some(&record), conditions, super::objects::RequestKind::Write)?,
                 }
                 sql::exec(&transaction,
                         "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, bucket, name])?;
                 transaction.commit()?;
-                Ok(Ok((row.blob_id, record)))
+                Ok((row.blob_id, record))
             })
-            .await??;
+            .await?;
         let (blob_id, record) = selected;
         let catalog = self.clone();
         let id = blob_id;

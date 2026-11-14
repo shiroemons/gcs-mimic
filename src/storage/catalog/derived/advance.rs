@@ -26,7 +26,7 @@ impl Catalog {
             let query = id;
             let backend = catalog.0.backend.clone();
             let now = UnixMillis::try_from(catalog.0.clock.now())?;
-            let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
+            let (mut progress, mut hasher, sources) = catalog.run_upload::<_, ObjectError>(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;

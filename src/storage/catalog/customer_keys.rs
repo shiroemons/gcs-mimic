@@ -126,7 +126,12 @@ impl Catalog {
             key,
         )
         .await
-        .map(|mut sources| sources.remove(0))
+        .and_then(|sources| {
+            sources
+                .into_iter()
+                .next()
+                .ok_or_else(|| objects::object_unavailable("missing derived source"))
+        })
     }
 }
 

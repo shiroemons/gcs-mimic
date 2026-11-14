@@ -268,7 +268,7 @@ async fn expired_restore_source_is_rechecked_after_pinning() {
     let backend = catalog.0.backend.clone();
     let time = objects::PublicationTime::read(clock.as_ref()).unwrap();
     let source = catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             let (source, _) = restore_candidate(connection, &selection, time)?;
             backend.pin(&source.blob, &id)?;
             Ok(source.blob)

@@ -257,7 +257,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
     catalog.reclaim_pending().await.unwrap();
     let id = session.blob_id;
     catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             let pending: bool = connection
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = ?1)",
@@ -277,7 +277,7 @@ async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
     catalog.maintain_resumable_sessions().await.unwrap();
     assert!(!stage.exists());
     catalog
-        .run_upload(|connection| {
+        .run_upload::<_, ObjectError>(|connection| {
             assert_eq!(
                 connection
                     .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
@@ -397,7 +397,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
     let live_id = live_path.file_name().unwrap().to_str().unwrap().to_owned();
     let data_dir = dir.0.clone();
     catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             let transaction = connection.transaction().unwrap();
             for index in 0..140 {
                 let id = format!("{index:032x}");
@@ -423,7 +423,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
     assert_eq!(publication_blobs(&dir.0), vec![live_path.clone()]);
     let id = live_id.clone();
     catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             connection
                 .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
                 .unwrap();
@@ -434,7 +434,7 @@ async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
     catalog.reclaim_after_commit().await;
     assert_eq!(fs::read(live_path).unwrap(), b"retained");
     catalog
-        .run_upload(move |connection| {
+        .run_upload::<_, ObjectError>(move |connection| {
             assert_eq!(
                 connection
                     .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
