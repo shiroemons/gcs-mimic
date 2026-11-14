@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use super::{Catalog, Work, objects, read_bucket, select_bucket, unavailable};
+use super::{Catalog, Incarnation, Work, objects, read_bucket, select_bucket, unavailable};
 use crate::storage::catalog::sql;
 use crate::storage::failure::{BackendCause, IoCause};
 use crate::{
@@ -398,7 +398,7 @@ pub(crate) struct BucketEntry {
         not(test),
         expect(dead_code, reason = "only unit tests read this field")
     )]
-    pub incarnation: String,
+    pub incarnation: Incarnation,
 }
 
 pub(crate) struct BucketPage {
@@ -667,7 +667,7 @@ impl Admin {
                     }
                     items.push(BucketEntry {
                         bucket: read_bucket(row)?,
-                        incarnation: incarnation.to_owned(),
+                        incarnation: row.get("incarnation")?,
                     });
                     remaining = remaining.saturating_sub(charge);
                 }

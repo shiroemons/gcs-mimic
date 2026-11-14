@@ -8,7 +8,7 @@ use super::{
     system_time_millis, unix_millis,
 };
 use crate::storage::blob_id::BlobId;
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::storage::failure::BackendFailure;
 use crate::{
     bucket::BucketAccess,
@@ -143,8 +143,8 @@ pub(crate) struct RewriteSession {
     pub destination: DerivedDestination,
     source_conditions: ObjectConditions,
     source_metageneration: i64,
-    source_incarnation: String,
-    destination_incarnation: String,
+    source_incarnation: Incarnation,
+    destination_incarnation: Incarnation,
     pub source_key_sha256: Option<[u8; 32]>,
     budget: u64,
     pub offset: u64,
@@ -162,7 +162,7 @@ pub(crate) struct RewriteProgress {
     pub fields: Option<String>,
 }
 
-fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
+fn incarnation(connection: &Connection, bucket: &str) -> Result<Incarnation, ObjectError> {
     bucket_incarnation(connection, bucket)
         .optional()?
         .ok_or(ObjectError::BucketNotFound)
@@ -175,8 +175,8 @@ struct StoredRequest {
     metageneration: i64,
     parameters: serde_json::Map<String, Value>,
     body: Option<Value>,
-    source_incarnation: String,
-    destination_incarnation: String,
+    source_incarnation: Incarnation,
+    destination_incarnation: Incarnation,
     options: Value,
     class: Option<crate::bucket::StorageClass>,
     components: Option<i64>,
@@ -185,7 +185,7 @@ struct StoredRequest {
     source_key_sha256: Option<[u8; 32]>,
 }
 
-fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
+fn encode(start: &RewriteStart, source: Incarnation, destination: Incarnation) -> Value {
     let binding = &start.binding;
     let options = resumable::ResumableOptions {
         content_type: start.destination.content_type.clone(),
@@ -206,8 +206,8 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
         metageneration: start.source_metageneration,
         parameters: binding.parameters.clone(),
         body: binding.metadata.clone(),
-        source_incarnation: source.into(),
-        destination_incarnation: destination.into(),
+        source_incarnation: source,
+        destination_incarnation: destination,
         options: resumable::encode_options(&options),
         class: start.destination.storage_class,
         components: start.destination.component_count,
@@ -306,7 +306,6 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 /// Whether a decoded session's identifiers, progress and stored response agree; an
 /// incomplete session owns the derived transfer with its own ID, a completed one none.
 fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> bool {
-    let opaque_id = |value: &str| value.parse::<BlobId>().is_ok();
     let completed = session
         .response
         .as_ref()
@@ -328,9 +327,7 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<BlobId>) -> 
         transfer_id.is_none()
     } else {
         transfer_id == Some(session.id)
-    }) && opaque_id(&session.source_incarnation)
-        && opaque_id(&session.destination_incarnation)
-        && response_valid
+    }) && response_valid
         && session
             .previous_token
             .as_ref()
@@ -518,8 +515,8 @@ impl Catalog {
                 }
                 let request = encode(
                     &start,
-                    &incarnation(connection, &start.binding.source_bucket)?,
-                    &incarnation(connection, &start.binding.destination_bucket)?,
+                    incarnation(connection, &start.binding.source_bucket)?,
+                    incarnation(connection, &start.binding.destination_bucket)?,
                 );
                 let deadline = unix_millis(transfer.deadline)?;
                 sql::exec(
@@ -799,8 +796,8 @@ mod tests {
         };
         let encoded = encode(
             &start,
-            "00000000000000000000000000000001",
-            "00000000000000000000000000000002",
+            "00000000000000000000000000000001".parse().unwrap(),
+            "00000000000000000000000000000002".parse().unwrap(),
         )
         .to_string();
         let expected = concat!(

@@ -20,7 +20,7 @@ use super::{
     resumable::{ResumableOptions, decode_options, encode_new_options},
     system_time_micros, unix_micros,
 };
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk},
@@ -365,7 +365,7 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
     let row = sql::row(connection, SELECT, params![bucket, name], |row| {
         Ok((
             row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
+            row.get::<_, Incarnation>(1)?,
             row.get::<_, BlobId>(2)?,
             row.get::<_, String>(3)?,
             row.get::<_, i64>(4)?,
@@ -381,10 +381,7 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
         return Ok(Lookup::Absent);
     };
     if published_generation(connection, bucket, name, generation)?
-        || bucket_incarnation(connection, bucket)
-            .optional()?
-            .as_deref()
-            != Some(stored.as_str())
+        || bucket_incarnation(connection, bucket).optional()? != Some(stored)
     {
         return Ok(Lookup::Stale(blob_id));
     }

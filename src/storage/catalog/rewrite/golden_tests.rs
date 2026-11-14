@@ -40,8 +40,8 @@ fn populated_request_keeps_its_json_bytes() {
     };
     let encoded = encode(
         &start,
-        "00000000000000000000000000000001",
-        "00000000000000000000000000000002",
+        "00000000000000000000000000000001".parse().unwrap(),
+        "00000000000000000000000000000002".parse().unwrap(),
     )
     .to_string();
     assert_eq!(
@@ -76,14 +76,42 @@ fn populated_request_keeps_its_json_bytes() {
     );
     assert_eq!(session.source_metageneration, start.source_metageneration);
     assert_eq!(
-        session.source_incarnation,
+        session.source_incarnation.to_string(),
         "00000000000000000000000000000001"
     );
     assert_eq!(
-        session.destination_incarnation,
+        session.destination_incarnation.to_string(),
         "00000000000000000000000000000002"
     );
     assert_eq!(session.budget, start.budget);
+    // SQLite only stores lowercase incarnations, so another spelling is a corrupt row.
+    for field in ["source_incarnation", "destination_incarnation"] {
+        let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
+        invalid[field] = json!("0000000000000000000000000000000A");
+        let error = connection
+            .query_row(
+                "SELECT ?1,?2,NULL,?3,0,8,604801000,NULL,?1",
+                params![
+                    "00000000000000000000000000000003",
+                    "0".repeat(64),
+                    invalid.to_string()
+                ],
+                read,
+            )
+            .err()
+            .unwrap();
+        assert!(
+            matches!(error, rusqlite::Error::FromSqlConversionFailure(3, _, _)),
+            "{field}: {error:?}"
+        );
+        assert!(
+            matches!(
+                crate::storage::failure::unavailable(error),
+                CatalogError::Corrupt(_)
+            ),
+            "{field}"
+        );
+    }
     for class in ["unknown", "REGIONAL", "RAPID"] {
         let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
         invalid["class"] = json!(class);

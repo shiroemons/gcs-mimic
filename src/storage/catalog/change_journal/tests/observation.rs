@@ -79,7 +79,7 @@ async fn sync_observation_all_owner_pages_include_empty_buckets_and_legacy_curso
     assert_eq!(first.items[0].bucket.name, "bucket-000");
     for (index, item) in first.items.iter().enumerate() {
         assert_eq!(item.bucket.project, format!("owner-{}", index % 3));
-        assert_eq!(item.incarnation.len(), 32);
+        assert_eq!(item.incarnation.to_hex().len(), 32);
     }
     let mut cursor = first.items.last().unwrap().bucket.name.clone();
     let mut count = first.items.len();

@@ -3,7 +3,7 @@ use super::{
     MAX_PAGE,
     root::{RootError, RootLease},
 };
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::BucketRecord,
     storage::{
@@ -48,7 +48,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            let mut incarnation: Option<String> = bucket_incarnation(&tx, &name).optional()?;
+            let mut incarnation = bucket_incarnation(&tx, &name).optional()?;
             if incarnation.is_none() {
                 let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name])?;
                 if known || create.is_none() { return Ok(false); }
@@ -67,7 +67,7 @@ impl RootLease {
         &self,
         after: String,
         limit: usize,
-    ) -> Result<Vec<(String, String)>, RootError> {
+    ) -> Result<Vec<(String, Incarnation)>, RootError> {
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(AdminError::Invalid("invalid sync bucket page".into()).into());
         }
@@ -85,7 +85,7 @@ impl RootLease {
     pub(crate) async fn forget_sync_bucket(
         &self,
         name: String,
-        incarnation: String,
+        incarnation: Incarnation,
     ) -> Result<(), RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;

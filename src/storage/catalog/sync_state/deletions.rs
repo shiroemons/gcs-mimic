@@ -6,6 +6,7 @@ use super::{
     SyncBinding,
     root::{RootError, RootId, RootLease},
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
@@ -83,7 +84,7 @@ pub(crate) struct Candidate {
     #[serde(rename = "object")]
     pub name: String,
     pub owner_project: String,
-    pub bucket_incarnation: String,
+    pub bucket_incarnation: Incarnation,
     pub generation: i64,
     #[serde(skip)]
     pub path: String,

@@ -706,13 +706,12 @@ async fn parsed_rules_are_reused_across_pages_and_replaced_atomically_when_rules
             rules(&catalog, vec![delete(json!({"age":20}))]).await;
         }
         let now = clock.now();
-        let incarnation = incarnation.clone();
         let page = catalog
             .run::<_, CatalogError>(move |connection| {
                 sweep_page(
                     connection,
                     "bucket",
-                    &incarnation,
+                    incarnation,
                     cursor,
                     now,
                     ACTION_LIMIT,
@@ -1046,7 +1045,7 @@ async fn lifecycle_emits_one_archive_then_one_delete_in_the_existing_outbox() {
 async fn candidate(
     catalog: &Catalog,
     target: ObjectTarget,
-    incarnation: String,
+    incarnation: Incarnation,
 ) -> LifecycleCounts {
     let now = catalog.0.clock.now();
     catalog
@@ -1056,7 +1055,7 @@ async fn candidate(
             let BucketRules::Ready { rules, .. } = bucket_rules(
                 &transaction,
                 &target.bucket,
-                &incarnation,
+                incarnation,
                 BucketRules::Absent,
                 &mut diagnostics,
             )
@@ -1069,7 +1068,7 @@ async fn candidate(
                 &target,
                 &rules,
                 now,
-                &incarnation,
+                incarnation,
                 &mut diagnostics,
                 ACTION_LIMIT,
             )
@@ -1082,7 +1081,7 @@ async fn candidate(
         .unwrap()
 }
 
-async fn incarnation(catalog: &Catalog) -> String {
+async fn incarnation(catalog: &Catalog) -> Incarnation {
     catalog
         .run::<_, CatalogError>(|connection| {
             Ok(super::super::bucket_incarnation(connection, "bucket")?)
@@ -1103,7 +1102,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
         candidate(
             &catalog,
             version("bucket", "object", old.generation),
-            incarnation.clone()
+            incarnation
         )
         .await
         .deleted,
@@ -1115,7 +1114,7 @@ async fn stale_candidates_recheck_overwrites_rule_removal_and_hold_changes_befor
         candidate(
             &catalog,
             version("bucket", "object", fresh.generation),
-            incarnation.clone()
+            incarnation
         )
         .await
         .deleted,

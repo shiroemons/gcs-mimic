@@ -11,6 +11,7 @@ use super::{
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::blob_id::BlobId;
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
@@ -197,7 +198,7 @@ pub(crate) struct Pending {
     pub ordinal: i64,
     pub owner: String,
     pub bucket: String,
-    pub incarnation: String,
+    pub incarnation: Incarnation,
     pub name: String,
     pub path: String,
     pub generation: Generation,
@@ -487,8 +488,8 @@ fn original_with_protection(
     item: &Pending,
     protection: OriginalProtection,
 ) -> Result<(), Error> {
-    let current: Option<(String,String)> = connection.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&item.bucket], |r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-    if current.as_ref() != Some(&(item.owner.clone(), item.incarnation.clone())) {
+    let current: Option<(String,Incarnation)> = connection.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&item.bucket], |r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if current.as_ref() != Some(&(item.owner.clone(), item.incarnation)) {
         return Err(stale());
     }
     match item.kind {

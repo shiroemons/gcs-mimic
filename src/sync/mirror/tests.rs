@@ -306,8 +306,7 @@ async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metad
             .await
             .unwrap()
             .items[0]
-            .incarnation
-            .clone();
+            .incarnation;
         let winner = catalog
             .admin(Origin::Api)
             .get_object(&bucket, &name, None)
@@ -1114,7 +1113,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             assert_eq!(conflict.owner_project, "owner");
             assert_eq!(conflict.generation, Some(record.generation));
             assert_eq!(conflict.bucket, bucket.as_str());
-            assert!(!conflict.bucket_incarnation.is_empty());
+            assert_eq!(conflict.bucket_incarnation.to_hex().len(), 32);
             assert_eq!(
                 fs::read(data.0.join("sync-conflicts").join(&conflict.conflict_id)).unwrap(),
                 b"external"

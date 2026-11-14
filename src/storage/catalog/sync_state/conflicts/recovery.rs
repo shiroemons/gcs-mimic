@@ -8,7 +8,7 @@ pub(crate) struct Recovery {
     pub target_identity: String,
     pub owner_project: String,
     pub bucket: String,
-    pub bucket_incarnation: String,
+    pub bucket_incarnation: Incarnation,
     #[serde(rename = "object")]
     pub name: String,
     pub retained_size: u64,
@@ -26,7 +26,7 @@ struct Workspace {
     id: String,
     owner: String,
     bucket: String,
-    incarnation: String,
+    incarnation: Incarnation,
     name: String,
     ordinal: i64,
     device: [u8; 8],

@@ -4,6 +4,7 @@ use super::{
     root::{RootError, RootId, RootLease},
     writeback,
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
@@ -55,7 +56,7 @@ pub(crate) struct Item {
     pub category: FindingCategory,
     pub bucket: Option<String>,
     pub object: Option<String>,
-    pub bucket_incarnation: Option<String>,
+    pub bucket_incarnation: Option<Incarnation>,
     pub generation: Option<i64>,
     pub reason: FindingReason,
     pub operation_id: Option<String>,

@@ -161,7 +161,7 @@ fn api_original(
     let binding = SyncBinding {
         catalog: item.token.catalog,
         bucket: item.bucket.clone(),
-        incarnation: item.incarnation.clone(),
+        incarnation: item.incarnation,
         deletion: None,
         control: None,
     };
@@ -186,7 +186,7 @@ fn validate_capture(
         let binding = SyncBinding {
             catalog: item.token.catalog,
             bucket: item.bucket.clone(),
-            incarnation: item.incarnation.clone(),
+            incarnation: item.incarnation,
             deletion: None,
             control: None,
         };
@@ -715,7 +715,7 @@ impl Writeback {
                 Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
                 Err(error) => return Err(error),
             };
-            let binding = SyncBinding { catalog: current.token.catalog, bucket: current.bucket.clone(), incarnation: current.incarnation.clone(), deletion:None,control:Some(scope) };
+            let binding = SyncBinding { catalog: current.token.catalog, bucket: current.bucket.clone(), incarnation: current.incarnation, deletion:None,control:Some(scope) };
             let same_binding = match super::super::matching(&tx,&binding,&current.bucket) {
                 Ok(()) => true,
                 Err(ObjectError::PreconditionFailed) => false,

@@ -62,7 +62,7 @@ pub(crate) struct Conflict {
     pub revision: String,
     pub owner_project: String,
     pub bucket: String,
-    pub bucket_incarnation: String,
+    pub bucket_incarnation: Incarnation,
     #[serde(rename = "object")]
     pub name: String,
     pub generation: Option<i64>,

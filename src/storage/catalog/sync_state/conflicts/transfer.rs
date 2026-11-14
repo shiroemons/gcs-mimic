@@ -6,7 +6,7 @@ use crate::sync::mapping::WORKSPACE;
 type StoredWorkspace = (
     String,
     String,
-    String,
+    Incarnation,
     String,
     i64,
     [u8; 8],

@@ -1,5 +1,5 @@
 use super::{Catalog, UploadGuard, objects, unix_micros};
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -94,7 +94,7 @@ fn invalid() -> ObjectError {
 pub(super) struct UploadReplay {
     token: Vec<u8>,
     request: Vec<u8>,
-    incarnation: String,
+    incarnation: Incarnation,
     snapshot: UploadAclSnapshot,
     principals: Option<super::principals::Profile>,
 }
@@ -106,7 +106,7 @@ pub(crate) struct CopyReplay {
     source_bucket: String,
     source_name: String,
     source_generation: Option<i64>,
-    source_incarnation: String,
+    source_incarnation: Incarnation,
     source_access: BucketAccess,
     destination_bucket: String,
     destination_access: BucketAccess,
@@ -132,7 +132,7 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)
+        let incarnation = bucket_incarnation(connection, &self.source_bucket)
             .optional()?
             .ok_or(ObjectError::PreconditionFailed)?;
         if incarnation != self.source_incarnation {
@@ -193,7 +193,7 @@ impl UploadReplay {
         let row = sql::row(connection,
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
             params![self.token, now],
-            |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
+            |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Incarnation>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
         ).optional()?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
@@ -222,7 +222,7 @@ impl UploadReplay {
                     super::acl::ObjectAclSnapshot::new(
                         &completion.record,
                         entries,
-                        &self.incarnation,
+                        self.incarnation,
                     )
                 });
                 let _ = self.snapshot.set(snapshot);
@@ -311,7 +311,7 @@ impl UploadReplay {
             ],
         )?;
         let snapshot = acl
-            .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, &self.incarnation));
+            .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, self.incarnation));
         let _ = self.snapshot.set(snapshot);
         Ok(())
     }
@@ -321,7 +321,7 @@ impl UploadReplay {
         connection: &Connection,
         bucket: &str,
     ) -> Result<(), ObjectError> {
-        let incarnation: String = bucket_incarnation(connection, bucket)?;
+        let incarnation = bucket_incarnation(connection, bucket)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -415,7 +415,7 @@ impl Catalog {
         let source_authority = source_access.clone();
         let token = hash(invocation.token.unwrap_or_default().as_bytes());
         let now = unix_micros(self.0.clock.now())?;
-        let (source_incarnation, source_generation): (String, Option<i64>) = self
+        let (source_incarnation, source_generation): (Incarnation, Option<i64>) = self
             .run(move |connection| {
                 let transaction = connection.transaction()?;
                 let generation = copy_source_generation(
@@ -497,7 +497,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let token = hash(token.as_bytes());
-        let expected_incarnation = permit.replay.as_ref().map(|r| r.incarnation.clone());
+        let expected_incarnation = permit.replay.as_ref().map(|r| r.incarnation);
         let (profile, principal) = match &access {
             BucketAccess::Permissive => ("permissive", None),
             BucketAccess::Policy { identity: None, .. } => ("strict-anonymous", None),

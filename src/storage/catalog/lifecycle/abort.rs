@@ -4,6 +4,7 @@ use super::{
     BucketRules, Catalog, CatalogError, LifecycleCounts, LifecycleSchedule, ObjectError,
     bucket_rules, emit_quarantines, sql, unavailable,
 };
+use crate::storage::catalog::Incarnation;
 use crate::{
     bucket::lifecycle::{LifecycleAction, evaluate::multipart_abort_due},
     storage::catalog::{
@@ -30,7 +31,7 @@ struct Page {
 
 struct Bucket<'a> {
     name: &'a str,
-    incarnation: &'a str,
+    incarnation: Incarnation,
 }
 
 impl LifecycleSchedule {
@@ -48,7 +49,7 @@ impl Catalog {
     pub(super) async fn sweep_lifecycle_abort(
         &self,
         bucket: &str,
-        incarnation: &str,
+        incarnation: Incarnation,
         now: SystemTime,
         limit: u64,
     ) -> (LifecycleCounts, Option<CatalogError>) {
@@ -56,7 +57,7 @@ impl Catalog {
         let mut cursor = (String::new(), String::new());
         let mut rules = BucketRules::Absent;
         loop {
-            let (bucket, incarnation) = (bucket.to_owned(), incarnation.to_owned());
+            let bucket = bucket.to_owned();
             let catalog = self.clone();
             let remaining = limit - outcome.aborted;
             let page = self
@@ -66,7 +67,7 @@ impl Catalog {
                             connection,
                             &Bucket {
                                 name: &bucket,
-                                incarnation: &incarnation,
+                                incarnation,
                             },
                             &cursor,
                             now,

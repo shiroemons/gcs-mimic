@@ -147,7 +147,7 @@ impl Catalog {
                 return Err(error);
             }
             let target = lease.upload.target.clone();
-            let incarnation = lease.upload.incarnation.clone();
+            let incarnation = lease.upload.incarnation;
             let access = lease.access.clone();
             let clock = catalog.0.clock.clone();
             let destination = super::super::derived::DerivedDestination {

@@ -6,7 +6,7 @@ use super::{
     admin::{AdminError, BucketName, Generation, ObjectName},
     unavailable,
 };
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -106,7 +106,7 @@ impl SyncFingerprint {
 pub struct SyncBinding {
     catalog: CatalogId,
     bucket: String,
-    incarnation: String,
+    incarnation: Incarnation,
     deletion: Option<deletions::Permit>,
     control: Option<authority::ControlScope>,
 }
@@ -203,7 +203,7 @@ pub(super) fn matching(
     if let Some(scope) = &binding.control {
         scope.authorize(connection).map_err(ObjectError::from)?;
     }
-    let incarnation: Option<String> = bucket_incarnation(connection, bucket).optional()?;
+    let incarnation = bucket_incarnation(connection, bucket).optional()?;
     if binding.catalog != catalog_id(connection)?
         || binding.bucket != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)

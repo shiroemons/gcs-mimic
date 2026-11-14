@@ -126,10 +126,10 @@ fn check_session_publishable(
     if stored.state != SessionState::Active {
         return Err(ResumableError::Gone);
     }
-    let incarnation: Option<String> = bucket_incarnation(transaction, &session.bucket)
+    let incarnation = bucket_incarnation(transaction, &session.bucket)
         .optional()
         .map_err(object_unavailable)?;
-    if incarnation.as_deref() != Some(&session.incarnation) {
+    if incarnation != Some(session.incarnation) {
         return Err(ObjectError::Forbidden.into());
     }
     Ok(())

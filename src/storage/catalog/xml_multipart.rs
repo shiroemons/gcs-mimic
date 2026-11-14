@@ -3,7 +3,7 @@
 use super::resumable::writers::{ClaimError, KeyOrigin, WriterKey};
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
 use crate::storage::blob_id::BlobId;
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
@@ -112,7 +112,7 @@ pub(crate) struct Upload {
     pub target: Target,
     pub options: resumable::ResumableOptions,
     pub created: SystemTime,
-    incarnation: String,
+    incarnation: Incarnation,
 }
 
 #[derive(Clone, Debug)]
@@ -257,7 +257,7 @@ impl Catalog {
                 if encoded.len() > 65536 {
                     return Err(ObjectError::TooLarge);
                 }
-                let incarnation: String = bucket_incarnation(&transaction, &target.bucket)?;
+                let incarnation = bucket_incarnation(&transaction, &target.bucket)?;
                 sql::exec(
                     &transaction,
                     "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -440,7 +440,7 @@ impl Upload {
             target,
             options,
             created,
-            incarnation: String::new(),
+            incarnation: "00000000000000000000000000000000".parse().unwrap(),
         }
     }
 }

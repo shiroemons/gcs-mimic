@@ -140,7 +140,7 @@ struct Selected {
     id: String,
     owner: String,
     bucket: String,
-    incarnation: String,
+    incarnation: Incarnation,
     name: String,
     observation: Option<Observation>,
     done: bool,
@@ -246,13 +246,13 @@ impl RootLease {
             let tx=connection.transaction()?;auth.authorize(&tx,root)?;
             let prior=operation(&tx,root,&req,&auth)?;
             let row=tx.prepare_cached("SELECT revision,owner,bucket,incarnation,name,retained,state FROM sync_conflicts WHERE root_id=?1 AND id=?2")?
-                .query_row(params![root,target],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,i64>(6)?))).optional()?.ok_or(Error::RevisionMismatch)?;
+                .query_row(params![root,target],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Incarnation>(3)?,row.get::<_,String>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,i64>(6)?))).optional()?.ok_or(Error::RevisionMismatch)?;
             if prior.is_none() {
                 if row.0!=inspected || row.6==2 || (req.action==Action::Restore && row.6!=1) {return Err(Error::RevisionMismatch)}
                 if req.action==Action::Restore {
                     let ResolveTarget::Conflict(ConflictTarget {expected_generation,..})=req.target else {return Err(Error::InvalidResolution)};
                     let expected=(expected_generation!=0).then(||Generation::new(expected_generation)).transpose()?;
-                    let binding=SyncBinding {catalog:super::super::catalog_id(&tx)?,bucket:row.2.clone(),incarnation:row.3.clone(),deletion:None,control:None};
+                    let binding=SyncBinding {catalog:super::super::catalog_id(&tx)?,bucket:row.2.clone(),incarnation:row.3,deletion:None,control:None};
                     if check_original(&tx,&binding,&ObjectName::new(row.4.clone())?,expected)?!=row.1 {return Err(Error::TargetChanged)}
                 }
                 accept(&tx,root,&req,&target,0,&row.1)?;
@@ -328,7 +328,7 @@ impl RootLease {
             binding: SyncBinding {
                 catalog: self.status().catalog_id,
                 bucket: selected.bucket.clone(),
-                incarnation: selected.incarnation.clone(),
+                incarnation: selected.incarnation,
                 deletion: None,
                 control: None,
             },

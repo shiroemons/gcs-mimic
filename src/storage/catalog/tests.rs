@@ -926,3 +926,28 @@ async fn legacy_lifecycle_text_survives_unrelated_updates() {
     assert_eq!(lifecycle, LEGACY);
     catalog.close().await.unwrap();
 }
+
+/// SQLite draws incarnations as lowercase hex, and the typed value reads back the same text.
+#[tokio::test]
+async fn bucket_incarnations_read_as_the_text_sqlite_draws() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(crate::storage::test_fixtures::bucket("bucket", "project"))
+        .await
+        .unwrap();
+    let (typed, text) = catalog
+        .run(|connection| {
+            let typed = bucket_incarnation(connection, "bucket")?;
+            let text: String = sql::scalar(
+                connection,
+                "SELECT lower(hex(unhex(incarnation))) FROM bucket_incarnations WHERE bucket='bucket'",
+                [],
+            )?;
+            Ok::<_, CatalogError>((typed, text))
+        })
+        .await
+        .unwrap();
+    assert_eq!(typed.to_string(), text);
+    catalog.close().await.unwrap();
+}

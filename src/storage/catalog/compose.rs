@@ -1,6 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::bucket_incarnation;
 use crate::{
     bucket::BucketAccess,
@@ -83,7 +84,7 @@ fn combine_sources(
 struct ComposePlan {
     bucket: String,
     /// The bucket incarnation the destination check saw; a recreated bucket fails publication.
-    expected_incarnation: String,
+    expected_incarnation: Incarnation,
     /// The destination grant narrowed to reads, which also authorizes source deletion.
     read_access: BucketAccess,
     disposal: SourceDisposal,
@@ -253,7 +254,7 @@ impl Catalog {
         destination: DerivedDestination,
         read_access: BucketAccess,
         disposal: SourceDisposal,
-    ) -> Result<String, ObjectError> {
+    ) -> Result<Incarnation, ObjectError> {
         let clock = self.0.clock.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;

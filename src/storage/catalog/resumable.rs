@@ -1,4 +1,6 @@
-use super::{Catalog, CatalogError, Work, system_time_millis, unavailable, unix_millis};
+use super::{
+    Catalog, CatalogError, Incarnation, Work, system_time_millis, unavailable, unix_millis,
+};
 use crate::storage::{
     blob_id::BlobId,
     catalog::{bucket_incarnation, sql},
@@ -98,7 +100,7 @@ pub(crate) struct ResumableSession {
     pub blob_id: BlobId,
     pub bucket: String,
     pub name: String,
-    pub incarnation: String,
+    pub incarnation: Incarnation,
     pub options: ResumableOptions,
     pub total: Option<u64>,
     pub offset: u64,
@@ -221,7 +223,7 @@ fn insert_session(
             now,
         )?;
         let _trimmed = admit_session(&transaction, catalog)?;
-        let incarnation: String = bucket_incarnation(&transaction, &request.bucket)
+        let incarnation = bucket_incarnation(&transaction, &request.bucket)
             .optional()
             .map_err(unavailable)?
             .ok_or(ObjectError::BucketNotFound)?;

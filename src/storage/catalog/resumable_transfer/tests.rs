@@ -141,7 +141,7 @@ fn resumable_retention_overflow_returns_the_publication_metadata_error() {
         blob_id: "0".repeat(32).parse().unwrap(),
         bucket: "bucket".into(),
         name: "object".into(),
-        incarnation: "0".repeat(32),
+        incarnation: "0".repeat(32).parse().unwrap(),
         options: options.clone(),
         total: Some(0),
         offset: 0,

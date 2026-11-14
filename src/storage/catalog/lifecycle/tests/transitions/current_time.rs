@@ -167,7 +167,7 @@ async fn a_tiny_action_budget_stops_mid_chain_and_resumes_from_the_stored_class(
             sweep_page(
                 connection,
                 "bucket",
-                &incarnation,
+                incarnation,
                 None,
                 now,
                 1,

@@ -281,12 +281,12 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                         "SELECT incarnation FROM bucket_incarnations WHERE bucket='bucket'",
                     )
                     .unwrap()
-                    .query_row([], |row| row.get::<_, String>(0))
+                    .query_row([], |row| row.get::<_, Incarnation>(0))
                     .map_err(unavailable)
             })
             .await
             .unwrap();
-        let snapshot = ObjectAclSnapshot::new(&record, projection.objects[0].clone(), &incarnation);
+        let snapshot = ObjectAclSnapshot::new(&record, projection.objects[0].clone(), incarnation);
         assert!(
             !snapshot
                 .entries
@@ -374,7 +374,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .is_some()
         );
         let mut wrong = snapshot.clone();
-        wrong.incarnation = "wrong-incarnation".into();
+        wrong.incarnation = "ffffffffffffffffffffffffffffffff".parse().unwrap();
         assert!(
             catalog
                 .object_acl_snapshot(wrong, &owner_access)

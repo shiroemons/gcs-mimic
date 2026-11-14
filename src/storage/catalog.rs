@@ -161,7 +161,17 @@ macro_rules! bucket_columns {
 }
 use bucket_columns;
 
-fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result<String> {
+crate::storage::opaque_id::opaque_id! {
+    /// Which life of a bucket name a row belongs to. SQLite draws a new value
+    /// (`lower(hex(randomblob(16)))`) each time a bucket with that name is created, so state
+    /// recorded for a deleted bucket never applies to its successor. Rust only compares and stores it.
+    pub(crate) struct Incarnation([u8; 16]);
+    invalid = "invalid bucket incarnation";
+    column = text;
+}
+
+/// The incarnation of the bucket named `bucket`; `QueryReturnedNoRows` when no such bucket exists.
+fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result<Incarnation> {
     sql::scalar(
         connection,
         "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",

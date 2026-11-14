@@ -24,7 +24,7 @@ impl RootLease {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
             let values = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure') ORDER BY ordinal LIMIT 256")
-                .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>())?;
+                .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,Incarnation>(2)?,row.get::<_,String>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>())?;
             values.into_iter().map(|(ordinal,bucket,incarnation,name)| Ok((ordinal,SyncBinding {catalog,bucket,incarnation,deletion:None,control:Some(scope.clone())},ObjectName::new(name).map_err(unavailable)?))).collect()
         }).await.map_err(RootError::from)
     }

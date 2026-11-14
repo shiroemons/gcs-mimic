@@ -12,7 +12,7 @@ use super::{
     policies::{check_access, public_access_prevention},
     unavailable, unix_micros,
 };
-use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     acl::{AclEntry, AclKind, AclRole, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, BucketConditions, CatalogError},
@@ -230,7 +230,7 @@ pub(crate) struct ObjectAclSnapshot {
     pub(super) generation: i64,
     pub entries: Vec<AclEntry>,
     pub owner: Option<crate::object::owner::ObjectOwner>,
-    pub(super) incarnation: String,
+    pub(super) incarnation: Incarnation,
 }
 
 impl ObjectAclSnapshot {
@@ -248,7 +248,7 @@ impl ObjectAclSnapshot {
     pub(super) fn new(
         record: &crate::object::ObjectRecord,
         mut entries: Vec<AclEntry>,
-        incarnation: &str,
+        incarnation: Incarnation,
     ) -> Self {
         if let Some(owner) = &record.owner {
             owner.remove_implicit_grant(&mut entries);
@@ -769,7 +769,7 @@ impl Catalog {
             {
                 return Ok(None);
             }
-            let incarnation: String = bucket_incarnation(&transaction, &snapshot.bucket)?;
+            let incarnation = bucket_incarnation(&transaction, &snapshot.bucket)?;
             if snapshot.incarnation != incarnation {
                 return Ok(None);
             }

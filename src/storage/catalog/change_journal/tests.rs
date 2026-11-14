@@ -132,11 +132,9 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
             Origin::Import
         ]
     );
-    assert!(
-        all.items
-            .iter()
-            .all(|c| c.project == "project" && c.incarnation.len() == 32 && c.generation.is_some())
-    );
+    assert!(all.items.iter().all(|c| c.project == "project"
+        && c.incarnation.to_hex().len() == 32
+        && c.generation.is_some()));
     let before = catalog
         .read_changes(Some(fence), None, 256)
         .await

@@ -1,6 +1,6 @@
 //! Bounded lifecycle execution on the catalog writer and injected business clock.
 
-use super::{Catalog, CatalogError, Inner, objects, sql, unavailable};
+use super::{Catalog, CatalogError, Incarnation, Inner, objects, sql, unavailable};
 use crate::{
     bucket::{
         BucketAccess, StorageClass,
@@ -334,7 +334,7 @@ impl Catalog {
             let cursor = after.clone();
             let buckets = self.run::<_, CatalogError>(move |connection| {
                 Ok(connection.prepare_cached("SELECT name, incarnation FROM buckets JOIN bucket_incarnations ON bucket = name WHERE lifecycle != '[]' AND name > ?1 ORDER BY name LIMIT ?2")?
-                    .query_map(params![cursor, BUCKET_PAGE], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                    .query_map(params![cursor, BUCKET_PAGE], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Incarnation>(1)?)))?
                     .collect::<rusqlite::Result<Vec<_>>>()?)
             }).await?;
             if buckets.is_empty() {
@@ -372,12 +372,12 @@ impl Catalog {
     async fn sweep_lifecycle_bucket(
         &self,
         bucket: String,
-        incarnation: String,
+        incarnation: Incarnation,
         now: SystemTime,
         limit: u64,
     ) -> (LifecycleCounts, Option<CatalogError>) {
         let (mut outcome, error) = self
-            .sweep_lifecycle_abort(&bucket, &incarnation, now, limit)
+            .sweep_lifecycle_abort(&bucket, incarnation, now, limit)
             .await;
         if error.is_some() || outcome.applied() == limit {
             return (outcome, error);
@@ -385,14 +385,14 @@ impl Catalog {
         let mut cursor = None;
         let mut rules = BucketRules::Absent;
         loop {
-            let (bucket, incarnation) = (bucket.clone(), incarnation.clone());
+            let bucket = bucket.clone();
             let remaining = limit - outcome.applied();
             let page = self
                 .run::<_, CatalogError>(move |connection| {
                     sweep_page(
                         connection,
                         &bucket,
-                        &incarnation,
+                        incarnation,
                         cursor,
                         now,
                         remaining,
@@ -450,7 +450,7 @@ enum BucketRules {
 fn sweep_page(
     connection: &mut Connection,
     bucket: &str,
-    incarnation: &str,
+    incarnation: Incarnation,
     cursor: Option<Cursor>,
     now: SystemTime,
     limit: u64,
@@ -525,11 +525,11 @@ fn sweep_page(
 fn bucket_rules(
     transaction: &rusqlite::Transaction<'_>,
     bucket: &str,
-    incarnation: &str,
+    incarnation: Incarnation,
     cached: BucketRules,
     diagnostics: &mut Vec<QuarantineEvent>,
 ) -> Result<BucketRules, ObjectError> {
-    let stored: Option<(String, String, String)> = sql::row(transaction,
+    let stored: Option<(String, Incarnation, String)> = sql::row(transaction,
         "SELECT lifecycle, incarnation, location_type FROM buckets JOIN bucket_incarnations ON bucket = name WHERE name = ?1",
         [bucket], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional()?;
     let Some((stored, current, location)) = stored else {
@@ -582,7 +582,7 @@ fn evaluate_version(
     target: &ObjectTarget,
     rules: &[LifecycleRule],
     now: SystemTime,
-    incarnation: &str,
+    incarnation: Incarnation,
     diagnostics: &mut Vec<QuarantineEvent>,
     limit: u64,
 ) -> Result<LifecycleCounts, ObjectError> {
@@ -878,13 +878,13 @@ fn version_facts(
 #[derive(Clone, Copy)]
 struct QuarantineKey<'a> {
     bucket: &'a str,
-    incarnation: &'a str,
+    incarnation: Incarnation,
     name: &'a str,
     generation: i64,
 }
 
 impl<'a> QuarantineKey<'a> {
-    fn rules(bucket: &'a str, incarnation: &'a str) -> Self {
+    fn rules(bucket: &'a str, incarnation: Incarnation) -> Self {
         Self {
             bucket,
             incarnation,

@@ -6,6 +6,7 @@ use super::{
     authority::ControlAuthority,
     root::{RootError, RootId, RootLease},
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,

@@ -6,6 +6,7 @@ use super::{
     admin::{AdminError, Origin},
     unavailable,
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
@@ -136,7 +137,7 @@ pub(crate) struct Change {
     pub kind: ChangeKind,
     pub bucket: String,
     pub project: String,
-    pub incarnation: String,
+    pub incarnation: Incarnation,
     pub object: Option<String>,
     pub generation: Option<i64>,
     pub metageneration: Option<i64>,

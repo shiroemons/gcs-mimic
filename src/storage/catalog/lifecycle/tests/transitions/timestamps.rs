@@ -45,7 +45,7 @@ async fn transitions_never_backdate_creation_or_a_newer_metadata_update() {
                 sweep_page(
                     connection,
                     "bucket",
-                    &incarnation,
+                    incarnation,
                     None,
                     pass_time,
                     ACTION_LIMIT,

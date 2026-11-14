@@ -6,6 +6,7 @@ use super::{
     CatalogId, SyncBinding, matching,
     root::{RootError, RootId, RootLease},
 };
+use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
@@ -34,7 +35,7 @@ pub struct Finding {
     pub ordinal: i64,
     pub bucket: String,
     pub name: String,
-    pub incarnation: String,
+    pub(crate) incarnation: Incarnation,
     pub generation: Generation,
     pub reason: Reason,
 }
