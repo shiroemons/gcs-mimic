@@ -5,7 +5,7 @@ use gcs_mimic::{
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     storage::Catalog,
 };
-use std::{error::Error, fmt, io};
+use std::{error::Error, fmt};
 
 #[derive(Debug)]
 pub(crate) struct Failure {
@@ -69,7 +69,7 @@ impl Error for Failure {
     }
 }
 
-pub(super) async fn close(catalog: &Catalog, cause: CatalogError) -> io::Error {
+pub(super) async fn close(catalog: &Catalog, cause: CatalogError) -> Failure {
     let cleanup = catalog.close().await.err();
-    io::Error::other(Failure::new(cause, cleanup))
+    Failure::new(cause, cleanup)
 }

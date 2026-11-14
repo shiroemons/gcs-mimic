@@ -534,7 +534,7 @@ async fn start(
     SocketAddr,
     Arc<State>,
     oneshot::Sender<()>,
-    tokio::task::JoinHandle<std::io::Result<()>>,
+    tokio::task::JoinHandle<Result<(), gcs_mimic::diagnostics::Diagnostics>>,
     TestDir,
 ) {
     let dir = TestDir::new();

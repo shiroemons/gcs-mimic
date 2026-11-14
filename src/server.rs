@@ -3,6 +3,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     config::{Config, ConnectionScheme},
+    diagnostics::Diagnostics,
     http_conditions::{EtagError, etag_not_modified},
     json::{self, JsonError},
     object::{ObjectError, UploadChunk},
@@ -750,9 +751,10 @@ pub async fn serve(
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     let config = config.into();
-    let security = tls::load_server(&config).map_err(io::Error::other)?;
+    let security =
+        tls::load_server(&config).map_err(|error| Diagnostics::from(error.diagnostic()))?;
     serve_with_tls(vec![(listener, security)], config, state, shutdown).await
 }
 
@@ -761,7 +763,7 @@ pub(crate) async fn serve_with_tls(
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     serve_with_tls_and_drain(listeners, config, state, shutdown, async { Ok(()) }).await
 }
 
@@ -771,7 +773,7 @@ pub(crate) async fn serve_with_tls_and_drain(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     let listeners = TcpListeners {
         public: listeners,
         trusted: None,
@@ -797,7 +799,7 @@ pub async fn serve_with_grpc_and_drain(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     let TcpListeners {
         public,
         trusted,
@@ -908,7 +910,7 @@ pub async fn serve_with_unix_and_drain(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     let serving = Serving {
         security: ListenerSecurity::Plain,
         role: ListenerRole::Public,
@@ -931,13 +933,13 @@ async fn serve_transports(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     // Connections and requests share one configuration instead of cloning it per request.
     if listeners.is_empty() {
-        return Err(io::Error::new(
+        return Err(Diagnostics::startup_failure(&io::Error::new(
             io::ErrorKind::InvalidInput,
             "at least one listener is required",
-        ));
+        )));
     }
     let grpc_index = grpc.as_ref().map(|_| listeners.len());
     if let Some(listener) = grpc {
@@ -1025,7 +1027,9 @@ async fn serve_transports(
     stop.send_replace(true);
     let drain_result = drain_connections(&mut connections, config.shutdown_timeout).await;
     let background_result = background_drain.await;
-    let mut result = signal_result.and(drain_result);
+    let mut result = signal_result
+        .and(drain_result)
+        .map_err(|error| Diagnostics::startup_failure(&error));
     for cleanup in listener_cleanups {
         result = crate::diagnostics::combine_unix_socket_cleanup(result, cleanup);
     }

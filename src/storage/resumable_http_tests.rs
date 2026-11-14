@@ -62,7 +62,7 @@ struct Harness {
     state: Arc<State>,
     clock: Arc<ManualClock>,
     stop: oneshot::Sender<()>,
-    server: JoinHandle<std::io::Result<()>>,
+    server: JoinHandle<Result<(), crate::diagnostics::Diagnostics>>,
     // Fields drop in order; the directory must outlive the catalog in `state`,
     // because Windows cannot delete files the catalog still holds.
     dir: TestDir,

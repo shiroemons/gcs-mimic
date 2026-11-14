@@ -117,7 +117,7 @@ struct MixedServer {
     http: std::net::SocketAddr,
     grpc: std::net::SocketAddr,
     stop: tokio::sync::oneshot::Sender<()>,
-    task: tokio::task::JoinHandle<io::Result<()>>,
+    task: tokio::task::JoinHandle<Result<(), crate::diagnostics::Diagnostics>>,
     _data: TestDir,
 }
 

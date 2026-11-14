@@ -66,12 +66,8 @@ const JSON_MACRO_VALUE: &str = "text::json_macro_value";
 const DOWNCAST: &str = "text::downcast";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
 const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
-pub const RATCHETED_TEXT_RULES: [&str; 4] = [
-    JSON_MACRO_VALUE,
-    DOWNCAST,
-    DIAGNOSTICS_IN_IO_ERROR,
-    IMMEDIATELY_INVOKED_CLOSURE,
-];
+pub const RATCHETED_TEXT_RULES: [&str; 3] =
+    [JSON_MACRO_VALUE, DOWNCAST, IMMEDIATELY_INVOKED_CLOSURE];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 

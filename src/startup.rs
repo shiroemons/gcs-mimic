@@ -33,7 +33,7 @@ struct CancelSafe<F>(F);
 async fn race<T>(
     work: CancelSafe<impl Future<Output = T>>,
     shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
-) -> io::Result<PhaseResult<T>> {
+) -> Result<PhaseResult<T>, Diagnostics> {
     tokio::select! {
         biased;
         signal = shutdown => shutdown_result(signal).map(|_| PhaseResult::Stopped),
@@ -210,7 +210,7 @@ impl PrimaryListener {
     }
 }
 
-async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
+async fn bind_primary(config: &Config) -> Result<PrimaryListener, Diagnostics> {
     if let Some(_path) = &config.unix_socket {
         if matches!(
             config.scheme,
@@ -219,7 +219,7 @@ async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
             || config.grpc_listen.is_some()
             || config.trusted_listen.is_some()
         {
-            return Err(phase(
+            return Err(Diagnostics::error(
                 DiagnosticSource::Listener,
                 "unix_socket",
                 "Unix transport serves plain HTTP; it requires scheme=auto or http and no TCP HTTP/gRPC listener settings.",
@@ -227,11 +227,11 @@ async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
         }
         #[cfg(unix)]
         return server::unix::Listener::bind(_path).await.map(PrimaryListener::Unix).map_err(|error| {
-            phase(DiagnosticSource::Listener, "unix_socket", &format!(
+            Diagnostics::error(DiagnosticSource::Listener, "unix_socket", format!(
                 "Cannot bind Unix socket ({:?}); use a new short pathname in an existing private 0700 directory owned by the server user; never reuse an existing entry.", error.kind()))
         });
         #[cfg(not(unix))]
-        return Err(phase(
+        return Err(Diagnostics::error(
             DiagnosticSource::Listener,
             "unix_socket",
             "Unix sockets are unsupported on this platform; no TCP fallback is used.",
@@ -246,7 +246,7 @@ async fn open_catalog(
     config: &Config,
     clock: Arc<dyn Clock>,
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
-) -> io::Result<PhaseResult<Catalog>> {
+) -> Result<PhaseResult<Catalog>, Diagnostics> {
     let opening = async {
         let admin = if config.admin_enabled {
             gcs_mimic::storage::admin::LocalAdmin::Enabled
@@ -287,8 +287,8 @@ async fn open_catalog(
             catalog.configure_lifecycle(config);
         }
         opened.map_err(|error| match error {
-            CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
-            _ => phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
+            CatalogError::NewerSchema { version, supported } => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
+            _ => Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
         })
     };
     tokio::pin!(opening);
@@ -303,8 +303,11 @@ async fn open_catalog(
     }
 }
 
-async fn configure_catalog_policy(catalog: &Catalog, projects: &[String]) -> io::Result<()> {
-    catalog.configure_public_access_prevention(projects).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting."))
+async fn configure_catalog_policy(
+    catalog: &Catalog,
+    projects: &[String],
+) -> Result<(), Diagnostics> {
+    catalog.configure_public_access_prevention(projects).await.map_err(|_| Diagnostics::error(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting."))
 }
 
 async fn prepare_startup(
@@ -313,7 +316,7 @@ async fn prepare_startup(
     projects: &[String],
     clock: Arc<dyn Clock>,
     mut shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
-) -> io::Result<PhaseResult<BoundStartup>> {
+) -> Result<PhaseResult<BoundStartup>, Diagnostics> {
     macro_rules! complete {
         ($work:expr) => {
             match race(CancelSafe($work), shutdown.as_mut()).await? {
@@ -325,14 +328,14 @@ async fn prepare_startup(
     match complete!(catalog.import_journal().in_progress()) {
         Ok(false) => {}
         Ok(true) => {
-            return Err(phase(
+            return Err(Diagnostics::error(
                 DiagnosticSource::Catalog,
                 "data_dir",
                 "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
             ));
         }
         Err(_) => {
-            return Err(phase(
+            return Err(Diagnostics::error(
                 DiagnosticSource::Catalog,
                 "data_dir",
                 "Cannot inspect import state; inspect the native catalog before restarting.",
@@ -341,7 +344,9 @@ async fn prepare_startup(
     }
     // PAP's submitted SQLite job owns its execution permit until completion.
     complete!(configure_catalog_policy(catalog, projects))?;
-    complete!(catalog.start_notifications(config)).map_err(io::Error::other)?;
+    complete!(catalog.start_notifications(config))
+        // The generic diagnostic names the error kind; a catalog error has none of its own.
+        .map_err(|error| Diagnostics::startup_failure(&io::Error::other(error)))?;
     // Loading has no effects; submitted administrative jobs retain their permits through close.
     let buckets = complete!(gcs_mimic::bucket_init::apply(
         catalog,
@@ -352,11 +357,14 @@ async fn prepare_startup(
     let seed = complete!(async {
         gcs_mimic::seed::import(catalog, config, clock.as_ref())
             .await
-            .map_err(|error| phase(DiagnosticSource::Seed, "seed_dir", &seed_failure(&error)))
+            .map_err(|error| {
+                Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error))
+            })
     })?;
     // Activation jobs own their catalog/root leases; close drains effects after cancellation.
-    let sync_root = complete!(gcs_mimic::sync::preflight(catalog, config))
-        .map_err(|error| phase(DiagnosticSource::Sync, "sync_dir", &error.to_string()))?;
+    let sync_root = complete!(gcs_mimic::sync::preflight(catalog, config)).map_err(|error| {
+        Diagnostics::error(DiagnosticSource::Sync, "sync_dir", error.to_string())
+    })?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let listeners = complete!(async {
         let primary = bind_primary(config).await?;
@@ -372,7 +380,7 @@ async fn prepare_startup(
             Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
             None => None,
         };
-        Ok::<_, io::Error>(BoundListeners {
+        Ok::<_, Diagnostics>(BoundListeners {
             primary,
             http,
             trusted,
@@ -387,11 +395,17 @@ async fn prepare_startup(
     }))
 }
 
-async fn close_startup(catalog: &Catalog, result: io::Result<()>) -> io::Result<()> {
+async fn close_startup(
+    catalog: &Catalog,
+    result: Result<(), Diagnostics>,
+) -> Result<(), Diagnostics> {
     merge_close_result(result, catalog.close().await.map_err(io::Error::other))
 }
 
-async fn finish_startup(catalog: &Catalog, result: io::Result<()>) -> io::Result<()> {
+async fn finish_startup(
+    catalog: &Catalog,
+    result: Result<(), Diagnostics>,
+) -> Result<(), Diagnostics> {
     close_startup(catalog, result).await?;
     report_stopped();
     Ok(())
@@ -401,9 +415,9 @@ fn report_stopped() {
     println!("{{\"event\":\"stopped\"}}");
 }
 
-fn shutdown_result(signal: io::Result<()>) -> io::Result<()> {
+fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
     signal.map_err(|_| {
-        phase(
+        Diagnostics::error(
             DiagnosticSource::Runtime,
             "signal",
             "Cannot receive shutdown signal; check the runtime environment.",
@@ -422,7 +436,7 @@ pub(crate) async fn serve(
     auth: Auth,
     security: gcs_mimic::tls::ListenerSecurity,
     shutdown: impl std::future::Future<Output = io::Result<()>>,
-) -> io::Result<()> {
+) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
     let clock = Arc::new(SystemClock);
     let catalog = match open_catalog(&config, clock.clone(), shutdown.as_mut()).await? {
@@ -430,7 +444,7 @@ pub(crate) async fn serve(
         PhaseResult::Stopped => return Ok(()),
     };
     if let Err(cause) = catalog.configure_authentication(&auth).await {
-        return Err(authentication::close(&catalog, cause).await);
+        return Err(authentication::close(&catalog, cause).await.into());
     }
     let BoundStartup {
         listeners,
@@ -447,14 +461,14 @@ pub(crate) async fn serve(
     .await
     {
         Ok(PhaseResult::Complete(bound)) => bound,
-        result => return finish_startup(&catalog, result.map(|_| ())).await,
+        result => return Ok(finish_startup(&catalog, result.map(|_| ())).await?),
     };
     let ready = ready_event(&config, &auth, &catalog, &listeners, seed, buckets);
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => {
             drop(sync_root);
-            return close_startup(&catalog, Err(error)).await;
+            return Ok(close_startup(&catalog, Err(error)).await?);
         }
     };
     let sync_task = match sync_root
@@ -462,7 +476,9 @@ pub(crate) async fn serve(
         .transpose()
     {
         Ok(task) => task,
-        Err(error) => return close_startup(&catalog, Err(error)).await,
+        Err(error) => {
+            return Ok(close_startup(&catalog, Err(Diagnostics::startup_failure(&error))).await?);
+        }
     };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
@@ -519,12 +535,12 @@ fn ready_event(
     listeners: &BoundListeners,
     seed: SeedOutcome,
     buckets: InitOutcome,
-) -> io::Result<(String, String)> {
+) -> Result<(String, String), Diagnostics> {
     listeners
         .primary
         .local_addr()
         .map_err(|_| {
-            phase(
+            Diagnostics::error(
                 DiagnosticSource::Listener,
                 "listen",
                 "Cannot inspect listener address; check the local network environment.",
@@ -532,7 +548,7 @@ fn ready_event(
         })
         .and_then(|address| {
             let address_http = listeners.http.as_ref().map(|listener| listener.local_addr()).transpose()
-                .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
+                .map_err(|_| Diagnostics::error(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
             let api_base_url = address.map_or_else(|| config.api_base_url.clone().unwrap_or_else(|| "http://localhost".into()),
                 |address| config.effective_api_base_url(address));
             let mut event = ReadyEvent::new(
@@ -556,26 +572,22 @@ fn ready_event(
                 event.message = "server started on a private Unix socket".into();
             }
             if let Some(listener) = &listeners.grpc {
-                event.listeners.push(ReadyListener { listen: listener.local_addr()?, scheme: "h2c" });
+                event.listeners.push(ReadyListener { listen: listener.local_addr().map_err(|error| Diagnostics::startup_failure(&error))?, scheme: "h2c" });
             }
             if let Some(listener) = &listeners.trusted {
-                event.trusted_listen = Some(listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
+                event.trusted_listen = Some(listener.local_addr().map_err(|_| Diagnostics::error(DiagnosticSource::Listener, "trusted_listen", "Cannot inspect trusted listener address; check the local network environment."))?);
                 event.trusted_principal = auth.trusted_principal().map(str::to_owned);
             }
             serde_json::to_string(&event)
             .map(|ready| (ready, api_base_url))
             .map_err(|_| {
-                phase(
+                Diagnostics::error(
                     DiagnosticSource::Runtime,
                     "ready",
                     "Cannot encode ready event; inspect startup configuration.",
                 )
             })
         })
-}
-
-pub(crate) fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error {
-    io::Error::other(Diagnostics::error(source, key, fix))
 }
 
 fn seed_failure(error: &SeedError) -> String {
@@ -630,7 +642,7 @@ fn seed_failure(error: &SeedError) -> String {
 async fn bind_configured_listener(
     address: SocketAddr,
     key: &str,
-) -> io::Result<tokio::net::TcpListener> {
+) -> Result<tokio::net::TcpListener, Diagnostics> {
     bind_listener(address).await.map_err(|error| {
         let flag = key.replace('_', "-");
         let fix = if key == "grpc_listen" {
@@ -640,7 +652,7 @@ async fn bind_configured_listener(
         } else {
             format!("Cannot bind listener; check --{flag} IP:PORT and local network permissions.")
         };
-        phase(DiagnosticSource::Listener, key, &fix)
+        Diagnostics::error(DiagnosticSource::Listener, key, fix)
     })
 }
 
@@ -1015,12 +1027,7 @@ mod tests {
             io::ErrorKind::PermissionDenied,
             "injected reconciliation read failure",
         ));
-        let error = authentication::close(&catalog, cause).await;
-        let failure = error
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<CatalogAuthenticationFailure>()
-            .unwrap();
+        let failure = authentication::close(&catalog, cause).await;
         let cause = failure
             .source()
             .unwrap()
@@ -1037,10 +1044,16 @@ mod tests {
         );
         assert!(failure.cleanup_cause().is_none());
         assert!(!catalog.is_healthy());
-        let cli = crate::CliError::Io(error);
+        let cli = crate::CliError::from(failure);
         let diagnostics = cli.diagnostics().unwrap();
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
+        // A failure without advice of its own falls back to the generic runtime diagnostic.
+        assert!(
+            crate::CliError::Io(io::Error::other("x"))
+                .diagnostics()
+                .is_none()
+        );
         let reopened = Catalog::open(&directory.0).await.unwrap();
         reopened.close().await.unwrap();
     }
@@ -1117,11 +1130,7 @@ mod tests {
             .await
             .err()
             .expect("live owner must reject open");
-        let diagnostics = error
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<Diagnostics>()
-            .unwrap();
+        let diagnostics = &error;
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
         assert!(catalog.is_healthy());
@@ -1349,11 +1358,7 @@ mod tests {
         .await
         .err()
         .expect("PAP failure");
-        let diagnostics = failure
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<Diagnostics>()
-            .unwrap();
+        let diagnostics = &failure;
         assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
         assert_eq!(diagnostics.errors[0].key, "data_dir");
         let error = finish_startup(&catalog, Err(failure)).await.unwrap_err();
@@ -1382,44 +1387,5 @@ mod tests {
         assert!(!reopened.is_healthy());
         let latest = Catalog::open(&dir.0).await.unwrap();
         latest.close().await.unwrap();
-    }
-
-    #[test]
-    fn close_failure_preserves_primary_diagnostics_and_unstructured_errors() {
-        for primary in [
-            Ok(()),
-            Err(phase(DiagnosticSource::Seed, "seed_dir", "invalid seed")),
-            Err(io::Error::other("original failure")),
-        ] {
-            let original = primary.as_ref().err().map(ToString::to_string);
-            let error = merge_close_result(
-                primary,
-                Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "close failed",
-                )),
-            )
-            .unwrap_err();
-            let diagnostics = error
-                .get_ref()
-                .unwrap()
-                .downcast_ref::<Diagnostics>()
-                .unwrap();
-            assert!(
-                diagnostics
-                    .errors
-                    .iter()
-                    .any(|error| error.source == DiagnosticSource::Catalog
-                        && error.key == "data_dir")
-            );
-            assert!(error.to_string().contains("PermissionDenied"));
-            assert!(error.to_string().contains("close failed"));
-            if let Some(original) = original {
-                assert!(error.to_string().contains(&original));
-                assert_eq!(diagnostics.errors.len(), 2);
-            } else {
-                assert_eq!(diagnostics.errors.len(), 1);
-            }
-        }
     }
 }

@@ -203,8 +203,11 @@ impl fmt::Display for Diagnostics {
 
 impl std::error::Error for Diagnostics {}
 
-/// Preserve the operation failure and catalog-close cause on every shutdown path.
-pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -> io::Result<()> {
+/// Appends a failed close to `result`, after the operation's own failure.
+pub fn combine_shutdown_results(
+    result: Result<(), Diagnostics>,
+    close: io::Result<()>,
+) -> Result<(), Diagnostics> {
     append_shutdown_failure(result, close, |close| {
         Diagnostic::new(
             DiagnosticSource::Catalog,
@@ -220,9 +223,9 @@ pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -
 /// Adds a failed removal of the owned Unix socket after the operation's own failure. Only the
 /// Unix listener has cleanup that can fail, and the stale entry, not the catalog, needs care.
 pub(crate) fn combine_unix_socket_cleanup(
-    result: io::Result<()>,
+    result: Result<(), Diagnostics>,
     cleanup: io::Result<()>,
-) -> io::Result<()> {
+) -> Result<(), Diagnostics> {
     append_shutdown_failure(result, cleanup, |cleanup| {
         Diagnostic::new(
             DiagnosticSource::Listener,
@@ -236,34 +239,16 @@ pub(crate) fn combine_unix_socket_cleanup(
 }
 
 fn append_shutdown_failure(
-    result: io::Result<()>,
+    result: Result<(), Diagnostics>,
     close: io::Result<()>,
     describe: impl FnOnce(&io::Error) -> Diagnostic,
-) -> io::Result<()> {
-    let mut result = result.map_err(|error| {
-        if error
-            .get_ref()
-            .is_some_and(|inner| inner.is::<Diagnostics>())
-        {
-            error
-        } else {
-            io::Error::new(error.kind(), Diagnostics::startup_failure(&error))
-        }
-    });
-    if let Err(close) = close {
-        let diagnostic = describe(&close);
-        if let Err(error) = &mut result {
-            if let Some(diagnostics) = error
-                .get_mut()
-                .and_then(|inner| inner.downcast_mut::<Diagnostics>())
-            {
-                diagnostics.errors.push(diagnostic);
-            }
-        } else {
-            result = Err(io::Error::new(close.kind(), Diagnostics::from(diagnostic)));
-        }
-    }
-    result
+) -> Result<(), Diagnostics> {
+    let Err(close) = close else {
+        return result;
+    };
+    let mut diagnostics = result.err().unwrap_or_default();
+    diagnostics.errors.push(describe(&close));
+    Err(diagnostics)
 }
 
 #[cfg(test)]
@@ -369,6 +354,45 @@ mod tests {
     }
 
     #[test]
+    fn close_failure_preserves_primary_diagnostics_and_unstructured_errors() {
+        let close = Diagnostic::new(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            "Cannot close catalog (PermissionDenied): close failed; inspect persistence before restarting.",
+        );
+        for primary in [
+            Ok(()),
+            Err(Diagnostics::error(
+                DiagnosticSource::Seed,
+                "seed_dir",
+                "invalid seed",
+            )),
+            Err(Diagnostics::startup_failure(&io::Error::other(
+                "original failure",
+            ))),
+        ] {
+            let original = primary.as_ref().err().map(|error| error.errors.clone());
+            let error = combine_shutdown_results(
+                primary,
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "close failed",
+                )),
+            )
+            .unwrap_err();
+            assert_eq!(error.errors.last(), Some(&close));
+            match original {
+                Some(original) => {
+                    assert_eq!(error.errors.len(), 2);
+                    assert_eq!(error.errors[..1], original[..]);
+                }
+                None => assert_eq!(error.errors.len(), 1),
+            }
+        }
+        assert!(combine_shutdown_results(Ok(()), Ok(())).is_ok());
+    }
+
+    #[test]
     fn unix_socket_cleanup_failure_is_named_once_after_the_shutdown_failure() {
         let denied = || Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
         let cleanup = Diagnostic::new(
@@ -376,12 +400,15 @@ mod tests {
             "unix_socket",
             "Cannot remove Unix socket (PermissionDenied): denied; remove the stale entry before restarting.",
         );
-        for (primary, expected) in [(Ok(()), 1), (Err(io::Error::other("drain")), 2)] {
-            let error = combine_unix_socket_cleanup(primary, denied()).unwrap_err();
-            let errors = &error
-                .get_ref()
-                .and_then(|inner| inner.downcast_ref::<Diagnostics>())
-                .unwrap()
+        for (primary, expected) in [
+            (Ok(()), 1),
+            (
+                Err(Diagnostics::startup_failure(&io::Error::other("drain"))),
+                2,
+            ),
+        ] {
+            let errors = combine_unix_socket_cleanup(primary, denied())
+                .unwrap_err()
                 .errors;
             assert_eq!(errors.len(), expected, "{errors:?}");
             assert_eq!(errors.last(), Some(&cleanup));

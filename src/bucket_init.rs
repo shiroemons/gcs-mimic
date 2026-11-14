@@ -1177,7 +1177,7 @@ pub async fn apply(
     catalog: &Catalog,
     config: &crate::config::Config,
     clock: std::sync::Arc<dyn Clock>,
-) -> std::io::Result<InitOutcome> {
+) -> Result<InitOutcome, Diagnostics> {
     let Some(source) = config.buckets.clone() else {
         return Ok(InitOutcome::Disabled);
     };
@@ -1197,13 +1197,12 @@ pub async fn apply(
     })
     .await
     .map_err(|_| {
-        std::io::Error::other(Diagnostics::error(
+        Diagnostics::error(
             DiagnosticSource::Initializer,
             setting.as_str(),
             "Cannot finish reading bucket initialization; inspect local resources and restart.",
-        ))
-    })?
-    .map_err(std::io::Error::other)?;
+        )
+    })??;
     let (targets, prepared) =
         plan::prepare(entries).map_err(|error| initialization_failure(&error, setting))?;
     let report = catalog
@@ -1214,14 +1213,17 @@ pub async fn apply(
         .await
         .map_err(|error| match error {
             plan::PlanError::Admin(error) => initialization_failure(&error, setting),
-            plan::PlanError::Rejected(diagnostics) => std::io::Error::other(diagnostics),
+            plan::PlanError::Rejected(diagnostics) => diagnostics,
         })?;
-    report.warnings.write(std::io::stderr().lock())?;
+    report
+        .warnings
+        .write(std::io::stderr().lock())
+        .map_err(|error| Diagnostics::startup_failure(&error))?;
     Ok(report.outcome())
 }
 
 /// `setting` is the one that supplied the document, which the diagnostic names.
-fn initialization_failure(error: &AdminError, setting: Setting) -> std::io::Error {
+fn initialization_failure(error: &AdminError, setting: Setting) -> Diagnostics {
     let reason = match error {
         // Each store names its own remedy: a disk has no RAM budget, and RAM no data directory.
         AdminError::DiskFull(cause) => match cause.memory_budget() {
@@ -1250,13 +1252,13 @@ fn initialization_failure(error: &AdminError, setting: Setting) -> std::io::Erro
         | AdminError::BodyAborted(_)
         | AdminError::Backend(_) => "catalog operation failed",
     };
-    std::io::Error::other(Diagnostics::error(
+    Diagnostics::error(
         DiagnosticSource::Initializer,
         setting.as_str(),
         format!(
             "Cannot initialize buckets ({reason}); inspect the native catalog and available disk space, then restart to retry create-missing."
         ),
-    ))
+    )
 }
 
 /// The document limit, which applies to a file and to inline text alike.

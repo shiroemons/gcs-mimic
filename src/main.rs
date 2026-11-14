@@ -16,7 +16,6 @@ mod sync_cli;
     reason = "The binary uses a subset of the shared test fixtures"
 )]
 mod test_support;
-use startup::phase;
 
 // musl's allocator takes one global lock: with it the container served about 12 000 object reads
 // per second whether 8 or 128 connections asked, against 66 000 to 189 000 with this one. Other
@@ -109,7 +108,11 @@ fn main() -> ExitCode {
 #[derive(Debug)]
 enum CliError {
     Diagnostics(Diagnostics),
-    /// A failure that may carry diagnostics as its inner error, as startup phases do.
+    /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
+    /// causes remain the error's source. Boxed because it holds two catalog errors.
+    Authentication(Box<startup::CatalogAuthenticationFailure>),
+    /// A failure that may carry diagnostics as its inner error, as the sync command's usage
+    /// errors do.
     Io(io::Error),
     Import(gcs_mimic::import::ImportError),
 }
@@ -117,18 +120,15 @@ enum CliError {
 impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
-            Self::Diagnostics(diagnostics) => Some(diagnostics),
-            Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
+            Self::Diagnostics(diagnostics)
+            | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
                 Some(diagnostics)
             }
+            Self::Authentication(failure) => Some(failure.diagnostics()),
             Self::Import(_) => None,
-            Self::Io(error) => error.get_ref().and_then(|inner| {
-                inner.downcast_ref::<Diagnostics>().or_else(|| {
-                    inner
-                        .downcast_ref::<startup::CatalogAuthenticationFailure>()
-                        .map(startup::CatalogAuthenticationFailure::diagnostics)
-                })
-            }),
+            Self::Io(error) => error
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<Diagnostics>()),
         }
     }
 }
@@ -137,6 +137,7 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
+            Self::Authentication(failure) => failure.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Import(error) => error.fmt(f),
         }
@@ -147,6 +148,7 @@ impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Authentication(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
             Self::Import(error) => Some(error),
         }
@@ -156,6 +158,12 @@ impl std::error::Error for CliError {
 impl From<Diagnostics> for CliError {
     fn from(diagnostics: Diagnostics) -> Self {
         Self::Diagnostics(diagnostics)
+    }
+}
+
+impl From<startup::CatalogAuthenticationFailure> for CliError {
+    fn from(failure: startup::CatalogAuthenticationFailure) -> Self {
+        Self::Authentication(Box::new(failure))
     }
 }
 
@@ -328,7 +336,7 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         .enable_all()
         .build()
         .map_err(|_| {
-            phase(
+            Diagnostics::error(
                 DiagnosticSource::Runtime,
                 "runtime",
                 "Cannot create runtime; check worker limits and available system resources.",
@@ -336,43 +344,19 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
         })?;
     runtime.block_on(async move {
         #[cfg(unix)]
-        let mut terminate = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate(),
-        )
-        .map_err(|_| {
-            phase(
-                DiagnosticSource::Runtime,
-                "signal",
-                "Cannot register termination signal; check the local runtime environment.",
-            )
-        })?;
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .map_err(|_| signal_unavailable("termination"))?;
         #[cfg(unix)]
-        let mut interrupt = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::interrupt(),
-        )
-        .map_err(|_| {
-            phase(
-                DiagnosticSource::Runtime,
-                "signal",
-                "Cannot register interrupt signal; check the local runtime environment.",
-            )
-        })?;
+        let mut interrupt =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                .map_err(|_| signal_unavailable("interrupt"))?;
         #[cfg(windows)]
-        let mut terminate = tokio::signal::windows::ctrl_break().map_err(|_| {
-            phase(
-                DiagnosticSource::Runtime,
-                "signal",
-                "Cannot register termination signal; check the local runtime environment.",
-            )
-        })?;
+        let mut terminate =
+            tokio::signal::windows::ctrl_break().map_err(|_| signal_unavailable("termination"))?;
         #[cfg(windows)]
-        let mut interrupt = tokio::signal::windows::ctrl_c().map_err(|_| {
-            phase(
-                DiagnosticSource::Runtime,
-                "signal",
-                "Cannot register interrupt signal; check the local runtime environment.",
-            )
-        })?;
+        let mut interrupt =
+            tokio::signal::windows::ctrl_c().map_err(|_| signal_unavailable("interrupt"))?;
         let shutdown = async {
             #[cfg(any(unix, windows))]
             tokio::select! { _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) }
@@ -380,8 +364,16 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
             tokio::signal::ctrl_c().await
         };
         startup::serve(config, auth, security, shutdown).await
-    })?;
-    Ok(())
+    })
+}
+
+#[cfg(any(unix, windows))]
+fn signal_unavailable(signal: &str) -> Diagnostics {
+    Diagnostics::error(
+        DiagnosticSource::Runtime,
+        "signal",
+        format!("Cannot register {signal} signal; check the local runtime environment."),
+    )
 }
 
 fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
